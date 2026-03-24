@@ -1,3 +1,54 @@
+## Status
+
+PsyClaw (SafeClaw) is an early-stage **v0.1 prototype**. It is already usable as a
+local RAG gateway but the API and internals may change.
+
+What works today:
+
+- ✅ RAG-first pipeline (ChromaDB + BM25 + RRF) over `.md` / `.txt` corpus
+- ✅ FastAPI `/query` endpoint with LangGraph controller and score gate
+- ✅ Local LLM via LM Studio (Qwen/Llama GGUF) for grounded answers
+- ✅ Optional Grok fallback, gated by config **and** per-query user confirmation
+- ✅ MCP server exposing retrieval-only tools (no sampling / no LLM in MCP)
+- ✅ Audit logging (`audit.jsonl`) and basic metrics script
+
+What this project is **not** (yet):
+
+- ❌ General “do anything” agent
+- ❌ Full-featured chat UI
+- ❌ Production-hardened security product (no external audit)
+
+Treat this as a reference implementation / lab project you can read, run,
+and adapt at your own risk.
+
+## Roadmap
+
+Short term (0.2.x):
+
+- Web front end: simple single-page “terminal” UI for `/query`
+- Config polish and better error messages from the gateway
+- More tests around LangGraph paths and Grok gating logic
+- Improved metrics and visualizations from `audit.jsonl`
+
+Medium term (0.3.x+):
+
+- Optional **tool nodes** (e.g., system health, Veeam/Slack APIs),
+  kept behind explicit config flags and user confirmation
+- More embedding and model options (different sentence-transformers,
+  alternative local LLMs)
+- Better corpus tooling (ingestion status, document listing, reindex UX)
+
+Long term (0.4.x+):
+
+- Hardening for always-on home lab / small-team use
+- Documentation on threat model and deployment patterns
+- Optional packaging / installer for non-developers
+
+
+
+---
+
+
 ┌──────────────────────────────────────────────────────────────────────────────┐
 |     --PsyClaw – Offline‑First, RAG‑First, MCP‑Exposed                        │
 └──────────────────────────────────────────────────────────────────────────────┘
