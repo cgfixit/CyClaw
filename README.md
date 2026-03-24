@@ -1,8 +1,9 @@
-# PsyClaw – Offline‑First, RAG‑First, MCP‑Exposed (Option C: sentence-transformers)
+===========================================================================
+PsyClaw – Offline‑First, RAG‑First, MCP‑Exposed 
 ===========================================================================
 
                              ┌────────────────────────────┐
-                             │   Chris / Client Devices   │
+                             │   User / Client Devices   │
                              │  - Browser UI (HTTP)       │
                              │  - CLI / scripts (HTTP)    │
                              │  - LM Studio UI (MCP)      │
