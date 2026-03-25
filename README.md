@@ -1,4 +1,5 @@
-## Status
+## Status:
+- working prototype locally; next update will have terminal.html integrated - https://cgfixit.com/zSafeClaw/ contains the build before adding my version of "soul" and persistent memory via sqllite memory checkpointers but i may re-visit using sqllite depending on how it scales
 
 PsyClaw (SafeClaw) is an early-stage **v0.1 prototype**. It is already usable as a
 local RAG gateway but the API and internals may change.
