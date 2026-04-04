@@ -1,5 +1,6 @@
-<b>https://cgfixit.com/zSafeClaw/!!!!!PyCla-3.29.36/PsyClaw/</b> or start here and read PDF first:  
-https://cgfixit.com/zSafeClaw/!!!!!PyCla-3.29.36/
+<h1>[<a href="https://github.com/CGFixIT/PsyClaw/blob/main/PsyClaw_Architecture.pdf">PsyClaw Architecture PDF</a>]</h1>
+<hr>
+<b>https://cgfixit.com/zSafeClaw/!!!!!PyCla-3.29.36/PsyClaw/</b> or <a href="https://cgfixit.com/zSafeClaw/!!!!!PyCla-3.29.36/">start here</a> and read PDF first:  
 
 ## Status:
 - working prototype locally; next update will have terminal.html integrated - https://cgfixit.com/zSafeClaw/ contains the build before adding my version of "soul" and persistent memory via sqllite memory checkpointers but i may re-visit using sqllite depending on how it scales
