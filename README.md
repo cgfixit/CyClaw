@@ -2,10 +2,6 @@
 <hr>
 <b>https://cgfixit.com/zSafeClaw/!!!!!PyCla-3.29.36/PsyClaw/</b> or <a href="https://cgfixit.com/zSafeClaw/!!!!!PyCla-3.29.36/">start here</a> and read PDF first:  
 
-## Status:
-- working prototype locally; next update will have terminal.html integrated - https://cgfixit.com/zSafeClaw/ contains the build before adding my version of "soul" and persistent memory via sqllite memory checkpointers but i may re-visit using sqllite depending on how it scales
-
-``
 
 ```
 PsyClaw v0.3 — Offline-First · RAG-First · Soul-Persistent W/ SHA-256 hashed logging
