@@ -131,7 +131,7 @@ if cfg.get("personality", {}).get("enabled", False):
 
 compiled_graph = None
 if retriever is not None:
-    compiled_graph = build_graph(cfg, retriever, local_llm, grok, personality)
+    compiled_graph = build_graph(retriever, local_llm, grok, cfg, personality)
 
 @app.post("/query", response_model=QueryResponse)
 async def query_endpoint(request: Request, req: QueryRequest):
