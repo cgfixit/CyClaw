@@ -20,6 +20,7 @@ Addresses:
   - OpenTelemetry OTLP export hooks pulled in by chromadb deps
 """
 import os
+import re
 
 _TELEMETRY_KILL = {
     "LANGCHAIN_TRACING_V2": "false",
@@ -81,6 +82,30 @@ def check_rate_limit(client_ip: str) -> bool:
         return False
     _rate_limits[client_ip].append(now)
     return True
+
+# Redact sensitive values from exception messages before returning in HTTP responses.
+# Strips Bearer tokens, known secret-like patterns, and any live env var values
+# that look like credentials (length > 8, not a common word).
+_SECRET_PATTERNS = [
+    re.compile(r'Bearer\s+[A-Za-z0-9\-_\.]+', re.IGNORECASE),  # Authorization headers
+    re.compile(r'[Aa][Pp][Ii][_-]?[Kk][Ee][Yy]["\s:=]+[\w\-\.]+'),  # api_key = ...
+    re.compile(r'sk-[A-Za-z0-9]{20,}'),       # OpenAI-style keys
+    re.compile(r'ghp_[A-Za-z0-9]{36}'),        # GitHub PATs
+    re.compile(r'xox[baprs]-[0-9a-zA-Z\-]+'), # Slack tokens
+    re.compile(r'AKIA[0-9A-Z]{16}'),           # AWS access keys
+]
+
+def _sanitize_error(exc: Exception) -> str:
+    """Strip credential-like content from exception messages before HTTP response."""
+    msg = str(exc)
+    for pattern in _SECRET_PATTERNS:
+        msg = pattern.sub('[REDACTED]', msg)
+    # Also redact any live env var that looks like a credential (length > 8)
+    for env_key in ("GROK_API_KEY", "LANGCHAIN_API_KEY", "LANGSMITH_API_KEY", "SSC_TOKEN"):
+        val = os.environ.get(env_key, "")
+        if val and len(val) > 8:
+            msg = msg.replace(val, '[REDACTED]')
+    return msg
 
 # =============================================================================
 # App Init
@@ -167,8 +192,9 @@ async def query_endpoint(request: Request, req: QueryRequest):
     try:
         result = compiled_graph.invoke(initial_state)
     except Exception as e:
-        audit_log({"event": "graph_error", "query": req.query[:50], "error": str(e)})
-        raise HTTPException(status_code=500, detail={"error": str(e), "code": "GRAPH_ERROR"})
+        safe_msg = _sanitize_error(e)
+        audit_log({"event": "graph_error", "query": req.query[:50], "error": safe_msg})
+        raise HTTPException(status_code=500, detail={"error": safe_msg, "code": "GRAPH_ERROR"})
 
     needs_confirm = result.get("needs_user_confirm", False)
     answer_model = result.get("answer_model", "")
