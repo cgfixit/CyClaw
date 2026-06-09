@@ -1,53 +1,71 @@
-name: Analyze (${{ matrix.language }})
-runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
-# keep permissions minimal and explicit for CodeQL
-permissions:
-  security-events: write
-  contents: read
-  packages: read
+name: "CodeQL Advanced"
 
-strategy:
-  fail-fast: false
-  matrix:
-    include:
-      - language: actions
-        build-mode: none
-      - language: python
-        build-mode: none
-    # If you need additional languages, add them here (e.g. javascript-typescript)
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "docs/**"
+      - ".github/**"
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: '34 15 * * 1'
+  workflow_dispatch:
 
-timeout-minutes: 120
+jobs:
+  analyze:
+    concurrency:
+      group: codeql-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: python
+            build-mode: none
+          # Add other language entries only if your repo contains them.
+    timeout-minutes: 120
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
-    with:
-      # ensure the full repository is available for CodeQL (some analyses need full history)
-      fetch-depth: 0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-  # Optional: add runtime/tool setup steps before init if your build requires them (example for Python)
-  # - name: Setup Python
-  #   if: matrix.language == 'python'
-  #   uses: actions/setup-python@v4
-  #   with:
-  #     python-version: '3.x'
+      - name: Setup Python (used for analysis runtime / import resolution)
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-  - name: Initialize CodeQL
-    uses: github/codeql-action/init@v4
-    with:
-      languages: ${{ matrix.language }}
-      build-mode: ${{ matrix.build-mode }}
-      # Example: enable recommended query pack(s). Uncomment or customize as needed.
-      # queries: security-and-quality
+      # Install deps only when build-mode is manual (CodeQL needs to trace the build)
+      - name: Install dependencies
+        if: matrix.language == 'python' && matrix['build-mode'] == 'manual'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-  - name: Run manual build steps
-    if: matrix.build-mode == 'manual'
-    shell: bash
-    run: |
-      echo "Replace this with your build commands (make, mvn, dotnet build, etc.)"
-      exit 1
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # queries: security-and-quality
 
-  - name: Perform CodeQL Analysis
-    uses: github/codeql-action/analyze@v4
-    with:
-      category: "/language:${{ matrix.language }}"
+      - name: Run manual build steps
+        if: matrix.build-mode == 'manual'
+        shell: bash
+        run: |
+          echo "Replace this with your build commands (make, mvn, dotnet build, etc.)"
+          exit 1
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
