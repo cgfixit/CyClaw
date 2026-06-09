@@ -201,6 +201,7 @@ PsyClaw/
 │   ├── personality.py          PersonalityManager (soul CRUD + governance)
 │   └── sanitizer.py            Prompt injection filter + PII redaction
 ├── static/
+├   |── extractor.html          Browser-Based simplified insight_extractor.py to generate .md corpus files
 │   └── terminal.html           Browser UI / Soul Console
 ├── data/
 │   ├── corpus/                 .md / .txt knowledge base (gitignored runtime content)
