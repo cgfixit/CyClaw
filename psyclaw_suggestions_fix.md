@@ -27,3 +27,4 @@ This document tracks the architectural changes, bug fixes, and open issues ident
 - `static/terminal.html` has API response field mismatches vs current QueryResponse schema
 - `vector_weight`/`bm25_weight` in config.yaml are documentation-only; actual weighting is equal
 - `min_score` threshold comments reference cosine similarity but value is RRF scale
+- LANGGRINCH ;)
