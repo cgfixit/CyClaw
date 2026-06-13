@@ -1,62 +1,110 @@
-"""Unit tests for audit logging — hashing, redaction, JSONL output."""
+"""Unit tests for audit logging — hashing, redaction, JSONL format."""
 
 import json
-import os
 from pathlib import Path
-from unittest.mock import patch
+
 import pytest
 import yaml
 
-from utils.logger import hash_query, redact_sensitive, audit_log, reset_config_cache
+from utils.logger import audit_log, hash_query, redact_sensitive, reset_config_cache
 
 
-def test_hash_query_is_sha256():
-    result = hash_query("test query")
-    assert len(result) == 64
-    assert all(c in "0123456789abcdef" for c in result)
-
-def test_hash_query_is_deterministic():
-    assert hash_query("hello") == hash_query("hello")
-
-def test_hash_query_different_inputs_differ():
-    assert hash_query("query1") != hash_query("query2")
-
-def test_redact_email(test_config):
-    cfg, _ = test_config
-    result = redact_sensitive("Contact user@example.com for help", cfg)
-    assert "user@example.com" not in result
-    assert "[REDACTED_EMAIL]" in result
-
-def test_redact_ip(test_config):
-    cfg, _ = test_config
-    result = redact_sensitive("Server at 192.168.1.100 is down", cfg)
-    assert "192.168.1.100" not in result
-    assert "[REDACTED_IP]" in result
-
-def test_redact_aws_key(test_config):
-    cfg, _ = test_config
-    result = redact_sensitive("Key: AKIAIOSFODNN7EXAMPLE", cfg)
-    assert "AKIAIOSFODNN7EXAMPLE" not in result
-
-def test_audit_log_writes_jsonl(test_config, tmp_path):
-    cfg, config_path = test_config
+@pytest.fixture(autouse=True)
+def clear_config_cache():
+    """Reset config cache between tests."""
     reset_config_cache()
-    audit_log({"event": "test_event", "detail": "hello"}, config_path=config_path)
-    audit_file = Path(cfg["logging"]["audit_file"])
-    assert audit_file.exists()
-    lines = audit_file.read_text().strip().split("\n")
-    assert len(lines) == 1
-    event = json.loads(lines[0])
-    assert event["event"] == "test_event"
-    assert "timestamp" in event
-
-def test_audit_log_hashes_query(test_config):
-    cfg, config_path = test_config
+    yield
     reset_config_cache()
-    audit_log({"event": "query", "query": "what is rag?"}, config_path=config_path)
-    audit_file = Path(cfg["logging"]["audit_file"])
-    lines = audit_file.read_text().strip().split("\n")
-    event = json.loads(lines[-1])
-    assert "query" not in event
-    assert "query_hash" in event
-    assert len(event["query_hash"]) == 64
+
+
+@pytest.fixture
+def audit_config(tmp_path):
+    """Config with audit logging to temp dir."""
+    audit_file = str(tmp_path / "audit.jsonl")
+    cfg = {
+        "logging": {
+            "audit_file": audit_file,
+            "audit_fields": {
+                "include_query_hash": True,
+                "include_top_score": True,
+                "include_retrieval_mode": True,
+                "include_online_escalated": True,
+                "include_model_used": True
+            }
+        },
+        "policy": {
+            "privacy": {
+                "redact_emails": True,
+                "redact_ips": True,
+                "redact_secrets_like": ["AKIA[0-9A-Z]{16}"]
+            }
+        }
+    }
+    config_path = tmp_path / "config.yaml"
+    with open(config_path, "w") as f:
+        yaml.dump(cfg, f)
+    return str(config_path), audit_file
+
+
+class TestHashQuery:
+    def test_deterministic(self):
+        h1 = hash_query("test query")
+        h2 = hash_query("test query")
+        assert h1 == h2
+
+    def test_different_inputs_different_hashes(self):
+        assert hash_query("query a") != hash_query("query b")
+
+    def test_sha256_length(self):
+        h = hash_query("test")
+        assert len(h) == 64  # SHA256 hex digest
+
+
+class TestRedactSensitive:
+    def test_redacts_email(self):
+        cfg = {"policy": {"privacy": {"redact_emails": True, "redact_ips": False, "redact_secrets_like": []}}}
+        result = redact_sensitive("Contact admin@example.com for help", cfg)
+        assert "[REDACTED_EMAIL]" in result
+        assert "admin@example.com" not in result
+
+    def test_redacts_ip(self):
+        cfg = {"policy": {"privacy": {"redact_emails": False, "redact_ips": True, "redact_secrets_like": []}}}
+        result = redact_sensitive("Server at 192.168.1.100", cfg)
+        assert "[REDACTED_IP]" in result
+        assert "192.168.1.100" not in result
+
+    def test_redacts_aws_key(self):
+        cfg = {"policy": {"privacy": {"redact_emails": False, "redact_ips": False,
+                                       "redact_secrets_like": ["AKIA[0-9A-Z]{16}"]}}}
+        result = redact_sensitive("Key: AKIAIOSFODNN7EXAMPLE", cfg)
+        assert "[REDACTED_SECRET]" in result
+
+
+class TestAuditLog:
+    def test_writes_jsonl(self, audit_config):
+        config_path, audit_file = audit_config
+        audit_log({"event": "test", "query": "hello"}, config_path)
+
+        lines = Path(audit_file).read_text().strip().split("\n")
+        assert len(lines) == 1
+
+        event = json.loads(lines[0])
+        assert event["event"] == "test"
+        assert "timestamp" in event
+
+    def test_query_hashed(self, audit_config):
+        config_path, audit_file = audit_config
+        audit_log({"event": "test", "query": "secret query"}, config_path)
+
+        event = json.loads(Path(audit_file).read_text().strip())
+        assert "query" not in event
+        assert "query_hash" in event
+        assert event["query_hash"] == hash_query("secret query")
+
+    def test_multiple_events_appended(self, audit_config):
+        config_path, audit_file = audit_config
+        audit_log({"event": "first"}, config_path)
+        audit_log({"event": "second"}, config_path)
+
+        lines = Path(audit_file).read_text().strip().split("\n")
+        assert len(lines) == 2
