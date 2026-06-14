@@ -38,12 +38,7 @@ jobs:
           echo "# Test corpus" > data/corpus/test.md
           echo "# Soul" > data/personality/soul.md
           echo "GROK_API_KEY=dummy" >> $GITHUB_ENV
-          python -c "
-import nltk
-nltk.download('punkt', quiet=True)
-nltk.download('punkt_tab', quiet=True)
-print('✅ Env ready')
-          "
+          echo "✅ Env ready"
 
       - name: Emulated RAG Query Smoke
         shell: bash
