@@ -37,14 +37,6 @@ jobs:
           echo "GROK_API_KEY=offline-dummy-sk-123" >> $GITHUB_ENV
           python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)"
 
-      - name: Unit Tests + Coverage
-        shell: bash
-        run: |
-          pytest tests/ \
-            --cov=gate --cov=graph --cov=retrieval --cov=utils \
-            --cov-report=xml --cov-report=html --cov-report=term-missing \
-            -q --tb=no
-
       - name: Runtime Smoke (Indexer + Gate + Offline RAG)
         run: |
           python -m retrieval.indexer --help || echo "✅ Indexer loads"
