@@ -66,7 +66,7 @@ def check_input(query: str, config_path: str = "config.yaml") -> str:
 
     if len(query) > max_chars:
         raise PromptInjectionError(
-            f"Input exceeds maximum length: {len(query)} chars (max {max_chars})",
+            f"Input exceeds maximum length: {len(query)} chars (max {max_chars)}",
             details={"length": len(query), "max": max_chars},
         )
 
