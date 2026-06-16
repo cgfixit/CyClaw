@@ -8,7 +8,7 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.1-orange.svg)](https://github.com/langchain-ai/langgraph)
 [![CodeQL Advanced](https://github.com/CGFixIT/PsyClaw/actions/workflows/codeql.yml/badge.svg)](https://github.com/CGFixIT/PsyClaw/actions/workflows/codeql.yml)
 [![PsyClaw CI (Simplified + Coverage)](https://github.com/CGFixIT/PsyClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/CGFixIT/PsyClaw/actions/workflows/ci.yml)<hr>
-[![Screenshots: local AI](https://i.imgur.com/kGZBkIj.png)](https://github.com/CGFixIT/PsyClaw/tree/main/screenshots)   <-- Screenshots of Local AI web interface
+[![Screenshots: local AI](https://i.imgur.com/kGZBkIj.png)](https://github.com/CGFixIT/PsyClaw/tree/main/docs/screenshots)   <-- Screenshots of Local AI web interface
 
 ---
 
@@ -103,7 +103,6 @@ User Query (HTTP POST /query or MCP tool call)
 | Python | 3.12 | Primary supported runtime (3.11 also works) |
 | [LM Studio](https://lmstudio.ai/) | Any | Must be running on `localhost:1234` |
 | GGUF model loaded in LM Studio | — | `mistral-7b-instruct` or `qwen2.5-7b` work well |
-| 4 GB+ RAM | — | For sentence-transformers + ChromaDB in-process |
 
 ### Install
 
@@ -113,8 +112,7 @@ cd PsyClaw
 python3.12 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-# 1) Install CPU-only torch first (keeps the install lean + offline-friendly;
-#    a bare transitive install would pull the ~2.5 GB CUDA build on Linux).
+# 1) Install CPU-only torch first
 pip install torch==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # 2) Install the rest, pinned to the verified transitive tree.
@@ -163,32 +161,6 @@ retrieval:
 ```
 
 > **Note:** `vector_weight` / `bm25_weight` in `config.yaml` are documentation-only placeholders. The retriever uses equal 1.0/1.0 weighting — a deliberate design decision documented in the v1.3.0 architecture spec. To enable true weighted RRF, multiply `contrib *= weight` in `hybrid_search.py` and retune `min_score`.
-
-### Set Environment (hybrid mode only)
-
-```bash
-# Required only if app.mode = "hybrid"
-export GROK_API_KEY=your_xai_api_key_here
-
-# Kill all SDK telemetry (also set automatically by gate.py on startup)
-source psyclaw_telemetry_kill.env
-```
-
-### Build the Index
-
-```bash
-# Place .md / .txt files into data/corpus/
-python -m retrieval.indexer
-# Builds: index/chroma_db/   and   index/bm25.pkl
-```
-
-### Run
-
-```bash
-uvicorn gate:app --host 127.0.0.1 --port 8787
-```
-
-Open `http://127.0.0.1:8787` — the Soul Console terminal loads automatically.
 
 ---
 
@@ -320,8 +292,6 @@ Known Issues
 
     static/terminal.html has API response field mismatches vs current QueryResponse schema
     vector_weight/bm25_weight in config.yaml are documentation-only; actual weighting is equal
-    min_score threshold comments reference cosine similarity but value is RRF scale
-
 
 ---
 
@@ -341,20 +311,12 @@ Known Issues
 **v1.4.0 targets:**
 - Dropbox/cloud corpus sync
 - `plan_node` for multi-step query decomposition
-- `insightextractor.py` for automated corpus enrichment
-- Conversation compaction (rolling summary)
 - BM25 index SHA-256 integrity check on load
-
-**Not yet / not planned:**
 - General-purpose agent (tool invocation from corpus context)
+
+**Not yet planned:**
 - Multi-user or network-exposed deployment
 - Production security hardening (external pentest)
-
----
-
-## License
-
-*** This Application is not available for share, copy, download, or monetization [yet;)] ***
 
 ---
 
