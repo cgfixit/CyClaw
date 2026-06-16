@@ -32,6 +32,12 @@ updates:
       npm-all:
         patterns:
           - "*"
+    ignore:
+      # package.json is unused scaffolding (no JS source, no lockfile). Ignore
+      # these so Dependabot stops re-proposing bumps for dependencies nothing
+      # actually runs. Remove an entry here if/when the JS app becomes real.
+      - dependency-name: "express"
+      - dependency-name: "eslint"
 
   # 2) Python (pip)
   - package-ecosystem: "pip"
