@@ -68,7 +68,7 @@ jobs:
 
       # Also keep the SARIF as a downloadable run artefact (optional)
       - name: Save SARIF artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: devskim-results
           path: devskim-results.sarif
