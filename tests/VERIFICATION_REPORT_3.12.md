@@ -130,3 +130,21 @@ Graph topology intact: 7-node state machine (retrieve → route → local_llm/us
 **Conclusion:** PsyClaw `main` branch is fully functional under Python 3.12.3.
 No regressions from PR #20 merge. Only outstanding failures are the 8
 config-driven sanitizer tests owned by PR #14.
+
+---
+
+## Update — 2026-06-16 (post cc-integration)
+
+The 8 `test_sanitizer.py` failures noted above have since been resolved. The
+config-driven sanitizer + perf work from the `cc` integration branch was brought
+onto `main` via the cherry-pick PR #23 (merged as `b6f3fca`); PR #14 (`cc → main`)
+was closed in favor of that route, leaving `cc` as a standalone branch.
+
+Re-running the full suite on `main` @ `b6f3fca` under Python 3.12.3:
+
+```
+python -m pytest tests/ -q  →  90 passed, 0 failed
+```
+
+`main` is now fully green (90/90). `check_input()` / `sanitize_chunk()` on `main`
+are config-driven (`config_path` argument), confirming the cc filter landed.
