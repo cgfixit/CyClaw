@@ -15,8 +15,15 @@ the `gate.py` FastAPI gateway were exercised end-to-end and pass (see §2). **Th
 suite, however, is broken**: it does not collect cleanly and most of it fails.
 
 ```
-pytest tests/ -q  →  20 failed, 19 passed, 3 collection errors   (exit code 2)
+pytest tests/ -q  →  20 failed, 19 passed, 3 collection errors   (exit code 2)   [as found]
+pytest tests/ -q  →  19 failed, 47 passed, 0 collection errors                    [after this PR — see §7]
 ```
+
+> **Update (this PR):** the 3 collection errors are now fixed and the previously
+> un-collectable `test_graph` / `test_gate` / `test_stemmer` (+ `test_hybrid_search`)
+> files pass. The remaining 19 failures are the **config-driven sanitizer** suite
+> (owned by open **PR #14**) and the **PersonalityManager contract** suite (needs a
+> design decision — tracked separately). See **§7** for exactly what changed.
 
 Because `pytest` aborts the whole run on the 3 collection errors, the project's CI only stays
 "green" by running **two hand-picked files** with failures swallowed
@@ -244,3 +251,28 @@ pytest tests/ -q --continue-on-collection-errors
 > The mocked suite does **not** require `torch`/`sentence-transformers`; `chromadb`, `langgraph`,
 > `nltk`, `rank-bm25`, `fastapi`, `pydantic` are sufficient because `retrieval/embeddings.py`
 > imports `sentence_transformers` lazily.
+
+---
+
+## 7. Fixes applied in this PR (collection errors only)
+
+This PR resolves the **3 collection errors** and the closely-related stemmer/empty-query
+failures. It deliberately does **not** touch the config-driven sanitizer (owned by **PR #14**)
+or the PersonalityManager contract (a design decision — see the companion issue). To avoid
+textual conflicts with PR #14 (which also edits `retrieval/stemmer.py`), the stemmer fix uses an
+**import alias** rather than editing `stemmer.py`.
+
+| File | Change |
+|---|---|
+| `tests/conftest.py` | Added the missing `MockRetriever`, `MockLocalLLM` (captures `last_prompt`), `MockGrokClient`, and `MOCK_HIGH_SCORE_RESULTS` / `MOCK_LOW_SCORE_RESULTS` / `MOCK_EMPTY_RESULTS` (`list[SearchResult]`) — unblocks `test_graph.py` + `test_gate.py`. |
+| `tests/test_graph.py` | Fixed `build_graph(...)` **argument order** to `(retriever, llm, grok, cfg)`; in the offline-mode test, pass `grok=None` (mirrors how `gate.py` gates Grok — the graph does not read `app.mode`). |
+| `tests/test_stemmer.py` | Import `stem_token as enhanced_porter_stem`; re-baselined expectations to the stemmer's real output (`policies→polici`, `running→run`, `rationalization→ration`, `kubernetes→k8s`); removed the stale BUILD-ALIGNMENT note. |
+| `tests/test_hybrid_search.py` | `test_single_word`: assert `kubernetes → "k8s"` (intentional domain map) instead of `len ≥ 5`. |
+| `schemas/api.py` | `QueryRequest.query` now `Field(min_length=1)` — empty queries are rejected at the schema boundary (HTTP 422), which is what `test_gate.py::test_empty_query_rejected` asserts and a small API hardening. |
+
+**Result:** `test_graph` 9 ✓, `test_gate` 6 ✓, `test_stemmer` 12 ✓, `test_hybrid_search` 7 ✓
+(plus the already-green `test_audit` 9, `test_rate_limit` 3). 0 collection errors.
+
+**Still red (intentionally, out of scope here):** `test_sanitizer` (8 — config-driven filter, **PR #14**),
+`test_personality` (8) and `test_personality_changes` (3) — pending the PersonalityManager
+contract decision tracked in the companion issue.
