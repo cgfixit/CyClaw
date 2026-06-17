@@ -1,4 +1,4 @@
-# PsyClaw Unit Test Suite — Audit & Remediation Report
+# CyClaw Unit Test Suite — Audit & Remediation Report
 
 **Date:** 2026-06-16
 **Runtime verified:** Python 3.12.3 (CPython, Linux)
@@ -157,7 +157,7 @@ AssertionError: Old interaction should be pruned        (line 128 — no TTL pru
 ```
 - **Passed:** `test_drift_detection` (the drift-recovery version row *is* inserted).
 - Design flaws independent of the failures:
-  - **Hardcoded foreign path** `sys.path.insert(0, '/home/workdir/artifacts/PsyClaw-refactored')`
+  - **Hardcoded foreign path** `sys.path.insert(0, '/home/workdir/artifacts/CyClaw-refactored')`
     (line 18) — non-portable, environment-specific.
   - **Global at-import monkeypatch** of `utils.logger.audit_log` (line 22) — leaks across the
     session and other tests.
@@ -210,7 +210,7 @@ test_single_word: assert len(tokens[0]) >= 5   → tokenize_and_stem("kubernetes
 4. **A promised test file is missing.** The architecture PDF (Section J) lists
    `tests/test_endpoints_mocked.py` as a "NEW v1.3" file; it does **not** exist in the repo.
    Either add it or correct the doc.
-5. **Non-hermetic tests.** Hardcoded `/home/workdir/artifacts/PsyClaw-refactored` paths and
+5. **Non-hermetic tests.** Hardcoded `/home/workdir/artifacts/CyClaw-refactored` paths and
    at-import global monkeypatching in `test_personality_changes.py` / `test_rate_limit.py`.
 6. **Mixed runners.** pytest classes vs `if __name__ == "__main__"` script runners → inconsistent
    discovery and reporting.
