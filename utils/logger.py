@@ -29,7 +29,7 @@ def setup_logging(cfg: Optional[dict] = None) -> None:
     level = getattr(logging, log_cfg.get("level", "INFO").upper(), logging.INFO)
     log_file = log_cfg.get("log_file", "")
 
-    root = logging.getLogger("psyclaw")
+    root = logging.getLogger("cyclaw")
     root.setLevel(level)
 
     fmt = logging.Formatter(

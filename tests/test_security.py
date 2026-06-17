@@ -91,10 +91,10 @@ class TestAPIKeyAuth:
     @pytest.fixture
     def client_with_auth(self, tmp_path):
         """Create a test client with API key enforcement enabled."""
-        os.environ["PSYCLAW_API_KEY"] = "test-secret-key-12345"
+        os.environ["CYCLAW_API_KEY"] = "test-secret-key-12345"
         try:
             from unittest.mock import patch as _patch
-            with _patch.dict(os.environ, {"PSYCLAW_API_KEY": "test-secret-key-12345"}):
+            with _patch.dict(os.environ, {"CYCLAW_API_KEY": "test-secret-key-12345"}):
                 from gate import require_api_key
                 from fastapi.testclient import TestClient
                 from fastapi import FastAPI, Depends, HTTPException
@@ -111,7 +111,7 @@ class TestAPIKeyAuth:
 
                 yield TestClient(test_app)
         finally:
-            os.environ.pop("PSYCLAW_API_KEY", None)
+            os.environ.pop("CYCLAW_API_KEY", None)
 
     def test_unprotected_endpoint_no_key(self, client_with_auth):
         resp = client_with_auth.get("/open")
@@ -133,9 +133,9 @@ class TestAPIKeyAuth:
         assert resp.status_code == 200
 
     def test_auth_disabled_when_no_env_var(self, tmp_path):
-        """When PSYCLAW_API_KEY is not set, auth is bypassed."""
+        """When CYCLAW_API_KEY is not set, auth is bypassed."""
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("PSYCLAW_API_KEY", None)
+            os.environ.pop("CYCLAW_API_KEY", None)
             from gate import require_api_key
             from fastapi.testclient import TestClient
             from fastapi import FastAPI, Depends
@@ -169,7 +169,7 @@ class TestLoggingSetup:
                             "audit_fields": {}}}
 
         setup_logging(cfg)
-        test_logger = logging.getLogger("psyclaw.test_setup")
+        test_logger = logging.getLogger("cyclaw.test_setup")
         test_logger.info("test log message")
 
         assert Path(log_file).exists()
@@ -177,5 +177,5 @@ class TestLoggingSetup:
         assert "test log message" in content
 
         logger_mod._logging_initialized = False
-        root = logging.getLogger("psyclaw")
+        root = logging.getLogger("cyclaw")
         root.handlers.clear()

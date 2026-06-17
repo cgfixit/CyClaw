@@ -1,4 +1,4 @@
-# PsyClaw — Code & Security Review
+# CyClaw — Code & Security Review
 
 **Date:** 2026-06-16
 **Reviewer:** Scheduled review routine (Claude Code)
@@ -31,7 +31,7 @@ Because only test/infra changes reached `main` recently, per the task this revie
 `gate.py`, `graph.py`, `mcp_hybrid_server.py`, `llm/client.py`,
 `retrieval/{hybrid_search,indexer,embeddings,stemmer}.py`,
 `utils/{sanitizer,personality,logger,health,errors}.py`, `schemas/api.py`, `config.yaml`,
-`static/terminal.html`, `.github/workflows/ci.yml`, and `docs/PsyClaw_Architecture_v1.3.0.pdf`
+`static/terminal.html`, `.github/workflows/ci.yml`, and `docs/CyClaw_Architecture_v1.3.0.pdf`
 (invariants cross-checked in §4).
 
 ---
@@ -48,7 +48,7 @@ Because only test/infra changes reached `main` recently, per the task this revie
 | S6 | **Low/Med** | Dead config: `policy.prompt_filter.*` is ignored by the hardcoded sanitizer on `main` | `utils/sanitizer.py` vs `config.yaml:77–93` | Fixed by **PR #14** |
 | S7 | **Low** | CORS allowlist contains an inert `null`/`None` entry + a hardcoded LAN IP beyond documented localhost defaults | `config.yaml:122–129` | Open |
 | S8 | **Low** | Injection scan on `/soul/propose` is advisory only — `apply_evolution` never enforces `safe_to_apply` | `utils/personality.py`, `gate.py:264–270` | Open (hardening, not an invariant violation) |
-| S9 | **Low** | No authentication on state-mutating `/soul/*` endpoints (by design, localhost-only) | `gate.py:246–277` | **Resolved** — bearer token auth via `PSYCLAW_API_KEY` env var on mutation endpoints |
+| S9 | **Low** | No authentication on state-mutating `/soul/*` endpoints (by design, localhost-only) | `gate.py:246–277` | **Resolved** — bearer token auth via `CYCLAW_API_KEY` env var on mutation endpoints |
 | S10 | **Info** | Positive controls verified (XSS escaping, secret redaction, telemetry kill, no-sampling MCP, env-only key) | multiple | OK |
 
 No **Critical** issues found. No exposed secrets in the tree (§2.6).
@@ -193,7 +193,7 @@ pytest tests/test_sanitizer.py tests/test_rate_limit.py -q --tb=no ... || echo '
   protocol guarantee (p.13) holds.
 - **Privacy default:** `policy.fallback.send_local_context_to_grok: false` — local KB is not forwarded
   to Grok unless explicitly opted in.
-- **No secrets committed:** `GROK_API_KEY` is read from env; `psyclaw_telemetry_kill.env` contains only
+- **No secrets committed:** `GROK_API_KEY` is read from env; `cyclaw_telemetry_kill.env` contains only
   telemetry toggles; repo grep for credential-like assignments is clean.
 
 ### S2.7 — Dependency supply chain *(note)*

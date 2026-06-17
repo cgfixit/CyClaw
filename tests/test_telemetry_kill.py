@@ -1,6 +1,6 @@
-"""Privacy/security regression guards for PsyClaw's telemetry kill switch.
+"""Privacy/security regression guards for CyClaw's telemetry kill switch.
 
-PsyClaw v1.3.0 sets a fixed set of env vars at the top of gate.py BEFORE any
+CyClaw v1.3.0 sets a fixed set of env vars at the top of gate.py BEFORE any
 langchain / chromadb / OpenTelemetry imports run, and hard-removes any
 LangChain / LangSmith API keys that might have leaked into the process
 environment. A failure in any of these tests means telemetry leakage is live
