@@ -1,9 +1,9 @@
 # .github/workflows/devskim.yml
 #
 # Static security scan with Microsoft DevSkim
-# Tailored for CGFixIT/PsyClaw (Python project with Poetry)
+# Tailored for CGFixIT/CyClaw (Python project with Poetry)
 
-name: "DevSkim – PsyClaw"
+name: "DevSkim – CyClaw"
 
 on:
   push:

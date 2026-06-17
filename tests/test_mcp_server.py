@@ -1,6 +1,6 @@
-"""Unit tests for PsyClaw's JSON-RPC MCP server (mcp_hybrid_server.py).
+"""Unit tests for CyClaw's JSON-RPC MCP server (mcp_hybrid_server.py).
 
-These tests guard the MCP protocol-layer invariants that PsyClaw v1.3.0
+These tests guard the MCP protocol-layer invariants that CyClaw v1.3.0
 depends on:
 
   * sampling = None at the capability level (the MCP server CANNOT route to
@@ -85,7 +85,7 @@ def test_initialize_returns_capabilities(retriever):
     # CRITICAL invariant — MCP server cannot route to an LLM
     assert result["result"]["capabilities"]["sampling"] is None
     assert result["result"]["protocolVersion"] == "2025-11-25"
-    assert result["result"]["serverInfo"]["name"] == "psyclaw-hybrid-rag"
+    assert result["result"]["serverInfo"]["name"] == "cyclaw-hybrid-rag"
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 # .github/dependabot.yml
-# Dependabot configuration for PsyClaw
+# Dependabot configuration for CyClaw
 #
 # Ecosystems:
 #   1. npm  – updates package.json / package-lock.json in repo root

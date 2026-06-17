@@ -1,4 +1,4 @@
-# PsyClaw Verification Report — Python 3.12 Runtime
+# CyClaw Verification Report — Python 3.12 Runtime
 
 **Date:** 2026-06-16
 **Branch:** `main` @ commit `9aa163a` (post-merge of PR #20)
@@ -60,7 +60,7 @@ Drove the full `PersonalityManager` API surface under Python 3.12 with mocked `a
 
 | # | Check                                   | Result | Detail                                  |
 |---|-----------------------------------------|--------|-----------------------------------------|
-| 1 | Default soul creation (no soul.md)      | PASS   | File created, contains "PsyClaw"        |
+| 1 | Default soul creation (no soul.md)      | PASS   | File created, contains "CyClaw"        |
 | 2 | `get_version()` returns `int`           | PASS   | `v=1`, `type=<class 'int'>`             |
 | 3 | `get_system_prompt_additive()`          | PASS   | Returns `soul_core` verbatim            |
 | 4 | `propose_evolution()` superset keys     | PASS   | `status`, `proposed_soul`, SHA keys     |
@@ -127,7 +127,7 @@ Graph topology intact: 7-node state machine (retrieve → route → local_llm/us
 | Thread safety        | PASS   | 5 concurrent `apply_evolution` calls OK  |
 | Telemetry kill       | PASS   | 10 env vars verified active              |
 
-**Conclusion:** PsyClaw `main` branch is fully functional under Python 3.12.3.
+**Conclusion:** CyClaw `main` branch is fully functional under Python 3.12.3.
 No regressions from PR #20 merge. Only outstanding failures are the 8
 config-driven sanitizer tests owned by PR #14.
 
