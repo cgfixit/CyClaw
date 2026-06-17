@@ -1,4 +1,4 @@
-"""Unit tests for the PsyClaw stemmer (NLTK PorterStemmer + custom domain map).
+"""Unit tests for the CyClaw stemmer (NLTK PorterStemmer + custom domain map).
 
 `enhanced_porter_stem` is the public alias for `stem_token`. Expected values are
 baselined against the stemmer's ACTUAL output (NLTK Porter + the `_CUSTOM_STEMS`

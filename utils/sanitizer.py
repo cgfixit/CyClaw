@@ -18,7 +18,7 @@ import yaml
 
 from utils.errors import PromptInjectionError
 
-logger = logging.getLogger("psyclaw.sanitizer")
+logger = logging.getLogger("cyclaw.sanitizer")
 
 # Fallback used only when config.yaml omits policy.prompt_filter entirely.
 _DEFAULT_MAX_INPUT_CHARS = 4000

@@ -1,7 +1,7 @@
 {
-  "name": "psyclaw",
+  "name": "cyclaw",
   "version": "1.0.0",
-  "description": "PsyClaw CyClaw Beetlejuice!",
+  "description": "CyClaw CyClaw Beetlejuice!",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -11,9 +11,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/CGFixIT/PsyClaw.git"
+    "url": "https://github.com/CGFixIT/CyClaw.git"
   },
-  "keywords": ["psyclaw", "cyclaw", "beetlejuice"],
+  "keywords": ["cyclaw", "cyclaw", "beetlejuice"],
   "author": "Your Name <you@example.com>",
   "license": "MIT",
   "engines": {

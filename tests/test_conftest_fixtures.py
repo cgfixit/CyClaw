@@ -1,6 +1,6 @@
 """Structural integrity tests for tests/conftest.py.
 
-conftest.py is the shared test infrastructure for the entire PsyClaw suite
+conftest.py is the shared test infrastructure for the entire CyClaw suite
 (test_gate.py, test_graph.py, test_personality.py, ...). If any of the
 fixtures or constants below drift away from the contract their consumers
 expect, every other test file fails at collection time with confusing

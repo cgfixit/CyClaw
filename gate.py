@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""PsyClaw FastAPI Gateway — HTTP/MCP entry point.
+"""CyClaw FastAPI Gateway — HTTP/MCP entry point.
 
 Invokes the LangGraph controller for every query.
 Handles user confirmation flow for Grok fallback at the HTTP layer.
@@ -74,7 +74,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 def require_api_key(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
 ):
-    api_key = os.environ.get("PSYCLAW_API_KEY", "")
+    api_key = os.environ.get("CYCLAW_API_KEY", "")
     if not api_key:
         return
     if not credentials or credentials.credentials != api_key:
@@ -152,10 +152,10 @@ with open("config.yaml") as f:
     cfg = yaml.safe_load(f)
 
 setup_logging(cfg)
-logger = logging.getLogger("psyclaw.gate")
+logger = logging.getLogger("cyclaw.gate")
 
 app = FastAPI(
-    title="PsyClaw RAG Gateway",
+    title="CyClaw RAG Gateway",
     description="Offline-first, RAG-first, MCP-exposed stack",
     version="1.4.0"
 )
