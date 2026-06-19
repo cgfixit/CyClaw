@@ -44,9 +44,9 @@ _SQL_INSERT_SOUL_VERSION = (
 )
 
 # SQL stores the content's SHA-256 digest alongside a UTC timestamp as metadata —
-# the hash is of *file content*, not of the time value.  # DevSkim: ignore DS126858
+# the hash is of *file content*, not of the time value.
 _SQL_INSERT_SOUL_VERSION = (
-    "INSERT INTO soul_versions (sha256, content, reason, timestamp) VALUES (?, ?, ?, ?)"
+    "INSERT INTO soul_versions (sha256, content, reason, timestamp) VALUES (?, ?, ?, ?)"  # DevSkim: ignore DS197836
 )
 
 
