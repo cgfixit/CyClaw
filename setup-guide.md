@@ -102,11 +102,18 @@ in offline mode. If you want full hygiene, set it to any non-empty string.
 The NLTK punkt tokenizer data is cached locally after the first `nltk.download()`
 call — subsequent runs are fully offline.
 
-### Known intentional test failures
-Some tests in `test_personality`, `test_personality_changes`, `test_stemmer`,
-and `test_audit` are marked as targeting a future (Dropbox-sync-pending) build
-and will intentionally fail against HEAD. This is expected — not a broken
-install. The `apipsTest.ps1` HTTP smoke test suite runs fully green.
+### Test suite status
+The full suite passes against HEAD: **98 passed** on a clean Python 3.12 venv
+(`pytest tests/ -q`). This includes `test_personality`, `test_personality_changes`,
+`test_stemmer`, and `test_audit`, which all pass.
+
+> Historical note: earlier baselines (see `tests/VERIFICATION_REPORT_3.12.md`,
+> 82 passed / 8 failed) carried placeholder tests targeting a future
+> Dropbox-sync build that intentionally failed against HEAD. Those have since
+> been resolved — a non-green run today indicates a real problem, not an
+> expected placeholder failure.
+
+The `apipsTest.ps1` HTTP smoke test runs fully green against a live server.
 
 ### constraints.txt
 The `-c constraints.txt` flag pins the full transitive dependency tree for
