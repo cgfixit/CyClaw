@@ -1,0 +1,31 @@
+name: Claude Code (PR Comments)
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude:
+    name: Claude Code
+    runs-on: ubuntu-latest
+    if: |
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, '@claude') &&
+      github.event.comment.user.login == 'CGFixIT'
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
