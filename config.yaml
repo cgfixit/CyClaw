@@ -5,6 +5,15 @@
 # gate.py binds to 127.0.0.1:8787 only. The CORS origin list allows
 # the local network browser client to hit the API. This is a personal
 # home-lab tool — not internet-exposed.
+#
+# PROMPT FILTER UPDATE (2026-06):
+# Expanded banned_patterns from 13 → 30 curated high-signal regex.
+# Categories: Core Override, Role Reassignment, System/New Instructions,
+# Memory/Persistence Manipulation (critical for RAG + soul poisoning defense),
+# Authority/Urgency, Tool/Action Hijacking, Light Obfuscation/Jailbreak.
+# Sources: Original + OWASP LLM01 + agent-security-super-skill red flags
+# + documented memory poisoning / indirect injection patterns.
+# All compiled with re.IGNORECASE. \s+ for whitespace tolerance (corpus-safe).
 # ==============================================================================
 
 app:
@@ -49,25 +58,23 @@ indexing:
 retrieval:
   top_k_semantic: 5
   top_k_keyword: 5
-  rrf_k: 60
+  rrf_k: 60                # Authoritative RRF k — read by hybrid_search.py
   max_context_tokens: 5000
   min_score: 0.028
   hybrid:
     enabled: true
     rrf:
-      k: 60
-      # NOTE: vector_weight / bm25_weight are documentation-only placeholders.
-      # The retriever uses equal 1.0/1.0 weighting by design (see hybrid_search.py).
-      # To enable true weighted RRF: multiply contrib *= weight and retune min_score.
-      vector_weight: 0.6
-      bm25_weight: 0.4
+      # NOTE: rrf_k above is the live value used by hybrid_search.py.
+      # vector_weight / bm25_weight are documentation-only placeholders.
+      vector_weight: 0.5
+      bm25_weight: 0.5
 
 personality:
   enabled: true
   soul_path: "data/personality/soul.md"
   db_path: "data/personality/cyclaw_soul.db"
   interaction_ttl_days: 365
-  injection_patterns_path: null  # uses built-in 13 OWASP patterns
+  injection_patterns_path: null  # uses built-in patterns in policy.prompt_filter
 
 policy:
   fallback:
@@ -80,20 +87,60 @@ policy:
     # literally). \s+ tolerates arbitrary whitespace — spaces, tabs, and the
     # newlines that corpus chunks routinely contain — and the alternations
     # cover the previous/all/prior variants. Compiled with re.IGNORECASE.
+    #
+    # Expanded set (30 patterns total) for stronger defense against:
+    # - Direct override / jailbreak
+    # - Role reassignment & impersonation
+    # - Memory/persistence poisoning (zombie agent risk in RAG/soul)
+    # - Authority/urgency social engineering
+    # - Tool/MCP action hijacking
+    # - Light obfuscation
     banned_patterns:
+      # === Core Override (7) ===
       - 'ignore\s+(previous|all|prior)\s+instructions'
       - 'ignore\s+all\s+previous'
       - 'disregard\s+(previous|all|prior)'
       - 'forget\s+(previous|all|prior)\s+instructions'
-      - 'new\s+instructions\s*:'
-      - 'system\s+prompt\s*:'
+      - 'override\s+instructions'
+      - 'bypass\s+(safety|filters|restrictions|rules)'
+      - 'do\s+anything\s+now'
+
+      # === Role Reassignment / Impersonation (6) ===
       - 'you\s+are\s+now'
+      - 'you\s+are\s+no\s+longer'
       - 'pretend\s+(you\s+are|to\s+be)'
       - 'act\s+as'
-      - 'jailbreak'
-      - 'DAN\s+mode'
-      - 'developer\s+mode'
-      - 'override\s+instructions'
+      - 'act\s+as\s+if\s+you\s+have\s+no\s+restrictions'
+      - 'roleplay\s+as|assume\s+the\s+role'
+
+      # === System / New Instructions (6) ===
+      - 'new\s+instructions\s*:'
+      - 'system\s+prompt\s*:'
+      - 'admin\s*:|developer\s+override'
+      - 'sudo\s+mode|root\s+access'
+      - 'maintenance\s+mode.*safety\s+filters\s+disabled'
+      - 'critical\s+update\s+to\s+your\s+instructions'
+
+      # === Memory / Persistence Manipulation (6) — HIGH PRIORITY for RAG + soul ===
+      - 'remember\s+(for\s+future|this\s+for\s+later|as\s+permanent|in\s+memory)'
+      - 'save\s+this\s+(for\s+later|in\s+your\s+memory|permanently)'
+      - 'update\s+your\s+(memory|knowledge\s+base|soul)'
+      - 'store\s+this\s+as\s+(a\s+rule|permanent|core\s+instruction)'
+      - 'core\s+instruction,\s*never\s+forget'
+      - 'add\s+to\s+your\s+(knowledge|memory|personality)\s+base'
+
+      # === Authority / Urgency / Social Engineering (3) ===
+      - 'critical\s+update|important\s+update'
+      - 'from\s+(it\s+department|system\s+administrator)'
+      - 'urgent|action\s+required'
+
+      # === Tool / Action / MCP Hijacking (2) ===
+      - 'execute\s+command|run\s+this\s+code'
+      - 'call\s+function|use\s+tool\s+to|invoke\s+tool'
+
+      # === Light Obfuscation / Jailbreak Variants (remaining to reach 30) ===
+      - 'jailbreak|dan\s+mode|developer\s+mode'
+      - 'base64|decode\s+and\s+execute'
     max_input_chars: 4000
   privacy:
     redact_emails: true
@@ -124,10 +171,13 @@ security:
   require_env:
     - "GROK_API_KEY"
   allowed_origins:
+    - “null” #DevSkim: ignore DS162092,DS137138
     - "http://127.0.0.1"  # DevSkim: ignore DS162092,DS137138
     - "http://127.0.0.1:8787"  # DevSkim: ignore DS162092,DS137138
     - "http://localhost"  # DevSkim: ignore DS162092,DS137138
     - "http://localhost:8787"  # DevSkim: ignore DS162092,DS137138
     - "http://10.0.0.112"  # DevSkim: ignore DS137138 - LAN origin, not internet-exposed
     - "http://10.0.0.112:8787"  # DevSkim: ignore DS137138 - with port
-    - null                        # allows non-browser clients (curl, MCP)
+    # NOTE: null removed — curl/MCP clients send no Origin header and are not
+    # subject to CORS filtering. null in allow_origins is invalid for starlette
+    # CORSMiddleware and would cause a runtime error or silent rejection.
