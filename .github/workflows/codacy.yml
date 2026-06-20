@@ -1,4 +1,3 @@
-# [same header but updated]
 name: CyClaw • Codacy Security & Quality Scan
 
 on:
@@ -22,35 +21,44 @@ jobs:
   codacy:
     name: Codacy Analysis (Python + Security invariants layer)
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run Codacy Analysis CLI (Python-focused)
-        uses: codacy/codacy-analysis-cli-action@master
+      - name: Run Codacy Analysis CLI - Hardened
+        uses: codacy/codacy-analysis-cli-action@1
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          # Removed directory entirely - this was the Docker volume culprit
+          # Let the action use default GITHUB_WORKSPACE behavior
           verbose: true
-          output: results.sarif
-          format: sarif
           gh-code-scanning-compat: true
-          max-allowed-issues: 2147483647
+          max-allowed-issues: 999999
           upload: false
-          tools: bandit,safety,pylintpython3,prospector,flake8  # Critical Python tools only. No Trivy/ESLint/PMD/markdown noise
-          # extra-args: '--config .codacy.yml'  
+          # Force Python focus + common security tools
+          # extra-args: "--languages python --tools bandit,semgrep,safety,pylint"
 
-      - name: Upload SARIF
+      - name: Upload SARIF to GitHub Security
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
-          category: codacy-python-security  # Unique category to avoid multi-run conflict
+          category: codacy
 
-      - name: Archive results
+      - name: Archive results for debug
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: codacy-debug
-          path: results.sarif
-          retention-days: 7
+          name: codacy-results
+          path: |
+            results.sarif
+            codacy.log
+          retention-days: 5
