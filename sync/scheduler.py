@@ -81,12 +81,43 @@ def _sync_command(cfg: RcloneConfig) -> str:
 
     cd into the repo root (so ``config.yaml`` resolves correctly), then run
     ``python -m sync.cli sync`` as a separate process.
+
+    On Windows the scheduler does NOT register this string directly -- see
+    ``_write_windows_launcher`` and ``WindowsTaskScheduler.install``. Passing a
+    full ``cmd /c "cd /d "..." && "..." ..."`` string through ``schtasks /TR`` is
+    quote-fragile (Task Scheduler re-parses it, and a repo path containing spaces
+    can break the nesting). A ``.bat`` launcher sidesteps that entirely. This
+    string is kept only for human-readable status output.
     """
     py = _python_executable()
     root = _repo_root(cfg)
     if platform.system() == "Windows":
         return f'cmd /c "cd /d "{root}" && "{py}" -m sync.cli sync"'
     return f'cd "{root}" && "{py}" -m sync.cli sync'
+
+
+def _write_windows_launcher(cfg: RcloneConfig) -> str:
+    """Write a ``.bat`` launcher for the scheduled sync and return its path.
+
+    Registering a path to a one-line batch file via ``schtasks /TR`` avoids the
+    fragile quoting of embedding a full ``cmd /c`` command string with a repo
+    path that may contain spaces. The batch file itself uses ordinary quoting,
+    which cmd.exe handles reliably.
+    """
+    root = _repo_root(cfg)
+    py = _python_executable()
+    bat_dir = cfg.log_dir or root
+    os.makedirs(bat_dir, exist_ok=True)
+    bat_path = os.path.join(bat_dir, "cyclaw_sync.bat")
+    # CRLF line endings + explicit quoting so paths with spaces are safe.
+    content = (
+        "@echo off\r\n"
+        f'cd /d "{root}"\r\n'
+        f'"{py}" -m sync.cli sync\r\n'
+    )
+    with open(bat_path, "w", encoding="utf-8", newline="") as f:
+        f.write(content)
+    return bat_path
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +255,9 @@ class WindowsTaskScheduler:
         return path
 
     def install(self) -> ScheduleEntry:
-        cmd = _sync_command(self.cfg)
+        # Register a .bat launcher path (robust) rather than an inline cmd /c
+        # string (quote-fragile through schtasks /TR for paths with spaces).
+        launcher = _write_windows_launcher(self.cfg)
         time_str = f"{self.cfg.schedule_hour:02d}:{self.cfg.schedule_min:02d}"
         argv = [
             self._schtasks(),
@@ -232,7 +265,7 @@ class WindowsTaskScheduler:
             "/TN",
             WINDOWS_TASK_NAME,
             "/TR",
-            cmd,
+            launcher,
             "/SC",
             "DAILY",
             "/ST",
@@ -254,7 +287,7 @@ class WindowsTaskScheduler:
             )
         return ScheduleEntry(
             platform_name="windows",
-            command=cmd,
+            command=launcher,
             cron_or_time=time_str,
             raw=proc.stdout.strip(),
         )

@@ -127,6 +127,11 @@ _LOG_MODIFIED_RE = re.compile(
 _LOG_DELETED_RE = re.compile(r":\s*([^:]+?):\s*Deleted(?:\s|$)", re.IGNORECASE)
 _LOG_ERROR_RE = re.compile(r"\bERROR\b\s*:\s*(.+)", re.IGNORECASE)
 
+# rclone's own scratch / state artifacts that may appear in a log line but are
+# NOT corpus content. They should never trip the "corpus changed -> reindex"
+# signal even if one ever leaks past the filter file.
+_RCLONE_INTERNAL_PREFIXES = (".rclone-", "bisync-", ".tmp-", "RCLONE_TEST")
+
 
 @dataclass
 class FileEvent:
@@ -192,6 +197,15 @@ def parse_log(log_path: str) -> tuple[list[FileEvent], list[str]]:
 
     Tolerant: any line that does not match a known pattern is ignored. Errors
     are captured as raw strings.
+
+    Scope note: the regexes target the ``rclone copy`` execution verbs
+    (``Copied (new)``, ``Copied (replaced existing)``, ``Deleted``). ``rclone
+    bisync`` also emits these verbs during its execution phase, so deletions and
+    copies are still captured for bisync. Its *pre-sync* structured-diff lines
+    (``- Path1   File is new   - file.md``) are intentionally not parsed: bisync
+    is opt-in/discouraged here, and the execution-phase verbs are sufficient to
+    derive ``corpus_changed``. Per-file event counts for bisync may therefore be
+    a lower bound; rely on the run's exit status, not the count, for bisync.
     """
     events: list[FileEvent] = []
     errors: list[str] = []
@@ -323,6 +337,53 @@ def _detect_safety_abort(errors: Sequence[str], stderr: str) -> bool:
     )
 
 
+# A daily scheduled run and a manual run must never drive rclone against the
+# same remote/destination at once: their log writes would interleave and corrupt
+# parsing, and concurrent filter-file writes would race. ``os.mkdir`` is atomic
+# on every platform, so it doubles as a zero-dependency, cross-platform lock --
+# no fcntl/msvcrt branching, no third-party dep.
+_LOCK_STALE_SEC = 3 * 60 * 60  # reclaim a lock left by a crashed run after 3h
+
+
+def _acquire_sync_lock(lock_dir: str) -> None:
+    """Acquire the single-instance lock, or raise ``SyncRuntimeError``.
+
+    Reclaims a lock older than ``_LOCK_STALE_SEC`` (a prior run that crashed
+    without releasing it) so a stale directory can never wedge sync forever.
+    """
+    try:
+        os.mkdir(lock_dir)
+        return
+    except FileExistsError:
+        pass
+    try:
+        age = time.time() - os.path.getmtime(lock_dir)
+    except OSError:
+        age = 0.0
+    if age > _LOCK_STALE_SEC:
+        try:
+            os.rmdir(lock_dir)
+            os.mkdir(lock_dir)
+            return
+        except OSError:
+            pass
+    raise SyncRuntimeError(
+        "Another CyClaw sync appears to be running",
+        details={
+            "lock_dir": lock_dir,
+            "hint": "Wait for the other run to finish, or remove the lock dir if it is stale.",
+        },
+    )
+
+
+def _release_sync_lock(lock_dir: str) -> None:
+    """Release the single-instance lock; tolerant if it is already gone."""
+    try:
+        os.rmdir(lock_dir)
+    except OSError:
+        pass
+
+
 def run_sync(
     cfg: RcloneConfig,
     dry_run: bool = False,
@@ -348,11 +409,33 @@ def run_sync(
 
     Security: argv is a list, the binary is absolute, ``shell`` is never set, and
     only metadata is logged -- never raw stderr that could echo a token.
+
+    Concurrency: a process-wide single-instance lock (an atomically created lock
+    directory under ``log_dir``) prevents a manual run and the scheduled run from
+    driving rclone against the same remote at once. A second concurrent run
+    raises ``SyncRuntimeError``; a lock left by a crashed run is reclaimed after
+    ``_LOCK_STALE_SEC``.
     """
     check_rclone_version(rclone_bin)
-    write_filter_file(cfg)
 
     os.makedirs(cfg.log_dir or ".", exist_ok=True)
+    lock_dir = os.path.join(cfg.log_dir or ".", "sync.lock.d")
+    _acquire_sync_lock(lock_dir)
+    try:
+        return _run_sync_locked(cfg, dry_run, resync, rclone_bin)
+    finally:
+        _release_sync_lock(lock_dir)
+
+
+def _run_sync_locked(
+    cfg: RcloneConfig,
+    dry_run: bool,
+    resync: bool,
+    rclone_bin: str,
+) -> SyncResult:
+    """Body of ``run_sync`` executed while holding the single-instance lock."""
+    write_filter_file(cfg)
+
     log_path = cfg.log_path
     # Clear the previous run's log so parsing is unambiguous.
     try:
@@ -409,9 +492,14 @@ def run_sync(
 
     aborted_for_safety = _detect_safety_abort(errors, completed.stderr or "")
 
+    # rclone logs file paths RELATIVE TO THE TRANSFER ROOT (the destination
+    # directory), not relative to the repo root -- e.g. "notes.md", never
+    # "data/corpus/notes.md". Since cfg.local_path is validated to resolve under
+    # data/corpus (RcloneConfig.__post_init__), every parsed file event is by
+    # construction a corpus change. We still defensively skip rclone's own
+    # scratch/state artifacts in case one ever slips past the filter file.
     corpus_changed = any(
-        ev.path.startswith("data/corpus/") or ev.path.startswith("data\\corpus\\")
-        for ev in events
+        not ev.path.startswith(_RCLONE_INTERNAL_PREFIXES) for ev in events
     )
 
     result = SyncResult(

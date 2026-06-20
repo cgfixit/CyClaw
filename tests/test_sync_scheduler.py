@@ -32,14 +32,16 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _CORPUS = str(_REPO_ROOT / "data" / "corpus")
 
 
-def _make_cfg(schedule_hour: int = 2, schedule_min: int = 0) -> RcloneConfig:
-    return RcloneConfig(
+def _make_cfg(schedule_hour: int = 2, schedule_min: int = 0, **overrides) -> RcloneConfig:
+    kwargs: dict = dict(
         local_path=_CORPUS,
         remote_name="dropbox_cyclaw",
         remote_path="CyClaw/corpus",
         schedule_hour=schedule_hour,
         schedule_min=schedule_min,
     )
+    kwargs.update(overrides)
+    return RcloneConfig(**kwargs)
 
 
 def _completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> MagicMock:
@@ -263,8 +265,9 @@ def test_cron_uses_argv_list_never_shell() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_windows_install_builds_schtasks_argv() -> None:
-    cfg = _make_cfg(schedule_hour=5, schedule_min=7)
+def test_windows_install_builds_schtasks_argv(tmp_path: Path) -> None:
+    # log_dir -> tmp so the generated .bat launcher does not touch the real home.
+    cfg = _make_cfg(schedule_hour=5, schedule_min=7, log_dir=str(tmp_path / "logs"))
     captured: dict[str, object] = {}
 
     def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
@@ -291,6 +294,15 @@ def test_windows_install_builds_schtasks_argv() -> None:
     assert argv[argv.index("/RL") + 1] == "LIMITED"
     assert entry.cron_or_time == "05:07"
     assert entry.platform_name == "windows"
+
+    # /TR points at the generated .bat launcher (robust quoting), and the file
+    # was actually written with the cd + sync invocation.
+    launcher = argv[argv.index("/TR") + 1]
+    assert launcher.endswith("cyclaw_sync.bat")
+    assert entry.command == launcher
+    bat_text = Path(launcher).read_text(encoding="utf-8")
+    assert "-m sync.cli sync" in bat_text
+    assert "cd /d" in bat_text
 
 
 def test_windows_remove_not_found_returns_false() -> None:

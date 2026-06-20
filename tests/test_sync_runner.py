@@ -30,7 +30,7 @@ from sync.runner import (
     reindex_exit_code_for,
     run_sync,
 )
-from utils.errors import RcloneNotInstalledError, RcloneVersionError
+from utils.errors import RcloneNotInstalledError, RcloneVersionError, SyncRuntimeError
 from utils.logger import reset_config_cache
 
 # shutil.which returns a drive-letter absolute path on Windows; POSIX path on Linux.
@@ -253,8 +253,11 @@ def test_run_sync_corpus_changed_and_exit_10(tmp_path):
         if argv[1] == "version":
             return _version_mock("1.70.0")
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        # rclone logs paths relative to the transfer root (data/corpus), e.g.
+        # "notes.md" -- NOT "data/corpus/notes.md". corpus_changed must still
+        # fire on this realistic shape.
         Path(log_path).write_text(
-            "2026/06/20 02:10:01 INFO  : data/corpus/new.md: Copied (new)\n",
+            "2026/06/20 02:10:01 INFO  : notes.md: Copied (new)\n",
             encoding="utf-8",
         )
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -267,6 +270,71 @@ def test_run_sync_corpus_changed_and_exit_10(tmp_path):
     assert result.success is True
     assert result.corpus_changed is True
     assert reindex_exit_code_for(result, cfg) == cfg.REINDEX_EXIT_CODE == 10
+
+
+def test_run_sync_corpus_changed_ignores_rclone_internal_artifacts(tmp_path):
+    # An rclone scratch/state file leaking into the log must NOT trip
+    # corpus_changed (it is not corpus content).
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text(
+            "2026/06/20 02:10:01 INFO  : RCLONE_TEST: Copied (new)\n",
+            encoding="utf-8",
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert result.success is True
+    assert result.corpus_changed is False
+
+
+def test_run_sync_single_instance_lock_blocks_concurrent_run(tmp_path):
+    # A pre-existing (fresh) lock directory means another run holds the lock;
+    # run_sync must refuse rather than race a second rclone invocation.
+    cfg = _make_cfg(tmp_path)
+    lock_dir = Path(cfg.log_dir) / "sync.lock.d"
+    lock_dir.mkdir(parents=True)
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        raise AssertionError("rclone must not run while the lock is held")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        with pytest.raises(SyncRuntimeError):
+            run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+
+def test_run_sync_releases_lock_after_run(tmp_path):
+    # After a normal run the lock directory must be gone so the next run can
+    # acquire it.
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("INFO  : nothing to do\n", encoding="utf-8")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert not (Path(cfg.log_dir) / "sync.lock.d").exists()
 
 
 def test_run_sync_no_change_exit_0(tmp_path):
@@ -342,7 +410,7 @@ def test_run_sync_audit_events_have_file_key_no_query(tmp_path):
             return _version_mock("1.70.0")
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         Path(log_path).write_text(
-            "2026/06/20 02:10:01 INFO  : data/corpus/new.md: Copied (new)\n",
+            "2026/06/20 02:10:01 INFO  : notes.md: Copied (new)\n",
             encoding="utf-8",
         )
         return MagicMock(returncode=0, stdout="", stderr="")

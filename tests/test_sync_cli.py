@@ -92,6 +92,27 @@ def test_sync_bad_config_exit_3():
         assert main(["sync"]) == EXIT_ENV
 
 
+def test_sync_disabled_noops_exit_0_without_running():
+    # sync.enabled: false is an intentional off, not an error: cmd_sync must
+    # return EXIT_OK and never invoke run_sync.
+    cfg = _cfg()
+    cfg.enabled = False  # set by load_sync_config in production
+    with patch("sync.cli.load_sync_config", return_value=cfg), \
+         patch("sync.cli.run_sync") as mrun:
+        assert main(["sync"]) == EXIT_OK
+        mrun.assert_not_called()
+
+
+def test_sync_enabled_true_runs():
+    cfg = _cfg()
+    cfg.enabled = True
+    with patch("sync.cli.load_sync_config", return_value=cfg), \
+         patch("sync.cli.run_sync", return_value=_result()) as mrun, \
+         patch("sync.cli.reindex_exit_code_for", return_value=EXIT_OK):
+        assert main(["sync"]) == EXIT_OK
+        mrun.assert_called_once()
+
+
 def test_sync_dry_run_passes_flag():
     captured = {}
 
