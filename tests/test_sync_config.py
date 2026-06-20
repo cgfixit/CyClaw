@@ -150,6 +150,30 @@ def test_unknown_keys_collected_not_fatal(tmp_path: Path) -> None:
     assert set(cfg._unknown_keys) == {"another", "typo_field"}  # type: ignore[attr-defined]
 
 
+def test_enabled_flag_read_from_block(tmp_path: Path) -> None:
+    # enabled is read out as a plain attribute (not an rclone field). The config
+    # cache is process-global, so reset between loads of different temp files.
+    d_on = tmp_path / "on"
+    d_off = tmp_path / "off"
+    d_def = tmp_path / "default"
+    for d in (d_on, d_off, d_def):
+        d.mkdir()
+
+    on = load_sync_config(_write_config(d_on, _base_block(enabled=True)))
+    assert on.enabled is True  # type: ignore[attr-defined]
+
+    reset_config_cache()
+    off = load_sync_config(_write_config(d_off, _base_block(enabled=False)))
+    assert off.enabled is False  # type: ignore[attr-defined]
+
+    # Absent key defaults to enabled.
+    reset_config_cache()
+    block = _base_block()
+    del block["enabled"]
+    default = load_sync_config(_write_config(d_def, block))
+    assert default.enabled is True  # type: ignore[attr-defined]
+
+
 def test_is_windows_property(tmp_path: Path) -> None:
     cfg = load_sync_config(_write_config(tmp_path, _base_block()))
     assert isinstance(cfg.is_windows, bool)

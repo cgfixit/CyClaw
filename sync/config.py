@@ -255,8 +255,9 @@ def load_sync_config(config_path: str = "config.yaml") -> RcloneConfig:
     # REINDEX_EXIT_CODE). Unknown keys are collected, not fatal.
     known_fields = {f for f in RcloneConfig.__dataclass_fields__ if f != "REINDEX_EXIT_CODE"}
     unknown = set(block.keys()) - known_fields
-    # Drop CyClaw's own "enabled" toggle from the unknown set: it gates sync at
-    # the CLI level, it is not an RcloneConfig field, and it is not a typo.
+    # "enabled" is CyClaw's own on/off toggle, not an rclone parameter, so it is
+    # not an RcloneConfig field and not a typo. It is read out here and enforced
+    # by the CLI (``cmd_sync`` no-ops when false); drop it from the unknown set.
     unknown.discard("enabled")
     kwargs = {k: v for k, v in block.items() if k in known_fields}
 
@@ -268,5 +269,9 @@ def load_sync_config(config_path: str = "config.yaml") -> RcloneConfig:
             details={"unknown_keys": sorted(unknown)},
         ) from exc
 
+    # Default to enabled when the key is absent (a present sync: block is opt-in
+    # already). Stored as a plain attribute, not a dataclass field, to keep it
+    # out of the rclone-parameter surface (to_dict / argv).
+    rc.enabled = bool(block.get("enabled", True))  # type: ignore[attr-defined]
     rc._unknown_keys = sorted(unknown)  # type: ignore[attr-defined]
     return rc

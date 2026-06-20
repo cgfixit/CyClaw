@@ -156,6 +156,14 @@ def cmd_sync(args: argparse.Namespace) -> int:
         _err(f"Config error: {exc.message}")
         return EXIT_ENV
 
+    # Honour the config toggle: `sync.enabled: false` is an intentional "off",
+    # not an error -- a scheduled run should no-op cleanly (exit 0), never fail.
+    if not getattr(cfg, "enabled", True):
+        _heading("Sync disabled")
+        print("  sync.enabled is false in config.yaml; nothing to do.")
+        print("  Set sync.enabled: true (or remove the key) to run sync.")
+        return EXIT_OK
+
     try:
         result = run_sync(cfg, dry_run=args.dry_run, resync=args.resync)
     except (RcloneNotInstalledError, RcloneVersionError) as exc:
@@ -226,6 +234,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         return EXIT_ENV
 
     _heading("CyClaw Sync Status")
+    _kv("enabled", getattr(cfg, "enabled", True))
     _kv("local_path", cfg.local_path)
     _kv("remote", cfg.remote)
     _kv("direction", cfg.direction)

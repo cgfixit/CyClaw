@@ -139,7 +139,7 @@ only metadata. Absence of the block disables sync entirely.
 
 ```yaml
 sync:
-  enabled: false                 # off by default; out-of-band only
+  enabled: false                 # off by default; `sync.cli sync` no-ops (exit 0) while false
   local_path: "data/corpus"      # validated: absolute, under repo data/corpus, a dir
   remote_name: "dropbox_cyclaw"  # must match `rclone listremotes`
   remote_path: "CyClaw/corpus"   # folder inside the Dropbox App Folder
@@ -232,14 +232,21 @@ idempotent (re-running replaces our own entry, never touches yours).
 | Windows | `schtasks /Create /SC DAILY /ST HH:MM /RL LIMITED /F` | task name `CyClaw Dropbox Sync` |
 
 The scheduled command `cd`s into the repo root (so `config.yaml` resolves) and
-runs `python -m sync.cli sync`.
+runs `python -m sync.cli sync`. On Windows the task points at a generated
+`cyclaw_sync.bat` launcher (written next to the rclone logs) rather than an
+inline `cmd /c` string — this avoids the quote fragility of passing a full
+command with a space-containing repo path through `schtasks /TR`.
 
+> **Overlap protection:** `run_sync` holds a single-instance lock (an atomically
+> created lock directory under the rclone log dir) for the duration of a run, so
+> a scheduled run and a manual run cannot drive rclone concurrently — the second
+> exits with `SYNC_RUNTIME` rather than racing. A lock left behind by a crashed
+> run is reclaimed automatically after 3 hours.
+>
 > **More robust Linux option:** a systemd `--user` `Type=oneshot` service driven
-> by a timer unit gives inherent overlap protection, journald logging, and
-> `Persistent=true` catch-up after downtime. Cron is the implemented portable
-> baseline (it works on macOS/WSL/BSD too) but has no built-in single-instance
-> guard, so add a wrapper-level lockfile (or use systemd) if a manual run could
-> collide with a scheduled one.
+> by a timer unit additionally gives journald logging and `Persistent=true`
+> catch-up after downtime. Cron is the implemented portable baseline (it works on
+> macOS/WSL/BSD too).
 
 ---
 

@@ -190,7 +190,7 @@ security:
 # `python -m sync.cli` — never imported by gate.py, graph.py, or the MCP server.
 # The Dropbox refresh token lives ONLY in rclone.conf, never here.
 sync:
-  enabled: false                 # off by default; out-of-band only
+  enabled: false                 # off by default; `sync.cli sync` no-ops (exit 0) while false
   local_path: "data/corpus"      # validated: absolute, under repo data/corpus, a dir
   remote_name: "dropbox_cyclaw"  # must match `rclone listremotes`
   remote_path: "CyClaw/corpus"   # folder inside the Dropbox App Folder
