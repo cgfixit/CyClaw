@@ -37,10 +37,13 @@ jobs:
         # scanner binary is present on the GitHub runner before the audit gate runs.
       - name: Run pip-audit (ignore only the mitigated chromadb CVE)
         run: |
-          pip-audit -r requirements.txt --ignore-vuln CVE-2026-45829 --fail-on high
+          pip-audit -r requirements.txt --ignore-vuln CVE-2026-45829
         # Explanation: CVE-2026-45829 is pre-auth RCE via malicious embedding model + trust_remote_code=true.
         # CyClaw mitigation (structural, not advisory): Binds exclusively to 127.0.0.1 in gate.py;
         # offline-first design; explicitly disables trust_remote_code in retrieval/embeddings.py,
         # retrieval/indexer.py, and mcp_hybrid_server.py. Real risk is near-zero under the 5 invariants.
         # We track upstream for stable patch. Cross-ref: PDF §K (Deployment & Validation), §M (Security Invariants),
         # gate.py rate-limiter-first + telemetry kill, and the hardened CI gate added in v1.4.0 main.
+        # Note: --fail-on high was removed; it is not a valid pip-audit flag (parser treated it as project_path,
+        # conflicting with -r). pip-audit exits 1 on any un-ignored vuln found (default behavior), which is
+        # the intended security gate. --strict controls collection failures, not vuln severity.
