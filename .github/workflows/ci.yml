@@ -45,41 +45,22 @@ jobs:
           pip install torch==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt pytest pytest-cov
 
-      - name: Prepare minimal test env
+      - name: Prepare test env
         shell: bash
         run: |
-          mkdir -p data/corpus data/personality index logs
-          echo '# Test corpus' > data/corpus/test.md
+          # data/corpus/cyclaw_overview.md is committed in the repo and is what the
+          # RAG smoke indexes + queries — do not overwrite it with a stub.
+          mkdir -p data/personality index logs
           echo '# Soul' > data/personality/soul.md
           echo 'GROK_API_KEY=dummy' >> $GITHUB_ENV
 
-      - name: Offline RAG smoke test
+      - name: Real RAG Query Smoke (ChromaDB + BM25)
         shell: bash
         run: |
-          python - <<'PY'
-          class MockRetriever:
-              def hybrid_search(self, q):
-                  return [{"text": "CyClaw offline RAG works.", "score": 0.92, "source": "soul.md"}]
-          class MockLLM:
-              def generate(self, prompt):
-                  return "[Emulated Qwen] Retrieved context. Prompt len: {}".format(len(prompt))
-          class MockPersonality:
-              def get_system_prompt_additive(self):
-                  return "You are CyClaw - truthful, offline-first RAG agent."
-              def record_interaction(self, *a, **k):
-                  return True
-
-          retriever = MockRetriever()
-          llm = MockLLM()
-          personality = MockPersonality()
-          query = "Does the offline RAG path work in CI?"
-          docs = retriever.hybrid_search(query)
-          prompt = "{}\nContext: {}\nQuery: {}".format(
-              personality.get_system_prompt_additive(), docs, query)
-          answer = llm.generate(prompt)
-          assert "Emulated" in answer
-          print("Offline RAG smoke: PASSED")
-          PY
+          # Builds a real ChromaDB + BM25 index from data/corpus and runs a real
+          # HybridRetriever query that the committed corpus answers, asserting the
+          # fused score clears retrieval.min_score (a genuine vault hit, not a mock).
+          python -m tests.ci_rag_smoke
 
       - name: Run tests + coverage
         shell: bash
