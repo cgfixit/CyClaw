@@ -37,7 +37,7 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest==9.1.0", "pytest-asyncio==1.4.0"]
 dev = ["ruff", "mypy", "bandit", "pytest-cov"]
-torch-cpu = ["torch==2.4.1+cpu"]
+torch-cpu = ["torch==2.6.0+cpu"]  # Minimum safe version post CVE-2025-32434 (weights_only=True RCE bypass in torch<2.6). Always prefer safetensors over .pth/.bin when loading custom models.
 full = ["cyclaw[test,dev,torch-cpu]"]
 
 [project.scripts]
