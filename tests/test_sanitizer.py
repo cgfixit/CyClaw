@@ -84,6 +84,40 @@ class TestShippedConfigContract:
         assert check_input("How does Veeam immutability work?", "config.yaml")
 
 
+class TestShippedCORSAllowlist:
+    """Guard against junk entries in the shipped ``security.allowed_origins``.
+
+    Regression for the leftover ``“null”`` entry (written with Unicode smart
+    quotes, so it parsed to the literal string ``'“null”'``) that sat in the
+    CORS allow-list while the adjacent comment claimed it had been removed.
+    Starlette's ``CORSMiddleware`` matches an incoming ``Origin`` header against
+    these strings verbatim, so only syntactically valid HTTP(S) origins belong
+    here — a real browser ``Origin`` can never equal ``null``/``“null”``.
+    """
+
+    import re as _re
+
+    _ORIGIN_RE = _re.compile(r"^https?://[A-Za-z0-9.\-]+(:\d+)?$")
+
+    def _shipped_origins(self):
+        with open("config.yaml", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        return cfg["security"]["allowed_origins"]
+
+    def test_no_null_like_entries(self):
+        for origin in self._shipped_origins():
+            assert origin.strip().strip("“”‘’\"'").lower() != "null", (
+                f"CORS allow-list contains an inert null-like origin: {origin!r}"
+            )
+
+    def test_all_origins_are_valid_http_urls(self):
+        for origin in self._shipped_origins():
+            assert self._ORIGIN_RE.match(origin), (
+                f"Invalid CORS origin in shipped config (not a plain http(s) "
+                f"origin): {origin!r}"
+            )
+
+
 class TestFilterToggles:
     """T3.1 acceptance: enabled:false bypass and per-config banned_patterns."""
 
