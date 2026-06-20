@@ -38,7 +38,7 @@ dependencies = [
 test = ["pytest==9.1.0", "pytest-asyncio==1.4.0"]
 dev = ["ruff", "mypy", "bandit", "pytest-cov"]
 torch-cpu = ["torch==2.6.0+cpu"]  # Minimum safe version post CVE-2025-32434 (weights_only=True RCE bypass in torch<2.6). Always prefer safetensors over .pth/.bin when loading custom models.
-full = ["cyclaw[test,dev,torch-cpu]"]
+full = ["torch==2.6.0+cpu", "pytest==9.1.0", "pytest-asyncio==1.4.0", "ruff", "mypy", "bandit", "pytest-cov"]
 
 [project.scripts]
 cyclaw-server = "gate:main"
@@ -57,21 +57,25 @@ build-backend = "hatchling.build"
 [tool.uv]
 index-strategy = "unsafe-best-match"
 
-[[tool.uv.sources]]
-name = "torch"
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-select = ["E", "F", "I", "B", "C4", "UP", "S"]
-ignore = ["E501"]
 
 [tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP", "S"]
+ignore = ["E501"]
 per-file-ignores = { "tests/*" = ["S101", "S603", "S108", "F401", "I001"] }
 
 [tool.pytest.ini_options]
-minversion = "9.0"
+minversion = "9.1"
 addopts = "-ra -q --cov"
 testpaths = ["tests"]
 
@@ -84,7 +88,7 @@ exclude_dirs = ["tests"]
 skips = ["B101"]
 
 [tool.coverage.run]
-source = ["."]
+source = ["gate", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils"]
 omit = ["tests/*", "*/test_*", "*/__pycache__/*"]
 
 [tool.coverage.report]
