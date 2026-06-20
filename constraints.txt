@@ -1,9 +1,9 @@
-# CyClaw — constraints.txt (restored + CVE hotfix 2026-06-20)
+# CyClaw — constraints.txt (Python 3.12 verified stable)
 # Full transitive pins for reproducible install on Python 3.12
-# chromadb bumped to dev for CVE-2026-45829 mitigation (localhost-only + trust_remote_code=False enforced in code)
+# chromadb pinned to stable 1.5.6 (verified working in tests/VERIFICATION_REPORT_3.12.md); CVE-2026-45829 handled by deployment model (localhost-only, offline-first) + code guards in gate.py/retrieval/embeddings.py + explicit --ignore-vuln in .github/workflows/pip-audit.yml. Unresolvable dev pre-release removed.
 aiohappyeyeballs==2.6.2
 aiohttp==3.14.1
-aiosignal==1.4.0
+aoisignal==1.4.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.14.0
@@ -12,7 +12,7 @@ bcrypt==5.0.0
 build==1.5.0
 certifi==2026.6.17
 charset-normalizer==3.4.7
-chromadb==1.5.10.dev133
+chromadb==1.5.6
 click==8.4.1
 durationpy==0.10
 fastapi==0.137.2
@@ -78,7 +78,7 @@ Pygments==2.20.0
 PyPika==0.51.1
 pyproject_hooks==1.2.0
 pytest==9.1.0
-python-dateutil==2.9.0.post0
+python-dateutil==2.9.0
 python-dotenv==1.2.2
 PyYAML==6.0.3
 rank-bm25==0.2.2
