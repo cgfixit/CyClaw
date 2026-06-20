@@ -27,7 +27,7 @@ dependencies = [
     "httpx==0.28.1",
     "langgraph==1.2.5",
     "langchain-core==1.4.7",
-    "chromadb==1.5.10.dev133",  # CVE-2026-45829 mitigated (localhost + code guard)
+    "chromadb==1.5.6",  # Stable release; CVE-2026-45829 mitigated via localhost bind + code-enforced no trust_remote_code (see retrieval/embeddings.py). Dev build removed (no published py3.12 wheels).
     "sentence-transformers==5.6.0",
     "rank-bm25==0.2.2",
     "numpy==1.26.4",
