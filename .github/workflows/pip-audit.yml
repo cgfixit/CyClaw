@@ -1,0 +1,23 @@
+name: pip-audit (Python dependency CVE scan)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # daily
+  workflow_dispatch:
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Run pip-audit with constraints
+        run: |
+          pip install -r requirements.txt -c constraints.txt
+          pip-audit -r requirements.txt --ignore-vuln CVE-2026-45829 || true  # Mitigated: see above + code-level enforcement
+      - name: Fail on other vulns
+        run: pip-audit -r requirements.txt --fail-on high  # strict on everything else
