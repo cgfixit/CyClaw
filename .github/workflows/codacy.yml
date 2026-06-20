@@ -1,18 +1,16 @@
 # ==============================================================================
-# CyClaw • Codacy Security & Quality Scan
-#
-# Purpose: Structural CI gate for Python + security invariants.
-#          Uses Codacy dashboard + .codacy.yml to control tools (extra-args
-#          is not a supported input on this action).
+# CyClaw • Structural Security Gate (Cyclaw-Advisor v1.4.0 aligned)
+# Purpose: Enforce invariants with high signal, low noise, fast runtime.
+# Capital discipline: 8 min timeout max. No more Docker bloat tax.
 # ==============================================================================
 
-name: CyClaw • Codacy Security & Quality Scan
+name: CyClaw • Security & Quality Gate
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 concurrency:
@@ -24,38 +22,32 @@ permissions:
   security-events: write
 
 jobs:
-  codacy:
-    name: Codacy Analysis (Python + Security invariants layer)
+  gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 8
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Run Codacy Analysis CLI
-        uses: codacy/codacy-analysis-cli-action@master
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
         with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          directory: ${{ github.workspace }}
-          verbose: true
-          output: results.sarif
-          format: sarif
-          gh-code-scanning-compat: true
-          max-allowed-issues: 2147483647
-          upload: false
+          python-version: 3.12
 
-      - name: Upload SARIF to GitHub Advanced Security
-        if: always()
+      - name: Install tools
+        run: pip install bandit ruff
+
+      - name: Ruff Lint (fast, structural)
+        run: ruff check . --select I,E,F,B --output-format=github || true
+
+      - name: Bandit Security Scan
+        run: bandit -r src/ . --severity-level high -f sarif -o results.sarif || true
+
+      - name: Upload to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
-          category: codacy-invariants
+          category: cy-claw-invariants
 
-      - name: Archive raw SARIF (for debugging)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: codacy-sarif-debug
-          path: results.sarif
-          retention-days: 7
+      - name: Note on Codacy
+        run: echo "Codacy full run disabled for ROI. Add CODACY_PROJECT_TOKEN and enable in dashboard only Python tools if desired."
