@@ -34,10 +34,12 @@ jobs:
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
     with:
       # Use targeted ignore config + recurse from the repository root.
+      # Keep strict on PRs so new vulns block merges.
       scan-args: |-
         --config=.osv-scanner.toml
         -r
         ./
+      fail-on-vuln: true
 
   # schedule / push / manual: full-tree scan, results published to the Security tab.
   scan-scheduled:
@@ -49,7 +51,9 @@ jobs:
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
     with:
       # Use targeted ignore config + recurse from the repository root.
+      # Non-blocking on scheduled runs (reports to Security tab without failing workflow).
       scan-args: |-
         --config=.osv-scanner.toml
         -r
         ./
+      fail-on-vuln: false
