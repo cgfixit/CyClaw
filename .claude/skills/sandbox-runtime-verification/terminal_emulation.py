@@ -16,8 +16,7 @@ Response field assertions match what terminal.html's JS reads:
   - soul.version, soul.soul
 
 Usage (called from verify.sh while server is running):
-    python terminal_emulation.py <base_url>
-    e.g. python terminal_emulation.py http://localhost:8787
+    python terminal_emulation.py <base_url>  (default: loopback:8787)
 """
 
 import json
