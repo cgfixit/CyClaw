@@ -3,6 +3,13 @@
 CPU-only. No Ollama. No external service required.
 Caches the model AND the parsed config across calls to avoid reload/reparse
 overhead on the hot query path.
+
+Security note (2026-06):
+- We delegate model loading to sentence-transformers.
+- Prefer safetensors format for any custom or local models.
+- Historical: CVE-2025-32434 showed that torch.load(..., weights_only=True) was bypassable for RCE on torch<2.6.0.
+- We now pin torch==2.6.0+cpu (see pyproject.toml) and treat untrusted .pth/.bin files as high risk.
+- Model weights should come from verified/trusted sources only (HF official or local hashed files).
 """
 
 import os
@@ -14,6 +21,12 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 @lru_cache(maxsize=1)
 def _load_model(model_name: str, cache_dir: str):
+    """Load SentenceTransformer with security-conscious defaults.
+
+    Note: sentence-transformers will use safetensors when available.
+    If a .pth or .bin file is explicitly provided via model_name, it may still
+    hit torch.load paths. Treat such cases as requiring extra scrutiny.
+    """
     from sentence_transformers import SentenceTransformer
     return SentenceTransformer(model_name, cache_folder=cache_dir or None)
 
