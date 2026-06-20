@@ -67,6 +67,9 @@ line-length = 120
 select = ["E", "F", "I", "B", "C4", "UP", "S"]
 ignore = ["E501"]
 
+[tool.ruff.lint]
+per-file-ignores = { "tests/*" = ["S101", "S603", "S108", "F401", "I001"] }
+
 [tool.pytest.ini_options]
 minversion = "9.0"
 addopts = "-ra -q --cov"
