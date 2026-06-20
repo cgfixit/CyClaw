@@ -42,16 +42,16 @@ not present in the local sandbox, **check GitHub main before declaring it absent
 # or use mcp__github__get_file_contents with path .claude/skills/<name>/SKILL.md
 ```
 
-Available loop skills (all on `main`):
+Available skills (all on `main`):
 
-| Skill | Purpose |
-|---|---|
-| `/run-cyclaw` | Smoke-test the FastAPI server |
-| `/architecture-refactor` | Iterative architecture cleanup |
-| `/speed-refactor` | Optimize all endpoints to <50 ms |
-| `/tests-refactor` | Coverage to 100%, pass rate ≥85% |
-| `/logging-refactor` | Log coverage on every important path |
-| `/wrap-up` | End-of-session checklist |
+| Skill | Type | Purpose |
+|---|---|---|
+| `/run-cyclaw` | one-shot | Smoke-test the FastAPI server |
+| `/architecture-refactor` | loop | Iterative architecture cleanup |
+| `/speed-refactor` | loop | Optimize all endpoints to <50 ms |
+| `/tests-refactor` | loop | Coverage to 100%, pass rate ≥85% |
+| `/logging-refactor` | loop | Log coverage on every important path |
+| `/wrap-up` | one-shot | End-of-session checklist |
 
 ---
 
