@@ -6,6 +6,10 @@ on:
     paths-ignore:
       - "docs/**"
       - ".github/**"
+      - ".workflow/**"
+      - ".claude/**"
+      - "tests/**"
+
   pull_request:
     branches: ["main"]
   schedule:
