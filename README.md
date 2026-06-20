@@ -166,52 +166,67 @@ retrieval:
 
 ```
 CyClaw/
-├── gate.py                     FastAPI gateway + soul endpoints
-├── graph.py                    LangGraph 7-node state machine
-├── mcp_hybrid_server.py        MCP server (retrieval-only, no LLM)
-├── metrics.py                  Audit JSONL analyzer
-├── config.yaml                 Single source of truth for all config
-├── requirements.txt            Pinned Python deps
-├── cyclaw_telemetry_kill.env  Kill-switch for LangChain/Chroma/OTel telemetry
-├── cyclaw_suggestions_fix.md  Dev notes and open issues
-├── sync/                       Out-of-band Dropbox corpus sync (rclone wrapper, v1.4+; see docs/SYNC_README.md)
+├── .github/
+│   ├── ISSUE_TEMPLATE/
+│   ├── SECURITY.md
+│   ├── dependabot.yml
+│   └── workflows/                 # CI workflows (codeql, ci, fortify, etc.)
 ├── .gitignore
-├── old.md                      Archived prior README
-├── llm/
-│   └── client.py               LocalLLMClient + GrokClient
-├── retrieval/
-│   ├── embeddings.py           sentence-transformers wrapper
-│   ├── hybrid_search.py        ChromaDB + BM25 + RRF fusion
-│   ├── indexer.py              Corpus ingestion + index build
-│   └── stemmer.py              Porter stemmer (tech-vocabulary tuned)
-├── schemas/
-│   └── api.py                  Pydantic request/response models
-├── utils/
-│   ├── errors.py               Typed RAGError hierarchy
-│   ├── health.py               Startup dependency health checks
-│   ├── logger.py               Audit JSONL + SHA-256 query hashing
-│   ├── personality.py          PersonalityManager (soul CRUD + governance)
-│   └── sanitizer.py            Prompt injection filter + PII redaction
-├── static/
-├   |── extractor.html          Browser-Based simplified insight_extractor.py to generate .md corpus files
-│   └── terminal.html           Browser UI / Soul Console
+├── .osv-scanner.toml
+├── Dropbox_Sync_Guide.md
+├── README.md
+├── config.yaml                    # Single source of truth for all config
+├── constraints.txt
+├── cyclaw_telemetry_kill.env      # Kill-switch for LangChain/Chroma/OTel telemetry
+├── gate.py                        # FastAPI gateway + soul endpoints
+├── graph.py                       # LangGraph 7-node state machine
+├── mcp_hybrid_server.py           # MCP server (retrieval-only, no LLM)
+├── metrics.py                     # Audit JSONL analyzer
+├── package.json
+├── pyproject.toml
+├── requirements.txt               # Pinned Python deps
+├── setup-guide.md
 ├── data/
-│   ├── corpus/                 .md / .txt knowledge base (gitignored runtime content)
+│   ├── corpus/                    # .md / .txt knowledge base (gitignored runtime content)
 │   └── personality/
-│       └── soul.md             Identity source-of-truth
-└── tests/
-    ├── conftest.py
-    ├── test_gate.py
-    ├── test_graph.py
-    ├── test_hybrid_search.py
-    ├── test_sanitizer.py
-    ├── test_personality.py
-    ├── test_personality_changes.py
-    ├── test_rate_limit.py
-    ├── test_audit.py
-    ├── test_stemmer.py
-    ├── apipsTest.ps1           Windows PowerShell smoke test
-    └── cmd2index.bat           Windows index rebuild shortcut
+│       └── soul.md                # Identity source-of-truth
+├── docs/
+│   ├── screenshots/
+│   ├── SYNC_README.md             # Detailed Dropbox sync guide
+│   ├── SETUP.md / setup-guide.md
+│   └── (security reviews, architecture guides, etc.)
+├── llm/
+│   └── client.py                  # LocalLLMClient + GrokClient
+├── retrieval/
+│   ├── embeddings.py              # sentence-transformers wrapper
+│   ├── hybrid_search.py           # ChromaDB + BM25 + RRF fusion
+│   ├── indexer.py                 # Corpus ingestion + index build
+│   └── stemmer.py                 # Porter stemmer (tech-vocabulary tuned)
+├── schemas/
+│   └── api.py                     # Pydantic request/response models
+├── static/
+│   ├── extractor.html             # Browser-Based simplified insight_extractor.py
+│   └── terminal.html              # Browser UI / Soul Console
+├── sync/                          # Out-of-band Dropbox corpus sync (rclone wrapper, v1.4+)
+│   ├── __init__.py
+│   ├── cli.py
+│   ├── config.py
+│   ├── filters.py
+│   ├── runner.py
+│   ├── scheduler.py
+│   └── selftest.py
+├── tests/                         # Comprehensive pytest + PowerShell test suite
+│   ├── conftest.py
+│   ├── test_*.py (gate, graph, hybrid_search, personality, sync_*, rate_limit, sanitizer, etc.)
+│   ├── apipsTest.ps1
+│   └── cmd2index.bat
+└── utils/
+    ├── errors.py                  # Typed RAGError hierarchy
+    ├── health.py                  # Startup dependency health checks
+    ├── logger.py                  # Audit JSONL + SHA-256 query hashing
+    ├── personality.py             # PersonalityManager (soul CRUD + governance)
+    ├── ratelimit.py
+    └── sanitizer.py               # Prompt injection filter + PII redaction
 ```
 
 ---
