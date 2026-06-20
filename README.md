@@ -125,13 +125,6 @@ pip install -r requirements.txt -c constraints.txt
 
 <hr>
 
-> **Upgrading from a pre-1.4.0 checkout?** ChromaDB moved from 0.4.x to 1.5.x and the
-> on-disk index format changed — delete `index/` and rebuild with `python -m retrieval.indexer`.
->
-> **Offline note:** embeddings use `all-MiniLM-L6-v2`. Because `cyclaw_telemetry_kill.env`
-> sets `HF_HUB_OFFLINE=1`, the model must be cached locally first. On a machine with network,
-> run the indexer once (it downloads + caches the model); afterwards it runs fully offline.
-
 ### Configure
 
 Key settings in `config.yaml`:
@@ -171,7 +164,6 @@ CyClaw/
 │   ├── SECURITY.md
 │   ├── dependabot.yml
 │   └── workflows/                 # CI workflows (codeql, ci, fortify, etc.)
-├── .gitignore
 ├── .osv-scanner.toml
 ├── Dropbox_Sync_Guide.md
 ├── README.md
@@ -187,12 +179,12 @@ CyClaw/
 ├── requirements.txt               # Pinned Python deps
 ├── setup-guide.md
 ├── data/
-│   ├── corpus/                    # .md / .txt knowledge base (gitignored runtime content)
+│   ├── corpus/                    # .md / .txt knowledge base (gitignored at commit)
 │   └── personality/
 │       └── soul.md                # Identity source-of-truth
 ├── docs/
 │   ├── screenshots/
-│   ├── SYNC_README.md             # Detailed Dropbox sync guide
+│ 
 │   ├── SETUP.md / setup-guide.md
 │   └── (security reviews, architecture guides, etc.)
 ├── llm/
@@ -298,31 +290,6 @@ For Claude Desktop or other MCP-compatible clients:
 ```
 
 The MCP server exposes a single `hybrid_search` tool. It has **no sampling capability** — `sampling: null` is set at the protocol level, making it architecturally impossible for this server to invoke an LLM.
-
----
-
-## Status & Roadmap
-
-**What works in v1.3.0:**
-- RAG-first pipeline (ChromaDB + BM25 + RRF)
-- FastAPI `/query` with LangGraph 7-node controller
-- Local LLM via LM Studio
-- Optional Grok fallback (triple-gated)
-- MCP server (retrieval-only)
-- Audit JSONL with SHA-256 hashing and PII redaction
-- Soul persistence with drift detection and atomic writes
-- Rate limiting (60/min per IP)
-- Browser UI via `static/terminal.html`
-
-**v1.4.0 (current production — delivered):**
-- Dropbox/cloud corpus sync via out-of-band rclone wrapper with full audit integration and invariant preservation (see dedicated section above and [docs/SYNC_README.md](docs/SYNC_README.md) for complete setup)
-- `plan_node` for multi-step query decomposition (in progress)
-- BM25 index SHA-256 integrity check on load
-- General-purpose agent (tool invocation from corpus context)
-
-**Not yet planned:**
-- Multi-user or network-exposed deployment
-- Production security hardening (external pentest)
 
 ---
 
