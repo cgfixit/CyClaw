@@ -80,45 +80,20 @@ def require_api_key(
     if not credentials or credentials.credentials != api_key:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
-# Simple in-memory rate limiter (config-driven, per-IP for /query)
-import time
-from collections import defaultdict
+# Simple in-memory rate limiter (per-IP for /query). The limiter itself lives
+# in utils/ratelimit.py as a lock-synchronized class so the gateway and its
+# tests share one implementation (no duplicated logic) and concurrent requests
+# under FastAPI's threadpool cannot interleave and overcount.
 from fastapi import Request, HTTPException as FastAPIHTTPException
+from utils.ratelimit import RateLimiter
 
-_rate_limits = defaultdict(list)
 RATE_LIMIT_REQUESTS = 60
 RATE_LIMIT_WINDOW = 60  # seconds
-_last_sweep = 0.0
-
-def _sweep_rate_limits(now: float) -> None:
-    """Evict idle clients so _rate_limits cannot grow without bound.
-
-    Without this, every distinct client IP leaves a permanent dict entry:
-    its timestamp list is filtered down to empty but the key is never
-    removed, so memory grows with the number of IPs ever seen. An entry
-    whose timestamps are all older than the window can never block a
-    future request, so it is safe to drop. Runs at most once per window
-    to keep the common path cheap.
-    """
-    global _last_sweep
-    if now - _last_sweep < RATE_LIMIT_WINDOW:
-        return
-    _last_sweep = now
-    stale = [ip for ip, hits in _rate_limits.items()
-             if all(now - t >= RATE_LIMIT_WINDOW for t in hits)]
-    for ip in stale:
-        del _rate_limits[ip]
+_rate_limiter = RateLimiter(max_requests=RATE_LIMIT_REQUESTS, window_seconds=RATE_LIMIT_WINDOW)
 
 def check_rate_limit(client_ip: str) -> bool:
-    now = time.time()
-    _sweep_rate_limits(now)
-    recent = [t for t in _rate_limits[client_ip] if now - t < RATE_LIMIT_WINDOW]
-    if len(recent) >= RATE_LIMIT_REQUESTS:
-        _rate_limits[client_ip] = recent
-        return False
-    recent.append(now)
-    _rate_limits[client_ip] = recent
-    return True
+    """Thin gateway-level wrapper over the shared RateLimiter instance."""
+    return _rate_limiter.allow(client_ip)
 
 # Redact sensitive values from exception messages before returning in HTTP responses.
 # Strips Bearer tokens, known secret-like patterns, and any live env var values
