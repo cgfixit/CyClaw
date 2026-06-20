@@ -129,6 +129,36 @@ class HybridRetriever:
                 ))
         return hits
 
+    def _normalize_single_path(self, hits: List[SearchResult]) -> List[SearchResult]:
+        """Re-score a single-retrieval-path result list into the RRF range.
+
+        When only one path (semantic OR keyword) produced hits, the raw scores
+        are not comparable to the fused ``rrf_score`` the downstream
+        ``min_score`` gate is calibrated against:
+          * BM25 returns unbounded positive floats (a hit can score 2.7).
+          * semantic returns ``1 - distance`` (range depends on the metric).
+        Returning those raw values made ``min_score`` misfire — a high raw BM25
+        score trivially cleared the gate (false high-confidence) while a low raw
+        score escalated even on a relevant hit.
+
+        Reusing the same ``1 / (rrf_k + rank)`` weight the fused path uses keeps
+        single-path scores on one scale. Because a single path contributes only
+        one term (vs. two when both paths agree), even the top single-path hit
+        stays below the fusion-agreement threshold — a degraded retrieval is
+        correctly treated as lower confidence rather than silently trusted.
+        """
+        normalized: List[SearchResult] = []
+        for rank, hit in enumerate(hits):
+            contrib = 1 / (self.rrf_k + rank)
+            hit.score = contrib
+            hit.rrf_score = contrib
+            if hit.retrieval_mode == "semantic":
+                hit.rrf_semantic_contrib = contrib
+            elif hit.retrieval_mode == "keyword":
+                hit.rrf_keyword_contrib = contrib
+            normalized.append(hit)
+        return normalized
+
     def hybrid_search(self, query: str) -> List[SearchResult]:
         semantic_hits: List[SearchResult] = []
         keyword_hits: List[SearchResult] = []
@@ -144,9 +174,9 @@ class HybridRetriever:
         if not semantic_hits and not keyword_hits:
             return []
         if not semantic_hits:
-            return keyword_hits
+            return self._normalize_single_path(keyword_hits)
         if not keyword_hits:
-            return semantic_hits
+            return self._normalize_single_path(semantic_hits)
 
         scores = {}
         semantic_meta = {}
