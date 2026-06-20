@@ -1,17 +1,9 @@
 # ==============================================================================
 # CyClaw • Codacy Security & Quality Scan
 #
-# Purpose: Structural CI gate for Python + security invariants (aligns with
-#          the 5 topology-enforced invariants in the agent). Fast feedback on
-#          sanitizer.py, graph.py, retrieval, gate logic, etc. without noise.
-#
-# Hardening applied:
-# - Explicit permissions (least privilege)
-# - Concurrency + timeout (cost + reliability)
-# - Python-focused tool selection via extra-args + .codacy.yml excludes
-# - Separate SARIF upload with gh-code-scanning-compat
-# - High max-allowed-issues (delegate failure to branch protection)
-# - Resolvable action references (no fake SHAs)
+# Purpose: Structural CI gate for Python + security invariants.
+#          Uses Codacy dashboard + .codacy.yml to control tools (extra-args
+#          is not a supported input on this action).
 # ==============================================================================
 
 name: CyClaw • Codacy Security & Quality Scan
@@ -21,7 +13,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:   # Manual trigger for audits / pre-release
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,13 +27,13 @@ jobs:
   codacy:
     name: Codacy Analysis (Python + Security invariants layer)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Codacy Analysis CLI (Python + invariants hardened)
+      - name: Run Codacy Analysis CLI
         uses: codacy/codacy-analysis-cli-action@master
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
@@ -52,8 +44,6 @@ jobs:
           gh-code-scanning-compat: true
           max-allowed-issues: 2147483647
           upload: false
-          # Python + security focused tools (tune as needed)
-          extra-args: "--tools bandit,pylint,prospector"
 
       - name: Upload SARIF to GitHub Advanced Security
         if: always()
@@ -62,7 +52,7 @@ jobs:
           sarif_file: results.sarif
           category: codacy-invariants
 
-      - name: Archive raw results (debug false positives on sanitizer/graph)
+      - name: Archive raw SARIF (for debugging)
         if: always()
         uses: actions/upload-artifact@v4
         with:
