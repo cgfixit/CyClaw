@@ -296,22 +296,22 @@ Skills live at `.claude/skills/<name>/SKILL.md`. When a skill is not present in 
 
 | Skill | Type | Purpose |
 |---|---|---|
-| `run-cyclaw` | one-shot | Smoke-test the FastAPI server |
-| `architecture-refactor` | loop | Iterative architecture cleanup |
-| `speed-refactor` | loop | Optimize all endpoints to <50 ms |
-| `tests-refactor` | loop | Coverage to 100%, pass rate ≥85% |
-| `logging-refactor` | loop | Log coverage on every important path |
-| `wrap-up` | one-shot | End-of-session checklist |
-| `sandbox-runtime-verification` | one-shot | Verify runtime environment integrity |
-| `code-explorer` | one-shot | Deep codebase exploration and mapping |
-| `solution-architect` | one-shot | High-level architecture planning |
-| `verification-specialist` | one-shot | Focused verification and test analysis |
-| `general-purpose` | one-shot | General-purpose coding assistance |
-| `documentation-guide` | one-shot | Documentation generation and updates |
-| `conversation-summary` | one-shot | Summarize session context |
-| `create-session-notes` | one-shot | Produce structured session handoff notes |
-| `memory-consolidation` | one-shot | Consolidate and compress task memory |
-| `memory-extraction` | one-shot | Extract key decisions and facts from context |
+| `/run-cyclaw` | one-shot | Smoke-test the FastAPI server |
+| `/architecture-refactor` | loop | Iterative architecture cleanup |
+| `/speed-refactor` | loop | Optimize all endpoints to <50 ms |
+| `/tests-refactor` | loop | Coverage to 100%, pass rate ≥85% |
+| `/logging-refactor` | loop | Log coverage on every important path |
+| `/wrap-up` | one-shot | End-of-session checklist |
+| `/sandbox-runtime-verification` | one-shot | Full Python 3.12 runtime gate: deps, index, tests, smoke |
+| `/create-session-notes` | one-shot | Maintain structured SESSION_NOTES.md for continuity |
+| `/solution-architect` | agent | Plan implementation strategy before writing code |
+| `/verification-specialist` | agent | Adversarial verification with mandatory command output |
+| `/memory-extraction` | agent | Persist useful memories from conversation to memory directory |
+| `/memory-consolidation` | agent | Deduplicate and prune the memory directory |
+| `/conversation-summary` | agent | Condense conversation for seamless continuation |
+| `/documentation-guide` | agent | Produce or revise documentation for a target audience |
+| `/general-purpose` | agent | Multi-step codebase research and task completion |
+| `/code-explorer` | agent | Read-only codebase search and exploration |
 
 ---
 
