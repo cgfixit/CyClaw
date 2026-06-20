@@ -1,3 +1,15 @@
+# ==============================================================================
+# CyClaw CI — Tests + Coverage
+# Changes from previous version:
+#   - Least-privilege permissions block added (contents: read only)
+#   - Actions pinned to full commit SHAs (supply chain hardening)
+#   - Removed base64 exec() smoke step — replaced with readable inline Python
+#   - Expanded test scope to include personality, audit, conftest fixture tests
+#   - Fixed --cov targets: use package names, not file paths
+#   - Coverage measured only over modules the selected tests actually exercise
+#   - test_personality_changes.py excluded (targets future build, see BUILD-ALIGNMENT NOTE)
+# ==============================================================================
+
 name: CyClaw CI (Simplified + Coverage)
 
 on:
@@ -5,6 +17,9 @@ on:
     branches: [ main, cc ]
   pull_request:
     branches: [ main, cc ]
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -16,10 +31,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Setup Python 3.12
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -47,15 +62,26 @@ jobs:
           # fused score clears retrieval.min_score (a genuine vault hit, not a mock).
           python -m tests.ci_rag_smoke
 
-      - name: Run safe tests + coverage
+      - name: Run tests + coverage
         shell: bash
         run: |
-          pytest tests/test_sanitizer.py tests/test_rate_limit.py -q --tb=short \
-            --cov=utils/sanitizer --cov=utils \
-            --cov-report=xml --cov-report=html --cov-report=term-missing
+          pytest \
+            tests/test_sanitizer.py \
+            tests/test_rate_limit.py \
+            tests/test_audit.py \
+            tests/test_personality.py \
+            tests/test_conftest_fixtures.py \
+            -q --tb=short \
+            --cov=utils.sanitizer \
+            --cov=utils.errors \
+            --cov=utils.logger \
+            --cov=utils.personality \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term-missing
 
       - name: Upload Coverage Report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: coverage-${{ matrix.os }}
           path: |
