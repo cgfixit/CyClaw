@@ -305,7 +305,14 @@ async def propose_soul_evolution(req: SoulEvolutionRequest):
 async def apply_soul_evolution(req: SoulEvolutionRequest):
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
-    result = await asyncio.to_thread(personality.apply_evolution, req.new_soul, req.reason)
+    try:
+        result = await asyncio.to_thread(personality.apply_evolution, req.new_soul, req.reason)
+    except PromptInjectionError as e:
+        audit_log({"event": "soul_apply_injection_blocked", "reason": req.reason})
+        raise HTTPException(
+            status_code=400,
+            detail={"error": e.message, "code": e.code, "details": e.details},
+        )
     return result
 
 @app.post("/soul/reload", dependencies=[Depends(require_api_key)])
