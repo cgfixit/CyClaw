@@ -143,6 +143,16 @@ class PersonalityManager:
         return int(row[0]) if row and row[0] is not None else 0
 
     def propose_evolution(self, new_soul: str, reason: str) -> dict:
+        """Advisory injection scan + diff for a proposed soul change.
+
+        ADVISORY BY DESIGN: the ``injection_flags`` / ``safe_to_apply`` fields
+        returned here are advisory only. They surface a risk signal to the human
+        reviewing the proposal; they are NOT an enforcement gate. ``safe_to_apply``
+        is deliberately not consulted by :meth:`apply_evolution` — authority to
+        change the soul rests with the human operator (propose/apply separation +
+        a required reason string), per the soul-governance invariant. This method
+        never writes; it only computes the diff and flags for review.
+        """
         flags = []
         for pattern in OWASP_INJECTION_PATTERNS:
             if re.search(pattern, new_soul, re.IGNORECASE):
@@ -166,6 +176,18 @@ class PersonalityManager:
         }
 
     def apply_evolution(self, new_soul: str, reason: str) -> dict:
+        """Atomically write a new soul and record a forensic audit event.
+
+        HUMAN-GATED AUTHORITY (intentional, not an oversight): this method does
+        NOT enforce the advisory ``safe_to_apply`` flag from
+        :meth:`propose_evolution`. The soul-governance invariant gates writes by
+        propose/apply separation, an explicit human ``reason`` string, and the
+        absence of any autonomous/graph path — NOT by an injection block. The
+        human operator is the authority; refusing flagged content here would move
+        that authority into the code. Drift is handled by detect + forensic log +
+        recover, not by blocking. The write is atomic (tmp file + ``os.replace``)
+        so a crash cannot leave a half-written soul.md.
+        """
         new_hash = self._sha256(new_soul)
         bak_path = self.soul_path.with_suffix(self.soul_path.suffix + ".bak")
         tmp_path = self.soul_path.with_suffix(self.soul_path.suffix + ".tmp")
