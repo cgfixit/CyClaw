@@ -17,6 +17,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, List
 
+from utils.errors import PromptInjectionError
 from utils.logger import audit_log
 
 OWASP_INJECTION_PATTERNS = [
@@ -142,11 +143,12 @@ class PersonalityManager:
         ).fetchone()
         return int(row[0]) if row and row[0] is not None else 0
 
+    def _scan_injection(self, text: str) -> List[str]:
+        """Return every OWASP injection pattern that matches ``text`` (case-insensitive)."""
+        return [p for p in OWASP_INJECTION_PATTERNS if re.search(p, text, re.IGNORECASE)]
+
     def propose_evolution(self, new_soul: str, reason: str) -> dict:
-        flags = []
-        for pattern in OWASP_INJECTION_PATTERNS:
-            if re.search(pattern, new_soul, re.IGNORECASE):
-                flags.append(pattern)
+        flags = self._scan_injection(new_soul)
         diff = list(difflib.unified_diff(
             self.soul_core.splitlines(keepends=True),
             new_soul.splitlines(keepends=True),
@@ -165,7 +167,21 @@ class PersonalityManager:
             "proposed_sha": self._sha256(new_soul),
         }
 
-    def apply_evolution(self, new_soul: str, reason: str) -> dict:
+    def apply_evolution(self, new_soul: str, reason: str, *, scan: bool = True) -> dict:
+        # Enforce the injection gate at the write boundary. propose_evolution()
+        # only *flags* patterns and is advisory; without this check apply_evolution()
+        # would persist any payload — including "ignore previous instructions" — straight
+        # to soul.md, which is then prepended to every LLM system prompt. Trusted internal
+        # callers that re-apply previously vetted content (restore_from_backup) pass scan=False.
+        if scan:
+            flags = self._scan_injection(new_soul)
+            if flags:
+                audit_log({"event": "soul_apply_injection_blocked",
+                           "reason": reason, "injection_flag_count": len(flags)})
+                raise PromptInjectionError(
+                    "Proposed soul contains injection patterns; refusing to apply",
+                    details={"injection_flags": flags, "injection_flag_count": len(flags)},
+                )
         new_hash = self._sha256(new_soul)
         bak_path = self.soul_path.with_suffix(self.soul_path.suffix + ".bak")
         tmp_path = self.soul_path.with_suffix(self.soul_path.suffix + ".tmp")
@@ -189,7 +205,7 @@ class PersonalityManager:
         if not bak_path.exists():
             raise FileNotFoundError("No .bak file found to restore from")
         backup_content = bak_path.read_text(encoding="utf-8")
-        result = self.apply_evolution(backup_content, "RESTORE: reverted to previous .bak")
+        result = self.apply_evolution(backup_content, "RESTORE: reverted to previous .bak", scan=False)
         audit_log({"event": "soul_restored_from_backup", "sha256": result["sha256"]})
         return result
 
