@@ -12,11 +12,18 @@
 #
 # Hardening applied (matching ci.yml spirit):
 #   - checkout pinned to SHA (supply chain)
-#   - Codacy action @master (their current recommendation, pulls latest CLI 7.9.x)
+#   - Codacy action @master (their current recommendation, pulls latest CLI 7.10.x)
 #   - SARIF category isolation so Security tab doesn't become a noisy mess
 #   - Always-upload artifact for post-run triage of any RAG/LangGraph false positives
 #   - max-allowed-issues = INT_MAX so the job never fails the pipeline (you control via branch protection)
 #   - Concurrency + timeout + workflow_dispatch = founder-grade discipline
+#
+# Known gotcha (this run): Do NOT pass `directory: .` to the action.
+#   The action builds a `docker run -v host:container` mount. When it sees `directory: .`
+#   it produces a relative path on the container side of the volume spec, which Docker
+#   rejects on GitHub-hosted runners ("mount path must be absolute").
+#   Solution: omit the directory line entirely. The action already runs in the workspace root.
+#   Long-term noise control belongs in .codacy.yml (exclude_paths), not the action param.
 #
 # Setup (one time):
 #   1. Codacy dashboard → Add repo (CGFixIT/CyClaw) → copy Project API Token
@@ -70,7 +77,6 @@ jobs:
         uses: codacy/codacy-analysis-cli-action@master  # Their rec; auto-pulls latest CLI with Python 3.12 support
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}  # Required for full engine + SARIF
-          directory: .                                       # Root scan; Python auto-detected. Use .codacy.yml to trim noise
           verbose: true
           output: results.sarif
           format: sarif
