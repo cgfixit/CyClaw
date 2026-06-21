@@ -104,6 +104,7 @@ jobs:
             tests/test_gate.py \
             tests/test_telemetry_kill.py \
             tests/test_mcp_server.py \
+            tests/test_metrics.py \
             tests/test_personality_changes.py \
             tests/test_sync_config.py \
             tests/test_sync_filters.py \
@@ -119,6 +120,7 @@ jobs:
             --cov=llm.client \
             --cov=graph \
             --cov=mcp_hybrid_server \
+            --cov=metrics \
             --cov-report=xml \
             --cov-report=html \
             --cov-report=term-missing
