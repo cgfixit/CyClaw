@@ -75,6 +75,7 @@ personality:
   db_path: "data/personality/cyclaw_soul.db"
   interaction_ttl_days: 365
   injection_patterns_path: null  # uses built-in patterns in policy.prompt_filter
+  # database_url: null  # Set to "postgresql://user:pass@host/dbname" or use CYCLAW_DB_URL env var
 
 policy:
   fallback:

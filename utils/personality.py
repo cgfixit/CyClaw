@@ -1,7 +1,11 @@
 """PersonalityManager — Lean soul layer for CyClaw.
 
-Based on soul.md as file-as-truth with SQLite shadow DB for version history
+Based on soul.md as file-as-truth with a shadow DB for version history
 and interaction logging. SHA-256 drift detection on startup.
+
+Database backend: SQLite by default (zero-config, offline-first). Switch to
+Postgres by setting CYCLAW_DB_URL=postgresql://... or personality.database_url
+in config.yaml. See utils/personality_db.py for the connection shim.
 
 Security: proposed soul evolutions are scanned before any write using the SAME
 banned-pattern set the query path uses (config.yaml policy.prompt_filter), unioned
@@ -14,12 +18,12 @@ import difflib
 import hashlib
 import os
 import re
-import sqlite3
 import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, List
 
+from utils import personality_db
 from utils.errors import PromptInjectionError
 from utils.logger import audit_log
 
@@ -41,12 +45,6 @@ OWASP_INJECTION_PATTERNS = [
 
 _DEFAULT_SOUL = "# Soul\n\nDefault CyClaw soul. Replace this file with your own identity statement.\n"
 
-# SQL stores the content's SHA-256 digest alongside a UTC timestamp as metadata —
-# the hash is of *file content*, not of the time value.
-_SQL_INSERT_SOUL_VERSION = (
-    "INSERT INTO soul_versions (sha256, content, reason, timestamp) VALUES (?, ?, ?, ?)"  # DevSkim: ignore DS197836
-)
-
 
 class PersonalityManager:
     def __init__(self, cfg: dict):
@@ -64,26 +62,23 @@ class PersonalityManager:
         self.maintenance()
 
     def _init_db(self) -> None:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS soul_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sha256 TEXT NOT NULL,
-                content TEXT NOT NULL,
-                reason TEXT,
-                timestamp TEXT NOT NULL
-            )
-        """)
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                query_hash TEXT NOT NULL,
-                outcome TEXT,
-                timestamp TEXT NOT NULL
-            )
-        """)
+        pers_cfg = self.cfg.get("personality", {})
+        self.conn, self._ph, self._backend = personality_db.connect(self.db_path, pers_cfg)
+        # Build parameterized SQL templates for this backend.
+        # DevSkim: ignore DS197836 — placeholders are ? (SQLite) or %s (Postgres), not user data.
+        self._sql_insert_soul = (
+            f"INSERT INTO soul_versions (sha256, content, reason, timestamp)"
+            f" VALUES ({self._ph}, {self._ph}, {self._ph}, {self._ph})"
+        )
+        self._sql_insert_interaction = (
+            f"INSERT INTO interactions (query_hash, outcome, timestamp)"
+            f" VALUES ({self._ph}, {self._ph}, {self._ph})"
+        )
+        self._sql_delete_old_interactions = (
+            f"DELETE FROM interactions WHERE timestamp < {self._ph}"
+        )
+        self.conn.execute(personality_db.ddl_soul_versions(self._backend))
+        self.conn.execute(personality_db.ddl_interactions(self._backend))
         self.conn.commit()
 
     def _sha256(self, content: str) -> str:
@@ -96,7 +91,7 @@ class PersonalityManager:
             file_hash = self._sha256(_DEFAULT_SOUL)
             with self._lock:
                 self.conn.execute(
-                    _SQL_INSERT_SOUL_VERSION,
+                    self._sql_insert_soul,
                     (file_hash, _DEFAULT_SOUL, "initial_default", datetime.now(timezone.utc).isoformat())
                 )
                 self.conn.commit()
@@ -118,7 +113,7 @@ class PersonalityManager:
             })
             with self._lock:
                 self.conn.execute(
-                    _SQL_INSERT_SOUL_VERSION,
+                    self._sql_insert_soul,
                     (file_hash, content, "DRIFT_RECOVERY: file hash mismatch on startup",
                      datetime.now(timezone.utc).isoformat())
                 )
@@ -126,7 +121,7 @@ class PersonalityManager:
         elif not row:
             with self._lock:
                 self.conn.execute(
-                    _SQL_INSERT_SOUL_VERSION,
+                    self._sql_insert_soul,
                     (file_hash, content, "initial_load", datetime.now(timezone.utc).isoformat())
                 )
                 self.conn.commit()
@@ -138,9 +133,9 @@ class PersonalityManager:
 
     def get_version(self) -> int:
         row = self.conn.execute(
-            "SELECT MAX(id) FROM soul_versions"
+            "SELECT MAX(id) AS max_id FROM soul_versions"
         ).fetchone()
-        return int(row[0]) if row and row[0] is not None else 0
+        return int(row["max_id"]) if row and row["max_id"] is not None else 0
 
     def _build_injection_patterns(self) -> List[tuple]:
         """Compile the soul scanner from the query-path filter ∪ the OWASP baseline.
@@ -237,7 +232,7 @@ class PersonalityManager:
             tmp_path.write_text(new_soul, encoding="utf-8")
             os.replace(tmp_path, self.soul_path)
             self.conn.execute(
-                _SQL_INSERT_SOUL_VERSION,
+                self._sql_insert_soul,
                 (new_hash, new_soul, reason, datetime.now(timezone.utc).isoformat())
             )
             self.conn.commit()
@@ -272,9 +267,9 @@ class PersonalityManager:
     def record_interaction(self, query_hash: str, outcome: str) -> None:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=self.ttl_days)).isoformat()
         with self._lock:
-            self.conn.execute("DELETE FROM interactions WHERE timestamp < ?", (cutoff,))
+            self.conn.execute(self._sql_delete_old_interactions, (cutoff,))
             self.conn.execute(
-                "INSERT INTO interactions (query_hash, outcome, timestamp) VALUES (?, ?, ?)",
+                self._sql_insert_interaction,
                 (query_hash, outcome, datetime.now(timezone.utc).isoformat())
             )
             self.conn.commit()
@@ -284,6 +279,6 @@ class PersonalityManager:
             ttl_days = self.ttl_days
         cutoff = (datetime.now(timezone.utc) - timedelta(days=ttl_days)).isoformat()
         with self._lock:
-            cursor = self.conn.execute("DELETE FROM interactions WHERE timestamp < ?", (cutoff,))
+            cursor = self.conn.execute(self._sql_delete_old_interactions, (cutoff,))
             self.conn.commit()
             return cursor.rowcount

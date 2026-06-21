@@ -13,3 +13,4 @@ numpy==1.26.4
 nltk==3.9.4
 pytest==9.1.0
 pytest-asyncio==1.4.0
+psycopg[binary]>=3.2.0    # optional: Postgres backend (set CYCLAW_DB_URL=postgresql://...)
