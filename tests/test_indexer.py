@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from retrieval.indexer import chunk_document, build_index
+from retrieval.indexer import chunk_document, build_index, load_corpus
 
 
 class TestChunkDocument:
@@ -117,3 +117,41 @@ class TestBuildIndexConfigPropagation:
             "build_index did not forward its config_path to get_embeddings_batch; "
             f"got {passed_config!r}"
         )
+
+
+class TestLoadCorpusCaseInsensitive:
+    """load_corpus must match file extensions case-insensitively.
+
+    On Linux/CI rglob(f"*{ext}") was case-sensitive; files like CustomData.MD
+    (uppercase) would be silently skipped if config specified [".md", ".txt"].
+    This test validates that both .md/.MD and .txt/.TXT variants are discovered.
+    """
+
+    def test_uppercase_extensions_are_matched(self, tmp_path):
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        # Create both lowercase and uppercase variants
+        (corpus / "file.md").write_text("lowercase md", encoding="utf-8")
+        (corpus / "FILE.MD").write_text("uppercase MD", encoding="utf-8")
+        (corpus / "notes.txt").write_text("lowercase txt", encoding="utf-8")
+        (corpus / "NOTES.TXT").write_text("uppercase TXT", encoding="utf-8")
+        # Config specifies only lowercase extensions
+        docs = load_corpus(str(corpus), extensions=[".md", ".txt"])
+        # All four files should be loaded regardless of case
+        assert len(docs) == 4, f"Expected 4 docs, got {len(docs)}: {docs}"
+        sources = {source for source, _ in docs}
+        assert any("file.md" in s for s in sources), "Missing file.md"
+        assert any("FILE.MD" in s for s in sources), "Missing FILE.MD"
+        assert any("notes.txt" in s for s in sources), "Missing notes.txt"
+        assert any("NOTES.TXT" in s for s in sources), "Missing NOTES.TXT"
+
+    def test_unmatched_extensions_still_skipped(self, tmp_path):
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        (corpus / "doc.md").write_text("match", encoding="utf-8")
+        (corpus / "other.json").write_text("skip", encoding="utf-8")
+        (corpus / "OTHER.JSON").write_text("skip uppercase", encoding="utf-8")
+        docs = load_corpus(str(corpus), extensions=[".md"])
+        # Only .md should be loaded; .json and .JSON should be skipped
+        assert len(docs) == 1
+        assert "doc.md" in docs[0][0]
