@@ -187,11 +187,11 @@ except IndexNotFoundError as e:
     print("Run: python -m retrieval.indexer", file=sys.stderr)
     retriever = None
 
-local_llm = LocalLLMClient()
+local_llm = LocalLLMClient(cfg=cfg)
 
 grok = None
 if cfg["app"]["mode"] == "hybrid" and cfg["models"]["grok"].get("enabled", False):
-    grok = GrokClient()
+    grok = GrokClient(cfg=cfg)
 
 personality = None
 if cfg.get("personality", {}).get("enabled", False):
