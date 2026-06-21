@@ -90,6 +90,57 @@ class SyncRuntimeError(SyncError):
         self.code = "SYNC_RUNTIME_ERROR"
 
 
+class AgenticError(RAGError):
+    """Base error for the out-of-band agentic (GitHub-context / skills) layer.
+
+    Mirrors the SyncError convention: a dedicated hierarchy for a strictly
+    out-of-band feature that is never imported by gate.py / graph.py /
+    mcp_hybrid_server.py, so the gateway can stay oblivious to it.
+    """
+
+    def __init__(self, message: str, code: str = "AGENTIC_ERROR", details: Optional[dict] = None):
+        super().__init__(message, code=code, details=details)
+
+
+class GhNotInstalledError(AgenticError):
+    """The GitHub CLI (`gh`) was not found on PATH."""
+
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="GH_NOT_INSTALLED", details=details)
+
+
+class GhVersionError(AgenticError):
+    """`gh` is installed but below the required version floor (or unparseable)."""
+
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="GH_VERSION_TOO_OLD", details=details)
+
+
+class AgenticConfigError(AgenticError):
+    """The agentic: block in config.yaml is missing or invalid."""
+
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="AGENTIC_CONFIG_INVALID", details=details)
+
+
+class AgenticWriteRefused(AgenticError):
+    """A write was refused because the triple-gate (mode + flag + reason + confirm) failed.
+
+    v0.1 never executes writes regardless; this is raised when a caller asks for a
+    write plan without satisfying every gate.
+    """
+
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="AGENTIC_WRITE_REFUSED", details=details)
+
+
+class SkillRegistryError(AgenticError):
+    """The governed skills registry could not load, validate, or apply a change."""
+
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="SKILL_REGISTRY_ERROR", details=details)
+
+
 @dataclass
 class HealthStatus:
     name: str

@@ -33,6 +33,11 @@ CHANGES FROM ORIGINAL (soul.md / persistent personality integration):
 #       omitted here — Grok is an external model and the soul/identity layer
 #       must never be forwarded off-box (invariant 3 + privacy). When context
 #       forwarding is enabled it uses the same data-trust framing.
+
+# 2026-06-21 (feature/CyClaw-Agent): A persistent SqliteSaver checkpointer +
+#   interrupt_before was proposed and reverted (it requires a thread_id on every
+#   invoke and would break gate.py's config-less invoke path). Resumable sessions
+#   are deferred to a dedicated future change. See build_graph() return comment.
 """
 
 import logging
@@ -434,6 +439,11 @@ def build_graph(
     All nodes are partial functions — dependencies injected at build time,
     not at query time. This makes the graph stateless and safe to reuse.
 
+    Compiles with the default in-memory state (no persistent checkpointer):
+    every existing caller, including gate.py, invokes without a thread_id, so a
+    checkpointer would raise ValueError. Resumable-session persistence is
+    deferred to a dedicated future change (see the return-statement comment).
+
     Args:
         retriever: HybridRetriever instance (ChromaDB + BM25)
         llm: LocalLLMClient instance (LM Studio)
@@ -498,4 +508,13 @@ def build_graph(
     # audit_logger → END (always — convergence guaranteed)
     graph.add_edge("audit_logger", END)
 
+    # NOTE (2026-06-21): A persistent SqliteSaver checkpointer + interrupt_before
+    # was proposed on this branch but REVERTED. Compiling with a checkpointer makes
+    # langgraph REQUIRE a `configurable.thread_id` on every invoke(); every existing
+    # call site — including the production request path in gate.py
+    # (compiled_graph.invoke(initial_state) with no config) — would then raise
+    # ValueError, breaking the live /query endpoint, not just tests. Resumable
+    # sessions are a real feature but need their own design (thread_id/session
+    # lifecycle + updating every caller), tracked for a future release. The
+    # default in-memory compile preserves current behavior.
     return graph.compile()
