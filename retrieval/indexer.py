@@ -120,7 +120,7 @@ def build_index(config_path: str = "config.yaml") -> None:
     )
     try:
         client.delete_collection(collection_name)
-    except Exception:  # noqa: S110 — delete-if-exists; collection may not exist yet
+    except Exception:  # noqa: S110  # nosec B110 — delete-if-exists; collection may not exist yet
         pass
     # Embeddings are L2-normalized (retrieval/embeddings.py), so the collection
     # must use the cosine space: with unit vectors ChromaDB's default `l2` returns
