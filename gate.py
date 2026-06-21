@@ -206,6 +206,17 @@ if retriever is not None:
         retriever=retriever, llm=local_llm, grok=grok, cfg=cfg, personality=personality
     )
 
+
+def _close_http_clients() -> None:
+    """Close persistent httpx connections held by LLM clients on server shutdown."""
+    local_llm.close()
+    if grok is not None:
+        grok.close()
+
+
+app.add_event_handler("shutdown", _close_http_clients)
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query_endpoint(request: Request, req: QueryRequest):
     client_ip = request.client.host if request.client else "unknown"
