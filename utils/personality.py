@@ -65,9 +65,9 @@ class PersonalityManager:
         pers_cfg = self.cfg.get("personality", {})
         self.conn, self._ph, self._backend = personality_db.connect(self.db_path, pers_cfg)
         # Build parameterized SQL templates for this backend.
-        # DevSkim: ignore DS197836 — placeholders are ? (SQLite) or %s (Postgres), not user data.
+        # sha256 stores a hash of soul file *content*, not of the timestamp — the two are independent columns.
         self._sql_insert_soul = (
-            f"INSERT INTO soul_versions (sha256, content, reason, timestamp)"
+            f"INSERT INTO soul_versions (sha256, content, reason, timestamp)"  # DevSkim: ignore DS197836
             f" VALUES ({self._ph}, {self._ph}, {self._ph}, {self._ph})"
         )
         self._sql_insert_interaction = (
