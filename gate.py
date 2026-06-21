@@ -75,9 +75,15 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 def require_api_key(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
 ):
+    # Fail-closed (PR #99 #4). Previously, when CYCLAW_API_KEY was unset the
+    # server ran in "open mode" and require_api_key was a no-op, leaving every
+    # /soul/* mutation endpoint unauthenticated. Now, if no key is configured the
+    # endpoint is REFUSED rather than left open — no key is generated, logged, or
+    # stored. Set CYCLAW_API_KEY to enable soul mutations.
     api_key = os.environ.get("CYCLAW_API_KEY", "")
     if not api_key:
-        return
+        raise HTTPException(status_code=401,
+                            detail="Soul mutation disabled: CYCLAW_API_KEY not set")
     # Constant-time comparison: a plain `!=` short-circuits on the first
     # differing byte, leaking key length/prefix via response timing. compare_digest
     # runs in time independent of how many leading characters match.
@@ -137,9 +143,8 @@ logger = logging.getLogger("cyclaw.gate")
 
 if not os.environ.get("CYCLAW_API_KEY", ""):
     logger.warning(
-        "CYCLAW_API_KEY is not set — server running in OPEN MODE: "
-        "/soul/* endpoints accept any request without authentication. "
-        "Set CYCLAW_API_KEY to enable API key enforcement."
+        "CYCLAW_API_KEY is not set — soul-mutation endpoints (/soul/*) are DISABLED "
+        "(fail-closed). Set CYCLAW_API_KEY to enable them."
     )
 
 app = FastAPI(
@@ -163,6 +168,16 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
     allow_credentials=False,
 )
+
+# TrustedHostMiddleware (PR #99 #3): reject requests whose Host header is not in
+# the allow-list. CORS governs response *readability*; it does not stop a
+# DNS-rebinding page from executing state-changing POST /soul/* server-side. The
+# Host check does. Added after CORS so it is the OUTERMOST middleware (runs first
+# on each request). Host matching ignores port; the list is config-driven so an
+# operator can add any name/IP they reach CyClaw by (e.g. the home-lab LAN IP).
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+_allowed_hosts = cfg.get("security", {}).get("allowed_hosts", ["127.0.0.1", "localhost"])  # DevSkim: ignore DS162092,DS137138 - loopback host allow-list by design
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 
 try:
     retriever = HybridRetriever()
