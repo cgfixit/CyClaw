@@ -1,1 +1,1 @@
-test
+bash ".claude/skills/${{ matrix.skill }}/smoke.sh"
