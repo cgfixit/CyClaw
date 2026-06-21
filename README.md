@@ -34,8 +34,8 @@ Zero telemetry. Binds to `127.0.0.1:8787` only. All embeddings run locally via `
 | v1.2.0 | Superseded | 8 OWASP patterns, 90-day TTL, sanitizer baseline |
 | v1.3.0 | **Pre-Langgrinch** | Rate limiting (60/min), 13 OWASP patterns, soul SHA-256 drift detection, atomic writes, TTL→365 days |
 | v1.4.0 | Superseded | Dropbox/cloud corpus sync (out-of-band rclone wrapper + full audit integration) + requirements.txt pinned for Python 3.12 + vuln patches |
-| v1.5.0 | **Production (current)** | Out-of-band agentic layer (read-only GitHub via `gh` CLI + governed skills registry, disabled by default, write-scaffold stubbed & non-executing) · memory-orchestrator refactored into reusable LangGraph nodes (`memory_nodes.py`, full CLI/hook backward compat) · LangGraph SQLite checkpointer for resumable sessions · Docker + docker-compose (non-root, seccomp-ready, telemetry-killed) · strict Pydantic (`extra='forbid'`) on all API schemas · SQLite-persisted rate limiting · CI skill-verify matrix · dependency-comment consistency + Chroma CVE threat-model alignment |
-| v1.6.0 | **Planning** | Fix Stemmer.py, sql write placeholder code sections, other cleanups, BM25 SHA Integrity Detection, Dropbox sync hardening & scheduler polish |
+| v1.5.0 | **Production (current)** | Out-of-band agentic layer (read-only GitHub via `gh` CLI + governed skills registry, disabled by default, write-scaffold stubbed & non-executing) · memory-orchestrator refactored into reusable LangGraph nodes (`memory_nodes.py`, full CLI/hook backward compat) · Docker + docker-compose (non-root, seccomp-ready, telemetry-killed) · strict Pydantic (`extra='forbid'`) on all API schemas · SQLite-persisted rate limiting · CI skill-verify matrix · dependency-comment consistency + Chroma CVE threat-model alignment |
+| v1.6.0 | **Planning** | Fix Stemmer.py, sql write placeholder code sections, other cleanups, BM25 SHA Integrity Detection, Dropbox sync hardening & scheduler polish, resumable-session checkpointer (deferred from v1.5.0 — needs thread_id/session lifecycle design) |
 
 ---
 
