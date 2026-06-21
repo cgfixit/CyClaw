@@ -12,7 +12,6 @@ now a proper pytest test_rag_integration_full_stack() for automated CI runs.
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 from retrieval.indexer import build_index
