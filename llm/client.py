@@ -19,10 +19,14 @@ class LocalLLMClient:
         self.max_tokens = llm_cfg["max_tokens"]
         self.temperature = llm_cfg["temperature"]
         self.timeout = llm_cfg["timeout_sec"]
+        self._client = httpx.Client(timeout=self.timeout)
+
+    def close(self) -> None:
+        self._client.close()
 
     def generate(self, prompt: str) -> str:
         try:
-            resp = httpx.post(
+            resp = self._client.post(
                 f"{self.base_url}/chat/completions",
                 json={
                     "model": self.model,
@@ -30,7 +34,6 @@ class LocalLLMClient:
                     "max_tokens": self.max_tokens,
                     "temperature": self.temperature
                 },
-                timeout=self.timeout
             )
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
@@ -53,6 +56,10 @@ class GrokClient:
         self.temperature = grok_cfg["temperature"]
         self.timeout = grok_cfg["timeout_sec"]
         self.api_key = os.environ.get("GROK_API_KEY", "")
+        self._client = httpx.Client(timeout=self.timeout)
+
+    def close(self) -> None:
+        self._client.close()
 
     def is_available(self) -> bool:
         return bool(self.api_key)
@@ -62,7 +69,7 @@ class GrokClient:
             raise GrokServiceError("GROK_API_KEY not set",
                                     details={"required_env": "GROK_API_KEY"})
         try:
-            resp = httpx.post(
+            resp = self._client.post(
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={
@@ -71,7 +78,6 @@ class GrokClient:
                     "max_tokens": self.max_tokens,
                     "temperature": self.temperature
                 },
-                timeout=self.timeout
             )
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
