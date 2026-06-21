@@ -15,6 +15,8 @@ baseline -- so a skill body can never smuggle in instructions that the query pat
 would reject. This is the soul-governance invariant applied to a new surface.
 
 Never imported by gate.py / graph.py / mcp_hybrid_server.py.
+
+Wired with governance_score in feature/CyClaw-Agent for agentic visibility.
 """
 
 from __future__ import annotations
@@ -41,7 +43,12 @@ def _utcnow() -> str:
 
 
 class SkillRegistry:
-    """File-as-truth skills catalog with propose/apply governance."""
+    """File-as-truth skills catalog with propose/apply governance.
+
+    governance_score(name) added in feature/CyClaw-Agent to give the agentic
+    layer a 0-100 signal of how well-governed a skill is (low injection flags,
+    good structure, etc.). Used by verification-specialist and registry tools.
+    """
 
     def __init__(self, cfg: dict, agentic_cfg: AgenticConfig | None = None):
         self.cfg = cfg
@@ -132,6 +139,29 @@ class SkillRegistry:
     def version(self) -> int:
         return int(self._data.get("version", 0))
 
+    # NEW: governance_score for agentic visibility and verification-specialist
+    def governance_score(self, name: str) -> int:
+        """Return 0-100 governance score for a registered skill.
+
+        Higher = better governed (low injection risk, good structure).
+        Used by agentic tools and verification-specialist skill.
+        """
+        skill = self.get_skill(name)
+        if not skill:
+            return 0
+        canonical = self._canonical(skill)
+        flags = self._scan_injection(canonical)
+        # Heavy penalty for injection patterns (core invariant)
+        penalty = min(len(flags) * 25, 80)
+        score = 100 - penalty
+        # Bonus for decent description (helps human review)
+        if skill.get("description") and len(skill.get("description", "")) > 30:
+            score += 8
+        # Bonus for non-trivial body
+        if skill.get("body") and len(skill.get("body", "")) > 100:
+            score += 5
+        return max(0, min(100, int(score)))
+
     # --- propose / apply (mirrors personality) ----------------------------
 
     def propose_skill(self, spec: dict, reason: str) -> dict:
@@ -159,6 +189,7 @@ class SkillRegistry:
             "reason": reason,
             "proposed_sha": self._sha256(canonical),
             "is_update": bool(existing),
+            "governance_score": self.governance_score(spec["name"]) if existing else 0,
         }
 
     def apply_skill(self, spec: dict, reason: str, *, scan: bool = True) -> dict:
@@ -226,7 +257,7 @@ class SkillRegistry:
             "sha256": new_sha,
         })
         return {"status": "applied", "name": spec["name"],
-                "version": new_version, "sha256": new_sha}
+                "version": new_version, "sha256": new_sha, "governance_score": self.governance_score(spec["name"]) }
 
 
 __all__ = ["SkillRegistry"]
