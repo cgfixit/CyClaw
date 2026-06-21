@@ -40,7 +40,13 @@ def print_metrics(config_path: str = "config.yaml"):
         scores = [e["top_score"] for e in rag_queries if "top_score" in e]
         if scores:
             print(f"\nRAG scores — avg: {sum(scores)/len(scores):.3f}, min: {min(scores):.3f}, max: {max(scores):.3f}")
-        mode_counts = Counter(e.get("retrieval_mode") or "unknown" for e in rag_queries)
+        # The graph audit path records the retrieval mode under "retrieval_mode";
+        # the MCP server (mcp_hybrid_server._handle_search) records it under "mode".
+        # Reading only "retrieval_mode" silently bucketed every mcp_rag_query as
+        # "unknown" even though its mode was right there under the other key.
+        mode_counts = Counter(
+            e.get("retrieval_mode") or e.get("mode") or "unknown" for e in rag_queries
+        )
         print("\nRetrieval modes:")
         for mode, count in mode_counts.most_common():
             print(f"  {mode}: {count}")
