@@ -1,0 +1,112 @@
+"""Self-contained tests for agentic.config (no conftest fixtures needed)."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+import yaml
+
+from agentic.config import AgenticConfig, load_agentic_config
+from utils.errors import AgenticConfigError
+from utils.logger import reset_config_cache
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_ROOT = (REPO_ROOT / "data").resolve()
+
+
+@pytest.fixture(autouse=True)
+def _reset_cache():
+    reset_config_cache()
+    yield
+    reset_config_cache()
+
+
+def _write_config(tmp_path: Path, agentic_block: dict) -> str:
+    cfg = {"logging": {"audit_file": str(tmp_path / "audit.jsonl")}, "agentic": agentic_block}
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    return str(path)
+
+
+def _base_block(**overrides: object) -> dict:
+    block = {
+        "enabled": True,
+        "repo": "CGFixIT/CyClaw",
+        "mode": "read",
+        "writes_enabled": False,
+        "gh_min_version": "2.40.0",
+        "registry_path": "data/agentic/skills_registry.json",
+    }
+    block.update(overrides)
+    return block
+
+
+def test_valid_load(tmp_path: Path) -> None:
+    cfg = load_agentic_config(_write_config(tmp_path, _base_block()))
+    assert isinstance(cfg, AgenticConfig)
+    assert cfg.repo == "CGFixIT/CyClaw"
+    assert cfg.mode == "read"
+    assert cfg.gh_min_tuple == (2, 40, 0)
+    assert os.path.isabs(cfg.registry_path)
+    assert cfg.enabled is True  # type: ignore[attr-defined]
+
+
+def test_defaults_disabled_when_absent_enabled(tmp_path: Path) -> None:
+    block = _base_block()
+    del block["enabled"]
+    cfg = load_agentic_config(_write_config(tmp_path, block))
+    # Conservative: agentic is disabled unless explicitly enabled.
+    assert cfg.enabled is False  # type: ignore[attr-defined]
+
+
+def test_missing_block_raises(tmp_path: Path) -> None:
+    cfg = {"logging": {"audit_file": str(tmp_path / "audit.jsonl")}}
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    with pytest.raises(AgenticConfigError):
+        load_agentic_config(str(path))
+
+
+def test_rejects_bad_repo_slug(tmp_path: Path) -> None:
+    with pytest.raises(AgenticConfigError) as exc:
+        load_agentic_config(_write_config(tmp_path, _base_block(repo="not-a-slug")))
+    assert exc.value.code == "AGENTIC_CONFIG_INVALID"
+
+
+def test_rejects_repo_with_metacharacters(tmp_path: Path) -> None:
+    with pytest.raises(AgenticConfigError):
+        load_agentic_config(_write_config(tmp_path, _base_block(repo="evil/x; rm -rf")))
+
+
+def test_rejects_bad_mode(tmp_path: Path) -> None:
+    with pytest.raises(AgenticConfigError):
+        load_agentic_config(_write_config(tmp_path, _base_block(mode="delete")))
+
+
+def test_rejects_bad_gh_min_version(tmp_path: Path) -> None:
+    with pytest.raises(AgenticConfigError):
+        load_agentic_config(_write_config(tmp_path, _base_block(gh_min_version="2.40")))
+
+
+def test_rejects_registry_path_outside_data(tmp_path: Path) -> None:
+    with pytest.raises(AgenticConfigError):
+        load_agentic_config(_write_config(tmp_path, _base_block(registry_path="/tmp/x.json")))
+
+
+def test_rejects_registry_path_escape(tmp_path: Path) -> None:
+    with pytest.raises(AgenticConfigError):
+        load_agentic_config(_write_config(tmp_path, _base_block(registry_path="data/../etc/x.json")))
+
+
+def test_unknown_keys_collected_not_fatal(tmp_path: Path) -> None:
+    cfg = load_agentic_config(_write_config(tmp_path, _base_block(typo="oops")))
+    assert cfg._unknown_keys == ["typo"]  # type: ignore[attr-defined]
+
+
+def test_to_dict_excludes_enabled(tmp_path: Path) -> None:
+    cfg = load_agentic_config(_write_config(tmp_path, _base_block()))
+    d = cfg.to_dict()
+    assert "enabled" not in d  # plain attribute, not a dataclass field
+    assert d["repo"] == "CGFixIT/CyClaw"

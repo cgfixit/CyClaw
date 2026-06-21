@@ -89,7 +89,7 @@ exclude_dirs = ["tests"]
 skips = ["B101"]
 
 [tool.coverage.run]
-source = ["gate", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils", "sync"]
+source = ["gate", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils", "sync", "agentic"]
 omit = ["tests/*", "*/test_*", "*/__pycache__/*"]
 
 [tool.coverage.report]
