@@ -132,8 +132,10 @@ class TestAPIKeyAuth:
         )
         assert resp.status_code == 200
 
-    def test_auth_disabled_when_no_env_var(self, tmp_path):
-        """When CYCLAW_API_KEY is not set, auth is bypassed."""
+    def test_fail_closed_when_env_var_unset(self, tmp_path):
+        """PR #99 #4 (Option B, fail-closed): with CYCLAW_API_KEY unset, /soul/* is
+        NO LONGER open — the endpoint is refused (401), not accepted. No key is
+        generated, logged, or stored."""
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("CYCLAW_API_KEY", None)
             from gate import require_api_key
@@ -148,7 +150,7 @@ class TestAPIKeyAuth:
 
             client = TestClient(test_app)
             resp = client.post("/protected")
-            assert resp.status_code == 200
+            assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
