@@ -1,31 +1,37 @@
+---
+name: memory-consolidation
+description: Run a semantic "dream" consolidation over docs/memories/ — merge paraphrases, resolve contradictions, prune stale entries, and rewrite the CONSOLIDATED.md working set. Use when asked to consolidate, deduplicate, or clean up memory. Invoked by the memory-orchestrator before context compaction, on session end, and on the 12h timer.
+---
+
 # memory-consolidation
 
-Run a "dream" consolidation pass over the memory directory to produce a clean, non-redundant working set.
+Run a "dream" consolidation pass over the CyClaw memory directory, `docs/memories/`, to produce a clean, non-redundant working set in `docs/memories/CONSOLIDATED.md`.
+
+This is the *semantic* consolidation that goes beyond the orchestrator driver's structural dedupe. The driver (`orchestrate.py consolidate`) already merges identical lines and groups by section; your job is the reasoning the driver can't do — collapsing paraphrases, resolving contradictions, and pruning.
 
 ## Phase 1 — Orient
 
-- List the contents of the memory directory.
-- Read the index file.
-- Skim existing topic files to understand current memory state.
+- List `docs/memories/` (snapshots, `CONSOLIDATED.md`, `INDEX.md`).
+- Read `INDEX.md` and `CONSOLIDATED.md`.
+- Skim recent timestamped snapshots to understand current memory state.
 
 ## Phase 2 — Gather Recent Signal
 
-- Look for new information worth persisting from daily logs.
+- Pull new information worth persisting from the newest snapshots.
 - Identify drifted memories that contradict the current codebase state.
-- Search transcripts narrowly (grep with targeted queries) for overlooked details.
+- Search snapshots narrowly (grep with targeted queries) for overlooked details.
 
 ## Phase 3 — Consolidate
 
-- Write or update memory files by merging new signal into existing entries — avoid creating near-duplicates.
+- Rewrite `docs/memories/CONSOLIDATED.md` by merging new signal into existing entries — collapse near-duplicates and paraphrases the structural pass left behind.
 - Convert any relative dates ("yesterday", "last week") to absolute dates.
-- Delete facts that are contradicted by fresher evidence.
+- Delete facts contradicted by fresher evidence.
 
 ## Phase 4 — Prune and Index
 
-- Refresh the index to stay within its size limit.
+- Run `python3 .claude/skills/memory-orchestrator/orchestrate.py consolidate` afterward so `INDEX.md` and the timer state refresh, or update `INDEX.md` by hand.
 - Remove stale or dangling pointers.
 - Shorten verbose entries without losing essential meaning.
-- Add pointers to newly created memories.
 - Resolve any remaining contradictions between entries.
 
 ## Constraints
@@ -33,6 +39,7 @@ Run a "dream" consolidation pass over the memory directory to produce a clean, n
 - Prefer fewer, stronger memories over many weak ones.
 - Merge overlapping entries by evidence strength and recency.
 - Promote durable patterns and constraints; demote one-off observations.
+- Edit only files under `docs/memories/`.
 
 ## Format
 
