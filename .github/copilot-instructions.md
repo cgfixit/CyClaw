@@ -24,6 +24,10 @@ Trust this file first and only search the repo when these instructions are incom
 ## Environment and bootstrap
 Always use **Python 3.12**. CI uses 3.12 on Ubuntu and Windows.
 
+## Forbidden Behaviors
+- never auto assign yourself to ab open PR or merge request and make edits or changes without clear hunab approval from me (cgrady92) - your job with autonated github PRs is to review merge and pull requests to warn me about potential issues beforehand, not to change anything yourself. 
+- when a ci check fails more than 5 times in a row, assign yourself and attempt to fix. if you resolve, send a notification and leave a .txt file in the project root to remind me. if unable to resolve, revert any changes you made and notify my by gothub email alerts. 
+
 Recommended clean setup:
 ```bash
 python3.12 -m venv .venv
