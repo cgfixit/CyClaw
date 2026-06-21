@@ -34,18 +34,15 @@ CHANGES FROM ORIGINAL (soul.md / persistent personality integration):
 #       must never be forwarded off-box (invariant 3 + privacy). When context
 #       forwarding is enabled it uses the same data-trust framing.
 
-# 2026-06-21 (feature/CyClaw-Agent): Added persistent SqliteSaver checkpointer
-#   + interrupt_before=["user_gate"]. This enables resumable sessions across
-#   restarts/crashes while preserving 100% of the 5 core invariants (topology
-#   edges still decide routing; checkpointer only saves/restores GraphState).
+# 2026-06-21 (feature/CyClaw-Agent): A persistent SqliteSaver checkpointer +
+#   interrupt_before was proposed and reverted (it requires a thread_id on every
+#   invoke and would break gate.py's config-less invoke path). Resumable sessions
+#   are deferred to a dedicated future change. See build_graph() return comment.
 """
 
 import logging
-import sqlite3
-from pathlib import Path
 from typing import List, Literal, Optional, TypedDict
 
-from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, StateGraph
 
 from llm.client import GrokClient, LocalLLMClient
@@ -442,10 +439,10 @@ def build_graph(
     All nodes are partial functions — dependencies injected at build time,
     not at query time. This makes the graph stateless and safe to reuse.
 
-    New in feature/CyClaw-Agent: persistent SqliteSaver checkpointer + 
-    interrupt_before=["user_gate"]. Sessions survive restarts. The interrupt
-    happens exactly where we already pause for human confirmation — topology
-    and all 5 invariants remain untouched.
+    Compiles with the default in-memory state (no persistent checkpointer):
+    every existing caller, including gate.py, invokes without a thread_id, so a
+    checkpointer would raise ValueError. Resumable-session persistence is
+    deferred to a dedicated future change (see the return-statement comment).
 
     Args:
         retriever: HybridRetriever instance (ChromaDB + BM25)
@@ -511,18 +508,13 @@ def build_graph(
     # audit_logger → END (always — convergence guaranteed)
     graph.add_edge("audit_logger", END)
 
-    # Persistent checkpointer + interrupt for resumable "always-on soul" sessions.
-    # DB lives in checkpoints/cyclaw.db (gitignored, Docker volume mounted).
-    # interrupt_before on the existing user_gate node — no new routing logic.
-    #
-    # NOTE: SqliteSaver.from_conn_string() is a CONTEXT MANAGER in current
-    # langgraph and yields a saver only inside a `with` block — using its return
-    # value directly as `checkpointer=` does not work and broke CI. We instead
-    # open a long-lived sqlite3 connection (the app process owns it for its
-    # lifetime) and construct SqliteSaver directly, which is the supported
-    # non-context-manager path. check_same_thread=False because uvicorn serves
-    # requests across worker threads.
-    Path("checkpoints").mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect("checkpoints/cyclaw.db", check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
-    return graph.compile(checkpointer=checkpointer, interrupt_before=["user_gate"])
+    # NOTE (2026-06-21): A persistent SqliteSaver checkpointer + interrupt_before
+    # was proposed on this branch but REVERTED. Compiling with a checkpointer makes
+    # langgraph REQUIRE a `configurable.thread_id` on every invoke(); every existing
+    # call site — including the production request path in gate.py
+    # (compiled_graph.invoke(initial_state) with no config) — would then raise
+    # ValueError, breaking the live /query endpoint, not just tests. Resumable
+    # sessions are a real feature but need their own design (thread_id/session
+    # lifecycle + updating every caller), tracked for a future release. The
+    # default in-memory compile preserves current behavior.
+    return graph.compile()
