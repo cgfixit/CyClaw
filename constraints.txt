@@ -1,12 +1,34 @@
 # CyClaw Reproducible Dependency Constraints (Python 3.12 verified)
-# Generated for hermetic install gate §K. Always use pip install -r requirements.txt -c constraints.txt
+# 
+# Preferred (uv + pyproject): uv pip install -r pyproject.toml --constraint constraints.txt
+# Legacy (pip): pip install -r requirements.txt -c constraints.txt
+# 
+# This pins direct dependencies (sourced from pyproject.toml) + critical transitives
+# (pydantic family to avoid resolver explosion, torch for post-CVE-2025-32434 safety).
+# For complete transitive reproducibility, run `uv lock` (recommended in pyproject.toml)
+# or `pip-compile` and commit the result. Current state: direct pins aligned with v1.5.0.
 
 # CRITICAL: pydantic family must stay synchronized or pip resolver explodes
 pydantic==2.13.4
 pydantic-core==2.46.4
 pydantic-settings==2.14.2
 
-# Other pins (excerpt - full file maintained via compile)
+# Direct dependencies from pyproject.toml [project.dependencies] -- versions MUST match exactly
+fastapi==0.137.2
+uvicorn[standard]==0.49.0
+pyyaml==6.0.3
+httpx==0.28.1
+langgraph==1.2.5
+langchain-core==1.4.7
+chromadb==1.5.6  # CVE-2026-45829 (Critical pre-auth RCE; risk accepted ONLY for local/offline air-gapped PersistentClient embedded mode). See SECURITY.md + pip-audit.
+sentence-transformers==5.6.0
+rank-bm25==0.2.2
+numpy==1.26.4
+nltk==3.9.4
+
+# torch-cpu extra / embedding backend (minimum safe post CVE, CPU index via pyproject [tool.uv.sources])
 torch==2.6.0+cpu
-chromadb==1.5.6
-# ... (rest of file remains)
+
+# Test optional-dependencies (for CI / dev)
+pytest==9.1.0
+pytest-asyncio==1.4.0
