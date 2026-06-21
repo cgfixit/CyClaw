@@ -14,7 +14,7 @@ import yaml
 from pathlib import Path
 
 from graph import (
-    build_graph, GraphState, offline_best_effort_node, grok_fallback_node
+    build_graph, offline_best_effort_node, grok_fallback_node
 )
 from tests.conftest import (
     MockRetriever, MockLocalLLM, MockGrokClient,
