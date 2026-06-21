@@ -1,4 +1,11 @@
-# CyClaw requirements (Python 3.12 verified, CVE mitigation via code)
+# CyClaw requirements (DEPRECATED — use pyproject.toml + uv instead)
+# This file is kept for backward compatibility only.
+# Prefer: uv pip install -r pyproject.toml --constraint constraints.txt
+# Or: uv sync (recommended for reproducible environments + Docker)
+
+# See SECURITY.md for exact Chroma CVE-2026-45829 justification (local/offline air-gap only).
+# Docker support added in feature/CyClaw-Agent for production reproducibility.
+
 fastapi==0.137.2
 uvicorn[standard]==0.49.0
 pydantic==2.13.4
