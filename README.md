@@ -7,7 +7,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-green.svg)](https://fastapi.tiangolo.com/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.1-orange.svg)](https://github.com/langchain-ai/langgraph)
 [![CodeQL Advanced](https://github.com/CGFixIT/CyClaw/actions/workflows/codeql.yml/badge.svg)](https://github.com/CGFixIT/CyClaw/actions/workflows/codeql.yml)
-[![CyClaw CI (Simplified + Coverage)](https://github.com/CGFixIT/CyClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/CGFixIT/CyClaw/actions/workflows/ci.yml)[![Fortify AST Scan](https:/[...]
+[![CyClaw CI (Simplified + Coverage)](https://github.com/CGFixIT/CyClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/CGFixIT/CyClaw/actions/workflows/ci.yml)[![Fortify AST Scan]
 [![Screenshots: local AI](https://i.imgur.com/kGZBkIj.png)](https://github.com/CGFixIT/CyClaw/tree/main/docs/screenshots)   <-- Screenshots of Local AI web interface
 
 ---
