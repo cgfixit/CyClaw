@@ -73,3 +73,8 @@ htmlcov/
 
 # Memory orchestrator runtime state (regenerable; snapshots themselves stay committable)
 docs/memories/.orchestrator-state.json
+# Derived working-set + index are rewritten from scratch on every orchestrator
+# pass (like the state file above), so they are regenerable artifacts rather than
+# source. The dated snapshot files (docs/memories/<date_time>.md) remain tracked.
+docs/memories/INDEX.md
+docs/memories/CONSOLIDATED.md
