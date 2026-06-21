@@ -32,6 +32,11 @@ jobs:
   test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # Bound every run: the install step pulls torch + chromadb + sentence-transformers
+    # and the RAG smoke spins up an embedded ChromaDB. A hung download or a wedged
+    # service should fail fast, not idle until GitHub's 6-hour default and burn
+    # Actions minutes on both OS legs of the matrix.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -63,17 +68,18 @@ jobs:
       - name: Prepare hermetic test env
         shell: bash
         run: |
-          # data/corpus/cyclaw_overview.md is committed — RAG wuery emulationinttest indexes it.
+          # data/corpus/cyclaw_overview.md is committed — the RAG smoke test indexes it.
           # Minimal soul.md + env var for gate tests. No prod secrets.
           mkdir -p data/personality index logs
           echo '# Soul' > data/personality/soul.md
           echo 'GROK_API_KEY=dummy' >> $GITHUB_ENV
 
-      - name:  Unit Tests + API integration test / RAG Query Smoke (ChromaDB 1.5.6 + BM25 + RRF)
+      - name: RAG Query Smoke (ChromaDB 1.5.6 + BM25 + RRF)
         shell: bash
         run: |
           # Validates full retrieval path against committed corpus.
           # Fails CI if min_score gate or hybrid fusion broken.
+          # (Unit tests + coverage run in the next step.)
           python -m tests.ci_rag_smoke
 
       - name: Run tests + coverage
