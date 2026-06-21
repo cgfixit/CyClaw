@@ -223,3 +223,26 @@ sync:
   conflict_loser: "rename"       # bisync-only: loser saved as .conflict1 (never deleted)
   # extra_excludes:              # optional, appended AFTER hardened block
   #   - "scratch/**"
+
+# ===========================
+# Agentic layer (out-of-band)  [v0.1 — experimental]
+# ===========================
+# Absence of this block, or enabled: false, disables the agentic layer entirely.
+# It runs strictly via `python -m agentic.cli` — never imported by gate.py,
+# graph.py, or the MCP server. Reads use the `gh` CLI (argv-list, no shell, no
+# token forwarded by CyClaw). Writes are a DISABLED, STUBBED scaffold: even in
+# write mode v0.1 only produces dry-run plans and never mutates GitHub.
+agentic:
+  enabled: false                 # off by default; CLI no-ops (exit 0) while false
+  repo: "CGFixIT/CyClaw"         # validated: owner/name, no shell metacharacters
+  mode: "read"                   # "read" (safe default) | "write" (opt-in, still gated)
+  writes_enabled: false          # second flag; writes need mode=write AND this AND reason AND confirm
+  gh_min_version: "2.40.0"       # `gh` version floor (X.Y.Z)
+  registry_path: "data/agentic/skills_registry.json"  # validated: under repo data/ tree
+  allowed_read_ops:              # only these read ops may run
+    - pr_view
+    - pr_list
+    - pr_diff
+    - issue_view
+    - issue_list
+    - repo_view
