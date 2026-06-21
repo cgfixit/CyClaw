@@ -232,8 +232,14 @@ jobs:
       - name: Prepare hermetic env
         shell: bash
         run: |
+          # NOTE: do not stub soul.md here. The committed data/personality/soul.md
+          # is the real artifact, and skill verify scripts (e.g.
+          # sandbox-runtime-verification/verify.sh) back it up, stub it for an
+          # early stage, then restore the real file before launching the server.
+          # Overwriting it with a 7-char '# Soul' stub here means verify.sh backs
+          # up the stub and "restores" 7 chars, so /soul returns near-empty text
+          # and the terminal.html emulation's non-empty soul assertion fails.
           mkdir -p data/personality index logs
-          echo '# Soul' > data/personality/soul.md
           echo 'GROK_API_KEY=dummy' >> "$GITHUB_ENV"
 
       - name: Run verify.sh if present
