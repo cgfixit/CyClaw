@@ -29,9 +29,39 @@ Always use **Python 3.12**. CI uses 3.12 on Ubuntu and Windows.
 - After you have a clear understanding or the PR goal, its changes, and a holistic view of the impact, comment on the Pull Request beginning with a 1 word title description (e.g. "Warning: Merge may Break Functionality if main branch", or "Warning: May Violate Security Posture as Stated in Readme", or "Information: This PR adds external agentic capabilities to CyClaw. Carefully verify code changes before merge.", etc. that is all. leave the PR and or merge request open; this is just a comment informing me of outcome and other issues I may have missed (like potential conflicts in merge to main branch)
 - If an open PR is failing any given ci check more than 5 times consecutively, assign yourself and analyze the logs to understand the cause of the issue, assess certsin code file sections to pinpoint any referenvrd that are unclear from a contect on the branch  merging to main, then finally when the issue and resolution is fully understood, start applying changes to **ci file only** to fix. after the changes have been made, initiate a rebase of all open PR's against main branch and force CI checks to restart. then wait to verify changes did resolve the failing ci check. If failures continue to occur, reassess using the same process until the ci check(s) passes. if you are unable to resolve the issue after 3 attempted cycles and continual CI check failure, revert all changes back to how it was before you assignef yourself and leave a detailed comment describing the ci check failure, what you attempted to fix, and suggestions for next steps before merging. if you were able to make changes and get the ci checks to pass, also leave a detailed comment describing the initial issue, what changed were made, and that they were resolved.
 - Use Claude Haiku llm when assessing code, Use an advanced model like GPT Codex or GPT5.3 When attenpting to fix ci files if they fail.
+- Use GitHub MCP tools for all GitHub API operations (comments, PR management, etc.); use gh CLI in bash only as a fallback when MCP tools are unavailable or insufficient.
+- When assessing open PRs, briefly scan the following 4 files to ensure they are all consistent in what common install dependencies they reference: `requirements.txt`, `constraints.txt`, `pyproject.toml`, `Dockerfile`. If there is an inconsistency cross-file, leave a comment describing in detail the inconsistency/conflict and a detailed suggested next steps to resolve.
+- After concluding any changes to workflow files associated with CI checks, rebase all open PRs against the main branch and force a restart of CI checks before leaving any comment.
 
 Forbidden Behaviors:
--Never make any changes or edits to a branch on an open PR without clear human approval or the ci checks already failing as described earlier
+- Never make any changes or edits to a branch on an open PR without clear human approval or the ci checks already failing as described earlier
+- Never edit the `.github/copilot-instructions.md` file or delete it without explicit and clear human approval
+
+## CI Restart Workarounds
+
+When CI checks on a PR are stuck, queued indefinitely, or need to be re-triggered without a real code change, use one of these two approaches:
+
+### Scenario 1: CI checks never started or are permanently queued
+Push an empty commit to the PR branch. This signals GitHub Actions to schedule a new run without altering any code:
+```bash
+git commit --allow-empty -m "ci: trigger CI restart"
+git push origin <branch-name>
+```
+Use this when checks show as "Queued" or "Waiting" and do not progress after several minutes.
+
+### Scenario 2: CI checks ran but need to be re-requested after a fix
+Use the GitHub MCP tool (preferred) or `gh` CLI to re-request reviews / re-run failed jobs on the PR:
+```bash
+# Re-run all failed jobs for a workflow run (get run_id from Actions UI or MCP):
+gh run rerun <run-id> --failed --repo CGFixIT/CyClaw
+```
+Or via GitHub MCP: call the workflow re-run API on the specific failed run ID.
+Use this when checks already completed (passed or failed) and you want to re-trigger them after a fix — without pushing a new commit.
+
+**When to use which:**
+- Checks never started → use Scenario 1 (empty commit).
+- Checks ran and failed → push a real fix commit, then use `gh run rerun --failed` (Scenario 2) if GitHub doesn't auto-trigger.
+- Checks are queued across multiple open PRs after a CI file change → use Scenario 1 on each PR branch to unblock them in parallel.
 
 Recommended clean setup:
 ```bash
@@ -39,13 +69,18 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade "pip>=26.1.2"
 pip install torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu
+# Preferred (uv + pyproject.toml):
+uv pip install -r pyproject.toml --constraint constraints.txt
+# Legacy / CI-compat pip fallback:
 pip install -r requirements.txt -c constraints.txt
 ```
 Important:
 - **Always install CPU-only torch first**. Otherwise Linux may try to pull the huge CUDA wheel.
-- `requirements.txt` alone usually works, but CI’s reproducible install gate uses `constraints.txt`; prefer that for local validation.
+- `requirements.txt` is now **deprecated**; prefer `uv pip install -r pyproject.toml --constraint constraints.txt` for local development.
+- CI install gate runs `pip install -r requirements.txt pytest pytest-cov` (no `-c constraints.txt`); `constraints.txt` is used for local reproducibility only.
 - If PyYAML reinstall conflicts in your environment, repo docs note `pip install -r requirements.txt --ignore-installed PyYAML` as a fallback.
 - Optional Postgres support exists via `psycopg[binary]`, but default behavior is local-file based.
+- A `Dockerfile` exists for production deployments (Python 3.12-slim-bookworm, non-root `cyclaw` user, uv install preferred, exposes port 8000).
 
 ## Required local prep before running app/tests that touch runtime
 Some directories/files are assumed to exist.
@@ -145,15 +180,15 @@ powershell -File tests/apipsTest.ps1   # Windows/manual live-server smoke
 ```
 
 ## CI / workflow facts that matter for PRs
-- `.github/workflows/ci.yml`: main test gate on `main` and `cc`, Python 3.12, Ubuntu + Windows, 30 min timeout. Installs `torch==2.6.0+cpu`, then `pip install -r requirements.txt pytest pytest-cov`, prepares hermetic dirs, runs `tests.ci_rag_smoke`, then the explicit pytest file list.
+- `.github/workflows/ci.yml`: main test gate on `main`, `cc`, and `feature/CyClaw-Agent`, Python 3.12, Ubuntu + Windows, 30 min timeout. Installs `torch==2.6.0+cpu`, then `pip install -r requirements.txt pytest pytest-cov` (no `-c constraints.txt` in CI), prepares hermetic dirs, runs `tests.ci_rag_smoke`, then the explicit pytest file list with per-module `--cov` flags. Also includes non-blocking `discover-skills` + `verify-skills` jobs that run `.claude/skills/*/verify.sh` and `smoke.sh` in parallel (`continue-on-error: true`; does not gate merges).
 - `.github/workflows/lint.yml`: PR lint gate for `main`/`cc`; runs only Ruff with `--select E,F,I,B,C4,S`.
 - Security workflows exist for CodeQL, OSV, pip-audit, Gitleaks, DevSkim, Defender, Fortify. Avoid introducing secrets, vulnerable deps, telemetry, or unsafe network exposure.
-- `pip-audit.yml` and `.osv-scanner.toml` intentionally ignore the accepted ChromaDB CVE because CyClaw uses embedded `PersistentClient`; do not “fix” that policy casually.
+- `pip-audit.yml` and `.osv-scanner.toml` intentionally ignore CVE-2026-45829 (ChromaDB Critical pre-auth RCE, no upstream patch) because CyClaw uses embedded `PersistentClient` (local/offline air-gapped only, no `HttpClient`, no `trust_remote_code`); do not "fix" that policy casually.
 
 ## Common gotchas / proven workarounds
 - **Do not skip torch-first install**.
 - **Do not assume LM Studio is running**. Tests and smoke paths are designed to pass structural flows without it; `/health` may be `degraded` without LM Studio and that can be acceptable if `index_ready` and `graph_ready` are true.
-- **Do not edit `constraints.txt` manually** except as documented; regenerate from `requirements.txt` if dependency work requires it.
+- **Do not edit `constraints.txt` manually** except as documented; regenerate from `pyproject.toml` if dependency work requires it.
 - `package.json` exists but is effectively unused scaffolding; do not rely on Node tooling for validation.
 - `sync/` depends on external `rclone`; tests mock this, but runtime sync features may fail on machines without `rclone` installed.
 - Telemetry kill env vars are intentionally set very early in `gate.py`; preserve that ordering before SDK imports.
