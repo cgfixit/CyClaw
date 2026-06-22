@@ -264,7 +264,9 @@ class TestAuditSummaryEndpoint:
 
     def test_returns_aggregates_no_raw_query(self, client, monkeypatch, tmp_path):
         test_client, _ = client
-        import gate, json
+        import json
+
+        import gate
         monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
 
         audit_file = tmp_path / "audit_summary.jsonl"
