@@ -109,7 +109,7 @@ def main() -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        pass  # graceful shutdown via Ctrl+C; finally block closes the server
     finally:
         server.server_close()
 
