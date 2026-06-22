@@ -196,3 +196,98 @@ class TestErrorSanitization:
         monkeypatch.setenv("GROK_API_KEY", secret)
         sanitized = gate._sanitize_error(RuntimeError(f"boom {secret}"))
         assert secret not in sanitized
+
+
+class TestSoulAndErrorPaths:
+    """Soul endpoints must 404 when the personality system is disabled, and
+    /query must 503 (not 500) when the index/graph never built. These guard the
+    fail-soft branches that previously had no integration coverage."""
+
+    def test_get_soul_404_when_disabled(self, client):
+        test_client, _ = client
+        import gate
+        original = gate.personality
+        gate.personality = None
+        try:
+            resp = test_client.get("/soul")
+            assert resp.status_code == 404
+        finally:
+            gate.personality = original
+
+    def test_soul_reload_404_when_disabled(self, client, monkeypatch):
+        test_client, _ = client
+        import gate
+        # require_api_key fails closed without a key; set one so we exercise the
+        # personality-disabled branch rather than the auth branch.
+        monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
+        original = gate.personality
+        gate.personality = None
+        try:
+            resp = test_client.post(
+                "/soul/reload", headers={"Authorization": "Bearer test-key-123"}
+            )
+            assert resp.status_code == 404
+        finally:
+            gate.personality = original
+
+    def test_query_503_when_graph_not_built(self, client):
+        test_client, _ = client
+        import gate
+        original = gate.compiled_graph
+        gate.compiled_graph = None
+        try:
+            resp = test_client.post("/query", json={"query": "anything"})
+            assert resp.status_code == 503
+            assert resp.json()["detail"]["code"] == "INDEX_NOT_FOUND"
+        finally:
+            gate.compiled_graph = original
+
+    def test_health_reports_readiness_flags(self, client):
+        test_client, _ = client
+        with patch("gate.check_all", return_value=[]):
+            resp = test_client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["index_ready"] is True
+        assert data["graph_ready"] is True
+
+
+class TestAuditSummaryEndpoint:
+    """GET /audit/summary is API-key-gated and returns aggregates only — never
+    raw query text (the audit log stores SHA-256 hashes by design)."""
+
+    def test_requires_api_key(self, client, monkeypatch):
+        test_client, _ = client
+        monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
+        resp = test_client.get("/audit/summary")
+        assert resp.status_code == 401
+
+    def test_returns_aggregates_no_raw_query(self, client, monkeypatch, tmp_path):
+        test_client, _ = client
+        import json
+
+        import gate
+        monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
+
+        audit_file = tmp_path / "audit_summary.jsonl"
+        rows = [
+            {"event": "rag_query", "top_score": 0.9, "retrieval_mode": "hybrid",
+             "model_used": "local", "query": "raw-secret-text"},
+            {"event": "rag_query", "top_score": 0.4, "retrieval_mode": "hybrid",
+             "model_used": "grok", "user_confirmed_online": True, "query": "another-secret"},
+        ]
+        audit_file.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        gate.cfg["logging"]["audit_file"] = str(audit_file)
+
+        resp = test_client.get(
+            "/audit/summary", headers={"Authorization": "Bearer audit-key-456"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_events"] == 2
+        assert data["rag_query_count"] == 2
+        assert data["online_escalated"] == 1
+        assert data["model_used"]["local"] == 1
+        # No raw query text or hashes may leak through the summary.
+        assert "query" not in data
+        assert "raw-secret-text" not in resp.text
