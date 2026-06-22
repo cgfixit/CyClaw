@@ -23,6 +23,63 @@ def load_events(audit_file: str):
                 pass
     return events
 
+def compute_metrics(events: list) -> dict:
+    """Aggregate audit events into a JSON-serializable summary.
+
+    Returns aggregates only — never raw query text. The audit log stores
+    SHA-256 query hashes (not plaintext) by design, so this summary is safe to
+    expose over the API-key-gated ``GET /audit/summary`` endpoint for regulated
+    SMBs that need audit evidence (query volume, external-LLM usage, score
+    distribution) without leaking the underlying queries.
+    """
+    summary = {
+        "total_events": len(events),
+        "event_breakdown": {},
+        "rag_query_count": 0,
+        "scores": {"avg": None, "min": None, "max": None},
+        "retrieval_modes": {},
+        "model_used": {},
+        "online_escalated": 0,
+    }
+    if not events:
+        return summary
+
+    event_counts = Counter(e.get("event", "unknown") for e in events)
+    summary["event_breakdown"] = dict(event_counts.most_common())
+
+    rag_queries = [e for e in events if e.get("event") in ("rag_query", "mcp_rag_query")]
+    summary["rag_query_count"] = len(rag_queries)
+    if rag_queries:
+        scores = [e["top_score"] for e in rag_queries if "top_score" in e]
+        if scores:
+            summary["scores"] = {
+                "avg": sum(scores) / len(scores),
+                "min": min(scores),
+                "max": max(scores),
+            }
+        # The graph audit path records the retrieval mode under "retrieval_mode";
+        # the MCP server (mcp_hybrid_server._handle_search) records it under "mode".
+        # Reading only "retrieval_mode" silently bucketed every mcp_rag_query as
+        # "unknown" even though its mode was right there under the other key.
+        mode_counts = Counter(
+            e.get("retrieval_mode") or e.get("mode") or "unknown" for e in rag_queries
+        )
+        summary["retrieval_modes"] = dict(mode_counts.most_common())
+
+    model_counts = Counter(e["model_used"] for e in events if e.get("model_used"))
+    summary["model_used"] = dict(model_counts.most_common())
+
+    # An escalation to the external LLM is recorded whenever the user confirmed
+    # an online call (graph user_gate → grok_fallback) or a grok model was used.
+    summary["online_escalated"] = sum(
+        1
+        for e in events
+        if e.get("user_confirmed_online") is True
+        or str(e.get("model_used", "")).lower().startswith("grok")
+    )
+    return summary
+
+
 def print_metrics(config_path: str = "config.yaml"):
     with open(config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -31,26 +88,19 @@ def print_metrics(config_path: str = "config.yaml"):
     if not events:
         print("No audit events found.")
         return
-    event_counts = Counter(e.get("event", "unknown") for e in events)
-    print(f"Total events: {len(events)}")
+    summary = compute_metrics(events)
+    print(f"Total events: {summary['total_events']}")
     print("\nEvent breakdown:")
-    for event, count in event_counts.most_common():
+    for event, count in summary["event_breakdown"].items():
         print(f"  {event}: {count}")
-    rag_queries = [e for e in events if e.get("event") in ("rag_query", "mcp_rag_query")]
-    if rag_queries:
-        scores = [e["top_score"] for e in rag_queries if "top_score" in e]
-        if scores:
-            print(f"\nRAG scores — avg: {sum(scores)/len(scores):.3f}, min: {min(scores):.3f}, max: {max(scores):.3f}")
-        # The graph audit path records the retrieval mode under "retrieval_mode";
-        # the MCP server (mcp_hybrid_server._handle_search) records it under "mode".
-        # Reading only "retrieval_mode" silently bucketed every mcp_rag_query as
-        # "unknown" even though its mode was right there under the other key.
-        mode_counts = Counter(
-            e.get("retrieval_mode") or e.get("mode") or "unknown" for e in rag_queries
-        )
-        print("\nRetrieval modes:")
-        for mode, count in mode_counts.most_common():
-            print(f"  {mode}: {count}")
+    if summary["rag_query_count"]:
+        s = summary["scores"]
+        if s["avg"] is not None:
+            print(f"\nRAG scores — avg: {s['avg']:.3f}, min: {s['min']:.3f}, max: {s['max']:.3f}")
+        if summary["retrieval_modes"]:
+            print("\nRetrieval modes:")
+            for mode, count in summary["retrieval_modes"].items():
+                print(f"  {mode}: {count}")
 
 def main() -> None:
     """Console entry point for ``cyclaw-metrics`` (see pyproject [project.scripts]).
