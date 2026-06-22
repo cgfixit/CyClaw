@@ -23,6 +23,12 @@ on:
 # Deny-all by default; each job grants only what it needs.
 permissions: {}
 
+# Cancel superseded in-progress runs on the same branch to save CI minutes;
+# pushes to main are exempt so main keeps a complete scan history.
+concurrency:
+  group: osv-scanner-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   # PR events: differential scan that flags vulnerabilities introduced by the PR.
   scan-pr:
