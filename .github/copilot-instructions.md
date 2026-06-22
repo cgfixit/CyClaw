@@ -34,7 +34,34 @@ Always use **Python 3.12**. CI uses 3.12 on Ubuntu and Windows.
 - After concluding any changes to workflow files associated with CI checks, rebase all open PRs against the main branch and force a restart of CI checks before leaving any comment.
 
 Forbidden Behaviors:
--Never make any changes or edits to a branch on an open PR without clear human approval or the ci checks already failing as described earlier
+- Never make any changes or edits to a branch on an open PR without clear human approval or the ci checks already failing as described earlier
+- Never edit the `.github/copilot-instructions.md` file or delete it without explicit and clear human approval
+
+## CI Restart Workarounds
+
+When CI checks on a PR are stuck, queued indefinitely, or need to be re-triggered without a real code change, use one of these two approaches:
+
+### Scenario 1: CI checks never started or are permanently queued
+Push an empty commit to the PR branch. This signals GitHub Actions to schedule a new run without altering any code:
+```bash
+git commit --allow-empty -m "ci: trigger CI restart"
+git push origin <branch-name>
+```
+Use this when checks show as "Queued" or "Waiting" and do not progress after several minutes.
+
+### Scenario 2: CI checks ran but need to be re-requested after a fix
+Use the GitHub MCP tool (preferred) or `gh` CLI to re-request reviews / re-run failed jobs on the PR:
+```bash
+# Re-run all failed jobs for a workflow run (get run_id from Actions UI or MCP):
+gh run rerun <run-id> --failed --repo CGFixIT/CyClaw
+```
+Or via GitHub MCP: call the workflow re-run API on the specific failed run ID.
+Use this when checks already completed (passed or failed) and you want to re-trigger them after a fix — without pushing a new commit.
+
+**When to use which:**
+- Checks never started → use Scenario 1 (empty commit).
+- Checks ran and failed → push a real fix commit, then use `gh run rerun --failed` (Scenario 2) if GitHub doesn't auto-trigger.
+- Checks are queued across multiple open PRs after a CI file change → use Scenario 1 on each PR branch to unblock them in parallel.
 
 Recommended clean setup:
 ```bash
