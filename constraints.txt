@@ -15,7 +15,10 @@ pydantic-settings==2.14.2
 
 # Direct dependencies from pyproject.toml [project.dependencies] -- versions MUST match exactly
 fastapi==0.137.2
-uvicorn[standard]==0.49.0
+# Constraints pin versions only; the `[standard]` extra stays in requirements.txt.
+# pip >= 26.1.2 rejects extras in a -c constraints file ("Constraints cannot have
+# extras"), which broke the verify-install gate. See pypa/pip#8210.
+uvicorn==0.49.0
 pyyaml==6.0.3
 httpx==0.28.1
 langgraph==1.2.5
