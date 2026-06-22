@@ -27,7 +27,7 @@ class TestPortDetection:
         s.bind(("127.0.0.1", 0))  # DevSkim: ignore DS162092 - test loopback bind
         free_port = s.getsockname()[1]
         s.close()
-        assert gate._is_port_in_use("127.0.0.1", free_port) is False
+        assert gate._is_port_in_use("127.0.0.1", free_port) is False  # DevSkim: ignore DS162092 - test loopback probe
 
     def test_bound_port_reports_in_use(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -35,7 +35,7 @@ class TestPortDetection:
         s.listen(1)
         port = s.getsockname()[1]
         try:
-            assert gate._is_port_in_use("127.0.0.1", port) is True
+            assert gate._is_port_in_use("127.0.0.1", port) is True  # DevSkim: ignore DS162092 - test loopback probe
         finally:
             s.close()
 

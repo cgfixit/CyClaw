@@ -77,7 +77,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from utils.sanitizer import check_input
 from utils.errors import (
-    RAGError, PromptInjectionError, IndexNotFoundError, LLMServiceError
+    PromptInjectionError, IndexNotFoundError
 )
 from utils.health import check_all
 from utils.personality import PersonalityManager
@@ -244,7 +244,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
         raise HTTPException(
             status_code=400,
             detail={"error": e.message, "code": e.code, "details": e.details}
-        )
+        ) from e
 
     initial_state: GraphState = {
         "query": req.query,
@@ -256,7 +256,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
     except Exception as e:
         safe_msg = _sanitize_error(e)
         audit_log({"event": "graph_error", "query": req.query, "error": safe_msg})
-        raise HTTPException(status_code=500, detail={"error": safe_msg, "code": "GRAPH_ERROR"})
+        raise HTTPException(status_code=500, detail={"error": safe_msg, "code": "GRAPH_ERROR"}) from e
 
     needs_confirm = result.get("needs_user_confirm", False)
     answer_model = result.get("answer_model", "")
@@ -334,7 +334,7 @@ async def apply_soul_evolution(req: SoulEvolutionRequest):
         raise HTTPException(
             status_code=400,
             detail={"error": e.message, "code": e.code, "details": e.details},
-        )
+        ) from e
     return result
 
 @app.post("/soul/reload", dependencies=[Depends(require_api_key)])
@@ -352,7 +352,7 @@ async def restore_soul():
         result = await asyncio.to_thread(personality.restore_from_backup)
         return result
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
@@ -411,6 +411,9 @@ def _hold_console() -> None:
         if sys.stdin and sys.stdin.isatty():
             input("Press Enter to close...")
     except (EOFError, KeyboardInterrupt):
+        # Nothing to do: the prompt only exists to hold the window open. A closed
+        # stdin (EOFError) or an impatient Ctrl-C (KeyboardInterrupt) both mean
+        # "stop waiting and exit" — swallow them so shutdown stays clean.
         pass
 
 
@@ -423,7 +426,7 @@ def main() -> None:
     holds the window, and KeyboardInterrupt exits cleanly.
     """
     api_cfg = cfg.get("api", {})
-    host = api_cfg.get("host", "127.0.0.1")
+    host = api_cfg.get("host", "127.0.0.1")  # DevSkim: ignore DS162092 - loopback-only binding by design
     port = api_cfg.get("port", 8787)
 
     if _is_port_in_use(host, port):
