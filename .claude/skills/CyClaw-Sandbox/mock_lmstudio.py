@@ -103,6 +103,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    # DevSkim: ignore DS162092 — mock sandbox server, loopback-only, audit use only
     server = HTTPServer(("127.0.0.1", PORT), _Handler)
     print(f"[mock_lmstudio] Listening on http://127.0.0.1:{PORT}", flush=True)
     print("[mock_lmstudio] READY", file=sys.stderr, flush=True)
