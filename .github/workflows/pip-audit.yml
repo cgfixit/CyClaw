@@ -18,6 +18,12 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded in-progress runs on the same branch to save CI minutes;
+# pushes to main are exempt so main keeps a complete scan history.
+concurrency:
+  group: pip-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   verify-install:
     name: verify-install (${{ matrix.os }})
