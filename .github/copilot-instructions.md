@@ -39,13 +39,18 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade "pip>=26.1.2"
 pip install torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu
+# Preferred (uv + pyproject.toml):
+uv pip install -r pyproject.toml --constraint constraints.txt
+# Legacy / CI-compat pip fallback:
 pip install -r requirements.txt -c constraints.txt
 ```
 Important:
 - **Always install CPU-only torch first**. Otherwise Linux may try to pull the huge CUDA wheel.
-- `requirements.txt` alone usually works, but CI’s reproducible install gate uses `constraints.txt`; prefer that for local validation.
+- `requirements.txt` is now **deprecated**; prefer `uv pip install -r pyproject.toml --constraint constraints.txt` for local development.
+- CI install gate runs `pip install -r requirements.txt pytest pytest-cov` (no `-c constraints.txt`); `constraints.txt` is used for local reproducibility only.
 - If PyYAML reinstall conflicts in your environment, repo docs note `pip install -r requirements.txt --ignore-installed PyYAML` as a fallback.
 - Optional Postgres support exists via `psycopg[binary]`, but default behavior is local-file based.
+- A `Dockerfile` exists for production deployments (Python 3.12-slim-bookworm, non-root `cyclaw` user, uv install preferred, exposes port 8000).
 
 ## Required local prep before running app/tests that touch runtime
 Some directories/files are assumed to exist.
@@ -145,15 +150,15 @@ powershell -File tests/apipsTest.ps1   # Windows/manual live-server smoke
 ```
 
 ## CI / workflow facts that matter for PRs
-- `.github/workflows/ci.yml`: main test gate on `main` and `cc`, Python 3.12, Ubuntu + Windows, 30 min timeout. Installs `torch==2.6.0+cpu`, then `pip install -r requirements.txt pytest pytest-cov`, prepares hermetic dirs, runs `tests.ci_rag_smoke`, then the explicit pytest file list.
+- `.github/workflows/ci.yml`: main test gate on `main`, `cc`, and `feature/CyClaw-Agent`, Python 3.12, Ubuntu + Windows, 30 min timeout. Installs `torch==2.6.0+cpu`, then `pip install -r requirements.txt pytest pytest-cov` (no `-c constraints.txt` in CI), prepares hermetic dirs, runs `tests.ci_rag_smoke`, then the explicit pytest file list with per-module `--cov` flags. Also includes non-blocking `discover-skills` + `verify-skills` jobs that run `.claude/skills/*/verify.sh` and `smoke.sh` in parallel (`continue-on-error: true`; does not gate merges).
 - `.github/workflows/lint.yml`: PR lint gate for `main`/`cc`; runs only Ruff with `--select E,F,I,B,C4,S`.
 - Security workflows exist for CodeQL, OSV, pip-audit, Gitleaks, DevSkim, Defender, Fortify. Avoid introducing secrets, vulnerable deps, telemetry, or unsafe network exposure.
-- `pip-audit.yml` and `.osv-scanner.toml` intentionally ignore the accepted ChromaDB CVE because CyClaw uses embedded `PersistentClient`; do not “fix” that policy casually.
+- `pip-audit.yml` and `.osv-scanner.toml` intentionally ignore CVE-2026-45829 (ChromaDB Critical pre-auth RCE, no upstream patch) because CyClaw uses embedded `PersistentClient` (local/offline air-gapped only, no `HttpClient`, no `trust_remote_code`); do not "fix" that policy casually.
 
 ## Common gotchas / proven workarounds
 - **Do not skip torch-first install**.
 - **Do not assume LM Studio is running**. Tests and smoke paths are designed to pass structural flows without it; `/health` may be `degraded` without LM Studio and that can be acceptable if `index_ready` and `graph_ready` are true.
-- **Do not edit `constraints.txt` manually** except as documented; regenerate from `requirements.txt` if dependency work requires it.
+- **Do not edit `constraints.txt` manually** except as documented; regenerate from `pyproject.toml` if dependency work requires it.
 - `package.json` exists but is effectively unused scaffolding; do not rely on Node tooling for validation.
 - `sync/` depends on external `rclone`; tests mock this, but runtime sync features may fail on machines without `rclone` installed.
 - Telemetry kill env vars are intentionally set very early in `gate.py`; preserve that ordering before SDK imports.
