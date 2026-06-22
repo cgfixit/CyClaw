@@ -22,6 +22,16 @@ Addresses:
 import asyncio
 import hmac
 import os
+import re
+import sys
+from pathlib import Path
+
+# Resolve all bundled resources relative to this file, not the current working
+# directory. When CyClaw is launched by double-clicking gate.py (Windows) the cwd
+# is not guaranteed to be the repo root, so cwd-relative opens of config.yaml /
+# static/ would crash at import time and the console window would vanish before
+# the traceback could be read. Anchoring to __file__ makes startup cwd-independent.
+_BASE_DIR = Path(__file__).resolve().parent
 
 _TELEMETRY_KILL = {
     "LANGCHAIN_TRACING_V2": "false",
@@ -53,7 +63,6 @@ for k, v in _verified.items():
     print(f"  {status}  {k}={v}")
 
 import logging
-from contextlib import asynccontextmanager
 import yaml
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import FileResponse
@@ -63,15 +72,16 @@ from graph import build_graph, GraphState
 from retrieval.hybrid_search import HybridRetriever
 from llm.client import LocalLLMClient, GrokClient
 from schemas.api import QueryRequest, QueryResponse, SourceInfo, HealthResponse, SoulEvolutionRequest
-from utils.logger import audit_log, setup_logging, redact_sensitive
+from utils.logger import audit_log, setup_logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from utils.sanitizer import check_input
 from utils.errors import (
-    PromptInjectionError, IndexNotFoundError
+    RAGError, PromptInjectionError, IndexNotFoundError, LLMServiceError
 )
 from utils.health import check_all
 from utils.personality import PersonalityManager
+from metrics import load_events, compute_metrics
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -108,17 +118,24 @@ def check_rate_limit(client_ip: str) -> bool:
     """Thin gateway-level wrapper over the shared RateLimiter instance."""
     return _rate_limiter.allow(client_ip)
 
-def _sanitize_error(exc: Exception) -> str:
-    """Strip credential-like content from exception messages before HTTP response.
+# Redact sensitive values from exception messages before returning in HTTP responses.
+# Strips Bearer tokens, known secret-like patterns, and any live env var values
+# that look like credentials (length > 8, not a common word).
+_SECRET_PATTERNS = [
+    re.compile(r'Bearer\s+[A-Za-z0-9\-_\.]+', re.IGNORECASE),  # Authorization headers
+    re.compile(r'[Aa][Pp][Ii][_-]?[Kk][Ee][Yy]["\s:=]+[\w\-\.]+'),  # api_key = ...
+    re.compile(r'sk-[A-Za-z0-9]{20,}'),       # OpenAI-style keys
+    re.compile(r'ghp_[A-Za-z0-9]{36}'),        # GitHub PATs
+    re.compile(r'xox[baprs]-[0-9a-zA-Z\-]+'), # Slack tokens
+    re.compile(r'AKIA[0-9A-Z]{16}'),           # AWS access keys
+]
 
-    Uses the config-driven secret redaction patterns from utils.logger.redact_sensitive
-    (policy.privacy.redact_secrets_like in config.yaml). This ensures consistency
-    between HTTP error bodies and the audit log, eliminating duplication and drift.
-    """
+def _sanitize_error(exc: Exception) -> str:
+    """Strip credential-like content from exception messages before HTTP response."""
     msg = str(exc)
-    # Redact using the config-driven pattern set (single source of truth).
-    msg = redact_sensitive(msg)
-    # Extra safety: also redact specific env vars that may contain credentials.
+    for pattern in _SECRET_PATTERNS:
+        msg = pattern.sub('[REDACTED]', msg)
+    # Also redact any live env var that looks like a credential (length > 8).
     # CYCLAW_API_KEY is the server's own auth secret — if it ever surfaced in an
     # auth-library or middleware traceback it must not be echoed in a 500 body.
     for env_key in ("GROK_API_KEY", "LANGCHAIN_API_KEY", "LANGSMITH_API_KEY", "SSC_TOKEN", "CYCLAW_API_KEY"):
@@ -131,7 +148,7 @@ def _sanitize_error(exc: Exception) -> str:
 # App Init
 # =============================================================================
 
-with open("config.yaml", encoding="utf-8") as f:
+with open(_BASE_DIR / "config.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
 setup_logging(cfg)
@@ -143,27 +160,18 @@ if not os.environ.get("CYCLAW_API_KEY", ""):
         "(fail-closed). Set CYCLAW_API_KEY to enable them."
     )
 
-@asynccontextmanager
-async def _lifespan(_app: FastAPI):
-    yield
-    local_llm.close()
-    if grok is not None:
-        grok.close()
-
-
 app = FastAPI(
     title="CyClaw RAG Gateway",
     description="Offline-first, RAG-first, MCP-exposed stack",
-    version="1.4.0",
-    lifespan=_lifespan,
+    version="1.4.0"
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
 @app.get("/", response_class=FileResponse)
 def serve_terminal_console():
     """Primary browser entry point — the Soul Console."""
-    return FileResponse("static/terminal.html")
+    return FileResponse(str(_BASE_DIR / "static" / "terminal.html"))
 
 _origins = cfg.get("security", {}).get("allowed_origins", [])
 app.add_middleware(
@@ -192,11 +200,11 @@ except IndexNotFoundError as e:
     print("Run: python -m retrieval.indexer", file=sys.stderr)
     retriever = None
 
-local_llm = LocalLLMClient(cfg=cfg)
+local_llm = LocalLLMClient()
 
 grok = None
 if cfg["app"]["mode"] == "hybrid" and cfg["models"]["grok"].get("enabled", False):
-    grok = GrokClient(cfg=cfg)
+    grok = GrokClient()
 
 personality = None
 if cfg.get("personality", {}).get("enabled", False):
@@ -207,7 +215,6 @@ if retriever is not None:
     compiled_graph = build_graph(
         retriever=retriever, llm=local_llm, grok=grok, cfg=cfg, personality=personality
     )
-
 
 @app.post("/query", response_model=QueryResponse)
 async def query_endpoint(request: Request, req: QueryRequest):
@@ -237,7 +244,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
         raise HTTPException(
             status_code=400,
             detail={"error": e.message, "code": e.code, "details": e.details}
-        ) from None
+        )
 
     initial_state: GraphState = {
         "query": req.query,
@@ -249,7 +256,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
     except Exception as e:
         safe_msg = _sanitize_error(e)
         audit_log({"event": "graph_error", "query": req.query, "error": safe_msg})
-        raise HTTPException(status_code=500, detail={"error": safe_msg, "code": "GRAPH_ERROR"}) from None
+        raise HTTPException(status_code=500, detail={"error": safe_msg, "code": "GRAPH_ERROR"})
 
     needs_confirm = result.get("needs_user_confirm", False)
     answer_model = result.get("answer_model", "")
@@ -327,7 +334,7 @@ async def apply_soul_evolution(req: SoulEvolutionRequest):
         raise HTTPException(
             status_code=400,
             detail={"error": e.message, "code": e.code, "details": e.details},
-        ) from None
+        )
     return result
 
 @app.post("/soul/reload", dependencies=[Depends(require_api_key)])
@@ -345,7 +352,7 @@ async def restore_soul():
         result = await asyncio.to_thread(personality.restore_from_backup)
         return result
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=str(e))
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
@@ -358,21 +365,82 @@ async def health():
     )
 
 
+@app.get("/audit/summary", dependencies=[Depends(require_api_key)])
+async def audit_summary():
+    """API-key-gated compliance summary over the audit log.
+
+    Returns aggregates only — query volume, score distribution, retrieval-mode
+    and model-usage breakdowns, and external-LLM escalation count. The audit log
+    persists only SHA-256 query hashes (never plaintext), so no raw query text is
+    exposed here either. Intended as audit evidence for regulated SMBs (HIPAA /
+    SOC 2) without creating any new data egress.
+    """
+    audit_file = cfg.get("logging", {}).get("audit_file", "audit.jsonl")
+    events = await asyncio.to_thread(load_events, audit_file)
+    return await asyncio.to_thread(compute_metrics, events)
+
+
+def _is_port_in_use(host: str, port: int) -> bool:
+    """Return True if a TCP listener already holds ``host:port``.
+
+    Used to detect a stale/duplicate CyClaw before binding, so a double-clicked
+    launch can print a clear message instead of dying on OSError [WinError 10048].
+    """
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
+def _serve(host: str, port: int) -> None:
+    """Thin wrapper over ``uvicorn.run`` — kept separate so tests can patch the
+    serve step without standing up a real server."""
+    import uvicorn
+
+    uvicorn.run(app, host=host, port=port)  # DevSkim: ignore DS162092 - loopback-only binding by design
+
+
+def _hold_console() -> None:
+    """Keep a double-clicked console window open long enough to read a message.
+
+    No-op when stdin is not a TTY (CI, piped, service launch) so it never blocks
+    automated runs.
+    """
+    try:
+        if sys.stdin and sys.stdin.isatty():
+            input("Press Enter to close...")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
 def main() -> None:
     """Console entry point for ``cyclaw-server`` (see pyproject [project.scripts]).
 
-    Serves the FastAPI app on the loopback host/port from config.yaml. Without
-    this, the declared ``cyclaw-server = "gate:main"`` script raised
-    AttributeError because no ``main`` symbol existed in this module.
+    Serves the FastAPI app on the loopback host/port from config.yaml. Wraps the
+    serve call so that a double-clicked launch (Windows) never vanishes on an
+    unhandled traceback: a port already in use prints an actionable message and
+    holds the window, and KeyboardInterrupt exits cleanly.
     """
-    import uvicorn
-
     api_cfg = cfg.get("api", {})
-    uvicorn.run(
-        app,
-        host=api_cfg.get("host", "127.0.0.1"),  # DevSkim: ignore DS162092 - loopback-only binding by design
-        port=api_cfg.get("port", 8787),
-    )
+    host = api_cfg.get("host", "127.0.0.1")
+    port = api_cfg.get("port", 8787)
+
+    if _is_port_in_use(host, port):
+        print(
+            f"\nCyClaw may already be running on {host}:{port}.\n"
+            "Close the other window, or wait ~30 s for the port to release, then try again."
+        )
+        _hold_console()
+        return
+
+    try:
+        _serve(host, port)
+    except KeyboardInterrupt:
+        print("\nCyClaw stopped.")
+    except OSError as e:
+        print(f"\nFailed to start CyClaw: {_sanitize_error(e)}")
+        _hold_console()
 
 
 if __name__ == "__main__":
