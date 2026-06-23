@@ -11,7 +11,7 @@ import json
 import yaml
 
 import metrics
-from metrics import load_events, print_metrics
+from metrics import compute_metrics, load_events, print_metrics
 
 
 def _write_audit(tmp_path, events):
@@ -85,6 +85,40 @@ class TestPrintMetrics:
         assert "avg: 0.500" in out
         assert "min: 0.400" in out
         assert "max: 0.600" in out
+
+
+class TestComputeMetrics:
+    """Direct coverage of the aggregate fields surfaced at GET /audit/summary."""
+
+    def test_model_used_excludes_non_answer_events(self):
+        """The graph stamps model_used="unknown" on user_gate_pause events.
+        Those must not appear in the model-usage breakdown — only answered
+        rag_query / mcp_rag_query events count."""
+        events = [
+            {"event": "rag_query", "model_used": "qwen", "top_score": 0.4},
+            {"event": "rag_query", "model_used": "qwen", "top_score": 0.3},
+            # paused (score too low, awaiting confirm) — model_used is "unknown"
+            {"event": "user_gate_pause", "model_used": "unknown", "top_score": 0.01},
+        ]
+        summary = compute_metrics(events)
+        assert summary["model_used"] == {"qwen": 2}
+        assert "unknown" not in summary["model_used"]
+
+    def test_online_escalated_uses_explicit_field(self):
+        """online_escalated is the boolean the graph audit node writes; it is the
+        source of truth even when user_confirmed_online is absent (the graph never
+        writes that key)."""
+        events = [
+            {"event": "rag_query", "online_escalated": True, "model_used": "grok-4.3"},
+            {"event": "rag_query", "online_escalated": False, "model_used": "qwen"},
+        ]
+        assert compute_metrics(events)["online_escalated"] == 1
+
+    def test_online_escalated_falls_back_to_model_heuristic(self):
+        """Older events without the explicit field still count via the grok
+        model-name heuristic."""
+        events = [{"event": "rag_query", "model_used": "grok-4.3"}]
+        assert compute_metrics(events)["online_escalated"] == 1
 
 
 class TestMain:
