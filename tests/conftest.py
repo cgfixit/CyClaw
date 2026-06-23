@@ -42,7 +42,7 @@ TEST_CONFIG = {
         "privacy": {"redact_emails": True, "redact_ips": True,
                     "redact_secrets_like": ["AKIA[0-9A-Z]{16}"]}
     },
-    "api": {"host": "127.0.0.1", "port": 8787, "request_timeout_sec": 30},  # DevSkim: ignore DS162092
+    "api": {"host": "127.0.0.1", "port": 8787},  # DevSkim: ignore DS162092
     "logging": {"level": "DEBUG", "log_file": "", "audit_file": "",
                 "audit_fields": {"include_query_hash": True, "include_top_score": True,
                                  "include_retrieval_mode": True, "include_online_escalated": True,
