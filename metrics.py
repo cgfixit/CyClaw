@@ -66,15 +66,25 @@ def compute_metrics(events: list) -> dict:
         )
         summary["retrieval_modes"] = dict(mode_counts.most_common())
 
-    model_counts = Counter(e["model_used"] for e in events if e.get("model_used"))
+    # model_used is only meaningful for answered queries. Scope it to rag_queries
+    # (mirroring scores/modes above) so non-answer events — notably the graph
+    # audit node's "user_gate_pause", which is still stamped model_used="unknown"
+    # (graph.audit_logger_node) — don't pollute the model-usage breakdown shown at
+    # GET /audit/summary with a bogus "unknown" bucket.
+    model_counts = Counter(e["model_used"] for e in rag_queries if e.get("model_used"))
     summary["model_used"] = dict(model_counts.most_common())
 
-    # An escalation to the external LLM is recorded whenever the user confirmed
-    # an online call (graph user_gate → grok_fallback) or a grok model was used.
+    # An escalation to the external LLM. Prefer the explicit boolean the graph
+    # audit node already records (audit_logger_node sets
+    # online_escalated = answer_model == "grok") as the source of truth; fall back
+    # to user_confirmed_online / the model-name heuristic for older or MCP events
+    # that predate the explicit field. Relying on user_confirmed_online alone
+    # undercounted real escalations because the graph never writes that key.
     summary["online_escalated"] = sum(
         1
         for e in events
-        if e.get("user_confirmed_online") is True
+        if e.get("online_escalated") is True
+        or e.get("user_confirmed_online") is True
         or str(e.get("model_used", "")).lower().startswith("grok")
     )
     return summary
