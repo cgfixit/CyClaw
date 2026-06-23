@@ -24,6 +24,7 @@ import hmac
 import os
 import re
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Resolve all bundled resources relative to this file, not the current working
@@ -175,10 +176,22 @@ if not os.environ.get("CYCLAW_API_KEY", ""):
         "(fail-closed). Set CYCLAW_API_KEY to enable them."
     )
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: nothing extra needed — clients are already initialized at module level.
+    yield
+    # Shutdown: close persistent httpx.Client connection pools so the OS reclaims
+    # file descriptors and TIME_WAIT sockets promptly on server restart.
+    local_llm.close()
+    if grok is not None:
+        grok.close()
+
+
 app = FastAPI(
     title="CyClaw RAG Gateway",
     description="Offline-first, RAG-first, MCP-exposed stack",
-    version="1.4.0"
+    version="1.4.0",
+    lifespan=lifespan,
 )
 
 app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
