@@ -42,9 +42,17 @@ def _extract_content(resp: httpx.Response) -> str:
     is not retried — a retry would re-fetch the same malformed body."""
     try:
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
     except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
         raise ValueError(f"malformed LLM response ({type(e).__name__}): {e}") from e
+    # A structurally-valid envelope can still carry no usable text: some
+    # OpenAI-compatible backends return content=null (e.g. alongside a refusal or
+    # tool-call) or an empty/whitespace string. Returning that verbatim would
+    # surface a blank answer downstream; treat it as a malformed (non-retryable)
+    # response so the caller maps it to a clear typed LLM/Grok error instead.
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError(f"empty LLM response: content was {content!r}")
+    return content
 
 
 def _read_retry(model_cfg: dict) -> tuple[int, float]:
