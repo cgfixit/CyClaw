@@ -133,6 +133,23 @@ _LOG_ERROR_RE = re.compile(r"\bERROR\b\s*:\s*(.+)", re.IGNORECASE)
 _RCLONE_INTERNAL_PREFIXES = (".rclone-", "bisync-", ".tmp-", "RCLONE_TEST")
 
 
+def _is_rclone_internal(path: str) -> bool:
+    """True if any component of *path* is an rclone scratch/state artifact.
+
+    rclone logs paths relative to the transfer root, usually flat ("notes.md")
+    but occasionally nested ("sub/.rclone-cache/x"). A plain
+    ``path.startswith(_RCLONE_INTERNAL_PREFIXES)`` only catches root-level
+    artifacts, so a nested scratch file would slip through and wrongly trip the
+    "corpus changed -> reindex" signal. Inspect every path component instead.
+    Backslashes are normalised so a Windows-style log path is handled too.
+    """
+    return any(
+        part.startswith(_RCLONE_INTERNAL_PREFIXES)
+        for part in path.replace("\\", "/").split("/")
+        if part
+    )
+
+
 @dataclass
 class FileEvent:
     """A single per-file event derived from the rclone log."""
@@ -498,9 +515,7 @@ def _run_sync_locked(
     # data/corpus (RcloneConfig.__post_init__), every parsed file event is by
     # construction a corpus change. We still defensively skip rclone's own
     # scratch/state artifacts in case one ever slips past the filter file.
-    corpus_changed = any(
-        not ev.path.startswith(_RCLONE_INTERNAL_PREFIXES) for ev in events
-    )
+    corpus_changed = any(not _is_rclone_internal(ev.path) for ev in events)
 
     result = SyncResult(
         success=(exit_code == 0),
