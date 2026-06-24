@@ -177,3 +177,29 @@ def test_enabled_flag_read_from_block(tmp_path: Path) -> None:
 def test_is_windows_property(tmp_path: Path) -> None:
     cfg = load_sync_config(_write_config(tmp_path, _base_block()))
     assert isinstance(cfg.is_windows, bool)
+
+
+def test_blank_path_overrides_fall_back_to_defaults(tmp_path: Path) -> None:
+    # Whitespace-only / empty overrides are treated as "unset" and replaced by
+    # the computed defaults, never passed verbatim to rclone (which would fail
+    # with a cryptic "file not found: ''").
+    cfg = load_sync_config(
+        _write_config(tmp_path, _base_block(filter_file="  ", workdir=" ", log_dir=""))
+    )
+    assert cfg.filter_file.strip() and cfg.filter_file.endswith("cyclaw_filters.txt")
+    assert cfg.workdir.strip() and cfg.workdir.endswith("bisync_state")
+    assert cfg.log_dir.strip() and cfg.log_dir.endswith("logs")
+    # log_path derives from the (now guaranteed non-empty) log_dir.
+    assert cfg.log_path.endswith("rclone_cyclaw.log")
+
+
+def test_path_override_expanding_to_empty_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A non-blank override that expands (via env var) to an empty string must
+    # fail fast with a clear SyncConfigError rather than reach rclone as "".
+    monkeypatch.setenv("CYCLAW_EMPTY_PATH_TEST", "")
+    with pytest.raises(SyncConfigError):
+        load_sync_config(
+            _write_config(tmp_path, _base_block(filter_file="$CYCLAW_EMPTY_PATH_TEST"))
+        )
