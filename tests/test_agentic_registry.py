@@ -81,6 +81,16 @@ def test_apply_writes_and_versions(reg):
     assert reg.list_skills() == ["demo"]
 
 
+def test_apply_returns_governance_score_consistent_with_stored(reg):
+    # apply_skill scores the spec it just wrote directly (mirroring
+    # propose_skill). That must equal scoring the persisted skill, and equal
+    # 100 for a clean spec -- proving the in-hand score and the on-disk score
+    # agree without a redundant lookup.
+    result = reg.apply_skill(_spec(), reason="add clean skill")
+    assert result["governance_score"] == 100
+    assert result["governance_score"] == reg.governance_score("demo")
+
+
 def test_apply_increments_version(reg):
     reg.apply_skill(_spec(), reason="v1")
     reg.apply_skill(_spec(body="updated body", name="demo"), reason="v2")
