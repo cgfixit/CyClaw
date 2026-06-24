@@ -297,6 +297,58 @@ def test_run_sync_corpus_changed_ignores_rclone_internal_artifacts(tmp_path):
     assert result.corpus_changed is False
 
 
+def test_run_sync_corpus_changed_ignores_nested_rclone_internal_artifacts(tmp_path):
+    # rclone occasionally logs scratch/state files in a nested path
+    # ("sub/.rclone-cache/state"). A root-only startswith() check would miss it
+    # and wrongly trip corpus_changed -> a needless reindex. The per-component
+    # check must treat a nested artifact as internal too.
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text(
+            "2026/06/20 02:10:01 INFO  : sub/.rclone-cache/state: Copied (new)\n",
+            encoding="utf-8",
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert result.success is True
+    assert result.corpus_changed is False
+
+
+def test_run_sync_corpus_changed_fires_on_nested_corpus_file(tmp_path):
+    # A genuine corpus file in a subdirectory ("sub/notes.md") is NOT an rclone
+    # artifact and MUST still trip corpus_changed.
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text(
+            "2026/06/20 02:10:01 INFO  : sub/notes.md: Copied (new)\n",
+            encoding="utf-8",
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert result.success is True
+    assert result.corpus_changed is True
+
+
 def test_run_sync_single_instance_lock_blocks_concurrent_run(tmp_path):
     # A pre-existing (fresh) lock directory means another run holds the lock;
     # run_sync must refuse rather than race a second rclone invocation.
