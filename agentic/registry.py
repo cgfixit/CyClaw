@@ -270,8 +270,12 @@ class SkillRegistry:
             "version": new_version,
             "sha256": new_sha,
         })
+        # Score the spec we just wrote directly, mirroring propose_skill. The
+        # canonical text is identical to what landed in the registry, so this
+        # avoids a redundant get_skill() lookup + re-scan and stays correct even
+        # if a concurrent writer mutates the registry after our atomic write.
         return {"status": "applied", "name": spec["name"],
-                "version": new_version, "sha256": new_sha, "governance_score": self.governance_score(spec["name"]) }
+                "version": new_version, "sha256": new_sha, "governance_score": self._score_spec(spec)}
 
 
 __all__ = ["SkillRegistry"]
