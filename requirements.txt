@@ -8,6 +8,15 @@
 # See SECURITY.md for exact Chroma CVE-2026-45829 justification (local/offline air-gap only).
 # Docker support added in feature/CyClaw-Agent for production reproducibility.
 # constraints.txt now expanded with all direct pins + pydantic family + torch for hermetic gate.
+#
+# torch is the CPU build (not a pyproject base dep — it is the `torch-cpu` extra),
+# pinned here so that `pip install -r requirements.txt` AND GitHub's Automatic
+# Dependency Submission resolve the CPU wheel from the PyTorch index instead of the
+# default CUDA build — keeping spurious nvidia-* CUDA packages out of the dependency
+# graph. The +cpu local-version wheel exists only on the PyTorch CPU index, so it
+# cannot be satisfied from PyPI (no dependency-confusion exposure).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.6.0+cpu
 
 fastapi==0.137.2
 uvicorn[standard]==0.49.0
