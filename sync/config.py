@@ -90,9 +90,11 @@ class RcloneConfig:
     schedule_min: int = DEFAULT_SCHEDULE_MIN
 
     # File locations (defaults computed at load time, all overridable).
-    workdir: str | None = None  # bisync state dir
-    filter_file: str | None = None  # cyclaw_filters.txt path
-    log_dir: str | None = None  # rclone log dir
+    # Empty string means "unset" -> _fill_default_paths() computes the default
+    # in __post_init__, after which all three are guaranteed non-empty strings.
+    workdir: str = ""  # bisync state dir
+    filter_file: str = ""  # cyclaw_filters.txt path
+    log_dir: str = ""  # rclone log dir
 
     # Extra exclusions appended AFTER the built-in hardened defaults.
     extra_excludes: list[str] = field(default_factory=list)
@@ -192,16 +194,34 @@ class RcloneConfig:
 
     def _fill_default_paths(self) -> None:
         state_dir = _default_rclone_state_dir()
-        if not self.workdir:
+        # Treat blank/whitespace-only overrides as "unset" so a value like
+        # "  " falls back to the default rather than being passed verbatim.
+        if not (self.workdir or "").strip():
             self.workdir = str(state_dir / "bisync_state")
-        if not self.filter_file:
+        if not (self.filter_file or "").strip():
             self.filter_file = str(state_dir / "cyclaw_filters.txt")
-        if not self.log_dir:
+        if not (self.log_dir or "").strip():
             self.log_dir = str(state_dir / "logs")
 
         self.workdir = os.path.expanduser(os.path.expandvars(self.workdir))
         self.filter_file = os.path.expanduser(os.path.expandvars(self.filter_file))
         self.log_dir = os.path.expanduser(os.path.expandvars(self.log_dir))
+
+        # Post-condition: these paths are handed verbatim to rclone as argv
+        # values (--filter-from, --workdir, --log-file). An empty value -- e.g.
+        # from an override that expands to "" -- would reach rclone as "" and
+        # surface as a cryptic "file not found: ''" failure. Fail fast here with
+        # a clear config error so the invariant downstream code relies on holds.
+        for field_name, value in (
+            ("workdir", self.workdir),
+            ("filter_file", self.filter_file),
+            ("log_dir", self.log_dir),
+        ):
+            if not value.strip():
+                raise SyncConfigError(
+                    f"sync.{field_name} resolved to an empty path after expansion",
+                    details={"hint": f"Leave sync.{field_name} unset for the default, or set a non-empty path."},
+                )
 
     # --- Computed properties ---------------------------------------------
 
@@ -213,7 +233,9 @@ class RcloneConfig:
     @property
     def log_path(self) -> str:
         """Full path to the active rclone log file."""
-        return os.path.join(self.log_dir or "", "rclone_cyclaw.log")
+        # log_dir is guaranteed non-empty by _fill_default_paths (run in
+        # __post_init__), so no empty-string fallback is needed here.
+        return os.path.join(self.log_dir, "rclone_cyclaw.log")
 
     @property
     def is_windows(self) -> bool:
