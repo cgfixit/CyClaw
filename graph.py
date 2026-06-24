@@ -289,10 +289,16 @@ Answer the query using the partial context where relevant."""
     except GrokServiceError as e:
         answer = f"[Grok Error: {e.message}]"
 
+    # No fabricated source. The previous stub
+    # {"source": "Grok Fallback", "score": 0.0, "chunk_id": -1, ...} is not a real
+    # RetrievedDoc — it carries no retrieval metadata (no semantic/keyword/rrf
+    # scores) and surfaces to the client (gate.py -> SourceInfo) as a meaningless
+    # null-scored "source". Grok answered from its own knowledge, not from a
+    # cited local document, so report no sources rather than a fake one.
     return {
         "answer": answer,
         "answer_model": "grok",
-        "answer_sources": [{"source": "Grok Fallback", "score": 0.0, "chunk_id": -1, "stem_tags": [], "mode": "grok"}]
+        "answer_sources": []
     }
 
 def offline_best_effort_node(state: GraphState, llm: LocalLLMClient, cfg: dict,
