@@ -125,6 +125,28 @@ class TestLocalLLMClient:
         assert kwargs["json"]["messages"][0]["content"] == "a prompt"
         client.close()
 
+    def test_generate_null_content_maps_to_llm_service_error(self, tmp_path):
+        # A 200 with content=null (e.g. a refusal / tool-call envelope) must not
+        # be returned as a blank answer; it maps to the typed error the graph
+        # node handles, not a leaked exception or an empty string.
+        client = LocalLLMClient(_write_config(tmp_path))
+        req = httpx.Request("POST", _URL)
+        resp = httpx.Response(
+            200, json={"choices": [{"message": {"content": None}}]}, request=req
+        )
+        client._client.post = _FakePost(response=resp)
+        with pytest.raises(LLMServiceError):
+            client.generate("a prompt")
+        client.close()
+
+    def test_generate_blank_content_maps_to_llm_service_error(self, tmp_path):
+        # A whitespace-only 200 body is equally unusable.
+        client = LocalLLMClient(_write_config(tmp_path))
+        client._client.post = _FakePost(response=_ok_response("   \n  "))
+        with pytest.raises(LLMServiceError):
+            client.generate("a prompt")
+        client.close()
+
     def test_generate_http_error_maps_to_llm_service_error(self, tmp_path):
         client = LocalLLMClient(_write_config(tmp_path))
         client._client.post = _FakePost(response=_status_response(503))
@@ -183,6 +205,20 @@ class TestGrokClient:
         assert client.generate("a prompt") == "grok answer"
         _url, kwargs = fake.calls[0]
         assert kwargs["headers"]["Authorization"] == "Bearer xai-secret"
+        client.close()
+
+    def test_generate_null_content_maps_to_grok_service_error(self, tmp_path, monkeypatch):
+        # content=null on a 200 must map to the typed Grok error, not a blank
+        # answer — the shared _extract_content guard covers Grok too.
+        monkeypatch.setenv("GROK_API_KEY", "xai-secret")
+        client = GrokClient(_write_config(tmp_path))
+        req = httpx.Request("POST", _URL)
+        resp = httpx.Response(
+            200, json={"choices": [{"message": {"content": None}}]}, request=req
+        )
+        client._client.post = _FakePost(response=resp)
+        with pytest.raises(GrokServiceError):
+            client.generate("a prompt")
         client.close()
 
     def test_generate_http_error_maps_to_grok_service_error(self, tmp_path, monkeypatch):
