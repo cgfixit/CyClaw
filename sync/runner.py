@@ -289,7 +289,7 @@ def _common_args(cfg: RcloneConfig, log_path: str) -> list[str]:
     mode. It is added only in ``build_bisync_argv`` where deletions can occur.
     """
     args: list[str] = [
-        "--filter-from", cfg.filter_file or "",
+        "--filter-from", cfg.filter_file,
         f"--max-transfer={cfg.max_transfer}",
         "--check-first",
         "--log-file", log_path,
@@ -330,7 +330,7 @@ def build_bisync_argv(
         cfg.remote, cfg.local_path,
         f"--conflict-resolve={cfg.conflict_resolve}",
         f"--conflict-loser={cfg.conflict_loser}",
-        "--workdir", cfg.workdir or "",
+        "--workdir", cfg.workdir,
         f"--max-delete={cfg.max_delete}",  # only meaningful where deletions occur
         *_common_args(cfg, log_path),
     ]
