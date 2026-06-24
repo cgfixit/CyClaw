@@ -1,7 +1,7 @@
 # CyClaw
 
 > **Offline-first, RAG-enforced, $ecure Local AI "Second Brain" (no internet required for RAG and cached Qwen7B-Instruct cached locally for RAG vault misses.)**
-> Version 1.6.0 (agentic release + governed local workflows)
+> Version 1.7.0 (browser ops consoles: Sync + Agentic)
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-green.svg)](https://fastapi.tiangolo.com/)
@@ -22,7 +22,7 @@ CyClaw is a personal RAG (Retrieval-Augmented Generation) backend that:
 3. **Maintains a persistent soul/personality layer** (`soul.md`) with SHA-256 drift detection, atomic evolution writes, and user-gated modification
 4. **Falls back to Grok (xAI) only with explicit user confirmation** in hybrid mode — triple-gated at config, env, and per-query level
 5. **Exposes both a FastAPI HTTP gateway and an MCP server** for Claude Desktop / Copilot Studio integration
-6. **Ships optional, out-of-band operator layers** for Dropbox corpus sync (`sync/`) and agentic GitHub context / governed local workflows (`agentic/`, `.claude/`) — never imported into the request path
+6. **Ships optional, out-of-band operator layers** for Dropbox corpus sync (`sync/`) and agentic GitHub context / governed local workflows (`agentic/`, `.claude/`) — never imported into the request path, now also drivable from the browser terminal via governed **Sync** and **Agentic** consoles
 
 Zero telemetry. Binds to `127.0.0.1:8787` only. All embeddings run locally via `sentence-transformers`. No cloud dependency for offline operation. Reproducible containerized deployment via Docker is available, while agentic and sync features remain explicitly opt-in.
 
@@ -36,7 +36,8 @@ Zero telemetry. Binds to `127.0.0.1:8787` only. All embeddings run locally via `
 | v1.3.0 | **Pre-Langgrinch** | Rate limiting (60/min), 13 OWASP patterns, soul SHA-256 drift detection, atomic writes, TTL→365 days |
 | v1.4.0 | Superseded | Dropbox/cloud corpus sync (out-of-band rclone wrapper + full audit integration) + requirements.txt pinned for Python 3.12 + vuln patches |
 | v1.5.0 | Superseded | Out-of-band agentic layer foundations + memory orchestration nodes + Docker hardening |
-| v1.6.0 | **Production (current)** | Agentic release: governed read-only GitHub context via `gh`, governed local skills registry, `.claude/` workflows/commands/patterns/tools/utility-prompts, plus README / structure refresh |
+| v1.6.0 | Superseded | Agentic release: governed read-only GitHub context via `gh`, governed local skills registry, `.claude/` workflows/commands/patterns/tools/utility-prompts, plus README / structure refresh |
+| v1.7.0 | **Production (current)** | Browser Sync + Agentic ops consoles in the terminal UI, backed by loopback-only audited `POST /ops/sync` + `POST /ops/agentic` subprocess shims (out-of-band isolation preserved) |
 
 ---
 
@@ -137,7 +138,7 @@ python -m retrieval.indexer
 uvicorn gate:app --host 127.0.0.1 --port 8787
 ```
 
-Open `/` for the terminal UI and `/health` for readiness.
+Open `/` for the terminal UI and `/health` for readiness. The terminal exposes three operator consoles — **Soul**, **Sync**, and **Agentic** — the latter two calling `POST /ops/sync` and `POST /ops/agentic` (API-key gated, rate-limited, audited).
 
 ---
 
@@ -215,6 +216,8 @@ python -m sync.cli schedule
 python -m sync.cli unschedule
 ```
 
+The same actions are available from the **Sync Console** panel in the terminal UI via `POST /ops/sync` (loopback-only, API-key gated, audited).
+
 See `Dropbox_Sync_Guide.md` for full setup and scheduling details.
 
 ---
@@ -261,6 +264,8 @@ python -m agentic.cli test
 python -m agentic.cli propose-skill --name deploy --desc "..." --body-file s.md --reason "draft"
 python -m agentic.cli apply-skill --name deploy --desc "..." --body-file s.md --reason "add deploy runbook" --confirm
 ```
+
+The **Agentic Console** panel drives these from the terminal UI via `POST /ops/agentic`; skill-Apply stays disabled behind a 4-gate checklist (`mode=write` + `writes_enabled` + reason + `--confirm`) — dry-run only under shipped defaults.
 
 ### `.claude/` workflows and utility surfaces
 
@@ -324,6 +329,7 @@ The MCP server exposes a retrieval-only `hybrid_search` tool. It has **no sampli
 | Grok gating | Triple gate: `mode=hybrid` AND `grok.enabled=true` AND `user_confirmed_online=true` |
 | Soul writes | Explicit human reason string + enforced write-boundary scan + atomic write |
 | Agentic writes | Stubbed / non-executing in current release |
+| `/ops/*` routes | Loopback-only, `require_api_key` gated, rate-limited (60/min), every call audited (`ops_sync_executed` / `ops_agentic_executed`); shells out via `subprocess.run([...])` — never imports `sync/` or `agentic/` |
 
 ---
 
