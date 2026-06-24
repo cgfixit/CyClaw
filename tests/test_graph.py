@@ -304,6 +304,24 @@ class TestGrokFallbackPrompt:
         assert result["answer_model"] == "grok"
         assert result["answer"] == grok.response
 
+    def test_grok_reports_no_fabricated_sources(self, tmp_path):
+        # Grok answers from its own knowledge, not a cited local document. The
+        # node must NOT fabricate a "Grok Fallback" source stub (which would
+        # surface as a meaningless null-scored source to the client). With or
+        # without forwarded context, answer_sources must be an empty list.
+        grok = MockGrokClient()
+        state = {
+            "query": "what is RRF?",
+            "retrieved_docs": [
+                {"text": "reciprocal rank fusion", "score": 0.30,
+                 "source": "rrf.md", "chunk_id": 0},
+            ],
+        }
+        for send_ctx in (True, False):
+            result = grok_fallback_node(state, grok=grok, cfg=self._cfg(send_ctx))
+            assert result["answer_model"] == "grok"
+            assert result["answer_sources"] == []
+
     def test_no_context_forwarded_sends_query_only(self, tmp_path):
         grok = MockGrokClient()
         state = {"query": "ping", "retrieved_docs": [
