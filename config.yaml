@@ -243,6 +243,7 @@ sync:
   checksum: true                 # rclone --checksum (hash compare, not mtime)
   max_delete: 20                 # safety fuse: abort if > N deletions
   max_transfer: "1G"             # safety fuse: abort if run would move > this
+  sync_timeout_sec: 3600         # wall-clock ceiling on the rclone run; 0 = unbounded. Guards against a hung rclone wedging the single-instance lock.
   schedule_hour: 2               # 24h local time (cron/timer/Task Scheduler)
   schedule_min: 0
   conflict_resolve: "newer"      # bisync-only: newer modtime wins

@@ -42,6 +42,13 @@ DEFAULT_CONFLICT_LOSER = "rename"
 DEFAULT_INCLUDE_SOUL = False
 DEFAULT_REINDEX_ON_CHANGE = True  # exit 10 if corpus files changed
 DEFAULT_CHECKSUM = True
+# Wall-clock ceiling on the rclone sync subprocess. A hung rclone (dead remote,
+# stalled network) would otherwise block run_sync forever WHILE HOLDING the
+# single-instance lock, wedging every future run. 3600s (1h) is far above any
+# realistic .md/.txt corpus sync (max_transfer defaults to 1G), so it only ever
+# trips on a genuine hang. Set to 0 in config.yaml to restore the old unbounded
+# behaviour.
+DEFAULT_SYNC_TIMEOUT_SEC = 3600
 
 # Validation constants.
 _REMOTE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -80,6 +87,8 @@ class RcloneConfig:
     # Safety fuses.
     max_delete: int = DEFAULT_MAX_DELETE
     max_transfer: str = DEFAULT_MAX_TRANSFER
+    # Wall-clock ceiling (seconds) on the rclone subprocess; 0 disables it.
+    sync_timeout_sec: int = DEFAULT_SYNC_TIMEOUT_SEC
 
     # bisync-only knobs (ignored when direction == "pull").
     conflict_resolve: str = DEFAULT_CONFLICT_RESOLVE
@@ -119,6 +128,12 @@ class RcloneConfig:
             raise SyncConfigError(
                 f"sync.max_delete must be >= 0, got: {self.max_delete}",
                 details={"received": self.max_delete},
+            )
+
+        if self.sync_timeout_sec < 0:
+            raise SyncConfigError(
+                f"sync.sync_timeout_sec must be >= 0 (0 disables the timeout), got: {self.sync_timeout_sec}",
+                details={"received": self.sync_timeout_sec},
             )
 
         if not 0 <= self.schedule_hour <= 23:
