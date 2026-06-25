@@ -96,8 +96,9 @@ def test_executor_unimplemented_even_with_flag_flipped(monkeypatch):
     # Flipping the flag is NOT sufficient to enable writes: the executor itself
     # is still unwired, so it raises NotImplementedError rather than running a gh
     # command. Enabling real writes remains a deliberate, separate change.
-    import agentic.writer as writer_mod
-    monkeypatch.setattr(writer_mod, "EXECUTION_ENABLED", True)
+    # setattr via dotted string avoids importing agentic.writer a second way
+    # (the module is already pulled in via `from agentic.writer import ...`).
+    monkeypatch.setattr("agentic.writer.EXECUTION_ENABLED", True)
     plan = plan_write(_write_cfg(), "issue_comment", "explain", confirm=True,
                       number=1, body="note")
     with pytest.raises(NotImplementedError):
