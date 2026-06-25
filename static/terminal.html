@@ -750,7 +750,7 @@
         no LLM sees your input until context is retrieved and scored.
       </div>
       <div class="hint" style="margin-top:4px; color:var(--border);">
-        ctrl+enter to send &nbsp;·&nbsp; gateway at 127.0.0.1:8787
+        enter to send &nbsp;·&nbsp; shift+enter for newline &nbsp;·&nbsp; gateway at 127.0.0.1:8787
       </div>
     </div>
   </div>
@@ -832,11 +832,9 @@ input.addEventListener('input', () => {
 });
 
 input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault();
-    submitQuery();
-  }
-  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+  // Enter sends; Shift+Enter inserts a newline. Ctrl/Cmd+Enter is kept as a
+  // power-user alias for send. Shift is the only modifier that suppresses send.
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     submitQuery();
   }
