@@ -100,6 +100,19 @@ class SkillRegistry:
                 compiled.append((p, re.compile(p, re.IGNORECASE)))
             except re.error:
                 continue
+        # Fail closed. Unlike the soul scanner (advisory at propose time), this
+        # scanner is ENFORCED at apply_skill: an empty pattern set would make
+        # _scan_injection a silent no-op, so every skill would pass the injection
+        # gate — reopening the skill-poisoning vector the registry exists to
+        # close, with no test to catch the regression. If the OWASP baseline is
+        # ever emptied/refactored away or every pattern fails to compile, refuse
+        # to construct the registry rather than operate with a defeated gate.
+        if not compiled:
+            raise SkillRegistryError(
+                "injection pattern set is empty; refusing to operate with a "
+                "defeated skill-injection gate (fail-closed)",
+                details={"owasp_baseline_count": len(OWASP_INJECTION_PATTERNS)},
+            )
         return compiled
 
     def _scan_injection(self, text: str) -> list[str]:
