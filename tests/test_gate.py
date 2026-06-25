@@ -203,16 +203,78 @@ class TestSoulAndErrorPaths:
     /query must 503 (not 500) when the index/graph never built. These guard the
     fail-soft branches that previously had no integration coverage."""
 
-    def test_get_soul_404_when_disabled(self, client):
+    def test_get_soul_404_when_disabled(self, client, monkeypatch):
         test_client, _ = client
         import gate
+        # GET /soul is now auth-gated — set a key so auth passes and we reach the
+        # personality-disabled branch (404), not the auth branch (401).
+        monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
         original = gate.personality
         gate.personality = None
         try:
-            resp = test_client.get("/soul")
+            resp = test_client.get(
+                "/soul", headers={"Authorization": "Bearer test-key-123"}
+            )
             assert resp.status_code == 404
         finally:
             gate.personality = original
+
+    # ------------------------------------------------------------------
+    # Auth tests for GET /soul (security/gate-get-soul-auth)
+    # ------------------------------------------------------------------
+
+    def test_get_soul_requires_auth_no_key_env(self, client):
+        """GET /soul returns 401 when CYCLAW_API_KEY is not set at all."""
+        test_client, _ = client
+        # monkeypatch NOT used — CYCLAW_API_KEY absent from env by default in tests
+        import os
+        os.environ.pop("CYCLAW_API_KEY", None)
+        resp = test_client.get("/soul")
+        assert resp.status_code == 401
+
+    def test_get_soul_requires_auth_no_token_sent(self, client, monkeypatch):
+        """GET /soul returns 401 when CYCLAW_API_KEY is set but no token sent."""
+        test_client, _ = client
+        monkeypatch.setenv("CYCLAW_API_KEY", "correct-key-xyz")
+        resp = test_client.get("/soul")
+        assert resp.status_code == 401
+
+    def test_get_soul_rejects_wrong_key(self, client, monkeypatch):
+        """GET /soul returns 401 on a wrong Bearer token even when key is set."""
+        test_client, _ = client
+        monkeypatch.setenv("CYCLAW_API_KEY", "correct-key-xyz")
+        resp = test_client.get("/soul", headers={"Authorization": "Bearer wrong-key"})
+        assert resp.status_code == 401
+
+    def test_get_soul_accepts_correct_key(self, client, monkeypatch):
+        """GET /soul returns 200 with the correct Bearer token."""
+        test_client, _ = client
+        monkeypatch.setenv("CYCLAW_API_KEY", "correct-key-xyz")
+        resp = test_client.get(
+            "/soul", headers={"Authorization": "Bearer correct-key-xyz"}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "soul" in body
+        assert "version" in body
+        assert "source" in body
+
+    def test_get_soul_audit_logged(self, client, monkeypatch, tmp_path):
+        """GET /soul writes a soul_read audit event on every authenticated call."""
+        import json
+        import gate
+        test_client, _ = client
+        monkeypatch.setenv("CYCLAW_API_KEY", "correct-key-xyz")
+        audit_file = tmp_path / "audit_soul_read.jsonl"
+        gate.cfg["logging"]["audit_file"] = str(audit_file)
+        resp = test_client.get(
+            "/soul", headers={"Authorization": "Bearer correct-key-xyz"}
+        )
+        assert resp.status_code == 200
+        events = [json.loads(line) for line in audit_file.read_text().splitlines() if line]
+        soul_reads = [e for e in events if e.get("event") == "soul_read"]
+        assert soul_reads, "Expected a soul_read audit event"
+        assert "version" in soul_reads[0]
 
     def test_soul_reload_404_when_disabled(self, client, monkeypatch):
         test_client, _ = client

@@ -357,10 +357,11 @@ async def query_endpoint(request: Request, req: QueryRequest):
         error=result.get("error")
     )
 
-@app.get("/soul")
+@app.get("/soul", dependencies=[Depends(require_api_key)])
 async def get_soul():
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
+    audit_log({"event": "soul_read", "version": personality.get_version()})
     return {
         "soul": personality.get_system_prompt_additive(),
         "version": personality.get_version(),
