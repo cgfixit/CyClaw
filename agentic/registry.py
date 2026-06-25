@@ -164,12 +164,19 @@ class SkillRegistry:
         # Heavy penalty for injection patterns (core invariant)
         penalty = min(len(flags) * 25, 80)
         score = 100 - penalty
-        # Bonus for decent description (helps human review)
-        if spec.get("description") and len(spec.get("description", "")) > 30:
-            score += 8
-        # Bonus for non-trivial body
-        if spec.get("body") and len(spec.get("body", "")) > 100:
-            score += 5
+        # Structure bonuses are awarded ONLY for clean specs. A skill with any
+        # injection flag would be refused at the apply gate (safe_to_apply is
+        # False), so its governance score must stay visibly low -- a +8/+5
+        # description/body bonus must never inflate a refused skill back toward
+        # 100 (e.g. 1 flag -> 75 + 8 + 5 = 88) in the propose preview or the
+        # terminal status line that humans rely on during review.
+        if not flags:
+            # Bonus for decent description (helps human review)
+            if spec.get("description") and len(spec.get("description", "")) > 30:
+                score += 8
+            # Bonus for non-trivial body
+            if spec.get("body") and len(spec.get("body", "")) > 100:
+                score += 5
         return max(0, min(100, int(score)))
 
     # --- propose / apply (mirrors personality) ----------------------------
