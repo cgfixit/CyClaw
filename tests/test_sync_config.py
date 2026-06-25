@@ -129,6 +129,29 @@ def test_rejects_negative_max_delete(tmp_path: Path) -> None:
         load_sync_config(path)
 
 
+def test_sync_timeout_defaults_to_one_hour(tmp_path: Path) -> None:
+    # Absent from config -> the hardened default (3600s) bounds a hung rclone.
+    cfg = load_sync_config(_write_config(tmp_path, _base_block()))
+    assert cfg.sync_timeout_sec == 3600
+
+
+def test_sync_timeout_override_is_honoured(tmp_path: Path) -> None:
+    cfg = load_sync_config(_write_config(tmp_path, _base_block(sync_timeout_sec=120)))
+    assert cfg.sync_timeout_sec == 120
+
+
+def test_sync_timeout_zero_is_allowed_means_unbounded(tmp_path: Path) -> None:
+    # 0 is the explicit "disable the timeout" escape hatch (old behaviour).
+    cfg = load_sync_config(_write_config(tmp_path, _base_block(sync_timeout_sec=0)))
+    assert cfg.sync_timeout_sec == 0
+
+
+def test_rejects_negative_sync_timeout(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, _base_block(sync_timeout_sec=-5))
+    with pytest.raises(SyncConfigError):
+        load_sync_config(path)
+
+
 def test_rejects_bad_conflict_resolve(tmp_path: Path) -> None:
     path = _write_config(tmp_path, _base_block(conflict_resolve="random"))
     with pytest.raises(SyncConfigError):

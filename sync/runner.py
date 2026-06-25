@@ -502,6 +502,8 @@ def _run_sync_locked(
         "include_soul": cfg.include_soul,
     })
 
+    # A 0 timeout means "unbounded" (subprocess.run treats timeout=None that way).
+    run_timeout = cfg.sync_timeout_sec if cfg.sync_timeout_sec > 0 else None
     try:
         # argv is a list of a fixed flag set + validated config; never shell=True.
         completed = subprocess.run(  # noqa: S603 -- argv list, validated inputs, no shell
@@ -509,7 +511,18 @@ def _run_sync_locked(
             capture_output=True,
             text=True,
             check=False,
+            timeout=run_timeout,
         )
+    except subprocess.TimeoutExpired as exc:
+        # rclone hung past the wall-clock ceiling. subprocess.run has already
+        # killed the child and reaped it by the time TimeoutExpired propagates,
+        # so the single-instance lock is released cleanly when we raise. Do not
+        # echo argv (it carries the remote spec) — surface only the direction and
+        # the limit that tripped.
+        raise SyncRuntimeError(
+            f"rclone sync timed out after {cfg.sync_timeout_sec}s",
+            details={"direction": cfg.direction, "timeout_sec": cfg.sync_timeout_sec},
+        ) from exc
     except FileNotFoundError as exc:
         # rclone disappeared between the version check and now (race). Do not
         # include argv (would leak the remote spec into the error string).
