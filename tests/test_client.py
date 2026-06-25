@@ -447,7 +447,14 @@ class TestContextManager:
         client = LocalLLMClient(_write_config(tmp_path))
         closed = {"n": 0}
         client._client.close = lambda: closed.__setitem__("n", closed["n"] + 1)
-        with pytest.raises(ValueError):
+        # Explicit try/except (not pytest.raises) so the post-block assertion is
+        # statically reachable — CodeQL can't model pytest.raises suppressing the
+        # exception and flags the following line as unreachable otherwise.
+        raised = False
+        try:
             with client:
                 raise ValueError("boom")
+        except ValueError:
+            raised = True
+        assert raised  # the exception propagated out of the with block
         assert closed["n"] == 1  # close() still runs when the block raises
