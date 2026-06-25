@@ -898,7 +898,7 @@ async function submitQuery(confirmedOnline = null) {
 
     const resp = await fetch(`${API}/query`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify(body)
     });
 
