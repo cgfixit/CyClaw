@@ -264,6 +264,9 @@ jobs:
           # and the terminal.html emulation's non-empty soul assertion fails.
           mkdir -p data/personality index logs
           echo 'GROK_API_KEY=dummy' >> "$GITHUB_ENV"
+          # CYCLAW_API_KEY needed for GET /soul smoke check (now auth-gated).
+          # This is a non-secret CI smoke value — loopback-only, ephemeral.
+          echo 'CYCLAW_API_KEY=smoke-test-key-ci' >> "$GITHUB_ENV"
 
       - name: Run verify.sh if present
         if: hashFiles(format('.claude/skills/{0}/verify.sh', matrix.skill)) != ''

@@ -8,6 +8,7 @@
 set -euo pipefail
 
 GROK_API_KEY="${GROK_API_KEY:-dummy}"
+CYCLAW_API_KEY="${CYCLAW_API_KEY:-smoke-test-key-ci}"
 PYTHON="${PYTHON:-python3.12}"
 PORT="${PORT:-8787}"
 BASE="http://127.0.0.1:$PORT"
@@ -93,12 +94,19 @@ HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/query" \
   && pass "POST /query injection  (HTTP 400 — filter active)" \
   || fail "POST /query injection  HTTP $HTTP (expected 400)"
 
-# 5. Soul endpoint
-R=$(curl -sf "$BASE/soul")
+# 5. Soul endpoint — GET /soul is now auth-gated (require_api_key)
+#    Pass the CI smoke key so the check exercises the real authenticated path.
+R=$(curl -sf "$BASE/soul" -H "Authorization: Bearer $CYCLAW_API_KEY")
 VER=$(echo "$R" | jget "d['version']")
 [ -n "$VER" ] \
-  && pass "GET /soul  (version=$VER)" \
+  && pass "GET /soul  (version=$VER — authenticated)" \
   || fail "GET /soul  unexpected response: $R"
+
+# 5b. Soul endpoint without auth → must return 401
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/soul")
+[ "$HTTP" = "401" ] \
+  && pass "GET /soul  no-auth → HTTP 401 (fail-closed confirmed)" \
+  || fail "GET /soul  no-auth → HTTP $HTTP (expected 401)"
 
 # 6. Static terminal UI
 HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/static/terminal.html")
