@@ -454,13 +454,22 @@ def _run_sync_locked(
     write_filter_file(cfg)
 
     log_path = cfg.log_path
-    # Clear the previous run's log so parsing is unambiguous.
+    # Clear the previous run's log so parsing sees ONLY this run's lines. rclone
+    # opens --log-file in append mode, so a stale log left in place would be
+    # re-parsed in full -- replaying a previous run's FileEvents and ERROR lines
+    # and potentially raising a false safety-abort. Truncate (open "w") rather
+    # than unlink: it still clears the file when the inode cannot be removed but
+    # is writable, and it leaves an empty file for rclone to append to. The
+    # single-instance lock guarantees no concurrent writer, so if we cannot
+    # produce a clean log we fail loudly instead of silently parsing stale data.
     try:
-        if os.path.exists(log_path):
-            os.remove(log_path)
-    except OSError:
-        # Non-fatal: rclone appends; we still parse the appended portion.
-        pass
+        with open(log_path, "w", encoding="utf-8"):
+            pass
+    except OSError as exc:
+        raise SyncRuntimeError(
+            "could not clear previous rclone log before sync",
+            details={"direction": cfg.direction},
+        ) from exc
 
     if cfg.direction == "bisync":
         argv = build_bisync_argv(
