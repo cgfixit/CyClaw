@@ -1067,7 +1067,10 @@ async function toggleSoulPanel() {
 async function loadSoul() {
   setSoulStatus('Loading soul...');
   try {
-    const resp = await fetch(`${API}/soul`, { signal: AbortSignal.timeout(5000) });
+    const resp = await fetch(`${API}/soul`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(5000),
+    });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       throw new Error(extractErrorMessage(data, 'Failed to load soul'));

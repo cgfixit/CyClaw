@@ -102,7 +102,7 @@ User Query (HTTP POST /query or MCMC tool call)
 
 CyClaw's soul mutation endpoints (`/soul/propose`, `/soul/apply`, `/soul/reload`, `/soul/restore`) require a **Bearer API key**. Without it they return `HTTP 401` immediately — intentional fail-closed behavior.
 
-> **`GET /soul` (read-only) and all other endpoints do not require the key.** Only mutation routes are gated.
+> **All `/soul/*` endpoints — including `GET /soul` — require a valid `Authorization: Bearer <key>` token.** Only `/health` and `/query` are unauthenticated.
 
 ### Windows — PowerShell
 
