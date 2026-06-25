@@ -452,6 +452,54 @@ def test_run_sync_other_failure_exit_2(tmp_path):
     assert reindex_exit_code_for(result, cfg) == 2
 
 
+def test_run_sync_raises_when_log_cannot_be_cleared(tmp_path):
+    # rclone opens --log-file in append mode, so a previous run's log must be
+    # cleared before this run or its FileEvents/ERROR lines would be replayed
+    # (a false reindex signal or a phantom safety-abort). Plant a directory where
+    # the log file belongs so the clear (open "w") raises IsADirectoryError -- the
+    # fix must surface that as SyncRuntimeError, never silently parse stale data.
+    cfg = _make_cfg(tmp_path)
+    Path(cfg.log_path).mkdir(parents=True, exist_ok=True)
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", return_value=_version_mock("1.70.0")):
+        with pytest.raises(SyncRuntimeError):
+            run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+
+def test_run_sync_clears_stale_log_before_run(tmp_path):
+    # A stale log left from a prior run must NOT leak into this run's result.
+    # Pre-seed the log with a deleted-file line + an ERROR; the mocked rclone run
+    # writes only a single "Copied (new)" line. After the fix the result reflects
+    # ONLY the fresh line -- the stale delete/error are gone.
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(log_path).write_text(
+        "2026/06/19 01:00:00 INFO  : stale.md: Deleted\n"
+        "2026/06/19 01:00:00 ERROR : stale failure from a previous run\n",
+        encoding="utf-8",
+    )
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        # rclone appends to log_path; the fix truncated it first, so only this
+        # fresh line is present when parse_log runs.
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write("2026/06/20 02:10:01 INFO  : fresh.md: Copied (new)\n")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch):
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    kinds = {(ev.kind, ev.path) for ev in result.events}
+    assert ("added", "fresh.md") in kinds
+    assert ("deleted", "stale.md") not in kinds  # stale event was cleared
+    assert result.errors == []  # stale ERROR line was cleared, not replayed
+
+
 def test_run_sync_audit_events_have_file_key_no_query(tmp_path):
     cfg = _make_cfg(tmp_path)
     log_path = cfg.log_path
