@@ -187,6 +187,17 @@ def test_agentic_text_action_not_parsed(monkeypatch: pytest.MonkeyPatch) -> None
     assert res.parsed is None
 
 
+def test_agentic_json_action_with_non_json_stdout_yields_none_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A JSON-emitting action (context) that returns exit 0 but garbled stdout
+    # silently degrades to parsed=None rather than raising. Documents the
+    # _maybe_json contract: non-JSON output from JSON actions is not an error.
+    runner, _ = _fake_run(returncode=0, stdout="not-valid-json-at-all")
+    monkeypatch.setattr(ops_runner, "_run", runner)
+    res = run_agentic_op("context")
+    assert res.ok is True
+    assert res.parsed is None
+
+
 def test_to_dict_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     runner, _ = _fake_run(returncode=0, stdout="ok")
     monkeypatch.setattr(ops_runner, "_run", runner)
