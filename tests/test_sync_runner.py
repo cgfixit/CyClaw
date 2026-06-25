@@ -8,6 +8,7 @@ resolution via ``sync.runner.shutil.which``.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -270,6 +271,54 @@ def test_run_sync_corpus_changed_and_exit_10(tmp_path):
     assert result.success is True
     assert result.corpus_changed is True
     assert reindex_exit_code_for(result, cfg) == cfg.REINDEX_EXIT_CODE == 10
+
+
+def test_run_sync_timeout_maps_to_sync_runtime_error(tmp_path):
+    # A hung rclone (TimeoutExpired) must surface as a typed SyncRuntimeError
+    # carrying the limit that tripped — and must NOT leak the remote spec/argv.
+    cfg = _make_cfg(tmp_path, sync_timeout_sec=1)
+    seen_timeout = {}
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        # Confirm the wall-clock ceiling is actually wired to the sync call.
+        seen_timeout["value"] = kwargs.get("timeout")
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs.get("timeout"))
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        with pytest.raises(SyncRuntimeError) as exc:
+            run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert seen_timeout["value"] == 1  # the config ceiling reached subprocess.run
+    assert exc.value.details.get("timeout_sec") == 1
+    # The remote spec must never leak into the error message.
+    assert "dropbox" not in str(exc.value).lower()
+
+
+def test_run_sync_timeout_zero_passes_none_to_subprocess(tmp_path):
+    # sync_timeout_sec=0 is the "unbounded" escape hatch -> timeout=None.
+    cfg = _make_cfg(tmp_path, sync_timeout_sec=0)
+    log_path = cfg.log_path
+    seen_timeout = {}
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        seen_timeout["value"] = kwargs.get("timeout", "MISSING")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("", encoding="utf-8")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert result.success is True
+    assert seen_timeout["value"] is None  # 0 -> unbounded
 
 
 def test_run_sync_corpus_changed_ignores_rclone_internal_artifacts(tmp_path):
