@@ -15,7 +15,7 @@
 # unresolvable. Keep these two in lock-step; only bump pydantic-core together
 # with a compatible pydantic bump.
 pydantic==2.13.4
-pydantic-core==2.47.0
+pydantic-core==2.46.4
 pydantic-settings==2.14.2
 
 # Direct dependencies from pyproject.toml [project.dependencies] -- versions MUST match exactly
