@@ -192,6 +192,10 @@ api:
     # null = in-memory (counters reset on restart). Set to a sqlite path such as
     # "data/rate_limits.db" so per-IP counters survive process/container restarts.
     persist_path: null
+    # Optional Postgres persistence (takes precedence over persist_path). Set to a
+    # "postgresql://user:pass@host/dbname" DSN, or leave null and use the
+    # CYCLAW_RATELIMIT_DB_URL / CYCLAW_DB_URL env vars. In-memory stays the default.
+    # database_url: null
 
 logging:
   level: "INFO"
