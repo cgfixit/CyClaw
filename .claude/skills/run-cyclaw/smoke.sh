@@ -49,7 +49,7 @@ fi
 # ── launch server ────────────────────────────────────────────────────────────
 echo "[smoke] Starting server on :$PORT ..."
 GROK_API_KEY="$GROK_API_KEY" CYCLAW_API_KEY="$CYCLAW_API_KEY" \
-  "$PYTHON" -m uvicorn gate:app --host 127.0.0.1 --port "$PORT" > "$LOG" 2>&1 &
+  "$PYTHON" -m uvicorn gate:app --host 127.0.0.1 --port "$PORT" > "$LOG" 2>&1 &  # DevSkim: ignore DS162092
 SERVER_PID=$!
 
 cleanup() {
