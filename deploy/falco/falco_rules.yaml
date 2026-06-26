@@ -45,10 +45,10 @@
 
 # The only egress CyClaw makes off-container is to the LM Studio / Grok endpoints.
 # Loopback stays in-container; adjust the host/port to your LM Studio if remote.
+# Loopback literals are intentional (CyClaw is loopback-only by design), not debug
+# code -- suppress the devskim DS162092 heuristic on this line.
 - macro: cyclaw_expected_outbound
-  condition: >
-    (fd.sip = "127.0.0.1" or fd.sip = "::1" or
-     fd.sport = 1234)
+  condition: '(fd.sip = "127.0.0.1" or fd.sip = "::1" or fd.sport = 1234)'  # DevSkim: ignore DS162092
 
 # ---------------------------------------------------------------------------
 # Rules.
