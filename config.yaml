@@ -333,3 +333,44 @@ sqlconnect:
   statement_timeout_ms: 5000
   max_rows: 1000
   allow_write: false             # reserved; v0.1 cannot write regardless
+
+# ===========================
+# NeMo Guardrails (out-of-band, content-safety layer)  [v0.1 — skeleton]
+# ===========================
+# Disabled-by-default, opt-in defense-in-depth layer. Absence of this block, or
+# enabled: false, is a pure no-op with NO effect on existing functionality: the
+# graph topology stays the sole source of routing/policy. Runs strictly out-of-band
+# (`python -m guardrails.cli`) and is NEVER imported by gate.py, graph.py, or
+# mcp_hybrid_server.py — that isolation preserves the five security invariants.
+# nemoguardrails is an OPTIONAL dependency: the layer soft-imports it and degrades
+# to offline heuristic rails (injection + soul-mutation block + token-overlap
+# grounding) when it is absent. See docs/NeMo/later_development_guideline.md.
+guardrails:
+  enabled: false                 # off by default; CLI no-ops, nothing runs while false
+  engine: "openai"               # LM Studio / Ollama expose OpenAI-compatible APIs
+  base_url: "http://127.0.0.1:1234/v1"  # DevSkim: ignore DS162092,DS137138 - loopback LM Studio, offline-only
+  model: "qwen2.5-7b-instruct"   # keep in sync with models.local_llm.model
+  nemo_config_dir: "guardrails/config"  # holds config.yml + rails.co (RailsConfig.from_path)
+  metrics_path: "logs/guardrails.jsonl" # SEPARATE stream from logs/audit.jsonl (privacy: hashes only)
+  block_message: "I can't help with that request. It was stopped by a CyClaw safety guardrail."
+  hallucination_threshold: 0.18  # [0..1] token-overlap floor below which an answer is flagged ungrounded
+  input_rails:                   # mirror guardrails/config/config.yml -> rails.input.flows
+    - check_injection
+    - check_jailbreak
+    - check_soul_mutation
+  output_rails:                  # mirror guardrails/config/config.yml -> rails.output.flows
+    - check_grounding
+    - check_soul_leak
+  topical_rails:                 # soul/personality-boundary topical flows (rails.co)
+    - stay_in_local_knowledge
+    - no_unauthed_external_advice
+  soul_topics:                   # keywords that flag a turn as soul/personality/identity-related
+    - soul
+    - personality
+    - identity
+    - who are you
+    - your name
+    - your purpose
+    - system prompt
+    - your instructions
+    - persona
