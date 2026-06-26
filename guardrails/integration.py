@@ -1,0 +1,242 @@
+"""NeMo Guardrails integration wrapper for CyClaw -- skeleton, out-of-band.
+
+This is the single seam between CyClaw and ``nemoguardrails``. It is designed to:
+
+  * import cleanly WITHOUT ``nemoguardrails`` installed (soft import);
+  * degrade to a transparent "guardrails skipped" path when the dependency or
+    the NeMo config is absent, or when ``guardrails.enabled`` is false;
+  * record every decision to the SEPARATE guardrail metrics stream;
+  * expose a LangGraph-compatible node helper (:func:`guardrail_safety_node`)
+    that is provided for FUTURE wiring only -- it is NOT imported by graph.py in
+    this skeleton (see docs/NeMo/later_development_guideline.md for the plan).
+
+Nothing here is imported by gate.py, graph.py, or mcp_hybrid_server.py. The
+module-isolation rule (PROJECT_RULES.md) is preserved by construction.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, TypedDict
+
+from guardrails.config import GuardrailsConfig, load_guardrails_config
+from guardrails.errors import GuardrailsDependencyError, RailsLoadError
+from guardrails.metrics import GuardrailMetrics
+from guardrails.rails import (
+    detect_soul_mutation_intent,
+    grounding_score,
+    is_possible_hallucination,
+    is_soul_topic,
+    register_actions,
+    scan_injection,
+)
+
+logger = logging.getLogger("cyclaw.guardrails")
+
+# --- Soft import: nemoguardrails is optional -------------------------------
+try:  # pragma: no cover - exercised only when the optional dep is installed
+    from nemoguardrails import LLMRails, RailsConfig
+
+    NEMO_AVAILABLE = True
+except ImportError:  # pragma: no cover - default offline path
+    LLMRails = None  # type: ignore[assignment,misc]
+    RailsConfig = None  # type: ignore[assignment,misc]
+    NEMO_AVAILABLE = False
+
+
+class GuardResult(TypedDict, total=False):
+    """Outcome of a guardrailed generation / check."""
+
+    response: str
+    blocked: bool
+    reason: str | None
+    rails_triggered: list[str]
+    grounding_score: float | None
+    soul_topic: bool
+    guardrails_active: bool  # False => skipped (disabled / dep missing)
+
+
+# Singleton so we don't recompile the rails config on every call.
+_rails_singleton: Any | None = None
+
+
+def reset_rails_singleton() -> None:
+    """Drop the cached ``LLMRails`` (tests / config reload)."""
+    global _rails_singleton
+    _rails_singleton = None
+
+
+def get_cyclaw_guardrails(cfg: GuardrailsConfig | None = None) -> Any:
+    """Build (once) and return the live ``LLMRails`` engine.
+
+    Raises :class:`GuardrailsDependencyError` if ``nemoguardrails`` is not
+    installed, and :class:`RailsLoadError` if the NeMo config directory cannot be
+    loaded. Callers that want graceful degradation should use
+    :func:`safe_generate` instead, which never raises for the missing-dep case.
+    """
+    global _rails_singleton
+    if cfg is None:
+        cfg = load_guardrails_config()
+    if not NEMO_AVAILABLE:
+        raise GuardrailsDependencyError(
+            "nemoguardrails is not installed; install it to enable live rails "
+            "(`pip install nemoguardrails`). The skeleton runs without it.",
+            details={"degraded": True},
+        )
+    if _rails_singleton is not None:
+        return _rails_singleton
+    if not cfg.nemo_config_present:
+        raise RailsLoadError(
+            "NeMo config files not found",
+            details={"expected": [str(cfg.config_yml_path), str(cfg.rails_co_path)]},
+        )
+    try:
+        rails_config = RailsConfig.from_path(cfg.nemo_config_dir)
+        rails = LLMRails(rails_config)
+    except Exception as exc:  # noqa: BLE001 - surface any NeMo load failure as RailsLoadError
+        raise RailsLoadError(f"failed to load NeMo rails: {exc}", details={"dir": cfg.nemo_config_dir}) from exc
+    register_actions(rails)
+    _rails_singleton = rails
+    return rails
+
+
+def _offline_checks(
+    query: str, context: str, cfg: GuardrailsConfig
+) -> tuple[bool, list[str], float]:
+    """Run the model-free heuristic rails.
+
+    Returns ``(blocked, rails_triggered, grounding)``. These are the offline
+    floor that runs whether or not ``nemoguardrails`` is present, so the soul /
+    personality and injection protections never depend on the heavy dependency.
+    """
+    triggered: list[str] = []
+    if scan_injection(query):
+        triggered.append("check_injection")
+    if detect_soul_mutation_intent(query):
+        triggered.append("check_soul_mutation")
+    grounding = grounding_score(context, context) if context else 1.0
+    blocked = bool(triggered)
+    return blocked, triggered, grounding
+
+
+async def safe_generate(
+    prompt: str,
+    *,
+    context: str = "",
+    cfg: GuardrailsConfig | None = None,
+    metrics: GuardrailMetrics | None = None,
+) -> GuardResult:
+    """Main integration point -- the guardrailed analogue of a raw LLM call.
+
+    Behaviour matrix:
+
+      * guardrails disabled OR nemoguardrails missing  -> offline heuristic rails
+        only (injection + soul-mutation block), recorded as a "skipped" live-rails
+        turn but still enforcing the offline floor;
+      * guardrails enabled AND nemoguardrails present   -> offline floor first
+        (fail fast, no LLM spend on an obvious block), then the live NeMo engine.
+
+    Never raises for the missing-dependency case -- it degrades. It still records
+    every decision to the guardrail metrics stream.
+    """
+    if cfg is None:
+        cfg = load_guardrails_config()
+    if metrics is None:
+        metrics = GuardrailMetrics(cfg.metrics_path)
+
+    soul = is_soul_topic(prompt, cfg.soul_topics)
+    if soul:
+        metrics.record_soul_topic(query=prompt)
+
+    blocked, triggered, _ = _offline_checks(prompt, context, cfg)
+    if blocked:
+        rail = triggered[0]
+        metrics.record_blocked(stage="input", rail=rail, reason="offline heuristic", query=prompt)
+        return GuardResult(
+            response=cfg.block_message,
+            blocked=True,
+            reason=f"input rail: {rail}",
+            rails_triggered=triggered,
+            grounding_score=None,
+            soul_topic=soul,
+            guardrails_active=cfg.enabled and NEMO_AVAILABLE,
+        )
+
+    # Degraded path: no live NeMo engine. Offline floor already passed.
+    if not (cfg.enabled and NEMO_AVAILABLE):
+        reason = "guardrails disabled" if not cfg.enabled else "nemoguardrails not installed"
+        metrics.record_skipped(reason=reason, query=prompt)
+        return GuardResult(
+            response="",
+            blocked=False,
+            reason=reason,
+            rails_triggered=triggered,
+            grounding_score=None,
+            soul_topic=soul,
+            guardrails_active=False,
+        )
+
+    # Live path: hand off to NeMo. Kept defensive -- any failure degrades, never
+    # crashes the caller.
+    try:
+        rails = get_cyclaw_guardrails(cfg)
+        messages = [{"role": "user", "content": prompt}]
+        if context:
+            messages.insert(0, {"role": "system", "content": f"Retrieved context:\n{context}"})
+        result = await rails.generate_async(messages=messages)
+        response = result.get("content", "") if isinstance(result, dict) else str(result)
+    except (GuardrailsDependencyError, RailsLoadError) as exc:
+        metrics.record_skipped(reason=f"rails unavailable: {exc.code}", query=prompt)
+        return GuardResult(
+            response="", blocked=False, reason=str(exc.message),
+            rails_triggered=triggered, grounding_score=None, soul_topic=soul, guardrails_active=False,
+        )
+
+    # Output rail: offline hallucination check against retrieved context.
+    score = grounding_score(response, context) if context else None
+    out_blocked = score is not None and is_possible_hallucination(response, context, cfg.hallucination_threshold)
+    if out_blocked:
+        metrics.record_hallucination(score=score or 0.0, threshold=cfg.hallucination_threshold, query=prompt)
+        metrics.record_blocked(stage="output", rail="check_grounding", reason="low grounding", query=prompt)
+        return GuardResult(
+            response=cfg.block_message, blocked=True, reason="output rail: check_grounding",
+            rails_triggered=[*triggered, "check_grounding"], grounding_score=score,
+            soul_topic=soul, guardrails_active=True,
+        )
+
+    metrics.record_allowed(score=score, query=prompt)
+    return GuardResult(
+        response=response, blocked=False, reason=None, rails_triggered=triggered,
+        grounding_score=score, soul_topic=soul, guardrails_active=True,
+    )
+
+
+# --- LangGraph-compatible node helper (PROVIDED FOR FUTURE WIRING ONLY) ------
+# This is intentionally NOT imported by graph.py in the skeleton. The wiring plan
+# (a visible node + conditional edge, never hidden middleware -- topology=policy)
+# is documented in docs/NeMo/later_development_guideline.md.
+
+
+async def guardrail_safety_node(state: dict[str, Any], cfg: GuardrailsConfig | None = None) -> dict[str, Any]:
+    """Example LangGraph node: run guardrails over the current state.
+
+    Reads ``state['query']`` and ``state['retrieved_context']`` (or builds it from
+    ``retrieved_docs``) and returns ONLY the new keys to merge -- it never mutates
+    the input state in place, matching CyClaw's node contract.
+    """
+    if cfg is None:
+        cfg = load_guardrails_config()
+    query = state.get("query", "")
+    context = state.get("retrieved_context", "")
+    if not context and state.get("retrieved_docs"):
+        context = "\n\n".join(d.get("text", "") for d in state["retrieved_docs"])
+
+    result = await safe_generate(query, context=context, cfg=cfg)
+    return {
+        "guarded_response": result.get("response", ""),
+        "safety_blocked": result.get("blocked", False),
+        "safety_reason": result.get("reason"),
+        "safety_rails_triggered": result.get("rails_triggered", []),
+        "safety_grounding_score": result.get("grounding_score"),
+        "safety_soul_topic": result.get("soul_topic", False),
+    }
