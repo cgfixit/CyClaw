@@ -12,7 +12,7 @@ on:
     branches:
       - 'claude/**'
   pull_request:
-    branches: [main, cc]
+    branches: [main, cc, feature/CyClaw-Agent]
 
 concurrency:
   group: lint-${{ github.ref }}
