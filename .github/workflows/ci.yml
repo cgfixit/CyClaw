@@ -143,6 +143,12 @@ jobs:
             tests/test_sqlconnect_config.py \
             tests/test_sqlconnect_client.py \
             tests/test_sqlconnect_cli.py \
+            tests/test_guardrails_config.py \
+            tests/test_guardrails_rails.py \
+            tests/test_guardrails_integration.py \
+            tests/test_guardrails_metrics.py \
+            tests/test_guardrails_isolation.py \
+            tests/test_guardrails_cli.py \
             tests/test_rag_integration.py \
             tests/test_startup_robustness.py \
             tests/test_clear_cache.py \
@@ -177,6 +183,7 @@ jobs:
             --cov=sync.cli \
             --cov=sync.scheduler \
             --cov=agentic \
+            --cov=guardrails \
             --cov-report=xml \
             --cov-report=html \
             --cov-report=term-missing
