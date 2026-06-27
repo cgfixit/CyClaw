@@ -420,6 +420,9 @@ class TestNodeErrorRecovery:
         assert out["answer_model"] == "local"
         assert out["answer"].startswith("[LLM Error:")
         assert "LM Studio down" in out["answer"]
+        # The failure must also surface on the error field so audit_logger_node
+        # and QueryResponse.error record it (not just a bracketed answer string).
+        assert out["error"] == "LLM_SERVICE_ERROR: LM Studio down"
 
     def test_offline_best_effort_node_handles_llm_service_error(self):
         out = offline_best_effort_node(
@@ -428,6 +431,7 @@ class TestNodeErrorRecovery:
         assert out["answer_model"] == "offline-best-effort"
         assert out["answer"].startswith("[LLM Error:")
         assert "LM Studio down" in out["answer"]
+        assert out["error"] == "LLM_SERVICE_ERROR: LM Studio down"
 
     def test_grok_fallback_node_handles_grok_service_error(self):
         cfg = {"policy": {"fallback": {"send_local_context_to_grok": False}}}
@@ -435,3 +439,16 @@ class TestNodeErrorRecovery:
         assert out["answer_model"] == "grok"
         assert out["answer"].startswith("[Grok Error:")
         assert "xAI 500" in out["answer"]
+        assert out["error"] == "GROK_SERVICE_ERROR: xAI 500"
+
+    def test_local_llm_node_success_does_not_set_error(self):
+        # On the success path the node must NOT emit an "error" key, so it can
+        # never clobber an upstream error already in state (e.g. a retrieve
+        # RAG_ERROR that routed here via the offline path).
+        class _OkLLM:
+            def generate(self, prompt):
+                return "ok answer"
+
+        out = local_llm_node({"query": "q", "retrieved_docs": []}, llm=_OkLLM(), cfg={})
+        assert out["answer"] == "ok answer"
+        assert "error" not in out

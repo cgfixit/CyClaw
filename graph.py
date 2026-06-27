@@ -202,16 +202,25 @@ RETRIEVED CONTEXT {UNTRUSTED_NOTE}:
 
 Answer based STRICTLY on the retrieved context above. If the context is insufficient, say so explicitly."""
 
+    error: str | None = None
     try:
         answer = llm.generate(prompt)
     except LLMServiceError as e:
         answer = f"[LLM Error: {e.message}]"
+        error = f"{e.code}: {e.message}"
 
-    return {
+    out: dict = {
         "answer": answer,
         "answer_model": "local",
-        "answer_sources": docs[:5]
+        "answer_sources": docs[:5],
     }
+    # Surface a generation failure to the audit node + HTTP response, matching
+    # retrieve_node's "{code}: {message}" convention. Only set on failure so a
+    # successful answer never clobbers an upstream error already in state (e.g. a
+    # retrieve_node RAG_ERROR that routed here via the offline path).
+    if error is not None:
+        out["error"] = error
+    return out
 
 def user_gate_node(state: GraphState, cfg: dict) -> dict:
     """Node 4: User confirmation gate for Grok fallback.
@@ -284,10 +293,12 @@ Answer the query using the partial context where relevant."""
         )
         prompt = prompt[:max_chars]
 
+    error: str | None = None
     try:
         answer = grok.generate(prompt)
     except GrokServiceError as e:
         answer = f"[Grok Error: {e.message}]"
+        error = f"{e.code}: {e.message}"
 
     # No fabricated source. The previous stub
     # {"source": "Grok Fallback", "score": 0.0, "chunk_id": -1, ...} is not a real
@@ -295,11 +306,14 @@ Answer the query using the partial context where relevant."""
     # scores) and surfaces to the client (gate.py -> SourceInfo) as a meaningless
     # null-scored "source". Grok answered from its own knowledge, not from a
     # cited local document, so report no sources rather than a fake one.
-    return {
+    out: dict = {
         "answer": answer,
         "answer_model": "grok",
-        "answer_sources": []
+        "answer_sources": [],
     }
+    if error is not None:
+        out["error"] = error
+    return out
 
 def offline_best_effort_node(state: GraphState, llm: LocalLLMClient, cfg: dict,
                              personality: PersonalityManager | None = None) -> dict:
@@ -340,16 +354,24 @@ No local knowledge base context was available for this query.
 
 Provide the best general answer you can. Clearly note that your local knowledge base did not have relevant information for this query."""
 
+    error: str | None = None
     try:
         answer = llm.generate(prompt)
     except LLMServiceError as e:
         answer = f"[LLM Error: {e.message}]"
+        error = f"{e.code}: {e.message}"
 
-    return {
+    out: dict = {
         "answer": answer,
         "answer_model": "offline-best-effort",
-        "answer_sources": docs[:3] if docs else []
+        "answer_sources": docs[:3] if docs else [],
     }
+    # Only set on failure so a successful best-effort answer does not overwrite an
+    # upstream error already in state (e.g. a retrieve_node RAG_ERROR that routed
+    # here) — the audit node reads state["error"].
+    if error is not None:
+        out["error"] = error
+    return out
 
 def audit_logger_node(state: GraphState, cfg: dict,
                       personality: PersonalityManager | None = None) -> dict:
