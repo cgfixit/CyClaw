@@ -182,19 +182,24 @@ class HybridRetriever:
         semantic_meta = {}
         keyword_meta = {}
 
+        # No "text" in the per-leg meta dicts below: the merged SearchResult
+        # already carries the chunk text (text=hit.text from all_hits), and the
+        # provenance dict is only ever read for rank/score/rrf_contrib. Storing
+        # hit.text here duplicated every chunk's full text into the provenance
+        # payload (and thence into graph state) per leg, for zero functional gain.
         for rank, hit in enumerate(semantic_hits):
             key = (hit.source, hit.chunk_id)
             contrib = 1 / (self.rrf_k + rank)
             scores[key] = scores.get(key, 0) + contrib
             semantic_meta[key] = {"rank": rank, "score": hit.score, "rrf_contrib": contrib,
-                                   "text": hit.text, "stem_tags": hit.stem_tags}
+                                   "stem_tags": hit.stem_tags}
 
         for rank, hit in enumerate(keyword_hits):
             key = (hit.source, hit.chunk_id)
             contrib = 1 / (self.rrf_k + rank)
             scores[key] = scores.get(key, 0) + contrib
             keyword_meta[key] = {"rank": rank, "score": hit.score, "rrf_contrib": contrib,
-                                  "text": hit.text, "stem_tags": hit.stem_tags}
+                                  "stem_tags": hit.stem_tags}
 
         all_hits = {(h.source, h.chunk_id): h for h in semantic_hits + keyword_hits}
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
