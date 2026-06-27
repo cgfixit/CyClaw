@@ -138,10 +138,11 @@ class _FakeRails:
 
 
 def _force_live(monkeypatch, rails_factory):
-    import guardrails.integration as integ
-
-    monkeypatch.setattr(integ, "NEMO_AVAILABLE", True)
-    monkeypatch.setattr(integ, "get_cyclaw_guardrails", lambda cfg=None: rails_factory())
+    # String targets avoid importing guardrails.integration a second time (it is
+    # already imported via `from ... import` above; importing the same module both
+    # ways trips a CodeQL maintainability alert).
+    monkeypatch.setattr("guardrails.integration.NEMO_AVAILABLE", True)
+    monkeypatch.setattr("guardrails.integration.get_cyclaw_guardrails", lambda cfg=None: rails_factory())
 
 
 def test_live_empty_context_blocks_ungrounded_answer(monkeypatch):
