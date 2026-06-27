@@ -1,7 +1,7 @@
 # CyClaw
 
 > **Offline-first, RAG-enforced, $ecure Local AI "Second Brain" (no internet required for RAG and cached Qwen7B-Instruct cached locally for RAG vault misses.)**
-> Version 1.7.0 (browser ops consoles: Sync + Agentic)
+> Version 1.8.0 (agentic filesystem + SQL connectors, NeMo Guardrails layer)
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-green.svg)](https://fastapi.tiangolo.com/)
@@ -23,6 +23,8 @@ CyClaw is a personal RAG (Retrieval-Augmented Generation) backend that:
 4. **Falls back to Grok (xAI) only with explicit user confirmation** in hybrid mode — triple-gated at config, env, and per-query level
 5. **Exposes both a FastAPI HTTP gateway and an MCP server** for Claude Desktop / Copilot Studio integration
 6. **Ships optional, out-of-band operator layers** for Dropbox corpus sync (`sync/`) and agentic GitHub context / governed local workflows (`agentic/`, `.claude/`) — never imported into the request path, now also drivable from the browser terminal via governed **Sync** and **Agentic** consoles
+7. **Extends the agentic layer to local data** (v1.8) with an opt-in **filesystem connector** (`agentic/fsconnect/` — scoped reads + gated writes over local/SMB shares, TOCTOU-safe) and a read-only **SQL connector** (`agentic/sqlconnect/` — SELECT-only Postgres/MSSQL scaffold) — both disabled by default and out-of-band
+8. **Adds an optional NeMo Guardrails content-safety layer** (v1.8, `guardrails/`) that soft-imports `nemoguardrails` and degrades to offline heuristic rails — defense-in-depth only, never a routing authority (graph topology stays the sole policy)
 
 Zero telemetry. Binds to `127.0.0.1:8787` only. All embeddings run locally via `sentence-transformers`. No cloud dependency for offline operation. Reproducible containerized deployment via Docker is available, while agentic and sync features remain explicitly opt-in.
 
@@ -37,7 +39,8 @@ Zero telemetry. Binds to `127.0.0.1:8787` only. All embeddings run locally via `
 | v1.4.0 | Superseded | Dropbox/cloud corpus sync (out-of-band rclone wrapper + full audit integration) + requirements.txt pinned for Python 3.12 + vuln patches |
 | v1.5.0 | Superseded | Out-of-band agentic layer foundations + memory orchestration nodes + Docker hardening |
 | v1.6.0 | Superseded | Agentic release: governed read-only GitHub context via `gh`, governed local skills registry, `.claude/` workflows/commands/patterns/tools/utility-prompts, plus README / structure refresh |
-| v1.7.0 | **Production (current)** | Browser Sync + Agentic ops consoles in the terminal UI, backed by loopback-only audited `POST /ops/sync` + `POST /ops/agentic` subprocess shims (out-of-band isolation preserved) |
+| v1.7.0 | Superseded | Browser Sync + Agentic ops consoles in the terminal UI, backed by loopback-only audited `POST /ops/sync` + `POST /ops/agentic` subprocess shims (out-of-band isolation preserved) |
+| v1.8.0 | **Production (current)** | Agentic **filesystem connector** (`agentic/fsconnect/` — scoped reads, gated/atomic writes, TOCTOU-safe `pathsafe` core, toggleable RAG-corpus indexing) + read-only **SQL connector** (`agentic/sqlconnect/` — SELECT-only Postgres/MSSQL scaffold) + opt-in **NeMo Guardrails** layer (`guardrails/` — offline heuristic rails with graceful degradation). All three opt-in, disabled by default, and out-of-band (never imported by gate/graph/MCP) |
 
 ---
 
@@ -293,7 +296,23 @@ CyClaw/
 │   ├── context.py
 │   ├── gh_client.py
 │   ├── registry.py
-│   └── writer.py               # stubbed write scaffold, non-executing
+│   ├── writer.py               # stubbed write scaffold, non-executing
+│   ├── fsconnect/              # (v1.8) local/SMB filesystem connector
+│   │   ├── cli.py
+│   │   ├── client.py           # scoped reads (fs_list/stat/read/grep)
+│   │   ├── pathsafe.py         # TOCTOU-safe openat/O_NOFOLLOW security core
+│   │   ├── writer.py           # gated, atomic writes (default-disabled)
+│   │   └── indexer.py          # toggleable RAG-corpus indexing of the share
+│   └── sqlconnect/             # (v1.8) read-only SQL scaffold (Postgres/MSSQL)
+│       ├── cli.py
+│       └── client.py           # SELECT-only query guard, env-only DSN
+├── guardrails/                 # (v1.8) optional NeMo Guardrails layer (out-of-band)
+│   ├── cli.py
+│   ├── config.py
+│   ├── integration.py          # soft-imports nemoguardrails; degrades gracefully
+│   ├── rails.py                # offline heuristic rails (injection/soul/grounding)
+│   ├── metrics.py              # separate logs/guardrails.jsonl stream (hashes only)
+│   └── config/                 # NeMo config.yml + rails.co (Colang flows)
 ├── .claude/                    # local operator workflows and prompts
 │   ├── commands/
 │   ├── hooks/
@@ -434,6 +453,94 @@ Do **not** use it to bypass CyClaw's core RAG-first runtime or to inject autonom
 
 ---
 
+## Filesystem & SQL Connectors (v1.8)
+
+v1.8 extends the agentic layer beyond GitHub to **local data**, for the air-gapped / regulated-SMB use case where AI cannot be hosted in the cloud. Both connectors are **opt-in, disabled by default, and fully out-of-band** — never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`, so the five security invariants hold by construction. While disabled, their CLIs are a pure no-op (exit 0).
+
+### `agentic/fsconnect/` — local / SMB filesystem connector
+
+Scoped **reads** and separately-gated **writes** over a local or SMB file share, sharing one TOCTOU-safe security core.
+
+- **`pathsafe.py` security core** — POSIX `openat` / `O_NOFOLLOW` handle-descent from a held root directory fd (so the root cannot be swapped under the process). Denies UNC, NTFS alternate data streams (`file::$DATA`), `\\?\` / `\\.\` device paths, `..` traversal, and any symlink / reparse point. Segment-aware containment closes **CVE-2025-53110** (sibling-prefix) and `realpath` + `O_NOFOLLOW` close **CVE-2025-53109** (symlink/junction escape).
+- **Reads** (`fs_list` / `fs_stat` / `fs_read` / `fs_grep`) confined to `allowed_roots`, audited, with a 5 MiB read cap and advisory OWASP∪`banned_patterns` content scanning.
+- **Writes** (`fs_write` / `fs_append` / `fs_mkdir` / `fs_move`) — fully built but **`writes_enabled: false` by default**; confined to a **separate** `writable_roots` list; gated by a human `reason` + `--confirm` (for destructive ops); atomic (`tmp` + `os.replace`); **content-agnostic** (never calls the LLM — an operator pipes local-LLM/QWEN output in). A code-level `FS_WRITE_HARD_DISABLE` kill switch forces dry-run regardless of config.
+- **Toggleable RAG-corpus indexing** of the share (`index_enabled`, dry-run default) stages eligible files into the corpus and triggers a reindex **subprocess** — enabling a generate → write → index loop without importing the retrieval layer.
+
+```bash
+python -m agentic.fsconnect.cli status
+python -m agentic.fsconnect.cli read  <path>            # scoped read
+python -m agentic.fsconnect.cli grep  <path> <pattern>
+python -m agentic.fsconnect.cli write <path> --reason "..."   # dry-run unless writes_enabled
+python -m agentic.fsconnect.cli index --apply           # stage share → corpus
+python -m agentic.fsconnect.cli test                    # pre-flight self-test
+```
+
+Enable in `config.yaml`:
+
+```yaml
+fsconnect:
+  enabled: true
+  allowed_roots: ["/srv/share"]   # REQUIRED when enabled; existing dirs
+  max_file_bytes: 5242880         # 5 MiB read cap
+  writes_enabled: false           # master write switch (dry-run plans while false)
+  writable_roots: [null]          # null => OS default (/var/lib/cyclaw-fs | C:\CyClaw-FS)
+  max_write_bytes: 10485760       # 10 MiB write cap
+  index_enabled: false            # toggle RAG-corpus indexing of the share
+```
+
+### `agentic/sqlconnect/` — read-only SQL connector (v0.1 scaffold)
+
+A disabled-by-default scaffold for read-only on-prem SQL (Postgres / MSSQL). Read-only is enforced three ways: a **SELECT/WITH-only query guard** (rejects DDL/DML, stacked statements, and comment-hidden keywords by scanning a quote-stripped copy), a **session-level read-only** transaction, and a hard `allow_write: false`. The DSN is read from an **environment variable only** (`CYCLAW_SQL_DSN`), never hardcoded; drivers (`psycopg` / `pyodbc`) are imported lazily.
+
+```bash
+python -m agentic.sqlconnect.cli status
+python -m agentic.sqlconnect.cli schema                 # list table schemas (read-only)
+python -m agentic.sqlconnect.cli query --table public.users   # bounded preview
+python -m agentic.sqlconnect.cli test
+```
+
+```yaml
+sqlconnect:
+  enabled: false
+  driver: "postgres"             # "postgres" | "mssql"
+  dsn_env: "CYCLAW_SQL_DSN"      # DSN from this env var only
+  statement_timeout_ms: 5000
+  max_rows: 1000
+  allow_write: false             # reserved; v0.1 cannot write regardless
+```
+
+---
+
+## NeMo Guardrails (v1.8)
+
+An **opt-in, out-of-band** content-safety layer in `guardrails/`. It is **defense-in-depth only — never a routing authority**: the LangGraph topology stays the sole source of policy. Absence of the `guardrails:` block, or `enabled: false`, is a pure no-op. It is never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`.
+
+- **`nemoguardrails` is an optional dependency.** The layer **soft-imports** it and, when it is absent, degrades to **offline heuristic rails** that need no second LLM call:
+  - **input** — light prompt-injection marker scan + soul/identity-mutation intent detection (the content-layer arm of the Soul-Governance invariant);
+  - **output** — token-overlap **grounding** check against the retrieved context, flagging likely-ungrounded (hallucinated) answers below `hallucination_threshold`.
+- When `nemoguardrails` **is** installed, the same Python checks back the live NeMo actions (via the Colang flows in `guardrails/config/rails.co`), so the offline heuristics and live rails never drift.
+- Decisions are recorded to a **separate** metrics stream (`logs/guardrails.jsonl`) that stores **only SHA-256 hashes** — never raw text — mirroring the audit log's privacy posture.
+
+```bash
+python -m guardrails.cli status                         # config + nemoguardrails availability
+python -m guardrails.cli check "your query here"        # run offline rails (no LLM/NeMo needed)
+python -m guardrails.cli metrics                         # summarize the guardrail stream
+python -m guardrails.cli test                            # pre-flight self-test
+```
+
+```yaml
+guardrails:
+  enabled: false                 # opt-in; nothing runs while false
+  engine: "openai"               # LM Studio / Ollama OpenAI-compatible endpoint
+  model: "qwen2.5-7b-instruct"   # keep in sync with models.local_llm.model
+  hallucination_threshold: 0.18  # token-overlap floor for the grounding rail
+  metrics_path: "logs/guardrails.jsonl"   # separate from logs/audit.jsonl (hashes only)
+```
+
+> Full design / wiring plan: `docs/NeMo/later_development_guideline.md`.
+
+---
+
 ## MCP Server
 
 For Claude Desktop or other MCP-compatible clients:
@@ -449,7 +556,7 @@ For Claude Desktop or other MCP-compatible clients:
 }
 ```
 
-The MCP server exposes a retrieval-only `hybrid_search` tool. It has **no sampling capability** and is intentionally isolated from the agentic and Dropbox corpus sync layers.
+The MCP server exposes a retrieval-only `hybrid_search` tool. It has **no sampling capability** and is intentionally isolated from the agentic, filesystem/SQL connector, NeMo Guardrails, and Dropbox corpus sync layers.
 
 ---
 
@@ -465,6 +572,9 @@ The MCP server exposes a retrieval-only `hybrid_search` tool. It has **no sampli
 | Grok gating | Triple gate: `mode=hybrid` AND `grok.enabled=true` AND `user_confirmed_online=true` |
 | Soul writes | Explicit human reason string + enforced write-boundary scan + atomic write |
 | Agentic writes | Stubbed / non-executing in current release |
+| Filesystem connector | Reads scoped to `allowed_roots` (5 MiB cap); writes default-OFF, confined to a separate `writable_roots`, gated by human `reason` + `--confirm`, atomic; TOCTOU-safe `pathsafe` core denies UNC/ADS/device-path/`..`/symlink escapes |
+| SQL connector | Read-only: SELECT/WITH-only query guard + session read-only + hard `allow_write: false`; DSN from env var only; disabled scaffold by default |
+| Guardrails | Out-of-band, opt-in defense-in-depth; degrades to offline heuristic rails without `nemoguardrails`; never a routing authority; separate hash-only metrics stream |
 | `/ops/*` routes | Loopback-only, `require_api_key` gated, rate-limited (60/min), every call audited (`ops_sync_executed` / `ops_agentic_executed`); shells out via `subprocess.run([...])` — never imports `sync/` or `agentic/` |
 | Container | Non-root, `no-new-privileges`, `cap_drop: ALL`, read-only rootfs, seccomp, resource limits; optional eBPF/Falco detection (`deploy/falco/`, off by default) |
 
@@ -478,8 +588,11 @@ The MCP server exposes a retrieval-only `hybrid_search` tool. It has **no sampli
 ruff check --select E,F,I,B,C4,S .
 python -m tests.ci_rag_smoke
 pytest tests/test_sanitizer.py tests/test_security.py tests/test_rate_limit.py tests/test_audit.py tests/test_client.py tests/test_personality.py
-GROK_API_KEY=dummy pytest tests/test_agentic_*.py -q
+GROK_API_KEY=dummy pytest tests/test_agentic_*.py tests/test_fsconnect_*.py tests/test_sqlconnect_*.py tests/test_guardrails_*.py -q
 python -m agentic.cli test
+python -m agentic.fsconnect.cli test
+python -m agentic.sqlconnect.cli test
+python -m guardrails.cli test
 ```
 
 ---
