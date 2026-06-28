@@ -258,6 +258,10 @@ sync:
   max_delete: 20                 # safety fuse: abort if > N deletions
   max_transfer: "1G"             # safety fuse: abort if run would move > this
   sync_timeout_sec: 3600         # wall-clock ceiling on the rclone run; 0 = unbounded. Guards against a hung rclone wedging the single-instance lock.
+  sync_retries: 0                # outer retries on a TRANSIENT rclone failure (exit 5); 0 = single-shot (default)
+  retry_backoff_sec: 5.0         # base for exponential backoff between retry attempts
+  fast_list: false               # rclone --fast-list: one bulk remote listing (faster on large corpora, more memory)
+  # bwlimit: "8M"                # optional rclone --bwlimit rate ("8M", "512k", "off"); unset = no limit
   schedule_hour: 2               # 24h local time (cron/timer/Task Scheduler)
   schedule_min: 0
   conflict_resolve: "newer"      # bisync-only: newer modtime wins

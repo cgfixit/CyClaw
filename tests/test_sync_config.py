@@ -160,6 +160,58 @@ def test_rejects_negative_sync_timeout(tmp_path: Path) -> None:
         load_sync_config(path)
 
 
+def test_resilience_and_perf_defaults_are_inert(tmp_path: Path) -> None:
+    # Absent from config -> the new knobs default to a no-op (single-shot, no
+    # perf flags) so existing deployments behave exactly as before.
+    cfg = load_sync_config(_write_config(tmp_path, _base_block()))
+    assert cfg.sync_retries == 0
+    assert cfg.retry_backoff_sec == 5.0
+    assert cfg.fast_list is False
+    assert cfg.bwlimit == ""
+
+
+def test_resilience_and_perf_overrides_honoured(tmp_path: Path) -> None:
+    cfg = load_sync_config(
+        _write_config(
+            tmp_path,
+            _base_block(sync_retries=3, retry_backoff_sec=1.5, fast_list=True, bwlimit="8M"),
+        )
+    )
+    assert cfg.sync_retries == 3
+    assert cfg.retry_backoff_sec == 1.5
+    assert cfg.fast_list is True
+    assert cfg.bwlimit == "8M"
+
+
+def test_rejects_negative_sync_retries(tmp_path: Path) -> None:
+    with pytest.raises(SyncConfigError):
+        load_sync_config(_write_config(tmp_path, _base_block(sync_retries=-1)))
+
+
+def test_rejects_negative_retry_backoff(tmp_path: Path) -> None:
+    with pytest.raises(SyncConfigError):
+        load_sync_config(_write_config(tmp_path, _base_block(retry_backoff_sec=-0.1)))
+
+
+@pytest.mark.parametrize("value", ["off", "512k", "1.5M", "10G", "1000"])
+def test_accepts_valid_bwlimit_forms(tmp_path: Path, value: str) -> None:
+    cfg = load_sync_config(_write_config(tmp_path, _base_block(bwlimit=value)))
+    assert cfg.bwlimit == value
+
+
+def test_blank_bwlimit_normalises_to_unset(tmp_path: Path) -> None:
+    cfg = load_sync_config(_write_config(tmp_path, _base_block(bwlimit="  ")))
+    assert cfg.bwlimit == ""
+
+
+@pytest.mark.parametrize("value", ["-8M", "8 M", "8M;rm", "fast", "08:00,512k 19:00,off"])
+def test_rejects_bad_bwlimit(tmp_path: Path, value: str) -> None:
+    # Leading dash (flag injection), embedded whitespace/metachars, bare words and
+    # timetables are all refused -- bwlimit must stay a single clean rate token.
+    with pytest.raises(SyncConfigError):
+        load_sync_config(_write_config(tmp_path, _base_block(bwlimit=value)))
+
+
 def test_rejects_bad_conflict_resolve(tmp_path: Path) -> None:
     path = _write_config(tmp_path, _base_block(conflict_resolve="random"))
     with pytest.raises(SyncConfigError):
