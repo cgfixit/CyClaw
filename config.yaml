@@ -332,6 +332,7 @@ fsconnect:
     - ".docx"
     - ".csv"
   index_max_file_bytes: 10485760
+  index_incremental: false       # when true, apply() skips re-reading/re-staging files unchanged (size+mtime) since the last run
 
 # ===========================
 # SQL connector (out-of-band, READ-ONLY)  [v0.1 — disabled scaffold]

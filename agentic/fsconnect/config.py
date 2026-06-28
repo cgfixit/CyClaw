@@ -77,6 +77,9 @@ class FsConnectConfig:
     index_root: str | None = None
     index_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_INDEX_EXTENSIONS))
     index_max_file_bytes: int = DEFAULT_INDEX_MAX_FILE_BYTES
+    # When true, apply() skips re-reading/re-staging files whose size+mtime are
+    # unchanged since the last run (a skip-cache kept beside the staged files).
+    index_incremental: bool = False
 
     # --- validation -------------------------------------------------------
 

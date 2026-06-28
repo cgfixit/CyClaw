@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -152,3 +153,107 @@ def test_apply_skips_unreadable_file(env, monkeypatch):
     assert res["staged"] == 1  # only docs/b.txt staged; a.md quarantined
     assert not (staging / "a.md").exists()
     assert (staging / "docs" / "b.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# Incremental indexing (index_incremental=True) -- skip-cache beside staging
+# ---------------------------------------------------------------------------
+
+def _incremental_env(idx, tmp_path):
+    """Build an incremental-mode (cfg, fs_cfg, config_path) over the same share."""
+    cfg_doc = {
+        "logging": {"audit_file": str(tmp_path / "audit2.jsonl"), "audit_fields": {}},
+        "policy": {"prompt_filter": {"banned_patterns": ["ignore previous instructions"]}, "privacy": {}},
+        "fsconnect": {
+            "enabled": True, "index_enabled": True, "index_root": str(idx),
+            "index_extensions": [".md", ".txt"], "index_max_file_bytes": 50,
+            "index_incremental": True,
+        },
+    }
+    cfg_path = tmp_path / "config_incr.yaml"
+    cfg_path.write_text(yaml.safe_dump(cfg_doc), encoding="utf-8")
+    reset_config_cache()
+    return _get_config(str(cfg_path)), load_fsconnect_config(str(cfg_path)), str(cfg_path)
+
+
+def _count_reads(monkeypatch) -> list[str]:
+    from agentic.fsconnect.pathsafe import ScopedRoots
+    reads: list[str] = []
+    orig = ScopedRoots.read_bytes
+
+    def counting(self, target, *args, **kwargs):
+        reads.append(target)
+        return orig(self, target, *args, **kwargs)
+
+    monkeypatch.setattr(ScopedRoots, "read_bytes", counting)
+    return reads
+
+
+def test_incremental_skips_unchanged_on_second_run(env, monkeypatch):
+    _c, _f, _cp, idx, tmp = env
+    cfg, fs_cfg, cp = _incremental_env(idx, tmp)
+    staging = tmp / "staging_incr"
+
+    first = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert first["staged"] == 2 and first["unchanged"] == 0
+
+    # Nothing changed -> the second run must read ZERO files and stage nothing.
+    reads = _count_reads(monkeypatch)
+    second = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert second["staged"] == 0 and second["unchanged"] == 2
+    assert reads == []  # no eligible file re-read
+
+
+def test_incremental_restages_changed_file(env):
+    _c, _f, _cp, idx, tmp = env
+    cfg, fs_cfg, cp = _incremental_env(idx, tmp)
+    staging = tmp / "staging_chg"
+    FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+
+    # Edit a.md and force a distinct mtime so size+mtime differ from the cache.
+    (idx / "a.md").write_text("# changed title now", encoding="utf-8")
+    os.utime(idx / "a.md", (10**9, 10**9))
+
+    second = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert second["staged"] == 1 and second["unchanged"] == 1  # only a.md re-staged
+    assert (staging / "a.md").read_text(encoding="utf-8") == "# changed title now"
+
+
+def test_incremental_restages_when_staged_copy_missing(env):
+    _c, _f, _cp, idx, tmp = env
+    cfg, fs_cfg, cp = _incremental_env(idx, tmp)
+    staging = tmp / "staging_miss"
+    FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+
+    # Cache says a.md is unchanged, but its staged copy is gone: must re-stage,
+    # never silently skip (which would lose the file from the corpus).
+    (staging / "a.md").unlink()
+    second = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert (staging / "a.md").exists()
+    assert second["staged"] == 1 and second["unchanged"] == 1
+
+
+def test_incremental_cache_self_prunes_deleted_file(env):
+    _c, _f, _cp, idx, tmp = env
+    cfg, fs_cfg, cp = _incremental_env(idx, tmp)
+    staging = tmp / "staging_prune"
+    FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+
+    (idx / "docs" / "b.txt").unlink()  # remove a file from the share
+    FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+
+    cache = json.loads((staging / ".fsindex_cache.json").read_text(encoding="utf-8"))["files"]
+    assert "docs/b.txt" not in cache  # pruned
+    assert "a.md" in cache
+
+
+def test_non_incremental_restages_every_run_and_writes_no_cache(env):
+    # Default mode (index_incremental absent -> False) is unchanged: every run
+    # re-stages all eligible files and never writes a skip-cache.
+    cfg, fs_cfg, cp, _idx, tmp = env
+    staging = tmp / "staging_full"
+    first = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    second = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert first["staged"] == 2 and second["staged"] == 2
+    assert first["unchanged"] == 0 and second["unchanged"] == 0
+    assert not (staging / ".fsindex_cache.json").exists()
