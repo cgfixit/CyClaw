@@ -227,7 +227,7 @@ def cmd_reveal(args: argparse.Namespace) -> int:
         _err("no root to reveal (configure writable_roots or pass --root)")
         return EXIT_FAIL
     try:
-        res = reveal(target)
+        res = reveal(target, fc.write_root_strs)
     except FsConnectError as exc:
         _err(exc.message)
         return EXIT_FAIL
