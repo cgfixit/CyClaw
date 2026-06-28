@@ -131,15 +131,17 @@ class AgenticConfig:
         self.registry_path = str(resolved)
 
     def _validate_gh_runtime(self) -> None:
-        if not isinstance(self.gh_timeout_sec, int) or isinstance(self.gh_timeout_sec, bool) or self.gh_timeout_sec <= 0:
+        t = self.gh_timeout_sec
+        if not isinstance(t, int) or isinstance(t, bool) or t <= 0:
             raise AgenticConfigError(
-                f"agentic.gh_timeout_sec must be a positive integer, got: {self.gh_timeout_sec!r}",
-                details={"received": self.gh_timeout_sec},
+                f"agentic.gh_timeout_sec must be a positive integer, got: {t!r}",
+                details={"received": t},
             )
-        if not isinstance(self.gh_retries, int) or isinstance(self.gh_retries, bool) or self.gh_retries < 0:
+        r = self.gh_retries
+        if not isinstance(r, int) or isinstance(r, bool) or r < 0:
             raise AgenticConfigError(
-                f"agentic.gh_retries must be an integer >= 0 (0 = no retry), got: {self.gh_retries!r}",
-                details={"received": self.gh_retries},
+                f"agentic.gh_retries must be an integer >= 0 (0 = no retry), got: {r!r}",
+                details={"received": r},
             )
 
     # --- Computed properties ---------------------------------------------
