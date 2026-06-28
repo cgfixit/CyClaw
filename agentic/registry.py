@@ -63,6 +63,7 @@ def _acquire_registry_lock(lock_dir: Path) -> None:
         lock_dir.mkdir()
         return
     except FileExistsError:
+        # Lock is already held; fall through to the stale-age check below.
         pass
     try:
         age = time.time() - lock_dir.stat().st_mtime
@@ -74,6 +75,7 @@ def _acquire_registry_lock(lock_dir: Path) -> None:
             lock_dir.mkdir()
             return
         except OSError:
+            # Another process won the reclaim race; fall through and refuse below.
             pass
     raise SkillRegistryError(
         "another skills-registry apply is in progress",
@@ -89,6 +91,7 @@ def _release_registry_lock(lock_dir: Path) -> None:
     try:
         lock_dir.rmdir()
     except OSError:
+        # Best-effort: the lock dir may already be gone (or never created).
         pass
 
 
