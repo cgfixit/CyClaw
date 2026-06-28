@@ -314,6 +314,14 @@ def _common_args(cfg: RcloneConfig, log_path: str) -> list[str]:
     ]
     if cfg.checksum:
         args.append("--checksum")
+    # --fast-list trades a little memory for one bulk remote listing instead of a
+    # per-directory walk -- a large speedup on Dropbox corpora with many folders.
+    if cfg.fast_list:
+        args.append("--fast-list")
+    # bwlimit is validated to a single clean rate (or "off") in RcloneConfig, so
+    # this stays a single untainted argv token.
+    if cfg.bwlimit:
+        args.append(f"--bwlimit={cfg.bwlimit}")
     return args
 
 
@@ -369,6 +377,30 @@ def _detect_safety_abort(errors: Sequence[str], stderr: str) -> bool:
         ("max-delete" in h.lower() or "max-transfer" in h.lower())
         for h in haystacks
     )
+
+
+# rclone's documented exit code for "Temporary error (one that more retries might
+# fix)". It is the ONLY code we retry on: usage errors (1), fatal errors (7) and
+# the safety-fuse abort (8 / max-transfer) are deterministic and must not loop.
+_RCLONE_TRANSIENT_EXIT = 5
+
+
+def _truncate_log(log_path: str, direction: str) -> None:
+    """Clear the rclone log so parsing sees ONLY the upcoming attempt's lines.
+
+    rclone opens --log-file in append mode; a stale or prior-attempt log left in
+    place would be re-parsed in full (replaying old FileEvents/ERRORs and risking
+    a false safety-abort). Truncate (open "w") rather than unlink so the file
+    still clears when the inode cannot be removed but is writable.
+    """
+    try:
+        with open(log_path, "w", encoding="utf-8"):
+            pass
+    except OSError as exc:
+        raise SyncRuntimeError(
+            "could not clear previous rclone log before sync",
+            details={"direction": direction},
+        ) from exc
 
 
 # A daily scheduled run and a manual run must never drive rclone against the
@@ -471,22 +503,6 @@ def _run_sync_locked(
     write_filter_file(cfg)
 
     log_path = cfg.log_path
-    # Clear the previous run's log so parsing sees ONLY this run's lines. rclone
-    # opens --log-file in append mode, so a stale log left in place would be
-    # re-parsed in full -- replaying a previous run's FileEvents and ERROR lines
-    # and potentially raising a false safety-abort. Truncate (open "w") rather
-    # than unlink: it still clears the file when the inode cannot be removed but
-    # is writable, and it leaves an empty file for rclone to append to. The
-    # single-instance lock guarantees no concurrent writer, so if we cannot
-    # produce a clean log we fail loudly instead of silently parsing stale data.
-    try:
-        with open(log_path, "w", encoding="utf-8"):
-            pass
-    except OSError as exc:
-        raise SyncRuntimeError(
-            "could not clear previous rclone log before sync",
-            details={"direction": cfg.direction},
-        ) from exc
 
     if cfg.direction == "bisync":
         argv = build_bisync_argv(
@@ -507,39 +523,66 @@ def _run_sync_locked(
 
     # A 0 timeout means "unbounded" (subprocess.run treats timeout=None that way).
     run_timeout = cfg.sync_timeout_sec if cfg.sync_timeout_sec > 0 else None
-    try:
-        # argv is a list of a fixed flag set + validated config; never shell=True.
-        completed = subprocess.run(  # noqa: S603 -- argv list, validated inputs, no shell
-            argv,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=run_timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        # rclone hung past the wall-clock ceiling. subprocess.run has already
-        # killed the child and reaped it by the time TimeoutExpired propagates,
-        # so the single-instance lock is released cleanly when we raise. Do not
-        # echo argv (it carries the remote spec) — surface only the direction and
-        # the limit that tripped.
-        raise SyncRuntimeError(
-            f"rclone sync timed out after {cfg.sync_timeout_sec}s",
-            details={"direction": cfg.direction, "timeout_sec": cfg.sync_timeout_sec},
-        ) from exc
-    except FileNotFoundError as exc:
-        # rclone disappeared between the version check and now (race). Do not
-        # include argv (would leak the remote spec into the error string).
-        raise RcloneNotInstalledError(
-            "rclone binary disappeared during execution",
-            details={"direction": cfg.direction},
-        ) from exc
-    except subprocess.SubprocessError as exc:
-        raise SyncRuntimeError(
-            f"rclone subprocess failed: {type(exc).__name__}",
-            details={"direction": cfg.direction},
-        ) from exc
+
+    # Outer retry loop: re-run rclone on a *transient* failure (exit code 5) up to
+    # cfg.sync_retries extra times, with exponential backoff. The log is truncated
+    # before EACH attempt so parse_log() reflects only the final attempt -- a
+    # successful retry leaves no trace of the failed one in events/errors. With
+    # the default sync_retries=0 this loop runs exactly once (historical behaviour).
+    attempts = cfg.sync_retries + 1
+    completed = None
+    for attempt in range(1, attempts + 1):
+        _truncate_log(log_path, cfg.direction)
+        try:
+            # argv is a list of a fixed flag set + validated config; never shell=True.
+            completed = subprocess.run(  # noqa: S603 -- argv list, validated inputs, no shell
+                argv,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=run_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # rclone hung past the wall-clock ceiling. subprocess.run has already
+            # killed the child and reaped it by the time TimeoutExpired propagates,
+            # so the single-instance lock is released cleanly when we raise. Do not
+            # echo argv (it carries the remote spec) — surface only the direction and
+            # the limit that tripped. A hang is not transient; never retry it.
+            raise SyncRuntimeError(
+                f"rclone sync timed out after {cfg.sync_timeout_sec}s",
+                details={"direction": cfg.direction, "timeout_sec": cfg.sync_timeout_sec},
+            ) from exc
+        except FileNotFoundError as exc:
+            # rclone disappeared between the version check and now (race). Do not
+            # include argv (would leak the remote spec into the error string).
+            raise RcloneNotInstalledError(
+                "rclone binary disappeared during execution",
+                details={"direction": cfg.direction},
+            ) from exc
+        except subprocess.SubprocessError as exc:
+            raise SyncRuntimeError(
+                f"rclone subprocess failed: {type(exc).__name__}",
+                details={"direction": cfg.direction},
+            ) from exc
+
+        if completed.returncode != _RCLONE_TRANSIENT_EXIT or attempt == attempts:
+            break
+
+        # Transient failure with attempts remaining: audit, back off, retry.
+        audit_log({
+            "event": "sync_retry",
+            "direction": cfg.direction,
+            "attempt": attempt,
+            "max_attempts": attempts,
+            "rclone_exit_code": completed.returncode,
+        })
+        time.sleep(cfg.retry_backoff_sec * (2 ** (attempt - 1)))
 
     finished_at = time.time()
+    if completed is None:  # pragma: no cover -- attempts >= 1 guarantees one run
+        # Unreachable: the loop runs at least once and either binds `completed`
+        # or raises. Kept as a typed guard so the type checker can narrow Optional.
+        raise SyncRuntimeError("rclone never executed", details={"direction": cfg.direction})
     exit_code = completed.returncode
 
     # Parse log -> events -> hash -> audit.
