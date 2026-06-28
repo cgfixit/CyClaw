@@ -94,7 +94,7 @@ def test_reveal_monkeypatched(tmp_path, capsys, monkeypatch):
     wz = tmp_path / "wz"
     wz.mkdir()
     cp = _cfg(tmp_path, {"enabled": True, "writable_roots": [str(wz)]})
-    monkeypatch.setattr(osutil, "reveal", lambda p: {"revealed": p, "via": "stub"})
+    monkeypatch.setattr(osutil, "reveal", lambda p, roots: {"revealed": p, "via": "stub"})
     assert cli.main(["--config", cp, "reveal"]) == 0
     assert "revealed" in capsys.readouterr().out
 
