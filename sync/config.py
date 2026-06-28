@@ -50,6 +50,18 @@ DEFAULT_CHECKSUM = True
 # behaviour.
 DEFAULT_SYNC_TIMEOUT_SEC = 3600
 
+# Resilience: extra attempts on a *transient* rclone failure (exit code 5,
+# "Temporary error -- one that more retries might fix"). 0 keeps the historical
+# single-shot behaviour. rclone has its own inner --retries; this is an OUTER
+# retry with backoff for longer outages (remote briefly unreachable) that the
+# inner retries cannot ride out.
+DEFAULT_SYNC_RETRIES = 0
+DEFAULT_RETRY_BACKOFF_SEC = 5.0  # base for exponential backoff between attempts
+
+# Performance tuning -- both off/unset by default, so absence is a no-op.
+DEFAULT_FAST_LIST = False  # rclone --fast-list: one bulk listing vs per-dir calls
+DEFAULT_BWLIMIT = ""  # rclone --bwlimit value (e.g. "8M"); empty = unset
+
 # Validation constants.
 _REMOTE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 # Shell metacharacters that must never appear in remote_path (defense in depth;
@@ -57,6 +69,11 @@ _REMOTE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SHELL_METACHARS = set(";|&$`<>(){}[]!*?\"'\\\n\r\t ")
 _VALID_DIRECTIONS = ("pull", "bisync")
 _VALID_CONFLICT_RESOLVE = ("newer", "older", "larger", "smaller", "none")
+# A single rclone bandwidth rate: a number with an optional unit suffix
+# (b/k/M/G/T/P, optional 'i'), or the literal "off". Timetables (which contain
+# spaces and colons) are intentionally not accepted -- they would also trip the
+# argv-hygiene goal of keeping --bwlimit a single clean token.
+_BWLIMIT_RE = re.compile(r"^(?:off|\d+(?:\.\d+)?[bkmgtpi]*)$", re.IGNORECASE)
 
 
 def _default_rclone_state_dir() -> Path:
@@ -89,6 +106,14 @@ class RcloneConfig:
     max_transfer: str = DEFAULT_MAX_TRANSFER
     # Wall-clock ceiling (seconds) on the rclone subprocess; 0 disables it.
     sync_timeout_sec: int = DEFAULT_SYNC_TIMEOUT_SEC
+
+    # Transient-failure resilience (outer retry on rclone exit code 5).
+    sync_retries: int = DEFAULT_SYNC_RETRIES
+    retry_backoff_sec: float = DEFAULT_RETRY_BACKOFF_SEC
+
+    # Performance tuning (passed straight through to rclone when set).
+    fast_list: bool = DEFAULT_FAST_LIST
+    bwlimit: str = DEFAULT_BWLIMIT
 
     # bisync-only knobs (ignored when direction == "pull").
     conflict_resolve: str = DEFAULT_CONFLICT_RESOLVE
@@ -135,6 +160,20 @@ class RcloneConfig:
                 f"sync.sync_timeout_sec must be >= 0 (0 disables the timeout), got: {self.sync_timeout_sec}",
                 details={"received": self.sync_timeout_sec},
             )
+
+        if self.sync_retries < 0:
+            raise SyncConfigError(
+                f"sync.sync_retries must be >= 0 (0 = no retry), got: {self.sync_retries}",
+                details={"received": self.sync_retries},
+            )
+
+        if self.retry_backoff_sec < 0:
+            raise SyncConfigError(
+                f"sync.retry_backoff_sec must be >= 0, got: {self.retry_backoff_sec}",
+                details={"received": self.retry_backoff_sec},
+            )
+
+        self._validate_bwlimit()
 
         if not 0 <= self.schedule_hour <= 23:
             raise SyncConfigError(
@@ -217,6 +256,26 @@ class RcloneConfig:
                 f"sync.remote_path contains forbidden characters: {bad!r}",
                 details={"received": self.remote_path, "forbidden": bad},
             )
+
+    def _validate_bwlimit(self) -> None:
+        # bwlimit reaches rclone as a single ``--bwlimit={value}`` token. Reject a
+        # leading '-' (would be parsed as a flag if the '=' form were ever split)
+        # and anything that is not a clean single rate, so no taint reaches argv.
+        value = (self.bwlimit or "").strip()
+        if not value:
+            self.bwlimit = ""
+            return
+        if value.startswith("-"):
+            raise SyncConfigError(
+                f"sync.bwlimit must not start with '-' (would be parsed as a flag): {self.bwlimit!r}",
+                details={"received": self.bwlimit},
+            )
+        if not _BWLIMIT_RE.match(value):
+            raise SyncConfigError(
+                f"sync.bwlimit must be a single rate like '8M', '512k', or 'off', got: {self.bwlimit!r}",
+                details={"received": self.bwlimit},
+            )
+        self.bwlimit = value
 
     def _fill_default_paths(self) -> None:
         state_dir = _default_rclone_state_dir()
