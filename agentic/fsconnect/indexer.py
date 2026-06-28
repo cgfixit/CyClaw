@@ -19,6 +19,7 @@ Never imported by gate.py / graph.py / mcp_hybrid_server.py.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess  # noqa: S404 -- argv-list reindex trigger only; never shell=True
 import sys
@@ -32,6 +33,11 @@ from utils.errors import FsConnectError, FsConnectRuntimeError
 from utils.logger import audit_log
 
 _DEFAULT_STAGING = Path("data/corpus/fsconnect")
+# Skip-cache for incremental apply(), kept beside the staged files so the cache
+# and the staging dir are always consistent: clearing staging drops the cache too,
+# forcing a full re-stage. A dotfile + non-corpus extension, so the retrieval
+# indexer (corpus.extensions = .md/.txt) never ingests it.
+_CACHE_NAME = ".fsindex_cache.json"
 
 
 class FsIndexer:
@@ -58,12 +64,13 @@ class FsIndexer:
         rel: str,
         manifest: list[dict],
         on_file: Callable[[str, bytes], None] | None = None,
+        cached_entry_for: Callable[[str, dict], dict | None] | None = None,
     ) -> None:
         for entry in roots.list_dir(rel):
             name = entry["name"]
             child = f"{rel}/{name}" if rel else name
             if entry["type"] == "dir":
-                self._walk(roots, child, manifest, on_file)
+                self._walk(roots, child, manifest, on_file, cached_entry_for)
             elif entry["type"] == "file":
                 ext = os.path.splitext(name)[1].lower()
                 if ext not in self.fs_cfg.index_extensions:
@@ -71,6 +78,15 @@ class FsIndexer:
                 if entry["size"] > self.fs_cfg.index_max_file_bytes:
                     manifest.append({"path": child, "size": entry["size"], "skipped": "too_large"})
                     continue
+                # Incremental: if size+mtime match the prior run AND the staged
+                # copy still exists, reuse the cached manifest entry and skip the
+                # read+hash+stage entirely. cached_entry_for returns None to force
+                # a fresh read (new/changed file, or staged copy missing).
+                if cached_entry_for is not None:
+                    hit = cached_entry_for(child, entry)
+                    if hit is not None:
+                        manifest.append(hit)
+                        continue
                 try:
                     data = roots.read_bytes(child, max_bytes=self.fs_cfg.index_max_file_bytes)
                 except (FsConnectError, OSError) as exc:
@@ -85,7 +101,7 @@ class FsIndexer:
                                      "skipped": "read_error", "error": type(exc).__name__})
                     continue
                 manifest.append({
-                    "path": child, "size": entry["size"],
+                    "path": child, "size": entry["size"], "mtime": entry["mtime"],
                     "sha256": hashlib.sha256(data).hexdigest(),
                     "injection_flag_count": self._scan(data),
                 })
@@ -109,10 +125,59 @@ class FsIndexer:
         return {"op": "index_scan", "index_root": self.index_root,
                 "eligible": len(eligible), "files": manifest}
 
+    def _load_cache(self, staging: Path) -> dict:
+        """Load the prior run's skip-cache (rel -> {size, mtime, ...}); {} if absent."""
+        try:
+            data = json.loads((staging / _CACHE_NAME).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        files = data.get("files") if isinstance(data, dict) else None
+        return files if isinstance(files, dict) else {}
+
+    def _save_cache(self, staging: Path, manifest: list[dict]) -> None:
+        """Persist the skip-cache from this run's manifest (atomic tmp + os.replace).
+
+        Only successfully-read/unchanged entries (those carrying sha256+mtime) are
+        kept; too_large / read_error rows and files that vanished from the share are
+        dropped, so the cache self-prunes each run.
+        """
+        files = {
+            m["path"]: {"size": m["size"], "mtime": m["mtime"], "sha256": m["sha256"],
+                        "injection_flag_count": m.get("injection_flag_count", 0)}
+            for m in manifest if "sha256" in m and "mtime" in m
+        }
+        tmp = staging / (_CACHE_NAME + ".tmp")
+        tmp.write_text(json.dumps({"files": files}, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, staging / _CACHE_NAME)
+
+    def _cache_probe(self, cache: dict, staging: Path) -> Callable[[str, dict], dict | None]:
+        """Return a predicate: cached manifest entry if *rel* is unchanged, else None."""
+        def probe(rel: str, entry: dict) -> dict | None:
+            prior = cache.get(rel)
+            if not prior or prior.get("size") != entry["size"] or prior.get("mtime") != entry["mtime"]:
+                return None
+            # Size+mtime match, but only skip if the staged copy is actually present
+            # -- otherwise a cleared/partial staging dir would silently lose the file.
+            if not staging.joinpath(*split_components(rel)).exists():
+                return None
+            return {"path": rel, "size": entry["size"], "mtime": entry["mtime"],
+                    "sha256": prior.get("sha256", ""),
+                    "injection_flag_count": prior.get("injection_flag_count", 0),
+                    "unchanged": True}
+        return probe
+
     def apply(self, *, staging_dir: str | None = None, reindex: bool = False) -> dict:
-        """Stage eligible files into the corpus; optionally trigger a reindex subprocess."""
+        """Stage eligible files into the corpus; optionally trigger a reindex subprocess.
+
+        With ``index_incremental`` set, files whose size+mtime are unchanged since
+        the last run (and still present in the staging dir) are skipped -- not
+        re-read, re-hashed, or re-written -- a large I/O saving on big shares where
+        only a few files change between runs.
+        """
         staging = Path(staging_dir) if staging_dir else _DEFAULT_STAGING
         staging.mkdir(parents=True, exist_ok=True)
+        incremental = self.fs_cfg.index_incremental
+        cache = self._load_cache(staging) if incremental else {}
         copied: list[str] = []
         manifest: list[dict] = []
 
@@ -127,14 +192,20 @@ class FsIndexer:
             dest.write_bytes(data)
             copied.append(rel)
 
+        probe = self._cache_probe(cache, staging) if incremental else None
         with ScopedRoots([self.index_root], create=True, allow_unc=self.fs_cfg.allow_unc_roots) as roots:
-            # Single pass: _walk reads each eligible file once and hands the bytes
+            # Single pass: _walk reads each CHANGED file once and hands the bytes
             # straight to _stage (bounded memory -- one file held at a time).
-            self._walk(roots, "", manifest, on_file=_stage)
+            self._walk(roots, "", manifest, on_file=_stage, cached_entry_for=probe)
+
+        unchanged = sum(1 for m in manifest if m.get("unchanged"))
+        if incremental:
+            self._save_cache(staging, manifest)
         audit_log({"event": "fsconnect_index_apply", "index_root": self.index_root,
-                   "staged": len(copied), "reindex": reindex}, self.config_path)
+                   "staged": len(copied), "unchanged": unchanged, "reindex": reindex},
+                  self.config_path)
         result = {"op": "index_apply", "index_root": self.index_root,
-                  "staged": len(copied), "staging_dir": str(staging),
+                  "staged": len(copied), "unchanged": unchanged, "staging_dir": str(staging),
                   "reindex_required": True, "reindexed": False}
         if reindex:
             result["reindexed"] = self._run_reindex()
