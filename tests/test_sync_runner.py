@@ -163,6 +163,18 @@ def test_checksum_toggles_with_cfg(tmp_path):
     assert "--checksum" not in build_pull_argv(cfg_off, False, "/tmp/x.log", FAKE_RCLONE)
 
 
+def test_fast_list_and_bwlimit_flags_toggle_with_cfg(tmp_path):
+    cfg_off = _make_cfg(tmp_path)
+    argv_off = build_pull_argv(cfg_off, False, "/tmp/x.log", FAKE_RCLONE)
+    assert "--fast-list" not in argv_off
+    assert not any(a.startswith("--bwlimit") for a in argv_off)
+
+    cfg_on = _make_cfg(tmp_path, fast_list=True, bwlimit="8M")
+    argv_on = build_pull_argv(cfg_on, False, "/tmp/x.log", FAKE_RCLONE)
+    assert "--fast-list" in argv_on
+    assert "--bwlimit=8M" in argv_on  # single clean token, never split
+
+
 def test_bisync_argv_is_list_with_conflict_flags(tmp_path):
     cfg = _make_cfg(tmp_path, direction="bisync")
     argv = build_bisync_argv(cfg, dry_run=False, log_path="/tmp/x.log", resync=True, rclone_bin=FAKE_RCLONE)
@@ -523,7 +535,8 @@ def test_run_sync_raises_when_log_cannot_be_cleared(tmp_path):
     Path(cfg.log_path).mkdir(parents=True, exist_ok=True)
 
     with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
-         patch("sync.runner.subprocess.run", return_value=_version_mock("1.70.0")):
+         patch("sync.runner.subprocess.run", return_value=_version_mock("1.70.0")), \
+         _patch_audit():
         with pytest.raises(SyncRuntimeError):
             run_sync(cfg, rclone_bin=FAKE_RCLONE)
 
@@ -559,6 +572,89 @@ def test_run_sync_clears_stale_log_before_run(tmp_path):
     assert ("added", "fresh.md") in kinds
     assert ("deleted", "stale.md") not in kinds  # stale event was cleared
     assert result.errors == []  # stale ERROR line was cleared, not replayed
+
+
+def test_run_sync_retries_on_transient_then_succeeds(tmp_path):
+    # rclone exit 5 is "Temporary error (retry might fix it)". With sync_retries>0
+    # the run must retry and a later success wins. Backoff 0 keeps the test instant.
+    cfg = _make_cfg(tmp_path, sync_retries=2, retry_backoff_sec=0)
+    log_path = cfg.log_path
+    calls = {"sync": 0}
+    captured: list[dict] = []
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        calls["sync"] += 1
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        if calls["sync"] < 2:
+            # First attempt: transient failure, empty log, exit 5.
+            Path(log_path).write_text("", encoding="utf-8")
+            return MagicMock(returncode=5, stdout="", stderr="temporary error")
+        # Second attempt: success with a real corpus change.
+        Path(log_path).write_text(
+            "2026/06/20 02:10:01 INFO  : notes.md: Copied (new)\n", encoding="utf-8"
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         patch("sync.runner.audit_log", side_effect=lambda e: captured.append(e)):
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert calls["sync"] == 2  # one failed attempt + one success
+    assert result.success is True
+    assert result.corpus_changed is True  # the success attempt's log is what parsed
+    assert result.errors == []  # the failed attempt's log was truncated, not replayed
+    assert any(e.get("event") == "sync_retry" for e in captured)
+
+
+def test_run_sync_no_retry_when_disabled(tmp_path):
+    # Default sync_retries=0 -> a transient exit 5 is NOT retried (single shot).
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+    calls = {"sync": 0}
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        calls["sync"] += 1
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("", encoding="utf-8")
+        return MagicMock(returncode=5, stdout="", stderr="temporary error")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert calls["sync"] == 1
+    assert result.success is False
+    assert reindex_exit_code_for(result, cfg) == 2  # non-safety failure
+
+
+def test_run_sync_does_not_retry_nontransient_failure(tmp_path):
+    # exit 1 (usage error) is deterministic, NOT transient: even with retries
+    # configured it must run exactly once -- looping would never help.
+    cfg = _make_cfg(tmp_path, sync_retries=3, retry_backoff_sec=0)
+    log_path = cfg.log_path
+    calls = {"sync": 0}
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        calls["sync"] += 1
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("", encoding="utf-8")
+        return MagicMock(returncode=1, stdout="", stderr="generic failure")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert calls["sync"] == 1
+    assert result.success is False
 
 
 def test_run_sync_audit_events_have_file_key_no_query(tmp_path):
