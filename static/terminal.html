@@ -990,14 +990,33 @@ function addConfirmEntry(message) {
   const el = document.createElement('div');
   el.className = 'entry confirm-entry';
   el.id = id;
-  el.innerHTML = `
-    <div class="entry-label">CONFIRMATION REQUIRED</div>
-    <div class="entry-text">${escHtml(message)}</div>
-    <div class="confirm-buttons">
-      <button class="btn-confirm yes" onclick="handleConfirm(true, '${id}')">Yes — Send to Grok</button>
-      <button class="btn-confirm no" onclick="handleConfirm(false, '${id}')">No — Stay Offline</button>
-    </div>
-  `;
+
+  // Build via DOM + addEventListener rather than an innerHTML template with an
+  // inline onclick string: textContent escapes the message natively and no
+  // value is ever interpolated into an executable attribute (XSS hardening).
+  const label = document.createElement('div');
+  label.className = 'entry-label';
+  label.textContent = 'CONFIRMATION REQUIRED';
+
+  const text = document.createElement('div');
+  text.className = 'entry-text';
+  text.textContent = message;
+
+  const buttons = document.createElement('div');
+  buttons.className = 'confirm-buttons';
+
+  const yesBtn = document.createElement('button');
+  yesBtn.className = 'btn-confirm yes';
+  yesBtn.textContent = 'Yes — Send to Grok';
+  yesBtn.addEventListener('click', () => handleConfirm(true, id));
+
+  const noBtn = document.createElement('button');
+  noBtn.className = 'btn-confirm no';
+  noBtn.textContent = 'No — Stay Offline';
+  noBtn.addEventListener('click', () => handleConfirm(false, id));
+
+  buttons.append(yesBtn, noBtn);
+  el.append(label, text, buttons);
   resultsEl.appendChild(el);
   resultsEl.scrollTop = resultsEl.scrollHeight;
 }
@@ -1119,6 +1138,9 @@ async function proposeSoulEvolution() {
     return;
   }
 
+  // Hide any stale proposal from a prior attempt so an error here can't leave a
+  // previous proposal preview on screen, mismatched with the new status message.
+  proposalBox.style.display = 'none';
   setSoulStatus('Creating proposal...');
   try {
     const resp = await fetch(`${API}/soul/propose`, {
@@ -1207,10 +1229,14 @@ async function restoreSoul() {
 // non-zero (the exit code lives in the JSON envelope); only gateway-level
 // problems (401/422/400/429/500) trip the !resp.ok branch.
 async function callOps(path, body) {
+  // 60s ceiling: /ops/* shells out to CLIs (rclone, gh) that can stall; without
+  // a timeout a hung subprocess would hang the browser tab indefinitely (parity
+  // with the /query, /soul/*, and /health fetches which all bound their waits).
   const resp = await fetch(`${API}${path}`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000)
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
@@ -1223,7 +1249,8 @@ async function callOps(path, body) {
 function renderOps(box, meta, warning, preview, data) {
   meta.textContent = `action: ${data.action} · exit: ${data.exit_code} (${data.label}) · ${data.ok ? 'OK' : 'FAILED'}`;
   const err = (data.stderr || '').trim();
-  warning.textContent = err ? `stderr: ${err.slice(0, 600)}` : '';
+  const errTruncated = err.length > 600 ? ' …[truncated]' : '';
+  warning.textContent = err ? `stderr: ${err.slice(0, 600)}${errTruncated}` : '';
   let bodyText = '';
   if (data.parsed) {
     bodyText = JSON.stringify(data.parsed, null, 2);
