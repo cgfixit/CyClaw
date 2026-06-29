@@ -9,7 +9,7 @@
 #   - Cross-ref: cyclaw-advisor + python-development best practices for observable, testable CI
 # ==============================================================================
 
-name: CyClaw CI (Tests + Reproducible Gate)
+name: CyClaw CI (Tests + Coverage + Gate)
 
 on:
   push:
