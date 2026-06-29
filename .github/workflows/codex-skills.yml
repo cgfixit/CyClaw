@@ -52,3 +52,7 @@ jobs:
           for script in .codex/skills/**/*.sh; do
             bash -n "$script"
           done
+
+          for verifier in .codex/skills/*/verify.sh; do
+            bash "$verifier"
+          done
