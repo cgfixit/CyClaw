@@ -313,8 +313,29 @@ async def query_endpoint(request: Request, req: QueryRequest):
         "user_confirmed_online": req.user_confirmed_online
     }
 
+    # Overall server-side deadline: a stalled LM Studio / retrieval must not hold
+    # the request (and a worker thread) open indefinitely. The per-call LLM
+    # timeouts are an inner bound; this is the outer one covering the whole graph.
+    graph_timeout = cfg.get("api", {}).get("graph_timeout_sec", 330)
     try:
-        result = await asyncio.to_thread(compiled_graph.invoke, initial_state)
+        result = await asyncio.wait_for(
+            asyncio.to_thread(compiled_graph.invoke, initial_state),
+            timeout=graph_timeout,
+        )
+    except TimeoutError as e:
+        audit_log({"event": "graph_timeout", "query": req.query, "timeout_sec": graph_timeout})
+        logger.warning("graph invoke exceeded %ss deadline", graph_timeout)
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": (
+                    f"Request exceeded the {graph_timeout}s server deadline. The local LLM or "
+                    f"retrieval likely stalled — check that LM Studio is running and its context "
+                    f"length exceeds prompt + max_tokens."
+                ),
+                "code": "GRAPH_TIMEOUT",
+            },
+        ) from e
     except Exception as e:
         safe_msg = _sanitize_error(e)
         audit_log({"event": "graph_error", "query": req.query, "error": safe_msg})
@@ -329,7 +350,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
         return QueryResponse(
             answer="",
             sources=[],
-            retrieval_mode=result.get("retrieval_mode", "hybrid"),
+            retrieval_mode=result.get("retrieval_mode", "none"),
             hit_count=len(result.get("retrieved_docs", [])),
             model_used="",
             needs_confirm=True,
@@ -341,6 +362,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
 
     docs = result.get("answer_sources", [])
     sources = []
+    skipped_sources = 0
     for d in docs:
         if isinstance(d, dict):
             sources.append(SourceInfo(
@@ -356,11 +378,17 @@ async def query_endpoint(request: Request, req: QueryRequest):
                 rrf_semantic_contrib=d.get("rrf_semantic_contrib"),
                 rrf_keyword_contrib=d.get("rrf_keyword_contrib")
             ))
+        else:
+            skipped_sources += 1
+    if skipped_sources:
+        # Should never happen — graph nodes emit dict sources. Surface the gap
+        # rather than silently returning fewer sources than the graph produced.
+        logger.warning("Dropped %d non-dict source(s) from /query response", skipped_sources)
 
     return QueryResponse(
         answer=result.get("answer", "[No answer generated]"),
         sources=sources,
-        retrieval_mode=result.get("retrieval_mode", "hybrid"),
+        retrieval_mode=result.get("retrieval_mode", "none"),
         hit_count=len(result.get("retrieved_docs", [])),
         model_used=result.get("answer_model", "unknown"),
         needs_confirm=False,
