@@ -35,8 +35,8 @@ jobs:
         python-version: ${{ matrix.python-version }}
         channels: conda-forge
         channel-priority: strict
-        activate-environment: cyclaw-ci
-        environment-file: environment.yml   # create from pyproject.toml if missing
+        activate-environment: cyclaw
+        environment-file: .github/workflows/environment.yml
         auto-activate-base: false
         use-mamba: true
 
@@ -44,9 +44,9 @@ jobs:
       uses: actions/cache@v6
       with:
         path: |
-          /home/runner/miniconda3/envs/cyclaw-ci
+          /home/runner/miniconda3/envs/cyclaw
           /home/runner/miniconda3/pkgs
-        key: conda-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('environment.yml', 'pyproject.toml', '**/requirements*.txt') }}
+        key: conda-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('.github/workflows/environment.yml', 'pyproject.toml', '**/requirements*.txt') }}
         restore-keys: |
           conda-${{ runner.os }}-${{ matrix.python-version }}-
 
