@@ -1,0 +1,34 @@
+# First-Pass Repo Review
+
+## When To Use
+
+Use this when starting unfamiliar work in CyClaw, reviewing a new area, or validating setup before edits.
+
+## Inputs To Ask For
+
+- Target task, issue, PR, or subsystem.
+- Whether the user wants code changes or only a report.
+- Any time or verification constraints.
+
+## Workflow
+
+1. Read `AGENTS.md` first.
+2. Skim `README.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`.
+3. Inspect the root listing, relevant package manifests, CI workflows, and docs.
+4. Identify the owning subsystem: core gateway, graph, retrieval, utils, sync, agentic, guardrails, docs, or CI.
+5. Check for existing tests and previous audit notes before proposing changes.
+6. Summarize what already exists, what is missing, and the smallest safe next step.
+
+## Verification Checklist
+
+- Confirmed Python/package/test/lint commands from repo files.
+- Found the canonical docs for the subsystem.
+- Identified security invariants that could be affected.
+- No edits made unless the user asked for implementation.
+
+## Expected Final Response
+
+- What was inspected.
+- Key findings and risks.
+- Recommended next action.
+- Commands run, if any, with outcomes.
