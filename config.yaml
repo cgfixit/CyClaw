@@ -125,6 +125,13 @@ personality:
   enabled: true
   soul_path: "data/personality/soul.md"
   db_path: "data/personality/cyclaw_soul.db"
+  # Hard ceiling (chars) on the soul text prepended to every LLM system prompt.
+  # Bounds prompt inflation so an oversized/edited soul.md can't push the prompt
+  # past the LM Studio context budget (the in-memory soul is truncated to this
+  # on load/apply, with a warning; soul.md on disk is left intact). Keep it well
+  # below retrieval.max_context_tokens*4 so query + context still fit. The
+  # /soul/apply HTTP boundary (SoulEvolutionRequest) caps input at 8192.
+  soul_max_chars: 8000
   interaction_ttl_days: 365
   injection_patterns_path: null  # uses built-in patterns in policy.prompt_filter
   # database_url: null  # Set to "postgresql://user:pass@host/dbname" or use CYCLAW_DB_URL env var.

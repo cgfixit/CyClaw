@@ -59,7 +59,11 @@ class HealthResponse(BaseModel):
 
 class SoulEvolutionRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
-    new_soul: str = Field(min_length=1, max_length=65536)
+    # new_soul is prepended to EVERY LLM system prompt, so an oversized soul
+    # inflates every query and can re-trigger the LM Studio "0% processing" stall.
+    # 8192 is the HTTP hard ceiling (DoS backstop); personality.soul_max_chars
+    # (default 8000) is the operational cap enforced in utils/personality.py.
+    new_soul: str = Field(min_length=1, max_length=8192)
     reason: str = Field(min_length=1, max_length=4096)
 
 
