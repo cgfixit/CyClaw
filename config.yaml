@@ -223,6 +223,13 @@ policy:
 api:
   host: "127.0.0.1"  # DevSkim: ignore DS162092 - loopback-only binding by design
   port: 8787
+  # Overall server-side deadline for one /query (retrieval + graph + LLM). The
+  # graph invoke is wrapped in asyncio.wait_for; on exceed the endpoint returns
+  # HTTP 504 instead of holding the request open, so a stalled LM Studio /
+  # retrieval can't hang a client indefinitely. Keep this >= the inner
+  # models.local_llm.timeout_sec (300) so normal slow inference is not cut off;
+  # the margin covers retrieval + soul-DB time.
+  graph_timeout_sec: 330
   rate_limit:
     max_requests: 60       # per-IP request ceiling within the window
     window_seconds: 60     # sliding-window length in seconds
