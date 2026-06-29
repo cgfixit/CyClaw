@@ -1,6 +1,6 @@
 # CyClaw Dockerfile - Production-grade, zero-trust, reproducible
 # Python 3.12 + uv for fast installs. Seccomp/AppArmor ready. Non-root.
-# Aligns with v1.7.0 pyproject + constraints for hermetic deps; CI uses requirements.txt for compat.
+# Aligns with v1.8.0 pyproject + constraints for hermetic deps; CI uses requirements.txt for compat.
 
 FROM python:3.12-slim-bookworm AS builder
 
