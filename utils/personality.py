@@ -16,6 +16,7 @@ an explicit human reason.
 
 import difflib
 import hashlib
+import logging
 import os
 import re
 import threading
@@ -25,6 +26,8 @@ from pathlib import Path
 from utils import personality_db
 from utils.errors import PromptInjectionError
 from utils.logger import audit_log
+
+logger = logging.getLogger("cyclaw.personality")
 
 # Memory-poisoning / instruction-override patterns shared by both lists below.
 # Any pattern here must never appear in soul.md (write-boundary enforcement)
@@ -71,6 +74,11 @@ class PersonalityManager:
         # every record_interaction() call (see record_interaction for rationale).
         self._prune_every = pers_cfg.get("interaction_prune_every", 100)
         self._inserts_since_prune = 0
+        # Hard ceiling on the soul text that gets prepended to EVERY LLM system
+        # prompt. Bounds prompt inflation (and the LM Studio context budget) no
+        # matter how soul.md was written/edited. The /soul/apply schema enforces
+        # a matching outer cap at the HTTP boundary (SoulEvolutionRequest).
+        self.soul_max_chars = pers_cfg.get("soul_max_chars", 8000)
         self.soul_core: str = ""
         # Compile the injection scanner once: config banned_patterns ∪ OWASP.
         self._advisory_patterns = self._build_advisory_patterns()
@@ -149,7 +157,7 @@ class PersonalityManager:
                 )
                 self.conn.commit()
 
-        self.soul_core = content
+        self.soul_core = self._bounded_soul(content)
         if drift_expected is not None:
             audit_log({
                 "event": "soul_drift_detected",
@@ -157,6 +165,20 @@ class PersonalityManager:
                 "actual": file_hash,
                 "path": str(self.soul_path),
             })
+
+    def _bounded_soul(self, content: str) -> str:
+        """Cap the in-memory soul (what is injected into every prompt) at
+        soul_max_chars. Truncation is logged loudly — it never silently drops
+        identity — but it guarantees a hand-edited or oversized soul.md cannot
+        inflate the prompt past the context budget and re-trigger a 0% stall."""
+        if len(content) > self.soul_max_chars:
+            logger.warning(
+                "soul content (%d chars) exceeds soul_max_chars=%d; truncating the "
+                "in-memory soul prepended to prompts (soul.md on disk is unchanged)",
+                len(content), self.soul_max_chars,
+            )
+            return content[: self.soul_max_chars]
+        return content
 
     def get_system_prompt_additive(self) -> str:
         return self.soul_core
@@ -296,7 +318,7 @@ class PersonalityManager:
                 (new_hash, new_soul, reason, datetime.now(UTC).isoformat())
             )
             self.conn.commit()
-        self.soul_core = new_soul
+        self.soul_core = self._bounded_soul(new_soul)
         new_version = self.get_version()
         audit_log({"event": "soul_evolution_applied", "reason": reason, "version": new_version, "sha256": new_hash})
         return {"status": "applied", "version": new_version, "sha256": new_hash}

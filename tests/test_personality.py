@@ -439,3 +439,46 @@ class TestPersonalityConcurrency:
             # Each apply commits exactly one version row (writes are serialized by
             # the lock); reads never write. 1 initial + n_apply applied.
             assert pm.get_version() == 1 + n_apply
+
+
+class TestSoulSizeCap:
+    """The in-memory soul (prepended to every LLM prompt) is bounded by
+    personality.soul_max_chars so an oversized soul.md cannot inflate the prompt
+    past the LM Studio context budget. soul.md on disk is never modified."""
+
+    def test_oversized_soul_truncated_on_load(self, cfg, tmp_paths):
+        soul_path, _, _ = tmp_paths
+        soul_path.parent.mkdir(parents=True, exist_ok=True)
+        soul_path.write_text("Z" * 5000, encoding="utf-8")
+        cfg["personality"]["soul_max_chars"] = 1000
+
+        with patch("utils.personality.audit_log"):
+            from utils.personality import PersonalityManager
+            pm = PersonalityManager(cfg)
+
+        assert len(pm.soul_core) == 1000               # in-memory capped
+        assert len(soul_path.read_text()) == 5000      # disk untouched
+
+    def test_apply_evolution_caps_in_memory_soul(self, cfg, tmp_paths):
+        soul_path, _, _ = tmp_paths
+        soul_path.parent.mkdir(parents=True, exist_ok=True)
+        soul_path.write_text("# Original", encoding="utf-8")
+        cfg["personality"]["soul_max_chars"] = 500
+
+        with patch("utils.personality.audit_log"):
+            from utils.personality import PersonalityManager
+            pm = PersonalityManager(cfg)
+            pm.apply_evolution("Y" * 2000, "growth test")
+
+        assert len(pm.soul_core) == 500
+
+    def test_normal_soul_not_truncated(self, cfg, tmp_paths):
+        soul_path, _, _ = tmp_paths
+        soul_path.parent.mkdir(parents=True, exist_ok=True)
+        soul_path.write_text("# Small soul", encoding="utf-8")
+
+        with patch("utils.personality.audit_log"):
+            from utils.personality import PersonalityManager
+            pm = PersonalityManager(cfg)
+
+        assert pm.soul_core == "# Small soul"          # default 8000 cap, no truncation
