@@ -219,7 +219,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="CyClaw RAG Gateway",
     description="Offline-first, RAG-first, MCP-exposed stack",
-    version="1.4.0",
+    version="1.0.8",
     lifespan=lifespan,
 )
 
