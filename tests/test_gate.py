@@ -148,6 +148,31 @@ class TestQueryEndpoint:
         data = resp.json()
         assert data["model_used"] == "offline-best-effort"
 
+    def test_query_timeout_returns_504(self, client):
+        # A graph invoke that exceeds api.graph_timeout_sec must return HTTP 504
+        # (GRAPH_TIMEOUT) instead of holding the request open indefinitely.
+        import time
+        import gate
+        test_client, mock_graph = client
+        gate.cfg = {**gate.cfg, "api": {**gate.cfg.get("api", {}), "graph_timeout_sec": 0.1}}
+        mock_graph.invoke.side_effect = lambda state: time.sleep(0.5) or {}
+        resp = test_client.post("/query", json={"query": "slow query"})
+        assert resp.status_code == 504
+        assert resp.json()["detail"]["code"] == "GRAPH_TIMEOUT"
+
+    def test_retrieval_mode_defaults_to_none_when_absent(self, client):
+        # When the graph result omits retrieval_mode (e.g. an error path), the
+        # response must surface "none" rather than falsely claiming "hybrid".
+        test_client, mock_graph = client
+        mock_graph.invoke.return_value = {
+            "query": "q", "answer": "a", "answer_model": "local",
+            "answer_sources": [], "retrieved_docs": [], "top_score": 0.0,
+            "needs_user_confirm": False,
+        }
+        resp = test_client.post("/query", json={"query": "q"})
+        assert resp.status_code == 200
+        assert resp.json()["retrieval_mode"] == "none"
+
 
 class TestHealthEndpoint:
     def test_health_returns_status(self, client):
