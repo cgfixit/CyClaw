@@ -16,7 +16,8 @@ from pathlib import Path
 from graph import (
     build_graph, retrieve_node, local_llm_node,
     offline_best_effort_node, grok_fallback_node,
-    CHARS_PER_TOKEN, _MIN_CONTEXT_CHARS,
+    CHARS_PER_TOKEN, _MIN_CONTEXT_CHARS, _DEFAULT_MAX_CONTEXT_TOKENS,
+    _context_char_budget,
 )
 from tests.conftest import (
     MockRetriever, MockLocalLLM, MockGrokClient,
@@ -504,6 +505,14 @@ class TestLocalLlmPromptBudget:
         )
         assert "alpha beta gamma" in llm.last_prompt
         assert "[Source: a.md" in llm.last_prompt
+
+    def test_missing_max_context_tokens_uses_documented_default(self):
+        # When the key is absent, the budget must fall back to the documented
+        # config default (4000), not a smaller scattered literal — otherwise the
+        # context block is silently starved and diverges from the no-stall math.
+        assert _DEFAULT_MAX_CONTEXT_TOKENS == 4000
+        budget = _context_char_budget({}, soul_preamble="", query="", framing_chars=0)
+        assert budget == _DEFAULT_MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN
 
     def test_offline_prompt_bounded(self):
         # The offline / Qwen best-effort path is bounded by the same budget.
