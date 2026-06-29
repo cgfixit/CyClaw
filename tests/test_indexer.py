@@ -37,6 +37,18 @@ class TestChunkDocument:
         chunks = chunk_document(" ".join(words), chunk_size=3, overlap=0)
         assert chunks == ["w0 w1 w2", "w3 w4 w5"]
 
+    def test_rejects_overlap_ge_chunk_size_when_called_directly(self):
+        # Direct callers (not just build_index) must fail loudly rather than
+        # silently degrade to a one-word stride and explode the corpus.
+        with pytest.raises(ValueError, match="overlap .* must be < chunk_size"):
+            chunk_document("a b c d", chunk_size=4, overlap=4)
+        with pytest.raises(ValueError, match="overlap .* must be < chunk_size"):
+            chunk_document("a b c d", chunk_size=4, overlap=10)
+
+    def test_rejects_chunk_size_below_one(self):
+        with pytest.raises(ValueError, match="chunk_size must be >= 1"):
+            chunk_document("a b c", chunk_size=0, overlap=0)
+
 
 class TestBuildIndexValidation:
     def _write_config(self, tmp_path, chunk_size, chunk_overlap):
