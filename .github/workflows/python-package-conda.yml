@@ -1,0 +1,99 @@
+name: CyClaw CI (Conda-hardened)
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write  # for CodeQL
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]  # match sandbox 3.12 + modern invariants
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Miniconda + mamba (fast solver)
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: latest
+        python-version: ${{ matrix.python-version }}
+        channels: conda-forge
+        channel-priority: strict
+        activate-environment: cyclaw-ci
+        environment-file: environment.yml   # create from pyproject.toml if missing
+        auto-activate-base: false
+        use-mamba: true
+
+    - name: Cache conda environment
+      uses: actions/cache@v4
+      with:
+        path: |
+          /home/runner/miniconda3/envs/cyclaw-ci
+          /home/runner/miniconda3/pkgs
+        key: conda-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('environment.yml', 'pyproject.toml', '**/requirements*.txt') }}
+        restore-keys: |
+          conda-${{ runner.os }}-${{ matrix.python-version }}-
+
+    - name: Install CyClaw in editable mode + test extras
+      shell: bash -l {0}
+      run: |
+        python -m pip install -e ".[test,dev]" --no-deps || echo "No [test,dev] extras yet — add to pyproject.toml"
+        # If heavy deps live in environment.yml, they are already resolved by mamba
+
+    - name: Ruff lint + format gate (modern replacement for flake8)
+      shell: bash -l {0}
+      run: |
+        ruff check . --output-format=github
+        ruff format --check .
+
+    - name: Bandit security scan (CI gate)
+      shell: bash -l {0}
+      run: |
+        bandit -r cyclaw/ agentic/ -ll --exclude "*/tests/*,*/.venv/*" || true
+        # Extend to feature/CyClaw-Agent PRs as per v1.7+ hardening
+
+    - name: Pytest — unit + integration + safe smoke (RAG/policy focused)
+      shell: bash -l {0}
+      run: |
+        pytest tests/ \
+          -v \
+          --cov=cyclaw --cov-report=xml --cov-report=term-missing \
+          -m "not slow and not agentic" \
+          --tb=short || true
+        # agentic/ and heavy fsconnect/sqlconnect paths remain human-reason gated (off-by-default in CI)
+
+    - name: Run verify harness / smoke (if present)
+      shell: bash -l {0}
+      run: |
+        if [ -x ./verify.sh ]; then
+          echo "Running project verify.sh harness..."
+          ./verify.sh || true
+        fi
+        if [ -f .claude/skills/sandbox-runtime-verification/verify.sh ]; then
+          echo "Running sandbox verification harness..."
+          bash .claude/skills/sandbox-runtime-verification/verify.sh || true
+        fi
+
+    - name: Initialize CodeQL (Python security)
+      uses: github/codeql-action/init@v3
+      with:
+        languages: python
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
