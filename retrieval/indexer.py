@@ -53,11 +53,16 @@ def load_corpus(corpus_path: str, extensions: list[str]) -> list[tuple[str, str]
     return docs
 
 def chunk_document(text: str, chunk_size: int = 512, overlap: int = 50) -> list[str]:
-    # The stride must advance by at least one word per iteration. If a
-    # misconfiguration sets overlap >= chunk_size, ``chunk_size - overlap`` is
-    # <= 0 and ``start`` never moves forward — the loop spins forever, appending
-    # identical chunks until the indexer exhausts memory. Clamp the step to a
-    # minimum of 1 so a bad config degrades to slow-but-finite instead of hanging.
+    # Fail loudly on a caller-supplied misconfiguration. build_index() validates
+    # config values, but chunk_document() is also called directly (tests, ad-hoc
+    # tooling) where overlap >= chunk_size would otherwise silently degrade to a
+    # one-word stride and explode a modest corpus into one chunk per word.
+    if chunk_size < 1:
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+    if overlap >= chunk_size:
+        raise ValueError(f"overlap ({overlap}) must be < chunk_size ({chunk_size})")
+    # Defensive floor: with the guard above this is always >= 1, but keep the
+    # clamp so no future code path can ever spin forever.
     step = max(1, chunk_size - overlap)
     words = text.split()
     chunks = []

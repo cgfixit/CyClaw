@@ -93,6 +93,14 @@ class HybridRetriever:
         return hits
 
     def keyword_search(self, query: str, k: int | None = None) -> list[SearchResult]:
+        """BM25 keyword leg. Returns UP TO ``k`` hits, but only those with a
+        positive score — chunks the query tokens don't appear in (score 0) are
+        dropped. So a query with few keyword matches yields fewer than ``k`` hits,
+        which is intentional: zero-score docs carry no keyword signal and would
+        add noise to the RRF fusion. The semantic leg fills the rank space the
+        keyword leg leaves empty; RRF (hybrid_search) tolerates asymmetric leg
+        sizes by design.
+        """
         if k is None:
             k = self.top_k_keyword
         query_tokens = tokenize_and_stem(query)
