@@ -23,8 +23,8 @@ updates:
     directory: "/"                 # requirements*.txt / pyproject.toml in repo root
     schedule:
       interval: "weekly"
-      day: "thursday"
-    open-pull-requests-limit: 3
+      day: "tuesday"
+    open-pull-requests-limit: 4
     labels:
       - dependencies
       - python
@@ -43,7 +43,7 @@ updates:
     directory: "/"                 # Dependabot scans .github/workflows/**
     schedule:
       interval: "weekly"
-      day: "thursday"
+      day: "wednesday"
     open-pull-requests-limit: 5
     labels:
       - dependencies
