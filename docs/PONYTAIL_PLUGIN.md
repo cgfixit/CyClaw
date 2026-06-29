@@ -20,11 +20,24 @@ Version: **4.8.4**
 
 When a constraint is violated, the violation must be named and justified inline.
 
+## Skills
+
+The plugin registers one skill, invocable as `/ponytail`:
+
+```
+/ponytail
+```
+
+Activates lazy-senior-dev mode for the current task. Loads the seven YAGNI/stdlib-first/minimal-abstraction rules plus a pre-commit checklist. Use when asked to "keep it simple", "no over-engineering", or "ponytail mode".
+
+Skill source: `.claude/skills/ponytail/SKILL.md`
+
 ## Files
 
 | File | Purpose |
 |---|---|
-| `.claude/ponytail-marketplace.json` | Marketplace definition — lists the ponytail plugin and its system prompt |
+| `.claude/ponytail-marketplace.json` | Marketplace definition — plugin system prompt + skill registration |
+| `.claude/skills/ponytail/SKILL.md` | Skill loaded by `/ponytail` — seven rules + violation protocol + checklist |
 | `.claude/settings.json` | Registers the marketplace and enables `ponytail@ponytail` |
 
 ## Configuration
