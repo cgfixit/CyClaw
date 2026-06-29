@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _write_config(tmp_path: Path, *, enabled: bool) -> str:
+    registry_path = f"data/agentic/_pytest_cli_{uuid.uuid4().hex}.json"
     cfg = {
         "logging": {"audit_file": str(tmp_path / "audit.jsonl"), "audit_fields": {}},
         "policy": {"prompt_filter": {"banned_patterns": ["ignore previous instructions"]},
@@ -24,7 +26,7 @@ def _write_config(tmp_path: Path, *, enabled: bool) -> str:
             "mode": "read",
             "writes_enabled": False,
             "gh_min_version": "2.40.0",
-            "registry_path": "data/agentic/skills_registry.json",
+            "registry_path": registry_path,
         },
     }
     path = tmp_path / "config.yaml"
@@ -37,6 +39,8 @@ def _reset():
     reset_config_cache()
     yield
     reset_config_cache()
+    for path in (REPO_ROOT / "data" / "agentic").glob("_pytest_cli_*.json*"):
+        path.unlink(missing_ok=True)
 
 
 def test_status_runs(tmp_path, capsys):
