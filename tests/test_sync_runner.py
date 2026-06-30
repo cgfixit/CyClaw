@@ -24,6 +24,7 @@ from sync.runner import (
     CheckResult,
     FileEvent,
     SyncResult,
+    _detect_safety_abort,
     build_bisync_argv,
     build_check_argv,
     build_pull_argv,
@@ -319,7 +320,12 @@ def test_run_sync_timeout_maps_to_sync_runtime_error(tmp_path):
         with pytest.raises(SyncRuntimeError) as exc:
             run_sync(cfg, rclone_bin=FAKE_RCLONE)
 
-    assert seen_timeout["value"] == 1  # the config ceiling reached subprocess.run
+    # The wall-clock ceiling is now a SHARED budget across all retry attempts
+    # (so the lock can never be held for more than sync_timeout_sec total), so
+    # the value passed to subprocess.run is the REMAINING budget. On the very
+    # first attempt (no prior backoff) that is just-under the configured
+    # ceiling — a few microseconds may have elapsed setting up the call.
+    assert 0 < seen_timeout["value"] <= 1
     assert exc.value.details.get("timeout_sec") == 1
     # The remote spec must never leak into the error message.
     assert "dropbox" not in str(exc.value).lower()
@@ -851,3 +857,121 @@ def test_sync_result_audit_includes_check_summary(tmp_path):
     assert "check" in d
     assert d["check"]["ok"] is False
     assert d["check"]["differences"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Safety-abort classifier — must accept real rclone fuse phrasings AND reject
+# lines that merely mention the flag name with no trip word (the false-positive
+# class the pre-fix substring scan misclassified as safety aborts).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "haystack",
+    [
+        # Real rclone --max-transfer fuse phrasings.
+        "max transfer limit reached",
+        "max transfer reached as set by --max-transfer",
+        # Real rclone --max-delete fuse phrasings.
+        "Fatal error: max-delete threshold exceeded",
+        "max delete limit reached",
+        "abort: too many deletes",
+        # Variants with extra prefix/uppercase.
+        "ERROR: maximum-transfer limit reached for remote",
+    ],
+)
+def test_detect_safety_abort_accepts_real_phrasings(haystack):
+    assert _detect_safety_abort([], haystack) is True
+
+
+@pytest.mark.parametrize(
+    "haystack",
+    [
+        # An argv print or config dump that mentions the flag without a trip word.
+        "rclone copy --max-delete=10 --max-transfer=100M dropbox:/x /tmp/y",
+        # A diagnostic that just lists configured limits.
+        "Using max-transfer=100M as configured in config.yaml",
+        # An unrelated error that happens to contain the substring.
+        "max-delete is supported; --transfer-rate=2M was honoured",
+        # No mention at all.
+        "Fatal error: connection refused",
+    ],
+)
+def test_detect_safety_abort_rejects_false_positives(haystack):
+    assert _detect_safety_abort([], haystack) is False
+
+
+def test_detect_safety_abort_scans_errors_too(tmp_path):
+    """The errors list (parsed log lines) must also be scanned, not just stderr."""
+    assert _detect_safety_abort(
+        ["plain message", "abort: too many deletes during sync"], stderr=""
+    ) is True
+
+
+# ---------------------------------------------------------------------------
+# Lock-budget enforcement — when sync_timeout_sec > 0 the wall-clock budget
+# spans the ENTIRE retry sequence so the single-instance lock never holds for
+# more than the documented ceiling. Pre-fix each retry got its own full
+# timeout, so attempts * sync_timeout_sec was possible.
+# ---------------------------------------------------------------------------
+
+
+def test_run_sync_timeout_budget_is_global_across_retries(tmp_path):
+    """A transient exit-5 retry path receives a SHRINKING per-attempt timeout
+    that cannot exceed the remaining global budget. Pre-fix every attempt
+    received the full cfg.sync_timeout_sec, so the lock could be held for
+    attempts * sync_timeout_sec + sum(backoff)."""
+    cfg = _make_cfg(tmp_path, sync_timeout_sec=10, sync_retries=2, retry_backoff_sec=0)
+    log_path = cfg.log_path
+    seen_timeouts: list[float] = []
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        timeout_val = kwargs.get("timeout")
+        seen_timeouts.append(float(timeout_val) if timeout_val is not None else -1.0)
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("", encoding="utf-8")
+        # Two consecutive transient exit-5 results, then a clean exit on the third.
+        if len(seen_timeouts) <= 2:
+            return MagicMock(returncode=5, stdout="", stderr="transient")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert len(seen_timeouts) == 3
+    # Every timeout passed to subprocess.run must be inside the global budget.
+    for t in seen_timeouts:
+        assert 0 < t <= cfg.sync_timeout_sec
+    # And the budget shrinks monotonically across retries (each attempt has
+    # less wall-clock budget left than the previous one).
+    assert seen_timeouts[0] >= seen_timeouts[1] >= seen_timeouts[2]
+
+
+def test_run_sync_unbounded_timeout_disables_budget(tmp_path):
+    """sync_timeout_sec=0 (the documented unbounded escape hatch) must keep
+    its old per-attempt None semantics — no budget tracking, no clipping."""
+    cfg = _make_cfg(tmp_path, sync_timeout_sec=0, sync_retries=1, retry_backoff_sec=0)
+    log_path = cfg.log_path
+    seen_timeouts: list[object] = []
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        seen_timeouts.append(kwargs.get("timeout", "MISSING"))
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("", encoding="utf-8")
+        if len(seen_timeouts) == 1:
+            return MagicMock(returncode=5, stdout="", stderr="transient")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    # Both attempts receive None (unbounded).
+    assert seen_timeouts == [None, None]
