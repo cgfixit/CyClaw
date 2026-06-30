@@ -62,7 +62,12 @@ New helpers (all module-private):
   This exact form (`sort_keys=True`, those separators) is the **contract the standalone verifier
   depends on**; document it in the docstring.
 - `_chain_head_path(cfg: dict) -> Path` — reads new key `logging.audit_chain_head_file`, defaulting to
-  a sibling of `audit_file` (`logs/audit_chain_head.json`).
+  a sibling of `audit_file` (`logs/audit_chain_head.json`). **Note (see §1 Threat-model scope):** a head
+  co-located with the log does *not* defend against a same-filesystem actor who rewrites both — that
+  adversary (hostile local root) is out of CyClaw's threat model. The default sibling location serves the
+  in-scope value (export-time external verification + partial/accidental + non-root-subprocess tampering);
+  the config key exists precisely so an operator who needs more can point it at an external/append-only
+  store.
 - `_read_chain_head(path: Path) -> str` — returns the stored `record_hash` of the last record, or the
   genesis sentinel `"0" * 64` if the head file is absent (first-ever record / post-rotation). A
   missing/corrupt head must be tolerated as genesis **with a warning**, never crash — a broken head file
@@ -86,9 +91,22 @@ loaded in the function):
 chaining is enabled.** This is *new and required*, not gold-plating: `gate.py` offloads audit writes to
 worker threads (`asyncio.to_thread`), so two threads could both `_read_chain_head` the same `prev_hash`
 and silently fork the chain. Today's plain-append path needs no lock (a single short-line `write` syscall
-is atomic enough); chaining introduces a read-then-write hazard that did not previously exist. The append
-and the head-write must be serialized together so a crash between them never leaves the head pointing at
-a hash that is not the last line on disk.
+is atomic enough); chaining introduces a read-then-write hazard that did not previously exist.
+
+**The lock does NOT make append + head-write crash-atomic** — it only serializes threads within one
+process. If the process crashes *after* the JSONL append but *before* `_write_chain_head`, the head still
+points at the prior record; on restart the next write would read that stale `prev_hash`, skip the
+already-written last line, and **permanently fork the chain**. Handle this with a reconciliation step,
+not a claim of atomicity:
+- New helper `_reconcile_chain_head(audit_file: Path, head_path: Path) -> str` — run once on the first
+  chained write after process start (cheap: stat + read last line). It compares the head against the
+  actual tail of `audit.jsonl`: if `head.seq` and `head.record_hash` already match the last line, the
+  head is current; if the file has **more** records than the head knows (the crash-after-append window),
+  the head is stale — **re-derive** it from the last on-disk record's `record_hash`/`seq` (the file is the
+  source of truth; the just-appended line is real and must be chained from), then `_write_chain_head` the
+  repaired head and log a warning. If the tail itself fails `verify_chain` (genuine corruption, not a
+  clean crash window), **fail closed** for chained writes (fall back to unchained append + ERROR log)
+  rather than forking. `_read_chain_head` (above) calls this on first use per process.
 
 ### `utils/audit_chain.py` (new — cold verify/export path, separate from the hot write path)
 
@@ -109,13 +127,26 @@ a hash that is not the last line on disk.
   `timestamp` range (stdlib `datetime`), reuses `metrics.compute_metrics` (no re-aggregation) and
   `verify_chain`, and writes three files into `out_dir`:
   1. `evidence_records.json` — the filtered, already-redacted record set verbatim (contains only
-     hashes/aggregates per existing redaction — **no new data exposure**).
+     hashes/aggregates per existing redaction — **no new data exposure**). The export must be a
+     **contiguous chain segment** (the records between the date bounds in on-disk order — never a
+     non-contiguous filter), so the segment is internally verifiable.
   2. `evidence_summary.csv` — stdlib `csv.DictWriter` flattening of `compute_metrics()` output
      (event breakdown, score stats, retrieval modes, model usage, escalations).
-  3. `verify_instructions.py` — a **fully self-contained, stdlib-only (`json`, `hashlib`)** standalone
+  3. `evidence_manifest.json` — **boundary anchors** so a date-bounded segment verifies without the
+     whole file. A date filter breaks naive verification: the first included record's `prev_hash` points
+     at an *excluded* earlier record, and the last included record has no independently-held head. The
+     manifest records `{segment_start_prev_hash, first_record_hash, last_record_hash, record_count,
+     start_date, end_date}` — i.e. the expected `prev_hash` that anchors the segment's first record (an
+     auditor treats it as the trusted segment-start anchor, exactly as genesis anchors a full file) and
+     the `last_record_hash` as the segment head. (For an unbounded export `segment_start_prev_hash` is the
+     genesis sentinel and `last_record_hash` equals the live chain head.)
+  4. `verify_instructions.py` — a **fully self-contained, stdlib-only (`json`, `hashlib`)** standalone
      script (string-templated to disk, not imported) that an external auditor runs with zero CyClaw
-     install: re-walks `evidence_records.json`, recomputes each `record_hash`, confirms the chain,
-     prints `PASS`/`FAIL`. This is the concrete "no install required" deliverable.
+     install: re-walks `evidence_records.json`, recomputes each `record_hash`, and verifies the
+     **segment** against `evidence_manifest.json` — first record's `prev_hash` must equal
+     `segment_start_prev_hash`, each subsequent `prev_hash` chains, and the final `record_hash` must equal
+     `last_record_hash`. Prints `PASS`/`FAIL`. This is the concrete "no install required" deliverable, and
+     it does not false-fail on a legitimately date-bounded pack.
 - `def main() -> None` — `argparse` (`--start`, `--end`, `--out`, `--config`), matching `metrics.py`'s
   simplicity; returns/exits per the repo's exit-code convention (`0` ok, `2` operation failed,
   `3` env/config).
@@ -169,13 +200,20 @@ disabled-by-default convention of every other CyClaw capability (`sync`/`agentic
   `audit_log` concurrently with chaining on; the file must verify clean — exercises the lock),
   `test_tampered_record_detected` (hand-edit a fixture line → `verify_chain().ok is False`, correct
   `first_break_line`), `test_deleted_record_detected` (drop a middle line → detected),
-  `test_head_file_written_atomically` (no surviving `.tmp`).
+  `test_head_file_written_atomically` (no surviving `.tmp`),
+  `test_stale_head_reconciled_after_crash_window` (append a line but leave the head pointing at the prior
+  record — simulating a crash between append and head-write — then assert the next `audit_log` reconciles
+  the head from the on-disk tail and the resulting chain verifies clean, no fork),
+  `test_corrupt_tail_fails_closed` (genuinely corrupt the last line → next chained write falls back to
+  unchained append + ERROR log rather than forking).
 - New `tests/test_audit_chain.py` — `verify_chain()` against hand-built fixtures (valid, genesis-only,
   corrupted hash, missing head, head/file seq mismatch).
-- New `tests/test_audit_export.py` — `test_evidence_pack_creates_three_files`,
-  `test_evidence_pack_date_filtering`, `test_evidence_pack_csv_matches_compute_metrics`,
+- New `tests/test_audit_export.py` — `test_evidence_pack_creates_all_files` (records, summary, manifest,
+  verify script), `test_evidence_pack_date_filtering_is_contiguous_segment`,
+  `test_manifest_anchors_match_segment_bounds`, `test_evidence_pack_csv_matches_compute_metrics`,
   `test_generated_verify_script_is_self_contained` (run the emitted `verify_instructions.py` as a
-  subprocess with only stdlib on the path — proves the no-install claim), `test_cli_entry_point_main`.
+  subprocess with only stdlib on the path — proves the no-install claim *and* that a date-bounded segment
+  verifies clean against the manifest, not a false-fail), `test_cli_entry_point_main`.
 
 ---
 
