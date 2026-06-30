@@ -165,7 +165,7 @@ class HybridRetriever:
             audit_log({"event": "retrieval_degraded", "path": "semantic", "error": str(e)})
         try:
             keyword_hits = self.keyword_search(query)
-        except Exception as e:
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
             audit_log({"event": "retrieval_degraded", "path": "keyword", "error": str(e)})
 
         if not semantic_hits and not keyword_hits:
