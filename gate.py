@@ -268,7 +268,6 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 try:
     retriever = HybridRetriever()
 except IndexNotFoundError as e:
-    import sys
     print(f"FATAL: {e.message}", file=sys.stderr)
     print("Run: python -m retrieval.indexer", file=sys.stderr)
     retriever = None
@@ -364,7 +363,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
 
     if needs_confirm and not answer_model:
         top_score = result.get("top_score", 0.0)
-        threshold = cfg["retrieval"]["min_score"]
+        threshold = cfg.get("retrieval", {}).get("min_score", 0.4)
         return QueryResponse(
             answer="",
             sources=[],
