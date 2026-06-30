@@ -18,7 +18,7 @@ from utils.logger import audit_log
 
 from .embeddings import get_embedding
 from .stemmer import tokenize_and_stem
-from .vector_store import get_vector_reader
+from .vector_store import get_vector_reader, parse_stem_tags
 
 
 @dataclass
@@ -113,8 +113,7 @@ class HybridRetriever:
         for idx in top_indices:
             if scores[idx] > 0:
                 meta = self.bm25_metadata[idx]
-                stem_raw = meta.get("stem_tags", "[]")
-                stem_tags = json.loads(stem_raw) if isinstance(stem_raw, str) else stem_raw
+                stem_tags = parse_stem_tags(meta.get("stem_tags", "[]"))
                 hits.append(SearchResult(
                     text=self.bm25_chunks[idx], score=scores[idx],
                     source=meta["source"], chunk_id=meta["chunk_id"],
