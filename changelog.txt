@@ -1,0 +1,13 @@
+## Version History
+
+| Version | Status | Key Changes |
+|---|---|---|
+| v1.0.1 | Pre-Openclaw | Researching MCP offline agent/server after https://cgfixit.com/ai  |
+| v1.1.0 | Safeclaw (already existed as openclaw skill) | Initial result of research of offline mcp combined with openclaw interest |  
+| v1.2.0 | Psyclaw (already existed as openclaw skill) | 8 OWASP patterns, 90-day TTL, sanitizer baseline |
+| v1.3.0 | **Pre-Langgrinch** | Rate limiting (60/min), 13 OWASP patterns, soul SHA-256 drift detection, atomic writes, TTL→365 days |
+| v1.4.0 | CyClaw (Finally found a claw project name that didnt already exist on github ha | Dropbox/cloud corpus sync (out-of-band rclone wrapper + full audit integration) + requirements.txt pinned for Python 3.12 + vuln patches |
+| v1.5.0 | Superseded | Out-of-band agentic layer foundations + memory orchestration nodes + Docker hardening |
+| v1.6.0 | Superseded | Agentic release: governed read-only GitHub context via `gh`, governed local skills registry, `.claude/` workflows/commands/patterns/tools/utility-prompts, plus README / structure refresh |
+| v1.7.0 | Superseded | Browser Sync + Agentic ops consoles in the terminal UI, backed by loopback-only audited `POST /ops/sync` + `POST /ops/agentic` subprocess shims (out-of-band isolation preserved) |
+| v1.8.0 | **Production (current)** | Agentic **filesystem connector** (`agentic/fsconnect/` — scoped reads, gated/atomic writes, TOCTOU-safe `pathsafe` core, toggleable RAG-corpus indexing) + read-only **SQL connector** (`agentic/sqlconnect/` — SELECT-only Postgres/MSSQL scaffold) + opt-in **NeMo Guardrails** layer (`guardrails/` — offline heuristic rails with graceful degradation). All three opt-in, disabled by default, and out-of-band (never imported by gate/graph/MCP) |
