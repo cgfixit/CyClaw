@@ -503,13 +503,44 @@ def build_bisync_argv(
 # Public entry point
 # ---------------------------------------------------------------------------
 
+# rclone "too many deletes" is its own fuse phrasing without a max-delete prefix,
+# so it gets a dedicated pattern. The main pattern requires both half-anchors:
+#   1. an instance of "max[ -](delete|transfer)" (with optional plural / "imum"),
+#   2. followed within the same line by a trip word (limit/reached/exceeded/
+#      threshold/abort).
+# A bare argv print like "--max-delete=10" appears WITHOUT any of those trip
+# words, so it no longer triggers a false safety-abort classification. Real
+# rclone fuse messages ("max transfer limit reached", "max-delete threshold
+# exceeded", etc.) all carry one of the trip words.
+_SAFETY_ABORT_LINE_RE = re.compile(
+    r"max(?:imum)?[\s-]+(?:delete|transfer)[s]?\b[^\r\n]*?"
+    r"(?:limit|reached|exceeded|threshold|abort)",
+    re.IGNORECASE,
+)
+_SAFETY_ABORT_TOO_MANY_DELETES_RE = re.compile(r"too\s+many\s+deletes", re.IGNORECASE)
+
+
 def _detect_safety_abort(errors: Sequence[str], stderr: str) -> bool:
-    """True if rclone tripped the --max-delete or --max-transfer safety fuse."""
-    haystacks = list(errors) + [stderr or ""]
-    return any(
-        ("max-delete" in h.lower() or "max-transfer" in h.lower())
-        for h in haystacks
-    )
+    """True if rclone tripped the --max-delete or --max-transfer safety fuse.
+
+    Previous implementation looked for the bare substrings ``"max-delete"`` or
+    ``"max-transfer"`` anywhere in errors / stderr, which misclassified any
+    unrelated log line that happened to mention the flag name (e.g. a config
+    diagnostic that prints the full argv on startup, or any user-facing error
+    that references the flag). Anchor instead on rclone's actual fuse-trip
+    phrasings — those lines always carry both the "max-delete"/"max-transfer"
+    half AND a trip word (limit/reached/exceeded/threshold/abort) on the same
+    line. Bare argv prints carry the flag without a trip word, so they no
+    longer trigger a false safety-abort classification (and a wrong route to
+    CLI exit code 1 instead of the truthful 2).
+    """
+    haystacks = list(errors)
+    if stderr:
+        haystacks.append(stderr)
+    for h in haystacks:
+        if _SAFETY_ABORT_LINE_RE.search(h) or _SAFETY_ABORT_TOO_MANY_DELETES_RE.search(h):
+            return True
+    return False
 
 
 # rclone's documented exit code for "Temporary error (one that more retries might
@@ -656,7 +687,13 @@ def _run_sync_locked(
     })
 
     # A 0 timeout means "unbounded" (subprocess.run treats timeout=None that way).
-    run_timeout = cfg.sync_timeout_sec if cfg.sync_timeout_sec > 0 else None
+    # When a budget IS set (the common safe case) it is the WALL-CLOCK budget for
+    # the whole retry sequence under the single-instance lock, not just one
+    # attempt -- otherwise a transient-exit-5 retry path could hold the lock for
+    # attempts * sync_timeout_sec + sum(retry_backoff_sec*2^k), a many-times
+    # multiple of the documented per-attempt ceiling.
+    has_budget = cfg.sync_timeout_sec > 0
+    deadline = (time.time() + cfg.sync_timeout_sec) if has_budget else None
 
     # Outer retry loop: re-run rclone on a *transient* failure (exit code 5) up to
     # cfg.sync_retries extra times, with exponential backoff. The log is truncated
@@ -666,6 +703,21 @@ def _run_sync_locked(
     attempts = cfg.sync_retries + 1
     completed = None
     for attempt in range(1, attempts + 1):
+        # Per-attempt timeout shrinks toward the global deadline. If we already
+        # have <=0 seconds left, stop now and surface the same RcloneTimeoutError
+        # the inner TimeoutExpired path raises. has_budget implies deadline is
+        # not None (set together above), so the type check is structural.
+        if has_budget and deadline is not None:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                raise SyncRuntimeError(
+                    f"rclone sync timed out after {cfg.sync_timeout_sec}s (budget exhausted by retries)",
+                    details={"direction": cfg.direction, "timeout_sec": cfg.sync_timeout_sec},
+                )
+            run_timeout: float | None = remaining
+        else:
+            run_timeout = None
+
         _truncate_log(log_path, cfg.direction)
         try:
             # argv is a list of a fixed flag set + validated config; never shell=True.
@@ -710,7 +762,17 @@ def _run_sync_locked(
             "max_attempts": attempts,
             "rclone_exit_code": completed.returncode,
         })
-        time.sleep(cfg.retry_backoff_sec * (2 ** (attempt - 1)))
+        backoff = cfg.retry_backoff_sec * (2 ** (attempt - 1))
+        # Clip the backoff to whatever budget remains; if the budget is exhausted,
+        # break out so the FAILED attempt's result is surfaced (parsed + audited)
+        # rather than raising a bare timeout that drops the retry's stderr/events.
+        if has_budget and deadline is not None:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            if backoff > remaining:
+                backoff = remaining
+        time.sleep(backoff)
 
     finished_at = time.time()
     if completed is None:  # pragma: no cover -- attempts >= 1 guarantees one run
