@@ -20,11 +20,10 @@ default (ChromaDB) install never loads them.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
-
-import logging
 
 from utils.errors import IndexNotFoundError
 
