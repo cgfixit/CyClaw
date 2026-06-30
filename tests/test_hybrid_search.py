@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from retrieval.stemmer import tokenize_and_stem
 from retrieval.hybrid_search import HybridRetriever, SearchResult
+from retrieval.vector_store import parse_stem_tags
 
 
 class TestRRFFusion:
@@ -147,3 +148,28 @@ class TestTokenizationForBM25:
         # `kubernetes` is intentionally folded to the domain token `k8s`
         # (retrieval/stemmer.py _CUSTOM_STEMS), not Porter-stemmed.
         assert tokens[0] == "k8s"
+
+
+class TestParseStemTags:
+    """parse_stem_tags must never crash on corrupted metadata."""
+
+    def test_valid_json_string(self):
+        assert parse_stem_tags('["veeam", "backup"]') == ["veeam", "backup"]
+
+    def test_already_list(self):
+        assert parse_stem_tags(["already", "parsed"]) == ["already", "parsed"]
+
+    def test_empty_json_array(self):
+        assert parse_stem_tags("[]") == []
+
+    def test_malformed_json_returns_empty(self):
+        assert parse_stem_tags("{truncated") == []
+
+    def test_none_returns_empty(self):
+        assert parse_stem_tags(None) == []
+
+    def test_non_list_json_returns_empty(self):
+        assert parse_stem_tags('"just a string"') == []
+
+    def test_empty_string_returns_empty(self):
+        assert parse_stem_tags("") == []
