@@ -133,7 +133,8 @@ from utils.ratelimit import RateLimiter
 # The relative open crashes when gate.py is launched from a non-repo-root cwd
 # (e.g. double-clicked on Windows) — the very failure mode _BASE_DIR exists to
 # prevent — and the second read was pure startup overhead. One read, reused.
-with open(_BASE_DIR / "config.yaml", encoding="utf-8") as _cfg_f:
+_CONFIG_PATH = str(_BASE_DIR / "config.yaml")
+with open(_CONFIG_PATH, encoding="utf-8") as _cfg_f:
     cfg = yaml.safe_load(_cfg_f) or {}
 # Fail fast on an out-of-range retrieval tunable (e.g. min_score > 1 silently
 # forces every query to user_gate; top_k <= 0 breaks retrieval). Without this the
@@ -308,7 +309,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
         )
 
     try:
-        check_input(req.query)
+        check_input(req.query, _CONFIG_PATH)
     except PromptInjectionError as e:
         # Pass the full query: audit_log() SHA-256-hashes the "query" field, so
         # truncating here yields a hash of only the first 50 chars that diverges
