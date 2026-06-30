@@ -20,11 +20,34 @@ default (ChromaDB) install never loads them.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from utils.errors import IndexNotFoundError
+
+logger = logging.getLogger(__name__)
+
+
+def parse_stem_tags(raw: object) -> list[str]:
+    """Safely parse stem_tags from index metadata.
+
+    Metadata may store stem_tags as a JSON string (indexer default), a list
+    (pgvector JSONB columns), or a corrupted/truncated value after a partial
+    write. A bare ``json.loads`` would crash the entire retrieval path on
+    malformed data; returning ``[]`` lets the query complete with degraded
+    stem metadata rather than an HTTP 500.
+    """
+    if isinstance(raw, list):
+        return raw
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Malformed stem_tags metadata, falling back to []: %r", raw)
+        return []
+
 
 # all-MiniLM-L6-v2 embedding width (config: models.embeddings.dim). Fixed table name
 # keeps every SQL string a literal — no identifier interpolation, no injection seam.
@@ -119,11 +142,10 @@ class _ChromaReader:
                 # cosine space: distance = 1 - cos, so score = 1 - distance = cos.
                 score = 1 - results["distances"][0][i]
                 meta = results["metadatas"][0][i]
-                stem_raw = meta.get("stem_tags", "[]")
-                stem_tags = json.loads(stem_raw) if isinstance(stem_raw, str) else stem_raw
                 out.append({
                     "text": doc, "score": score, "source": meta["source"],
-                    "chunk_id": meta["chunk_id"], "stem_tags": stem_tags,
+                    "chunk_id": meta["chunk_id"],
+                    "stem_tags": parse_stem_tags(meta.get("stem_tags", "[]")),
                 })
         return out
 
@@ -232,10 +254,9 @@ class _PgVectorReader(_PgVectorBase):
         ).fetchall()
         out: list[dict] = []
         for content, source, chunk_id, stem_tags, score in rows:
-            tags = stem_tags if isinstance(stem_tags, list) else json.loads(stem_tags or "[]")
             out.append({
                 "text": content, "score": float(score), "source": source,
-                "chunk_id": chunk_id, "stem_tags": tags,
+                "chunk_id": chunk_id, "stem_tags": parse_stem_tags(stem_tags),
             })
         return out
 
