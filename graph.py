@@ -370,10 +370,17 @@ Answer the query using the partial context where relevant."""
     # lower it to tighten the budget. A value <= 0 disables the cap.
     max_chars = cfg["policy"]["fallback"].get("grok_max_prompt_chars", 8000)
     if max_chars and max_chars > 0 and len(prompt) > max_chars:
+        original_len = len(prompt)
         logger.warning(
             "Grok prompt truncated from %d to %d chars (policy.fallback.grok_max_prompt_chars)",
-            len(prompt), max_chars,
+            original_len, max_chars,
         )
+        audit_log({
+            "event": "grok_prompt_truncated",
+            "original_chars": original_len,
+            "truncated_chars": max_chars,
+            "query": state.get("query", ""),
+        })
         prompt = prompt[:max_chars]
 
     error: str | None = None
@@ -510,10 +517,10 @@ def audit_logger_node(state: GraphState, cfg: dict,
                 f"|hits={len(state.get('retrieved_docs', []))}"
             )
             personality.record_interaction(query_hash, outcome)
-        except Exception as e:
-            # Personality DB failure must never break query flow — but log it
-            # (silent swallowing here is what hid the earlier record_interaction bug).
-            logger.warning("personality.record_interaction failed (non-fatal): %s", e)
+        except Exception:
+            # Personality DB failure must never break query flow — but surface it
+            # at ERROR with full traceback so persistent failures are visible in logs.
+            logger.error("personality.record_interaction failed (non-fatal)", exc_info=True)
 
     return {"audit_event": event}
 
