@@ -63,6 +63,12 @@ for k, v in _verified.items():
     status = "OK" if v == _TELEMETRY_KILL[k] else "MISSING"
     print(f"  {status}  {k}={v}")
 
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
+try:
+    _CYCLAW_VERSION = _pkg_version("cyclaw")
+except PackageNotFoundError:
+    _CYCLAW_VERSION = "dev"
+
 import logging
 import yaml
 from fastapi import FastAPI, HTTPException, Depends
@@ -264,7 +270,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="CyClaw RAG Gateway",
     description="Offline-first, RAG-first, MCP-exposed stack",
-    version="1.8.0",
+    version=_CYCLAW_VERSION,
     lifespan=lifespan,
 )
 
@@ -293,6 +299,32 @@ app.add_middleware(
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 _allowed_hosts = cfg.get("security", {}).get("allowed_hosts", ["127.0.0.1", "localhost"])  # DevSkim: ignore DS162092,DS137138 - loopback host allow-list by design
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+
+# Security response headers middleware: sets defense-in-depth headers on every
+# response (X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
+# Permissions-Policy) and adds Cache-Control: no-store on the root / static paths
+# to prevent browser caching of the Soul Console. Added after TrustedHost so it
+# runs INSIDE the host check (i.e. only on accepted requests).
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):  # type: ignore[override]
+        response: StarletteResponse = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers.setdefault(
+                "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
+            )
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
 
 try:
     retriever = HybridRetriever()
