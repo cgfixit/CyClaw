@@ -145,6 +145,7 @@ class _ChromaReader:
                 out.append({
                     "text": doc, "score": score, "source": meta["source"],
                     "chunk_id": meta["chunk_id"],
+                    "source_sha256": meta.get("source_sha256", ""),
                     "stem_tags": parse_stem_tags(meta.get("stem_tags", "[]")),
                 })
         return out
@@ -198,12 +199,14 @@ class _PgVectorWriter(_PgVectorBase):
             "  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,"
             "  source TEXT NOT NULL,"
             "  chunk_id INT NOT NULL,"
+            "  source_sha256 TEXT NOT NULL DEFAULT '',"
             "  content TEXT NOT NULL,"
             "  stem_tags TEXT NOT NULL DEFAULT '[]',"
             f"  embedding vector({self._dim}) NOT NULL"
             ")"
         )
         conn.execute(f"CREATE INDEX IF NOT EXISTS {_PG_TABLE}_src ON {_PG_TABLE} (source, chunk_id)")
+        conn.execute(f"ALTER TABLE {_PG_TABLE} ADD COLUMN IF NOT EXISTS source_sha256 TEXT NOT NULL DEFAULT ''")
         conn.execute(f"DROP INDEX IF EXISTS {_PG_TABLE}_hnsw")
         conn.execute(f"TRUNCATE {_PG_TABLE}")
 
@@ -214,11 +217,11 @@ class _PgVectorWriter(_PgVectorBase):
             stem = meta.get("stem_tags", "[]")
             if not isinstance(stem, str):
                 stem = json.dumps(stem)
-            rows.append((meta["source"], int(meta["chunk_id"]), doc, stem, _as_list(emb)))
+            rows.append((meta["source"], int(meta["chunk_id"]), meta.get("source_sha256", ""), doc, stem, _as_list(emb)))
         with conn.cursor() as cur:
             cur.executemany(
-                f"INSERT INTO {_PG_TABLE} (source, chunk_id, content, stem_tags, embedding) "  # noqa: S608
-                "VALUES (%s, %s, %s, %s, %s)",
+                f"INSERT INTO {_PG_TABLE} (source, chunk_id, source_sha256, content, stem_tags, embedding) "  # noqa: S608
+                "VALUES (%s, %s, %s, %s, %s, %s)",
                 rows,
             )
 
@@ -241,22 +244,32 @@ class _PgVectorReader(_PgVectorBase):
             raise IndexNotFoundError(
                 f"pgvector table '{_PG_TABLE}' not found. Run: python -m retrieval.indexer"
             )
+        self._has_source_sha256 = conn.execute(
+            "SELECT EXISTS ("
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = current_schema() "
+            "AND table_name = %s AND column_name = %s"
+            ")",
+            (_PG_TABLE, "source_sha256"),
+        ).fetchone()[0]
 
     def query(self, embedding: Any, k: int) -> list[dict]:
         conn = self._connection()
+        source_sha256_sql = "source_sha256" if self._has_source_sha256 else "'' AS source_sha256"
         # `<=>` is cosine distance; `1 - distance` reproduces Chroma's cosine score.
         # Same ordering expression in SELECT and ORDER BY so the HNSW index is used.
         rows = conn.execute(
-            "SELECT content, source, chunk_id, stem_tags, "  # noqa: S608
+            f"SELECT content, source, chunk_id, {source_sha256_sql}, stem_tags, "  # noqa: S608
             f"1 - (embedding <=> %(q)s::vector) AS score FROM {_PG_TABLE} "
             "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
             {"q": _as_list(embedding), "k": k},
         ).fetchall()
         out: list[dict] = []
-        for content, source, chunk_id, stem_tags, score in rows:
+        for content, source, chunk_id, source_sha256, stem_tags, score in rows:
             out.append({
                 "text": content, "score": float(score), "source": source,
-                "chunk_id": chunk_id, "stem_tags": parse_stem_tags(stem_tags),
+                "chunk_id": chunk_id, "source_sha256": source_sha256,
+                "stem_tags": parse_stem_tags(stem_tags),
             })
         return out
 

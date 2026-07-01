@@ -17,6 +17,7 @@ from utils.logger import audit_log, redact_sensitive
 # nothing; a non-int or non-positive value would otherwise crash the slice.
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = 50
+_MAX_QUERY_CHARS = 65536
 
 
 def _coerce_top_k(raw: object) -> int:
@@ -74,6 +75,8 @@ def _handle_search(msg_id, args: dict, retriever: HybridRetriever) -> dict:
     query = args.get("query", "")
     if not isinstance(query, str) or not query:
         return _error(msg_id, -32602, "hybrid_search requires a non-empty string query")
+    if len(query) > _MAX_QUERY_CHARS:
+        return _error(msg_id, -32602, f"hybrid_search query exceeds {_MAX_QUERY_CHARS} characters")
     top_k = _coerce_top_k(args.get("top_k", _DEFAULT_TOP_K))
     # Normalise mode BEFORE dispatch so the audit event and the response
     # metadata record what was actually executed. Previously the raw client
@@ -101,7 +104,8 @@ def _handle_search(msg_id, args: dict, retriever: HybridRetriever) -> dict:
                    "hit_count": len(results), "top_score": results[0].score if results else 0.0})
         payload = {
             "chunks": [{"text": r.text, "score": r.score, "source": r.source,
-                        "chunk_id": r.chunk_id, "stem_tags": r.stem_tags[:5], "mode": r.retrieval_mode}
+                        "chunk_id": r.chunk_id, "source_sha256": r.source_sha256,
+                        "stem_tags": r.stem_tags[:5], "mode": r.retrieval_mode}
                        for r in results],
             # The response payload may echo the query — the caller already has it.
             # Only the persisted audit event is privacy-constrained.
