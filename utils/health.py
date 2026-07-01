@@ -33,10 +33,19 @@ def _health_cfg(config_path: str) -> dict:
     _cfg_cache[config_path] = (cfg, now)
     return cfg
 
+
+def _safe_error(exc: Exception) -> str:
+    return re.sub(r"https?://\S+", "[URL REDACTED]", str(exc))
+
+
 def check_all(config_path: str = "config.yaml") -> list[HealthStatus]:
-    cfg = _health_cfg(config_path)
+    try:
+        cfg = _health_cfg(config_path)
+        llm_base = cfg["models"]["local_llm"]["base_url"]
+    except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
+        return [HealthStatus(name="config", healthy=False, error=f"config load failed: {_safe_error(exc)}")]
+
     results = []
-    llm_base = cfg["models"]["local_llm"]["base_url"]
     results.append(_ping(f"{llm_base}/models", "lm_studio"))
     if (cfg["app"]["mode"] == "hybrid" and
             cfg["models"]["grok"].get("enabled", False)):
@@ -71,5 +80,4 @@ def _ping(url: str, name: str, headers: dict | None = None) -> HealthStatus:
     except Exception as e:
         # Redact the URL (which may contain credentials or internal hostnames)
         # from the exception message before surfacing it in the public /health response.
-        safe_error = re.sub(r'https?://\S+', '[URL REDACTED]', str(e))
-        return HealthStatus(name=name, healthy=False, error=safe_error)
+        return HealthStatus(name=name, healthy=False, error=_safe_error(e))
