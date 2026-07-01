@@ -1,21 +1,8 @@
-# ============================================================================
-# TEST STATUS (verified 2026-06-19 against HEAD f5934db):
-# All 4 tests pass. propose_evolution(), apply_evolution(), drift detection,
-# and TTL maintenance all match utils/personality.py at HEAD exactly.
-# ============================================================================
-#!/usr/bin/env python
 """Unit tests for v1.3 changes in utils/personality.py"""
 
-import os
-import sys
 import tempfile
-import shutil
-import hashlib
 from pathlib import Path
 from unittest.mock import patch
-
-# Add project to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from utils.personality import PersonalityManager
 
@@ -47,7 +34,6 @@ def test_personality_init_and_version():
             pm = PersonalityManager(cfg)
         assert pm.get_version() >= 1, "Version should be at least 1 after init"
         assert "Test Soul" in pm.get_system_prompt_additive()
-        print("\u2713 test_personality_init_and_version passed")
 
 
 def test_propose_apply_evolution():
@@ -82,7 +68,6 @@ def test_propose_apply_evolution():
         assert "brutally honest" in pm.get_system_prompt_additive()
 
         assert not (soul_path.with_suffix(".tmp")).exists()
-        print("\u2713 test_propose_apply_evolution passed")
 
 
 def test_drift_detection():
@@ -113,7 +98,6 @@ def test_drift_detection():
         v2 = pm2.get_version()
         assert v2 > v1, "Drift should trigger new version"
         assert "TAMPERED" in pm2.get_system_prompt_additive()
-        print("\u2713 test_drift_detection passed")
 
 
 def test_ttl_maintenance():
@@ -147,13 +131,3 @@ def test_ttl_maintenance():
         count = conn.execute("SELECT COUNT(*) FROM interactions").fetchone()[0]
         conn.close()
         assert count == 0, "Old interaction should be pruned"
-        print("\u2713 test_ttl_maintenance passed")
-
-
-if __name__ == "__main__":
-    print("Running PersonalityManager v1.3 unit tests...")
-    test_personality_init_and_version()
-    test_propose_apply_evolution()
-    test_drift_detection()
-    test_ttl_maintenance()
-    print("\n\u2705 All personality changes verified!")

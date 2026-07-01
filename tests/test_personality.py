@@ -1,8 +1,3 @@
-# ============================================================================
-# TEST STATUS (verified 2026-06-19 against HEAD f5934db):
-# All 8 tests pass. pm.conn, reload(), maintenance(ttl_days=), and
-# patch('utils.personality.audit_log') are all present in utils/personality.py.
-# ============================================================================
 """Tests for PersonalityManager — soul.md persistent personality layer.
 
 Run: pytest tests/test_personality.py -v
@@ -144,7 +139,8 @@ class TestPersonalityManager:
         assert pm.soul_core == "# Before Edit"
 
         soul_path.write_text("# After Edit", encoding="utf-8")
-        pm.reload()
+        with patch("utils.personality.audit_log"):
+            pm.reload()
         assert pm.soul_core == "# After Edit"
 
     def test_record_interaction(self, cfg, tmp_paths):
