@@ -110,7 +110,10 @@ class OpsFsConnectRequest(BaseModel):
     root: str | None = Field(default=None, max_length=1024)
     path: str | None = Field(default=None, max_length=4096)
     pattern: str | None = Field(default=None, max_length=1024)
-    regex: bool = False
+    # Browser/API grep is literal-only. Regex grep remains available from the
+    # local CLI where an operator can kill a pathological pattern without tying
+    # up the FastAPI worker.
+    regex: Literal[False] = False
     recursive: bool = True
 
 

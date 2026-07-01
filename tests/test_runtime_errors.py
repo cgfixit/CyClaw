@@ -217,22 +217,20 @@ class TestAuditLoggerNodePersonalityFailure:
 # ---------------------------------------------------------------------------
 
 class TestHealthConfigFailure:
-    def test_health_cfg_failure_propagates_from_check_all(self):
-        """_health_cfg() raising propagates out of check_all() (regression anchor).
-
-        health.py has no try/except around yaml.safe_load in _health_cfg, so a
-        malformed config.yaml bubbles through check_all to the caller. This test
-        documents that behavior: if the code is later hardened to catch the error
-        and degrade gracefully, update this test to assert the degraded path.
-        """
+    def test_health_cfg_failure_degrades_from_check_all(self):
+        """_health_cfg() failure returns a degraded config status, not a 500 trigger."""
         from utils import health
 
         # Clear the module-level TTL cache so the patched function is actually called.
         health._cfg_cache.clear()
 
         with patch.object(health, "_health_cfg", side_effect=yaml.YAMLError("bad yaml")):
-            with pytest.raises(yaml.YAMLError):
-                health.check_all(config_path="fake_path.yaml")
+            statuses = health.check_all(config_path="fake_path.yaml")
+
+        assert len(statuses) == 1
+        assert statuses[0].name == "config"
+        assert statuses[0].healthy is False
+        assert "bad yaml" in statuses[0].error
 
 
 # ---------------------------------------------------------------------------
