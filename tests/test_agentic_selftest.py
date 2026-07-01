@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from agentic.selftest import run_self_test
+from utils.errors import GhNotInstalledError
 from utils.logger import reset_config_cache
 
 
@@ -37,8 +38,12 @@ def _config(tmp_path: Path) -> str:
     return str(path)
 
 
-def test_selftest_all_pass_without_gh(tmp_path):
+def test_selftest_all_pass_without_gh(tmp_path, monkeypatch):
     # Even with gh absent (SKIP counts as pass), the suite should fully pass.
+    def missing_gh(**_kwargs):
+        raise GhNotInstalledError("gh not on PATH")
+
+    monkeypatch.setattr("agentic.selftest.check_gh_version", missing_gh)
     passed, total, lines = run_self_test(_config(tmp_path))
     assert passed == total
     assert total >= 5

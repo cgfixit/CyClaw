@@ -3,26 +3,9 @@
 Run: pytest tests/test_personality.py -v
 """
 
-import os
-import tempfile
 import threading
 import pytest
-from pathlib import Path
 from unittest.mock import patch
-
-# Minimal config for testing
-TEST_CONFIG = {
-    "personality": {
-        "soul_path": None,  # Set per test
-        "db_path": None,    # Set per test
-    },
-    "logging": {
-        "audit_file": None,  # Set per test
-        "audit_fields": {"include_query_hash": True},
-    },
-    "policy": {"privacy": {}},
-}
-
 
 @pytest.fixture
 def tmp_paths(tmp_path):
@@ -38,17 +21,17 @@ def tmp_paths(tmp_path):
 def cfg(tmp_paths):
     """Build test config with temp paths."""
     soul, db, audit = tmp_paths
-    config = TEST_CONFIG.copy()
-    config["personality"] = {
-        "soul_path": str(soul),
-        "db_path": str(db),
+    return {
+        "personality": {
+            "soul_path": str(soul),
+            "db_path": str(db),
+        },
+        "logging": {
+            "audit_file": str(audit),
+            "audit_fields": {"include_query_hash": True},
+        },
+        "policy": {"privacy": {}},
     }
-    config["logging"] = {
-        "audit_file": str(audit),
-        "audit_fields": {"include_query_hash": True},
-    }
-    config["policy"] = {"privacy": {}}
-    return config
 
 
 class TestPersonalityManager:
@@ -379,6 +362,32 @@ class TestScannerUnification:
         assert "soul_restored_from_backup" in events
         assert result["status"] == "applied"
 
+class TestSoulDriftRecovery:
+    def test_startup_records_drift_recovery_version(self, cfg, tmp_paths):
+        soul_path, _, _ = tmp_paths
+        soul_path.parent.mkdir(parents=True, exist_ok=True)
+        soul_path.write_text("# Drift Test\nOriginal.", encoding="utf-8")
+
+        with patch("utils.personality.audit_log"):
+            from utils.personality import PersonalityManager
+            pm = PersonalityManager(cfg)
+
+        v1 = pm.get_version()
+        tampered = "# Drift Test\nTAMPERED CONTENT!"
+        soul_path.write_text(tampered, encoding="utf-8")
+
+        with patch("utils.personality.audit_log") as mock_audit:
+            pm2 = PersonalityManager(cfg)
+
+        latest = pm2.conn.execute(
+            "SELECT content, reason FROM soul_versions ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        events = [c.args[0].get("event") for c in mock_audit.call_args_list if c.args]
+        assert pm2.get_version() == v1 + 1
+        assert pm2.soul_core == tampered
+        assert latest["content"] == tampered
+        assert latest["reason"].startswith("DRIFT_RECOVERY")
+        assert "soul_drift_detected" in events
 
 class TestPersonalityConcurrency:
     """Concurrent access to the shared sqlite connection must not raise.
