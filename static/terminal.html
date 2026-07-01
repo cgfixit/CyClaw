@@ -940,7 +940,6 @@
     </div>
     <div class="soul-actions">
       <input class="soul-reason" id="fsPattern" type="text" placeholder="pattern (grep/glob)" style="max-width:300px;" maxlength="4096">
-      <label class="gate-confirm-label"><input type="checkbox" id="fsRegex"> regex</label>
       <button class="soul-btn" onclick="fsGrepCmd()">Grep</button>
       <button class="soul-btn" onclick="fsGlobCmd()">Glob</button>
     </div>
@@ -1814,7 +1813,7 @@ function fsGrepCmd() {
     root: document.getElementById('fsRoot').value.trim() || null,
     path: document.getElementById('fsPath').value.trim() || null,
     pattern,
-    regex: document.getElementById('fsRegex').checked,
+    regex: false,
   });
 }
 function fsGlobCmd() {

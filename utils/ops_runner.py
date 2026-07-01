@@ -38,6 +38,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from utils.logger import _get_config, redact_sensitive
+
 # Repo root = parent of utils/. The CLIs run as ``python -m sync.cli`` /
 # ``agentic.cli``; running with cwd=repo-root puts the ``sync`` / ``agentic``
 # packages on the import path without mutating PYTHONPATH for the gateway process.
@@ -104,16 +106,28 @@ class OpsResult:
     parsed: Any = None
 
     def to_dict(self) -> dict[str, Any]:
+        cfg = _get_config(str(_CONFIG_PATH))
         return {
             "subsystem": self.subsystem,
             "action": self.action,
             "exit_code": self.exit_code,
             "ok": self.ok,
             "label": self.label,
-            "stdout": self.stdout,
-            "stderr": self.stderr,
-            "parsed": self.parsed,
+            "stdout": _redact_ops_value(self.stdout, cfg),
+            "stderr": _redact_ops_value(self.stderr, cfg),
+            "parsed": _redact_ops_value(self.parsed, cfg),
         }
+
+
+def _redact_ops_value(value: Any, cfg: dict) -> Any:
+    """Redact subprocess output before it reaches the browser ops console."""
+    if isinstance(value, str):
+        return redact_sensitive(value, cfg)
+    if isinstance(value, dict):
+        return {k: _redact_ops_value(v, cfg) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_ops_value(v, cfg) for v in value]
+    return value
 
 
 def _run(argv: list[str]) -> subprocess.CompletedProcess[str]:
@@ -250,11 +264,14 @@ def run_fsconnect_op(
     """Invoke ``python -m agentic.fsconnect.cli <action>`` and normalize the result.
 
     Read-only operations: status, test, list, read, stat, grep, glob. File-path
-    arguments are passed as ``--root``/``--path``; pattern as ``--pattern``
-    (``--regex`` when true). No write operations are exposed via this route.
+    arguments are passed as ``--root``/``--path``; pattern as ``--pattern``.
+    Browser/API grep is literal-only; local CLI users can still run ``--regex``.
+    No write operations are exposed via this route.
     """
     if action not in _FSCONNECT_ACTIONS:
         raise OpsError(f"Unknown fsconnect action: {action!r}")
+    if regex:
+        raise OpsError("fsconnect regex grep is CLI-only; /ops/fsconnect accepts literal grep only")
 
     argv = [sys.executable, "-m", "agentic.fsconnect.cli", "--config", str(_CONFIG_PATH), action]
 
