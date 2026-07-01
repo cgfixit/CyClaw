@@ -4,6 +4,7 @@ Uses sentence-transformers for embeddings (CPU, no Ollama).
 Sanitizes chunks at ingestion time via prompt filter.
 """
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -108,6 +109,7 @@ def build_index(config_path: str = "config.yaml") -> None:
     tokenized_corpus = []
 
     for source, content in docs:
+        source_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
         chunks = chunk_document(content, chunk_size, chunk_overlap)
         for i, chunk in enumerate(chunks):
             clean_chunk = sanitize_chunk(chunk, config_path)
@@ -117,6 +119,7 @@ def build_index(config_path: str = "config.yaml") -> None:
             all_metadata.append({
                 "source": source,
                 "chunk_id": i,
+                "source_sha256": source_sha256,
                 "stem_tags": json.dumps(tokens[:20])
             })
 

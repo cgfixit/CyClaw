@@ -456,6 +456,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
                 source=d.get("source", ""),
                 score=d.get("score", 0.0),
                 chunk_id=d.get("chunk_id", -1),
+                source_sha256=d.get("source_sha256", ""),
                 stem_tags=d.get("stem_tags", []),
                 semantic_score=d.get("semantic_score"),
                 semantic_rank=d.get("semantic_rank"),

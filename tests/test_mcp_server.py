@@ -144,7 +144,7 @@ def test_tools_call_hybrid_search(retriever):
     assert result is not None
     chunks = result["result"]["chunks"]
     assert len(chunks) == 2
-    expected_keys = {"text", "score", "source", "chunk_id", "stem_tags", "mode"}
+    expected_keys = {"text", "score", "source", "chunk_id", "source_sha256", "stem_tags", "mode"}
     for chunk in chunks:
         assert expected_keys.issubset(set(chunk.keys()))
 
@@ -242,6 +242,21 @@ def test_tools_call_rejects_missing_query(retriever):
     }
     result = handle_message(msg, retriever)
     assert result["error"]["code"] == -32602
+
+
+def test_tools_call_rejects_oversized_query(retriever):
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 64,
+        "method": "tools/call",
+        "params": {
+            "name": "hybrid_search",
+            "arguments": {"query": "x" * (mcp_hybrid_server._MAX_QUERY_CHARS + 1)},
+        },
+    }
+    result = handle_message(msg, retriever)
+    assert result["error"]["code"] == -32602
+    retriever.hybrid_search.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

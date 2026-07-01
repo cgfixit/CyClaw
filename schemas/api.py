@@ -29,6 +29,7 @@ class SourceInfo(BaseModel):
     source: str
     score: float
     chunk_id: int
+    source_sha256: str = ""
     stem_tags: list[str] = []
     semantic_score: float | None = None
     semantic_rank: int | None = None

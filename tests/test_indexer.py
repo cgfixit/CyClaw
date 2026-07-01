@@ -4,6 +4,8 @@ Covers chunk_document edge cases and the build_index fail-fast guards that
 reject chunking misconfiguration before a corrupt index can be written.
 """
 
+import hashlib
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -129,6 +131,38 @@ class TestBuildIndexConfigPropagation:
             "build_index did not forward its config_path to get_embeddings_batch; "
             f"got {passed_config!r}"
         )
+
+    def test_build_index_stores_source_sha256_metadata(self, tmp_path):
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        content = "hello world cyclaw retrieval fusion"
+        (corpus / "a.md").write_text(content, encoding="utf-8")
+        cfg = {
+            "corpus": {"path": str(corpus), "extensions": [".md"]},
+            "indexing": {
+                "chroma_path": str(tmp_path / "chroma"),
+                "bm25_path": str(tmp_path / "bm25.json"),
+                "collection_name": "test_kb",
+                "chunk_size": 512,
+                "chunk_overlap": 50,
+                "batch_size": 10,
+            },
+        }
+        config_path = tmp_path / "config.yaml"
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(cfg, f)
+
+        fake_writer = MagicMock()
+        with patch("retrieval.indexer.get_embeddings_batch", return_value=[[0.1, 0.2, 0.3]]), \
+                patch("retrieval.indexer.get_vector_writer", return_value=fake_writer):
+            build_index(str(config_path))
+
+        expected = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        added_metadata = fake_writer.add.call_args.args[3]
+        assert added_metadata[0]["source_sha256"] == expected
+
+        bm25_data = json.loads((tmp_path / "bm25.json").read_text(encoding="utf-8"))
+        assert bm25_data["metadata"][0]["source_sha256"] == expected
 
 
 class TestLoadCorpusCaseInsensitive:

@@ -62,6 +62,7 @@ class RetrievedDoc(TypedDict, total=False):
     score: float
     source: str
     chunk_id: int
+    source_sha256: str
     stem_tags: list[str]
     mode: str
     semantic_score: float | None
@@ -220,6 +221,7 @@ def retrieve_node(state: GraphState, retriever: HybridRetriever, cfg: dict) -> d
             score=r.score,
             source=r.source,
             chunk_id=r.chunk_id,
+            source_sha256=r.source_sha256,
             stem_tags=r.stem_tags[:5],
             mode=r.retrieval_mode,
             semantic_score=r.semantic_score,
@@ -527,6 +529,7 @@ def audit_logger_node(state: GraphState, cfg: dict,
             {
                 "source": s.get("source", ""),
                 "chunk_id": s.get("chunk_id", -1),
+                "source_sha256": s.get("source_sha256", ""),
                 "semantic_score": s.get("semantic_score"),
                 "keyword_score": s.get("keyword_score"),
                 "rrf_score": s.get("rrf_score"),
