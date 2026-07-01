@@ -34,7 +34,9 @@ def _temp_audit(tmp_path: Path):
     reset_config_cache()
     from utils.logger import _get_config
     _get_config(str(path))  # prime cache
+    check_gh_version.cache_clear()
     yield
+    check_gh_version.cache_clear()
     reset_config_cache()
 
 
@@ -141,6 +143,14 @@ def test_check_gh_version_parses():
                       return_value=_completed(stdout="gh version 2.55.0 (2024-08-21)\n")):
         assert check_gh_version() == (2, 55, 0)
 
+
+def test_check_gh_version_is_cached():
+    result = _completed(stdout="gh version 2.55.0 (2024-08-21)\n")
+    with patch.object(gh_client.shutil, "which", return_value="/usr/bin/gh"), \
+         patch.object(gh_client.subprocess, "run", return_value=result) as mrun:
+        assert check_gh_version("gh", (2, 40, 0)) == (2, 55, 0)
+        assert check_gh_version("gh", (2, 40, 0)) == (2, 55, 0)
+    assert mrun.call_count == 1
 
 def test_check_gh_version_missing_raises():
     with patch.object(gh_client.shutil, "which", return_value=None):

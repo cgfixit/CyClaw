@@ -26,6 +26,7 @@ import re
 import shutil
 import subprocess  # noqa: S404 -- argv-list gh invocation only; never shell=True
 import time
+from functools import lru_cache
 
 from utils.errors import AgenticError, GhNotInstalledError, GhVersionError
 from utils.logger import audit_log
@@ -51,6 +52,7 @@ _GH_VERSION_RE = re.compile(r"gh version\s+(\d+)\.(\d+)\.(\d+)", re.IGNORECASE)
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
+@lru_cache(maxsize=16)
 def check_gh_version(
     gh_bin: str = "gh",
     min_version: tuple[int, int, int] = DEFAULT_MIN_GH,
