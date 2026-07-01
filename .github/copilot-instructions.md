@@ -160,7 +160,6 @@ pytest \
   tests/test_health.py \
   tests/test_mcp_server.py \
   tests/test_metrics.py \
-  tests/test_personality_changes.py \
   tests/test_sync_config.py \
   tests/test_sync_filters.py \
   tests/test_sync_runner.py \
