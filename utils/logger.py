@@ -42,7 +42,13 @@ def _audit_handle(log_path: Path) -> TextIO:
     handle = _AUDIT_HANDLES.get(key)
     if handle is None or handle.closed:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 -- kept open intentionally, see module docstring
+        # Intentionally long-lived: cached in _AUDIT_HANDLES and reused across
+        # every subsequent audit_log() call for this path (see module docstring
+        # above). Closed by close_audit_handles(), registered via
+        # atexit.register() below and directly callable by tests that need fds
+        # released early. A static file-not-closed check cannot see across that
+        # module-level lifetime from this function alone -- accepted by design.
+        handle = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
         _AUDIT_HANDLES[key] = handle
     return handle
 
@@ -58,6 +64,10 @@ def close_audit_handles() -> None:
             try:
                 handle.close()
             except OSError:
+                # Best-effort at process-exit/test-teardown: a handle that fails to
+                # close (e.g. its underlying fd was already torn down) has nothing
+                # else useful to do here, and _AUDIT_HANDLES.clear() below still
+                # drops our reference so a future audit_log() call reopens cleanly.
                 pass
         _AUDIT_HANDLES.clear()
 
