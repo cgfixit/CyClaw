@@ -225,6 +225,34 @@ def test_to_dict_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     assert set(d) == {"subsystem", "action", "exit_code", "ok", "label", "stdout", "stderr", "parsed"}
 
 
+def test_to_dict_redacts_subprocess_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = {
+        "policy": {
+            "privacy": {
+                "redact_emails": False,
+                "redact_ips": False,
+                "redact_secrets_like": [r"sk-[A-Za-z0-9]{8,}", r"Bearer\s+[A-Za-z0-9\-_.]+"],
+            }
+        }
+    }
+    monkeypatch.setattr(ops_runner, "_get_config", lambda *_args, **_kwargs: cfg)
+    res = ops_runner.OpsResult(
+        "sync", "status", 0, True, "ok",
+        "stdout sk-testsecret123",
+        "stderr Bearer abc.def-ghi",
+        {"nested": ["sk-nestedsecret123"]},
+    )
+
+    d = res.to_dict()
+
+    assert "sk-testsecret123" not in d["stdout"]
+    assert "abc.def-ghi" not in d["stderr"]
+    assert "sk-nestedsecret123" not in d["parsed"]["nested"][0]
+    assert "[REDACTED_SECRET]" in d["stdout"]
+    assert "[REDACTED_SECRET]" in d["stderr"]
+    assert "[REDACTED_SECRET]" in d["parsed"]["nested"][0]
+
+
 # ----------------------------------------------------------------------- isolation
 
 
@@ -260,10 +288,22 @@ def test_fsconnect_list_argv(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_fsconnect_grep_argv(monkeypatch: pytest.MonkeyPatch) -> None:
     runner, captured = _fake_run(returncode=0, stdout='{"matches": []}')
     monkeypatch.setattr(ops_runner, "_run", runner)
-    run_fsconnect_op("grep", root="/data", path="file.txt", pattern="hello", regex=True)
+    run_fsconnect_op("grep", root="/data", path="file.txt", pattern="hello")
     argv = captured[0]
     assert "--pattern" in argv and "hello" in argv
-    assert "--regex" in argv
+    assert "--regex" not in argv
+
+
+def test_fsconnect_regex_rejected() -> None:
+    with pytest.raises(OpsError, match="regex grep is CLI-only"):
+        run_fsconnect_op("grep", path="file.txt", pattern="(a+)+$", regex=True)
+
+def test_ops_fsconnect_request_rejects_regex_true() -> None:
+    from pydantic import ValidationError
+    from schemas.api import OpsFsConnectRequest
+
+    with pytest.raises(ValidationError):
+        OpsFsConnectRequest(action="grep", path="file.txt", pattern="(a+)+$", regex=True)
 
 
 def test_fsconnect_glob_no_recursive(monkeypatch: pytest.MonkeyPatch) -> None:
