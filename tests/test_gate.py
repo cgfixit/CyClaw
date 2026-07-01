@@ -6,7 +6,6 @@ Tests the HTTP layer including:
 - Confirmation flow (needs_confirm -> re-submit with user_confirmed_online)
 - Health endpoint
 - Error responses
-*** REVIEW THIS SOON TO ENHANCE AND VERIFY***
 """
 
 import copy

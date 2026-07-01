@@ -10,7 +10,6 @@ Tests all paths through the state machine:
 """
 
 import pytest
-import yaml
 from pathlib import Path
 
 from graph import (
@@ -30,9 +29,18 @@ from utils.errors import RAGError, LLMServiceError, GrokServiceError
 
 
 @pytest.fixture(autouse=True)
-def setup_logging(tmp_path):
-    """Ensure audit logging works for each test."""
+def setup_logging(tmp_path, monkeypatch):
+    """Route audit logging into each test's temp directory."""
+    cfg = {
+        **TEST_CONFIG,
+        "logging": {
+            **TEST_CONFIG["logging"],
+            "audit_file": str(tmp_path / "audit.jsonl"),
+            "log_file": str(tmp_path / "gateway.log"),
+        },
+    }
     reset_config_cache()
+    monkeypatch.setattr("utils.logger._get_config", lambda config_path="config.yaml": cfg)
     yield
     reset_config_cache()
 
@@ -51,13 +59,6 @@ def _make_cfg(tmp_path, mode="offline", grok_enabled=False):
         "log_file": str(tmp_path / "gateway.log")
     }
 
-    config_path = tmp_path / "config.yaml"
-    with open(config_path, "w") as f:
-        yaml.dump(cfg, f)
-
-    # Also write to default location so audit_log can find it
-    import os
-    os.environ.setdefault("SAFECLAW_CONFIG", str(config_path))
 
     return cfg
 
