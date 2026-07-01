@@ -7,6 +7,7 @@ embeddings are local sentence-transformers.
 import os
 import re
 import time
+from pathlib import Path
 
 import httpx
 import yaml
@@ -15,6 +16,11 @@ from .errors import HealthStatus
 
 _cfg_cache: dict[str, tuple[dict, float]] = {}
 _cfg_ttl_sec = 60
+# Anchor relative config_path lookups to the repo root, mirroring gate.py's
+# _BASE_DIR pattern — see utils/logger.py's _REPO_ROOT for the matching fix.
+# gate.py calls check_all() with no config_path (line 539), so the bare
+# "config.yaml" default must not depend on the process CWD.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _health_cfg(config_path: str) -> dict:
@@ -28,7 +34,10 @@ def _health_cfg(config_path: str) -> dict:
         cached_cfg, cached_at = _cfg_cache[config_path]
         if now - cached_at < _cfg_ttl_sec:
             return cached_cfg
-    with open(config_path, encoding="utf-8") as f:
+    path = Path(config_path).expanduser()
+    if not path.is_absolute():
+        path = _REPO_ROOT / path
+    with open(path.resolve(), encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     _cfg_cache[config_path] = (cfg, now)
     return cfg

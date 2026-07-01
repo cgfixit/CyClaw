@@ -21,6 +21,13 @@ import yaml
 
 _logging_initialized = False
 _AUDIT_WRITE_LOCK = threading.Lock()
+# Anchor relative config_path lookups to the repo root, mirroring gate.py's
+# _BASE_DIR pattern. Without this, audit_log()/setup_logging() callers that
+# don't pass cfg explicitly (graph.py, utils/personality.py) resolve the
+# default "config.yaml" against the process CWD, which raises
+# FileNotFoundError whenever cyclaw-server is invoked from outside the repo
+# root — exactly the fragility _BASE_DIR exists to prevent in gate.py itself.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # audit_log() previously opened, wrote, and closed the audit file on every
 # single call — each event paid a fresh open() (path resolution, inode
@@ -109,8 +116,10 @@ def setup_logging(cfg: dict | None = None) -> None:
 
 @lru_cache(maxsize=8)
 def _get_config(config_path: str = "config.yaml") -> dict:
-    resolved = str(Path(config_path).expanduser().resolve())
-    with open(resolved, encoding="utf-8") as f:
+    path = Path(config_path).expanduser()
+    if not path.is_absolute():
+        path = _REPO_ROOT / path
+    with open(path.resolve(), encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 def reset_config_cache() -> None:
