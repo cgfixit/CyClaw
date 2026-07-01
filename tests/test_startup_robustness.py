@@ -90,7 +90,7 @@ class TestMainStartup:
 
         gate.main()
 
-        assert len(served) == 1
+        assert served == [(gate.cfg["api"]["host"], gate.cfg["api"]["port"])]
 
 
 class TestBaseDirAnchoring:
