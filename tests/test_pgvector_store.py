@@ -70,9 +70,9 @@ def test_pgvector_index_and_rank(fresh_store):
     docs = ["near doc", "mid doc", "far doc"]
     embeddings = [near, mid, far]
     metadatas = [
-        {"source": "a.md", "chunk_id": 0, "stem_tags": '["near"]'},
-        {"source": "b.md", "chunk_id": 1, "stem_tags": '["mid"]'},
-        {"source": "c.md", "chunk_id": 2, "stem_tags": '["far"]'},
+        {"source": "a.md", "chunk_id": 0, "source_sha256": "a" * 64, "stem_tags": '["near"]'},
+        {"source": "b.md", "chunk_id": 1, "source_sha256": "b" * 64, "stem_tags": '["mid"]'},
+        {"source": "c.md", "chunk_id": 2, "source_sha256": "c" * 64, "stem_tags": '["far"]'},
     ]
 
     writer = get_vector_writer(cfg)
@@ -96,6 +96,7 @@ def test_pgvector_index_and_rank(fresh_store):
     assert math.isclose(scores[0], 1.0, abs_tol=1e-4), "identical direction → score ~1.0"
     # metadata round-trips (stem_tags parsed back to a list).
     assert hits[0]["source"] == "a.md" and hits[0]["chunk_id"] == 0
+    assert hits[0]["source_sha256"] == "a" * 64
     assert hits[0]["stem_tags"] == ["near"]
 
 
@@ -105,6 +106,41 @@ def test_pgvector_reader_missing_table_raises(fresh_store):
     # No index built (fresh_store dropped the table) → reader must refuse clearly.
     with pytest.raises(IndexNotFoundError):
         get_vector_reader(_cfg())
+
+
+def test_pgvector_reader_handles_legacy_rows_without_source_hash(fresh_store):
+    import psycopg
+    from pgvector.psycopg import register_vector
+
+    from utils.personality_db import _harden_pg_conninfo
+
+    with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        register_vector(conn)
+        conn.execute(
+            "CREATE TABLE kb_chunks ("
+            "id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,"
+            "source TEXT NOT NULL,"
+            "chunk_id INT NOT NULL,"
+            "content TEXT NOT NULL,"
+            "stem_tags TEXT NOT NULL DEFAULT '[]',"
+            f"embedding vector({DIM}) NOT NULL"
+            ")"
+        )
+        conn.execute(
+            "INSERT INTO kb_chunks (source, chunk_id, content, stem_tags, embedding) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            ("legacy.md", 0, "legacy doc", "[]", _vec((0, 1.0))),
+        )
+
+    reader = get_vector_reader(_cfg())
+    try:
+        hits = reader.query(_vec((0, 1.0)), k=1)
+    finally:
+        reader.close()
+
+    assert hits[0]["source"] == "legacy.md"
+    assert hits[0]["source_sha256"] == ""
 
 
 def test_pgvector_rebuild_truncates(fresh_store):

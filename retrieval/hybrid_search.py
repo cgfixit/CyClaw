@@ -30,6 +30,7 @@ class SearchResult:
     chunk_id: int
     stem_tags: list[str]
     retrieval_mode: str  # "semantic" | "keyword" | "hybrid"
+    source_sha256: str = ""
     semantic_score: float | None = None
     semantic_rank: int | None = None
     keyword_score: float | None = None
@@ -94,6 +95,7 @@ class HybridRetriever:
             hits.append(SearchResult(
                 text=r["text"], score=score, source=r["source"],
                 chunk_id=r["chunk_id"], stem_tags=r["stem_tags"],
+                source_sha256=r.get("source_sha256", ""),
                 retrieval_mode="semantic", semantic_score=score, semantic_rank=i,
             ))
         return hits
@@ -124,6 +126,7 @@ class HybridRetriever:
                     text=self.bm25_chunks[idx], score=scores[idx],
                     source=meta["source"], chunk_id=meta["chunk_id"],
                     stem_tags=stem_tags, retrieval_mode="keyword",
+                    source_sha256=meta.get("source_sha256", ""),
                     keyword_score=scores[idx], keyword_rank=len(hits),
                 ))
         return hits
@@ -222,6 +225,7 @@ class HybridRetriever:
             merged.append(SearchResult(
                 text=hit.text, score=score, source=source, chunk_id=chunk_id,
                 stem_tags=hit.stem_tags, retrieval_mode="hybrid",
+                source_sha256=hit.source_sha256,
                 semantic_score=sm["score"] if sm else None,
                 semantic_rank=sm["rank"] if sm else None,
                 keyword_score=km["score"] if km else None,
