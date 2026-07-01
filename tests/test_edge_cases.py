@@ -15,7 +15,7 @@ from unittest.mock import patch, MagicMock
 
 from tests.conftest import (
     MockRetriever, MockLocalLLM, MockGrokClient,
-    MOCK_HIGH_SCORE_RESULTS, MOCK_LOW_SCORE_RESULTS, TEST_CONFIG
+    MOCK_HIGH_SCORE_RESULTS, TEST_CONFIG
 )
 
 
