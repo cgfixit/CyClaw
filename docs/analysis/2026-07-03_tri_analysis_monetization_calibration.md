@@ -1,4 +1,5 @@
 # CyClaw Tri-Analysis — Codebase/API Deep-Read · PR #391 Assessment · Insight-Optimism Calibration
+# #391 | #411 | #412 (this PR)
 
 > **Provenance & status.** Produced 2026-07-03 by a three-subagent analysis session (personas:
 > CyClaw-Optimize codebase cartographer, staff-level PR assessor, skeptical first-time-founder
