@@ -61,7 +61,7 @@ def gate_client(tmp_path):
          patch("gate.HybridRetriever"), \
          patch("gate.LocalLLMClient"), \
          patch("gate.build_graph", return_value=mock_graph), \
-         patch("gate.check_input", side_effect=lambda q: q), \
+         patch("gate.check_input", side_effect=lambda q, **kw: q), \
          patch("gate.check_all", return_value=[]):
 
         import gate
