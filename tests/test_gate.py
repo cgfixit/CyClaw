@@ -10,7 +10,7 @@ Tests the HTTP layer including:
 
 import copy
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from tests.conftest import (
@@ -385,6 +385,42 @@ class TestSoulAndErrorPaths:
         # the truthful 504 GRAPH_TIMEOUT message).
         assert isinstance(data["graph_timeout_sec"], int)
         assert data["graph_timeout_sec"] > 0
+
+
+class TestNoAutoDocs:
+    """FastAPI's auto-generated docs surface is disabled (docs_url/redoc_url/
+    openapi_url=None): /openapi.json disclosed the /soul/* and /ops/* request
+    schemas unauthenticated, and /docs and /redoc load assets from a CDN —
+    both contradict the offline-first, minimal-surface posture."""
+
+    @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+    def test_auto_docs_routes_absent(self, client, path):
+        test_client, _ = client
+        resp = test_client.get(path)
+        assert resp.status_code == 404
+
+
+class TestSoulRateLimit:
+    """POST /soul/* mutation routes enforce the shared per-IP rate limit with
+    the same 429 RATE_LIMIT contract as /query and /ops/*. The check runs
+    before any personality work, so an exhausted budget cannot hammer the
+    soul file / DB even with a valid API key."""
+
+    @pytest.mark.parametrize("path,body", [
+        ("/soul/propose", {"new_soul": "calm and factual", "reason": "test"}),
+        ("/soul/apply", {"new_soul": "calm and factual", "reason": "test"}),
+        ("/soul/reload", None),
+        ("/soul/restore", None),
+    ])
+    def test_soul_mutation_429_when_rate_limited(self, client, monkeypatch, path, body):
+        test_client, _ = client
+        monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
+        with patch("gate._check_rate_limit_async", new=AsyncMock(return_value=False)):
+            resp = test_client.post(
+                path, json=body, headers={"Authorization": "Bearer test-key-123"}
+            )
+        assert resp.status_code == 429
+        assert resp.json()["detail"]["code"] == "RATE_LIMIT"
 
 
 class TestAuditSummaryEndpoint:
