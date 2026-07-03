@@ -51,6 +51,13 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import httpx; httpx.get('http://127.0.0.1:8787/health', timeout=4)" || exit 1
 
-# Loopback-only binding (security invariant: CyClaw never binds to 0.0.0.0).
-# Port 8787 matches config.yaml api.port.
-CMD ["uvicorn", "gate:app", "--host", "127.0.0.1", "--port", "8787", "--log-level", "info"]
+# In-container bind is 0.0.0.0 so docker-compose's port publish can reach
+# uvicorn. Binding 127.0.0.1 here is the CONTAINER's private loopback: under
+# default bridge networking docker-proxy forwards the published port to the
+# container's eth0, where nothing would be listening — the host-side
+# 127.0.0.1:8787 publish is dead while the in-container healthcheck stays
+# green. Host exposure remains loopback-only via docker-compose.yml's
+# "127.0.0.1:8787:8787" publish (the loopback invariant lives at the host
+# boundary); TrustedHostMiddleware additionally rejects non-allow-listed
+# Host headers. Port 8787 matches config.yaml api.port.
+CMD ["uvicorn", "gate:app", "--host", "0.0.0.0", "--port", "8787", "--log-level", "info"]

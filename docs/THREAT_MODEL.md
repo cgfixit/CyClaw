@@ -28,7 +28,7 @@ consolidates the threat-model assumptions previously scattered across
 
 | Assumption | Value |
 |---|---|
-| Network exposure | Binds **exclusively** to `127.0.0.1:8787`. Never `0.0.0.0`. |
+| Network exposure | Host exposure is **exclusively** `127.0.0.1:8787` — never a non-loopback host interface. Bare-metal runs bind loopback directly; the container deployment publishes only to host loopback (`127.0.0.1:8787:8787`) while uvicorn binds the container-private network namespace (`0.0.0.0` inside the container) so the publish can reach it. |
 | Operators | **Single trusted operator** (or a small trusted home-lab/LAN). |
 | Tenancy | **Single-tenant.** No mutual isolation between users is attempted. |
 | Data store | Embedded ChromaDB (`PersistentClient`) + local BM25 + SQLite. No HTTP DB. |
