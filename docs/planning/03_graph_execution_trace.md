@@ -61,13 +61,22 @@ is exactly what the single helper prevents.
   - `local_llm_node` → `{"model": "local", "error": error}`
   - `user_gate_node` → `{"confirmed": confirmed}`
   - `grok_fallback_node` → `{"model": "grok", "gate_reason": …, "error": error}`
-  - `offline_best_effort_node` → `{"model": "offline-best-effort", "gate_reason": …, "error": error}`
+  - `offline_best_effort_node` → `{"model": "offline-best-effort", "gate_reason": "declined"|"offline_mode"|"grok_disabled"|"grok_unavailable", "error": error}` — see the router-rationale correction below for how `gate_reason` is derived.
 - The two **router** functions are not nodes and return no state, so they cannot append trace entries.
-  Capture their rationale at the *next executing node* instead: `grok_fallback_node` and
-  `offline_best_effort_node` read `state.get("user_confirmed_online")` (and, for grok, whether `grok` was
-  `None` / `is_available()` was the deciding factor) into their `gate_reason` extra. This captures the
-  triple-gate "why" **without touching the router signatures** (which are directly unit-tested in
-  `tests/test_graph.py`).
+  Capture their rationale at the *next executing node* instead. **Correction:** in the confirmed-but-
+  Grok-unavailable route, `user_gate_router` sends directly to `offline_best_effort_node` — but per the
+  plan as first drafted, that node only reads `state.get("user_confirmed_online")` and is never passed
+  the `grok` client, so it cannot distinguish "offline mode", "Grok disabled", and "Grok enabled but
+  `is_available()` false" — exactly the three cases the escalation-rationale requirement (§ Buyer need)
+  needs to answer. Fix: thread `grok: GrokClient | None` into `offline_best_effort_node`'s existing
+  dependency-injection parameters (it already receives `cfg` and other deps positionally, matching
+  `user_gate_router(state, grok=...)`'s own signature at `graph.py:564` — the node gains the same
+  parameter, not a new pattern) so it can compute `gate_reason` from `user_confirmed_online` **and**
+  `grok is None` **and** `grok.is_available()` exactly as `user_gate_router` does today, e.g.
+  `"declined"` / `"offline_mode"` / `"grok_disabled"` / `"grok_unavailable"`. `grok_fallback_node`
+  already receives `grok` (it calls it), so only `offline_best_effort_node`'s signature changes. This
+  captures the triple-gate "why" for the *main* "why didn't Grok run?" case, still **without touching the
+  router signatures** (which are directly unit-tested in `tests/test_graph.py`).
 - Modify `audit_logger_node` (`graph.py:500-552`): it is the terminal node, so it must include **its
   own** trace entry, which the `operator.add` reducer cannot supply in time — a `trace` entry the node
   *returns* is merged into state only *after* the node returns, i.e. after `event` is already built and

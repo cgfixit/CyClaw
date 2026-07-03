@@ -68,10 +68,12 @@ New helpers (all module-private):
   in-scope value (export-time external verification + partial/accidental + non-root-subprocess tampering);
   the config key exists precisely so an operator who needs more can point it at an external/append-only
   store.
-- `_read_chain_head(path: Path) -> str` — returns the stored `record_hash` of the last record, or the
-  genesis sentinel `"0" * 64` if the head file is absent (first-ever record / post-rotation). A
-  missing/corrupt head must be tolerated as genesis **with a warning**, never crash — a broken head file
-  must not break the live `/query` path.
+- `_read_chain_head(path: Path) -> tuple[int, str]` — returns `(seq, record_hash)` of the last record
+  (both stored in the head JSON, so this is a single read, not a derivation), or the genesis pair
+  `(0, "0" * 64)` if the head file is absent (first-ever record / post-rotation). A missing/corrupt head
+  must be tolerated as genesis **with a warning**, never crash — a broken head file must not break the
+  live `/query` path. This is also the function `_reconcile_chain_head` below calls to compare the
+  stored head against the on-disk tail.
 - `_write_chain_head(path: Path, record_hash: str, seq: int) -> None` — atomic write using the exact
   `tmp_path = path.with_suffix(path.suffix + ".tmp"); …write_text(…); os.replace(tmp_path, path)` idiom
   from `utils/personality.py:309,315`. Body: `{"record_hash": …, "seq": …, "updated": <iso8601>}`. The
@@ -80,9 +82,13 @@ New helpers (all module-private):
 
 Modify `audit_log()` — gated on a new config flag `logging.hash_chain_enabled` (read from `cfg`, already
 loaded in the function):
-- **Enabled:** `prev = _read_chain_head(head_path)`; `record["prev_hash"] = prev`;
-  `record["record_hash"] = hashlib.sha256(_canonical_json({k: v for k, v in record.items() if k != "record_hash"}).encode()).hexdigest()`;
-  append the line (existing write); then `_write_chain_head(head_path, record["record_hash"], seq)`.
+- **Enabled:** `prev_seq, prev = _read_chain_head(head_path)` — `_read_chain_head`'s return type is
+  revised to `tuple[int, str]` (`seq`, `record_hash`), reading both fields already stored in the head
+  JSON (`{"record_hash": …, "seq": …, "updated": …}`); genesis is `(0, "0" * 64)`. `record["prev_hash"] =
+  prev`; `record["record_hash"] = hashlib.sha256(_canonical_json({k: v for k, v in record.items() if k
+  != "record_hash"}).encode()).hexdigest()`; append the line (existing write); then
+  `_write_chain_head(head_path, record["record_hash"], prev_seq + 1)` — `seq` is simply the running
+  count of chained records, derived from the head itself rather than tracked anywhere else.
 - **Disabled (default):** byte-identical to today; `prev_hash`/`record_hash` are never added. This keeps
   the feature strictly additive — every existing assertion in `tests/test_audit.py` on the exact JSON
   shape stays green unchanged.

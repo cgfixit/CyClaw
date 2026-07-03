@@ -52,15 +52,34 @@ Checks (each returns one or more `CheckResult`):
   `{"error":…, "code": e.code, "details":…}`; `tests/test_gate.py` already asserts this 400). Assert
   the code exactly — do **not** invent a shorter `PROMPT_INJECTION` string, which would falsely fail a
   healthy deployment.
-- `check_injection_indirect(corpus)` — for each `"indirect"` (corpus-poisoning) payload, call the **real**
-  `utils.sanitizer.sanitize_chunk` **directly via import** — the exact function `retrieval/indexer.py:113`
-  uses at index time — and assert `"[FILTERED]"` replaces the payload. (Importing the production function
-  is more honest than re-implementing the check, and needs no running server for this layer.)
-- `check_invariant_triple_gate(base_url, api_key)` — black-box proof of the external-escalation gate:
-  POST `/query` with `user_confirmed_online=false` on a low-score query and assert the response is never
-  `model_used == "grok"`, even when the instance is configured `hybrid` + `grok.enabled`. Reads
-  `/health`'s `mode` field to decide whether the scenario is meaningful; **SKIP** (not FAIL) if the
-  instance is not in hybrid mode (you cannot prove a gate you cannot reach).
+- `check_injection_indirect(corpus, *, same_host: bool)` — **corrected design.** The advertised scenario
+  is a buyer verifying their *deployed* instance over HTTP; importing `utils.sanitizer.sanitize_chunk`
+  locally only checks whichever CyClaw checkout the verifier script happens to run from — if that's not
+  provably the same code serving `base_url` (different host, stale checkout, patched config), this check
+  could report PASS while the live deployment's indexer still ingests the payload. There is no HTTP
+  endpoint that runs `sanitize_chunk` against arbitrary text (by design — indexing is an offline CLI
+  step, not a request-path capability, per the RAG-first invariant), so a true black-box remote check of
+  this layer isn't possible without adding server surface area that doesn't otherwise exist — not a
+  tradeoff this feature should force. Resolve honestly rather than silently: `run_suite` takes an explicit
+  `--same-host` flag (default `false`). When `true` (the operator asserts the verifier runs on the same
+  host/checkout as the deployed instance), run the import-based check as before and report PASS/FAIL. When
+  `false` (the default — remote verification, the common case), this check **SKIPs** with an explicit
+  message: *"indirect/corpus-poisoning defense not verified — requires --same-host or a local audit of
+  retrieval/indexer.py's sanitize_chunk call at index time."* This never silently overclaims coverage it
+  cannot actually prove remotely.
+- `check_invariant_triple_gate(base_url, api_key)` — black-box proof of the external-escalation gate.
+  **Corrected design:** merely asserting `model_used != "grok"` is not sufficient — if the chosen
+  "low-score" query happens to match the corpus well, `/query` legitimately returns the local model via
+  the normal high-score path, and the check would pass without ever exercising the gate at all. The
+  check must first **confirm it actually reached the gated path**: send a query using a corpus-miss
+  probe (e.g. a random/nonsense string guaranteed to score below `retrieval.min_score`, or read
+  `/audit/summary` before/after to confirm `retrieval_mode` indicates a miss) with `user_confirmed_online
+  =false`, and assert the response's `needs_confirm`/routing metadata shows it took the `user_gate` →
+  `offline_best_effort` path — **only then** does `model_used != "grok"` constitute a real assertion
+  about the gate rather than a coincidence of retrieval scoring. Reads `/health`'s `mode` field to decide
+  whether the hybrid-escalation scenario is meaningful; **SKIP** (not FAIL) if the instance is not in
+  hybrid mode (you cannot prove a gate you cannot reach), and also SKIP (not FAIL) if the corpus-miss
+  probe cannot be constructed reliably against the target's live corpus.
 - `check_soul_mutation_requires_reason(base_url, api_key)` — POST `/soul/propose` with an empty/missing
   `reason` and assert HTTP 422 (pydantic `SoulEvolutionRequest.reason = Field(min_length=1, …)`,
   `schemas/api.py:72`); and POST with **no** `Authorization` header and assert HTTP 401
@@ -78,15 +97,16 @@ Types & orchestration:
   `citation: str | None = None` (the `citation` carries the OWASP-LLM-Top-10 / category reference).
 - `@dataclass class SuiteReport:` `generated_at: str`, `target: str`, `results: list[CheckResult]`,
   `summary: dict`.
-- `run_suite(base_url, api_key, corpus_path) -> SuiteReport`.
+- `run_suite(base_url: str, api_key: str | None, corpus_path: str, *, same_host: bool = False) -> SuiteReport`.
 - `render_report(report, fmt: Literal["json","markdown"]) -> str` — JSON for an auditor's tooling; a
   minimal Markdown table for humans. Define a **small new schema**; do not try to replicate the
   hand-written narrative of `docs/audits/CyClaw_Full_Comprehensive_Audit_2026-06-24.md` (that is a manual
   audit, a poor template for an auto-generated pass/fail report).
 - `main()` — `argparse`: `--base-url` (default `http://127.0.0.1:8787`), `--api-key` (env `CYCLAW_API_KEY`
-  fallback, mirroring `gate.py`'s own resolution), `--corpus`, `--format json|markdown`, `--out`. Exit
-  non-zero **only** if any FAIL; SKIP never fails the run (mirrors `agentic/selftest.py`), and the
-  semantics are explicit so an all-SKIP report cannot masquerade as a pass.
+  fallback, mirroring `gate.py`'s own resolution), `--corpus`, `--same-host` (flag, default off — see
+  `check_injection_indirect`), `--format json|markdown`, `--out`. Exit non-zero **only** if any FAIL;
+  SKIP never fails the run (mirrors `agentic/selftest.py`), and the semantics are explicit so an
+  all-SKIP report cannot masquerade as a pass.
 
 ### `data/security_corpus.json` (new — versioned payload corpus)
 
@@ -130,15 +150,15 @@ following. **This is a hand-written illustration of the intended shape, not outp
 
 ```markdown
 # CyClaw Security Verification Report
-target: http://127.0.0.1:8787   generated_at: 2026-06-30T22:40:00Z
-result: PASS (12 PASS · 1 SKIP · 0 FAIL)
+target: http://127.0.0.1:8787   generated_at: 2026-06-30T22:40:00Z   same_host: false
+result: PASS (11 PASS · 2 SKIP · 0 FAIL)
 
 | Check | Status | Detail | Citation |
 |-------|--------|--------|----------|
 | injection.direct.core_override     | PASS | HTTP 400 code=PROMPT_INJECTION_BLOCKED on 3/3 payloads | OWASP LLM01:2025 |
 | injection.direct.memory_persist    | PASS | HTTP 400 code=PROMPT_INJECTION_BLOCKED on 2/2 memory-poisoning payloads | MINJA / arXiv 2601.05504 |
-| injection.indirect.sanitize_chunk  | PASS | "[FILTERED]" replaces 4/4 poisoned-doc payloads | retrieval/indexer.py |
-| invariant.triple_gate              | PASS | user_confirmed_online=false → model_used=offline-best-effort (never grok) | Invariant #3 |
+| injection.indirect.sanitize_chunk  | SKIP | not verified remotely — rerun with --same-host, or audit retrieval/indexer.py locally | retrieval/indexer.py |
+| invariant.triple_gate              | PASS | corpus-miss probe confirmed user_gate→offline_best_effort path taken; model_used=offline-best-effort (never grok) | Invariant #3 |
 | invariant.audit_convergence        | PASS | /audit/summary total_events +3 across 3 paths | Invariant #4 |
 | soul.requires_reason               | PASS | empty reason → HTTP 422 | schemas/api.py:72 |
 | soul.requires_auth                 | PASS | no Authorization → HTTP 401 | gate.py:96 |
