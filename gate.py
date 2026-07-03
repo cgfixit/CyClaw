@@ -196,6 +196,22 @@ async def _check_rate_limit_async(client_ip: str) -> bool:
     """
     return await asyncio.to_thread(check_rate_limit, client_ip)
 
+
+async def _enforce_rate_limit(request: Request) -> None:
+    """Audit and raise HTTP 429 when the caller's per-IP budget is spent.
+
+    Same policy /query and /ops/* apply inline; used by the POST /soul/*
+    mutation routes, which each hit disk + the personality DB. GET /soul stays
+    unthrottled deliberately — it is read-only, like /health and /audit/summary.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    if not await _check_rate_limit_async(client_ip):
+        await _audit({"event": "rate_limit_exceeded", "ip": client_ip})
+        raise HTTPException(
+            status_code=429,
+            detail={"error": "Rate limit exceeded (60/min)", "code": "RATE_LIMIT"},
+        )
+
 # Redact sensitive values from exception messages before returning in HTTP responses.
 # Strips Bearer tokens, known secret-like patterns, and any live env var values
 # that look like credentials (length > 8, not a common word).
@@ -273,6 +289,14 @@ app = FastAPI(
     description="Offline-first, RAG-first, MCP-exposed stack",
     version=_CYCLAW_VERSION,
     lifespan=lifespan,
+    # Auto-docs surface disabled: /openapi.json disclosed the full request
+    # schemas of /soul/* and /ops/* to any unauthenticated loopback caller, and
+    # the Swagger/ReDoc pages load their assets from cdn.jsdelivr.net — both
+    # contradict the offline-first, minimal-surface posture. Nothing in the
+    # repo (tests, static console, MCP server) consumes these routes.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
@@ -496,7 +520,8 @@ async def get_soul():
     }
 
 @app.post("/soul/propose", dependencies=[Depends(require_api_key)])
-async def propose_soul_evolution(req: SoulEvolutionRequest):
+async def propose_soul_evolution(request: Request, req: SoulEvolutionRequest):
+    await _enforce_rate_limit(request)
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
     proposal = await asyncio.to_thread(personality.propose_evolution, req.new_soul, req.reason)
@@ -504,7 +529,8 @@ async def propose_soul_evolution(req: SoulEvolutionRequest):
     return proposal
 
 @app.post("/soul/apply", dependencies=[Depends(require_api_key)])
-async def apply_soul_evolution(req: SoulEvolutionRequest):
+async def apply_soul_evolution(request: Request, req: SoulEvolutionRequest):
+    await _enforce_rate_limit(request)
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
     try:
@@ -518,14 +544,16 @@ async def apply_soul_evolution(req: SoulEvolutionRequest):
     return result
 
 @app.post("/soul/reload", dependencies=[Depends(require_api_key)])
-async def reload_soul():
+async def reload_soul(request: Request):
+    await _enforce_rate_limit(request)
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
     await asyncio.to_thread(personality.reload)
     return {"status": "reloaded", "version": personality.get_version()}
 
 @app.post("/soul/restore", dependencies=[Depends(require_api_key)])
-async def restore_soul():
+async def restore_soul(request: Request):
+    await _enforce_rate_limit(request)
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
     try:
