@@ -360,7 +360,7 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(_SecurityHeadersMiddleware)
 
 try:
-    retriever = HybridRetriever()
+    retriever = HybridRetriever(config_path=str(_BASE_DIR / "config.yaml"))
 except IndexNotFoundError as e:
     print(f"FATAL: {e.message}", file=sys.stderr)
     print("Run: python -m retrieval.indexer", file=sys.stderr)
@@ -405,7 +405,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
         )
 
     try:
-        check_input(req.query)
+        check_input(req.query, config_path=str(_BASE_DIR / "config.yaml"))
     except PromptInjectionError as e:
         # Pass the full query: audit_log() SHA-256-hashes the "query" field, so
         # truncating here yields a hash of only the first 50 chars that diverges
@@ -457,7 +457,8 @@ async def query_endpoint(request: Request, req: QueryRequest):
 
     if needs_confirm and not answer_model:
         top_score = result.get("top_score", 0.0)
-        threshold = cfg.get("retrieval", {}).get("min_score", 0.4)
+        # validate_retrieval_config() (boot, above) guarantees this key is present.
+        threshold = cfg["retrieval"]["min_score"]
         return QueryResponse(
             answer="",
             sources=[],
