@@ -1,98 +1,90 @@
-# PsyClaw — Feature Ideas for Regulated SMBs
+# PsyClaw - Regulated SMB Feature Hypotheses
 
 CyClaw began as **PsyClaw**, an offline-first RAG assistant aimed at small and
-mid-sized businesses that operate under real compliance pressure — law firms,
+mid-sized businesses under real compliance pressure: law firms,
 psychology/therapy practices, medical/dental offices, and accounting shops.
-These are organizations that *want* AI leverage but cannot tolerate client data
-leaving the building or landing in a third-party model's training set.
+Those segments are plausible, not validated. Treat them as discovery targets
+until buyer conversations prove urgency, budget, procurement path, and trust
+requirements.
 
-The product's whole value proposition is its security topology: RAG-first,
-topology-as-policy, triple-gated external calls, audit convergence, and soul
-governance (see `CLAUDE.md` → *Security Invariants*). Every feature idea below is
-evaluated against that posture — **a feature that erodes the invariants is not
-worth shipping**, no matter how marketable.
+## Current product facts
 
-The proposals are ordered by leverage-to-risk ratio. The first is **shipping in
-this PR**; the rest are roadmap.
+- **Repo-backed:** CyClaw's security posture is RAG-first retrieval,
+  topology-as-policy, triple-gated external calls, audit convergence, and human
+  governance for soul changes. A feature that erodes those invariants is not
+  worth shipping.
+- **Repo-backed:** `GET /audit/summary` is an API-key-gated, read-only endpoint
+  over existing audit aggregates. It reports counts and distributions; it does
+  not expose raw queries or per-record rows.
+- **Business status:** as of the 2026-07-03 business review, net-new product
+  features should stay frozen unless a customer, paid pilot, or interview use
+  case creates a concrete reason to build them.
 
----
+## Evidence labels
 
-## 1. Audit / compliance summary endpoint  ✅ shipping now
+- **Repo-backed fact:** implemented behavior visible in code.
+- **Market signal:** credible external pressure, but not proof CyClaw can sell.
+- **Hypothesis:** plausible buyer need that needs discovery or paid validation.
+- **Not claimed:** legal advice, SOC 2 readiness, HIPAA compliance, BAA coverage,
+  a formal compliance program, or audited certification.
 
-**What:** `GET /audit/summary` — an API-key-gated, read-only endpoint that returns
-aggregate metrics over the audit log: total events, event breakdown, RAG-query
-count, score distribution (avg/min/max), retrieval-mode mix, model-usage
-breakdown, and external-LLM escalation count.
+## 1. Audit / compliance summary endpoint
 
-**Why it matters for the market:** Regulated SMBs are periodically asked — by
-auditors, malpractice insurers, bar associations, or HIPAA risk assessments — to
-*demonstrate* how an AI tool is used. "How many queries went to an outside model
-last quarter?" is a question a managing partner needs to answer with evidence,
-not a shrug. This endpoint produces that evidence on demand.
+**Status:** repo-backed current behavior.
 
-**Why it's safe:** It exposes **aggregates only**. The audit log already persists
-SHA-256 query hashes rather than plaintext (see `utils/logger.py`), and the
-summary deliberately drops even those — no `query` field, no hashes, no
-per-record rows. There is therefore **no new data egress**: it surfaces counts
-that already exist on disk, behind the same API key that gates soul mutations.
-It is built directly on the existing `metrics.py` aggregation
-(`compute_metrics`), so the CLI and the API report identical numbers from one
-code path.
+**What:** `GET /audit/summary` returns aggregate metrics over the audit log:
+total events, event breakdown, RAG-query count, score distribution,
+retrieval-mode mix, model-usage breakdown, and external-LLM escalation count.
 
-**Roadmap extension:** a signed PDF/CSV "evidence pack" (hash-chained, timestamped)
-for HIPAA / SOC 2 audit binders. Same aggregates, durable export format.
+**Commercially safe claim:** this endpoint can help an operator answer basic
+operational questions such as "how often did the system escalate outside the
+local model?" or "what retrieval modes were used?"
 
----
+**Boundary:** this is operational evidence, not a SOC 2 artifact, legal opinion,
+HIPAA control, BAA substitute, or auditor-ready compliance binder.
 
-## 2. Retention & right-to-erasure tooling
+**Possible extension:** a portable evidence export may be useful later, but only
+after discovery confirms that buyers or auditors actually ask for that package.
+Hash chains, PDF/CSV exports, retention controls, and external anchors belong in
+a separate design review before implementation.
 
-**What:** A config-driven purge of audit and interaction records older than a
-configurable `retention.ttl_days`, exposed as a CLI (`cyclaw-retention`) and an
-optional scheduled task. Reuses the TTL concept already present in the
-personality/interaction store.
+## 2. Retention and right-to-erasure tooling
 
-**Why it matters:** HIPAA, GDPR (for any EU-adjacent clients), and most state bar
-record-retention rules require both a *defined retention period* and a
-*defensible deletion process*. "We keep audit logs forever" is a liability, not a
-feature — it expands the blast radius of any future breach and conflicts with
-data-minimization mandates.
+**Status:** hypothesis.
 
-**Security considerations:** Deletion must be append-only-log-aware (rewrite to a
-new file + `os.replace`, never in-place truncation that could corrupt a
-concurrent write), must itself emit an audit event recording *that* a purge ran
-(count + cutoff, never the deleted content), and must be gated so it cannot run
-autonomously without an explicit operator action — mirroring the soul-governance
-invariant (no autonomous destructive mutation).
+**What:** a controlled purge for audit and interaction records older than a
+defined retention period, exposed through a local operator workflow.
 
----
+**Market signal:** regulated buyers often care about retention and
+data-minimization, but the specific retention policy is vertical-specific and
+must be validated with the buyer's counsel, insurer, or compliance owner.
 
-## 3. Matter / client tagging + conflict wall (law-firm specific)
+**Security constraints:** any deletion path must be explicit, auditable,
+fail-closed, and non-autonomous. It must not corrupt append-only logs or create a
+new plaintext persistence path.
 
-**What:** An optional per-query `matter_id` / `client_tag` that flows into the
-audit trail as a *tag dimension*, plus a lightweight "conflict wall" check that
-can flag when the same engagement is being queried across walled-off teams.
+**Build trigger:** a paid pilot or discovery call where retention is named as a
+purchase blocker.
 
-**Why it matters:** Law firms live and die by conflict-of-interest checks and
-ethical walls (ABA Model Rule 1.10). Being able to attribute AI usage to a matter
-— "show me all assistant activity on the Acme acquisition" — turns CyClaw from a
-generic tool into something that fits a firm's existing matter-centric workflow,
-which is a strong differentiator at the point of sale.
+## 3. Matter / client tagging and conflict-wall checks
 
-**Security trade-offs (the hard part):** Tags are *metadata about* sensitive
-matters and must be treated with the same care as the queries themselves. The
-safe design keeps tags **out of any raw-text persistence path** — store a
-salted hash of the tag in the audit log (consistent with the existing query-hash
-discipline) so aggregation and filtering still work without writing client names
-to disk. The conflict-wall check should be a *local* set-membership test, never
-an external lookup. This one is explicitly **roadmap, not near-term**: it touches
-the audit schema and deserves its own design review against the five invariants
-before any code lands.
+**Status:** hypothesis, law-firm specific.
 
----
+**What:** optional matter/client tags that flow into audit reporting as a tag
+dimension, plus a local conflict-wall check for walled-off work.
+
+**Market signal:** legal workflows are matter-centric, and regulated buyers may
+need usage reports by client or engagement.
+
+**Risk:** tags are sensitive metadata. A safe design should avoid storing client
+names in plaintext and should keep checks local.
+
+**Build trigger:** discovery proves that matter-level reporting is more valuable
+than generic audit summaries and that buyers will pay for it.
 
 ## Guiding principle
 
-For this market, **trust is the product**. Each idea above is shaped so that the
-security invariants stay intact: nothing here introduces a new external call, a
-new plaintext persistence path, or an autonomous destructive action. Features that
-can't clear that bar belong in a different product.
+Do not turn market pressure into product claims. CyClaw's strongest proven value
+today is a credible local-governance engineering artifact and portfolio signal.
+Commercial work should start with buyer discovery, attorney/IP review, and
+constrained paid pilots, not speculative feature expansion.
