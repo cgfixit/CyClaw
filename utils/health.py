@@ -90,6 +90,7 @@ def check_all(config_path: str = "config.yaml") -> list[HealthStatus]:
             results.append(_ping(
                 f"{grok_base}/models", "grok_api",
                 headers={"Authorization": f"Bearer {api_key}"},
+                expect_model=cfg["models"]["grok"].get("model", ""),
             ))
         else:
             results.append(HealthStatus(
@@ -99,14 +100,31 @@ def check_all(config_path: str = "config.yaml") -> list[HealthStatus]:
     results.append(HealthStatus(name="embeddings_local", healthy=True, latency_ms=0.0))
     return results
 
-def _ping(url: str, name: str, headers: dict | None = None) -> HealthStatus:
+def _ping(url: str, name: str, headers: dict | None = None,
+          expect_model: str | None = None) -> HealthStatus:
     try:
         start = time.monotonic()
         resp = _http_get(url, timeout=5.0, headers=headers or {})
         latency = (time.monotonic() - start) * 1000
         resp.raise_for_status()
-        return HealthStatus(name=name, healthy=True, latency_ms=round(latency, 1))
     except Exception as e:
         # Redact the URL (which may contain credentials or internal hostnames)
         # from the exception message before surfacing it in the public /health response.
         return HealthStatus(name=name, healthy=False, error=_safe_error(e))
+    # Model-pin drift guard for OpenAI-style /models endpoints: a retired or
+    # renamed pin (xAI retired grok-beta and grok-4) otherwise surfaces only as
+    # a runtime HTTP 4xx on the first live fallback — after the user already
+    # confirmed the escalation. Checked only when the endpoint is up and the
+    # body parses to the documented shape; an unparseable/odd body never fails
+    # an otherwise-healthy availability probe.
+    if expect_model:
+        try:
+            listed = {m.get("id") for m in resp.json().get("data", []) if isinstance(m, dict)}
+        except (ValueError, AttributeError):
+            listed = set()
+        if listed and expect_model not in listed:
+            return HealthStatus(
+                name=name, healthy=False,
+                error=f"configured model '{expect_model}' not in provider /models list",
+            )
+    return HealthStatus(name=name, healthy=True, latency_ms=round(latency, 1))
