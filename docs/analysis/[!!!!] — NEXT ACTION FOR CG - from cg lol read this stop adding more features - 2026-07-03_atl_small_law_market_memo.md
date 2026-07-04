@@ -3,7 +3,7 @@
 
 CyClaw × Atlanta Small Law: Bear/Bull Market Memo
 
-**Date:** 2026-07-03
+**Date:** 2026-07-04 (merica)
 **Author:** Calibrated market analysis (extends the completed tri-analysis + owner bear-case memo of 2026-07-03)
 **Target segment:** Solo to ~20-attorney law firms, Atlanta–Sandy Springs MSA (CBSA 12060)
 
