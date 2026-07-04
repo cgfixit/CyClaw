@@ -544,6 +544,56 @@ def test_run_sync_other_failure_exit_2(tmp_path):
     assert reindex_exit_code_for(result, cfg) == 2
 
 
+def test_run_sync_exit_code_8_is_authoritative_safety_abort(tmp_path):
+    # rclone exits 8 when --max-transfer trips, but writes the fuse message to
+    # --log-file — it may never appear in captured stderr or the parsed errors.
+    # The exit code alone must classify the run as a safety abort (CLI exit 1);
+    # relying only on the text heuristics misfiled this as a generic failure (2).
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("", encoding="utf-8")
+        # No trip words anywhere in stderr/log: exit code is the only signal.
+        return MagicMock(returncode=8, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert result.success is False
+    assert result.aborted_for_safety is True
+    assert reindex_exit_code_for(result, cfg) == 1
+
+
+def test_run_sync_exit_code_7_without_trip_text_stays_generic_failure(tmp_path):
+    # Exit 7 is rclone's GENERIC fatal-error code — --max-delete trips report it,
+    # but so does any other fatal error. Without trip text it must NOT be
+    # classified as a safety abort (that remains the text heuristics' job).
+    cfg = _make_cfg(tmp_path)
+    log_path = cfg.log_path
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text("", encoding="utf-8")
+        return MagicMock(returncode=7, stdout="", stderr="fatal: unrelated failure")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit():
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert result.success is False
+    assert result.aborted_for_safety is False
+    assert reindex_exit_code_for(result, cfg) == 2
+
+
 def test_run_sync_raises_when_log_cannot_be_cleared(tmp_path):
     # rclone opens --log-file in append mode, so a previous run's log must be
     # cleared before this run or its FileEvents/ERROR lines would be replayed
