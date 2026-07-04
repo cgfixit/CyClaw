@@ -94,7 +94,7 @@ from utils.personality import PersonalityManager
 # subprocess wrapper ONLY — it never imports sync/ or agentic/, so gate.py's
 # out-of-band isolation invariant is preserved (see utils/ops_runner.py).
 from utils.ops_runner import run_sync_op, run_agentic_op, run_fsconnect_op, run_sqlconnect_op, OpsError
-from metrics import load_events, compute_metrics
+from metrics import summarize_audit
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -586,8 +586,9 @@ async def audit_summary():
     SOC 2) without creating any new data egress.
     """
     audit_file = cfg.get("logging", {}).get("audit_file", "audit.jsonl")
-    events = await asyncio.to_thread(load_events, audit_file)
-    return await asyncio.to_thread(compute_metrics, events)
+    # Single off-loop pass: summarize_audit streams the JSONL through
+    # compute_metrics without materializing the (unbounded) file in memory.
+    return await asyncio.to_thread(summarize_audit, audit_file)
 
 
 # =============================================================================

@@ -11,20 +11,33 @@ from pathlib import Path
 import yaml
 
 
-def load_events(audit_file: str):
-    events = []
+def iter_events(audit_file: str):
+    """Yield parsed audit events one line at a time (constant memory).
+
+    ``audit.jsonl`` is append-only and unbounded; streaming keeps
+    ``GET /audit/summary`` and the ``cyclaw-metrics`` CLI at O(1) memory as
+    history grows instead of materializing the whole file.
+    """
     if not Path(audit_file).exists():
-        return events
+        return
     with open(audit_file, encoding="utf-8") as f:
         for line in f:
             try:
-                events.append(json.loads(line))
+                yield json.loads(line)
             except json.JSONDecodeError:
                 pass
-    return events
 
-def compute_metrics(events: list) -> dict:
+
+def load_events(audit_file: str):
+    """Materialized list form of :func:`iter_events` (kept for existing callers)."""
+    return list(iter_events(audit_file))
+
+def compute_metrics(events) -> dict:
     """Aggregate audit events into a JSON-serializable summary.
+
+    Accepts any iterable of event dicts (list or generator) and aggregates in a
+    single pass — previously this made ~5 separate passes over a fully
+    materialized list, so cost and memory grew with audit history.
 
     Returns aggregates only — never raw query text. The audit log stores
     SHA-256 query hashes (not plaintext) by design, so this summary is safe to
@@ -32,73 +45,83 @@ def compute_metrics(events: list) -> dict:
     SMBs that need audit evidence (query volume, external-LLM usage, score
     distribution) without leaking the underlying queries.
     """
-    summary = {
-        "total_events": len(events),
-        "event_breakdown": {},
-        "rag_query_count": 0,
-        "scores": {"avg": None, "min": None, "max": None},
-        "retrieval_modes": {},
-        "model_used": {},
-        "online_escalated": 0,
+    total = 0
+    event_counts: Counter = Counter()
+    rag_query_count = 0
+    score_sum = 0.0
+    score_n = 0
+    score_min: float | None = None
+    score_max: float | None = None
+    mode_counts: Counter = Counter()
+    model_counts: Counter = Counter()
+    online_escalated = 0
+
+    for e in events:
+        total += 1
+        event_counts[e.get("event", "unknown")] += 1
+
+        if e.get("event") in ("rag_query", "mcp_rag_query"):
+            rag_query_count += 1
+            if "top_score" in e:
+                s = e["top_score"]
+                score_sum += s
+                score_n += 1
+                score_min = s if score_min is None or s < score_min else score_min
+                score_max = s if score_max is None or s > score_max else score_max
+            # The graph audit path records the retrieval mode under "retrieval_mode";
+            # the MCP server (mcp_hybrid_server._handle_search) records it under "mode".
+            # Reading only "retrieval_mode" silently bucketed every mcp_rag_query as
+            # "unknown" even though its mode was right there under the other key.
+            mode_counts[e.get("retrieval_mode") or e.get("mode") or "unknown"] += 1
+            # model_used is only meaningful for answered queries. Scope it to rag
+            # queries so non-answer events — notably the graph audit node's
+            # "user_gate_pause", which is still stamped model_used="unknown"
+            # (graph.audit_logger_node) — don't pollute the model-usage breakdown
+            # shown at GET /audit/summary with a bogus "unknown" bucket.
+            if e.get("model_used"):
+                model_counts[e["model_used"]] += 1
+
+        # An escalation to the external LLM. Prefer the explicit boolean the graph
+        # audit node already records (audit_logger_node sets
+        # online_escalated = answer_model == "grok") as the source of truth; fall back
+        # to user_confirmed_online / the model-name heuristic for older or MCP events
+        # that predate the explicit field. Relying on user_confirmed_online alone
+        # undercounted real escalations because the graph never writes that key.
+        if (
+            e.get("online_escalated") is True
+            or e.get("user_confirmed_online") is True
+            or str(e.get("model_used", "")).lower().startswith("grok")
+        ):
+            online_escalated += 1
+
+    return {
+        "total_events": total,
+        "event_breakdown": dict(event_counts.most_common()),
+        "rag_query_count": rag_query_count,
+        "scores": (
+            {"avg": score_sum / score_n, "min": score_min, "max": score_max}
+            if score_n
+            else {"avg": None, "min": None, "max": None}
+        ),
+        "retrieval_modes": dict(mode_counts.most_common()),
+        "model_used": dict(model_counts.most_common()),
+        "online_escalated": online_escalated,
     }
-    if not events:
-        return summary
 
-    event_counts = Counter(e.get("event", "unknown") for e in events)
-    summary["event_breakdown"] = dict(event_counts.most_common())
 
-    rag_queries = [e for e in events if e.get("event") in ("rag_query", "mcp_rag_query")]
-    summary["rag_query_count"] = len(rag_queries)
-    if rag_queries:
-        scores = [e["top_score"] for e in rag_queries if "top_score" in e]
-        if scores:
-            summary["scores"] = {
-                "avg": sum(scores) / len(scores),
-                "min": min(scores),
-                "max": max(scores),
-            }
-        # The graph audit path records the retrieval mode under "retrieval_mode";
-        # the MCP server (mcp_hybrid_server._handle_search) records it under "mode".
-        # Reading only "retrieval_mode" silently bucketed every mcp_rag_query as
-        # "unknown" even though its mode was right there under the other key.
-        mode_counts = Counter(
-            e.get("retrieval_mode") or e.get("mode") or "unknown" for e in rag_queries
-        )
-        summary["retrieval_modes"] = dict(mode_counts.most_common())
-
-    # model_used is only meaningful for answered queries. Scope it to rag_queries
-    # (mirroring scores/modes above) so non-answer events — notably the graph
-    # audit node's "user_gate_pause", which is still stamped model_used="unknown"
-    # (graph.audit_logger_node) — don't pollute the model-usage breakdown shown at
-    # GET /audit/summary with a bogus "unknown" bucket.
-    model_counts = Counter(e["model_used"] for e in rag_queries if e.get("model_used"))
-    summary["model_used"] = dict(model_counts.most_common())
-
-    # An escalation to the external LLM. Prefer the explicit boolean the graph
-    # audit node already records (audit_logger_node sets
-    # online_escalated = answer_model == "grok") as the source of truth; fall back
-    # to user_confirmed_online / the model-name heuristic for older or MCP events
-    # that predate the explicit field. Relying on user_confirmed_online alone
-    # undercounted real escalations because the graph never writes that key.
-    summary["online_escalated"] = sum(
-        1
-        for e in events
-        if e.get("online_escalated") is True
-        or e.get("user_confirmed_online") is True
-        or str(e.get("model_used", "")).lower().startswith("grok")
-    )
-    return summary
+def summarize_audit(audit_file: str) -> dict:
+    """Stream the audit log through :func:`compute_metrics` in one bounded pass."""
+    return compute_metrics(iter_events(audit_file))
 
 
 def print_metrics(config_path: str = "config.yaml"):
     with open(config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     audit_file = cfg["logging"]["audit_file"]
-    events = load_events(audit_file)
-    if not events:
+    summary = summarize_audit(audit_file)
+    if not summary["total_events"]:
         print("No audit events found.")
         return
-    summary = compute_metrics(events)
     print(f"Total events: {summary['total_events']}")
     print("\nEvent breakdown:")
     for event, count in summary["event_breakdown"].items():
