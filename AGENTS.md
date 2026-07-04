@@ -10,6 +10,11 @@ Canonical references:
 - `docs/SETUP.md` for local setup details.
 - `docs/THREAT_MODEL.md` and `.github/SECURITY.md` for security assumptions.
 - `.codex/README.md` for Codex routines, prompts, and checklists.
+- `docs/memories/2026-07-03_215448.md` for the current validated business and
+  prioritization stance.
+- `docs/analysis/2026-07-03_tri_analysis_monetization_calibration.md` and
+  `docs/analysis/2026-07-03_atl_small_law_market_memo.md` for the supporting
+  PMF, monetization, and market calibration analysis.
 
 ## Project Overview
 
@@ -40,7 +45,8 @@ The main security invariants are RAG-first retrieval, graph topology as policy, 
 - `utils/` - sanitizer, logging, health, personality/soul, rate limiting, errors.
 - `schemas/` - API models.
 - `sync/` - optional out-of-band Dropbox/rclone sync.
-- `agentic/` - optional out-of-band GitHub context and governed skills registry.
+- `agentic/` - optional out-of-band GitHub context, governed skills registry,
+  filesystem connector, and read-only SQL connector.
 - `guardrails/` - optional NeMo/offline guardrails layer.
 - `static/` - browser terminal UI.
 - `tests/` - pytest suite and smoke helpers.
@@ -70,6 +76,8 @@ Skills:
 - `.codex/skills/cyclaw-command-check-soul/` - use to validate
   `data/personality/soul.md` presence, hash, readability, and drift without
   mutating it.
+- `.codex/skills/refactor/` - use for the combined architecture-cleanup and
+  speed-optimization loop with tracker, measurement, self-review, and commits.
 - `.codex/skills/cyclaw-optimize/` - use when asked to scan `main` for
   optimization opportunities and open focused draft PRs.
 
@@ -90,6 +98,25 @@ Routines:
 - `.codex/routines/security-review.md` - assess auth, secrets, telemetry,
   network exposure, LangGraph routing, retrieval boundaries, dependencies, or
   optional-layer changes.
+
+## Current Product And PMF Posture
+
+- As of `2026-07-03`, default to a feature freeze unless the user explicitly
+  asks for net-new product behavior.
+- CyClaw's primary role is a polished portfolio and judgment artifact; the
+  commercial track is option B, not the default planning assumption.
+- Use this test before proposing product work: `what is the mechanism by which
+  more code moves PMF probability right without customer conversations?`
+- If that mechanism is weak or absent, prioritize documentation accuracy, demo
+  crispness, packaging, tests, evidence quality, architecture clarity, and
+  operational polish instead.
+- Current calibrated business view: roughly `25-35%` odds of a repeatable
+  `$15k+/mo` motion in `18-24` months, earliest realistic revenue
+  `Q4 2026-Q1 2027`, with the W-2 path still dominating expected value.
+- Atlanta small-law remains a plausible discovery niche, not a proven product
+  market; the honest year-1 outcome from 10 conversations is `0-2` paid
+  concierge engagements (`$0-10K`), and naming collision risk means any serious
+  commercial artifact should assume rename/trademark work first.
 
 ## Setup Commands
 
