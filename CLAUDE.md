@@ -57,11 +57,18 @@ HTTP POST /query  (or MCP tool call)
 | `utils/ratelimit.py` | Thread-safe per-IP rate limiting (60 req/min) |
 | `utils/health.py` | `check_all()` / `_ping()` backing `/health`; skips Grok probe when `GROK_API_KEY` is unset |
 | `utils/errors.py` | Typed exception hierarchy rooted at `RAGError`; all modules raise these, never bare `Exception` |
+| `utils/config_validation.py` | Boot-time config validation (`validate_retrieval_config`, `validate_personality_config`); fails fast on out-of-range tunables |
+| `utils/ops_runner.py` | Subprocess shim backing the four `/ops/*` endpoints |
+| `retrieval/vector_store.py` | Pluggable vector reader (`get_vector_reader`): embedded ChromaDB or pgvector backend |
+| `retrieval/clear_cache.py` | Dry-run-by-default cleaner for the embedding cache (`models.embeddings.cache_dir`) |
 | `schemas/api.py` | Pydantic models: `QueryRequest`, `QueryResponse`, `HealthResponse` |
 | `metrics.py` | `audit.jsonl` analyzer |
 | `mcp_hybrid_server.py` | MCP server (retrieval only, no LLM, no `sampling`) |
 | `sync/` | Out-of-band Dropbox corpus sync via `rclone`; run as `python -m sync.cli`; never imported by gate/graph |
 | `agentic/` | Out-of-band GitHub context + governed skills registry; run as `python -m agentic.cli`; **never imported by gate/graph/mcp** |
+| `agentic/fsconnect/` | Out-of-band local/SMB filesystem connector; read-only by default, writes require `writes_enabled` + reason + confirm |
+| `agentic/sqlconnect/` | Out-of-band SQL connector; DSN from `CYCLAW_SQL_DSN` env only, SELECT/WITH-only guard |
+| `guardrails/` | Optional NeMo Guardrails integration; soft-imported, disabled by default |
 
 ### Configuration
 
@@ -333,7 +340,7 @@ GROK_API_KEY=dummy python tests/ci_rag_smoke.py
 - Coverage target: 80% (`pyproject.toml`); sources include `gate`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`.
 - `tests/conftest.py` provides shared fixtures: `test_config`, `mock_retriever`, `mock_llm`, `MockRetriever`, `MockLocalLLM`, `MockGrokClient`, `bm25_index`. No live services required — all external deps are mocked.
 
-**Test files (complete):** `test_gate`, `test_graph`, `test_hybrid_search`, `test_personality`, `test_personality_changes`, `test_sanitizer`, `test_audit`, `test_rate_limit`, `test_mcp_server`, `test_security`, `test_telemetry_kill`, `test_client`, `test_embeddings`, `test_health`, `test_indexer`, `test_metrics`, `test_rag_integration`, `test_stemmer`, `test_conftest_fixtures`, `test_startup_robustness`, `test_agentic_cli`, `test_agentic_config`, `test_agentic_gh_client`, `test_agentic_registry`, `test_agentic_selftest`, `test_agentic_writer`, `test_agentic_isolation`, `test_agentic_context`, `test_sync_cli`, `test_sync_config`, `test_sync_filters`, `test_sync_runner`, `test_sync_scheduler`, `test_sync_selftest`, `test_clear_cache`.
+**Test files (complete):** `test_agentic_cli`, `test_agentic_config`, `test_agentic_context`, `test_agentic_gh_client`, `test_agentic_isolation`, `test_agentic_registry`, `test_agentic_selftest`, `test_agentic_writer`, `test_audit`, `test_clear_cache`, `test_client`, `test_config_validation`, `test_conftest_fixtures`, `test_edge_cases`, `test_embeddings`, `test_fsconnect_cli`, `test_fsconnect_client`, `test_fsconnect_config`, `test_fsconnect_indexer`, `test_fsconnect_osutil`, `test_fsconnect_pathsafe`, `test_fsconnect_selftest`, `test_fsconnect_writer`, `test_gate`, `test_graph`, `test_guardrails_cli`, `test_guardrails_config`, `test_guardrails_integration`, `test_guardrails_isolation`, `test_guardrails_metrics`, `test_guardrails_rails`, `test_guardrails_selftest`, `test_health`, `test_hybrid_search`, `test_indexer`, `test_mcp_server`, `test_metrics`, `test_ops_runner`, `test_personality`, `test_personality_postgres`, `test_pgvector_store`, `test_rag_integration`, `test_rate_limit`, `test_ratelimit_postgres`, `test_runtime_errors`, `test_sanitizer`, `test_security`, `test_sqlconnect_cli`, `test_sqlconnect_client`, `test_sqlconnect_config`, `test_sqlconnect_context`, `test_startup_robustness`, `test_stemmer`, `test_sync_cli`, `test_sync_config`, `test_sync_filters`, `test_sync_runner`, `test_sync_scheduler`, `test_sync_selftest`, `test_telemetry_kill`.
 
 ---
 
