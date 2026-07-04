@@ -38,7 +38,8 @@ the user explicitly asks for that.
 CyClaw includes a FastAPI RAG gateway (`gate.py`), LangGraph security topology
 (`graph.py`), ChromaDB + BM25 hybrid retrieval, local LLM via LM Studio with a
 triple-gated Grok/xAI fallback, an MCP hybrid server, the `agentic/` GitHub
-layer, and the out-of-band `sync/` Dropbox pipeline.
+layer, `agentic/fsconnect/` and `agentic/sqlconnect/` local-data connectors,
+optional `guardrails/`, and the out-of-band `sync/` Dropbox pipeline.
 
 Read code for leverage:
 
@@ -47,6 +48,34 @@ Read code for leverage:
 - financial-risk and oversight assumptions
 - auditability
 - maintainability
+
+Current project posture matters:
+
+- portfolio and evidence packaging work outrank speculative feature work
+- the business path is still hypothesis-stage; do not treat demand-side stats as
+  PMF proof
+- if a change does not clearly improve reliability, clarity, auditability,
+  packaging, or demo quality, question whether it should exist
+
+## Codex Bias For Unique Findings
+
+Claude already has a broad optimization scan. Use Codex for the kinds of
+findings it is better at:
+
+- exact cross-file drift between `README.md`, `AGENTS.md`, `CLAUDE.md`,
+  `.codex/`, tests, workflows, and the current code
+- repo-wide command/path drift, especially stale `.claude` execution paths in
+  Codex-facing docs or skills
+- shared-file conflict risk across proposed PR chunks before implementation
+- manifest, workflow, and Docker drift across `pyproject.toml`,
+  `requirements.txt`, `constraints.txt`, `Dockerfile`, and CI
+- entrypoint and optional-layer isolation violations involving `gate.py`,
+  `graph.py`, `mcp_hybrid_server.py`, `agentic/`, `sync/`, and `guardrails/`
+- Windows-vs-bash operational gaps for setup, smoke, and local verification
+- doc claims that are no longer true in the current repo
+
+Bias away from low-signal duplicate findings such as "big file, maybe refactor"
+unless you can show the concrete defect and the smallest credible fix.
 
 ## Step 0 - Bootstrap
 
@@ -82,6 +111,8 @@ Sweep these areas:
 - `config.yaml`: risky defaults and configuration drift
 - `requirements.txt`, `constraints.txt`, and `pyproject.toml`: loose or stale
   pins, missing dependencies, and test/tooling mismatch
+- `README.md`, `AGENTS.md`, `CLAUDE.md`, and `.codex/`: stale commands,
+  outdated architecture maps, business-posture drift, and repo-doc mismatch
 - readability and auditability issues anywhere in the repo
 
 Return 6-10 distinct findings. Each finding must include:
