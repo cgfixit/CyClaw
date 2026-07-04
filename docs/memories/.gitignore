@@ -1,0 +1,4 @@
+# Ignore all memory snapshots — personal/strategic content should not be committed to a public repo
+*
+!.gitignore
+!.gitkeep
