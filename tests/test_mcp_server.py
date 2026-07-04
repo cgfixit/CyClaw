@@ -198,6 +198,57 @@ def test_tools_call_keyword_mode(retriever):
 
 
 # ---------------------------------------------------------------------------
+# 6b. score_scale metadata — the three modes emit incomparable score scales
+# ---------------------------------------------------------------------------
+
+def _call(retriever, arguments: dict) -> dict:
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "tools/call",
+        "params": {"name": "hybrid_search", "arguments": arguments},
+    }
+    return handle_message(msg, retriever)
+
+
+def test_score_scale_keyword_is_bm25_raw(retriever):
+    result = _call(retriever, {"query": "test", "mode": "keyword"})
+    assert result["result"]["metadata"]["score_scale"] == "bm25_raw"
+
+
+def test_score_scale_semantic_is_cosine(retriever):
+    result = _call(retriever, {"query": "test", "mode": "semantic"})
+    assert result["result"]["metadata"]["score_scale"] == "cosine_similarity"
+
+
+def test_score_scale_hybrid_fused_is_rrf(retriever):
+    # Fixture results carry retrieval_mode="hybrid" (fused path) → RRF scale.
+    result = _call(retriever, {"query": "test"})
+    assert result["result"]["metadata"]["score_scale"] == "rrf"
+
+
+def test_score_scale_hybrid_semantic_only_fallback_is_cosine(retriever):
+    # hybrid_search's semantic-only degraded fallback returns cosine scores
+    # UNCHANGED (documented in retrieval/hybrid_search.py) — the scale must
+    # say so rather than claiming rrf.
+    retriever.hybrid_search.return_value = [
+        _make_search_result(text="only leg", score=0.88, chunk_id=0, retrieval_mode="semantic"),
+    ]
+    result = _call(retriever, {"query": "test"})
+    assert result["result"]["metadata"]["score_scale"] == "cosine_similarity"
+
+
+def test_score_scale_hybrid_bm25_fallback_is_rrf(retriever):
+    # The BM25-only fallback is rebased onto the RRF scale by
+    # _normalize_single_path, so keyword-mode chunks under mode=hybrid → rrf.
+    retriever.hybrid_search.return_value = [
+        _make_search_result(text="kw leg", score=0.016, chunk_id=0, retrieval_mode="keyword"),
+    ]
+    result = _call(retriever, {"query": "test"})
+    assert result["result"]["metadata"]["score_scale"] == "rrf"
+
+
+# ---------------------------------------------------------------------------
 # 7. Unknown method → JSON-RPC -32601
 # ---------------------------------------------------------------------------
 
