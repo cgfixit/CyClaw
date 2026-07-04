@@ -218,10 +218,18 @@ class RateLimiter:
         now = self._clock()
         with self._lock:
             self._sweep(now)
+            prior_len = len(self._hits[client_ip])
             recent = [t for t in self._hits[client_ip] if now - t < self.window_seconds]
             if len(recent) >= self.max_requests:
                 self._hits[client_ip] = recent
-                self._persist(client_ip, now)
+                # Persist only when expiry pruning actually changed the stored
+                # window. A rejected request appends no timestamp, so when
+                # nothing was pruned the backend already holds exactly this
+                # state — and skipping the redundant upsert removes a per-request
+                # DB write under precisely the hammering/abuse condition the
+                # limiter exists to make cheap.
+                if len(recent) != prior_len:
+                    self._persist(client_ip, now)
                 return False
             recent.append(now)
             self._hits[client_ip] = recent
