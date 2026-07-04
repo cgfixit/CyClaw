@@ -4,7 +4,7 @@
 **Scope:** Single source of truth for the status of every security finding raised across the
 historical reviews. Supersedes the per-run status notes in
 [`CODE_SECURITY_REVIEW_2026-06-16.md`](./CODE_SECURITY_REVIEW_2026-06-16.md) and the
-remediation notes in [`../tests/TEST_SUITE_AUDIT.md`](../tests/TEST_SUITE_AUDIT.md), which
+remediation notes in [`../../tests/TEST_SUITE_AUDIT.md`](../../tests/TEST_SUITE_AUDIT.md), which
 remain as dated historical records. **Where they disagree with this table, this table wins.**
 
 Status reflects `main` plus the `cleanup/assurance-pass` hardening pass.
