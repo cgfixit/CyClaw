@@ -27,7 +27,7 @@
 # triple-gate grok_fallback, audit convergence, soul governance with human reason + atomic writes).
 # Matches the hardened style of pip-audit.yml (precise CVE/mitigation comments linking to gate.py +
 # retrieval/embeddings.py trust_remote_code=false guards) and ci.yml (pinned actions, least-priv perms).
-# Cross-reference: v1.4.0 main branch updates (ChromaDB 1.5.6, Python 3.12, CI matrix verification).
+# Cross-reference: v1.4.0 main branch updates (ChromaDB pinned in constraints.txt, Python 3.12, CI matrix verification).
 # ==============================================================================
 
 name: "Microsoft Defender For DevOps (Bandit + SARIF)"
