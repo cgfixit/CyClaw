@@ -558,6 +558,19 @@ def _detect_safety_abort(errors: Sequence[str], stderr: str) -> bool:
 # the safety-fuse abort (8 / max-transfer) are deterministic and must not loop.
 _RCLONE_TRANSIENT_EXIT = 5
 
+# rclone's documented exit code for "Transfer exceeded - limit set by
+# --max-transfer reached". Deterministic and authoritative: unlike the log-text
+# heuristics in _detect_safety_abort (which depend on the trip line landing in
+# captured stderr/parsed errors — rclone writes fuse messages to --log-file, so
+# it may not), the process exit code always survives. Without this check a real
+# max-transfer abort whose message never reached the parsed text was
+# misclassified as a generic failure (CLI exit 2 instead of the safety exit 1),
+# silencing the oversight signal the fuse exists to raise. The regex heuristics
+# remain as the secondary signal — they are still the only detector for the
+# --max-delete trip, which rclone reports via exit 7 (generic fatal), a code
+# too ambiguous to treat as safety-specific.
+_RCLONE_SAFETY_FUSE_EXIT = 8
+
 
 def _truncate_log(log_path: str, direction: str) -> None:
     """Clear the rclone log so parsing sees ONLY the upcoming attempt's lines.
@@ -798,7 +811,10 @@ def _run_sync_locked(
     events, errors = parse_log(log_path)
     events = hash_changed_files(events, cfg.local_path)
 
-    aborted_for_safety = _detect_safety_abort(errors, completed.stderr or "")
+    aborted_for_safety = (
+        exit_code == _RCLONE_SAFETY_FUSE_EXIT
+        or _detect_safety_abort(errors, completed.stderr or "")
+    )
 
     # rclone logs file paths RELATIVE TO THE TRANSFER ROOT (the destination
     # directory), not relative to the repo root -- e.g. "notes.md", never
