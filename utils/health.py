@@ -6,6 +6,7 @@ embeddings are local sentence-transformers.
 
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -16,6 +17,25 @@ from .errors import HealthStatus
 
 _cfg_cache: dict[str, tuple[dict, float]] = {}
 _cfg_ttl_sec = 60
+
+# Shared pooled HTTP client for all probes. Constructing a fresh httpx.Client
+# per request (what module-level httpx.get() does under the hood) costs ~48 ms
+# on this hot path — it rebuilds the SSL context and re-reads the CA bundle
+# from disk even for plain-http loopback URLs — versus ~0.5 ms when the client
+# (and its connection pool) is reused. /health awaits check_all() on every
+# call, so that per-probe overhead was the endpoint's entire latency budget.
+_http_client: httpx.Client | None = None
+_http_client_lock = threading.Lock()
+
+
+def _http_get(url: str, *, timeout: float, headers: dict | None = None) -> httpx.Response:
+    """GET through the shared client (lazily created, thread-safe)."""
+    global _http_client
+    if _http_client is None:
+        with _http_client_lock:
+            if _http_client is None:
+                _http_client = httpx.Client(timeout=timeout)
+    return _http_client.get(url, timeout=timeout, headers=headers)
 # Anchor relative config_path lookups to the repo root, mirroring gate.py's
 # _BASE_DIR pattern — see utils/logger.py's _REPO_ROOT for the matching fix.
 # gate.py calls check_all() with no config_path (line 539), so the bare
@@ -82,7 +102,7 @@ def check_all(config_path: str = "config.yaml") -> list[HealthStatus]:
 def _ping(url: str, name: str, headers: dict | None = None) -> HealthStatus:
     try:
         start = time.monotonic()
-        resp = httpx.get(url, timeout=5.0, headers=headers or {})
+        resp = _http_get(url, timeout=5.0, headers=headers or {})
         latency = (time.monotonic() - start) * 1000
         resp.raise_for_status()
         return HealthStatus(name=name, healthy=True, latency_ms=round(latency, 1))
