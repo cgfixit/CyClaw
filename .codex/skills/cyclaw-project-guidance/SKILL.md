@@ -15,6 +15,8 @@ Read the relevant references before acting:
 - `references/CLAUDE.md` for the authoritative repository operating contract, architecture map, invariants, commands, and skill list.
 - `references/PROJECT_RULES.md` for scoped non-negotiable constraints, test commands, isolation rules, git workflow, and risk tiers.
 - `references/CLAUDE-README.md` for the `.claude/` workflow structure and common command entry points.
+- `references/BUSINESS_STATUS.md` when roadmap, optimization, refactor, polish,
+  packaging, or PMF-sensitive prioritization is part of the task.
 
 When the references mention Claude-specific tools, commands, or hooks, translate
 them into the active Codex toolset and current sandbox/approval rules. Do not
@@ -24,3 +26,9 @@ when they fit the user's request.
 Preserve these project invariants: RAG-first retrieval, topology-enforced
 policy, triple-gated external fallback, audit convergence, and explicit human
 reason strings for soul mutation.
+
+Default prioritization, unless the user overrides it:
+
+- polish, proof, docs, testability, and packaging over new features
+- evidence-backed claims over optimistic market extrapolation
+- Codex-native repo guidance over stale Claude-specific execution details

@@ -10,6 +10,10 @@ Existing `.codex/skills/` content is project-specific skill material. Keep it
 Codex-native: avoid hard-coding legacy agent tools, stale `.claude` execution
 paths, or connector function names that may not exist in a given session.
 
+When the active Codex surface exposes repo skills as slash commands, keep names
+short and invocation-friendly, for example `/refactor` or
+`/cyclaw-optimize`.
+
 ## Available Skills
 
 - `skills/cyclaw-project-guidance/` - load CyClaw operating context,
@@ -24,6 +28,8 @@ paths, or connector function names that may not exist in a given session.
   `metrics.py` and flag audit anomalies or privacy risks.
 - `skills/cyclaw-command-check-soul/` - verify soul file presence, hash,
   readability, and drift without mutating it.
+- `skills/refactor/` - iterative CyClaw architecture cleanup and speed loop
+  with tracker, measurement, self-review, and commit discipline.
 - `skills/cyclaw-optimize/` - scan `main` for optimization opportunities and
   open focused draft PRs when the user asks for that workflow.
 
