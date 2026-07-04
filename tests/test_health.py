@@ -58,7 +58,7 @@ def _clear_health_cfg_cache():
 
 class TestPing:
     def test_ping_healthy(self, monkeypatch):
-        monkeypatch.setattr(health.httpx, "get", lambda url, **kw: _OKResp())
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
         status = health._ping(_HOST_MODELS, "lm_studio")
         assert status.healthy is True
         assert status.name == "lm_studio"
@@ -69,7 +69,7 @@ class TestPing:
         def boom(url, **kw):
             raise httpx.ConnectError(f"cannot connect to {_LM_MODELS}")
 
-        monkeypatch.setattr(health.httpx, "get", boom)
+        monkeypatch.setattr(health, "_http_get", boom)
         status = health._ping(_LM_MODELS, "lm_studio")
         assert status.healthy is False
         # The URL (possible creds / internal hostnames) must not leak into /health.
@@ -84,7 +84,7 @@ class TestPing:
             def raise_for_status(self):
                 raise httpx.HTTPStatusError("503", request=request, response=response)
 
-        monkeypatch.setattr(health.httpx, "get", lambda url, **kw: _Resp())
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _Resp())
         status = health._ping(_HOST_MODELS, "lm_studio")
         assert status.healthy is False
 
@@ -92,7 +92,7 @@ class TestPing:
 class TestCheckAll:
     def test_offline_mode_pings_only_lm_studio(self, tmp_path, monkeypatch):
         cfg_path = _write_cfg(tmp_path, mode="offline")
-        monkeypatch.setattr(health.httpx, "get", lambda url, **kw: _OKResp())
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
         statuses = health.check_all(cfg_path)
         names = {s.name for s in statuses}
         assert names == {"lm_studio", "embeddings_local"}
@@ -100,7 +100,7 @@ class TestCheckAll:
 
     def test_hybrid_without_key_reports_key_not_set(self, tmp_path, monkeypatch):
         cfg_path = _write_cfg(tmp_path, mode="hybrid", grok_enabled=True)
-        monkeypatch.setattr(health.httpx, "get", lambda url, **kw: _OKResp())
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
         monkeypatch.delenv("GROK_API_KEY", raising=False)
         statuses = health.check_all(cfg_path)
         grok = next(s for s in statuses if s.name == "grok_api")
@@ -116,7 +116,7 @@ class TestCheckAll:
             seen["headers"] = kw.get("headers")
             return _OKResp()
 
-        monkeypatch.setattr(health.httpx, "get", fake_get)
+        monkeypatch.setattr(health, "_http_get", fake_get)
         monkeypatch.setenv("GROK_API_KEY", "test-key-123")
         statuses = health.check_all(cfg_path)
         grok = next(s for s in statuses if s.name == "grok_api")
