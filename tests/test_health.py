@@ -28,12 +28,15 @@ _LM_MODELS = "http://127.0.0.1:1234/models"  # DevSkim: ignore DS137138,DS162092
 _HOST_MODELS = "http://host/models"  # DevSkim: ignore DS137138
 
 
-def _write_cfg(tmp_path, *, mode="offline", grok_enabled=False):
+def _write_cfg(tmp_path, *, mode="offline", grok_enabled=False, grok_model=None):
+    grok_cfg = {"enabled": grok_enabled, "base_url": "https://api.x.ai/v1"}
+    if grok_model is not None:
+        grok_cfg["model"] = grok_model
     cfg = {
         "app": {"mode": mode},
         "models": {
             "local_llm": {"base_url": _LM_BASE},
-            "grok": {"enabled": grok_enabled, "base_url": "https://api.x.ai/v1"},
+            "grok": grok_cfg,
         },
     }
     p = tmp_path / "config.yaml"
@@ -45,6 +48,21 @@ def _write_cfg(tmp_path, *, mode="offline", grok_enabled=False):
 class _OKResp:
     def raise_for_status(self):
         return None
+
+    def json(self):
+        # Default probe body: raising here exercises the tolerant parse path
+        # (an unparseable body must never fail an up-endpoint availability probe).
+        raise ValueError("no JSON body configured on this fake")
+
+
+class _ModelsResp(_OKResp):
+    """OpenAI-style /models envelope with a configurable model-id list."""
+
+    def __init__(self, model_ids):
+        self._ids = model_ids
+
+    def json(self):
+        return {"object": "list", "data": [{"id": mid} for mid in self._ids]}
 
 
 @pytest.fixture(autouse=True)
@@ -124,6 +142,43 @@ class TestCheckAll:
         # Last ping is Grok; it must carry the Bearer token (else xAI 401s).
         assert seen["headers"]["Authorization"] == "Bearer test-key-123"
         assert seen["url"].endswith("/models")
+
+    def test_hybrid_configured_model_present_is_healthy(self, tmp_path, monkeypatch):
+        cfg_path = _write_cfg(tmp_path, mode="hybrid", grok_enabled=True, grok_model="grok-4.3")
+        monkeypatch.setattr(
+            health, "_http_get", lambda url, **kw: _ModelsResp(["grok-4.3", "grok-4.3-mini"])
+        )
+        monkeypatch.setenv("GROK_API_KEY", "test-key-123")
+        statuses = health.check_all(cfg_path)
+        grok = next(s for s in statuses if s.name == "grok_api")
+        assert grok.healthy is True
+
+    def test_hybrid_retired_model_pin_reports_unhealthy(self, tmp_path, monkeypatch):
+        # The model-pin drift guard: config pins a model the provider no longer
+        # lists (xAI retired grok-beta/grok-4). Without this, the rot surfaces
+        # only as a runtime 4xx on the first live fallback — after the user
+        # already confirmed the escalation.
+        cfg_path = _write_cfg(tmp_path, mode="hybrid", grok_enabled=True, grok_model="grok-4")
+        monkeypatch.setattr(
+            health, "_http_get", lambda url, **kw: _ModelsResp(["grok-4.3", "grok-4.3-mini"])
+        )
+        monkeypatch.setenv("GROK_API_KEY", "test-key-123")
+        statuses = health.check_all(cfg_path)
+        grok = next(s for s in statuses if s.name == "grok_api")
+        assert grok.healthy is False
+        assert "grok-4" in grok.error
+        assert "not in provider /models list" in grok.error
+
+    def test_hybrid_unparseable_models_body_stays_healthy(self, tmp_path, monkeypatch):
+        # An up endpoint with an odd/unparseable body must never fail the
+        # availability probe — the model check is best-effort, not a new
+        # failure mode. (_OKResp.json() raises by design.)
+        cfg_path = _write_cfg(tmp_path, mode="hybrid", grok_enabled=True, grok_model="grok-4.3")
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+        monkeypatch.setenv("GROK_API_KEY", "test-key-123")
+        statuses = health.check_all(cfg_path)
+        grok = next(s for s in statuses if s.name == "grok_api")
+        assert grok.healthy is True
 
 
 class TestHealthCfgCache:
