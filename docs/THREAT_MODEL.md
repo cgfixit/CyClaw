@@ -4,7 +4,7 @@ date: 2026-06-26
 tags: [security, threat-model, sandbox, hardening, scope]
 related:
   - .github/SECURITY.md
-  - docs/SECURITY_REVIEW_STATUS.md
+  - docs/audits/SECURITY_REVIEW_STATUS.md
   - docs/SECCOMP_EBPF_HARDENING.md
   - deploy/falco/README.md
 ---
@@ -169,4 +169,4 @@ Until then the gate runs under the broader, working profile.
 
 Security issues: follow [`.github/SECURITY.md`](../.github/SECURITY.md). Resolved
 findings and their status live in
-[`docs/SECURITY_REVIEW_STATUS.md`](./SECURITY_REVIEW_STATUS.md).
+[`docs/audits/SECURITY_REVIEW_STATUS.md`](./audits/SECURITY_REVIEW_STATUS.md).

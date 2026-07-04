@@ -124,11 +124,6 @@ retrieval:
   min_score: 0.028
   hybrid:
     enabled: true
-    rrf:
-      # NOTE: rrf_k above is the live value used by hybrid_search.py.
-      # vector_weight / bm25_weight are documentation-only placeholders.
-      vector_weight: 0.5
-      bm25_weight: 0.5
 
 personality:
   enabled: true
