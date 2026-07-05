@@ -64,6 +64,30 @@ TOOLS = [
 def _error(msg_id, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
 
+
+def _score_scale(mode: str, results) -> str:
+    """Name the scale of the ``score`` field for this response.
+
+    The three modes emit scores on three incompatible scales — raw BM25
+    (unbounded, e.g. 2.7), cosine similarity (bounded 0..1), and RRF fusion
+    (~1/rrf_k, e.g. 0.033) — but the payload exposed them all under one bare
+    ``score`` key, silently misleading any client comparing across modes.
+    (retrieval/hybrid_search.py documents at length why raw BM25 is not
+    comparable to the RRF/min_score scale.)
+
+    ``hybrid`` needs one refinement: on a semantic-only degraded retrieval,
+    hybrid_search returns the cosine scores unchanged (deliberately — see its
+    fallback comments), while both the fused path and the BM25-only fallback
+    are on the RRF 1/(rrf_k + rank) scale.
+    """
+    if mode == "semantic":
+        return "cosine_similarity"
+    if mode == "keyword":
+        return "bm25_raw"
+    if results and all(r.retrieval_mode == "semantic" for r in results):
+        return "cosine_similarity"
+    return "rrf"
+
 def _handle_search(msg_id, args: dict, retriever: HybridRetriever) -> dict:
     # DESIGN DECISION (PR #99 #12): this path intentionally does NOT run
     # utils.sanitizer.check_input. The MCP server is retrieval-only —
@@ -109,7 +133,12 @@ def _handle_search(msg_id, args: dict, retriever: HybridRetriever) -> dict:
                        for r in results],
             # The response payload may echo the query — the caller already has it.
             # Only the persisted audit event is privacy-constrained.
-            "metadata": {"query": query, "retrieval_mode": mode, "total_results": len(results)}
+            # score_scale names the scale the `score` field is on for THIS
+            # response (bm25_raw / cosine_similarity / rrf) — the three modes
+            # are not cross-comparable (see _score_scale).
+            "metadata": {"query": query, "retrieval_mode": mode,
+                         "total_results": len(results),
+                         "score_scale": _score_scale(mode, results)}
         }
         return {"jsonrpc": "2.0", "id": msg_id, "result": payload}
     except RAGError as e:
