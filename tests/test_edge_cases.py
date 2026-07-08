@@ -40,7 +40,7 @@ def client(tmp_path):
          patch("gate.HybridRetriever") as MockRet, \
          patch("gate.LocalLLMClient") as MockLLM, \
          patch("gate.build_graph") as MockBuild, \
-         patch("gate.check_input", side_effect=lambda q: q), \
+         patch("gate.check_input", side_effect=lambda q, **kw: q), \
          patch("gate.check_all", return_value=[]):
 
         retriever = MockRetriever(MOCK_HIGH_SCORE_RESULTS)

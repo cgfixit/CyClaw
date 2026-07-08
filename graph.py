@@ -270,7 +270,7 @@ def retrieve_node(state: GraphState, retriever: HybridRetriever, cfg: dict) -> d
 
 def route_by_score_node(state: GraphState, cfg: dict) -> dict:
     """Node 2: Compare top_score to threshold. Sets routing flag."""
-    threshold = cfg.get("retrieval", {}).get("min_score", 0.4)
+    threshold = cfg.get("retrieval", {}).get("min_score", 0.028)
     top_score = state.get("top_score", 0.0)
 
     if top_score >= threshold:
