@@ -85,12 +85,18 @@ Verified current files and directories:
 | `config.yaml` | Single source of truth. | `agentic.enabled: false`, `mode: read`, `writes_enabled: false`; optional layers disabled by default. | Add nested disabled future config. | Do not enable network, writes, shell, or Deep Agents by default. |
 | `tests/test_agentic_*.py` | Agentic unit tests. | Cover isolation, config, context, `gh_client`, registry, selftest, writer. | Extend with config and optimizer scaffold tests. | Do not introduce live network/model/tool dependencies. |
 
-Files requested but not present under the exact names:
+Files requested but not present under the exact names (state at the time this
+plan was first written, before phase 0-5 implementation — **now stale**; see
+"Unwired scaffold inventory (post-phase-5 audit, 2026-07-10)" below for the
+current, accurate state of both packages):
 
-- No `agentic/deepagent_github/` package exists yet.
-- No `agentic/harness_optimizer/` package existed before this plan effort.
+- ~~No `agentic/deepagent_github/` package exists yet.~~ Now exists (12
+  files); see the inventory section below.
+- ~~No `agentic/harness_optimizer/` package existed before this plan
+  effort.~~ Now exists; see the inventory section below.
 - No `deepagents`, `langchain-mcp-adapters`, `fastmcp`, or `quickjs` dependency
-  is currently declared in `pyproject.toml`.
+  is currently declared in `pyproject.toml` — this one is still accurate as of
+  2026-07-10.
 
 Related modules that do exist:
 

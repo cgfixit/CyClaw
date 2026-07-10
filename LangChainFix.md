@@ -9,8 +9,13 @@
 - The env-var-driven `GithubAgentConfig` sketched in this document
   (`CYCLAW_GITHUB_AGENT_ENABLED`, `CYCLAW_GITHUB_WRITE_ENABLED`, and similar)
   contradicts the repo rule that `config.yaml` is the single source of truth
-  for every tunable; env vars in this repo are reserved for secrets and
-  database URLs. The shipped `agentic/deepagent_github/config.py` (merged
+  for every *feature* tunable — this is narrower than "env vars are reserved
+  for secrets," since the repo does use env vars for legitimate non-secret
+  operator knobs elsewhere (`CYCLAW_EMBED_CACHE_SIZE` overrides the
+  embedding-cache size fixed at import time, `gate.py`'s telemetry-kill vars,
+  `CYCLAW_DB_URL`/`CYCLAW_RATELIMIT_DB_URL`). The rule this document violates
+  is specifically: agentic feature enable/disable/write-permission flags
+  belong in `config.yaml`, not env vars. The shipped `agentic/deepagent_github/config.py` (merged
   2026-07-09) already loads a validated config from `config.yaml` via
   `load_agentic_config()` in `agentic/config.py`, returning an
   `AgenticConfig`/`DeepAgentGitHubConfig` pair. A real implementation of the
