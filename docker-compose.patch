@@ -1,0 +1,62 @@
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -71,6 +71,44 @@ services:
+     command: ["/usr/bin/falco", "--modern-bpf", "-r", "/etc/falco/rules.d/cyclaw_rules.yaml"]
+ 
++  # ── Twilio SMS relay sidecar (optional, disabled by default) ─────────────
++  # Enable with:  docker compose --profile sms up
++  #
++  # Exposes a /sms Twilio webhook endpoint on host port 8788 (loopback).
++  # Point an ngrok tunnel at this port:
++  #   ngrok http 8788
++  # Then set the Twilio Console webhook to:
++  #   https://<ngrok-id>.ngrok-free.app/sms   (HTTP POST)
++  #
++  # IMPORTANT: in the default CyClaw config (app.mode=offline,
++  # grok.enabled=false, claude.enabled=false) only the 'local' SMS command
++  # will produce an answer. Enable online providers in config.yaml first.
++  #
++  # Security posture:
++  #   - loopback-only port publish (127.0.0.1:8788) — never 0.0.0.0
++  #   - non-root user, no-new-privileges, all caps dropped
++  #   - read-only root fs with tmpfs scratch
++  #   - NOT the CyClaw main image — separate minimal build
++  #   - Twilio credentials injected via env_file only (never baked into image)
++  sms-relay:
++    build:
++      context: .
++      dockerfile: Dockerfile.sms_relay   # see note below: create this thin image
++      # Alternatively, you can reuse the main image if twilio is installed in it:
++      # (add twilio==9.4.3 to requirements.txt and rebuild)
++    container_name: cyclaw-sms-relay
++    profiles: ["sms"]
++    ports:
++      - "127.0.0.1:8788:8788"
++    env_file:
++      - sms_relay.env          # copy sms_relay.env.example → sms_relay.env
++    environment:
++      - CYCLAW_URL=http://cyclaw:8787   # reach main service by Compose service name
++      - SMS_RELAY_HOST=0.0.0.0          # bind inside container; loopback publish above keeps it off internet
++      - SMS_RELAY_PORT=8788
++    depends_on:
++      - cyclaw
++    read_only: true
++    tmpfs:
++      - /tmp
++    security_opt:
++      - no-new-privileges:true
++    cap_drop:
++      - ALL
++    user: "1000:1000"
++    mem_limit: 256m
++    pids_limit: 64
++    cpus: "0.25"
++    restart: unless-stopped
++    healthcheck:
++      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:8788/health', timeout=3)"]
++      interval: 30s
++      timeout: 5s
++      retries: 3
++      start_period: 10s
++
+   # Optional: redis or postgres for future checkpointer / state if scaling

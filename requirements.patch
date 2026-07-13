@@ -1,0 +1,14 @@
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -22,6 +22,11 @@ numpy==1.26.4
+ nltk==3.9.4
+ pytest==9.1.1
+ pytest-asyncio==1.4.0
+ pytest-cov==7.1.0
+ 
++# ── SMS relay sidecar (optional; NOT needed for core CyClaw) ─────────────────
++# Install only when running sms_relay.py.
++# pip install twilio==9.4.3 -c constraints.txt
++twilio==9.4.3
++
+ # Optional Postgres / pgvector backends (NOT installed by default — the base install
