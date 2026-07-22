@@ -1,4 +1,4 @@
-## Note: when initiated pr draft from grok build, kimi/kimi code, or codex use preferred branch naming conventions:
+## Note: whenever initiated pr draft from grok build, kimi/kimi code, or codex use preferred branch naming conventions:
 > claude code: claude/{feature}
 > codex: cx/{feature}
 > grok build: grok/{feature}
