@@ -465,11 +465,14 @@ source .venv/bin/activate
 # 1) torch FIRST, and PLAIN — no +cpu suffix, no --index-url override.
 #    Apple Silicon has one arm64 wheel; there is no CPU/CUDA build to pick between.
 pip install "torch==2.13.0"
-# 2) Everything else, from copies of both manifests with the torch and
-#    PyTorch-index lines stripped out — the same thing CI's macos-latest leg runs.
+# 2) Everything else, from a requirements.txt copy with the torch and
+#    PyTorch-index lines stripped out, and a constraints.txt copy that keeps
+#    torch pinned minus the +cpu suffix (--ignore-installed reinstalls torch
+#    too, so an unconstrained copy floats it) — the same thing CI's
+#    macos-latest leg runs.
 grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' \
     requirements.txt > /tmp/requirements-macos.txt
-grep -v '^torch==' constraints.txt > /tmp/constraints-macos.txt
+sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
 pip install -r /tmp/requirements-macos.txt -c /tmp/constraints-macos.txt \
     --ignore-installed PyYAML
 ```

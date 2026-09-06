@@ -308,9 +308,15 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   CPU/CUDA build to disambiguate and no `+cpu` local version exists on the
   PyTorch index. Both manifests hardcode `+cpu` **by design** (dependency-
   confusion-proof reproducibility on Linux/Windows); install plain torch first,
-  then feed pip copies of `requirements.txt`/`constraints.txt` with the
-  `torch==`/`--extra-index-url` lines stripped. `ci.yml`'s `macos-latest` leg and
-  `macos/install-cyclaw.sh`'s `Darwin` branch both already do this — see §8.
+  then feed pip a copy of `requirements.txt` with the `torch==`/
+  `--extra-index-url` lines stripped and a copy of `constraints.txt` with only
+  the `+cpu` suffix dropped from the torch pin. Do **not** strip the torch
+  line from the constraints copy: `--ignore-installed` is a bare flag (the
+  `PyYAML` after it is just one more requirement), so pip reinstalls every
+  package including torch, and with no constraint the plain `2.13.0` you just
+  installed is replaced by PyPI's newest torch (reproduced 2026-09-06: 2.14.0).
+  `ci.yml`'s `macos-latest` leg and `macos/install-cyclaw.sh`'s `Darwin` branch
+  both do this — see §8.
 - **Trap:** moving the torch pin and touching only `requirements.txt`/
   `constraints.txt`. **Rule:** conda is a fourth install surface —
   `environment.yml` pins `pytorch=2.13.0=cpu*` (conda-forge names the package
@@ -718,11 +724,14 @@ pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ig
 # Install — macOS (Apple Silicon): PLAIN torch, no +cpu suffix, no index override.
 # The +cpu local-version wheel does not exist for macOS and both manifests
 # hardcode that pin, so the generic block above fails twice on a Mac. Strip the
-# torch/index lines out — same thing ci.yml's macos-latest leg runs.
+# torch/index lines from the requirements copy but only drop the +cpu suffix in
+# the constraints copy: --ignore-installed is a bare flag (PyYAML is just one
+# more requirement), so pip reinstalls torch too and an unconstrained copy
+# floats it to PyPI's newest — same thing ci.yml's macos-latest leg runs.
 pip install "torch==2.13.0"
 grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' \
     requirements.txt > /tmp/requirements-macos.txt
-grep -v '^torch==' constraints.txt > /tmp/constraints-macos.txt
+sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
 pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt --ignore-installed PyYAML
 
 # Install — conda (fourth surface; CI-gated by python-package-conda.yml).

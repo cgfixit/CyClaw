@@ -58,7 +58,8 @@ session 2026-09-06):
    fallback costs ~2 GB and ~7 minutes; disk had 30 GB free.
 4. Installs `requirements.txt` + `requirements-test.txt` with the `torch==`
    and `--extra-index-url` lines stripped (same shape as the macOS recipe in
-   CLAUDE.md §8), constrained by a torch-stripped copy of `constraints.txt`.
+   CLAUDE.md §8), constrained by a copy of `constraints.txt` that keeps the
+   torch pin minus its `+cpu` suffix (see the `--ignore-installed` gotcha).
 
 Re-running is idempotent: it exits 0 immediately once
 `import torch, chromadb, langgraph, pytest` succeeds.
@@ -139,6 +140,16 @@ expire it.
   deps live in 3.11's `dist-packages`; on 2026-09-06 `import torch` failed for
   3.10, 3.11, 3.12 and 3.13 alike. Treat the venv step as mandatory every
   session; the container is rebuilt from a generic image, not from this repo.
+- **`--ignore-installed PyYAML` reinstalls everything, not just PyYAML.**
+  `--ignore-installed` is a bare pip flag; `PyYAML` after it is one more
+  requirement. Every install line in this repo that carries it therefore
+  re-resolves and reinstalls torch too, and the only thing holding the
+  version is the constraints file. The macOS recipe used to strip the torch
+  line from its constraints copy, so that reinstall floated torch to PyPI's
+  newest: this driver installed `torch==2.13.0` and ended with `2.14.0+cu130`
+  (2026-09-06; `macos/install-cyclaw.sh`'s Darwin branch had the same shape).
+  Rule: the constraints copy keeps `torch==X.Y.Z` with only `+cpu` removed;
+  `tests/test_macos_scripts.py` pins it.
 - **`pkill -f "python gate.py"` kills your own shell, and `pgrep -f gate.py`
   reports it as still running.** Both match the `bash -c` wrapper that is
   executing the command (exit 144 from `pkill`; a phantom "server still

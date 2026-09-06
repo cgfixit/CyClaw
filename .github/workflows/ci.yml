@@ -658,12 +658,15 @@ jobs:
           # fix it named). requirements.txt/constraints.txt both hardcode the
           # +cpu pin by design (dependency-confusion-proof reproducibility on
           # Linux/Windows), so this leg installs plain torch directly, then
-          # everything else from copies of both manifests with the torch/
+          # everything else from a requirements.txt copy with the torch/
           # extra-index-url lines stripped -- so pip never tries to reconcile
-          # the installed plain build against the +cpu-suffixed pin.
+          # the installed plain build against the +cpu-suffixed pin -- and a
+          # constraints.txt copy that keeps torch pinned minus the +cpu suffix
+          # (dropping the line entirely leaves torch unconstrained; see
+          # macos/install-cyclaw.sh's Darwin branch for the reinstall case).
           pip install "torch==2.13.0"
           grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > /tmp/requirements-macos.txt
-          grep -v '^torch==' constraints.txt > /tmp/constraints-macos.txt
+          sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
           pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt
 
       - name: Prepare hermetic test env

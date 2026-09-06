@@ -200,10 +200,12 @@ one index could not be checked. CI then confirmed it.)*
 
 `.github/workflows/ci.yml`'s `macos-latest` leg installs torch directly
 (`pip install "torch==2.13.0"`, no index override) and then the rest of
-`requirements.txt`/`constraints.txt` from copies with the `torch==`/
-`--extra-index-url` lines stripped, so pip never tries to reconcile the
-installed plain build against the `+cpu`-suffixed pin those manifests
-otherwise hardcode for Linux/Windows. If installing the harness locally on
+`requirements.txt` from a copy with the `torch==`/`--extra-index-url` lines
+stripped, so pip never tries to reconcile the installed plain build against
+the `+cpu`-suffixed pin those manifests otherwise hardcode for Linux/Windows,
+constrained by a `constraints.txt` copy that keeps the torch pin minus its
+`+cpu` suffix (dropping the line lets a `--ignore-installed` reinstall float
+torch). If installing the harness locally on
 macOS by hand (not through the CI lane or `macos/install-cyclaw.sh`, which
 both already do this correctly), use `pip install torch==2.13.0` before
 `requirements.txt` rather than following `CLAUDE.md`'s Windows/Linux-oriented

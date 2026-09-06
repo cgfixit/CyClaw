@@ -695,3 +695,42 @@ esac
 """
     result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
+
+
+@_BASH_EXECUTION_REQUIRED
+def test_installer_macos_constraints_copy_keeps_torch_pinned() -> None:
+    """The Darwin branch must keep a torch pin in its constraints copy.
+
+    ``pip install ... --ignore-installed PyYAML`` reinstalls every resolved
+    package (``--ignore-installed`` is a bare flag; PyYAML is just one more
+    requirement), torch included. An earlier revision stripped the torch line
+    from the constraints copy entirely, so that reinstall floated torch to
+    PyPI's newest release and discarded the explicit ``torch==2.13.0`` the
+    line above it had just installed (reproduced 2026-09-06 with 2.14.0).
+    """
+    install_text = (_REPO_ROOT / "macos" / "install-cyclaw.sh").read_text(encoding="utf-8")
+    assert "grep -v '^torch==' \"$REPO_DIR/constraints.txt\"" not in install_text
+    match = re.search(r"(sed '[^']+') \"\$REPO_DIR/constraints\.txt\"", install_text)
+    assert match, "install-cyclaw.sh's constraints rewrite not found -- update this test's regex"
+
+    constraints = (_REPO_ROOT / "constraints.txt").read_text(encoding="utf-8")
+    pinned = re.search(r"^torch==(\d+\.\d+\.\d+)\+cpu$", constraints, re.MULTILINE)
+    assert pinned, "constraints.txt no longer pins torch==X.Y.Z+cpu -- update this test"
+
+    # Bytes, not text=True: on Windows text mode would rewrite "\n" as "\r\n"
+    # on the pipe and sed's "$" anchor would then miss the "+cpu" suffix.
+    result = subprocess.run(
+        [_BASH, "-c", match.group(1)],
+        input=constraints.encode("utf-8"),
+        capture_output=True,
+        check=True,
+        timeout=15,
+    )
+    rewritten = result.stdout.decode("utf-8").splitlines()
+    assert f"torch=={pinned.group(1)}" in rewritten
+    assert not any("+cpu" in line for line in rewritten)
+    # Every non-torch line passes through byte-for-byte.
+    original = constraints.splitlines()
+    assert [line for line in rewritten if not line.startswith("torch==")] == [
+        line for line in original if not line.startswith("torch==")
+    ]
