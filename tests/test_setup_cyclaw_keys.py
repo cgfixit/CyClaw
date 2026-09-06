@@ -512,8 +512,15 @@ def test_restart_servers_runs_after_generate(fake_security: Path, tmp_path: Path
     )
     assert result.returncode == 0, result.stderr
     assert f"freeing loopback listeners on :{gate} / :{harness}" in result.stdout
-    assert "ports freed. Start cyclaw in a new shell" in result.stdout
     assert "NOT applied live" in result.stdout
+    # Missing lsof is now an unverified/held result (this change). The
+    # dedicated no-lsof test covers that path; here only claim "freed"
+    # when the host can actually inspect listeners.
+    if shutil.which("lsof") is None:
+        assert "ports freed" not in result.stdout
+        assert "may still be held" in result.stderr
+    else:
+        assert "ports freed. Start cyclaw in a new shell" in result.stdout
 
 
 @pytest.mark.skipif(shutil.which("lsof") is None, reason="lsof required to free listeners")
