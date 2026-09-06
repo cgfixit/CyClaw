@@ -6,6 +6,7 @@ utils.logger config cache between tests.
 
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 import pytest
@@ -54,8 +55,8 @@ def test_hardened_categories_present(tmp_path: Path) -> None:
         "- index/**",
         "- .emb_cache/**",
         "- .chroma/**",
-        "- **/.fsindex_cache.json",
-        "- .fsindex_cache.json",
+        "- **/.fsindex_cache.json*",
+        "- .fsindex_cache.json*",
         "- logs/**",
         "- *.jsonl",
         "- *.db",
@@ -148,7 +149,14 @@ def test_crlf_extra_exclude_split_too(tmp_path: Path) -> None:
 
 def test_hardened_excludes_fsconnect_index_cache(tmp_path: Path) -> None:
     text = generate_filters(_load(tmp_path))
-    assert "- **/.fsindex_cache.json" in text or "- .fsindex_cache.json" in text
+    rules = [line[2:] for line in text.splitlines() if line.startswith("- ") and ".fsindex_cache" in line]
+    assert rules, "fsconnect skip-cache exclusion missing"
+    # Both the cache and the `.tmp` sibling agentic/fsconnect/indexer.py stages
+    # beside it (left behind if the process dies before os.replace) must match;
+    # rclone's `*` is fnmatch-like within one path segment.
+    for leaf in (".fsindex_cache.json", ".fsindex_cache.json.tmp"):
+        assert any(fnmatch.fnmatch(leaf, rule.removeprefix("**/")) for rule in rules), leaf
+    assert not any(fnmatch.fnmatch("notes.json", rule.removeprefix("**/")) for rule in rules)
 
 
 def test_write_filter_file_is_atomic_no_tmp_left(tmp_path: Path) -> None:

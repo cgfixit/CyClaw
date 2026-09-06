@@ -56,8 +56,11 @@ _HARDENED_EXCLUDES: list[str] = [
     "- .chroma/**",
     # 3b. fsconnect ownership/skip cache under corpus staging — host-local;
     # Dropbox must not clobber or publish it (wrong incremental index/prune).
-    "- **/.fsindex_cache.json",
-    "- .fsindex_cache.json",
+    # The trailing * also covers the `.fsindex_cache.json.tmp` sibling that
+    # agentic/fsconnect/indexer.py stages before its os.replace: a crash in
+    # that window leaves the temp file behind in the sync root.
+    "- **/.fsindex_cache.json*",
+    "- .fsindex_cache.json*",
     # 4. Python and virtualenv noise.
     "- venv/**",
     "- .venv/**",
@@ -109,10 +112,7 @@ _HEADER = """# CyClaw rclone filter file
 def generate_filters(cfg: RcloneConfig) -> str:
     """Return the full text content of cyclaw_filters.txt for the given config."""
     lines: list[str] = [_HEADER.rstrip(), ""]
-
-    excludes = list(_HARDENED_EXCLUDES)
-
-    lines.extend(excludes)
+    lines.extend(_HARDENED_EXCLUDES)
 
     # User-supplied extras come AFTER the hardened block so users can tighten
     # further but cannot accidentally re-include something already excluded
