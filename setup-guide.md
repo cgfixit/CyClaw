@@ -260,14 +260,16 @@ source .venv/bin/activate
 #    for macOS.
 pip install "torch==2.13.0"
 
-# 3. Everything else — but from copies of both manifests with the torch and
-#    PyTorch-index lines removed. Without this, pip tries to reconcile the
-#    plain torch you just installed against the "+cpu" pin those files
-#    hardcode, and the install fails. Mirrors what CI's macos-latest leg
-#    runs (.github/workflows/ci.yml:332-333).
+# 3. Everything else — but from a requirements.txt copy with the torch and
+#    PyTorch-index lines removed, and a constraints.txt copy with only the
+#    "+cpu" suffix dropped from the torch pin. Without the first, pip tries
+#    to reconcile the plain torch you just installed against the "+cpu" pin
+#    and the install fails; without the second, --ignore-installed (which
+#    reinstalls every package, not just PyYAML) floats torch to PyPI's
+#    newest release. Mirrors what CI's macos-latest leg runs.
 grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' \
     requirements.txt > /tmp/requirements-macos.txt
-grep -v '^torch==' constraints.txt > /tmp/constraints-macos.txt
+sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
 pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt \
     --ignore-installed PyYAML
 

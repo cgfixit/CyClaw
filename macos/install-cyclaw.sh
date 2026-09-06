@@ -179,13 +179,18 @@ if [ "$SKIP_PYTHON_DEPS" -eq 0 ]; then
     # confirmed against download.pytorch.org/whl/cpu's own version listing,
     # which 404s on the "+cpu"-suffixed pin requirements.txt/constraints.txt
     # hardcode for Linux/Windows reproducibility. Install torch directly, then
-    # strip the torch/extra-index-url lines from copies of both manifests so
+    # strip the torch/extra-index-url lines from a copy of requirements.txt so
     # pip never tries to reconcile the installed plain build against that pin.
+    # The constraints copy KEEPS the torch line, minus the +cpu suffix:
+    # `--ignore-installed` below is a bare flag (PyYAML is just one more
+    # requirement), so pip re-resolves and reinstalls every package, torch
+    # included -- with no torch constraint, the plain 2.13.0 installed here
+    # was silently replaced by PyPI's newest torch (reproduced 2026-09-06).
     "$VENV_PY" -m pip install "torch==2.13.0"
     TMP_REQ="$(mktemp)"
     TMP_CONSTRAINTS="$(mktemp)"
     grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' "$REPO_DIR/requirements.txt" > "$TMP_REQ"
-    grep -v '^torch==' "$REPO_DIR/constraints.txt" > "$TMP_CONSTRAINTS"
+    sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' "$REPO_DIR/constraints.txt" > "$TMP_CONSTRAINTS"
     "$VENV_PY" -m pip install -r "$TMP_REQ" -c "$TMP_CONSTRAINTS" --ignore-installed PyYAML
     rm -f "$TMP_REQ" "$TMP_CONSTRAINTS"
   else

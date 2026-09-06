@@ -86,9 +86,12 @@ cmd_venv() {
     "$pip" install -q "torch==2.13.0" || return 2
   fi
   grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > "$SCRATCH/requirements-notorch.txt"
-  grep -v '^torch==' constraints.txt > "$SCRATCH/constraints-notorch.txt"
+  # Keep torch pinned (minus +cpu) in the constraints copy: --ignore-installed
+  # below reinstalls every package, torch included, and an unconstrained copy
+  # floated it to 2.14.0 here on 2026-09-06 despite the explicit 2.13.0 above.
+  sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > "$SCRATCH/constraints-plain-torch.txt"
   "$pip" install -q -r "$SCRATCH/requirements-notorch.txt" -r requirements-test.txt \
-      -c "$SCRATCH/constraints-notorch.txt" --ignore-installed PyYAML || return 2
+      -c "$SCRATCH/constraints-plain-torch.txt" --ignore-installed PyYAML || return 2
   "$PY" -c "import torch, chromadb, langgraph, pytest; print('venv ready:', torch.__version__)"
 }
 
