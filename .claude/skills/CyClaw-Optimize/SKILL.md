@@ -191,9 +191,19 @@ assumption that every branch starts at `main`:
 
    On network failure only, retry up to 4× with exponential backoff
    (2s, 4s, 8s, 16s).
-4. Open a **draft** PR via MCP with a clear title and a body covering: the
-   change, its benefit, risk to monitor, and **merge topology** (independent /
-   stacked-on `<parent-branch or #N>` / consolidated; planned merge order).
+4. Open a **draft** PR via MCP with a clear title and a body that follows
+   `.github/PULL_REQUEST_TEMPLATE.md` **verbatim** — copy its actual section
+   headers, don't paraphrase or substitute a lighter-weight structure.
+   `.github/workflows/pr-template-check.yml` is a BLOCKING CI check that
+   regex-matches specific headers (`## Types of changes` and `## Checklist`
+   are both required on every PR, plus one of Proposed changes / Benefits /
+   Why / Summary / What) — a body missing either of the first two fails the
+   job immediately, even if the content is otherwise good. Add the merge
+   topology info (independent / stacked-on `<parent-branch or #N>` /
+   consolidated; planned merge order) as its own `## Merge order` section;
+   that's an accepted repo-local extra beyond the template's required set
+   (same pattern #1352-#1355 used), not a replacement for the required
+   headers.
 
    Independent chunk (only when Step 3.5 says it has no stack parent):
 
@@ -203,7 +213,7 @@ assumption that every branch starts at `main`:
      base="main", head="<branch-name>",
      draft=true,
      title="<concise title>",
-     body="## What\n...\n## Why / benefit\n...\n## Risk to monitor\n...\n## Merge topology\n- independent\n- merge order: ...")
+     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Merge order\n\n- independent\n- merge order: ...")
    ```
 
    Stacked child (PR `base` must be the **parent branch**, not `main`):
@@ -214,7 +224,7 @@ assumption that every branch starts at `main`:
      base="<parent-branch-name>", head="<child-branch-name>",
      draft=true,
      title="<concise title>",
-     body="## What\n...\n## Why / benefit\n...\n## Risk to monitor\n...\n## Merge topology\n- stacked on <parent-branch> / #<parent-PR>\n- merge parent first, then this PR")
+     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Merge order\n\n- stacked on <parent-branch> / #<parent-PR>\n- merge parent first, then this PR")
    ```
 
 **Merge order for this skill run:** after drafts exist, prefer merging **lowest
@@ -286,6 +296,13 @@ any), never for chunk changes.
 
 ## Gotchas
 
+- **Use the real PR template, not a shorthand.** `.github/PULL_REQUEST_TEMPLATE.md`
+  is the source of truth for PR body structure; `.github/workflows/pr-template-check.yml`
+  enforces it on every PR (blocking) by regex-matching `## Types of changes`
+  and `## Checklist` specifically, plus one rationale header. A PR opened with
+  an invented format (verified failure mode: `## What` / `## Why / benefit` /
+  `## Risk to monitor` / `## Merge topology` and nothing else) fails this check
+  immediately even when the content is good. See Step 4.
 - **MCP PR-list payload is huge** — always reduce to `number`/`title` before
   reading (see Step 2). Reading it raw blows the token budget.
 - **No deps in a fresh container** — the test gate needs an install pass first
