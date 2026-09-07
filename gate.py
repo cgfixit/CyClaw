@@ -66,7 +66,13 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from graph import build_graph, GraphState, _llm_identity
 from retrieval.hybrid_search import HybridRetriever
-from llm.client import ClaudeClient, LocalLLMClient, GrokClient
+from llm.client import (
+    ClaudeClient,
+    GrokClient,
+    LocalLLMClient,
+    reset_graph_deadline,
+    set_graph_deadline,
+)
 from schemas.api import (
     QueryRequest, QueryResponse, SourceInfo, HealthResponse, SoulEvolutionRequest,
 )
@@ -924,8 +930,10 @@ async def query_endpoint(request: Request, req: QueryRequest):
         initial_state["username"] = username
 
     # Bound the HTTP wait for the graph. Cancelling to_thread's await does not
-    # stop its worker; LLM timeouts and retries still govern background completion.
+    # stop its worker; generate() therefore caps each httpx POST at remaining
+    # graph budget so a late local call cannot outlive this 504.
     graph_timeout = cfg.get("api", {}).get("graph_timeout_sec", 780)
+    deadline_token = set_graph_deadline(time.monotonic() + float(graph_timeout))
     try:
         result = await asyncio.wait_for(
             asyncio.to_thread(compiled_graph.invoke, initial_state),
@@ -951,6 +959,8 @@ async def query_endpoint(request: Request, req: QueryRequest):
         safe_msg = _sanitize_error(e)
         await _audit_query(request, {"event": "graph_error", "query": req.query, "error": safe_msg})
         raise HTTPException(status_code=500, detail={"error": safe_msg, "code": "GRAPH_ERROR"}) from e
+    finally:
+        reset_graph_deadline(deadline_token)
 
     # Optional CEL monitor-only rules over structured, safe fields. Runs after
     # graph invoke so top_score/answer_model/guardrail_* are known. Fail-open:

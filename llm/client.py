@@ -18,6 +18,7 @@ fallback disabled so single-backend installs stay fail-closed.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import math
@@ -54,6 +55,36 @@ def _client_timeout(overall_timeout_sec: float) -> httpx.Timeout:
     repeats on every retry attempt.
     """
     return httpx.Timeout(overall_timeout_sec, connect=min(overall_timeout_sec, _CONNECT_TIMEOUT_SEC))
+
+
+# gate.py sets this to monotonic() + api.graph_timeout_sec before to_thread(invoke).
+# asyncio.to_thread copies the context, so generate() in the worker sees it.
+# Cancelling wait_for does not kill that thread; shrinking the httpx timeout to
+# remaining budget is what stops a late local POST from outliving the 504.
+_graph_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "cyclaw_graph_deadline", default=None
+)
+
+
+def set_graph_deadline(deadline: float | None) -> contextvars.Token[float | None]:
+    """Pin the current graph HTTP deadline (monotonic seconds), or clear it."""
+    return _graph_deadline.set(deadline)
+
+
+def reset_graph_deadline(token: contextvars.Token[float | None]) -> None:
+    """Restore the deadline ContextVar to the token from set_graph_deadline."""
+    _graph_deadline.reset(token)
+
+
+def _call_timeout(cap: float) -> httpx.Timeout:
+    """Per-POST timeout: model cap, or remaining graph budget if that is smaller."""
+    deadline = _graph_deadline.get()
+    if deadline is None:
+        return _client_timeout(cap)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise httpx.TimeoutException("graph deadline elapsed")
+    return _client_timeout(min(cap, remaining))
 
 _RETRYABLE_STATUS_FLOOR = 500
 _RETRYABLE_EXTRA_STATUS = frozenset({429})
@@ -337,7 +368,9 @@ def _post_with_retry(
             log.error("%s call failed: HTTP %s after %d attempt(s)", service, status, attempt + 1)
             raise on_http(e) from e
         except httpx.TimeoutException as e:
-            if retry_on_timeout and attempt < max_retries:
+            deadline = _graph_deadline.get()
+            budget_left = deadline is None or (deadline - time.monotonic() > 0)
+            if retry_on_timeout and attempt < max_retries and budget_left:
                 delay = _delay(attempt)
                 log.warning(
                     "%s call timed out (attempt %d/%d); retrying in %.1fs",
@@ -735,6 +768,7 @@ class LocalLLMClient:
                 f"{base_url}/chat/completions",
                 headers=headers,
                 json=payload,
+                timeout=_call_timeout(self.timeout),
             )
 
         try:
@@ -818,6 +852,7 @@ class GrokClient:
                     "temperature": self.temperature,
                     "reasoning_effort": self.reasoning_effort,
                 },
+                timeout=_call_timeout(self.timeout),
             )
 
         return _post_with_retry(
@@ -888,6 +923,7 @@ class ClaudeClient:
                     "max_tokens": self.max_tokens,
                     "messages": [{"role": "user", "content": prompt}],
                 },
+                timeout=_call_timeout(self.timeout),
             )
 
         return _post_with_retry(
