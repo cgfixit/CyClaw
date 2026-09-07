@@ -14,6 +14,7 @@ is monkeypatched. Real ``httpx.Request``/``Response`` objects are used so the
 
 import json
 import logging
+import time
 
 import httpx
 import pytest
@@ -24,8 +25,10 @@ from llm.client import (
     GrokClient,
     LocalLLMClient,
     _client_timeout,
+    reset_graph_deadline,
     reset_local_backend_cache,
     resolve_local_backend,
+    set_graph_deadline,
 )
 from utils.errors import ClaudeServiceError, ConfigError, GrokServiceError, LLMServiceError
 from utils.logger import hash_query
@@ -309,6 +312,34 @@ class TestLocalLLMClient:
             client.generate("a prompt")
         assert exc.value.details.get("timeout_sec") == 5
         client.close()
+
+    def test_generate_elapsed_graph_deadline_does_not_post(self, tmp_path):
+        client = LocalLLMClient(_write_config(tmp_path))
+        fake = _FakePost(response=_ok_response("late"))
+        client._client.post = fake
+        token = set_graph_deadline(time.monotonic() - 1)
+        try:
+            with pytest.raises(LLMServiceError) as exc:
+                client.generate("a prompt")
+            assert exc.value.details.get("timeout_sec") == 5
+            assert fake.calls == []
+        finally:
+            reset_graph_deadline(token)
+            client.close()
+
+    def test_generate_graph_deadline_caps_httpx_timeout(self, tmp_path):
+        client = LocalLLMClient(_write_config(tmp_path, local_llm_extra={"timeout_sec": 30}))
+        fake = _FakePost(response=_ok_response("ok"))
+        client._client.post = fake
+        token = set_graph_deadline(time.monotonic() + 2)
+        try:
+            assert client.generate("a prompt") == "ok"
+            timeout = fake.calls[0][1]["timeout"]
+            assert timeout.read <= 2
+            assert timeout.read > 0
+        finally:
+            reset_graph_deadline(token)
+            client.close()
 
     def test_generate_unexpected_error_maps_to_llm_service_error(self, tmp_path):
         client = LocalLLMClient(_write_config(tmp_path))
