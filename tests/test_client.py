@@ -116,6 +116,74 @@ class _ScriptedPost:
         return item
 
 
+@pytest.mark.parametrize(
+    ("client_type", "error_type"),
+    [(LocalLLMClient, LLMServiceError), (GrokClient, GrokServiceError), (ClaudeClient, ClaudeServiceError)],
+)
+@pytest.mark.parametrize("failure", ["rate_limit", "server", "transport", "timeout"])
+@pytest.mark.parametrize("remaining", [0.0, 1.0, 2.0])
+def test_retry_backoff_does_not_exhaust_graph_budget(
+    tmp_path, monkeypatch, client_type, error_type, failure, remaining
+):
+    monkeypatch.setenv("GROK_API_KEY", "dummy")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy")
+    now = [100.0]
+    sleeps = []
+    monkeypatch.setattr("llm.client.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("llm.client.time.sleep", sleeps.append)
+    client = client_type(_write_config(tmp_path, retry={"max_retries": 1, "backoff_base_sec": 2.0}))
+    calls = []
+
+    def fail_post(url, **kwargs):
+        calls.append(url)
+        now[0] = 105.0 - remaining
+        if failure == "transport":
+            raise httpx.ConnectError("connection lost")
+        if failure == "timeout":
+            raise httpx.ReadTimeout("read stalled")
+        headers = {"Retry-After": "2"} if failure == "rate_limit" else None
+        return _status_response(429 if failure == "rate_limit" else 503, headers=headers)
+
+    client._client.post = fail_post
+    token = set_graph_deadline(105.0)
+    try:
+        with pytest.raises(error_type, match="timed out|timeout"):
+            client.generate("test prompt")
+        assert sleeps == []
+        assert len(calls) == 1
+    finally:
+        reset_graph_deadline(token)
+        client.close()
+
+
+@pytest.mark.parametrize("client_type", [LocalLLMClient, GrokClient, ClaudeClient])
+def test_retry_within_graph_budget_preserves_delay_and_remaining_http_timeout(tmp_path, monkeypatch, client_type):
+    monkeypatch.setenv("GROK_API_KEY", "dummy")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy")
+    now = [100.0]
+    sleeps = []
+
+    def advance(delay):
+        sleeps.append(delay)
+        now[0] += delay
+
+    monkeypatch.setattr("llm.client.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("llm.client.time.sleep", advance)
+    client = client_type(_write_config(tmp_path, retry={"max_retries": 1, "backoff_base_sec": 1.0}))
+    success = _claude_ok_response() if client_type is ClaudeClient else _ok_response()
+    post = _ScriptedPost([_status_response(429, headers={"Retry-After": "2"}), success])
+    client._client.post = post
+    token = set_graph_deadline(105.0)
+    try:
+        assert client.generate("test prompt").startswith("hello from")
+        assert sleeps == [2.0]
+        assert len(post.calls) == 2
+        assert post.calls[1][1]["timeout"].read == 3.0
+    finally:
+        reset_graph_deadline(token)
+        client.close()
+
+
 class _FakePost:
     """Replacement for ``httpx.Client.post`` with a scripted outcome."""
 

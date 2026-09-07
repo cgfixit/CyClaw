@@ -347,6 +347,15 @@ def _post_with_retry(
     def _delay(attempt: int) -> float:
         return min(backoff_base * (2 ** attempt), backoff_max)
 
+    def _sleep_before_retry(delay: float, error: Exception) -> None:
+        deadline = _graph_deadline.get()
+        if deadline is not None and deadline - time.monotonic() <= delay:
+            # Waiting would leave no budget for another POST; release the worker
+            # now without shortening the upstream's requested retry interval.
+            log.error("%s call failed: graph deadline leaves no time for retry", service)
+            raise on_timeout(httpx.TimeoutException("graph deadline leaves no time for retry")) from error
+        time.sleep(delay)
+
     total = max_retries + 1
     for attempt in range(max_retries + 1):
         try:
@@ -363,20 +372,18 @@ def _post_with_retry(
                     "%s call HTTP %s (attempt %d/%d); retrying in %.1fs",
                     service, status, attempt + 1, total, delay,
                 )
-                time.sleep(delay)
+                _sleep_before_retry(delay, e)
                 continue
             log.error("%s call failed: HTTP %s after %d attempt(s)", service, status, attempt + 1)
             raise on_http(e) from e
         except httpx.TimeoutException as e:
-            deadline = _graph_deadline.get()
-            budget_left = deadline is None or (deadline - time.monotonic() > 0)
-            if retry_on_timeout and attempt < max_retries and budget_left:
+            if retry_on_timeout and attempt < max_retries:
                 delay = _delay(attempt)
                 log.warning(
                     "%s call timed out (attempt %d/%d); retrying in %.1fs",
                     service, attempt + 1, total, delay,
                 )
-                time.sleep(delay)
+                _sleep_before_retry(delay, e)
                 continue
             log.error("%s call failed: timeout after %d attempt(s)", service, attempt + 1)
             raise on_timeout(e) from e
@@ -388,7 +395,7 @@ def _post_with_retry(
                     "%s transport error %s (attempt %d/%d); retrying in %.1fs",
                     service, type(e).__name__, attempt + 1, total, delay,
                 )
-                time.sleep(delay)
+                _sleep_before_retry(delay, e)
                 continue
             log.error(
                 "%s call failed: transport error %s after %d attempt(s)",
