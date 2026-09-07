@@ -157,6 +157,16 @@ expire it.
   for exactly this reason. To check liveness, hit the port:
   `curl -s --max-time 2 http://127.0.0.1:8787/health` (000 / connection
   refused means down). To kill without a pidfile, `fuser -k 8787/tcp`.
+- **`/fewer-permission-prompts` and `/insights` have no history to read
+  here.** Both mine `~/.claude/projects/<cwd>/*.jsonl`, and this container
+  holds exactly one transcript: the session that is running. Observed
+  2026-09-07: the allowlist scan ranked nothing but its own scanning
+  commands, and the insights report then concluded the repo "has no
+  CLAUDE.md" and proposed a `Bash(git clone:*)` allowlist that contradicts
+  CLAUDE.md §4/§7. Run both from the operator's local machine, where the
+  transcript history lives, and read their output against `CLAUDE.md`
+  before applying any suggestion. The sandbox allowlist in
+  `.claude/settings.json` is hand-seeded on purpose.
 - **`uv pip install --dry-run --system` fails on this image** with the
   "externally managed" refusal before resolving anything. Not a finding about
   the Dockerfile; run the dry-run inside a venv or report it unverified.
