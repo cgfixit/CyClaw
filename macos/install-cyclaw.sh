@@ -33,6 +33,8 @@
 #                        (the PATH entry is still added unless --no-path-edit)
 #   --no-path-edit       do not modify PATH via the shell rc file
 #   --no-fsconnect       prepare ~/CyClaw-FS but do not enable list/read access
+#   --no-print-key       do not display the generated CYCLAW_API_KEY at the end
+#                        (the key is still written to ~/.CyClaw/.env)
 #
 # Target shells: bash (including macOS's stock 3.2) and zsh. BSD userland
 # assumed on macOS -- no GNU-only flags, no Homebrew dependency declared or
@@ -47,6 +49,7 @@ SKIP_PYTHON_DEPS=0
 NO_PROFILE_EDIT=0
 NO_PATH_EDIT=0
 NO_FSCONNECT=0
+NO_PRINT_KEY=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -56,6 +59,7 @@ while [ $# -gt 0 ]; do
     --no-profile-edit) NO_PROFILE_EDIT=1; shift ;;
     --no-path-edit) NO_PATH_EDIT=1; shift ;;
     --no-fsconnect) NO_FSCONNECT=1; shift ;;
+    --no-print-key) NO_PRINT_KEY=1; shift ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -239,12 +243,33 @@ EOF
 chmod +x "$SHIM"
 step "launcher shim written to $SHIM"
 
-# -- 6 & 7. PATH + shell rc function ----------------------------------------------
+# -- 6. API key -----------------------------------------------------------------
+# Reuse the canonical key helper so persistence + rc-source behavior matches
+# setup-cyclaw.sh. Suppress its own printout; we echo the key ourselves at the
+# end so it appears after the PATH / shell-function messages. Use --no-keychain
+# so the installer stays non-interactive and works the same on macOS and Linux.
+ENV_FILE="$HOME_DIR/.env"
+bash "$REPO_DIR/macos/setup-cyclaw-keys.sh" --skip-prompts --no-print-key --no-keychain
+
+# xtrace would print every assignment while sourcing the dotenv. Refuse rather
+# than turning a convenience flag into a credential-disclosure feature.
+case "$-" in
+  *x*) echo "[cyclaw] refusing to source $ENV_FILE while shell xtrace is enabled" >&2; exit 1 ;;
+esac
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
+# -- 7. PATH + shell rc function ------------------------------------------------
 # macOS/Linux have no persistent user-level PATH store analogous to Windows'
 # registry -- both the PATH export and the cyclaw() function are added to the
 # same shell rc file, each behind its own marker block, so either can be
 # independently skipped here (--no-path-edit / --no-profile-edit) or later
 # removed by uninstall-cyclaw.sh without disturbing the other.
+# Note: setup-cyclaw-keys.sh (section 6) already added the dotenv source block.
 detect_rc_file() {
   case "${SHELL:-}" in
     */zsh) echo "$HOME/.zshrc" ;;
@@ -301,3 +326,7 @@ fi
 echo ""
 step "install complete. Open a NEW terminal (or 'source $RC_FILE') and run:  cyclaw"
 step "the harness console opens at http://127.0.0.1:8790 -- /help lists commands."
+if [ "$NO_PRINT_KEY" -eq 0 ]; then
+  step "CYCLAW_API_KEY (copy once; paste into the harness / operator console):"
+  echo "$CYCLAW_API_KEY"
+fi
