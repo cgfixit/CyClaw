@@ -8,7 +8,7 @@ on:
       - 'requirements.txt'
       - 'requirements-test.txt'
       - 'constraints.txt'
-      # pyproject.toml is where EVERY optional extra lives (guardrails,
+      # pyproject.toml (and commented out in requirements) is where EVERY optional extra lives (guardrails,
       # postgres, pgvector, agentic-deepagents, agentic-deepagents-cloud, dev,
       # test). Without it here, adding or bumping an optional dependency
       # changed no triggering path and this workflow never ran on the change.
@@ -161,9 +161,40 @@ jobs:
         # silently out of step with the other's for the same commit.
         run: pip install pip-audit==2.10.1
 
+      - name: Install audited environment (base runtime + test tools, constraints applied)
+        shell: bash
+        # pip-audit's own `-r` resolves dependencies itself, in a throwaway venv
+        # it builds internally -- it has no `-c`/`--constraint` flag, so it can
+        # never see constraints.txt (confirmed: pip-audit==2.10.1 --help lists no
+        # such option, and passing -c errors "argument project_path: not allowed
+        # with argument -r/--requirement"). A real `pip install`, run here into
+        # an isolated venv, DOES support -c -- same command verify-install
+        # already runs above. Isolated so pip-audit's own tool dependencies
+        # (rich, cyclonedx, pip-requirements-parser, ...) never enter the
+        # audited set below.
+        #
+        # pip itself is pinned to 26.1.2 -- same exact version as every other
+        # workflow in this repo (dep-guard/verify-deps E1 requires one
+        # consistent pip pin across all workflows; a 26.2.1-only-here pin
+        # broke that check). pip ends up IN the audited site-packages below
+        # (it's just another installed package once real `pip install` is
+        # used instead of pip-audit's own internal resolution) and 26.1.2
+        # carries PYSEC-2026-3721 (fixed in 26.2) -- found by running this
+        # exact fix locally against this branch. Ignored below with the same
+        # documented-acceptance pattern as this job's other ignores, rather
+        # than diverging the pin: bumping pip repository-wide is a separate,
+        # broader change than this PR's scope (hatchling/setuptools/pip-audit
+        # mechanics), and it is CI-tooling-only here (not a shipped runtime
+        # dependency).
+        run: |
+          python -m venv "$RUNNER_TEMP/audit-venv"
+          "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.1.2
+          "$RUNNER_TEMP/audit-venv/bin/pip" install -r requirements.txt -r requirements-test.txt -c constraints.txt
+
       - name: Run pip-audit (ignore only mitigated chromadb + nltk CVEs)
         run: |
-          pip-audit -r requirements.txt -r requirements-test.txt --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-597 --ignore-vuln PYSEC-2026-3740 --ignore-vuln PYSEC-2026-3447
+          AUDIT_PATH="$("$RUNNER_TEMP/audit-venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-597 --ignore-vuln PYSEC-2026-3740 --ignore-vuln PYSEC-2026-3721
         # CVE-2026-45829 (Critical pre-auth RCE) — risk accepted under v1.4.0 invariants.
         # Actual controls:
         #   - chromadb.PersistentClient (local embedded mode, path from config.yaml["indexing"]["chroma_path"])
@@ -214,22 +245,29 @@ jobs:
         # save_maxent_params). CyClaw still only imports PorterStemmer.
         # Drop this ignore on the next nltk release that patches it.
         #
-        # (This step audits requirements.txt + requirements-test.txt, which
-        # together cover base runtime + test tools and carry ZERO extras. Every
-        # optional dependency is audited by the scan-optional job below.)
+        # (This step audits requirements.txt + requirements-test.txt against
+        # constraints.txt, which together cover base runtime + test tools and
+        # carry ZERO extras. Every optional dependency is audited by the
+        # scan-optional job below.)
         #
-        # PYSEC-2026-3447 (setuptools, fixed in 83.0.0) — scanner-resolution
-        # artifact, added 2026-07-17 after 3 consecutive daily failures on main
-        # (first red: 2026-07-15). setuptools is not pinned or shipped by any
-        # CyClaw manifest (requirements.txt / constraints.txt / pyproject.toml);
-        # it enters this audit's dependency closure only because torch's own
-        # metadata declares `setuptools>=77.0.3` as a runtime dependency, and
-        # the runner resolved 81.0.0 even though the patched 83.0.0 is live on
-        # PyPI (verified 2026-07-17, not yanked, requires-python >=3.10 —
-        # compatible with this job's 3.12). A real install on a current
-        # environment resolves the patched version. Remove this ignore once the
-        # runner's resolution picks setuptools>=83.0.0; if the audit then still
-        # flags setuptools, treat that as a real finding, not noise.
+        # setuptools is pinned at 84.0.0 in constraints.txt (PYSEC-2026-3447
+        # floor is 83.0.0). The previous --ignore-vuln is gone: the "Install
+        # audited environment" step above does a real `pip install -c
+        # constraints.txt`, so the venv this job audits (via --path) actually
+        # has the patched 84.0.0, not whatever pip-audit's own unconstrained
+        # internal resolution would have floated.
+        #
+        # PYSEC-2026-3721 (pip, fixed in 26.2) — added here 2026-09-07. Once
+        # this job started doing a real install instead of pip-audit's own
+        # opaque internal resolution, pip itself (installed at the 26.1.2
+        # pinned everywhere else in this repo, per dep-guard/verify-deps E1's
+        # cross-workflow consistency check) became an audited package for the
+        # first time. pip is a CI/build-time tool here, never a shipped
+        # runtime dependency of CyClaw. Tracked for a repository-wide pip pin
+        # bump to 26.2.1+ as separate follow-up work (touches ci.yml,
+        # copilot-setup-steps.yml, nemo-guardrails.yml,
+        # python-package-conda.yml, python-publish.yml -- out of scope for
+        # this hatchling/setuptools/pip-audit-mechanics PR).
 
   scan-optional:
     # Why this job exists: requirements.txt + requirements-test.txt (what the
@@ -302,12 +340,20 @@ jobs:
         # picture per run. `failed` accumulates and the step exits non-zero at
         # the end if any extra had findings.
         #
-        # PYSEC-2026-3447 (setuptools) is ignored for the same documented
-        # reason as the base scan above: setuptools is pinned by no CyClaw
-        # manifest and enters the closure only through a transitive's metadata,
-        # where the runner can resolve a pre-83.0.0 build. Every other CVE is a
-        # real finding here -- the base scan's chromadb/nltk ignores are
-        # deliberately NOT carried over, since neither package is an extra.
+        # Every CVE is a real finding here -- the base scan's chromadb/nltk
+        # ignores are deliberately NOT carried over, since neither package is
+        # an extra. setuptools is constrained via a real `pip install -c
+        # constraints.txt` per extra below (84.0.0, PYSEC-2026-3447 floor
+        # 83.0.0) so the old ignore is gone. Same reasoning as the base `scan`
+        # job: pip-audit -r has no -c/--constraint flag (confirmed against
+        # pip-audit==2.10.1 --help and by reproducing the argparse error), so
+        # each extra is installed for real into its own throwaway venv with
+        # constraints applied, then audited via pip-audit --path. pip is
+        # pinned to 26.1.2 (matching every other workflow -- dep-guard's E1
+        # cross-workflow pin-consistency check) and PYSEC-2026-3721 (pip,
+        # fixed in 26.2) is ignored for the same documented reason as the
+        # base `scan` job above: CI-tooling-only, tracked as separate
+        # repo-wide pip-bump follow-up work.
         run: |
           failed=""
           for f in .audit-extras/*.txt; do
@@ -315,9 +361,15 @@ jobs:
             echo "::group::pip-audit -r $f"
             ok=0
             for attempt in 1 2 3; do
-              if pip-audit -r "$f" --ignore-vuln PYSEC-2026-3447; then
-                ok=1
-                break
+              rm -rf "$RUNNER_TEMP/audit-venv-extra"
+              python -m venv "$RUNNER_TEMP/audit-venv-extra"
+              "$RUNNER_TEMP/audit-venv-extra/bin/python" -m pip install --upgrade pip==26.1.2
+              if "$RUNNER_TEMP/audit-venv-extra/bin/pip" install -r "$f" -c constraints.txt; then
+                AUDIT_PATH="$("$RUNNER_TEMP/audit-venv-extra/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+                if pip-audit --path "$AUDIT_PATH" --ignore-vuln PYSEC-2026-3721; then
+                  ok=1
+                  break
+                fi
               fi
               echo "pip-audit attempt $attempt failed for $extra; retrying..."
               sleep 5
