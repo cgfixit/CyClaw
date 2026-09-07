@@ -8,7 +8,7 @@ on:
       - 'requirements.txt'
       - 'requirements-test.txt'
       - 'constraints.txt'
-      # pyproject.toml is where EVERY optional extra lives (guardrails,
+      # pyproject.toml (and commented out in requirements) is where EVERY optional extra lives (guardrails,
       # postgres, pgvector, agentic-deepagents, agentic-deepagents-cloud, dev,
       # test). Without it here, adding or bumping an optional dependency
       # changed no triggering path and this workflow never ran on the change.
