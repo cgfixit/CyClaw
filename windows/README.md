@@ -1,5 +1,7 @@
 # `windows/` — generate-only Task Scheduler supervisors
 
+>https://github.com/cgfixit/CyClaw/tree/main/powershell
+
 Windows twin of `macos/generate_service_plist.py`. Not request-path code
 (`gate.py` / `graph.py` / `mcp_hybrid_server.py` never import this; I6).
 
