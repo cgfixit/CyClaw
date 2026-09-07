@@ -526,6 +526,40 @@ class TestGrokClient:
         assert exc.value.details.get("timeout_sec") == 5
         client.close()
 
+    def test_generate_elapsed_graph_deadline_does_not_post(self, tmp_path, monkeypatch):
+        # Mirrors TestLocalLLMClient.test_generate_elapsed_graph_deadline_does_not_post:
+        # _call_timeout is shared by all three clients, but only LocalLLMClient had
+        # coverage for it -- Grok/Claude went untested on the graph-deadline path.
+        monkeypatch.setenv("GROK_API_KEY", "xai-secret")
+        client = GrokClient(_write_config(tmp_path))
+        fake = _FakePost(response=_ok_response("late"))
+        client._client.post = fake
+        token = set_graph_deadline(time.monotonic() - 1)
+        try:
+            with pytest.raises(GrokServiceError) as exc:
+                client.generate("a prompt")
+            assert exc.value.details.get("timeout_sec") == 5
+            assert fake.calls == []
+        finally:
+            reset_graph_deadline(token)
+            client.close()
+
+    def test_generate_graph_deadline_caps_httpx_timeout(self, tmp_path, monkeypatch):
+        # Mirrors TestLocalLLMClient.test_generate_graph_deadline_caps_httpx_timeout.
+        monkeypatch.setenv("GROK_API_KEY", "xai-secret")
+        client = GrokClient(_write_config(tmp_path))
+        fake = _FakePost(response=_ok_response("ok"))
+        client._client.post = fake
+        token = set_graph_deadline(time.monotonic() + 2)
+        try:
+            assert client.generate("a prompt") == "ok"
+            timeout = fake.calls[0][1]["timeout"]
+            assert timeout.read <= 2
+            assert timeout.read > 0
+        finally:
+            reset_graph_deadline(token)
+            client.close()
+
     def test_generate_unexpected_error_maps_to_grok_service_error(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GROK_API_KEY", "xai-secret")
         client = GrokClient(_write_config(tmp_path))
@@ -651,6 +685,40 @@ class TestClaudeClient:
             client.generate("a prompt")
         assert exc.value.details.get("timeout_sec") == 5
         client.close()
+
+    def test_generate_elapsed_graph_deadline_does_not_post(self, tmp_path, monkeypatch):
+        # Mirrors TestLocalLLMClient.test_generate_elapsed_graph_deadline_does_not_post:
+        # _call_timeout is shared by all three clients, but only LocalLLMClient had
+        # coverage for it -- Grok/Claude went untested on the graph-deadline path.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+        client = ClaudeClient(_write_config(tmp_path))
+        fake = _FakePost(response=_claude_ok_response("late"))
+        client._client.post = fake
+        token = set_graph_deadline(time.monotonic() - 1)
+        try:
+            with pytest.raises(ClaudeServiceError) as exc:
+                client.generate("a prompt")
+            assert exc.value.details.get("timeout_sec") == 5
+            assert fake.calls == []
+        finally:
+            reset_graph_deadline(token)
+            client.close()
+
+    def test_generate_graph_deadline_caps_httpx_timeout(self, tmp_path, monkeypatch):
+        # Mirrors TestLocalLLMClient.test_generate_graph_deadline_caps_httpx_timeout.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+        client = ClaudeClient(_write_config(tmp_path))
+        fake = _FakePost(response=_claude_ok_response("ok"))
+        client._client.post = fake
+        token = set_graph_deadline(time.monotonic() + 2)
+        try:
+            assert client.generate("a prompt") == "ok"
+            timeout = fake.calls[0][1]["timeout"]
+            assert timeout.read <= 2
+            assert timeout.read > 0
+        finally:
+            reset_graph_deadline(token)
+            client.close()
 
     def test_generate_unexpected_error_maps_to_claude_service_error(self, tmp_path, monkeypatch):
         # Mirrors TestGrokClient.test_generate_unexpected_error_maps_to_grok_service_error.
