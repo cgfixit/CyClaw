@@ -161,9 +161,34 @@ jobs:
         # silently out of step with the other's for the same commit.
         run: pip install pip-audit==2.10.1
 
+      - name: Install audited environment (base runtime + test tools, constraints applied)
+        shell: bash
+        # pip-audit's own `-r` resolves dependencies itself, in a throwaway venv
+        # it builds internally -- it has no `-c`/`--constraint` flag, so it can
+        # never see constraints.txt (confirmed: pip-audit==2.10.1 --help lists no
+        # such option, and passing -c errors "argument project_path: not allowed
+        # with argument -r/--requirement"). A real `pip install`, run here into
+        # an isolated venv, DOES support -c -- same command verify-install
+        # already runs above. Isolated so pip-audit's own tool dependencies
+        # (rich, cyclonedx, pip-requirements-parser, ...) never enter the
+        # audited set below.
+        #
+        # pip itself is pinned to 26.2.1, not verify-install's 26.1.2: pip ends
+        # up IN the audited site-packages below (it's just another installed
+        # package once real `pip install` is used instead of pip-audit's own
+        # internal resolution), and 26.1.2 carries PYSEC-2026-3721 (fixed in
+        # 26.2) -- found by running this exact fix locally against this branch.
+        # verify-install's own 26.1.2 pin is untouched: that job never runs
+        # pip-audit, so its pip version is never itself an audit target.
+        run: |
+          python -m venv "$RUNNER_TEMP/audit-venv"
+          "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.2.1
+          "$RUNNER_TEMP/audit-venv/bin/pip" install -r requirements.txt -r requirements-test.txt -c constraints.txt
+
       - name: Run pip-audit (ignore only mitigated chromadb + nltk CVEs)
         run: |
-          pip-audit -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-597 --ignore-vuln PYSEC-2026-3740
+          AUDIT_PATH="$("$RUNNER_TEMP/audit-venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-597 --ignore-vuln PYSEC-2026-3740
         # CVE-2026-45829 (Critical pre-auth RCE) — risk accepted under v1.4.0 invariants.
         # Actual controls:
         #   - chromadb.PersistentClient (local embedded mode, path from config.yaml["indexing"]["chroma_path"])
@@ -220,8 +245,11 @@ jobs:
         # scan-optional job below.)
         #
         # setuptools is pinned at 84.0.0 in constraints.txt (PYSEC-2026-3447
-        # floor is 83.0.0). The previous --ignore-vuln is gone: -c makes the
-        # scanner resolve the same patched transitive torch pulls in.
+        # floor is 83.0.0). The previous --ignore-vuln is gone: the "Install
+        # audited environment" step above does a real `pip install -c
+        # constraints.txt`, so the venv this job audits (via --path) actually
+        # has the patched 84.0.0, not whatever pip-audit's own unconstrained
+        # internal resolution would have floated.
 
   scan-optional:
     # Why this job exists: requirements.txt + requirements-test.txt (what the
@@ -296,8 +324,13 @@ jobs:
         #
         # Every CVE is a real finding here -- the base scan's chromadb/nltk
         # ignores are deliberately NOT carried over, since neither package is
-        # an extra. setuptools is constrained via -c (84.0.0, PYSEC-2026-3447
-        # floor 83.0.0) so the old ignore is gone.
+        # an extra. setuptools is constrained via a real `pip install -c
+        # constraints.txt` per extra below (84.0.0, PYSEC-2026-3447 floor
+        # 83.0.0) so the old ignore is gone. Same reasoning as the base `scan`
+        # job: pip-audit -r has no -c/--constraint flag (confirmed against
+        # pip-audit==2.10.1 --help and by reproducing the argparse error), so
+        # each extra is installed for real into its own throwaway venv with
+        # constraints applied, then audited via pip-audit --path.
         run: |
           failed=""
           for f in .audit-extras/*.txt; do
@@ -305,9 +338,15 @@ jobs:
             echo "::group::pip-audit -r $f"
             ok=0
             for attempt in 1 2 3; do
-              if pip-audit -r "$f" -c constraints.txt; then
-                ok=1
-                break
+              rm -rf "$RUNNER_TEMP/audit-venv-extra"
+              python -m venv "$RUNNER_TEMP/audit-venv-extra"
+              "$RUNNER_TEMP/audit-venv-extra/bin/python" -m pip install --upgrade pip==26.2.1
+              if "$RUNNER_TEMP/audit-venv-extra/bin/pip" install -r "$f" -c constraints.txt; then
+                AUDIT_PATH="$("$RUNNER_TEMP/audit-venv-extra/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+                if pip-audit --path "$AUDIT_PATH"; then
+                  ok=1
+                  break
+                fi
               fi
               echo "pip-audit attempt $attempt failed for $extra; retrying..."
               sleep 5
