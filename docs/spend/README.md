@@ -126,15 +126,18 @@ while Claude's `output_tokens` is already the inclusive billing total.
 
 ### Rate staleness
 
-The rate table carries a `PRICED_AS_OF` date and is considered stale after 30
+The rate table derives a `PRICED_AS_OF` date (the oldest entry in
+`_RATE_VERIFIED`, one per `_RATES` row) and is considered stale after 30
 days. `rates_are_stale()` and `warn_if_priced_as_of_stale()` expose that check so
 a long-running deployment surfaces "these dollar figures are from an old rate
 card" instead of quietly reporting confident, wrong totals. The token counts
 remain correct regardless — only the derived dollars go stale, which is the
 entire reason dollars are not persisted.
 
-To re-price after a vendor changes rates, update the `_RATES` table and
-`PRICED_AS_OF` in `utils/spend.py`. Every historical line re-prices on the next
+To re-price after a vendor changes rates, update the `_RATES` row and its
+verification date in `_RATE_VERIFIED` in `utils/spend.py`; `PRICED_AS_OF` is
+computed from those dates, never hand-edited (`tests/test_spend.py` asserts every
+rate row has one). Every historical line re-prices on the next
 `cyclaw-metrics` run; no migration or backfill is needed.
 
 ## Reading the ledger
