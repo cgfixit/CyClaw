@@ -10,7 +10,7 @@ package is never imported.
 
 ## How the graph reaches this package (I6)
 
-`gate.py`, `graph.py`, and `mcp_hybrid_server.py` must not name `guardrails`
+the core six (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`) must not name `guardrails`
 (see `tests/test_guardrails_isolation.py`). The one seam is
 `utils/guardrail_bridge.py`:
 
@@ -43,7 +43,7 @@ python -m guardrails.cli test
 | `metrics.py` | Separate `logs/guardrails.jsonl` (hashes, not the core audit stream) |
 | `cli.py` / `selftest.py` | Operator surface |
 | `errors.py` | `GuardrailsError` hierarchy, rooted at `utils.errors.RAGError` |
-| `boundary.py` | Provider-independent typed decisions + provenance (#1134 Phase 1). Hashes and reason codes only — never raw prompts/responses. Never imported by the core three (I6). **No consumer as of 2026-09-04** — Phases 2a/3/4/5 shipped without adopting these types (Phase 5 went out as `utils/tool_broker.py`), and `profiles.py` mirrors `GuardrailStage` by hand. Kept as the typed vocabulary a future broker would adopt |
+| `boundary.py` | Provider-independent typed decisions + provenance (#1134 Phase 1). Hashes and reason codes only — never raw prompts/responses. Never imported by the core six (I6). **No consumer as of 2026-09-04** — Phases 2a/3/4/5 shipped without adopting these types (Phase 5 went out as `utils/tool_broker.py`), and `profiles.py` mirrors `GuardrailStage` by hand. Kept as the typed vocabulary a future broker would adopt |
 | `broker.py` | NeMo non-generating `LLMRails.check` around the existing generation helper (#1134 Phase 3). Never grants I3, never calls `generate_async`; graph reaches it only via `utils/guardrail_bridge` |
 | `tool_broker.py` | Re-export of `utils.tool_broker` (canonical name-gate). Harness imports `utils`, not this package |
 | `call_inventory.py` | Fail-closed AST inventory of `ChatOpenAI`/`ChatXAI`/`ChatAnthropic`/`generate_async` call sites. Unregistered files fail pytest and `python -m guardrails.call_inventory` (exit 1) |
