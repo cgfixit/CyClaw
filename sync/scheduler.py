@@ -678,14 +678,19 @@ class LaunchdScheduler:
         loaded_note = "load state unknown (launchctl unavailable)"
         launchctl = self._launchctl()
         if launchctl:
-            probe = subprocess.run(  # noqa: S603  # argv list, launchctl resolved via shutil.which
-                [launchctl, "print", f"gui/{self._uid()}/{LAUNCHD_LABEL}"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-            loaded_note = "loaded" if probe.returncode == 0 else "not loaded"
+            try:
+                probe = subprocess.run(  # noqa: S603  # argv list, launchctl resolved via shutil.which
+                    [launchctl, "print", f"gui/{self._uid()}/{LAUNCHD_LABEL}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                logger.warning("launchctl status probe failed: %s", type(exc).__name__)
+                loaded_note = "load state unknown (launchctl probe failed)"
+            else:
+                loaded_note = "loaded" if probe.returncode == 0 else "not loaded"
 
         interval = document.get("StartCalendarInterval", {})
         return ScheduleEntry(

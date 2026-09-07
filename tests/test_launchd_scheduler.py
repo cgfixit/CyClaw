@@ -368,6 +368,32 @@ def test_status_tolerates_missing_launchctl_binary(tmp_path: Path) -> None:
     mock_run.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [subprocess.TimeoutExpired(cmd="launchctl", timeout=10), OSError("cannot execute"),
+     subprocess.SubprocessError("probe failed")],
+)
+def test_status_preserves_saved_schedule_when_launchctl_probe_raises(tmp_path: Path, failure: Exception) -> None:
+    cfg = _make_cfg(schedule_frequency="weekly", schedule_weekday=3)
+    installed = _install(cfg, tmp_path)
+    plist_path = Path(installed.raw)
+    saved = plist_path.read_bytes()
+    with (
+        patch("sync.scheduler.platform.system", return_value="Darwin"),
+        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("sync.scheduler.shutil.which", return_value="/bin/launchctl"),
+        patch("sync.scheduler.subprocess.run", side_effect=failure),
+    ):
+        entry = LaunchdScheduler(cfg).status()
+
+    assert entry is not None
+    assert entry.command == installed.command
+    assert entry.cron_or_time == installed.cron_or_time
+    assert entry.raw == installed.raw
+    assert entry.note == "load state unknown (launchctl probe failed)"
+    assert plist_path.read_bytes() == saved
+
+
 def test_status_reflects_on_disk_plist_not_live_config(tmp_path: Path) -> None:
     # Install daily, then read status through a *different* cfg object that
     # has since drifted to weekly -- status must report what's on disk.

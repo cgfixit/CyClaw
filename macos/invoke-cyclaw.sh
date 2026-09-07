@@ -248,7 +248,7 @@ if [ "$NO_GATE" -eq 0 ]; then
       echo "[cyclaw]        already in use, or config.yaml is invalid." >&2
       exit 1
     fi
-    if curl -sf "http://127.0.0.1:$GATE_PORT/health" >/dev/null 2>&1; then
+    if curl -sf --max-time 2 "http://127.0.0.1:$GATE_PORT/health" >/dev/null 2>&1; then
       GATE_READY=1
       break
     fi
@@ -282,7 +282,7 @@ if [ "$NO_HARNESS" -eq 0 ]; then
       echo "[cyclaw]        Common causes: port $PORT is already in use or a dependency is missing." >&2
       exit 1
     fi
-    if curl -sf "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1; then
+    if curl -sf --max-time 2 "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1; then
       HARNESS_READY=1
       break
     fi
