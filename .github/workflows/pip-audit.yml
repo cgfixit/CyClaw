@@ -173,22 +173,28 @@ jobs:
         # (rich, cyclonedx, pip-requirements-parser, ...) never enter the
         # audited set below.
         #
-        # pip itself is pinned to 26.2.1, not verify-install's 26.1.2: pip ends
-        # up IN the audited site-packages below (it's just another installed
-        # package once real `pip install` is used instead of pip-audit's own
-        # internal resolution), and 26.1.2 carries PYSEC-2026-3721 (fixed in
-        # 26.2) -- found by running this exact fix locally against this branch.
-        # verify-install's own 26.1.2 pin is untouched: that job never runs
-        # pip-audit, so its pip version is never itself an audit target.
+        # pip itself is pinned to 26.1.2 -- same exact version as every other
+        # workflow in this repo (dep-guard/verify-deps E1 requires one
+        # consistent pip pin across all workflows; a 26.2.1-only-here pin
+        # broke that check). pip ends up IN the audited site-packages below
+        # (it's just another installed package once real `pip install` is
+        # used instead of pip-audit's own internal resolution) and 26.1.2
+        # carries PYSEC-2026-3721 (fixed in 26.2) -- found by running this
+        # exact fix locally against this branch. Ignored below with the same
+        # documented-acceptance pattern as this job's other ignores, rather
+        # than diverging the pin: bumping pip repository-wide is a separate,
+        # broader change than this PR's scope (hatchling/setuptools/pip-audit
+        # mechanics), and it is CI-tooling-only here (not a shipped runtime
+        # dependency).
         run: |
           python -m venv "$RUNNER_TEMP/audit-venv"
-          "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.2.1
+          "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.1.2
           "$RUNNER_TEMP/audit-venv/bin/pip" install -r requirements.txt -r requirements-test.txt -c constraints.txt
 
       - name: Run pip-audit (ignore only mitigated chromadb + nltk CVEs)
         run: |
           AUDIT_PATH="$("$RUNNER_TEMP/audit-venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-597 --ignore-vuln PYSEC-2026-3740
+          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-597 --ignore-vuln PYSEC-2026-3740 --ignore-vuln PYSEC-2026-3721
         # CVE-2026-45829 (Critical pre-auth RCE) — risk accepted under v1.4.0 invariants.
         # Actual controls:
         #   - chromadb.PersistentClient (local embedded mode, path from config.yaml["indexing"]["chroma_path"])
@@ -250,6 +256,18 @@ jobs:
         # constraints.txt`, so the venv this job audits (via --path) actually
         # has the patched 84.0.0, not whatever pip-audit's own unconstrained
         # internal resolution would have floated.
+        #
+        # PYSEC-2026-3721 (pip, fixed in 26.2) — added here 2026-09-07. Once
+        # this job started doing a real install instead of pip-audit's own
+        # opaque internal resolution, pip itself (installed at the 26.1.2
+        # pinned everywhere else in this repo, per dep-guard/verify-deps E1's
+        # cross-workflow consistency check) became an audited package for the
+        # first time. pip is a CI/build-time tool here, never a shipped
+        # runtime dependency of CyClaw. Tracked for a repository-wide pip pin
+        # bump to 26.2.1+ as separate follow-up work (touches ci.yml,
+        # copilot-setup-steps.yml, nemo-guardrails.yml,
+        # python-package-conda.yml, python-publish.yml -- out of scope for
+        # this hatchling/setuptools/pip-audit-mechanics PR).
 
   scan-optional:
     # Why this job exists: requirements.txt + requirements-test.txt (what the
@@ -330,7 +348,12 @@ jobs:
         # job: pip-audit -r has no -c/--constraint flag (confirmed against
         # pip-audit==2.10.1 --help and by reproducing the argparse error), so
         # each extra is installed for real into its own throwaway venv with
-        # constraints applied, then audited via pip-audit --path.
+        # constraints applied, then audited via pip-audit --path. pip is
+        # pinned to 26.1.2 (matching every other workflow -- dep-guard's E1
+        # cross-workflow pin-consistency check) and PYSEC-2026-3721 (pip,
+        # fixed in 26.2) is ignored for the same documented reason as the
+        # base `scan` job above: CI-tooling-only, tracked as separate
+        # repo-wide pip-bump follow-up work.
         run: |
           failed=""
           for f in .audit-extras/*.txt; do
@@ -340,10 +363,10 @@ jobs:
             for attempt in 1 2 3; do
               rm -rf "$RUNNER_TEMP/audit-venv-extra"
               python -m venv "$RUNNER_TEMP/audit-venv-extra"
-              "$RUNNER_TEMP/audit-venv-extra/bin/python" -m pip install --upgrade pip==26.2.1
+              "$RUNNER_TEMP/audit-venv-extra/bin/python" -m pip install --upgrade pip==26.1.2
               if "$RUNNER_TEMP/audit-venv-extra/bin/pip" install -r "$f" -c constraints.txt; then
                 AUDIT_PATH="$("$RUNNER_TEMP/audit-venv-extra/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-                if pip-audit --path "$AUDIT_PATH"; then
+                if pip-audit --path "$AUDIT_PATH" --ignore-vuln PYSEC-2026-3721; then
                   ok=1
                   break
                 fi

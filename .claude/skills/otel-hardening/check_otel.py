@@ -491,7 +491,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic/numpy/nltk/pyyaml/rank-bm25/pygments/"
                     "websockets/tzdata/psycopg-binary/cel-python and the dev/test tools "
-                    "(pytest*/ruff/mypy/bandit/pip/python)",
+                    "(pytest*/ruff/mypy/bandit/pip/python/setuptools==84.0.0)",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
                        "is caller policy (all CyClaw clients set trust_env=False); nltk data downloads are "
                        "avoided by design (local Porter stemmer, no punkt)",
@@ -554,6 +554,10 @@ INVENTORY_ALIASES: dict[str, str] = {
     "pydantic-core": "core web/runtime libs",
     "pydantic-settings": "core web/runtime libs",
     "wcmatch": "core web/runtime libs",
+    # constraints.txt-only pin (torch's transitive setuptools>=77.0.3 floor,
+    # hardened to 84.0.0 for PYSEC-2026-3447): a build backend, no own
+    # telemetry mechanism, same bucket as pip/wheel/python above.
+    "setuptools": "core web/runtime libs",
 }
 
 # External executables/services CyClaw spawns or fronts -- swept by T13 along
