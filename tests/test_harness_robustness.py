@@ -174,6 +174,37 @@ def test_chat_survives_malformed_usage_block(usage, expected_prompt, expected_co
     assert result.completion_tokens == expected_completion
 
 
+@pytest.mark.parametrize("choices", [{"message": {"content": "hello"}}, 3, True, [], None])
+def test_chat_malformed_choices_returns_typed_502(cfg, choices):
+    app = create_app(cfg, chat_client=_chat_client({"choices": choices}))
+    with TestClient(app, base_url="http://127.0.0.1:8790") as client:
+        resp = client.post("/api/chat", json={"message": "hi"}, headers=_guarded_headers(app))
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "HARNESS_LLM_ERROR"
+    assert resp.json()["detail"]["message"] == "malformed response from model server"
+
+
+@pytest.mark.parametrize("counter", ["prompt_tokens", "completion_tokens"])
+@pytest.mark.parametrize("large_number", ["1e400", "-1e400"])
+def test_chat_survives_overflowing_usage(counter, large_number):
+    # Valid JSON exponent notation can decode to infinity; the good answer
+    # and the other token count must survive int(infinity)'s OverflowError.
+    raw = ('{"choices":[{"message":{"content":"hello"}}],"usage":{'
+           '"prompt_tokens":7,"completion_tokens":7}}')
+    raw = raw.replace(f'"{counter}":7', f'"{counter}":{large_number}')
+    chat = HarnessChatClient(
+        base_url="http://127.0.0.1:11434/v1", model="test-model",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=raw)),
+    )
+    try:
+        result = chat.chat(system_prompt="s", messages=[{"role": "user", "content": "hi"}])
+        assert result.body_text == "hello"
+        assert result.prompt_tokens == (0 if counter == "prompt_tokens" else 7)
+        assert result.completion_tokens == (0 if counter == "completion_tokens" else 7)
+    finally:
+        chat.close()
+
+
 # -- persist failures must not escape as unparseable 500s -------------------------
 # SessionStoreError used to carry one code for two unrelated failures: "unknown
 # session" (the operator's bad id) and "could not persist" (the server's disk).
