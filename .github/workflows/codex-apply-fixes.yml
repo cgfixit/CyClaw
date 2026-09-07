@@ -369,7 +369,7 @@ jobs:
               id_rsa|id_rsa.*|*/id_rsa|*/id_rsa.*) ;;
               *) continue ;;
             esac
-            git reset -- -- "$path" || true
+            git reset -- "$path" || true
           done
 
           if git diff --cached --quiet; then
