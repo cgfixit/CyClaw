@@ -86,6 +86,11 @@ tzdata==2026.2
 # --extra-index-url (see this file's header -- no pyproject.toml extra or
 # [tool.uv.sources] table currently routes this).
 torch==2.13.0+cpu
+# Transitive of torch (requires_dist setuptools>=77.0.3). Unpinned, pip-audit
+# resolved a pre-83 build and needed PYSEC-2026-3447 ignored. 83.0.0 is the
+# advisory floor; 84.0.0 is current PyPI (2026-09-07). Constraints-only: not a
+# first-party import, same pattern as pydantic-settings.
+setuptools==84.0.0
 
 # Optional Postgres / pgvector / mssql backends (pyproject extras: postgres, pgvector,
 # mssql). These are NOT installed by the default path; constraints only cap a version

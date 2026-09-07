@@ -42,6 +42,15 @@ def _load_pyproject() -> dict:
         return tomllib.load(f)
 
 
+def test_build_backend_hatchling_is_exact_pinned() -> None:
+    """python-publish.yml / ci.yml `python -m build` must not float hatchling."""
+    reqs = _load_pyproject()["build-system"]["requires"]
+    assert any(r.startswith("hatchling==") for r in reqs), (
+        "pyproject.toml [build-system] requires must exact-pin hatchling "
+        f"(got {reqs!r})"
+    )
+
+
 def test_wheel_force_includes_every_top_level_module() -> None:
     cfg = _load_pyproject()
     wheel_cfg = cfg["tool"]["hatch"]["build"]["targets"]["wheel"]
