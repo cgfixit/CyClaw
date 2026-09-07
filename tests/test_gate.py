@@ -47,6 +47,20 @@ class TestQueryEndpoint:
         assert resp.status_code == 422  # Pydantic validation (max_length=65536)
         mock_graph.invoke.assert_not_called()  # rejected before the graph runs
 
+    def test_unknown_query_field_rejected(self, client):
+        # QueryRequest extra='forbid': a stray field must 422 before retrieve.
+        test_client, mock_graph = client
+        resp = test_client.post("/query", json={"query": "x", "openai_key": "sk-test"})
+        assert resp.status_code == 422
+        mock_graph.invoke.assert_not_called()
+
+    def test_unknown_online_provider_rejected(self, client):
+        # online_provider is Literal["grok","claude"]; "openai" must not reach I3.
+        test_client, mock_graph = client
+        resp = test_client.post("/query", json={"query": "x", "online_provider": "openai"})
+        assert resp.status_code == 422
+        mock_graph.invoke.assert_not_called()
+
     def test_needs_confirm_response(self, client):
         test_client, mock_graph = client
         mock_graph.invoke.return_value = {
