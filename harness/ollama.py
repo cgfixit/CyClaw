@@ -125,7 +125,7 @@ def _token_count(raw_count: object) -> int:
     # and complexity, so the degrade-to-0 guard has to live here.
     try:
         return int(raw_count or 0)  # type: ignore[call-overload]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
@@ -137,7 +137,10 @@ def _parse_chat_response(resp: httpx.Response, fallback_model: str) -> ChatResul
         raise HarnessLLMError("malformed response from model server") from exc
     if not isinstance(parsed, dict):
         raise HarnessLLMError("malformed response from model server")
-    first = (parsed.get("choices") or [{}])[0]
+    choices = parsed.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise HarnessLLMError("malformed response from model server")
+    first = choices[0]
     if not isinstance(first, dict):
         first = {}
     body = first.get("message", {})
