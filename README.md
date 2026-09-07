@@ -346,7 +346,7 @@ discloses whether the feature is on.
    That route is **loopback-peer + same-origin only** — 403 from off-box, 409
    once a password is set, 503 when `auth.enabled` is false — and carries no
    credential on purpose: on a genuine first run there is nothing to present
-   yet. `GET /auth/setup-status` (unauthenticated, rate-limited) reports
+   yet. `GET /auth/setup-status` (no credential, but same-origin-checked and rate-limited) reports
    `{enabled, needs_password, username}` so a console can tell first-boot from
    logged-out.
 3. Add the accounts operators actually use with the local-only `cyclaw-user`
@@ -1348,7 +1348,7 @@ are in [`macos/README.md`](macos/README.md) and
 | OpenTweet channel | Out-of-band, ships `enabled: false`; answers only via loopback `POST /query` with `user_confirmed_online: false`; default write is a draft; schedulers generate-don't-load and never send `publish_now`; API key from env / Keychain / CredMan, never YAML or a plist `EnvironmentVariables` dict |
 | launchd secrets (macOS) | Generated plists never embed tokens — `macos/cyclaw-keychain-env.sh` injects secrets from the macOS Keychain at exec time and fails closed when the item is missing; `cyclaw-keychain-set.sh` stores them via a no-echo `security` prompt so the secret never appears in argv or the plist; the gate/harness supervised-agent generator additionally requires `--confirm` + a non-empty `--reason` |
 | `/ops/*` routes | Loopback-only, `require_api_key` gated, rate-limited (60/min), every call audited (`ops_sync_executed` / `ops_agentic_executed` / `ops_fsconnect_executed` / `ops_sqlconnect_executed`); shells out via `subprocess.run([...])` — never imports `sync/` or `agentic/` |
-| `/auth/*` routes | Per-user auth design (`gate_auth.py`, `docs/AUTHENTICATION_DESIGN.md`); first-boot `GET /auth/setup-status` (unauthenticated) and loopback-only `POST /auth/bootstrap-password`; session cookie + CSRF for browsers, bearer device tokens for programmatic clients; three roles (`admin`/`operator`/`audit`) gate the `/auth/users*` admin surface, with the last enabled `admin` protected from disable/delete/role-change; every `/auth/*` handler checks `auth.enabled` first and returns 503 (not 404) so route presence never discloses whether the feature is on. When `auth.enabled` is true, `POST /query` requires a session or named device token |
+| `/auth/*` routes | Per-user auth design (`gate_auth.py`, `docs/AUTHENTICATION_DESIGN.md`); first-boot `GET /auth/setup-status` (no credential; same-origin-checked) and loopback-only `POST /auth/bootstrap-password`; session cookie + CSRF for browsers, bearer device tokens for programmatic clients; three roles (`admin`/`operator`/`audit`) gate the `/auth/users*` admin surface, with the last enabled `admin` protected from disable/delete/role-change; every `/auth/*` handler checks `auth.enabled` first and returns 503 (not 404) so route presence never discloses whether the feature is on. When `auth.enabled` is true, `POST /query` requires a session or named device token |
 | `/memory/*` + `/query/export/html` routes | Optional, default-off memory admin surface (`gate_memory.py`); every `memory:` switch ships `false`; `require_api_key` gated, rate-limited; mutating routes (`propose`/`apply`/`reject`) require a non-empty `reason` string, with an injection scan on `apply` |
 | Container | Non-root, `no-new-privileges`, `cap_drop: ALL`, read-only rootfs, seccomp, resource limits; optional eBPF/Falco detection (`deploy/falco/`, off by default) |
 

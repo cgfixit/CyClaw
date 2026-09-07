@@ -44,10 +44,10 @@ Run the CyClaw audit log analyzer. $ARGUMENTS
 5. Flag if:
    - Any raw query text appears in the log (PII/privacy violation — should be SHA-256 hashed)
    - Error rate exceeds 10%
-   - Any entries with `grok_fallback` node were triggered (means hybrid mode was active)
+   - Any entries with a `grok_fallback` or `claude_fallback` node were triggered (means an online fallback was confirmed)
 
 ## Notes
 
 - Audit log is append-only JSONL at `logs/audit.jsonl`
 - Query text is SHA-256 hashed — raw queries are never stored by design
-- `GROK_API_KEY` must be set even for offline metrics runs
+- `GROK_API_KEY` is not read by `metrics.py`; the `GROK_API_KEY=dummy` prefix above only mirrors the pytest convention and is harmless to omit

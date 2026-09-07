@@ -29,8 +29,9 @@ models:
     max_tokens: 4096
     temperature: 0.2
     # HTTP timeout in llm/client.py; boot validation requires graph_timeout_sec
-    # to exceed this by at least 30s. gate.py cancels the await, not its worker,
-    # so retries or slow work can still continue after the graph deadline.
+    # to exceed this by at least 30s. gate.py cancels only the await, not its
+    # worker, so llm/client.py caps each POST at the remaining graph budget and
+    # refuses a retry whose backoff would overrun it (#1359).
     # Measure local throughput with scripts/measure_local_llm_throughput.py.
     timeout_sec: 720  # Boot margin: api.graph_timeout_sec >= timeout_sec + 30.
     retry:                  # bounded exp-backoff on transport/5xx/429; 4xx AND read-timeouts fail fast

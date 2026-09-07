@@ -200,7 +200,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `retrieval/stemmer.py` | Porter stemmer + custom vocab; avoids NLTK punkt (CVE) |
 | `retrieval/vector_store.py` | Pluggable reader/writer: embedded ChromaDB (default) or pgvector |
 | `retrieval/clear_cache.py` | Dry-run-by-default embedding-cache cleaner (`cyclaw-clear-cache`) |
-| `llm/client.py` | `LocalLLMClient` + `GrokClient` + `ClaudeClient`; shared bounded-retry `_post_with_retry` |
+| `llm/client.py` | `LocalLLMClient` + `GrokClient` + `ClaudeClient`; shared bounded-retry `_post_with_retry`, which honors `Retry-After` and reads a per-request graph-deadline ContextVar (`set_graph_deadline`, set by `gate.py`'s `/query`) so every POST is capped at the remaining `api.graph_timeout_sec` budget and a retry whose backoff would overrun it is refused (#1359) |
 | `utils/sanitizer.py` | Injection filter; patterns in `config.yaml` |
 | `utils/personality.py` | Soul versioning, SHA-256 drift detection, injection gate on write |
 | `utils/personality_db.py` | Soul DB backend: SQLite default, Postgres via `CYCLAW_DB_URL` |
@@ -789,9 +789,10 @@ packaging) fails the workflow. Advisory lanes elsewhere are
 blocks), and best-effort steps in the
 nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources:
 `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`,
-`utils`, `sync`, `agentic`, `guardrails`, `harness`, `telegram`, `opentweet`, `memory`. `tests/conftest.py` mocks
+`utils`, `sync`, `agentic`, `guardrails`, `harness`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
 all external deps — no live services required. The full test-file list is
-discoverable in `tests/` (220 `test_*.py` files, auto-collected by pytest).
+discoverable in `tests/` (220 `test_*.py` files including the two under
+`tests/nemo_runtime/`, auto-collected by pytest).
 
 ---
 

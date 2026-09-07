@@ -64,14 +64,10 @@ are recoverable with `git log --diff-filter=D -- <path>`.
   per its own documented limitation) confirmed nothing under `docs/**`,
   `CLAUDE.md`, `README.md`, or `AGENTS.md` still cites an old path. A handful
   of citations outside that scope were deliberately left untouched as this
-  pass's stated boundary — repoint these separately if/when their own files
-  are next touched: `.claude/rules/PROJECT_RULES.md`,
-  `.claude/skills/doc-sync/SKILL.md`,
-  `.claude/skills/create-session-notes/SKILL.md`,
-  `.claude/commands/create-session-notes.md`,
-  `.codex/skills/cyclaw-run-cyclaw/SKILL.md`,
-  `tests/fixtures/github_coding_repo/README.md`, and the root `setup-guide.md`
-  (all cite `docs/SESSION_NOTES.md` or `docs/SETUP.md` by their pre-move path).
+  pass's stated boundary. As of the 2026-09-07 doc-sync audit all of those have
+  since been repointed; the only remaining pre-move citations are inside
+  `.claude/skills/doc-sync/SKILL.md` (as a deliberate drift-baseline note) and
+  the self-labelled `docs/zWork/remaining_work_STALE.md`.
 
 **Files this document replaces** (verbatim list, so a future reader can
 confirm nothing here was quietly dropped from the retirement announcement) —
