@@ -8,7 +8,7 @@ loopback only.
 |---|---|---|
 | `terminal.html` + `terminal.js` | `gate.py` at `GET /` (plus the `/static` mount) on `127.0.0.1:8787` | The CyClaw Terminal — the operator console for `/query` and the authenticated soul/ops/memory endpoints. |
 | `harness.html` | `harness/server.py` at `GET /` (plus the `/static` mount) on `127.0.0.1:8790` | The coding-harness console (slash-command UI: `/goal`, `/loop`, `/skills`, `/tools`, `/web`, `/agent`, …). |
-| `auth_admin.js` | both `/static` mounts — `gate.py` on `127.0.0.1:8787` and `harness/server.py` on `127.0.0.1:8790`; referenced by both `terminal.html` and `harness.html` | Shared Users panel (`/auth/users` list/create/role/disable/enable) — one script, no inline script. |
+| `auth_admin.js` | both `/static` mounts — `gate.py` on `127.0.0.1:8787` and `harness/server.py` on `127.0.0.1:8790`; referenced by both `terminal.html` and `harness.html` | Shared Users panel (`/auth/users` list/create/role-change/password-reset/delete; the `disabled` flag is displayed but the `/disable`/`/enable` routes are not wired to buttons) — one script, no inline script. |
 
 Both servers mount this directory (`app.mount("/static", ...)`), so
 `harness.html`'s `<script src="/static/auth_admin.js">` resolves on either

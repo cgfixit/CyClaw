@@ -29,7 +29,7 @@ Full walkthroughs: [`docs/HARNESS_MACOS.md`](../docs/HARNESS_MACOS.md),
 
 | Module | Role |
 |---|---|
-| `server.py` | FastAPI app + `static/harness.html` |
+| `server.py` | FastAPI app + repo-root `static/harness.html` (served from `../static/`, there is no `harness/static/`) |
 | `agent_routes.py` | The 7 `/api/agent/*` real-repo-run routes, registered onto `server.create_app`'s app |
 | `auth_routes.py` | The `/api/auth/*` session/bootstrap routes, registered the same way |
 | `config.py` | Home layout + read-only view of repo `config.yaml` |
@@ -78,7 +78,7 @@ turn it on, and even then it can GET only hosts you allowlisted.
 /tools goal              # one-tool box
 ```
 
-Also dispatched by the console (see `static/harness.html`): `/session`,
+Also dispatched by the console (see repo-root `static/harness.html`): `/session`,
 `/soul`, `/model`, `/connectors` (hidden alias: `/registry`), `/github`,
 `/agent`, `/harness`, `/tokens`, `/status`, `/users`, `/clear` — each maps
 onto the `/api/*` routes in the table above.
@@ -153,7 +153,10 @@ An allowlist URL preserves its scheme, host, optional non-default port, and
 path; text responses are streamed and capped at 256 KiB.
 
 Refused on purpose: `localhost`, `127.0.0.1`, RFC1918, link-local,
-`169.254.169.254`, `user:pass@host`, `ftp://`, wildcards, redirects.
+`169.254.169.254`, `user:pass@host`, `ftp://`, redirects. A wildcard host
+(`*.example.com`) is not rejected but is stored as an inert literal that no
+real hostname ever matches (`url_is_allowed` compares hosts exactly). The one
+deliberate alias: `host` and `www.host` are treated as the same allowlist entry.
 
 ## `/api` — credentials
 

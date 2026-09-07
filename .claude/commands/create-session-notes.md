@@ -8,5 +8,5 @@ See `.claude/skills/create-session-notes/SKILL.md` for the fixed section layout,
 
 ## Notes
 
-- Use this to record blockers per `CLAUDE.md` §7 (undefined behavior → `#cyclaw-dev`; security → private GitHub issue; config drift → `/sandbox-runtime-verification`).
+- Use this to record blockers per `CLAUDE.md` §7 (undefined behavior → `#cyclaw-dev`; security → private GitHub issue; config drift → `/CyClaw-Sandbox`).
 - Session-scoped discoveries belong here or in `docs/memories/` (live), never in `.claude/memory/` (legacy).

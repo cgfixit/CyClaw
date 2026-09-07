@@ -4,7 +4,7 @@
 > This file's own claims still verify live: `guardrails/broker.py`,
 > `guardrails/tool_broker.py`, `guardrails/call_inventory.py`,
 > `guardrails/qwen_registry.py` all exist; `guardrails.enabled: false` remains
-> the shipped default (`config.yaml:1043`). One drift found elsewhere: Numbat
+> the shipped default (`config.yaml`'s `guardrails:` block). One drift found elsewhere: Numbat
 > issue #1128 Slice A (hook-verdict emission) shipped 2026-08-27 in the same
 > commit range as this file's last edit but is not cross-referenced here —
 > see `docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md`'s own status stamp.
@@ -29,7 +29,7 @@ require approval. It must never select an online route, expand a tool registry,
 or override a deterministic denial.
 
 `utils/guardrail_bridge.py` is the only request-path seam (I6).
-`gate.py` / `graph.py` / `mcp_hybrid_server.py` never import `guardrails`.
+The core six (`gate.py` / `gate_ops.py` / `gate_auth.py` / `gate_memory.py` / `graph.py` / `mcp_hybrid_server.py`) never import `guardrails`.
 
 Shipped default: `guardrails.enabled: false` (literal bool `True` required to
 arm). Do not treat a YAML string `"false"` as off-by-truthiness — the bridge

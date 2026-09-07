@@ -9,7 +9,7 @@ decided entirely by `graph.py`'s edges and `gate.py`'s construction gates
 
 | Class | Backend | Protocol |
 |---|---|---|
-| `LocalLLMClient` | Ollama (default) or LM Studio | OpenAI-compatible `/chat/completions` on loopback; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so localhost traffic can't be redirected off-box |
+| `LocalLLMClient` | Ollama (default) or LM Studio | OpenAI-compatible `/chat/completions` on loopback (or an operator-listed `local_llm.trusted_hosts` entry); ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so localhost traffic can't be redirected off-box |
 | `GrokClient` | x.ai | OpenAI-compatible `/chat/completions`; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `GROK_API_KEY` cannot transit an operator proxy |
 | `ClaudeClient` | Anthropic | Messages API; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `ANTHROPIC_API_KEY` cannot transit an operator proxy |
 
@@ -33,7 +33,14 @@ recorded to `logs/spend.jsonl` — see [`docs/spend/README.md`](../docs/spend/RE
   time and, for Grok, credits). Timeouts retry for `GrokClient`/`ClaudeClient`
   only — `LocalLLMClient` passes `retry_on_timeout=False`, so a stalled Ollama
   read fails fast rather than burning a second full `timeout_sec`.
-  Config-driven via each model's `retry` block; absent block = single attempt.
+  Config-driven via each model's `retry` block; absent block = single attempt
+  (the shipped `config.yaml` sets `max_retries: 2` on all three models, i.e. up
+  to three attempts). A `Retry-After` header on a 429/5xx is honored in place
+  of the exponential delay, clamped to `backoff_max_sec`. Every sleep is also
+  checked against the per-request graph deadline (`api.graph_timeout_sec`,
+  set via `set_graph_deadline`): when the remaining budget cannot cover the
+  pending backoff plus another POST, the retry is abandoned and the client
+  raises its timeout error immediately instead of outliving the 504 (#1359).
 - **Local failover** (`models.local_llm.fallback`): optional boot-time probe
   that prefers the primary backend (Ollama) and falls back to the secondary
   (LM Studio) if unreachable; selection cached per process. Ships disabled so

@@ -41,7 +41,6 @@ Flag if `host` is not `127.0.0.1` (loopback requirement). `grok_enabled`/`claude
 ### 4. Environment Variables
 ```bash
 echo "GROK_API_KEY: $([ -n "$GROK_API_KEY" ] && echo SET || echo MISSING)"
-echo "CYCLAW_MODE: ${CYCLAW_MODE:-not set (config.yaml value used)}"
 ```
 
 ### 5. Server Health (if running)

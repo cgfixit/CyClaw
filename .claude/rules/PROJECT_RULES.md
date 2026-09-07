@@ -49,7 +49,7 @@ Scoped behavioral rules and non-negotiable constraints for Claude Code sessions 
 
 ### Testing
 
-- **Coverage Target:** 80% minimum (measured across the 17 sources in `pyproject.toml`'s `[tool.coverage.run]`: `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`, `harness`, `telegram`, `opentweet`, `memory`)
+- **Coverage Target:** 80% minimum (measured across the 18 sources in `pyproject.toml`'s `[tool.coverage.run]`: `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`, `harness`, `telegram`, `opentweet`, `memory`, `schemas`)
 - **Test Command:** `GROK_API_KEY=dummy pytest tests/ -q --tb=short`
 - **No Live Services:** All external deps mocked via `tests/conftest.py`
 - **Exit Codes:** Respect exit code conventions (0=success, 2=operation failed, 3=env/config error, 4=write refused)
