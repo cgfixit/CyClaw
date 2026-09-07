@@ -29,9 +29,9 @@ inference:
 | `chat_client.py` | Live | Cloud provider client used by `real_repo_loop.py`; owns the single retry policy — 2 bounded retries on transport/5xx/429, never on timeout; SDK retries disabled via `max_retries=0` |
 | `model_adapter.py` | Live | Provider/model shaping for the above |
 | `handoff.py` | Live | `sanitize_handoff` — bounds and redacts every outbound cloud prompt |
-| `builder.py` | Retired | The DeepAgents subgraph itself |
+| `builder.py` | Retired | The DeepAgents subgraph itself; also re-exported from `__init__.py` |
 | `core.py` | Retired | Serves the `deepagent-plan` probe only |
-| `runners.py` | Retired | Serves the `deepagent-plan` probe only |
+| `runners.py` | Retired | Serves the `deepagent-plan` probe only; also re-exported from `__init__.py` |
 | `memory.py` | Retired | Imported by `builder.py` only |
 | `permissions.py` | Retired | Imported by `builder.py` and `tools.py`; also re-exported from `__init__.py` |
 | `skills.py` | Retired | Imported by `builder.py` only |

@@ -1,7 +1,7 @@
 # `agentic/` — CyClaw Agentic Layer
 
 **Status (2026-08-09):** Experimental, **disabled by default**, out-of-band.
-Primary entry: `python -m agentic.cli` (plus sibling CLIs for filesystem and SQL).
+Primary entry: `python -m agentic.cli` (plus sibling CLIs for filesystem, SQL, and passive network inventory).
 Canonical longer guide: [`docs/agentic/AGENTIC_README.md`](../docs/agentic/AGENTIC_README.md).
 Write-path enablement checklist: [`docs/agentic/GITHUB_WRITE_ENABLEMENT.md`](../docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
 
@@ -420,8 +420,9 @@ per [`GITHUB_WRITE_ENABLEMENT.md`](../docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
   prompt (instruction + context + files) leaving the machine.”
 - Prefer two-stage so large file bodies go to a local model after a short cloud
   plan, not on every iteration.
-- Do not enable cloud providers you do not use; an enabled provider with a live
-  key while `allow_cloud_providers` is false is a **config error** (fail loud).
+- Do not enable cloud providers you do not use; any enabled provider while
+  `allow_cloud_providers` is false is a **config error** (fail loud), whether or
+  not its key is set.
 
 ### Skills registry
 

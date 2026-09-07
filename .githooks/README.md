@@ -22,6 +22,7 @@ Also allowed: `main`, `master`, `develop`, `dependabot/*`, `renovate/*`, `releas
 |------|------|----------|
 | `pre-commit` | every commit | refuses commit if current branch is off-convention |
 | `commit-msg` | every commit | refuses subjects that are not `[prefix] - description` per the PR template Title section |
+| `pre-push` | every push | fetches `origin/main`, refuses off-convention head refs, and refuses non-default branches that do not contain current `origin/main` |
 
 The `commit-msg` hook's allowlist is a closed set — `invariant`, `governance`,
 `fsconnect`, `agentic`, `rag`, `harness`, `security`, `docs`, `infra`, `fix`,
@@ -29,7 +30,6 @@ The `commit-msg` hook's allowlist is a closed set — `invariant`, `governance`,
 skips the check entirely for merge/revert/fixup commits (`Merge`, `Revert`,
 `fixup!`, `squash!`, `Amend!`). Anything else is rejected, so reach for the
 closest listed prefix rather than inventing one.
-| `pre-push` | every push | fetches `origin/main`, refuses off-convention head refs, and refuses non-default branches that do not contain current `origin/main` |
 
 ## PR body template (not a git hook)
 
