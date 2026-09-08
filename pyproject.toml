@@ -8,14 +8,14 @@ version = "1.9.0"
 description = "Offline-first RAG server with graph-enforced security routing"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastapi==0.139.2",
-    "uvicorn[standard]==0.51.0",
-    "pydantic==2.13.4",
-    # pydantic-core is intentionally not pinned here: pydantic==2.13.4 hard-pins its
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "pydantic==2.13.5",
+    # pydantic-core is intentionally not pinned here: pydantic==2.13.5 hard-pins its
     # exact pydantic-core (2.46.4), and constraints.txt locks that same version. The
     # dep-guard D1 lock-step check reads the pair from constraints.txt, not pyproject.
     "chromadb==1.5.9",  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
-    "sentence-transformers==5.6.0",
+    "sentence-transformers==6.0.1",
     # huggingface_hub and starlette are imported directly by first-party source
     # (retrieval/embeddings.py, gate.py/harness/server.py) but were, until now,
     # only implicit transitives of sentence-transformers/fastapi respectively --
@@ -25,7 +25,7 @@ dependencies = [
     # excluded from that resolution only because its CPU wheel index was
     # unreachable in the verifying sandbox -- torch shares no dependency with
     # either package, so the resolution is unaffected).
-    "huggingface-hub==1.26.0",
+    "huggingface-hub==1.30.0",
     # onnxruntime arrives unconditionally via chromadb (which asks only for
     # >=1.14.1, with no extra marker), so this narrows a dependency that is
     # already always installed rather than adding an optional one. It is
@@ -37,17 +37,17 @@ dependencies = [
     # path from that release onward (PRs #27379/#29872); below it the env half
     # of the ONNX control is inert on macOS and Linux.
     "onnxruntime==1.29.0",
-    "starlette==1.3.1",
+    "starlette==1.6.0",
     "rank-bm25==0.2.2",
     "httpx==0.28.1",
     "pyyaml==6.0.3",
     "numpy==1.26.4",
     "nltk==3.10.3",
-    "langgraph==1.2.9",
-    "langchain-core==1.5.0",
+    "langgraph==1.2.11",
+    "langchain-core==1.6.2",
     # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
     # so legacy/no-deps paths cannot strand the app on websockets 12.x.
-    "websockets==15.0.1",
+    "websockets==17.1",
 ]
 
 [project.optional-dependencies]
@@ -62,11 +62,11 @@ guardrails = [
     "nemoguardrails==0.24.0",
 ]
 postgres = [
-    "psycopg==3.2.13",
-    "psycopg-binary==3.2.13",
+    "psycopg==3.3.5",
+    "psycopg-binary==3.3.5",
 ]
 pgvector = [
-    "pgvector==0.4.2",
+    "pgvector==0.5.0",
 ]
 mssql = [
     "pyodbc==5.3.0",
@@ -91,24 +91,24 @@ test = [
     # no production module imports zoneinfo -- opentweet/runner.py uses
     # datetime.astimezone(), which reads the host's local offset and needs no
     # IANA tzdb. Must match the requirements-test.txt / constraints.txt pin.
-    "tzdata==2026.2",
+    "tzdata==2026.3",
 ]
 dev = [
-    "ruff==0.16.1",
-    "mypy==2.3.0",
+    "ruff==0.16.6",
+    "mypy==2.3.1",
     "bandit==1.9.4",
     "pytest-cov==7.1.0",
 ]
 agentic-deepagents = [
-    "deepagents==0.6.12",
-    "langchain==1.3.14",
-    "langchain-openai==1.3.5",
+    "deepagents==0.7.13",
+    "langchain==1.4.0",
+    "langchain-openai==1.6.0",
     # langchain-anthropic is a MANDATORY (non-extra) dependency of deepagents
     # 0.6.12, so installing this extra already pulls it. Pinned explicitly rather
     # than left floating in deepagents' own >=1.4.7,<2 range, because an unpinned
     # transitive defeats the exact-pin reproducibility constraints.txt exists for
     # -- and because the Claude cloud provider imports it directly.
-    "langchain-anthropic==1.4.8",
+    "langchain-anthropic==1.7.1",
     # deepagents 0.6.12 ALSO mandatorily requires langchain-google-genai, langsmith,
     # and wcmatch (verified against its PyPI Requires-Dist, not the package's own
     # docs, which are silent on this) -- these install unconditionally too, but
@@ -119,7 +119,7 @@ agentic-deepagents = [
 # install never pulls a cloud SDK it will not use, and deliberately NOT part of
 # `full` below, which is what CI and dev boxes install.
 agentic-deepagents-cloud = [
-    "langchain-xai==1.2.2",
+    "langchain-xai==1.3.0",
 ]
 full = [
     "cyclaw[postgres]",

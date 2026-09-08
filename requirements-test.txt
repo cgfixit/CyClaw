@@ -19,4 +19,4 @@ pygments==2.21.0
 # opentweet/runner.py uses datetime.astimezone(), which reads the host's local
 # offset and needs no IANA tzdb -- so the wheel and the Docker image should not
 # carry it. constraints.txt still pins it as a version ceiling.
-tzdata==2026.2
+tzdata==2026.3
