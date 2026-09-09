@@ -958,7 +958,7 @@ netconnect:
 # enabled: false, is a pure no-op with NO effect on existing functionality: the
 # graph topology stays the sole source of routing/policy. Runs strictly out-of-band
 # (`python -m guardrails.cli`) and is NEVER imported by gate.py, graph.py, or
-# mcp_hybrid_server.py — that isolation preserves the five security invariants.
+# mcp_hybrid_server.py — that isolation preserves the six security invariants.
 # nemoguardrails is an OPTIONAL dependency: the layer soft-imports it and degrades
 # to offline heuristic rails (injection + soul-mutation block + token-overlap
 # grounding) when it is absent. See docs/NeMo/later_development_guideline.md.

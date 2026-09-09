@@ -300,11 +300,13 @@ without opening it.
 **The six invariants** (wiring, not prompts; `python3
 .claude/skills/invariant-guard/check_invariants.py` asserts them):
 1. I1 RAG-first: `retrieve` is the unconditional entry node.
-2. I2 Topology = policy: routing is graph edges via three routers only.
+2. I2 Topology = policy: routing is graph edges via four routers only
+   (`score_router`, `guardrail_router`, `user_gate_router`,
+   `pre_action_hook_router`).
 3. I3 Triple gate: Grok/Claude need `mode=="hybrid"` AND `<provider>.enabled`
    AND per-request `user_confirmed_online`. Both providers are `enabled: true`
    since 2026-08-07 (armed), still gated.
-4. I4 Audit convergence: all nine upstream paths reach `audit_logger` before END.
+4. I4 Audit convergence: all eleven upstream paths reach `audit_logger` before END.
 5. I5 Soul governance: `soul.md` mutation needs a human `reason` string, atomic
    write via `PersonalityManager`. Governed, not forbidden.
 6. I6 Module isolation: the core six (`gate.py`, `gate_ops.py`, `gate_auth.py`,

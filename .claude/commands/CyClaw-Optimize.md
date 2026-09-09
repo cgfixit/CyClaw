@@ -275,9 +275,9 @@ commit (if any), never for chunk changes.
 - **All PRs are draft**; the human decides when to merge/close.
 - Do not re-open an area already covered by an open PR; skip the
   null-allowed-origins `config.yaml` item.
-- Respect the five security invariants — RAG-first, topology=policy,
-  triple-gated external (Grok and/or Claude), audit convergence, soul governance. Never
-  weaken a graph-edge policy to "optimize."
+- Respect the six security invariants — RAG-first, topology=policy,
+  triple-gated external (Grok and/or Claude), audit convergence, soul governance,
+  module isolation. Never weaken a graph-edge policy to "optimize."
 - Workflow enhancements must need **no license, secret, or key**.
 - Never mutate `data/personality/soul.md` without an explicit human `reason`.
 
