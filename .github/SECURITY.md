@@ -1,6 +1,6 @@
 # Security Policy — CyClaw
 
-CyClaw is a production-grade local AI agent built on three invariants: RAG-first retrieval, LangGraph topology as security policy, and human-gated soul governance. Security is a top priority. This document describes how to report vulnerabilities, how we triage and respond, and what is in-scope for vulnerability reports.
+CyClaw is a production-grade local AI agent built on six security invariants (I1–I6): RAG-first retrieval, LangGraph topology as security policy, triple-gated external fallback, audit convergence, human-gated soul governance, and module isolation. Security is a top priority. This document describes how to report vulnerabilities, how we triage and respond, and what is in-scope for vulnerability reports.
 
 > **Two files, one policy.** This is the copy GitHub displays (`.github/` wins the community-health precedence over the repo root). The root [`SECURITY.md`](../SECURITY.md) is the companion: it carries the **security model summary** (the enforced invariants) and the **Accepted Dependency Risks** register — the chromadb and nltk CVE acceptances that `requirements.txt`, `.trivyignore`, `.osv-scanner.toml`, and the `pip-audit` workflow all encode. Reporting process lives here; risk acceptances live there. Update the one that owns the section rather than copying it across.
 

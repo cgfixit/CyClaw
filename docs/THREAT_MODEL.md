@@ -91,9 +91,9 @@ Container/OS-level controls currently enforced (see `Dockerfile` +
   logs anomalous exec/write/egress on the agentic & sync paths.
 
 Application/architectural controls (the primary boundary — enforced by graph
-topology, not prompts): the **five security invariants** (RAG-first,
-topology=policy, triple-gated external, audit convergence, soul governance) and
-**module isolation** (out-of-band layers never imported by core paths). See
+topology, not prompts): the **six security invariants** I1–I6 (RAG-first,
+topology=policy, triple-gated external, audit convergence, soul governance, and
+module isolation — I6 is the import-isolation invariant). See
 `CLAUDE.md` and `.claude/rules/PROJECT_RULES.md`.
 
 ---

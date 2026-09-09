@@ -199,7 +199,7 @@ lazy-imported from `gate_memory.py`, `graph.py`, and
 `retrieval/hybrid_search.py`. Its isolation contract is
 `tests/test_memory_isolation.py`.
 
-**Proven by:** invariant-guard I6 (AST, both directions, six core vs five OOB).
+**Proven by:** invariant-guard I6 (AST, both directions, six core vs six OOB).
 A narrower characterization (`gate` / `gate_ops` / `graph` / `mcp` vs
 `agentic` / `sync` / `guardrails`) remains in
 `TestCoreModuleIsolation.test_core_modules_never_import_out_of_band` and
