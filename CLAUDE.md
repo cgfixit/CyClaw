@@ -452,6 +452,12 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   explicit `--cov=` flags. New **source modules** need a `--cov=` flag in
   `ci.yml` AND an entry in `[tool.coverage.run] source`; new **test files**
   auto-discover.
+- **Trap:** `GROK_API_KEY=dummy pytest tests/ -q` going green and assuming
+  `tools/lora_finetune/tests/` ran. **Rule:** pyproject `testpaths = ["tests"]`
+  does not collect that tree. Kit CI is `.github/workflows/lora-finetune.yml`
+  (`pytest tests/` from `working-directory: tools/lora_finetune`, plus
+  `dryrun_finetune.py`). When that directory is in the diff, run
+  `GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short`.
 - **Trap:** renaming `ci_rag_smoke.py` to `test_ci_rag_smoke.py`.
   **Rule:** it is deliberately NOT `test_*`-named so pytest ignores it; it runs
   as a separate CI step. Renaming double-runs it and drags ChromaDB into the
@@ -559,9 +565,12 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   `Any`. `from __future__ import annotations` in new modules.
 - **Lint:** `lint.yml` blocks on `ruff check --select F,B,S .` (Pyflakes
   logic errors, likely-bug patterns, and Bandit security checks). Its broader
-  `ruff check --select E,F,I,B,C4,UP,S .` pass remains advisory, as does WPS;
-  line length is 120, `E501` is ignored, and `.claude` is excluded. Keep the
-  full Ruff set clean locally even though only F/B/S block merge. **Types:**
+  `ruff check --select E,F,I,B,C4,UP,S --ignore E501 .` pass remains advisory,
+  as does WPS; line length is 120, `E501` is ignored in `pyproject.toml`, and
+  `.claude` is excluded. CLI `--select E` alone re-enables E501 (Ruff gives
+  CLI select priority over config ignore) — always pass `--ignore E501` with
+  that select set so local matches CI. Keep the full Ruff set clean locally
+  even though only F/B/S block merge. **Types:**
   `mypy --strict --python-version 3.12 --explicit-package-bases` as a
   best-effort discipline on the lines you write — not CI-enforced, and the
   repo does not pass it clean end-to-end today (see the §4 Testing trap).
@@ -630,11 +639,14 @@ A deliverable is done only when its box is fully checked.
 
 **Code change**
 - [ ] `ruff check --select F,B,S .` clean (CI-blocking in `lint.yml`)
-- [ ] `ruff check --select E,F,I,B,C4,UP,S .` clean (broader Ruff remains advisory — keep it clean locally)
+- [ ] `ruff check --select E,F,I,B,C4,UP,S --ignore E501 .` clean (broader Ruff remains advisory — keep it clean locally)
 - [ ] `mypy --strict --python-version 3.12 --explicit-package-bases` clean on
       the lines you actually wrote (best-effort; not CI-enforced, and the repo
       does not pass it clean end-to-end — see §4 Testing trap)
 - [ ] `GROK_API_KEY=dummy pytest tests/ -q --tb=short` green
+- [ ] If the diff touches `tools/lora_finetune/`, also
+      `GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short`
+      (not collected by `pytest tests/`; CI is `lora-finetune.yml`)
 - [ ] CI-style coverage run ≥ 80% and the gate not lowered
 - [ ] no new dependency without an exact pin in `pyproject.toml` AND
       `constraints.txt`
@@ -745,11 +757,15 @@ GROK_API_KEY=dummy pytest tests/ -q --tb=short
 GROK_API_KEY=dummy pytest tests/test_graph.py -q --tb=short   # single file
 GROK_API_KEY=dummy pytest tests/test_agentic_*.py -q          # agentic only
 GROK_API_KEY=dummy python tests/ci_rag_smoke.py               # real-index RAG smoke
+# Kit tests live under tools/lora_finetune/tests/, outside pyproject
+# testpaths=["tests"], so root pytest tests/ does not collect them.
+# CI for that tree is .github/workflows/lora-finetune.yml (pytest + dryrun).
+GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short
 
 # Lint / types (Ruff F/B/S is CI-enforced; broader Ruff and WPS are advisory;
 # mypy is a best-effort local check only — see the §4 Testing trap for why
 # the bare "mypy ... ." invocation errors out)
-ruff check --select E,F,I,B,C4,UP,S .
+ruff check --select E,F,I,B,C4,UP,S --ignore E501 .
 mypy --strict --python-version 3.12 --explicit-package-bases "<touched files>"
 
 # Run the server + probe health
