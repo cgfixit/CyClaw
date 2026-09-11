@@ -1,7 +1,8 @@
 # CyClaw — GitHub Setup Guide (Windows · macOS · Linux)
 
 **v1.9.0 | Offline-First | Ollama | ~15 min**
-Verified 2026-07-29 against `main`; macOS path re-verified 2026-08-02.
+Install execution verified 2026-07-29 against `main` (macOS path 2026-08-02);
+documentation reconciled with code 2026-09-11.
 
 This is the canonical setup guide (`docs/work/SETUP.md` and `docs/! How-To-Guides/setup-guide.md` redirect here). For the
 full architecture tour — agentic layer, filesystem/SQL connectors, NeMo
@@ -12,7 +13,7 @@ gateway running and how to exercise every REST endpoint from a terminal.
 **On a Mac, go straight to [macOS (Apple Silicon)](#macos-apple-silicon)** —
 the Linux block above it does not work here, for a reason spelled out in that
 section. Then:
-[running both servers](#running-both-servers-on-macos) ·
+[running the server](#running-the-server-on-macos) ·
 [testing every endpoint](#rest-api--testing-every-endpoint-from-the-terminal).
 
 ---
@@ -66,12 +67,14 @@ Open `http://127.0.0.1:8787` → the terminal UI loads automatically.
 .\.claude\skills\CyClaw-Sandbox\windows-smoke.ps1
 ```
 
-Runs 22 real checks — 6 against the gateway (`/health`, an on-topic query, an offline-confirmation
-gate check, an injection-blocked query, `/soul`, the terminal page) with
-explicit pass/fail output and a non-zero exit on any failure. For a single
-quick manual check instead, `tests\apipsTest.ps1` fires one `POST /query` and
-prints the raw response — useful for eyeballing a response shape, not a
-pass/fail test.
+Runs 7 real checks against the gateway — `/health`, an on-topic query, an
+offline-confirmation gate check, an injection-blocked query (expects 400),
+`/soul`, the terminal page, and `POST /ops/fsconnect` with `action=status` —
+with explicit pass/fail output and a non-zero exit on any failure. The script's
+own header records the deliberate coverage gap: of the four `/ops/*` routes,
+only `fsconnect` is exercised. For a single quick manual check instead,
+`tests\apipsTest.ps1` fires one `POST /query` and prints the raw response —
+useful for eyeballing a response shape, not a pass/fail test.
 
 ---
 
@@ -101,7 +104,7 @@ uvicorn gate:app --reload --host 127.0.0.1 --port 8787
 
 ### Linux smoke test
 
-Against already-running servers (same 22-check contract as the Windows
+Against an already-running gateway (the same 7-check contract as the Windows
 script). POSIX/bash 3.2; curl + python3 only:
 
 ```bash
@@ -129,7 +132,7 @@ exist for macOS, and both `requirements.txt` and `constraints.txt` hardcode
 that `+cpu` pin.
 
 Three ways to do this. **Option C** is the recommended one-shot after
-`git clone` (install + keys + Ollama + index + both servers). **Option A**
+`git clone` (install + keys + Ollama + index + a running server). **Option A**
 is the installer only if you already have keys/Ollama handled. **Option B**
 is the by-hand core-RAG install.
 
@@ -138,8 +141,8 @@ is the by-hand core-RAG install.
 `macos/setup-from-clone.sh` is the operator-facing "I just cloned this,
 make it run" path on Apple Silicon. It does **not** reimplement the
 installer or the key bootstrap — it chains them and fills the four holes
-Option A leaves open (Ollama, the retrieval index, API keys, starting
-both servers).
+Option A leaves open (Ollama, the retrieval index, API keys, and starting
+the server).
 
 ```bash
 git clone https://github.com/CGFixIT/CyClaw.git && cd CyClaw
@@ -187,7 +190,7 @@ it does not edit `config.yaml`.
 ### Option A — the installer script (handles the torch difference for you)
 
 `macos/install-cyclaw.sh` already branches on `uname -s` = `Darwin` and does
-the right thing (`macos/install-cyclaw.sh:176-190`):
+the right thing (its `Darwin` branch):
 
 ```bash
 git clone https://github.com/CGFixIT/CyClaw.git && cd CyClaw
@@ -218,7 +221,7 @@ Option B; it is a different target:
 |---|---|
 | Ollama install / `ollama serve` / model pull | Do [Ollama on macOS](#ollama-on-macos) yourself |
 | The retrieval index | Run `python -m retrieval.indexer` — otherwise `/query` 503s |
-| `CYCLAW_API_KEY` | Export it before launching, or the console's state-changing routes fail closed with 401. `macos/invoke-cyclaw.sh:165-166` warns about this at launch; the key is deliberately never written into the shim, since that would put a secret in a profile file on disk |
+| `CYCLAW_API_KEY` | Export it before launching, or the console's state-changing routes fail closed with 401. `macos/invoke-cyclaw.sh` warns about this at launch; the key is deliberately never written into the shim, since that would put a secret in a profile file on disk |
 | `GROK_API_KEY` | Export it (any non-empty value offline) |
 | Your own corpus | Copy `.md` files into `data/corpus/` |
 
@@ -315,19 +318,23 @@ export GROK_API_KEY=dummy
 export CYCLAW_API_KEY="$(openssl rand -hex 20)"
 ```
 
-### Running both servers on macOS
+### Running the server on macOS
 
-CyClaw ships **two** independent local web apps. They are separate processes on
-separate ports; neither needs the other, and running one does not start the
-other.
+CyClaw is one local web app: the RAG gateway, which serves the browser console
+at `/` and the whole REST API from the same process and port.
 
 ```bash
-# 1) The RAG gateway — serves static/terminal.html at /, plus the whole REST API
+# The RAG gateway — serves static/terminal.html at /, plus the whole REST API
 source .venv/bin/activate
 uvicorn gate:app --host 127.0.0.1 --port 8787
-#    → http://127.0.0.1:8787
-
+#   → http://127.0.0.1:8787
 ```
+
+The retrieval-only MCP server (`python mcp_hybrid_server.py`) is the one other
+process you can start, and it is **not** a second web app: it speaks MCP over
+stdio, binds no port, and exposes search with no model path at all. Run it only
+if you are wiring Claude Desktop or Copilot Studio — see
+[MCP Server](#mcp-server-optional--claude-desktop--copilot-studio).
 
 **The `cyclaw-*` short names need a self-install.** `cyclaw-server`,
 `cyclaw-index`, `cyclaw-mcp`, `cyclaw-metrics`, `cyclaw-clear-cache`,
@@ -377,7 +384,7 @@ not a problem to fix.
 
 ### macOS smoke test
 
-Darwin twin of `windows-smoke.ps1`. Same checks against the gateway,
+Darwin twin of `windows-smoke.ps1`. The same 7 checks against the gateway,
 same non-zero exit on any failure, bash 3.2 / BSD userland, no jq and no
 Homebrew. The server must already be running (`invoke-cyclaw.sh` or the
 uvicorn line above):
@@ -673,8 +680,10 @@ Two consequences worth stating plainly:
   than the one this repo ships, which is outside what this guide covers.
 
 Three places in the repo already implement the correct macOS behavior and
-agree with each other — the CI lane (`.github/workflows/ci.yml:641-659`), the
-installer (`macos/install-cyclaw.sh:124-137`), and
+agree with each other — the CI lane (`ci.yml`'s
+"Install deps (macOS -- plain torch, no +cpu suffix)" step, which runs only
+when `runner.os == 'macOS'`), the installer (`macos/install-cyclaw.sh`'s
+`Darwin` branch), and
 [`macos/README.md`](macos/README.md). The by-hand steps in the
 macOS section above are those same commands.
 
@@ -896,18 +905,24 @@ sampling capability by design.
 ## Beyond the core RAG gateway
 
 This guide only covers `gate.py` + the retrieval pipeline. CyClaw also ships
-several opt-in, disabled-by-default, out-of-band layers — none of them
-required to get the server above running, and none of them ever imported into
-the request path: a GitHub-context/governed-skills **agentic layer**, a
-local/SMB **filesystem connector** and read-only **SQL connector**, an
-explicitly scoped passive **network connector**, an
-optional **NeMo Guardrails** content-safety layer (Phase 2 input + Phase 4a
-output grounding when enabled), and an out-of-band **Telegram** channel
-(`python -m telegram.cli`, default disabled — design:
-[`docs/channels/TELEGRAM_DESIGN.md`](docs/channels/TELEGRAM_DESIGN.md)). See
-README for product overview and
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for security scope. A
-Docker/`docker-compose` path also exists (`Dockerfile`, `docker-compose.yml`).
+optional layers that no step above needs, each shipped disabled and each a
+no-op until you edit `config.yaml`: a GitHub-context/governed-skills **agentic
+layer** and its real-repo coding loop, a local/SMB **filesystem connector**, a
+read-only **SQL connector**, an explicitly scoped passive **network
+connector**, a **NeMo Guardrails** content-safety layer (input rail plus an
+output grounding check when enabled), a facts + episodes **memory store**, and
+the out-of-band **Telegram** (`python -m telegram.cli`) and **OpenTweet**
+(`python -m opentweet.cli`) channels. Two subsystems do ship **on** and write
+local files only: the Numbat NDJSON projection of the audit trail, and the
+Grok/Claude spend ledger.
+
+README's optional-layer table is the canonical list of what each one adds and
+what it ships as; [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) is the
+security scope. Two things are deliberately outside this guide: a
+Docker/`docker-compose` path (`Dockerfile`, `docker-compose.yml`, operator
+guide in [`docs/DOCKER.md`](docs/DOCKER.md)), and the offline QLoRA fine-tune
+kit under `tools/lora_finetune/`, which no install surface here pulls and which
+trains on a separate CUDA box.
 
 For live filesystem metadata, enable `fsconnect`, configure `allowed_roots`,
 then rank files without staging them into the RAG corpus:
@@ -961,5 +976,5 @@ results are hints, not a complete or live reachability map.
 
 *Built by [Chris Grady](https://cgfixit.com) · Repo: [github.com/CGFixIT/CyClaw](https://github.com/CGFixIT/CyClaw)*
 *v1.9.0 package train, Python 3.12 — documentation reconciled with code,
-config, manifests, and workflows on 2026-09-01; install execution last verified
+config, manifests, and workflows on 2026-09-11; install execution last verified
 2026-07-29 / macOS 2026-08-02.*

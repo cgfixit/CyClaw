@@ -51,7 +51,7 @@ below — it adds no second secret store or installer of its own.
 run" path that `setup-cyclaw.sh` calls. It does **not** reimplement the
 scripts above — it chains them and fills the four holes `setup-guide.md`
 documents that Option A leaves open (Ollama, the retrieval index, API keys,
-starting both servers). Use it directly for scripted/CI-style runs where the
+and starting the server). Use it directly for scripted/CI-style runs where the
 extra clone-detection and browser-autofill layer isn't wanted.
 
 ```bash

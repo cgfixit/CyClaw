@@ -545,7 +545,7 @@ pip install -r /tmp/requirements-macos.txt -c /tmp/constraints-macos.txt \
 Prefer a script? `bash ./macos/setup-cyclaw.sh` is the single operator-facing
 entry point (offers to clone, asks its few choices once, then runs
 `macos/setup-from-clone.sh`: installer + Keychain keys + Ollama check +
-retrieval index + both servers). `bash ./macos/install-cyclaw.sh` is the
+retrieval index + a running server). `bash ./macos/install-cyclaw.sh` is the
 installer alone — it handles the torch difference but skips the Ollama / index /
 API-key steps, so the gateway stays degraded (503 on `/query`) until you do
 them. Flags, privacy notes, and tradeoffs:
