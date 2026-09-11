@@ -29,7 +29,7 @@ from utils.repo_paths import canonical_repo_relative_path
         ("docs\\guide.md", "docs/guide.md"),
     ],
 )
-def test_accepts_and_canonicalizes_repo_relative_paths(raw, expected):
+def test_accepts_and_canonicalizes_repo_relative_paths(raw: str, expected: str) -> None:
     assert canonical_repo_relative_path(raw) == expected
 
 
@@ -50,17 +50,20 @@ def test_accepts_and_canonicalizes_repo_relative_paths(raw, expected):
         "./",
     ],
 )
-def test_rejects_escapes_and_flag_injection(raw):
+def test_rejects_escapes_and_flag_injection(raw: str) -> None:
     assert canonical_repo_relative_path(raw) is None
 
 
 @pytest.mark.parametrize("raw", [123, None, b"README.md", ["README.md"]])
-def test_rejects_non_str_input(raw):
-    assert canonical_repo_relative_path(raw) is None
+def test_rejects_non_str_input(raw: object) -> None:
+    # `object`, not `str`: the point of this test is the runtime isinstance
+    # guard, which exists for callers that violate the annotation. The ignore
+    # marks that violation as the subject under test rather than an oversight.
+    assert canonical_repo_relative_path(raw) is None  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("raw", ["README.md.", "README.md ", "docs./guide.md", "docs /guide.md"])
-def test_rejects_trailing_dot_or_space_segments(raw):
+def test_rejects_trailing_dot_or_space_segments(raw: str) -> None:
     """The stricter-than-the-write-jail rule, and the reason it exists.
 
     Windows silently strips a trailing dot or space from a path component, so
@@ -71,7 +74,7 @@ def test_rejects_trailing_dot_or_space_segments(raw):
     assert canonical_repo_relative_path(raw) is None
 
 
-def test_rejection_never_launders_an_absolute_path_into_a_relative_one():
+def test_rejection_never_launders_an_absolute_path_into_a_relative_one() -> None:
     """Returning None rather than a cleaned string is the whole point.
 
     Stripping the leading slash would turn ``/etc/passwd`` into the perfectly
