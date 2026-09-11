@@ -170,7 +170,7 @@ expire it.
 
 - **Codex's fourth P2 on #1247** (a non-numeric port in a harness base URL
   made `parsed.port` raise outside the guarded block) is moot since PR #1367
-  removed `harness/server.py`; do not report it as new.
+  removed the harness server module; do not report it as new.
 - **`/health` `degraded`, `TELEMETRY KILL` on stdout, `503 INDEX_NOT_FOUND`,
   `needs_confirm: true` on `/query`** are all normal states, not errors
   (CLAUDE.md §4 "Environment & install" and `.claude/commands/run.md`).
