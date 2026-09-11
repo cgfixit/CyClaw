@@ -239,4 +239,75 @@ if ! printf '%s\n' "$d7_bad_out" | grep -q "retrieval.max_context_tokens=${max_c
 fi
 echo "D7 adjacency negative: PASS (unrelated ${max_ctx} did not green max_context_tokens)"
 
+# 3. D9-D11 mutation self-test (README paths / links / `python -m` targets).
+#
+#    Same lesson D8's fixture records: a check that is only ever run against a
+#    healthy tree proves nothing -- deleting the whole block would still leave
+#    this script reporting PASS. Every scenario below therefore asserts a
+#    DIRECTION: the "fires" cases plant one real defect each, and the "quiet"
+#    cases plant the exact false-positive classes that made the hand-run
+#    versions of these checks unusable (13 spurious hits across bare
+#    basenames, runtime artifacts and documented-absent files).
+d9tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp" "$d7tmp" "$d9tmp"' EXIT
+mut_pass=0
+
+mut_mk() { # mut_mk <dir> <readme body>
+  rm -rf "$1"; mkdir -p "$1/utils" "$1/.claude/skills"
+  cp "$repo_root"/config.yaml "$repo_root"/pyproject.toml "$repo_root"/gate.py "$1/"
+  cp "$repo_root"/.claude/settings.json "$1/.claude/"
+  # settings.json only -- NOT `cp -r .claude/skills`: copying the real skills
+  # tree would drag its READMEs into the corpus these assertions measure.
+  printf 'x\n' > "$1/CLAUDE.md"
+  printf 'x\n' > "$1/utils/real.py"
+  printf '%s\n' "$2" > "$1/README.md"
+}
+
+mut_expect() { # mut_expect <label> <yes|no> <D9|D10|D11> <body>
+  local label="$1" want="$2" chk="$3" body="$4" dir="$d9tmp/case" out got
+  mut_mk "$dir" "$body"
+  out="$("$PY" "$checker" --repo-root "$dir" 2>&1 || true)"
+  if printf '%s\n' "$out" | grep -q "DRIFT \[$chk\]"; then got=yes; else got=no; fi
+  if [ "$got" != "$want" ]; then
+    echo "$chk mutation self-test: FAIL — $label (wanted fires=$want, got=$got):" >&2
+    printf '%s\n' "$out" | grep -E "\[(D9|D10|D11)\]" >&2
+    exit 1
+  fi
+  mut_pass=$((mut_pass + 1))
+}
+
+mut_expect "dead multi-segment path"        yes D9  '# T
+Cites `utils/nope.py` which is gone.'
+mut_expect "live path"                      no  D9  '# T
+Cites `utils/real.py` which exists.'
+mut_expect "absence documented"             no  D9  '## Files deliberately excluded
+- `vendor/thing/voice_score.py` — not vendored here.'
+mut_expect "runtime artifact"               no  D9  '# T
+Logs land in `logs/audit.jsonl` at runtime.'
+mut_expect "bare basename"                  no  D9  '# T
+A bare `falco.yaml` is the container image own file.'
+
+mut_expect "dead relative link"             yes D10 '# T
+See [gone](docs/missing.md).'
+mut_expect "live relative link"             no  D10 '# T
+See [real](utils/real.py).'
+mut_expect "dead same-file anchor"          yes D10 '# Title
+Jump to [x](#no-such-heading).'
+# The GitHub slug rule that is easy to invert: " & " leaves a DOUBLE hyphen.
+mut_expect "ampersand double-hyphen slug"   no  D10 '# Title
+## macOS launchd & Keychain
+Jump to [x](#macos-launchd--keychain).'
+mut_expect "comma + ampersand slug"         no  D10 '# Title
+## Filesystem, SQL & Passive Network Connectors
+Jump [x](#filesystem-sql--passive-network-connectors).'
+
+mut_expect "nonexistent module"             yes D11 '# T
+Run `python -m totally.bogus` to start.'
+mut_expect "real module"                    no  D11 '# T
+Run `python -m utils.real` to start.'
+mut_expect "allowlisted external runner"    no  D11 '# T
+Run `python -m pytest tests/ -q`.'
+
+echo "D9-D11 mutation self-test: PASS ($mut_pass/13 scenarios)"
+
 echo "== doc-sync verify: OK =="

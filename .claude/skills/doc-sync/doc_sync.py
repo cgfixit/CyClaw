@@ -23,6 +23,12 @@ Checks:
                                local model tag, Ollama context budget, and timeout values
     D8  Graph node count      the real graph.py add_node() count matches every "<n>-node"
                               claim across the docs and agent-facing prompt files
+    D9  README paths          multi-segment repo paths cited in any README.md resolve
+                              to a real file (or a documented absence)
+    D10 README links          relative markdown links resolve, and same-file "#anchor"
+                              links match a real heading under GitHub's slug rule
+    D11 README modules        every "python -m <module>" in a README resolves to a real
+                              module, or is a known external runner
 
 Exit codes (repo convention):
     0  no drift detected
@@ -37,6 +43,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 # Repo-relative path prefixes excluded from every "scan agent-facing prompts
 # for a stale count/claim" pass (D4, D6, D8). Shared across all three so the
@@ -177,6 +184,150 @@ def _d7_value_key_adjacent(doc: str, key: str, value: object) -> bool:
         return True
     nxt = re.compile(rf"(?im)^.*(?:{label_pat}).*\n[^\n]*{val_pat}")
     return nxt.search(doc) is not None
+
+
+# ── D9-D11 shared scope: README files ────────────────────────────────────────
+# These three checks all read the same corpus (every README in the tree) and
+# all exist for the same reason: a rename or a moved file silently invalidates
+# a reference that no other check reads. They were written by hand during the
+# 2026-09-11 README drift sweep and ported here so the next pass is mechanical.
+#
+# Honest scope note: on the tree they were written against, all three found
+# ZERO true positives -- the real drift that sweep caught was prose-level (a
+# security control described backwards, an over-broad "retired" banner, a
+# module missing from the module map), which no path resolver can see. These
+# are regression guards, not bug-finders. That is worth stating because the
+# temptation with a quiet check is to "improve" it into a noisy one.
+
+
+def _readme_corpus(root: Path) -> dict[str, str]:
+    """Every README*.md in the tree, keyed by repo-relative path."""
+    out: dict[str, str] = {}
+    for fp in sorted(root.rglob("*.md")):
+        if not fp.name.lower().startswith("readme"):
+            continue
+        rel = str(fp.relative_to(root)).replace("\\", "/")
+        if rel.startswith(".git/") or _agent_scan_excluded(rel):
+            continue
+        try:
+            out[rel] = fp.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            # An unreadable README is reported by the checks themselves rather
+            # than crashing the run out of its documented 0/2/3 exit contract.
+            continue
+    return out
+
+
+def _tracked_files(root: Path) -> set[str]:
+    """Repo-relative paths of every file in the tree.
+
+    Built with rglob rather than `git ls-files` on purpose: verify.sh drives
+    this script against synthetic fixture directories that are not git
+    repositories, and shelling out would make every fixture run report an
+    empty tree (so every path would "not resolve" and D9 would fire on its
+    own test data).
+    """
+    out: set[str] = set()
+    for fp in root.rglob("*"):
+        if fp.is_file():
+            rel = str(fp.relative_to(root)).replace("\\", "/")
+            if not rel.startswith(".git/"):
+                out.add(rel)
+    return out
+
+
+# Paths that are correct to cite and correct to be absent from a clean
+# checkout: they are created at runtime or on first use. Flagging these would
+# fire on every healthy tree, which is how a checker earns being ignored (the
+# same lesson D4 and D8 record in their own comments).
+_D9_RUNTIME_PATHS = re.compile(
+    r"""^(
+          \.git/                     # e.g. babysit-state.json, written into the git dir
+        | logs/                      # audit.jsonl, spend.jsonl, numbat NDJSON, guardrails
+        | index/                     # chroma/ + bm25.json, built by retrieval.indexer
+        | data/(memory|auth|agentic/workspaces)/
+        | \.emb_cache/
+        | outputs_[A-Za-z0-9_]+/     # lora kit training output tree
+    )""",
+    re.X,
+)
+
+# A cited path that is *documented as absent* is the doc doing its job, not
+# drift. All three phrasings below are live in this repo: unslop's "Files
+# deliberately excluded" heading, deploy/seccomp's "The three former
+# repository profiles were removed", and .claude/README.md's "a file deleted
+# on `main`". Matched against the surrounding claim unit and the nearest
+# heading, reusing the same machinery D4/D8 use for their own context tests.
+_D9_ABSENT_ON_PURPOSE = re.compile(
+    r"delet|remov|exclud|retired|never (?:vendored|created|committed)"
+    r"|not (?:yet )?(?:generated|vendored|created|committed|present)"
+    r"|do not (?:create|commit|hand-author)|former|upstream",
+    re.I,
+)
+
+# Extensions worth resolving. Deliberately excludes extensionless names and
+# anything that doubles as a code identifier.
+_D9_PATH = re.compile(
+    r"`([A-Za-z0-9_./-]+/[A-Za-z0-9_.-]+\."
+    r"(?:py|md|ya?ml|toml|json|txt|sh|ps1|html|js|cfg|ini|plist|env))`"
+)
+
+
+def _d9_path_resolves(cited: str, readme_rel: str, tracked: set[str]) -> bool:
+    """Root-relative, README-relative, or a tail of some tracked path.
+
+    The tail match is what keeps convention paths honest: `.codex/README.md`
+    documents `agents/openai.yaml` as a per-skill convention, and 22 real
+    files end with exactly that suffix. Requiring a root-anchored match would
+    flag a correct doc.
+    """
+    if cited in tracked:
+        return True
+    readme_dir = readme_rel.rsplit("/", 1)[0] if "/" in readme_rel else ""
+    joined = f"{readme_dir}/{cited}" if readme_dir else cited
+    # Normalize a "dir/../x" style join without touching the filesystem.
+    parts: list[str] = []
+    for seg in joined.split("/"):
+        if seg == "..":
+            if parts:
+                parts.pop()
+        elif seg not in ("", "."):
+            parts.append(seg)
+    if "/".join(parts) in tracked:
+        return True
+    suffix = "/" + cited
+    return any(t.endswith(suffix) for t in tracked)
+
+
+# GitHub's heading-anchor slug. The one rule that is easy to get wrong and
+# silently inverts the result: spaces become hyphens ONE FOR ONE and are never
+# collapsed, so "macOS launchd & Keychain" is "macos-launchd--keychain" with a
+# DOUBLE hyphen (the `&` is stripped, the two spaces around it both survive).
+# A collapsing slugger reports every such heading as a broken anchor -- four
+# false positives on this repo's own README when that was written by hand.
+_D10_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$", re.M)
+_D10_LINK = re.compile(r"\[(?:[^\]]*)\]\(([^)\s]+)\)")
+
+
+def _github_slug(heading: str) -> str:
+    s = heading.strip().lower()
+    s = re.sub(r"`|\*|_", "", s)              # inline code / emphasis markers
+    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)  # a link in a heading keeps its text
+    s = re.sub(r"[^\w\s-]", "", s)            # drop punctuation, keep word chars/space/hyphen
+    return s.replace(" ", "-")                # one-for-one, never collapsed
+
+
+# `python -m <name>` targets that are correct without being repo modules.
+_D11_EXTERNAL = {
+    "pytest": "test runner (requirements-test.txt)",
+    "pip": "stdlib-adjacent, always present",
+    "venv": "stdlib",
+    "build": "PEP 517 front-end, dev-only",
+    "json.tool": "stdlib",
+    "http.server": "stdlib",
+    "unslop": "vendored under agentic/vendor/, invoked by its own package name",
+}
+_D11_MODULE = re.compile(r"python3?\s+-m\s+([A-Za-z_][A-Za-z0-9_.]*)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -710,6 +861,87 @@ def main(argv: list[str] | None = None) -> int:
                  f"stale graph node-count claims: {sorted(set(node_drift))}")
         else:
             ok("D8", f"node count {real_nodes} consistent across {len(node_files)} scanned file(s)")
+
+    # ── D9 README path references ───────────────────────────────────────────
+    print("D9 README path refs -> files on disk")
+    readmes = _readme_corpus(root)
+    tracked = _tracked_files(root)
+    path_drift: list[str] = []
+    for rel, text in readmes.items():
+        unit_bounds = _claim_unit_bounds(text)
+        for m in _D9_PATH.finditer(text):
+            cited = m.group(1)
+            # Only multi-segment paths. A bare `falco.yaml` in prose is the
+            # Falco *image's* /etc/falco/falco.yaml, `proposal.md` is a
+            # generated workspace artifact, and unslop's eight "excluded"
+            # filenames are upstream files this repo deliberately did not
+            # vendor -- none are repo-relative claims, and treating them as
+            # such produced 13 false positives when this ran by hand.
+            if "/" not in cited or cited.startswith(("http", "~", "/")):
+                continue
+            if _D9_RUNTIME_PATHS.match(cited):
+                continue
+            if _d9_path_resolves(cited, rel, tracked):
+                continue
+            context = ""
+            for start, end in unit_bounds:
+                if start <= m.start() < end:
+                    context = text[start:end] + "\n" + _nearest_heading(text, start)
+                    break
+            if _D9_ABSENT_ON_PURPOSE.search(context):
+                continue
+            path_drift.append(f"{rel} cites {cited}")
+    if path_drift:
+        note("D9", "files on disk", f"README path refs that do not resolve: {sorted(set(path_drift))}")
+    else:
+        ok("D9", f"all multi-segment path refs resolve across {len(readmes)} README(s)")
+
+    # ── D10 README links and anchors ────────────────────────────────────────
+    print("D10 README links -> targets and headings")
+    link_drift: list[str] = []
+    for rel, text in readmes.items():
+        anchors = {_github_slug(m.group(2)) for m in _D10_HEADING.finditer(text)}
+        readme_dir = root / rel
+        for m in _D10_LINK.finditer(text):
+            target = m.group(1)
+            if target.startswith(("http://", "https://", "mailto:", "#!")):
+                continue
+            if target.startswith("#"):
+                if target[1:] and target[1:] not in anchors:
+                    link_drift.append(f"{rel} anchor {target}")
+                continue
+            path_part = unquote(target.split("#", 1)[0])
+            if not path_part:
+                continue
+            # Cross-file fragments are checked for the FILE only: an anchor in
+            # another document is that document's to keep, and following them
+            # here would make D10 fire on a heading rename two directories away.
+            if not (readme_dir.parent / path_part).exists():
+                link_drift.append(f"{rel} link {target}")
+    if link_drift:
+        note("D10", "link targets and headings", f"broken README links/anchors: {sorted(set(link_drift))}")
+    else:
+        ok("D10", f"all relative links and same-file anchors resolve across {len(readmes)} README(s)")
+
+    # ── D11 README `python -m` targets ──────────────────────────────────────
+    print("D11 README module refs -> importable modules")
+    mod_drift: list[str] = []
+    for rel, text in readmes.items():
+        for m in _D11_MODULE.finditer(text):
+            mod = m.group(1)
+            if mod in _D11_EXTERNAL:
+                continue
+            parts = mod.split(".")
+            as_module = "/".join(parts) + ".py"
+            as_package = "/".join(parts) + "/__init__.py"
+            if as_module in tracked or as_package in tracked:
+                continue
+            mod_drift.append(f"{rel} documents `python -m {mod}`")
+    if mod_drift:
+        note("D11", "modules on disk",
+             f"`python -m` targets that do not resolve: {sorted(set(mod_drift))}")
+    else:
+        ok("D11", f"all `python -m` targets resolve across {len(readmes)} README(s)")
 
     result = {"drift_count": len(_drift), "drift": _drift}
     if args.json:
