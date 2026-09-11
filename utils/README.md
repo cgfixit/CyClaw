@@ -14,8 +14,7 @@ modules"; this file groups them by concern.
 | Module | Role |
 |---|---|
 | `sanitizer.py` | Injection filter for `/query`; patterns come from `config.yaml` (`banned_patterns`). `lru_cache`d by config path — restart to pick up edits. |
-| `auth.py` | Harness-only API-key auth: fail-closed on unset `CYCLAW_API_KEY`, `hmac.compare_digest`. `gate.py` keeps its own separate copy by design — do not refactor them together (see `CLAUDE.md` §2). |
-| `authn.py` | Per-user authentication primitives (scrypt hash/verify, lockout arithmetic, session/CSRF/token id generation). Pure functions — no DB, no HTTP. Distinct from `auth.py` above. |
+| `authn.py` | Per-user authentication primitives (scrypt hash/verify, lockout arithmetic, session/CSRF/token id generation). Pure functions — no DB, no HTTP. |
 | `authn_store.py` | SQLite/Postgres backend for users/sessions/device tokens (`CYCLAW_AUTH_DB_URL`). |
 | `authn_manager.py` | `AuthManager` gluing `authn.py` + `authn_store.py`; no HTTP awareness. |
 | `authn_cli.py` | `cyclaw-user` console script — local-only user/token admin. |
