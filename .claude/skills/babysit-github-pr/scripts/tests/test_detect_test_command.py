@@ -155,11 +155,11 @@ test:
             }
         }))
 
-        test_cmd, _ = detect_from_makefile()
-        assert test_cmd == "make test"  # DevSkim: ignore DS197836
+        detected_makefile_cmd, _ = detect_from_makefile()
+        assert detected_makefile_cmd == "make test"
 
-        test_cmd2, _ = detect_from_package_json()
-        assert "jest" in test_cmd2  # DevSkim: ignore DS197836
+        detected_npm_cmd, _ = detect_from_package_json()
+        assert "jest" in detected_npm_cmd
 
 
 if __name__ == "__main__":
