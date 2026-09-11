@@ -40,8 +40,8 @@ pip install --upgrade --force-reinstall --no-cache-dir unsloth==2026.9.4
 | `finetune_qwen38.py` | Unsloth QLoRA training script (verified API). |
 | `requirements.txt` | Optional operator pins — direct packages only (`unsloth`/`transformers`/`trl`/`datasets`/`accelerate`). Not part of the CyClaw runtime install; not an OSV lockfile. |
 | `dryrun_finetune.py` | Dry-run harness: mocks `unsloth`/`trl`/`datasets` and runs `finetune_qwen38.py` end-to-end without a GPU. |
-| `tests/test_build_corpus.py` | Unit tests: dataset structure, provenance, rendering, JSON round-trip (14 tests). |
-| `tests/test_finetune_integration.py` | Integration tests: mocked control-flow for `finetune_qwen38.py` (13 tests). |
+| `tests/test_build_corpus.py` | Unit tests: dataset structure, provenance, rendering, JSON round-trip (19 tests). |
+| `tests/test_finetune_integration.py` | Integration tests: mocked control-flow for `finetune_qwen38.py` (8 tests). |
 | `README.md` | This file. |
 
 ## Dataset shape
@@ -177,10 +177,10 @@ that. For deeper internalization you'd need ~3–5M tokens of curated pairs.
 ## Model-name caveat
 
 Default `--model-name` is `unsloth/Qwen3.8-27B-unsloth-bnb-4bit` (the current
-Unsloth-supported 27B). CyClaw's `config.yaml` ships `qwen3.6:27b` as the local
-Ollama model. If you want the fine-tuned adapter to load on top of that exact
-Ollama base, **verify first** that the HF checkpoint shares the same
-architecture/weights family as the Ollama `qwen3.6:27b` tag — mismatched base
-models break LoRA. The safe path is to export a full merged GGUF (the script
-does this by default) and load THAT in Ollama, not an `ADAPTER` on a different
-base.
+Unsloth-supported 27B). CyClaw's `config.yaml` ships `qwen3.8:27b-mlx` as the
+local Ollama model. If you want the fine-tuned adapter to load on top of that
+exact Ollama base, **verify first** that the HF checkpoint shares the same
+architecture/weights family as the Ollama `qwen3.8:27b-mlx` tag — mismatched
+base models break LoRA. The safe path is to export a full merged GGUF (the
+script does this by default) and load THAT in Ollama, not an `ADAPTER` on a
+different base.
