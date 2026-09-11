@@ -29,12 +29,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+# After sys.path.insert so this directory's sibling modules resolve.
 # Prior work: 36 curated instruction/input/output pairs (Alpaca-style).
-from curated_qa import CURATED_QA  # type: ignore[import-not-found]
-# Deliverable 2: 12 new structured debugging pairs.
-from cyclaw_debug_qa import DEBUG_QA  # type: ignore[import-not-found]
+from curated_qa import CURATED_QA  # type: ignore[import-not-found]  # noqa: E402
+
 # Expansion set: 22 additional structured pairs (extra-001..022).
-from curated_qa_extra import EXTRA_QA  # type: ignore[import-not-found]
+from curated_qa_extra import EXTRA_QA  # type: ignore[import-not-found]  # noqa: E402
+
+# Deliverable 2: 12 new structured debugging pairs.
+from cyclaw_debug_qa import DEBUG_QA  # type: ignore[import-not-found]  # noqa: E402
 
 SYSTEM_PREAMBLE = (
     "You are CyClaw's assistant. You reason about the CyClaw architecture "

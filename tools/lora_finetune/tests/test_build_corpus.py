@@ -11,9 +11,9 @@ import pytest
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
-import build_cyclaw_corpus as bcc  # type: ignore[import]
-import curated_qa_extra as extra  # type: ignore[import]
-import cyclaw_debug_qa as debug  # type: ignore[import]
+import build_cyclaw_corpus as bcc  # type: ignore[import]  # noqa: E402
+import curated_qa_extra as extra  # type: ignore[import]  # noqa: E402
+import cyclaw_debug_qa as debug  # type: ignore[import]  # noqa: E402
 
 
 # Fixtures

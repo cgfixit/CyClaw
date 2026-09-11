@@ -37,7 +37,9 @@ CURATED_QA: list[dict[str, str]] = [
         "CyClaw uses a LangGraph StateGraph where topology IS the security policy.\n\n"
         "Full flow:\n"
         "  ENTRY → retrieve → route_by_score → guardrail_input → {local_llm | user_gate}\n"
-        "  user_gate → {pre_action_hook_grok → grok_fallback | pre_action_hook_claude → claude_fallback | guardrail_input → offline_best_effort}\n"
+        "  user_gate → {pre_action_hook_grok → grok_fallback | pre_action_hook_claude → claude_fallback | "
+        "guardrail_input → "
+        "offline_best_effort}\n"
         "  {local_llm | grok_fallback | claude_fallback | offline_best_effort} → guardrail_output\n"
         "  ALL paths → audit_logger → END\n\n"
         "Node responsibilities:\n"
@@ -66,7 +68,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "What are the three CyClaw invariants and why are they enforced by graph topology rather than prompts?",
+    "instruction": (
+        "What are the three CyClaw invariants and why are they enforced by graph topology rather than "
+        "prompts?"
+    ),
     "input": "",
     "output": (
         "Three invariants:\n"
@@ -117,7 +122,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "Why is soul evolution an HTTP endpoint rather than a LangGraph node? What was the model council consensus?",
+    "instruction": (
+        "Why is soul evolution an HTTP endpoint rather than a LangGraph node? What was the model council "
+        "consensus?"
+    ),
     "input": "",
     "output": (
         "Soul evolution is NOT a graph node. It's an explicit HTTP endpoint: POST /soul/apply.\n\n"
@@ -139,7 +147,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "How does the guardrail_input node work and what is its relationship to the NeMo Guardrails integration?",
+    "instruction": (
+        "How does the guardrail_input node work and what is its relationship to the NeMo Guardrails "
+        "integration?"
+    ),
     "input": "",
     "output": (
         "guardrail_input is a sync, offline-only input rail positioned between route_by_score and local_llm. "
@@ -163,7 +174,10 @@ CURATED_QA: list[dict[str, str]] = [
 # ═══ 2. SECURITY & DEFENSE ═══════════════════════════════════════════════════
 
 {
-    "instruction": "How does the CyClaw prompt injection filter work? Describe the normalization, pattern matching, and two-level sanitization.",
+    "instruction": (
+        "How does the CyClaw prompt injection filter work? Describe the normalization, pattern matching, and two-level "
+        "sanitization."
+    ),
     "input": "",
     "output": (
         "The sanitizer (utils/sanitizer.py) operates at two levels: user input (reject on match) and "
@@ -191,7 +205,11 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "Explain the triple-gate pattern for external LLM fallback in CyClaw. What are the three gates, and where in the code does each one actually live?",
+    "instruction": (
+        "Explain the triple-gate pattern for external LLM fallback in CyClaw. What are the three gates, and where in "
+        "the code does each one actually "
+        "live?"
+    ),
     "input": "",
     "output": (
         "Three gates must ALL be true simultaneously for external LLM access, and they live in two "
@@ -227,7 +245,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "How does the CyClaw API key authentication work for soul mutation endpoints? What is the fail-closed design?",
+    "instruction": (
+        "How does the CyClaw API key authentication work for soul mutation endpoints? What is the fail-closed "
+        "design?"
+    ),
     "input": "",
     "output": (
         "The require_api_key dependency guards soul mutation endpoints (/soul/apply, /soul/propose, etc.) "
@@ -295,7 +316,8 @@ CURATED_QA: list[dict[str, str]] = [
         "a query that tries to do it inline is refused outright.\n\n"
         "The module also has _INJECTION_MARKERS for defense-in-depth — these are a lightweight subset "
         "of the authoritative 40-pattern filter in utils/sanitizer.py + config.yaml. "
-        "They exist so the guardrails CLI can flag obvious payloads offline without loading the full sanitizer config.\n\n"
+        "They exist so the guardrails CLI can flag obvious payloads offline without loading the full sanitizer "
+        "config.\n\n"
         "Critically, guardrails/rails.py is NEVER imported by gate.py, graph.py, or mcp_hybrid_server.py. "
         "The NeMo action decorator is a no-op shim when nemoguardrails is not installed, so importing "
         "the module always succeeds offline."
@@ -328,7 +350,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "What is the embedding fingerprint check in HybridRetriever and why does it behave differently on Apple Silicon?",
+    "instruction": (
+        "What is the embedding fingerprint check in HybridRetriever and why does it behave differently on Apple "
+        "Silicon?"
+    ),
     "input": "",
     "output": (
         "_check_embedding_fingerprint() guards against serving a semantic index built on a different "
@@ -351,7 +376,11 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "Describe the RRF (Reciprocal Rank Fusion) implementation in CyClaw. What are the weights, k value, and how does graceful degradation work?",
+    "instruction": (
+        "Describe the RRF (Reciprocal Rank Fusion) implementation in CyClaw. What are the weights, k value, and how "
+        "does graceful degradation "
+        "work?"
+    ),
     "input": "",
     "output": (
         "RRF fusion combines semantic (ChromaDB) and keyword (BM25) search results:\n\n"
@@ -396,7 +425,8 @@ CURATED_QA: list[dict[str, str]] = [
         "- Extension matching is case-insensitive (.MD matches .md)\n"
         "- UnicodeDecodeError/OSError on a file → skip with warning, don't crash the whole build\n\n"
         "BM25 index format (JSON, not pickle):\n"
-        "{\"tokenized_corpus\": [[tokens]], \"chunks\": [text], \"metadata\": [{source, chunk_id, source_sha256, stem_tags}]}\n"
+        "{\"tokenized_corpus\": [[tokens]], \"chunks\": [text], \"metadata\": [{source, chunk_id, source_sha256, "
+        "stem_tags}]}\n"
         "Load-time validation: tokenized/chunks/metadata lengths must be equal and non-zero."
     ),
 },
@@ -404,7 +434,10 @@ CURATED_QA: list[dict[str, str]] = [
 # ═══ 4. SOUL GOVERNANCE ═════════════════════════════════════════════════════
 
 {
-    "instruction": "Describe the crash-safe write ordering for soul evolution. What happens at each step and why is the order important?",
+    "instruction": (
+        "Describe the crash-safe write ordering for soul evolution. What happens at each step and why is the order "
+        "important?"
+    ),
     "input": "",
     "output": (
         "PersonalityManager.apply_evolution() uses a strict 4-step write order so any crash leaves "
@@ -448,7 +481,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "What is the soul injection pattern in local_llm_node? How is untrusted context separated from identity?",
+    "instruction": (
+        "What is the soul injection pattern in local_llm_node? How is untrusted context separated from "
+        "identity?"
+    ),
     "input": "",
     "output": (
         "Soul injection happens at the prompt construction level inside local_llm_node and "
@@ -462,7 +498,8 @@ CURATED_QA: list[dict[str, str]] = [
         "Per OWASP LLM01: RAG does NOT remove prompt injection risk — it must be combined with "
         "structural separation.\n\n"
         "Key distinction between response paths:\n"
-        "- local_llm_node and offline_best_effort_node: soul preamble IS included (local model, identity stays on-box)\n"
+        "- local_llm_node and offline_best_effort_node: soul preamble IS included (local model, identity stays "
+        "on-box)\n"
         "- grok_fallback_node and claude_fallback_node: soul preamble is INTENTIONALLY OMITTED — "
         "Grok/Claude are external models and the soul/identity layer must never be forwarded off-box "
         "(invariant 3 + privacy). When context forwarding is enabled for Grok, it uses the same "
@@ -475,7 +512,10 @@ CURATED_QA: list[dict[str, str]] = [
 # ═══ 5. TELEMETRY & OFFLINE ═════════════════════════════════════════════════
 
 {
-    "instruction": "Why does CyClaw have a separate utils/telemetry_kill.py module instead of just setting env vars in gate.py?",
+    "instruction": (
+        "Why does CyClaw have a separate utils/telemetry_kill.py module instead of just setting env vars in "
+        "gate.py?"
+    ),
     "input": "",
     "output": (
         "The telemetry kill block originally lived only in gate.py. But every process that reaches "
@@ -484,7 +524,8 @@ CURATED_QA: list[dict[str, str]] = [
         "utils/telemetry_kill.py exists because:\n"
         "1. Any of these env var names present in the ambient environment (operator's shell profile, "
         "container base image, site-wide observability agent) would be honored by the libraries.\n"
-        "2. Libraries latch their telemetry config at IMPORT or CONSTRUCTION time — setting vars afterwards is too late.\n"
+        "2. Libraries latch their telemetry config at IMPORT or CONSTRUCTION time — setting vars afterwards is too "
+        "late.\n"
         "3. Every entry point must apply the kill BEFORE any heavy import (langchain, chromadb, etc.)\n\n"
         "The module is deliberately stdlib-only (just os). It's imported at the very top of entry points, "
         "ahead of anything heavy, so it must never pull in a third-party package of its own.\n\n"
@@ -525,7 +566,10 @@ CURATED_QA: list[dict[str, str]] = [
 # ═══ 6. ERROR HANDLING & RESILIENCE ═════════════════════════════════════════
 
 {
-    "instruction": "Describe the CyClaw typed exception hierarchy. What is the base class and what are the key sub-errors?",
+    "instruction": (
+        "Describe the CyClaw typed exception hierarchy. What is the base class and what are the key "
+        "sub-errors?"
+    ),
     "input": "",
     "output": (
         "RAGError is the base exception. All CyClaw errors carry message, code (str), and details (dict).\n\n"
@@ -703,7 +747,10 @@ CURATED_QA: list[dict[str, str]] = [
 # ═══ 8. DEBUGGING SCENARIOS ═════════════════════════════════════════════════
 
 {
-    "instruction": "A CyClaw query returns 'needs_confirm: true' every time, even for simple questions. What could be wrong?",
+    "instruction": (
+        "A CyClaw query returns 'needs_confirm: true' every time, even for simple questions. What could be "
+        "wrong?"
+    ),
     "input": "",
     "output": (
         "This means route_by_score is sending every query to user_gate instead of local_llm. "
@@ -732,7 +779,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "CyClaw is showing a 'Soul drift forensic event on startup' message. What does this mean and how do you investigate?",
+    "instruction": (
+        "CyClaw is showing a 'Soul drift forensic event on startup' message. What does this mean and how do you "
+        "investigate?"
+    ),
     "input": "",
     "output": (
         "This means PersonalityManager's startup integrity-hash check detected a mismatch between soul.md "
@@ -746,7 +796,9 @@ CURATED_QA: list[dict[str, str]] = [
         "1. Check the audit log for recent soul events:\n"
         "   grep 'soul' logs/audit.jsonl | tail -20\n\n"
         "2. Check the SQLite version log (content digest / integrity hash of on-disk soul.md, plus the human reason):\n"
-        "   sqlite3 data/personality/cyclaw_soul.db 'SELECT version, content_digest, reason FROM soul_versions ORDER BY version DESC LIMIT 5;'\n\n"
+        "   sqlite3 data/personality/cyclaw_soul.db 'SELECT version, content_digest, reason FROM soul_versions ORDER "
+        "BY version DESC LIMIT "
+        "5;'\n\n"
         "3. Compare soul.md with soul.md.bak (the backup from the last successful evolution):\n"
         "   diff data/personality/soul.md data/personality/soul.md.bak\n\n"
         "4. If the drift is from a manual edit that you WANT to keep:\n"
@@ -791,7 +843,11 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "CyClaw's network audit shows a connection to api.smith.langchain.com in offline mode. What happened and how do you fix it?",
+    "instruction": (
+        "CyClaw's network audit shows a connection to api.smith.langchain.com in offline mode. What happened and how "
+        "do you fix "
+        "it?"
+    ),
     "input": "",
     "output": (
         "This is a telemetry leak — langsmith is attempting to send graph execution traces despite "
@@ -824,7 +880,10 @@ CURATED_QA: list[dict[str, str]] = [
 # ═══ 9. CODE PATTERN Q&A ════════════════════════════════════════════════════
 
 {
-    "instruction": "Show the CyClaw pattern for a LangGraph node function. What does the _GeneratingClient protocol look like?",
+    "instruction": (
+        "Show the CyClaw pattern for a LangGraph node function. What does the _GeneratingClient protocol look "
+        "like?"
+    ),
     "input": "",
     "output": (
         "CyClaw graph nodes follow this pattern:\n\n"
@@ -914,7 +973,10 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "Show the CyClaw pattern for the MCP server's hybrid_search tool. How does it enforce the retrieval-only constraint?",
+    "instruction": (
+        "Show the CyClaw pattern for the MCP server's hybrid_search tool. How does it enforce the retrieval-only "
+        "constraint?"
+    ),
     "input": "",
     "output": (
         "From mcp_hybrid_server.py:\n\n"
@@ -931,18 +993,23 @@ CURATED_QA: list[dict[str, str]] = [
         "        \"properties\": {\n"
         "            \"query\": {\"type\": \"string\"},\n"
         "            \"top_k\": {\"type\": \"integer\", \"default\": 5, \"minimum\": 1, \"maximum\": 50},\n"
-        "            \"mode\": {\"type\": \"string\", \"enum\": [\"hybrid\", \"semantic\", \"keyword\"], \"default\": \"hybrid\"}\n"
+        "            \"mode\": {\"type\": \"string\", \"enum\": [\"hybrid\", \"semantic\", \"keyword\"], \"default\": "
+        "\"hybrid\"}\n"
         "        },\n"
         "        \"required\": [\"query\"]\n"
         "    }\n"
         "}]\n"
         "```\n\n"
         "The retrieval-only constraint is STRUCTURAL, not policy:\n"
-        "1. sampling: None in CAPABILITIES — at the JSON-RPC protocol level, the server declares it cannot invoke any LLM\n"
+        "1. sampling: None in CAPABILITIES — at the JSON-RPC protocol level, the server declares it cannot invoke any "
+        "LLM\n"
         "2. No write tools are exposed — only hybrid_search (read-only against existing indices)\n"
-        "3. top_k is coerced via _coerce_top_k() — non-integer/negative values fall back to default 5, clamped to [1, 50]\n"
+        "3. top_k is coerced via _coerce_top_k() — non-integer/negative values fall back to default 5, clamped to [1, "
+        "50]\n"
         "4. _MAX_QUERY_CHARS (65536) bounds request size — sanity bound, not a security filter\n"
-        "5. The score scale is named in the response via _score_scale() because the three modes emit scores on incompatible scales (raw BM25 unbounded, cosine 0..1, RRF ~1/rrf_k)\n\n"
+        "5. The score scale is named in the response via _score_scale() because the three modes emit scores on "
+        "incompatible scales (raw BM25 unbounded, cosine 0..1, RRF "
+        "~1/rrf_k)\n\n"
         "Any LLM processing must go through the gateway's LangGraph controller with full audit coverage. "
         "The MCP server cannot autonomously invoke an LLM — no prompt or config change can enable it."
     ),
@@ -991,7 +1058,11 @@ CURATED_QA: list[dict[str, str]] = [
 # ═══ 10. DESIGN PHILOSOPHY ══════════════════════════════════════════════════
 
 {
-    "instruction": "Why does CyClaw use LangGraph instead of a simpler chain or prompt-based routing? What does the StateGraph give you that a chain doesn't?",
+    "instruction": (
+        "Why does CyClaw use LangGraph instead of a simpler chain or prompt-based routing? What does the StateGraph "
+        "give you that a chain "
+        "doesn't?"
+    ),
     "input": "",
     "output": (
         "The core insight: safety properties should be topology properties, not behavioral instructions.\n\n"
@@ -1018,11 +1089,16 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "What is CyClaw's stance on RAG and prompt injection? Why doesn't RAG alone solve the injection problem?",
+    "instruction": (
+        "What is CyClaw's stance on RAG and prompt injection? Why doesn't RAG alone solve the injection "
+        "problem?"
+    ),
     "input": "",
     "output": (
-        "Per OWASP LLM01: RAG does NOT remove prompt injection risk. It must be combined with structural separation.\n\n"
-        "The problem: retrieved documents are untrusted input. A corpus chunk could contain 'ignore previous instructions' "
+        "Per OWASP LLM01: RAG does NOT remove prompt injection risk. It must be combined with structural "
+        "separation.\n\n"
+        "The problem: retrieved documents are untrusted input. A corpus chunk could contain 'ignore previous "
+        "instructions' "
         "or a role reassignment attack. When this chunk is injected into the LLM prompt alongside the system prompt, "
         "the LLM may follow the injected instruction instead of the system prompt.\n\n"
         "CyClaw's defense-in-depth approach:\n"
@@ -1030,7 +1106,8 @@ CURATED_QA: list[dict[str, str]] = [
         "during indexing, replacing them with [FILTERED]. This catches injection patterns in the source documents.\n"
         "2. User input filtering: check_input() rejects queries containing banned patterns before any LLM call.\n"
         "3. Structural separation in the prompt: soul_core is prepended as a stable system preamble. "
-        "Retrieved docs are explicitly separated with hard delimiters (\\n\\n---\\n\\n) and labeled 'untrusted context'. "
+        "Retrieved docs are explicitly separated with hard delimiters (\\n\\n---\\n\\n) and labeled 'untrusted "
+        "context'. "
         "This makes it structurally clear to the model that retrieved content is not an instruction.\n"
         "4. Score gate: low-confidence retrieval (top_score < min_score) routes to user_gate instead of local_llm. "
         "This prevents the model from acting on poorly-matched, potentially injected content.\n"
@@ -1044,7 +1121,11 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "How does CyClaw handle the tension between offline-first and providing useful answers when local retrieval has no relevant results?",
+    "instruction": (
+        "How does CyClaw handle the tension between offline-first and providing useful answers when local retrieval "
+        "has no relevant "
+        "results?"
+    ),
     "input": "",
     "output": (
         "This is the core tension CyClaw was designed to resolve. The answer is the triple-gate fallback pattern.\n\n"

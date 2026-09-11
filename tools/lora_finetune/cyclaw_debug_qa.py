@@ -165,7 +165,11 @@ DEBUG_QA: list[dict] = [
             "with the configured extensions."
         )},
     ],
-    "source_refs": ["INVARIANTS.md:decorative signals", "retrieval/hybrid_search.py:_check_embedding_fingerprint", "retrieval/indexer.py"],
+    "source_refs": [
+        "INVARIANTS.md:decorative signals",
+        "retrieval/hybrid_search.py:_check_embedding_fingerprint",
+        "retrieval/indexer.py",
+    ],
 },
 
 # ── Rule 8: sampling=None is decorative, no LLM import is the real guard ───
@@ -200,7 +204,11 @@ DEBUG_QA: list[dict] = [
             "contract the server exists to enforce."
         )},
     ],
-    "source_refs": ["INVARIANTS.md:Rule 8", "mcp_hybrid_server.py", "tests/test_due_diligence_invariants.py:TestMcpNoLlmPath"],
+    "source_refs": [
+        "INVARIANTS.md:Rule 8",
+        "mcp_hybrid_server.py",
+        "tests/test_due_diligence_invariants.py:TestMcpNoLlmPath",
+    ],
 },
 
 # ── Rule 9 / I6: core imports OOB ───────────────────────────────────────────
@@ -238,7 +246,12 @@ DEBUG_QA: list[dict] = [
             "tests/test_memory_isolation.py."
         )},
     ],
-    "source_refs": ["INVARIANTS.md:Rule 9 / I6", "graph.py:guardrail_bridge injection", "utils/ops_runner.py", "tests/test_due_diligence_invariants.py:I6"],
+    "source_refs": [
+        "INVARIANTS.md:Rule 9 / I6",
+        "graph.py:guardrail_bridge injection",
+        "utils/ops_runner.py",
+        "tests/test_due_diligence_invariants.py:I6",
+    ],
 },
 
 # ── Rule 7: include_query_hash flipped ──────────────────────────────────────
@@ -271,7 +284,11 @@ DEBUG_QA: list[dict] = [
             "utils/logger.py — do not persist raw queries on the query path."
         )},
     ],
-    "source_refs": ["INVARIANTS.md:Rule 7", "utils/logger.py:audit_log,hash_query", "tests/test_due_diligence_invariants.py"],
+    "source_refs": [
+        "INVARIANTS.md:Rule 7",
+        "utils/logger.py:audit_log,hash_query",
+        "tests/test_due_diligence_invariants.py",
+    ],
 },
 
 # ── indexer chunk_document validation ───────────────────────────────────────
@@ -491,7 +508,11 @@ DEBUG_QA: list[dict] = [
             "POST /soul/apply, which scans at the write boundary."
         )},
     ],
-    "source_refs": ["INVARIANTS.md:decorative signals, banned_patterns", "graph.py:UNTRUSTED_NOTE", "utils/sanitizer.py"],
+    "source_refs": [
+        "INVARIANTS.md:decorative signals, banned_patterns",
+        "graph.py:UNTRUSTED_NOTE",
+        "utils/sanitizer.py",
+    ],
 },
 
 ]
