@@ -134,7 +134,17 @@ LAST_VERIFIED_VENDOR_PINS = {
     # NEMO_GUARDRAILS_NO_USAGE_STATS and DO_NOT_TRACK (1/true); the usage
     # stats sink is https://events.telemetry.data.nvidia.com/v1.1/events/json.
     "nemoguardrails": "0.24.0",
-    "sentence-transformers": "5.6.0",
+    # 5.6.0 -> 6.0.1 re-verified 2026-09-11 against the installed 6.0.1
+    # source, not just the docs: zero matches for telemetry/analytics/
+    # usage_stats/posthog/segment/mixpanel, and every hardcoded non-hub URL
+    # is an academic citation in a docstring. It reads exactly two env vars,
+    # LOCAL_RANK and CODECARBON_LOG_LEVEL -- the latter only inside an
+    # `importlib.util.find_spec("codecarbon")` guard (__init__.py:51-52) and
+    # only to set a log LEVEL, so it is inert: codecarbon is not installed,
+    # not a 6.0.1 requires-dist entry, and named in no CyClaw manifest.
+    # Category 5 therefore still holds -- all hub traffic flows through
+    # huggingface-hub, which carries its own category-1 and category-3 rows.
+    "sentence-transformers": "6.0.1",
     # Not a pyproject direct pin -- lives in constraints.txt (deepagents
     # transitive). Tracked here because the whole 4-name LANGSMITH_/LANGCHAIN_
     # tracing block defends against exactly this package; verified 2026-08-15
@@ -383,7 +393,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "hf model bootstrap fetch", "category": 3, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "sentence-transformers==5.6.0 / huggingface-hub==1.26.0",
+        "versions": "sentence-transformers==6.0.1 / huggingface-hub==1.26.0",
         "enforcement": "one-time cache-miss download; HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE stay CONDITIONAL "
                        "(set only once the model is confirmed cached -- retrieval/embeddings.py; the real "
                        "in-process gate is local_files_only). Never made unconditional",
@@ -468,10 +478,14 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "sentence-transformers/transformers/torch stack", "category": 5, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "sentence-transformers==5.6.0; torch==2.13.0+cpu; transformers unbounded transitive",
+        "versions": "sentence-transformers==6.0.1; torch==2.13.0+cpu; transformers unbounded transitive",
         "enforcement": "no own telemetry mechanism; all hub traffic flows through huggingface-hub (its "
                        "category-1 ping row + category-3 bootstrap row)", "scope": "embeddings",
-        "reviewed": "2026-08-27", "evidence": "negative finding; torch OSS wheels carry no telemetry",
+        "reviewed": "2026-09-11",
+        "evidence": "negative finding; torch OSS wheels carry no telemetry. Re-checked on the "
+                    "sentence-transformers 5.6.0 -> 6.0.1 bump: no new egress mechanism, and the hub "
+                    "traffic shape is unchanged -- the only model-cache delta was an empty .no_exist "
+                    "marker for a config 6.0.1 probes for and 5.6.0 does not",
     },
     {
         "name": "core web/runtime libs", "category": 5, "controls": {},

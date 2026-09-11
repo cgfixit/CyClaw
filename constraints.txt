@@ -49,7 +49,7 @@ websockets==15.0.1
 langgraph==1.2.9
 langchain-core==1.5.0
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; risk accepted ONLY for local/offline air-gapped PersistentClient embedded mode). See SECURITY.md + pip-audit.
-sentence-transformers==5.6.0
+sentence-transformers==6.0.1
 # Transitive of chromadb (which asks only for onnxruntime>=1.14.1) and of
 # fastembed under the guardrails extra. Bounded here rather than left to the
 # resolver because CyClaw's ONNX telemetry control is version-gated:
