@@ -7,29 +7,46 @@
 
 [![Screenshots: local AI](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/grok-a5efec11-9333-4583-8f97-5fa78803f703.jpg)](https://github.com/CGFixIT/CyClaw/tree/main/docs/screenshots)
 
+A private Local AI RAG/Chatbot/Research server for your own documents: hybrid retrieval over a local
+corpus, a local model answering from it, and the safety rules written into the
+graph that routes the request rather than into a prompt asking a model to
+behave. It binds to `127.0.0.1:8787`, runs offline by default, and treats any
+call to a paid provider as an exception you approve per question.
+
 ## Table of Contents
+
+**The server**
 
 - [Quick Start](#quick-start)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
-- [API Key Setup (Soul Mutations)](#api-key-setup-soul-mutations)
-- [Per-User Authentication](#per-user-authentication-v19)
 - [Installation](#installation)
+- [Project Structure](#project-structure)
+- [Security Model](#security-model)
+
+**Operating it**
+
+- [API Key Setup (Soul Mutations)](#api-key-setup-soul-mutations)
+- [Per-User Authentication](#per-user-authentication)
 - [Docker / GHCR](docs/DOCKER.md)
 - [Full Setup Guide](setup-guide.md)
-- [Project Structure](#project-structure)
 - [Dropbox Corpus Sync](#dropbox-corpus-sync)
-- [macOS launchd & Keychain](#macos-launchd--keychain-v19)
-- [Agentic Layer](#agentic-layer-v160)
-- [Filesystem, SQL & Passive Network Connectors](#filesystem-sql--passive-network-connectors-v18)
-- [NeMo Guardrails](#nemo-guardrails-v18)
-- [Agentic Harness Scaffold](#agentic-harness-scaffold-v19)
-- [GitHub Agentic Coding Harness](#github-agentic-coding-harness-v19)
-- [Telegram Channel](#telegram-channel-v19)
+- [macOS launchd & Keychain](#macos-launchd--keychain)
+- [Local Model Fine-Tuning](#local-model-fine-tuning)
+
+**Optional layers** (all six ship disabled; enable one by editing `config.yaml`)
+
+- [Agentic Layer](#agentic-layer)
+- [Filesystem, SQL & Passive Network Connectors](#filesystem-sql--passive-network-connectors)
+- [NeMo Guardrails](#nemo-guardrails)
+- [Agentic Coding Loop (GitHub)](#agentic-coding-loop-github)
+- [Telegram Channel](#telegram-channel)
 - [OpenTweet Channel](#opentweet-channel)
-- [Security Model](#security-model)
-- [Remaining Work](docs/plans/remaining_work.md) 
-- [Archive & Roadmap](docs/ARCHIVE_AND_ROADMAP.md) 
+
+**Beyond this file**
+
+- [Remaining Work](docs/plans/remaining_work.md)
+- [Archive & Roadmap](docs/ARCHIVE_AND_ROADMAP.md)
 
 ---
 
@@ -66,25 +83,89 @@ every REST endpoint with a copy-pasteable `curl`:
 
 ## What It Does
 
-CyClaw is a personal RAG (Retrieval-Augmented Generation) backend that:
+CyClaw answers questions from **your documents, on your hardware**. A local
+model reads a local index, and once the embedding model is on disk, nothing
+leaves the machine unless you say so on that specific question. What makes that
+claim checkable is *where* the safety lives: in the shape of the graph, not in a
+prompt, a system message, or a config flag someone could forget to set.
 
-1. **Answers questions exclusively from your local Markdown corpus** — no internet by default.
-2. **Enforces every safety invariant via LangGraph topology** — not prompts, not config flags, not discipline.
-3. **Maintains a persistent soul/personality layer** (`soul.md`) with SHA-256 drift detection, atomic evolution writes, and user-gated modification.
-4. **Falls back to an external LLM only with explicit user confirmation** in hybrid mode — Grok (xAI) or Claude (Anthropic), selected per-query, each independently triple-gated at config, env, and per-query level.
-5. **Exposes both a FastAPI HTTP gateway and an MCP server** for Claude Desktop / Copilot Studio integration.
-6. **Ships optional, out-of-band operator layers** — Dropbox corpus sync (`sync/`) and agentic GitHub context / governed local workflows (`agentic/`, `.claude/`) — never imported into the request path, drivable from the browser terminal via the governed **Sync** and **Agentic** consoles.
-7. **Extends the agentic layer to local data** (v1.8+) with opt-in **filesystem** (`agentic/fsconnect/`), read-only **SQL** (`agentic/sqlconnect/`), and passive **LAN inventory** (`agentic/netconnect/`) connectors — all disabled by default and out-of-band.
-8. **Adds an optional NeMo Guardrails content-safety layer** (v1.8, `guardrails/`) that soft-imports `nemoguardrails`, degrades to offline heuristic rails, and is defense-in-depth only — never a routing authority. When `guardrails.enabled` is the literal `true`, `utils/guardrail_bridge.py` wires the visible `guardrail_input` / `guardrail_output` nodes. See [`guardrails/README.md`](guardrails/README.md).
-9. **Scaffolds a governed harness-optimizer / Deep Agents layer** (v1.9, `agentic/harness_optimizer/` + `agentic/deepagent_github/`) — opt-in, disabled by default, out-of-band; phases 0–9 implemented and tested (PR #515, 2026-07-13). **Superseded by item 10:** the live coding pipeline is now `real_repo_loop.py`, whose draft-PR write path was armed on 2026-08-07 behind the `agentic.enabled` master switch that still ships `false`.
-10. **Adds a real-repo GitHub agentic coding harness** (v1.9, `agentic/real_repo_loop.py` + `agentic/executor/`) — clone → plan → patch → verify → **human decides** → commit, with pushing a `claude/*` branch and opening a *draft* PR as two further separate decisions. A diff-scope gate refuses candidates that rewrite the tests judging them, verification runs as sandboxed argv-list subprocesses, and the layer ships off: `agentic.enabled: false` is the master switch (plus per-call reason/confirm) and `allow_git_write_tools: false` holds push.
-11. **Adds an optional per-user authentication layer** (`gate_auth.py` + `utils/authn*`) — scrypt password hashes, session cookie + CSRF for browsers, bearer device tokens for programmatic clients, three roles (`admin`/`operator`/`audit`), and the `cyclaw-user` console script. Every `/auth/*` route exists regardless of `auth.enabled` and returns 503 (not 404) when it is off, so route presence never discloses the feature state. **When `auth.enabled` is true, `POST /query` and the console require a session or named device token.** The shipped default leaves `/query` open. See [Per-User Authentication](#per-user-authentication-v19).
-12. **Adds an optional facts + episodes memory store** (`gate_memory.py` + `memory/`) — SQLite+FTS5, propose/apply governance (a non-empty human `reason` plus an injection scan on apply, parallel to soul's I5), and an optional retrieval-fusion hook. Every `memory:` switch ships `false`; mutating routes require the same Bearer `CYCLAW_API_KEY` as the other admin endpoints. See [`memory/README.md`](memory/README.md) and the plan in [`docs/memory/README.md`](docs/memory/README.md) — not `docs/memories/`, the sandbox notes.
-13. **Ships an optional Telegram channel** (v1.9, `telegram/`, shipped `enabled: false`) — an out-of-band phone remote: outbound notify (`mode: "notify"`) or allowlisted long-poll chat (the shipped `mode: "chat"`; T1-first is still the advised enable order). Inbound text only ever reaches the RAG pipeline through loopback `POST /query`. T3 hybrid-confirm (`allow_hybrid_confirm`, default off) is the only way chat text can set `user_confirmed_online` — one-shot, via the exact private-chat command `/online on <grok|claude>` — and T4 media staging (`media.enabled`, default off) writes only through the existing `agentic/fsconnect` path. See [`docs/channels/TELEGRAM_DESIGN.md`](docs/channels/TELEGRAM_DESIGN.md).
-14. **Adds an offline slop-detection probe for the agentic coding loop** (v1.9.x, `agentic/unslop_bridge.py` + vendored scanners under `agentic/vendor/unslop/`) — scans `real_repo_loop.py`'s model responses and proposed prose files (`.md`/`.rst`/`.txt`) for AI-writing tells, logs redacted findings (SHA-256 doc hash + counts, never raw text) to `logs/unslop.jsonl`, and surfaces a nudge back into the loop. `unslop.enabled` ships `false`; the scanner runs fully offline with no network calls and never crosses the I6 boundary.
-15. **Projects the audit trail into a Numbat forensic stream** (`utils/numbat_emitter.py`, `numbat:` block — the one optional subsystem that ships **`enabled: true`**) — a derived NDJSON stream at `logs/numbat-events.ndjsonl` that the pinned **Numbat 0.2.0** CLI can score for patterns like `secrets.read_private_key` and `exfil.curl_post_file`, fed by the out-of-band **action** plane and the **mainline** plane (`utils/logger.audit_log` projects every audit record). `audit.jsonl` stays authoritative; records are projected *after* SHA-256 query hashing and PII redaction, so raw query text reaches neither stream — but every event carries hostname/username/uid metadata, which makes the stream a second *sensitive local log*, not a privacy improvement (file sink only, no HTTP; disable with `numbat.enabled: false`). Fail-soft end to end, at the terminal `audit_logger` node, so it can never turn a good response into a 500. See [`docs/security-philosophy/numbat_secondary_evaluator.md`](docs/security-philosophy/numbat_secondary_evaluator.md).
-16. **Ships an optional OpenTweet X channel** (`opentweet/`, shipped `enabled: false`) — an out-of-band weekly poster; generation only through loopback `POST /query` with `user_confirmed_online: false`, default write an OpenTweet **draft**, schedulers that generate and never load. See [OpenTweet Channel](#opentweet-channel).
-17. **Tracks what the paid providers cost** (`utils/spend.py`, `logs/spend.jsonl` via `logging.spend_file`) — every billed Grok/Claude call appends token counts, provider/model, and a `source` tag separating the `/query` plane from the agentic plane. **Tokens are the ground truth; dollars are derived at read time.** A separate stream from `audit.jsonl` that never persists query text, prompts, or credentials, and is not a policy point; `cyclaw-metrics` prints spend windows, flags rate staleness, and compares CyClaw's rate table against xAI's own `cost_in_usd_ticks` so a wrong rate surfaces instead of accumulating. See [`docs/spend/README.md`](docs/spend/README.md).
+**First run is the one exception.** If the sentence-transformer embedding model
+is not already in the Hugging Face cache, `retrieval/embeddings.py` fetches it
+once — a documented bootstrap rather than a per-question escalation, and not
+something `user_confirmed_online` gates. Once the model is cached, a disk-only
+probe (`try_to_load_from_cache`, no network) confirms it and every later load
+passes `local_files_only=True`, so a warm cache never reaches out again. Seed
+the cache on a machine you are happy to let fetch once, and CyClaw is offline
+from its first query onward.
+
+### The core — always present, no switches involved
+
+1. **Retrieval comes first, unconditionally.** `retrieve` is the entry node of
+   the 12-node LangGraph state machine in `graph.py`; no model call can precede
+   it. Routing between nodes is graph edges, never a model's decision, so
+   "answer only from the corpus" is a property of the wiring rather than a
+   request the model may decline.
+2. **Hybrid search over your Markdown corpus** — ChromaDB semantic vectors plus
+   BM25 keyword ranking, fused by Reciprocal Rank Fusion (`retrieval.rrf_k`).
+   Both legs run locally on CPU. A top hit weaker than `retrieval.min_score`
+   (and `retrieval.min_semantic_score`, when a cosine score is present) routes
+   to a user gate instead of to a confident guess.
+3. **A local model by default** — Ollama serving the tag in
+   `models.local_llm.model` (shipped: `qwen3.8:27b-mlx`). The
+   prompt-context budget (`retrieval.max_context_tokens`), the generation cap
+   (`max_tokens`), and every timeout are `config.yaml` values; nothing tunable
+   is hardcoded elsewhere.
+4. **A persistent personality layer** (`data/personality/soul.md`) with SHA-256
+   drift detection, atomic writes, and a required human `reason` string on
+   every mutation. The soul is governed — neither frozen nor self-editable.
+5. **Optional online fallback, gated three ways per question** — `app.mode:
+   hybrid` AND the chosen provider's own `enabled` flag AND a
+   `user_confirmed_online` that exists for exactly one request and cannot be
+   pre-set. Grok (xAI) and Claude (Anthropic) are picked per query via
+   `online_provider`, and both ship armed, so on a default checkout the
+   per-question confirmation is the gate actually holding the line. Outbound
+   calls are additionally capped by the remaining `api.graph_timeout_sec`
+   budget: a retry whose backoff would overrun the deadline is refused rather
+   than left to hang.
+6. **Two front doors** — a FastAPI gateway bound to `127.0.0.1:8787` (browser
+   console at `/`) and a retrieval-only MCP server (`mcp_hybrid_server.py`,
+   `sampling: None`) for Claude Desktop / Copilot Studio, which exposes search
+   and no model path at all.
+7. **An audit trail that never stores the question.** All eleven upstream paths
+   converge on `audit_logger` before END, writing a SHA-256 query hash plus
+   PII-redacted metadata — never raw query text — to `logs/audit.jsonl`, with
+   `cyclaw-metrics` as the offline reader.
+
+Five of those properties are enforced by graph topology and a sixth by import
+structure; `python3 .claude/skills/invariant-guard/check_invariants.py` asserts
+all six statically, and [`INVARIANTS.md`](INVARIANTS.md) records which are code
+and which are convention.
+
+### Optional layers
+
+Two of them (authentication, memory) are route modules registered onto the
+gateway itself; the rest are out-of-band subsystems that `gate.py`, `graph.py`,
+and the MCP server never import at all — the isolation is asserted statically,
+not just intended. Every row marked `off` is a no-op until you edit
+`config.yaml`. The two marked **on** need no edit to start writing: the numbat
+stream projects every audit record, so it grows from your first ordinary local
+query, and the spend ledger appends as soon as a confirmed Grok/Claude call is
+billed. Both write local files and neither adds network egress — but the numbat
+stream is a second *sensitive local log*, not a privacy improvement, and it is
+on by default.
+
+| Layer | What it adds | Ships |
+|---|---|---|
+| [Per-user authentication](#per-user-authentication) (`gate_auth.py`, `utils/authn*`) | scrypt password hashes, session cookie + CSRF for browsers, bearer device tokens for scripts, three roles (`admin`/`operator`/`audit`), `cyclaw-user` CLI. With `auth.enabled: true`, `POST /query` and the console require a session or named token | off |
+| Facts + episodes memory (`gate_memory.py`, [`memory/`](memory/README.md); plan in [`docs/memory/`](docs/memory/README.md), not the `docs/memories/` sandbox notes) | SQLite + FTS5 store with propose/apply governance (human `reason` plus an injection scan on apply) and an optional retrieval-fusion hook | off |
+| [NeMo Guardrails](#nemo-guardrails) ([`guardrails/`](guardrails/README.md)) | content-safety input rail and an output grounding check, degrading to offline heuristic rails when `nemoguardrails` is absent — defense in depth, never a routing authority | off |
+| [Dropbox corpus sync](#dropbox-corpus-sync) (`sync/`) | an `rclone` wrapper that refreshes `data/corpus/` out-of-band and signals "reindex" by exit code | CLI only |
+| [Local-data connectors](#filesystem-sql--passive-network-connectors) (`agentic/fsconnect`, `sqlconnect`, `netconnect`) | scoped filesystem reads with gated atomic writes, SELECT-only SQL, and passive LAN inventory with no active probes | off |
+| [Agentic layer](#agentic-layer) + [coding loop](#agentic-coding-loop-github) (`agentic/`) | read-only GitHub context via the `gh` CLI, a governed skills registry, and a real-repo clone → plan → patch → verify → **human decides** → commit pipeline whose push and draft-PR steps are two further separate decisions | off |
+| [Telegram](#telegram-channel) (`telegram/`) and [OpenTweet](#opentweet-channel) (`opentweet/`) channels | a phone remote and a weekly X poster; both reach the pipeline only through loopback `POST /query`, never a direct `graph.py` call | off |
+| Numbat forensic stream (`utils/numbat_emitter.py`) | a derived NDJSON projection of the audit trail at `logs/numbat-events.ndjsonl` that the pinned Numbat 0.2.0 CLI can score for patterns like `exfil.curl_post_file` ([design note](docs/security-philosophy/numbat_secondary_evaluator.md)). Projected after hashing and redaction, but it carries host/user metadata — a second sensitive local log, not a privacy upgrade | **on** |
+| Spend ledger (`utils/spend.py`) | token counts per billed Grok/Claude call in `logs/spend.jsonl`, tagged by plane. Tokens are ground truth; dollars are derived at read time by `cyclaw-metrics`, which also flags a stale rate table ([`docs/spend/README.md`](docs/spend/README.md)) | **on** |
+| [Fine-tune kit](#local-model-fine-tuning) (`tools/lora_finetune/`) | an offline QLoRA kit that teaches a local model this codebase. Not installed by any runtime install surface | operator toolkit |
 
 ---
 
@@ -309,7 +390,7 @@ CyClaw is loopback-only (`127.0.0.1:8787`) — the key never crosses a network. 
 - Do **not** commit the key to Git (`.env` is already in `.gitignore`)
 - Don't forget to set the api key via terminal on Mac or env var in Windows or the web app will not recognize it.
 
-## Per-User Authentication (v1.9)
+## Per-User Authentication
 
 CyClaw ships **two independent credential systems**, and confusing them is the
 most common setup mistake:
@@ -478,7 +559,7 @@ pip install -r /tmp/requirements-macos.txt -c /tmp/constraints-macos.txt \
 Prefer a script? `bash ./macos/setup-cyclaw.sh` is the single operator-facing
 entry point (offers to clone, asks its few choices once, then runs
 `macos/setup-from-clone.sh`: installer + Keychain keys + Ollama check +
-retrieval index + both servers). `bash ./macos/install-cyclaw.sh` is the
+retrieval index + a running server). `bash ./macos/install-cyclaw.sh` is the
 installer alone — it handles the torch difference but skips the Ollama / index /
 API-key steps, so the gateway stays degraded (503 on `/query`) until you do
 them. Flags, privacy notes, and tradeoffs:
@@ -575,31 +656,31 @@ CyClaw/
 │   ├── gh_client.py
 │   ├── registry.py
 │   ├── writer.py               # gh pr create --draft; armed flag, held by agentic.enabled
-│   ├── real_repo_loop.py       # (v1.9 P10) clone → plan → patch → verify → human decides → commit
-│   ├── unslop_bridge.py        # (v1.9.x) offline slop-detection probe for real_repo_loop; default off
+│   ├── real_repo_loop.py       # clone → plan → patch → verify → human decides → commit
+│   ├── unslop_bridge.py        # offline slop-detection probe for real_repo_loop; default off
 │   ├── vendor/unslop/          # vendored offline AI-writing-tell scanners (suggest.py); no network calls
 │   ├── executor/               # sandboxed argv-list check runner; required fail-closed hard sandbox (hard_sandbox.py)
-│   ├── fsconnect/              # (v1.8) local/SMB filesystem connector
+│   ├── fsconnect/              # local/SMB filesystem connector
 │   │   ├── cli.py
 │   │   ├── client.py           # scoped reads (fs_list/stat/read/grep)
 │   │   ├── pathsafe.py         # held-handle containment core (POSIX + Windows reads)
 │   │   ├── writer.py           # gated, atomic writes (default-disabled)
 │   │   └── indexer.py          # toggleable RAG-corpus indexing of the share
-│   ├── sqlconnect/             # (v1.8) read-only SQL scaffold (Postgres/MSSQL)
+│   ├── sqlconnect/             # read-only SQL scaffold (Postgres/MSSQL)
 │   │   ├── cli.py
 │   │   └── client.py           # SELECT-only query guard, env-only DSN
-│   ├── harness_optimizer/      # (v1.9) governed better-harness-style optimizer scaffold
+│   ├── harness_optimizer/      # retired 2026-07-31 train/holdout scaffold; kept and tested, all gates false
 │   │   ├── core.py             # Experiment/Surface/RunReport/CandidateDecision models
 │   │   ├── proposer.py         # scoped train/holdout workspace builder
 │   │   ├── mcp/tools.py        # audited, symlink-hardened proposer workspace tools
 │   │   └── governance.py       # visible-case-hardcoding + governance-finding gates
-│   └── deepagent_github/       # (v1.9) workspace tools + cloud planner; DeepAgents subgraph retired
+│   └── deepagent_github/       # live workspace tools + cloud planner; DeepAgents subgraph retired
 │       ├── repo_workspace.py   # live: jailed workspace tools (clone/read/write/commit/push) used by real_repo_loop
 │       ├── chat_client.py      # live: cloud-provider planner adapter (Grok/Claude)
 │       ├── builder.py          # retired DeepAgents subgraph (2026-07-31) — kept, not deleted
 │       ├── permissions.py      # phase-5 no-write policy refusal
 │       └── subagents.py        # validated SubAgent specs, no bare-string tools
-├── guardrails/                 # (v1.8) opt-in rails; graph nodes via guardrail_bridge
+├── guardrails/                 # opt-in rails; graph nodes via guardrail_bridge
 │   ├── README.md
 │   ├── cli.py
 │   ├── config.py
@@ -607,7 +688,7 @@ CyClaw/
 │   ├── rails.py                # offline heuristic rails (injection/soul/grounding)
 │   ├── metrics.py              # separate logs/guardrails.jsonl stream (hashes only)
 │   └── config/                 # NeMo config.yml + rails.co (Colang flows)
-├── telegram/                   # (v1.9) optional Telegram channel (out-of-band), shipped enabled: false
+├── telegram/                   # optional Telegram channel (out-of-band), shipped enabled: false
 │   ├── cli.py
 │   ├── client.py               # Bot API client — outbound notify + long-poll inbound chat
 │   ├── config.py               # loads config.yaml's `telegram:` block
@@ -666,6 +747,10 @@ CyClaw/
 │   ├── ratelimit.py
 │   ├── launchd_plist.py        # stdlib-only plist builder shared by the telegram / fsconnect / opentweet / generate_service_plist generators (sync.scheduler builds its own)
 │   ├── guardrail_bridge.py     # only bridge from graph.py to guardrails/ (never a direct import)
+│   ├── ops_runner.py           # subprocess shim behind /ops/* — never imports sync/ or agentic/
+│   ├── config_validation.py    # boot-time config validation; fails fast
+│   ├── errors.py               # typed exception hierarchy rooted at RAGError
+│   ├── repo_paths.py           # repo-root anchoring so nothing resolves against cwd
 │   ├── numbat_emitter.py       # derived Numbat NDJSON stream: action-plane emits + mainline audit projection
 │   ├── spend.py                # append-only Grok/Claude token ledger (logs/spend.jsonl); dollars derived at read time
 │   ├── sequence_detect.py      # offline forensic join of audit.jsonl + spend.jsonl on query_hash (CLI only)
@@ -674,11 +759,12 @@ CyClaw/
 │   ├── authn_manager.py        # AuthManager — ties authn.py + authn_store.py together; no HTTP awareness
 │   ├── authn_cli.py            # cyclaw-user console script (local-only by construction)
 │   ├── gen_cert.py             # cyclaw-gen-cert — self-signed cert + key with hostname/LAN SAN
-│   └── telemetry_kill.py       # shared kill block — applied by gate.py, mcp_hybrid_server.py, retrieval/vector_store.py
+│   ├── telemetry_kill.py       # shared kill block — applied by gate.py, mcp_hybrid_server.py, retrieval/vector_store.py
+│   └── onnx_telemetry.py       # post-import ONNX Runtime suppression at the two model-load seams
 ├── schemas/                    # Pydantic API models (api.py; extra='forbid', strict)
 ├── scripts/                    # install-githooks.sh, check-pr-template.sh, measure_local_llm_throughput.py
 ├── tools/
-│   └── lora_finetune/          # offline operator toolkit — QLoRA fine-tune kit for local_llm.model; not installed by requirements.txt/pyproject/Docker/conda
+│   └── lora_finetune/          # offline QLoRA kit for local_llm.model; installed by no runtime surface (see Local Model Fine-Tuning)
 ├── deploy/                     # apparmor/ falco/ seccomp/ container-hardening profiles (all opt-in)
 ├── tests/
 ├── docs/
@@ -721,7 +807,7 @@ module internals (lock lifecycle, exit codes, error taxonomy):
 
 ---
 
-## macOS launchd & Keychain (v1.9)
+## macOS launchd & Keychain
 
 CyClaw's scheduled and supervised jobs on macOS run through **generated launchd
 LaunchAgents** with one uniform posture: every generator writes a plist from
@@ -769,9 +855,38 @@ phase ledger: [`docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md`](docs/work/MACOS_LA
 
 ---
 
-## Agentic Layer (v1.6.0)
+## Local Model Fine-Tuning
 
-CyClaw now includes a **concise, governed agentic layer** for local operator workflows. It is **opt-in, disabled by default, and fully out-of-band**: it is never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`. `data/agentic/skills_registry.json` is a governed store that ships empty (`apply-skill` writes it). Package guide: [`agentic/README.md`](agentic/README.md).
+Retrieval tells the local model what this codebase *says*; a fine-tune teaches
+it how this codebase *thinks*, so an operator model stops re-deriving the same
+invariants on every question. `tools/lora_finetune/` is a QLoRA kit for
+`models.local_llm.model` built on a curated Q&A dataset generated from live
+source — `graph.py`, `INVARIANTS.md`, `retrieval/indexer.py`, `llm/client.py`,
+`config.yaml` — with each example carrying `source_refs` back to the file it
+came from.
+
+**It is an offline operator toolkit, deliberately outside the runtime.** No
+CyClaw install surface — `requirements.txt`, `pyproject.toml` extras, Docker,
+or conda — pulls Unsloth, Transformers, TRL, Datasets, or Accelerate. Training
+happens on a separate CUDA box; the server never imports any of it, and the
+kit's own pins are excluded from this repo's OSV walk precisely because that
+GPU tree is not installed here.
+
+```bash
+python tools/lora_finetune/build_cyclaw_corpus.py   # rebuild the dataset from source
+python tools/lora_finetune/dryrun_finetune.py       # full control flow, mocked, no GPU
+pip install -r tools/lora_finetune/requirements.txt # on the CUDA box only
+```
+
+Dataset shape, category counts, the Unsloth pin caveat, and the
+`pip-audit`-on-the-GPU-box step are in
+[`tools/lora_finetune/README.md`](tools/lora_finetune/README.md).
+
+---
+
+## Agentic Layer
+
+CyClaw ships a **concise, governed agentic layer** for local operator workflows. It is **opt-in, disabled by default, and fully out-of-band**: it is never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`. `data/agentic/skills_registry.json` is a governed store that ships empty (`apply-skill` writes it). Package guide: [`agentic/README.md`](agentic/README.md).
 
 What it adds: read-only GitHub context through the `gh` CLI (invoked as an
 argv list, never via a shell; no GitHub token is stored or forwarded by
@@ -819,9 +934,9 @@ The **Agentic Console** panel drives these from the terminal UI via
 
 ---
 
-## Filesystem, SQL & Passive Network Connectors (v1.8+)
+## Filesystem, SQL & Passive Network Connectors
 
-v1.8 extends the agentic layer beyond GitHub to **local data**, for the regulated or security conscious use case where AI use is compliance heavy. All three connectors are **opt-in, disabled by default, and fully out-of-band** — never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`, so the six security invariants hold by construction. While disabled, their CLIs are a pure no-op (exit 0).
+Three connectors extend the agentic layer beyond GitHub to **local data**, for the regulated or security-conscious case where AI use is compliance heavy. All three connectors are **opt-in, disabled by default, and fully out-of-band** — never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`, so the six security invariants hold by construction. While disabled, their CLIs are a pure no-op (exit 0).
 
 ### `agentic/fsconnect/` — local / SMB filesystem connector
 
@@ -929,7 +1044,7 @@ netconnect:
 
 ---
 
-## NeMo Guardrails (v1.8)
+## NeMo Guardrails
 
 An **opt-in** content-safety layer in `guardrails/` ([package README](guardrails/README.md)). Absence of the `guardrails:` block, or `enabled: false` (the shipped default), is a pure no-op. When enabled, `utils/guardrail_bridge.py` wires two visible `graph.py` nodes — `guardrail_input` (after `route_by_score`) and `guardrail_output` (after generation; grounding check on the **`local_llm` path only**) — still **defense-in-depth only, never a routing authority**: the graph's own edges decide where a blocked query goes. `gate.py` / `graph.py` / `mcp_hybrid_server.py` never import `guardrails` directly (I6). Status table: [`docs/NeMo/README.md`](docs/NeMo/README.md).
 
@@ -955,38 +1070,7 @@ table, phased history, and rail semantics are in
 
 ---
 
-## Agentic Harness Scaffold (v1.9)
-
-A governed, **opt-in, disabled-by-default, out-of-band** scaffold for two
-related capabilities — `agentic/harness_optimizer/` (a better-harness-style
-optimizer with train/holdout scoring and a hard acceptance gate) and
-`agentic/deepagent_github/` (a LangChain Deep Agents-backed local GitHub coding
-harness, lazily importing `deepagents` only when enabled). Phases 0–9 are
-implemented and tested (`tests/test_agentic_harness_*.py`; phases 6–9 landed in
-PR #515, 2026-07-13, documented in
-`docs/work/DEEP_AGENT_HARNESS_PHASES_6_9.md`; full plan and phase ledger in
-`docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md`).
-
-> **Superseded 2026-08-01.** Phase 9's security gate was subsequently satisfied and
-> P10 landed, so "not authorization to add an executor" no longer describes the
-> current tree: a sandboxed verification executor (`agentic/executor/`) and a
-> draft-PR write path (`agentic/writer.py::execute_write`) both exist, and the live
-> real-repo coding pipeline is `agentic/real_repo_loop.py` — **not** the
-> `deepagents`-backed graph this section describes. Both new capabilities still ship
-> disarmed. See [GitHub Agentic Coding Harness](#github-agentic-coding-harness-v19)
-> below for what is actually wired today.
-
-Every gate below the master `agentic.enabled` switch that arms a *run*
-(`deepagent_github.enabled`, `allow_deepagents_dependency`,
-`allow_filesystem_write_tools`, `allow_shell_execution`, `allow_github_writes`,
-`harness_optimizer.enabled`) ships `false` in `config.yaml`; the three
-cloud-provider switches ship armed but unreachable behind those masters (see the
-next-but-one section). While disabled, nothing under either package is reachable
-from `agentic.cli`, and no `deepagents`/`langchain` optional dependency is imported.
-
----
-
-## GitHub Agentic Coding Harness (v1.9)
+## Agentic Coding Loop (GitHub)
 
 The real-repo coding pipeline: **clone → plan → patch → verify → human decides →
 commit**, with pushing and opening a draft PR as two further, separate decisions.
@@ -1004,6 +1088,20 @@ happens at all — `agentic.enabled`, `deepagent_github.enabled`,
 the signed enablement of 2026-08-07, so on a default checkout it is the master
 switches plus a per-call `reason`/`confirm` that refuse (see "already armed,
 waiting on the master switches" below).
+
+**What sits beside it.** `agentic/deepagent_github/` also carries the pieces the
+loop actually calls — `repo_workspace.py` (the jailed clone: clone, read,
+write_file, commit, push) and `chat_client.py` (the cloud-provider planner
+adapter). Its `builder.py` DeepAgents subgraph and the
+`agentic/harness_optimizer/` train/holdout scaffold beside it are **retired by
+owner decision (2026-07-31)** — kept and tested, not deleted, and superseded by
+the pipeline described here. Every switch below the `agentic.enabled` master
+(`deepagent_github.enabled`, `allow_deepagents_dependency`,
+`allow_filesystem_write_tools`, `allow_shell_execution`, `allow_github_writes`,
+`harness_optimizer.enabled`) ships `false`, so nothing under either package is
+reachable from `agentic.cli` and no `deepagents` / `langchain` optional
+dependency is imported. The phase ledger is in
+[`docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md`](docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md).
 
 ### How a run works
 
@@ -1154,7 +1252,7 @@ mode, or one of the commands above for cloud).
 
 ---
 
-## Telegram Channel (v1.9)
+## Telegram Channel
 
 CyClaw includes an **optional, out-of-band** Telegram channel (`telegram/`,
 shipped `enabled: false`) that gives the single trusted operator a
@@ -1177,7 +1275,7 @@ staging (`media.enabled: false`) accepts private-chat attachments captioned
 `/save --confirm <reason>` only through the existing `agentic/fsconnect` write
 path. The `poll-plist` / `health-plist` generators never load, and their
 secrets are injected at process start by the Keychain wrapper (see
-[macOS launchd & Keychain](#macos-launchd--keychain-v19)).
+[macOS launchd & Keychain](#macos-launchd--keychain)).
 
 **Core commands**
 
@@ -1230,7 +1328,7 @@ are in [`macos/README.md`](macos/README.md) and
 | Input | Config-driven injection filter (`policy.prompt_filter`) |
 | Rate limit | 60 req/min per IP |
 | Proxy bypass | All `httpx` clients set `trust_env=False` — ambient `HTTP(S)_PROXY`/`.netrc` cannot reroute local traffic, see the path-embedded Telegram bot token, or carry `GROK_API_KEY` / `ANTHROPIC_API_KEY` on a confirmed hybrid call (`utils/health.py`, `llm/client.py` local + Grok + Claude, `telegram/client.py`, `opentweet/client.py`). This reverses the old “operator proxy governs paid egress” exception. |
-| Telemetry | Canonical kill maps (`utils/telemetry_kill.py`: telemetry + a visibly-separate update-check map, plus a removed-outright scrub set incl. the declarative-OTel config names) applied before any SDK import by every maintained Python chokepoint (invariant-guard G1 pins 15 orderings) AND delivered as literal environment before the interpreter starts at every process boundary — Docker ENV, the shipped launchers, generated launchd plists / Windows tasks / cron lines, and verifier/`gh` children via `build_telemetry_safe_env`; ONNX Runtime additionally gets the post-import `disable_telemetry_events()` call at its load seams (`utils/onnx_telemetry.py`). HF Hub network calls are also cut off once the embedding model is confirmed cached (`retrieval/embeddings.py`). Not a network kill switch: intentional policy-gated egress is classified separately in [SECURITY.md](SECURITY.md) |
+| Telemetry | Canonical kill maps (`utils/telemetry_kill.py`: telemetry + a visibly-separate update-check map, plus a removed-outright scrub set incl. the declarative-OTel config names) applied before any SDK import by every maintained Python chokepoint (invariant-guard G1 pins 14 orderings) AND delivered as literal environment before the interpreter starts at every process boundary — Docker ENV, the shipped launchers, generated launchd plists / Windows tasks / cron lines, and verifier/`gh` children via `build_telemetry_safe_env`; ONNX Runtime additionally gets the post-import `disable_telemetry_events()` call at its load seams (`utils/onnx_telemetry.py`). HF Hub network calls are also cut off once the embedding model is confirmed cached (`retrieval/embeddings.py`). Not a network kill switch: intentional policy-gated egress is classified separately in [SECURITY.md](SECURITY.md) |
 | Audit | All paths log SHA-256 query hash + PII-redacted metadata |
 | Grok gating | Triple gate: `mode=hybrid` AND `grok.enabled=true` AND `user_confirmed_online=true` |
 | Claude gating | Same triple gate, independently: `mode=hybrid` AND `claude.enabled=true` AND `user_confirmed_online=true` |
