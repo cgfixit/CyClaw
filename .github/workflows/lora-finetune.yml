@@ -65,7 +65,7 @@ jobs:
           cache-dependency-path: .github/workflows/lora-finetune.yml
 
       - name: Install pytest
-        run: pip install pytest
+        run: pip install -c ../../constraints.txt pytest
 
       - name: Run the kit's own test suite (mocked unsloth/trl/datasets, no GPU)
         run: python -m pytest tests/ -q --tb=short
