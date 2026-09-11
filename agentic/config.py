@@ -135,9 +135,10 @@ def _validate_bool(value: object, field_name: str) -> None:
         )
 
 
-# Mirrors harness/ollama.py's own list. Duplicated rather than imported because
-# I6 forbids agentic/ and harness/ importing each other at all; the values are
-# a closed set (the three spellings of localhost), not a tunable.
+# Duplicated rather than imported: I6 forbids agentic/ importing the core
+# request path, and guardrails/config.py keeps its own copy for the same
+# reason; the values are a closed set (the three spellings of localhost),
+# not a tunable.
 _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 
@@ -288,9 +289,8 @@ class DeepAgentGitHubConfig:
         # and no egress audit event, so a single non-loopback URL routes around
         # the whole six-condition cloud chain while allow_cloud_providers,
         # providers.<name>.enabled, the API key and --confirm-online all stay
-        # false and are never consulted. harness/ollama.py already refuses a
-        # non-loopback base_url for exactly this reason; this is the same
-        # decision for the planner's own client.
+        # false and are never consulted. Refusing a non-loopback base_url here
+        # is that same decision, made for the planner's own client.
         if not _is_loopback_url(self.base_url):
             raise AgenticConfigError(
                 "agentic.deepagent_github.base_url must be a loopback URL "

@@ -100,8 +100,11 @@ _REAL_REPO_RUN_OVERHEAD_SEC = 300
 # console cannot tell it from a hang. Capping means a genuinely enormous
 # request fails with a legible AGENTIC_TIMEOUT instead, which is the more
 # honest outcome. Raise it deliberately if a real workload ever needs to.
-# Public: a caller can refuse request shapes whose uncapped budget
+# Public so a caller can refuse request shapes whose uncapped budget
 # (real_repo_run_budget_sec below) exceeds this, before any subprocess starts.
+# No caller does today -- the route that did was removed with the Python
+# coding-harness console (#1367) -- so _real_repo_run_timeout_sec's own min()
+# is what actually applies the cap.
 REAL_REPO_RUN_MAX_TIMEOUT_SEC = 3600
 
 
@@ -114,11 +117,14 @@ def real_repo_run_budget_sec(max_iterations: int | None, check_count: int) -> in
     scales with two request fields (``max_iterations`` and how many check
     profiles were selected) rather than being fixed by config alone.
 
-    Public (alongside REAL_REPO_RUN_MAX_TIMEOUT_SEC) so the harness route can
-    refuse a shape whose budget exceeds the cap at request time: past the cap
-    the subprocess is SIGKILLed mid-flight, which leaks the repo clone and a
+    Public (alongside REAL_REPO_RUN_MAX_TIMEOUT_SEC) so a caller can refuse a
+    shape whose budget exceeds the cap at request time: past the cap the
+    subprocess is SIGKILLed mid-flight, which leaks the repo clone and a
     permanently-``running`` record (see the module comment above -- that path
     is unrecoverable by design, so the only good failure is the early one).
+    No caller does that today; the route that did was removed with the Python
+    coding-harness console (#1367), leaving :func:`_real_repo_run_timeout_sec`
+    as the only consumer.
     """
     try:
         cfg = _get_config(str(_CONFIG_PATH))
