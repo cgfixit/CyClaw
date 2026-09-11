@@ -9,7 +9,6 @@ Outputs JSON: {"class": "flaky|code|unknown", "signal": "...", "check": "..."}
 import sys
 import json
 import re
-from typing import Literal
 
 # Flaky patterns: common transient failures that should be retried
 FLAKY_PATTERNS = [

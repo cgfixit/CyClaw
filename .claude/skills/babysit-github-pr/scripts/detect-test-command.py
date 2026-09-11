@@ -13,10 +13,8 @@ Detection order:
 Outputs JSON: {"test_command": "...", "lint_command": "..."}
 """
 
-import sys
 import json
 import re
-import os
 from pathlib import Path
 from typing import Optional, Tuple
 
