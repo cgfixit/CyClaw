@@ -156,9 +156,11 @@ test:
         }))
 
         test_cmd, _ = detect_from_makefile()
+        # DevSkim: ignore — "test" is a variable/string literal, not a cryptographic function
         assert test_cmd == "make test"
 
         test_cmd2, _ = detect_from_package_json()
+        # DevSkim: ignore — "jest" is a package name, not a cryptographic function
         assert "jest" in test_cmd2
 
 
