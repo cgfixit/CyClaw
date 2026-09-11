@@ -97,12 +97,22 @@ DEBUG_QA: list[dict] = [
             "wrong mental model. Per INVARIANTS.md Rule 5, the injection scan "
             "is WRITE-PATH-ONLY. Only `PersonalityManager.apply_evolution` "
             "(POST /soul/apply) scans, and only with scan=True (the default).\n\n"
-            "Two paths change the live soul with NO scan:\n"
+            "Two paths change the live soul with NO scan at all, both outside "
+            "apply_evolution:\n"
             "  - POST /soul/reload — re-reads and adopts soul.md verbatim.\n"
             "  - Startup drift recovery (_load_soul) — if soul.md differs from "
             "the newest soul_versions row, the on-disk content is adopted "
             "verbatim (a DRIFT_RECOVERY row + soul_drift_detected audit event "
             "are recorded, but the content is not scanned).\n\n"
+            "A third path skips the ENFORCED scan without leaving "
+            "apply_evolution: POST /soul/restore calls "
+            "apply_evolution(..., scan=False) on the .bak content. It does run "
+            "an advisory _scan_advisory pass and audit-logs "
+            "soul_restore_scan_flags when a pattern matches, but it never "
+            "refuses the restore — the .bak is treated as previously-vetted "
+            "content (utils/personality.py:restore_from_backup). So on that "
+            "path 'was it scanned?' and 'could it have been refused?' are "
+            "different questions, and only the first is yes.\n\n"
             "Your vim edit + /soul/reload is exactly the unscanned reload path. "
             "This is a documented sharp edge, not a bug. Under the single-operator "
             "threat model it is acceptable because only the operator can write "
@@ -115,7 +125,10 @@ DEBUG_QA: list[dict] = [
             "and Rule 5 deliberately — do not silently delete the tripwire."
         )},
     ],
-    "source_refs": ["INVARIANTS.md:Rule 4,5", "utils/personality.py:apply_evolution,_load_soul,reload"],
+    "source_refs": [
+        "INVARIANTS.md:Rule 4,5",
+        "utils/personality.py:apply_evolution,_load_soul,reload,restore_from_backup",
+    ],
 },
 
 # ── Decorative /health signal ────────────────────────────────────────────────
