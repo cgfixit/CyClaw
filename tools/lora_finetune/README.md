@@ -7,8 +7,25 @@ CyClaw source read from `main` on 2026-09-07 (`graph.py`, `INVARIANTS.md`,
 
 This is an **offline operator toolkit**. The CyClaw runtime install
 (`requirements.txt`, `pyproject.toml` extras, Docker, conda) does **not**
-install Unsloth, Transformers, TRL, or Datasets. Train only on a CUDA box
-after `pip install -r tools/lora_finetune/requirements.txt`.
+install Unsloth, Transformers, TRL, Datasets, or Accelerate. Train only on
+a CUDA box after `pip install -r tools/lora_finetune/requirements.txt`.
+
+The kit `requirements.txt` lists **direct** operator packages only (current
+patched pins as of 2026-09-11). It is **not** a lockfile of Unsloth's GPU
+tree. CyClaw's OSV-Scanner walk excludes `tools/lora_finetune`
+(`--experimental-exclude=r:lora_finetune`) because OSV
+v2 resolves `requirements.txt` transitives and Unsloth's published graph
+still expands to known-vulnerable wheels (pillow 9.5, aiohttp 3.9.5,
+torch 2.9.1) that this repo never installs. After you install on the GPU
+box, run `pip-audit -r tools/lora_finetune/requirements.txt` there.
+
+Unsloth 2026.9.4 still publishes `transformers<=5.5.0` / `trl<=0.24.0` /
+`datasets<4.4`. If `pip install -r requirements.txt` refuses the patched
+HF pins, install Unsloth alone and let it resolve that stack:
+
+```bash
+pip install --upgrade --force-reinstall --no-cache-dir unsloth==2026.9.4
+```
 
 ## Files
 
@@ -21,7 +38,7 @@ after `pip install -r tools/lora_finetune/requirements.txt`.
 | `curated_qa_extra.py` | **22 expansion pairs** (extra-001 … extra-022), grounded in `utils/personality.py`, `utils/telemetry_kill.py`, `utils/errors.py`, `utils/sanitizer.py`, `graph.py`. |
 | `build_cyclaw_corpus.py` | Builds `cyclaw_training.json` + `.jsonl` from all three sources. |
 | `finetune_qwen38.py` | Unsloth QLoRA training script (verified API). |
-| `requirements.txt` | Optional operator pins (`unsloth`/`transformers`/`trl`/`datasets`). Not part of the CyClaw runtime install. |
+| `requirements.txt` | Optional operator pins — direct packages only (`unsloth`/`transformers`/`trl`/`datasets`/`accelerate`). Not part of the CyClaw runtime install; not an OSV lockfile. |
 | `dryrun_finetune.py` | Dry-run harness: mocks `unsloth`/`trl`/`datasets` and runs `finetune_qwen38.py` end-to-end without a GPU. |
 | `tests/test_build_corpus.py` | Unit tests: dataset structure, provenance, rendering, JSON round-trip (14 tests). |
 | `tests/test_finetune_integration.py` | Integration tests: mocked control-flow for `finetune_qwen38.py` (13 tests). |
