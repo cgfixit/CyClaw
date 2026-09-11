@@ -792,13 +792,12 @@
       },
       {
         "role": "assistant",
-        "content": "No — and describing the soul as 'always scanned' is the most common wrong mental model. Per INVARIANTS.md Rule 5, the injection scan is WRITE-PATH-ONLY. Only `PersonalityManager.apply_evolution` (POST /soul/apply) scans, and only with scan=True (the default).\n\nThree paths change the live soul with NO scan:\n  - POST /soul/reload — re-reads and adopts soul.md verbatim.\n  - Startup drift recovery (_load_soul) — if soul.md differs from the newest soul_versions row, the on-disk content is adopted verbatim (a DRIFT_RECOVERY row + soul_drift_detected audit event are recorded, but the content is not scanned).\n  - harness/prompts.py::compose_system_prompt — reads data/personality/soul.md directly, bypassing PersonalityManager entirely: no scan, no _bounded_soul truncation, no drift row, and it does not go through get_system_prompt_additive().\n\nYour vim edit + /soul/reload is exactly the unscanned reload path. This is a documented sharp edge, not a bug. Under the single-operator threat model it is acceptable because only the operator can write soul.md. If you want it scanned, route the edit through POST /soul/apply with a non-empty human reason instead — that path rejects injection patterns (PromptInjectionError) BEFORE any file or DB write, and writes atomically (tmp + os.replace).\n\nIf you intend to harden the reload/drift path (legitimate), you must update test_reload_adopts_soul_without_scanning__scan_is_write_path_only and Rule 5 deliberately — do not silently delete the tripwire."
+        "content": "No — and describing the soul as 'always scanned' is the most common wrong mental model. Per INVARIANTS.md Rule 5, the injection scan is WRITE-PATH-ONLY. Only `PersonalityManager.apply_evolution` (POST /soul/apply) scans, and only with scan=True (the default).\n\nTwo paths change the live soul with NO scan at all, both outside apply_evolution:\n  - POST /soul/reload — re-reads and adopts soul.md verbatim.\n  - Startup drift recovery (_load_soul) — if soul.md differs from the newest soul_versions row, the on-disk content is adopted verbatim (a DRIFT_RECOVERY row + soul_drift_detected audit event are recorded, but the content is not scanned).\n\nA third path skips the ENFORCED scan without leaving apply_evolution: POST /soul/restore calls apply_evolution(..., scan=False) on the .bak content. It does run an advisory _scan_advisory pass and audit-logs soul_restore_scan_flags when a pattern matches, but it never refuses the restore — the .bak is treated as previously-vetted content (utils/personality.py:restore_from_backup). So on that path 'was it scanned?' and 'could it have been refused?' are different questions, and only the first is yes.\n\nYour vim edit + /soul/reload is exactly the unscanned reload path. This is a documented sharp edge, not a bug. Under the single-operator threat model it is acceptable because only the operator can write soul.md. If you want it scanned, route the edit through POST /soul/apply with a non-empty human reason instead — that path rejects injection patterns (PromptInjectionError) BEFORE any file or DB write, and writes atomically (tmp + os.replace).\n\nIf you intend to harden the reload/drift path (legitimate), you must update test_reload_adopts_soul_without_scanning__scan_is_write_path_only and Rule 5 deliberately — do not silently delete the tripwire."
       }
     ],
     "source_refs": [
       "INVARIANTS.md:Rule 4,5",
-      "utils/personality.py:apply_evolution,_load_soul,reload",
-      "harness/prompts.py:compose_system_prompt"
+      "utils/personality.py:apply_evolution,_load_soul,reload,restore_from_backup"
     ]
   },
   {
@@ -1189,13 +1188,12 @@
       },
       {
         "role": "assistant",
-        "content": "PersonalityManager.soul_max_chars (config: personality.soul_max_chars, default 8000) is a hard ceiling on the soul text prepended to EVERY LLM system prompt. Two layers enforce it: PersonalityManager truncates via _bounded_soul at read time, and the /soul/apply schema enforces a matching outer cap at the HTTP boundary (SoulEvolutionRequest).\n\nWhy a ceiling: the soul is prepended to every local_llm and offline_best_effort prompt (NOT the external grok/claude paths — identity never leaves the box). An unbounded soul would inflate the system prompt and consume the Ollama context budget, leaving less room for retrieved context and the query — directly causing the blank-answer / truncation failure when (prompt + max_tokens) exceeds the loaded context window. The ceiling bounds prompt inflation no matter how soul.md was written or edited (including the unscanned reload/drift paths).\n\nCaveat from INVARIANTS Rule 5: harness/prompts.py reads soul.md directly and bypasses PersonalityManager entirely — so it skips _bounded_soul truncation too. A soul larger than soul_max_chars gets injected untruncated into the harness console's system prompt."
+        "content": "PersonalityManager.soul_max_chars (config: personality.soul_max_chars, default 8000) is a hard ceiling on the soul text prepended to EVERY LLM system prompt. Two layers enforce it: PersonalityManager truncates via _bounded_soul at read time, and the /soul/apply schema enforces a matching outer cap at the HTTP boundary (SoulEvolutionRequest).\n\nWhy a ceiling: the soul is prepended to every local_llm and offline_best_effort prompt (NOT the external grok/claude paths — identity never leaves the box). An unbounded soul would inflate the system prompt and consume the Ollama context budget, leaving less room for retrieved context and the query — directly causing the blank-answer / truncation failure when (prompt + max_tokens) exceeds the loaded context window. The ceiling bounds prompt inflation no matter how soul.md was written or edited (including the unscanned reload/drift paths): reload and drift recovery adopt soul.md without an injection scan, but they still read it through PersonalityManager, so _bounded_soul still truncates."
       }
     ],
     "source_refs": [
       "utils/personality.py:soul_max_chars,_bounded_soul",
-      "INVARIANTS.md:Rule 5",
-      "harness/prompts.py:compose_system_prompt"
+      "INVARIANTS.md:Rule 5"
     ]
   },
   {
