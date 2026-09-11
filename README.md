@@ -84,10 +84,19 @@ every REST endpoint with a copy-pasteable `curl`:
 ## What It Does
 
 CyClaw answers questions from **your documents, on your hardware**. A local
-model reads a local index, and nothing leaves the machine unless you say so on
-that specific question. What makes that last claim checkable is *where* the
-safety lives: in the shape of the graph, not in a prompt, a system message, or
-a config flag someone could forget to set.
+model reads a local index, and once the embedding model is on disk, nothing
+leaves the machine unless you say so on that specific question. What makes that
+claim checkable is *where* the safety lives: in the shape of the graph, not in a
+prompt, a system message, or a config flag someone could forget to set.
+
+**First run is the one exception.** If the sentence-transformer embedding model
+is not already in the Hugging Face cache, `retrieval/embeddings.py` fetches it
+once — a documented bootstrap rather than a per-question escalation, and not
+something `user_confirmed_online` gates. Once the model is cached, a disk-only
+probe (`try_to_load_from_cache`, no network) confirms it and every later load
+passes `local_files_only=True`, so a warm cache never reaches out again. Seed
+the cache on a machine you are happy to let fetch once, and CyClaw is offline
+from its first query onward.
 
 ### The core — always present, no switches involved
 
@@ -137,8 +146,13 @@ and which are convention.
 Two of them (authentication, memory) are route modules registered onto the
 gateway itself; the rest are out-of-band subsystems that `gate.py`, `graph.py`,
 and the MCP server never import at all — the isolation is asserted statically,
-not just intended. Every row is a no-op until you edit `config.yaml`, and the
-two that ship **on** only write local files.
+not just intended. Every row marked `off` is a no-op until you edit
+`config.yaml`. The two marked **on** need no edit to start writing: the numbat
+stream projects every audit record, so it grows from your first ordinary local
+query, and the spend ledger appends as soon as a confirmed Grok/Claude call is
+billed. Both write local files and neither adds network egress — but the numbat
+stream is a second *sensitive local log*, not a privacy improvement, and it is
+on by default.
 
 | Layer | What it adds | Ships |
 |---|---|---|
