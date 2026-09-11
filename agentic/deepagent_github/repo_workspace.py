@@ -146,7 +146,7 @@ def _is_dotgit_name(part: str) -> bool:
     A literal ``part == ".git"`` compare is only correct on Linux. Every other
     platform CyClaw runs on has name-equivalence rules that make a DIFFERENT
     string open the SAME directory, and this jail must hold on all of them --
-    `harness/` is explicitly a Windows/PowerShell operator surface:
+    CyClaw ships Windows/PowerShell launchers, not only POSIX ones:
 
     * Windows strips trailing dots and spaces from a path component, so
       ``.git.`` and ``.git `` both open ``.git``.

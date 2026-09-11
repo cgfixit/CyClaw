@@ -279,9 +279,8 @@ class SkillRegistry:
         # raise TypeError (a non-serializable value reached this far) or
         # RecursionError (pathologically deep nesting), and KeyboardInterrupt can
         # land mid-write -- none of those are OSError/ValueError, so they used to
-        # skip the cleanup below and leave tmp_path orphaned. Same fix applied to
-        # harness/config.py's _atomic_write_json for the identical staged-write
-        # pattern; the original exception always propagates unchanged.
+        # skip the cleanup below and leave tmp_path orphaned. The original
+        # exception always propagates unchanged.
         try:
             tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
             os.replace(tmp_path, self.registry_path)

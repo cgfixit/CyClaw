@@ -1,17 +1,16 @@
-"""Repo-relative path safety — shared by harness and ops_runner.
+"""Repo-relative path safety — used by ``utils.ops_runner``.
 
 Why this module exists
 ----------------------
 ``agentic.deepagent_github.repo_workspace.canonical_repo_path`` is the jail's
-source of truth for "will this path write/read under the clone root." Harness
-and ``utils.ops_runner`` must not import ``agentic`` (I6 / isolation), but they
-must reject the same escapes *before* a browser-staged path is forwarded as
-``--read-file``.
+source of truth for "will this path write/read under the clone root."
+``utils.ops_runner`` must not import ``agentic`` (I6 / isolation), but it must
+reject the same escapes *before* a staged path is forwarded as ``--read-file``.
 
-This module is a stdlib-only mirror of that acceptance rule. A drift test in
-``tests/test_harness_agent_routes.py`` asserts the two functions agree on a
-matrix of safe and hostile inputs so a future jail change cannot leave the
-control plane accepting what the clone will skip (or vice versa).
+This module is a stdlib-only mirror of that acceptance rule, plus one
+deliberately stricter segment check documented on the function itself.
+``tests/test_repo_paths.py`` pins both halves: the shared base contract, and
+the trailing dot/space rule the write jail does not need.
 """
 
 from __future__ import annotations

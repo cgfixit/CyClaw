@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _GENERATE_ATTRS = frozenset({"generate_async"})
 _GENERATE_NAMES = frozenset({"ChatOpenAI", "ChatAnthropic", "ChatXAI"})
 
-# Registered adapters only. Package prefixes (agentic/, harness/, llm/) were
+# Registered adapters only. Package prefixes (agentic/, llm/) were
 # how Phase 1 stayed advisory-empty. A new caller in those trees must be
 # added here explicitly or the build fails.
 _ALLOW_FILES = frozenset(

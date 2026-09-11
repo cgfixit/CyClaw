@@ -30,7 +30,7 @@ from utils.logger import _get_config
 
 # Defined locally rather than imported from llm/client.py: that module is the
 # core request path, and guardrails must not import it (out-of-band isolation).
-# harness/ollama.py keeps its own copy for the same reason.
+# agentic/config.py keeps its own copy for the same reason.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
