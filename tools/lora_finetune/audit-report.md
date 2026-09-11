@@ -15,7 +15,7 @@
 | **Total** | **3** | **1** | **1** | **2** |
 
 **Top must-fix (1):**
-1. `build_cyclaw_corpus.py:131` — `AutoTokenizer.from_pretrained` without revision pinning → **FIXED** (added `revision="main"`)
+1. `build_cyclaw_corpus.py:131` — `AutoTokenizer.from_pretrained` without revision pinning → **FIXED** (pinned each candidate repo to an immutable commit SHA, not the mutable `main` branch; SHAs verified against the HF Hub API 2026-09-11)
 
 ## Stack & Resolution Notes
 
@@ -28,7 +28,7 @@
 
 | Package | Installed | Fixed | CVE/GHSA | CVSS | Reachability | Scanner(s) | Notes |
 |---------|-----------|-------|----------|------|-------------|------------|-------|
-| transformers.AutoTokenizer | n/a | revision="main" added | [B613](https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html) | 0.0 | reachable | bandit | Fixed: added revision pinning to both tokenizer loads |
+| transformers.AutoTokenizer | n/a | pinned to an immutable commit SHA per repo | [B613](https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html) | 0.0 | reachable | bandit | Fixed: both tokenizer loads now pass `revision=<40-char SHA>`, not a mutable branch name |
 | datasets.load_dataset | n/a | no fix needed | [B613](https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html) | 0.0 | unreachable-feature-gated | bandit | FALSE POSITIVE: loads local JSON file, not HF Hub |
 | assert statements | n/a | no fix needed | — | 0.0 | dev-only | bandit | Expected in pytest test suites |
 
@@ -45,11 +45,11 @@
 ## Hardened Manifest Diff
 
 See `hardened.diff` for the unified diff. Summary:
-- `build_cyclaw_corpus.py`: Added `revision="main"` parameter to both `AutoTokenizer.from_pretrained()` calls
+- `build_cyclaw_corpus.py`: Added `revision=<commit SHA>` to both `AutoTokenizer.from_pretrained()` calls, pinned to an immutable commit rather than the mutable `main` branch (an earlier draft of this fix used `revision="main"`, which is not actually a supply-chain pin -- see `hardened.diff`, corrected 2026-09-11)
 
 ## Remediation Order
 
-1. ✅ **COMPLETED**: Add revision pinning to `AutoTokenizer.from_pretrained()` in `build_cyclaw_corpus.py`
+1. ✅ **COMPLETED**: Pin `AutoTokenizer.from_pretrained()` in `build_cyclaw_corpus.py` to an immutable commit SHA per repo
 2. ✅ **N/A**: False positive on `load_dataset("json", ...)` — no remote download occurs
 3. ✅ **N/A**: `assert_used` in test files — expected pattern for pytest
 

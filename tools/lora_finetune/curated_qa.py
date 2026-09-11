@@ -191,23 +191,37 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 {
-    "instruction": "Explain the triple-gate pattern for external LLM fallback in CyClaw. What are the three gates and why does GrokClient also validate them defensively?",
+    "instruction": "Explain the triple-gate pattern for external LLM fallback in CyClaw. What are the three gates, and where in the code does each one actually live?",
     "input": "",
     "output": (
-        "Three gates must ALL be true simultaneously for external LLM access:\n"
-        "1. app.mode == 'hybrid' — config flag (app must be explicitly in hybrid mode, not 'offline')\n"
-        "2. models.grok.enabled == true (or models.claude.enabled) — per-provider config flag\n"
-        "3. user_confirmed_online == true — per-query, client-supplied boolean\n\n"
-        "Graph topology enforces this: route_by_score routes to user_gate (not directly to grok_fallback), "
-        "and user_gate only proceeds to pre_action_hook_grok (then grok_fallback) when user_confirmed_online is true. "
-        "No graph edge bypasses this — it's structural, not a prompt instruction.\n\n"
-        "GrokClient (and ClaudeClient) ALSO validate all 3 preconditions defensively in their __init__ "
-        "or generate() methods, even though the graph topology already prevents invalid calls. "
-        "This is defense-in-depth: if a future code change adds a new edge that bypasses user_gate, "
-        "the client itself still refuses. The client raises GrokServiceError/ClaudeServiceError "
-        "if any gate fails.\n\n"
-        "Additional safety: soul_core is INTENTIONALLY omitted from the Grok prompt. "
-        "The soul/identity layer must never be forwarded off-box (invariant 3 + privacy). "
+        "Three gates must ALL be true simultaneously for external LLM access, and they live in two "
+        "different places — not inside GrokClient/ClaudeClient:\n"
+        "1. app.mode == 'hybrid' — checked in gate.py, at module load, before GrokClient/ClaudeClient "
+        "are even constructed.\n"
+        "2. models.grok.enabled == true (or models.claude.enabled) — checked in the SAME gate.py "
+        "construction guard as gate 1. If either condition is false, the client object is never "
+        "built at all: the module-level `grok`/`claude` name stays None.\n"
+        "3. user_confirmed_online == true — a per-query, client-supplied boolean, checked by "
+        "graph.py's user_gate_router, which also re-checks provider selection and availability "
+        "(is_available(), i.e. an API key is present) before routing to pre_action_hook_grok/claude "
+        "and then grok_fallback/claude_fallback.\n\n"
+        "Graph topology enforces gate 3: route_by_score routes to user_gate (never directly to "
+        "grok_fallback/claude_fallback), and user_gate_router only proceeds past the pre_action_hook "
+        "node when user_confirmed_online is true. No graph edge bypasses this — it's structural, "
+        "not a prompt instruction.\n\n"
+        "GrokClient and ClaudeClient do NOT re-validate any of the three gates. Read their generate() "
+        "methods: the only check either one performs is 'do I have an API key' (self.api_key), and "
+        "only to raise GrokServiceError/ClaudeServiceError if it's missing — mode, enabled, and "
+        "confirmation are never referenced inside either class. This is deliberate, not an oversight: "
+        "CyClaw's own principle is topology-as-policy, not prompt- or object-level trust, so the "
+        "enforcement lives exactly once, in gate.py's construction guard and graph.py's router. The "
+        "practical consequence is important to know, not just reassuring to forget: there is no "
+        "client-side backstop. If a future change ever altered gate.py's construction guard or "
+        "graph.py's user_gate_router to skip a check, nothing inside GrokClient/ClaudeClient would "
+        "catch it — which is exactly why those specific lines get extra scrutiny in review, not why "
+        "they're safe to touch casually.\n\n"
+        "Additional safety: soul_core is INTENTIONALLY omitted from the Grok/Claude prompt. "
+        "The soul/identity layer must never be forwarded off-box (invariant I3 + privacy). "
         "When context forwarding is enabled, it uses data-trust framing (labeled 'untrusted context')."
     ),
 },

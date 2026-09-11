@@ -4,7 +4,7 @@
       "package": "transformers.AutoTokenizer",
       "ecosystem": "python",
       "installed": "n/a (no manifest)",
-      "fixed": "revision pinning added",
+      "fixed": "pinned to an immutable commit SHA per repo",
       "cve": null,
       "ghsa": null,
       "cvss": 0.0,
@@ -16,7 +16,7 @@
       ],
       "advisory_url": "https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html",
       "fix_action": "upgrade",
-      "notes": "AutoTokenizer.from_pretrained called without revision pinning in build_cyclaw_corpus.py:131. Fixed by adding revision param. Trusted org (Qwen) but supply-chain best practice."
+      "notes": "AutoTokenizer.from_pretrained called without revision pinning in build_cyclaw_corpus.py:131. Fixed by pinning each candidate repo to an immutable commit SHA (verified against the HF Hub API 2026-09-11), not the mutable 'main' branch an earlier draft used. Trusted org (Qwen) but supply-chain best practice."
     },
     {
       "package": "datasets.load_dataset",

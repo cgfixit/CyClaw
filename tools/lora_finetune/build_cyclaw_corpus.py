@@ -129,13 +129,23 @@ def _try_apply_chat_template(messages: list[dict]) -> str | None:
     # ImportError is the only expected miss; a load/network failure is logged
     # and we fall through to the ChatML fallback instead of swallowing every
     # exception (S112).
+    #
+    # Pinned to an immutable commit SHA rather than the mutable "main" branch:
+    # a repo's main ref can move (config edits, tokenizer retrain) between two
+    # runs of this script on the same CyClaw commit, which would silently
+    # change the rendered corpus with no diff on our side to explain it.
+    # SHAs verified live against the HF Hub API on 2026-09-11 (`GET
+    # /api/models/<repo>`, `.sha` field) -- re-verify before bumping either.
     last_err: str | None = None
-    for name in ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen2-0.5B"):
+    for name, revision in (
+        ("Qwen/Qwen2.5-0.5B", "060db6499f32faf8b98477b0a26969ef7d8b9987"),
+        ("Qwen/Qwen2-0.5B", "91d2aff3f957f99e4c74c962f2f408dcc88a18d8"),
+    ):
         try:
-            tok = AutoTokenizer.from_pretrained(name)
+            tok = AutoTokenizer.from_pretrained(name, revision=revision)
             return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         except (OSError, ValueError, RuntimeError) as exc:
-            last_err = f"{name}: {exc}"
+            last_err = f"{name}@{revision[:8]}: {exc}"
     if last_err is not None:
         print(f"[build_cyclaw_corpus] tokenizer unavailable ({last_err}); using ChatML fallback",
               file=sys.stderr)
