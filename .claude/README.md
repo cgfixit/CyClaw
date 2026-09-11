@@ -118,9 +118,10 @@ is now that skill's §8 onward) and deleted, wrapper and all — see
 `fable-protocol/SKILL.md` §11.
 2026-09-11 (issue #1351): `general-purpose` (skill + wrapper) deleted — it
 duplicated the Agent tool's built-in `general-purpose` subagent type
-verbatim, adding no project-specific content. `cyclaw-advisor` and
-`CyClaw-Sandbox` gained `disable-model-invocation: true` (their wrappers are
-unaffected — a wrapper is already user-typed by definition). The wrapper set
+verbatim, adding no project-specific content. 2026-09-11 (PR #1369):
+`cyclaw-advisor` and `CyClaw-Sandbox` gained `disable-model-invocation: true`
+(their wrappers are unaffected — a wrapper is already user-typed by
+definition). The wrapper set
 still covers every remaining skill — verify with
 `comm -23 <(ls .claude/skills | sort) <(ls .claude/commands | sed 's/\.md$//' | sort)`,
 which must print nothing.
