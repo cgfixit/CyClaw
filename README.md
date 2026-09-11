@@ -771,7 +771,7 @@ phase ledger: [`docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md`](docs/work/MACOS_LA
 
 ## Agentic Layer (v1.6.0)
 
-CyClaw now includes a **concise, governed agentic layer** for local operator workflows. It is **opt-in, disabled by default, and fully out-of-band**: it is never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`. The coding console (`harness/`) is a **sibling** package, not a subpackage; `data/agentic/skills_registry.json` is a governed store that ships empty (the harness reads it, `apply-skill` writes it). Package guide: [`agentic/README.md`](agentic/README.md).
+CyClaw now includes a **concise, governed agentic layer** for local operator workflows. It is **opt-in, disabled by default, and fully out-of-band**: it is never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`. `data/agentic/skills_registry.json` is a governed store that ships empty (`apply-skill` writes it). Package guide: [`agentic/README.md`](agentic/README.md).
 
 What it adds: read-only GitHub context through the `gh` CLI (invoked as an
 argv list, never via a shell; no GitHub token is stored or forwarded by
@@ -1229,7 +1229,7 @@ are in [`macos/README.md`](macos/README.md) and
 | Network | Binds `127.0.0.1:8787` — no external exposure by design |
 | Input | Config-driven injection filter (`policy.prompt_filter`) |
 | Rate limit | 60 req/min per IP |
-| Proxy bypass | All `httpx` clients set `trust_env=False` — ambient `HTTP(S)_PROXY`/`.netrc` cannot reroute local traffic, see the path-embedded Telegram bot token, or carry `GROK_API_KEY` / `ANTHROPIC_API_KEY` on a confirmed hybrid call (`utils/health.py`, `llm/client.py` local + Grok + Claude, `harness/ollama.py`, `telegram/client.py`, `opentweet/client.py`). This reverses the old “operator proxy governs paid egress” exception. |
+| Proxy bypass | All `httpx` clients set `trust_env=False` — ambient `HTTP(S)_PROXY`/`.netrc` cannot reroute local traffic, see the path-embedded Telegram bot token, or carry `GROK_API_KEY` / `ANTHROPIC_API_KEY` on a confirmed hybrid call (`utils/health.py`, `llm/client.py` local + Grok + Claude, `telegram/client.py`, `opentweet/client.py`). This reverses the old “operator proxy governs paid egress” exception. |
 | Telemetry | Canonical kill maps (`utils/telemetry_kill.py`: telemetry + a visibly-separate update-check map, plus a removed-outright scrub set incl. the declarative-OTel config names) applied before any SDK import by every maintained Python chokepoint (invariant-guard G1 pins 15 orderings) AND delivered as literal environment before the interpreter starts at every process boundary — Docker ENV, the shipped launchers, generated launchd plists / Windows tasks / cron lines, and verifier/`gh` children via `build_telemetry_safe_env`; ONNX Runtime additionally gets the post-import `disable_telemetry_events()` call at its load seams (`utils/onnx_telemetry.py`). HF Hub network calls are also cut off once the embedding model is confirmed cached (`retrieval/embeddings.py`). Not a network kill switch: intentional policy-gated egress is classified separately in [SECURITY.md](SECURITY.md) |
 | Audit | All paths log SHA-256 query hash + PII-redacted metadata |
 | Grok gating | Triple gate: `mode=hybrid` AND `grok.enabled=true` AND `user_confirmed_online=true` |

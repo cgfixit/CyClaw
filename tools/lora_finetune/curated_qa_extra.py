@@ -321,14 +321,12 @@ EXTRA_QA: list[dict] = [
             "blank-answer / truncation failure when (prompt + max_tokens) "
             "exceeds the loaded context window. The ceiling bounds prompt "
             "inflation no matter how soul.md was written or edited (including "
-            "the unscanned reload/drift paths).\n\n"
-            "Caveat from INVARIANTS Rule 5: harness/prompts.py reads soul.md "
-            "directly and bypasses PersonalityManager entirely — so it skips "
-            "_bounded_soul truncation too. A soul larger than soul_max_chars "
-            "gets injected untruncated into the harness console's system prompt."
+            "the unscanned reload/drift paths): reload and drift recovery adopt "
+            "soul.md without an injection scan, but they still read it through "
+            "PersonalityManager, so _bounded_soul still truncates."
         )},
     ],
-    "source_refs": ["utils/personality.py:soul_max_chars,_bounded_soul", "INVARIANTS.md:Rule 5", "harness/prompts.py:compose_system_prompt"],
+    "source_refs": ["utils/personality.py:soul_max_chars,_bounded_soul", "INVARIANTS.md:Rule 5"],
 },
 
 {

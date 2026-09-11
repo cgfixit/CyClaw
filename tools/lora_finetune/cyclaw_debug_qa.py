@@ -97,16 +97,12 @@ DEBUG_QA: list[dict] = [
             "wrong mental model. Per INVARIANTS.md Rule 5, the injection scan "
             "is WRITE-PATH-ONLY. Only `PersonalityManager.apply_evolution` "
             "(POST /soul/apply) scans, and only with scan=True (the default).\n\n"
-            "Three paths change the live soul with NO scan:\n"
+            "Two paths change the live soul with NO scan:\n"
             "  - POST /soul/reload — re-reads and adopts soul.md verbatim.\n"
             "  - Startup drift recovery (_load_soul) — if soul.md differs from "
             "the newest soul_versions row, the on-disk content is adopted "
             "verbatim (a DRIFT_RECOVERY row + soul_drift_detected audit event "
-            "are recorded, but the content is not scanned).\n"
-            "  - harness/prompts.py::compose_system_prompt — reads "
-            "data/personality/soul.md directly, bypassing PersonalityManager "
-            "entirely: no scan, no _bounded_soul truncation, no drift row, and "
-            "it does not go through get_system_prompt_additive().\n\n"
+            "are recorded, but the content is not scanned).\n\n"
             "Your vim edit + /soul/reload is exactly the unscanned reload path. "
             "This is a documented sharp edge, not a bug. Under the single-operator "
             "threat model it is acceptable because only the operator can write "
@@ -119,7 +115,7 @@ DEBUG_QA: list[dict] = [
             "and Rule 5 deliberately — do not silently delete the tripwire."
         )},
     ],
-    "source_refs": ["INVARIANTS.md:Rule 4,5", "utils/personality.py:apply_evolution,_load_soul,reload", "harness/prompts.py:compose_system_prompt"],
+    "source_refs": ["INVARIANTS.md:Rule 4,5", "utils/personality.py:apply_evolution,_load_soul,reload"],
 },
 
 # ── Decorative /health signal ────────────────────────────────────────────────
