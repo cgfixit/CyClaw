@@ -4,27 +4,25 @@ Installer / launcher / launchd **glue** for macOS (Apple Silicon) and Linux.
 Not request-path code: `gate.py`, `graph.py`, and `mcp_hybrid_server.py` never
 import anything here (I6). The Windows sibling is `powershell/`.
 
-After install, `cyclaw` starts the RAG gateway (`127.0.0.1:8787`) and the
-coding console (`127.0.0.1:8790`). Mutable state lives under `~/.CyClaw`.
+After install, `cyclaw` starts the RAG gateway (`127.0.0.1:8787`). Mutable
+state lives under `~/.CyClaw`.
 
-Full harness walkthrough: [`docs/HARNESS_MACOS.md`](../docs/HARNESS_MACOS.md).
-Console package: [`harness/README.md`](../harness/README.md).
 
 ## Scripts
 
 | Script | What it does |
 |---|---|
-| `setup-cyclaw.sh` | **The one-command onboarding entry point (#1053).** Wraps everything below into a single operator decision: clone (if no checkout is found), run `setup-from-clone.sh --no-start`, offer every remaining harness-managed credential (`harness/env_keys.py`'s advanced entries — cloud planner / DB URLs) beyond the primary ones `setup-cyclaw-keys.sh` already handles, then optionally start both servers, open the loopback consoles, and autofill the generated key into `#apiKeyInput` / `#apiKey` in browser memory only. Works standalone too — download just this file and it offers to clone. `--repo PATH`, `--clone-dir PATH`, `--start`/`--no-start`, `--browser`/`--no-browser`, `--autofill-api-key`/`--no-autofill-api-key`, `--skip-advanced-keys`, `--skip-prompts`, `--dry-run`; forwards its remaining flags (`--skip-install`, `--skip-keys`, `--small-model`, `--ollama-model TAG`, etc.) straight to `setup-from-clone.sh`. It does not reimplement installation or key persistence — every write still goes through the scripts below. Run it with `--help` for the authoritative flag list. |
-| `setup-from-clone.sh` | **One-shot after `git clone`** on Apple Silicon. Chains `install-cyclaw.sh` + `setup-cyclaw-keys.sh` (prompts for Telegram / Claude / Grok / GitHub), checks Ollama, builds the retrieval index, then starts both servers. `--dry-run`, `--skip-prompts`, `--no-start`, `--small-model`, `--ollama-model TAG`. Note `--skip-prompts` implies no server start; pass `--start` to launch anyway. The script accepts a wider flag set than the common ones listed here — including `--skip-install`, `--skip-python-deps`, `--skip-keys`, `--skip-ollama`, `--skip-index`, `--skip-advisor`, `--no-browser`, `--no-fsconnect`, `--no-profile-edit`, `--no-path-edit`, `--grok-dummy`, `--rotate-key`, `--ollama-install-script`, and `--yes`; run it with `--help` for the authoritative list. Called directly, it is the multi-question path `setup-cyclaw.sh` exists to front. |
+| `setup-cyclaw.sh` | **The one-command onboarding entry point (#1053).** Wraps everything below into a single operator decision: clone (if no checkout is found), run `setup-from-clone.sh --no-start`, then optionally start the gateway, open the loopback console, and autofill the generated key into `#apiKeyInput` in browser memory only. Works standalone too — download just this file and it offers to clone. `--repo PATH`, `--clone-dir PATH`, `--start`/`--no-start`, `--browser`/`--no-browser`, `--autofill-api-key`/`--no-autofill-api-key`, `--skip-prompts`, `--dry-run`; forwards its remaining flags (`--skip-install`, `--skip-keys`, `--small-model`, `--ollama-model TAG`, etc.) straight to `setup-from-clone.sh`. It does not reimplement installation or key persistence — every write still goes through the scripts below. Run it with `--help` for the authoritative flag list. |
+| `setup-from-clone.sh` | **One-shot after `git clone`** on Apple Silicon. Chains `install-cyclaw.sh` + `setup-cyclaw-keys.sh` (prompts for Telegram / Claude / Grok / GitHub), checks Ollama, builds the retrieval index, then starts the gateway. `--dry-run`, `--skip-prompts`, `--no-start`, `--small-model`, `--ollama-model TAG`. Note `--skip-prompts` implies no server start; pass `--start` to launch anyway. The script accepts a wider flag set than the common ones listed here — including `--skip-install`, `--skip-python-deps`, `--skip-keys`, `--skip-ollama`, `--skip-index`, `--skip-advisor`, `--no-browser`, `--no-fsconnect`, `--no-profile-edit`, `--no-path-edit`, `--grok-dummy`, `--rotate-key`, `--ollama-install-script`, and `--yes`; run it with `--help` for the authoritative list. Called directly, it is the multi-question path `setup-cyclaw.sh` exists to front. |
 | `install-cyclaw.sh` | Home layout, venv, `cyclaw` shim, optional PATH / rc function. `--repo-path`, `--replace-repo`, `--skip-python-deps`, `--no-profile-edit`, `--no-path-edit`, `--no-fsconnect`. `--replace-repo` is intentionally destructive only for an unusable directory at the default `~/.CyClaw/repo` clone target; it does not apply with `--repo-path`. |
-| `uninstall-cyclaw.sh` | Removes the rc function, PATH entry, and the `cyclaw keys` source block. Keeps `~/.CyClaw` unless `--remove-home`. Optional `--remove-fsconnect`. Optional `--remove-keychain` (prompted y/N; Darwin-only) deletes the five documented `com.cgfixit.cyclaw.*` Keychain services for `id -un` — never a wildcard. `--yes` / `--assume-yes` confirms already-requested destructive flags only. Best-effort unschedules Dropbox sync, `launchctl bootout`s CyClaw LaunchAgent labels (telegram-poll/health, fsconnect-trash, gate, harness, keys-rotate, opentweet, sync), then frees leftover loopback listeners on `CYCLAW_GATE_PORT` / `CYCLAW_HARNESS_PORT` (defaults 8787 / 8790). |
-| `invoke-cyclaw.sh` | Starts gate + harness from `~/.CyClaw/venv`. `--no-gate` / `--no-harness` / `--no-browser` / `--port` / `--gate-port` / `--repo` (point at a checkout other than the default). |
-| `setup-cyclaw-keys.sh` | Apple Silicon key bootstrap. Autogenerates `CYCLAW_API_KEY`; prompts for Telegram / Claude (`ANTHROPIC_API_KEY`) / Grok / GitHub (skip allowed). Persists to Keychain + `~/.CyClaw/.env` (chmod 600), failing before dotenv writes if a requested Keychain write fails. `--rotate`, `--no-env-file`, `--fill-browser` (loopback `#apiKey` / `#apiKeyInput` only — never localStorage), `--schedule-rotate monthly\|weekly\|never` (writes, never loads, a LaunchAgent), `--unschedule-rotate` (removes that LaunchAgent again), `--restart-servers` (best-effort free the configured gate/harness loopback ports after a write; does not start the servers). Further flags exist — `--no-keychain`, `--no-repo-env`, `--print-key`/`--no-print-key`, `--copy-key`/`--no-copy-key`, `--clipboard-ttl N`, `--open-consoles`, `--gate-port`, `--harness-port`, `--repo-path`, `--skip-prompts`, `--grok-dummy`; run it with `--help` for the authoritative list. |
+| `uninstall-cyclaw.sh` | Removes the rc function, PATH entry, and the `cyclaw keys` source block. Keeps `~/.CyClaw` unless `--remove-home`. Optional `--remove-fsconnect`. Optional `--remove-keychain` (prompted y/N; Darwin-only) deletes the five documented `com.cgfixit.cyclaw.*` Keychain services for `id -un` — never a wildcard. `--yes` / `--assume-yes` confirms already-requested destructive flags only. Best-effort unschedules Dropbox sync, `launchctl bootout`s CyClaw LaunchAgent labels (telegram-poll/health, fsconnect-trash, gate, keys-rotate, opentweet, sync, plus the retired console's `harness` label), then frees a leftover loopback listener on `CYCLAW_GATE_PORT` (default 8787). |
+| `invoke-cyclaw.sh` | Starts the gateway from `~/.CyClaw/venv`. `--no-browser` / `--gate-port` / `--repo` (point at a checkout other than the default). |
+| `setup-cyclaw-keys.sh` | Apple Silicon key bootstrap. Autogenerates `CYCLAW_API_KEY`; prompts for Telegram / Claude (`ANTHROPIC_API_KEY`) / Grok / GitHub (skip allowed). Persists to Keychain + `~/.CyClaw/.env` (chmod 600), failing before dotenv writes if a requested Keychain write fails. `--rotate`, `--no-env-file`, `--fill-browser` (loopback `#apiKeyInput` only — never localStorage), `--schedule-rotate monthly\|weekly\|never` (writes, never loads, a LaunchAgent), `--unschedule-rotate` (removes that LaunchAgent again), `--restart-servers` (best-effort free the configured gate loopback port after a write; does not start the server). Further flags exist — `--no-keychain`, `--no-repo-env`, `--print-key`/`--no-print-key`, `--copy-key`/`--no-copy-key`, `--clipboard-ttl N`, `--open-consoles`, `--gate-port`, `--repo-path`, `--skip-prompts`, `--grok-dummy`; run it with `--help` for the authoritative list. |
 | `setup-fsconnect.sh` | Creates confined `~/CyClaw-FS` (`chmod 700`). Unless `--prepare-only`, enables list/stat/read via `_enable_fsconnect_readlist.py`. |
 | `_enable_fsconnect_readlist.py` | Writes the confined read/list `fsconnect:` profile into `config.yaml` (writes stay off). |
 | `cyclaw-keychain-set.sh` | Interactive Keychain store. Bare `-w` (secret never in argv); `-T /usr/bin/security`. Requires a TTY. |
 | `cyclaw-keychain-env.sh` | Fetch one Keychain item, export it, `exec` the wrapped command. Fail-closed if missing/empty. |
-| `generate_service_plist.py` | Supervised LaunchAgent for `gate.py` or the harness (`--service gate\|harness`). Highest-risk generator: refuses to write without `--confirm` **and** a non-empty `--reason`. `KeepAlive: {SuccessfulExit: false}` (crash-only restart, never after a clean stop), `ThrottleInterval` 30s default, optional `--api-key-service` chains the Keychain wrapper. Never loads the agent itself. |
+| `generate_service_plist.py` | Supervised LaunchAgent for `gate.py` (`--service gate`). Highest-risk generator: refuses to write without `--confirm` **and** a non-empty `--reason`. `KeepAlive: {SuccessfulExit: false}` (crash-only restart, never after a clean stop), `ThrottleInterval` 30s default, optional `--api-key-service` chains the Keychain wrapper. Never loads the agent itself. |
 | `ollama-mlx.env` | KEY=value tunings sourced before `ollama serve` (context 16384, keep-alive 30m, one model, no parallel slots, flash-attn + KV q8_0). No secrets. `setup-from-clone.sh` sources it when *it* launches Ollama; an already-running .app ignores it until quit. |
 
 Target shells: bash (including macOS 3.2) and zsh. BSD userland on macOS —
@@ -85,10 +83,10 @@ LaunchAgents still read Keychain through `cyclaw-keychain-env.sh`. They do
 not read `.env`, and this script never writes a token into a plist or the
 `cyclaw` shim.
 
-The terminal (`#apiKeyInput`) and harness (`#apiKey`) consoles hold the
+The terminal console (`#apiKeyInput`) holds the
 operator key **in the input element only** — never `localStorage`, never a
 cookie. `--fill-browser` injects that field on `127.0.0.1` tabs after
-opening the consoles. A scheduled rotate updates Keychain + `.env`; it exits
+opening the console. A scheduled rotate updates Keychain + `.env`; it exits
 nonzero before changing `.env` if the Keychain write fails. Neither a manual
 nor scheduled rotate changes an already-running server environment: restart
 `gate.py`, then paste once or re-run `--fill-browser`.
@@ -123,16 +121,16 @@ reads.
 
 ## 401 / key drift recovery
 
-Harness or soul routes return `401 bad_credentials` when Keychain,
-`~/.CyClaw/.env`, the live gate/harness process env, and the browser
-`#apiKey` / `#apiKeyInput` field disagree — typically after `--rotate`, a
+Soul routes return `401 bad_credentials` when Keychain,
+`~/.CyClaw/.env`, the live gate process env, and the browser
+`#apiKeyInput` field disagree — typically after `--rotate`, a
 reinstall, or a leftover listener that still holds the old key. CyClaw never
 stores the operator key in `localStorage`.
 
-1. Stop stragglers on the configured loopback ports (defaults 8787 / 8790).
+1. Stop stragglers on the configured loopback port (default 8787).
    `uninstall-cyclaw.sh` does this best-effort before teardown. After a
-   rotate, `setup-cyclaw-keys.sh --restart-servers` frees the same ports
-   without starting the servers and without a process-name sweep.
+   rotate, `setup-cyclaw-keys.sh --restart-servers` frees the same port
+   without starting the server and without a process-name sweep.
 2. Open a **new** terminal tab so the `# >>> cyclaw keys >>>` rc block
    re-sources `~/.CyClaw/.env`. Confirm the file is mode 600
    (`stat -f %Lp ~/.CyClaw/.env` on macOS) and that
@@ -180,4 +178,3 @@ Hand-editing a template: replace every `REPLACE_*` value, create
 - Telegram channel: [`docs/channels/TELEGRAM_DESIGN.md`](../docs/channels/TELEGRAM_DESIGN.md)
 - OpenTweet X channel: [`docs/channels/OPENTWEET_DESIGN.md`](../docs/channels/OPENTWEET_DESIGN.md)
 - Agentic / registry: [`agentic/README.md`](../agentic/README.md)
-- Console slash commands (`/goal`, `/loop`, `/skills`, `/tools`, `/web`): [`harness/README.md`](../harness/README.md)

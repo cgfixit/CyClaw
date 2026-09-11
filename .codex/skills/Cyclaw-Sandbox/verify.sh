@@ -16,10 +16,8 @@ GROK_API_KEY="${GROK_API_KEY:-dummy}"
 # field in static/terminal.html. Test-only value; never a real secret.
 CYCLAW_API_KEY="${CYCLAW_API_KEY:-verify-soul-key-ci}"
 PORT="${PORT:-8787}"
-HARNESS_PORT="${HARNESS_PORT:-8790}"  # matches harness/config.py's DEFAULT_PORT
 VENV_DIR="${VENV_DIR:-/tmp/cyclaw-verify-venv}"
 BASE="http://127.0.0.1:$PORT"  # DevSkim: ignore DS162092,DS137138 — loopback-only by design (api.host in config.yaml)
-HARNESS_BASE="http://127.0.0.1:$HARNESS_PORT"  # DevSkim: ignore DS162092,DS137138 — loopback-only by design (harness.host in harness/config.py)
 REPORT="/tmp/cyclaw-verify-report.md"
 SERVER_LOG="/tmp/cyclaw-verify-server.log"
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,10 +29,6 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 FAILURES=0
 SOUL_BACKUP=""
 SERVER_PID=""
-HARNESS_SERVER_PID=""
-MOCK_OLLAMA_PID=""
-HARNESS_HOME=""
-OLLAMA_TIER=""
 
 note()   { echo "[verify] $*"; }
 pass()   { echo "  PASS  $1"; REPORT_ROWS+=("| $1 | PASS | $2 |"); }
@@ -57,13 +51,8 @@ _stop_pid() {
 
 cleanup() {
   _stop_pid "$SERVER_PID"
-  _stop_pid "$HARNESS_SERVER_PID"
-  _stop_pid "$MOCK_OLLAMA_PID"
   if [ -n "$SOUL_BACKUP" ] && [ -f "$SOUL_BACKUP" ]; then
     mv "$SOUL_BACKUP" data/personality/soul.md
-  fi
-  if [ -n "$HARNESS_HOME" ] && [ -d "$HARNESS_HOME" ]; then
-    rm -rf "$HARNESS_HOME"
   fi
 }
 trap cleanup EXIT
@@ -155,15 +144,6 @@ else
   cat /tmp/cyclaw-verify-gate.txt
 fi
 
-# ── stage 8: harness/server.py independent runtime check ─────────────────────
-note "Stage 8 — harness/server.py independent runtime check"
-if "$VPY" "$SKILL_DIR/harness_runtime_check.py" > /tmp/cyclaw-verify-harness-runtime.txt 2>&1; then
-  pass "harness/server.py independent runtime check" "import OK, app + endpoints + telemetry-kill verified"
-else
-  fail "harness/server.py independent runtime check" "see /tmp/cyclaw-verify-harness-runtime.txt"
-  cat /tmp/cyclaw-verify-harness-runtime.txt
-fi
-
 # ── stage 4: Windows smoke-bomb API test (bash equivalent) ────────────────────
 note "Stage 4 — API smoke bomb (launching server on :$PORT)"
 # Restore the real soul.md now (before the server starts) so /soul returns real
@@ -246,57 +226,6 @@ else
   fi
 fi
 
-# ── stage 9: harness console — live server + API emulation ───────────────────
-note "Stage 9 — harness console (launching on :$HARNESS_PORT)"
-HARNESS_HOME="$(mktemp -d)"
-
-# Pair with mock_ollama.py so /api/chat gets a real 200 reply instead of the
-# documented-but-harder-to-exercise 502 fallback path -- skip cleanly if
-# something already answers on Ollama's default port (another process's mock,
-# or a real Ollama instance) rather than fight over it. Launched from /tmp so
-# its hardcoded relative log path (mock_ollama.py's LOG_PATH) never lands in
-# the repo working tree.
-if ! curl -sf --max-time 1 "http://127.0.0.1:11434/v1/models" >/dev/null 2>&1; then  # DevSkim: ignore DS162092,DS137138 — loopback-only mock, offline-only
-  # `exec` inside the subshell replaces it with mock_ollama.py in place (no
-  # extra fork), so $! below is the real server PID -- `(cd dir && cmd &)`
-  # without exec backgrounds the whole `cd && cmd` list as its own job and
-  # $! would instead capture that wrapper, one PID off from the real server.
-  (cd /tmp && exec "$VPY" "$SKILL_DIR/mock_ollama.py" --port 11434 --model qwen3.8:27b-mlx > /tmp/cyclaw-verify-mock-ollama.log 2>&1) &
-  MOCK_OLLAMA_PID=$!
-  for _ in $(seq 1 20); do
-    curl -sf --max-time 1 "http://127.0.0.1:11434/v1/models" >/dev/null 2>&1 && break  # DevSkim: ignore DS162092,DS137138
-    sleep 0.25
-  done
-  OLLAMA_TIER=1
-else
-  OLLAMA_TIER=2
-fi
-
-# CYCLAW_API_KEY is already exported above for the gate.py checks; the harness
-# now needs it too (its state-changing routes and /api/github/status are
-# Bearer-gated), and harness_emulation.py reads the same variable.
-CYCLAW_HOME="$HARNESS_HOME" CYCLAW_HARNESS_HOST=127.0.0.1 CYCLAW_HARNESS_PORT="$HARNESS_PORT" \
-  CYCLAW_API_KEY="$CYCLAW_API_KEY" \
-  "$VPY" -m harness.server > /tmp/cyclaw-verify-harness-server.log 2>&1 &  # DevSkim: ignore DS162092
-HARNESS_SERVER_PID=$!
-
-HUP=0
-for _ in $(seq 1 40); do
-  curl -sf "$HARNESS_BASE/api/status" >/dev/null 2>&1 && { HUP=1; break; }
-  sleep 0.5
-done
-
-if [ "$HUP" -ne 1 ]; then
-  fail "harness console server startup" "server did not come up — see /tmp/cyclaw-verify-harness-server.log"
-else
-  if "$VPY" "$SKILL_DIR/harness_emulation.py" "$HARNESS_BASE" > /tmp/cyclaw-verify-harness-emulation.txt 2>&1; then
-    pass "harness.html API emulation" "all endpoint flows matched (status, registry, sessions, soul, model, chat, /goal, /loop, cancel, github, runs)"
-  else
-    fail "harness.html API emulation" "see /tmp/cyclaw-verify-harness-emulation.txt"
-    cat /tmp/cyclaw-verify-harness-emulation.txt
-  fi
-fi
-
 # ── stage 6: report ───────────────────────────────────────────────────────────
 note "Stage 6 — writing report to $REPORT"
 {
@@ -306,11 +235,6 @@ note "Stage 6 — writing report to $REPORT"
   echo "- **Runtime:** Python $FULLVER"
   echo "- **Branch/commit:** $(git rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(git rev-parse --short HEAD 2>/dev/null)"
   echo "- **Platform:** $(uname -srm)"
-  if [ "$OLLAMA_TIER" = "2" ]; then
-    echo "- **Ollama realism tier:** 2 (real daemon detected)"
-  else
-    echo "- **Ollama realism tier:** 1 (mock_ollama.py HTTP mock)"
-  fi
   echo ""
   echo "| Stage | Result | Detail |"
   echo "|---|---|---|"

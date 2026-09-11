@@ -1,17 +1,15 @@
 <#
 .SYNOPSIS
-  Launches the CyClaw coding harness (installed by Install-CyClaw.ps1).
+  Launches the CyClaw RAG gateway (installed by Install-CyClaw.ps1).
 
 .DESCRIPTION
   Windows 10/11 + Server 2019/2022, Windows PowerShell 5.1 or PowerShell 7+.
 
-  Starts the harness control plane on 127.0.0.1:8790 (loopback only) using the
-  per-user venv under %USERPROFILE%\.CyClaw\venv and the repo at
-  %CYCLAW_REPO% (or %USERPROFILE%\.CyClaw\repo), then opens the console in the
-  default browser. Ctrl+C stops the server.
-
-.PARAMETER Port
-  Override the console port (default 8790; gate.py owns 8787).
+  Runs gate.py (gate.main(): loopback bind guard, api.tls certfile/keyfile,
+  proxy_headers=False) on the host/port from config.yaml using the per-user venv
+  under %USERPROFILE%\.CyClaw\venv and the repo at %CYCLAW_REPO% (or
+  %USERPROFILE%\.CyClaw\repo), then opens the terminal console in the default
+  browser. Ctrl+C stops the server.
 
 .PARAMETER NoBrowser
   Do not open the browser; just serve.
@@ -21,22 +19,15 @@
 
 .EXAMPLE
   cyclaw                 # via the installed shim / profile function
-  .\Invoke-CyClaw.ps1 -NoBrowser -Port 8800
+  .\Invoke-CyClaw.ps1 -NoBrowser
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = $(if ($env:CYCLAW_HARNESS_PORT) { [int]$env:CYCLAW_HARNESS_PORT } else { 8790 }),
     [switch]$NoBrowser,
     [string]$Repo = ""
 )
 
 $ErrorActionPreference = "Stop"
-
-# Match harness/server.py _MIN_USER_PORT/_MAX_PORT so a privileged or out-of-range
-# override fails before we print a working-looking console URL.
-if ($Port -lt 1024 -or $Port -gt 65535) {
-    throw "Port must be between 1024 and 65535 (got $Port)"
-}
 
 $Home_ = if ($env:CYCLAW_HOME) { $env:CYCLAW_HOME } else { Join-Path $env:USERPROFILE ".CyClaw" }
 if ($Repo -eq "") {
@@ -44,7 +35,7 @@ if ($Repo -eq "") {
 }
 $VenvPy = Join-Path $Home_ "venv\Scripts\python.exe"
 
-if (-not (Test-Path (Join-Path $Repo "harness\server.py"))) {
+if (-not (Test-Path (Join-Path $Repo "gate.py"))) {
     throw "CyClaw repo not found at '$Repo'. Run Install-CyClaw.ps1 first (or pass -Repo)."
 }
 if (-not (Test-Path $VenvPy)) {
@@ -55,7 +46,6 @@ if (-not (Test-Path $VenvPy)) {
 
 $env:CYCLAW_HOME = $Home_
 $env:CYCLAW_REPO = $Repo
-$env:CYCLAW_HARNESS_PORT = "$Port"
 # CYCLAW_API_KEY is inherited from the caller, or loaded below from
 # %USERPROFILE%\.CyClaw\.env then the repo .env (Darwin twin:
 # macos/invoke-cyclaw.sh). Browser paste cannot set the server env.
@@ -106,11 +96,26 @@ if (-not $env:CYCLAW_API_KEY) {
     }
 }
 
+# config.yaml owns api.port and api.tls; the launcher only needs them for the
+# printed URL and the browser, so a probe failure falls back to the shipped
+# default rather than blocking the start (gate.main() reads the real values).
+$UrlProbe = @'
+import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+api = cfg.get("api") if isinstance(cfg.get("api"), dict) else {}
+tls = api.get("tls") if isinstance(api.get("tls"), dict) else {}
+scheme = "https" if tls.get("enabled") is True else "http"
+print(f"{scheme}://127.0.0.1:{api.get('port', 8787)}")
+'@
+$Url = & $VenvPy -c $UrlProbe (Join-Path $Repo "config.yaml") 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $Url) { $Url = "http://127.0.0.1:8787" }
+$Url = "$Url".Trim()
+
 Write-Host "[cyclaw] repo    : $Repo" -ForegroundColor Cyan
 Write-Host "[cyclaw] home    : $Home_" -ForegroundColor Cyan
-Write-Host "[cyclaw] console : http://127.0.0.1:$Port  (Ctrl+C to stop)" -ForegroundColor Cyan
+Write-Host "[cyclaw] console : $Url  (Ctrl+C to stop)" -ForegroundColor Cyan
 if (-not $env:CYCLAW_API_KEY) {
-    Write-Host "[cyclaw] warn    : CYCLAW_API_KEY not set - Soul / ops / harness state-changing routes will 401. Typing the key in the browser cannot configure the server; source $Home_\.env or set the env var, then restart." -ForegroundColor Yellow
+    Write-Host "[cyclaw] warn    : CYCLAW_API_KEY not set - Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server; source $Home_\.env or set the env var, then restart." -ForegroundColor Yellow
 }
 
 if (-not $NoBrowser) {
@@ -120,13 +125,13 @@ if (-not $NoBrowser) {
         param($url)
         Start-Sleep -Seconds 2
         Start-Process $url
-    } -ArgumentList "http://127.0.0.1:$Port" | Out-Null
+    } -ArgumentList $Url | Out-Null
 }
 
 Push-Location $Repo
 try {
     # Canonical telemetry/update-check block, set in THIS process so the
-    # harness (and every child it spawns) inherits it before any interpreter
+    # gateway (and every child it spawns) inherits it before any interpreter
     # starts. Single source of truth: utils/telemetry_kill.py renders the
     # lines; nothing here hand-copies a key. Positioned after the .env import
     # above so canonical values overwrite any hostile dotenv value, mirroring
@@ -155,7 +160,10 @@ try {
     } else {
         Write-Host "[cyclaw] warn    : could not export telemetry-kill block (children still self-apply at import)" -ForegroundColor Yellow
     }
-    & $VenvPy -m harness.server
+    # gate.py, not `uvicorn gate:app`: only main() -> _serve() applies the
+    # loopback bind guard, api.tls certfile/keyfile, and proxy_headers=False
+    # (Codex review on PR #1367).
+    & $VenvPy gate.py
 }
 finally {
     Pop-Location

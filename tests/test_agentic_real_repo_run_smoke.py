@@ -285,7 +285,7 @@ def test_real_repo_run_reaches_pending_decision_over_real_socket_and_gh(
 
 
 _CANARY_GH_SCRIPT = '''#!/usr/bin/env python3
-"""Canary `gh` for the harness-call-shape injection-refusal test below --
+"""Canary `gh` for the ops_runner-call-shape injection-refusal test below --
 this must NEVER run. `_refuse_if_injected_instruction` (agentic/cli.py)
 refuses `real-repo-run` before any context fetch or clone, so nothing on
 that path should ever spawn `gh`. Every invocation is appended to
@@ -363,22 +363,19 @@ def harness_shaped_agentic_config(tmp_path):
 def test_ops_runner_call_shape_refuses_injected_instruction_pre_flight(
     canary_gh_on_path, harness_shaped_agentic_config, monkeypatch,
 ):
-    """Prove harness/server.py's OWN entry shape into real-repo-run is scanned.
+    """Prove the ops_runner entry shape into real-repo-run is scanned.
 
-    ``harness/server.py``'s ``POST /api/agent/run`` calls
+    ``gate_ops.py``'s ``POST /ops/agentic`` calls
     ``utils.ops_runner.run_agentic_op(action="real-repo-run", instruction=...,
     ...)`` as a plain Python function call, which builds an argv and spawns a
     REAL ``python -m agentic.cli ... real-repo-run --instruction=...``
     subprocess. ``agentic/cli.py``'s ``cmd_real_repo_run`` already calls
     ``_refuse_if_injected_instruction`` on that instruction before any network
-    I/O (context fetch, clone) -- added in PR #748 -- but nothing previously
-    exercised that refusal through THIS specific call shape:
-    ``tests/test_harness_agent_routes.py`` mocks ``run_agentic_op`` entirely
-    (never reaches the real scan or subprocess), and this file's other test
+    I/O (context fetch, clone) -- added in PR #748 -- but this file's other test
     drives ``agentic.cli.main()`` directly in-process (never
     ``utils.ops_runner.run_agentic_op``'s own argv-building/subprocess path).
-    This test calls ``run_agentic_op`` directly, exactly as the harness route
-    does, closing that specific coverage gap.
+    This test calls ``run_agentic_op`` directly, exactly as the route does,
+    closing that specific coverage gap.
 
     Asserts the actual, verified contract (not the ``EXIT_REFUSED``/
     ``write_refused`` shape the OTHER refusals in this same function use):

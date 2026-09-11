@@ -42,7 +42,6 @@ def test_source_never_imports_i6_core() -> None:
         "agentic",
         "sync",
         "telegram",
-        "harness",
     }
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -112,20 +111,6 @@ def test_writes_xml_without_registering_or_embedding_key(tmp_path: Path, capsys)
     assert "<Count>5</Count>" in text
     assert "max 5 restarts" in out
 
-
-def test_harness_sets_nonsecret_home_env(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    home.mkdir()
-    with (
-        patch("generate_service_task.platform.system", return_value="Windows"),
-        patch("generate_service_task.Path.home", return_value=home),
-        patch("utils.win_schtasks.Path.home", return_value=home),
-    ):
-        assert gst.main(["--service", "harness", "--confirm", "--reason", "console"]) == 0
-    cmd = (home / ".CyClaw" / "tasks" / "CyClaw-harness.cmd").read_text(encoding="utf-8")
-    assert "harness.server" in cmd
-    assert "CYCLAW_HOME" in cmd
-    assert "CYCLAW_REPO" in cmd
 
 
 def test_write_generated_task_restart_count_is_five(tmp_path: Path) -> None:

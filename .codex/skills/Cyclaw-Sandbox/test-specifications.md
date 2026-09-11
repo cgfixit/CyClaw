@@ -2,8 +2,7 @@
 
 Detailed test case inventory for the CyClaw Swarm Verification skill. Covers
 PR#441 (Claude fallback), post-merge commits (key redaction, shared fallback
-node, metrics, due-diligence invariants), all terminal console endpoints, and
-the harness console's full REST API.
+node, metrics, due-diligence invariants), and all terminal console endpoints.
 
 ## Table of Contents
 1. [Query Prompts](#query-prompts)
@@ -11,9 +10,8 @@ the harness console's full REST API.
 3. [API Key Redaction Tests](#api-key-redaction-tests)
 4. [Due-Diligence Invariant Tests](#due-diligence-invariant-tests)
 5. [Terminal Console Endpoint Tests](#terminal-console-endpoint-tests)
-6. [Harness Console Endpoint Tests](#harness-console-endpoint-tests)
-7. [Config Invariants](#config-invariants)
-8. [macOS Realism Coverage](#macos-realism-coverage)
+6. [Config Invariants](#config-invariants)
+7. [macOS Realism Coverage](#macos-realism-coverage)
 
 ---
 
@@ -388,98 +386,6 @@ All endpoints require `CYCLAW_API_KEY`.
 | SQL-6 | `query` + fmt | `{action: "query", sql: "...", fmt: "csv"}` | CSV output |
 | SQL-7 | unknown | `{action: "drop"}` | 400 or 422 (schema validation may reject first) |
 | SQL-8 | write SQL | `{action: "query", sql: "INSERT..."}` | Rejected by guard |
-
----
-
-## Harness Console Endpoint Tests
-
-The harness console (`harness/server.py`, `static/harness.html`) is a
-SEPARATE app from the RAG gateway -- its own port (8790 default), no
-`chromadb`/`sentence-transformers`/`langgraph` dependency, and no API-key
-gate (loopback-only bind + `TrustedHostMiddleware` is its whole threat-model
-boundary). Every test below is exercisable through a real FastAPI
-`TestClient` in-process; none require chromadb/langgraph stubs.
-
-### Status / Registry
-
-| Test | Method | Endpoint | Expected |
-|------|--------|----------|----------|
-| HC-1 | GET | `/api/status` | 200, `{version, model, provider, base_url, soul_enabled, home, repo_root, sessions, total_tokens, layout}` |
-| HC-2 | GET | `/api/registry` | 200, `{skills: [...], tools: [...], connectors: [...]}` |
-| HC-2b | GET | `/api/tools` | 200, `{tools: [...], wired, total, diagram}`; every `kind=harness` row has `wired=true` against live routes; `hybrid_search` is `kind=mcp` / `invoked=false`; `diagram` starts with `HARNESS TOOLS` |
-| HC-2c | GET | `/api/skills` | 200, `{skills: [...], wired, total, diagram}`; `ponytail`/`karpathy-guidelines` are `role=prompt` and wired; `invariant-guard`/`config-guard` are `role=check` and wired; repo catalog rows are unwired; `diagram` starts with `HARNESS SKILLS` |
-| HC-2d | GET | `/api/web` | 200, `{enabled: false, allowlist: [], ...}` shipped default; POST `/api/web/fetch` is 409 `WEB_DISABLED` until `/web on` and a non-empty allowlist |
-| HC-2e | GET | `/api/memory` | 200, `{enabled: false, count: 0, rag.writable_from_harness: false}`; POST `/api/memory/add` pins a note; POST `/api/memory` `{enabled}` toggles prompt injection only |
-
-### Session Lifecycle
-
-| Test | Method | Endpoint | Body | Expected |
-|------|--------|----------|------|----------|
-| HC-3 | POST | `/api/sessions` | `{title}` | 201, `{session_id, title, created_ts, model, message_count, last_excerpt, tokens}` |
-| HC-4 | GET | `/api/sessions` | - | 200, `{sessions: [...]}` |
-| HC-5 | GET | `/api/sessions/{id}` | - | 200, session summary + `messages: [{role, content, ts}]`; unknown id -> 404 |
-| HC-6 | POST | `/api/sessions/{id}/rename` | `{title}` | 200, updated summary; unknown id -> 404 |
-| HC-6b | POST | `/api/sessions/{id}/goal` | `{goal}` | 200, summary + trimmed `goal`; empty string clears; unknown id -> 404; listing (`GET /api/sessions`) omits `goal` |
-
-### Soul / Model Toggles
-
-Harness-local only -- `data/personality/soul.md` itself is never touched by
-either endpoint; these gate only the harness's own system-prompt composition.
-
-| Test | Method | Endpoint | Body | Expected |
-|------|--------|----------|------|----------|
-| HC-7 | GET | `/api/soul` | - | 200, `{enabled: bool}` |
-| HC-8 | POST | `/api/soul` | `{enabled}` | 200, `{enabled}`; persists across `HarnessConfig.load()` |
-| HC-9 | POST | `/api/model` | `{model}` | 200, `{model}`; persists across `HarnessConfig.load()` |
-
-### Chat + Rate Limit
-
-| Test | Method | Endpoint | Body | Expected |
-|------|--------|----------|------|----------|
-| HC-10 | POST | `/api/chat` | `{message, session_id?, model?}` | 200, `{session_id, reply, model, usage: {prompt_tokens, completion_tokens}, tally}` |
-| HC-11 | POST | `/api/chat` | unknown `session_id` | 404 |
-| HC-12 | POST | `/api/chat` | no live chat backend | 502, `HarnessLLMError` envelope (`detail.code`/`detail.message`) |
-| HC-13 | POST | `/api/chat` | past `api.rate_limit.max_requests` (config.yaml; default 60/60s) | 429 -- same `utils.ratelimit.RateLimiter` mechanism as `gate.py`'s `/query` |
-| HC-13b | POST | `/api/chat` | `{loop: true}` with no session goal | 400, `detail.code == LOOP_REQUIRES_GOAL` -- `/loop` is chat-only and never starts `/api/agent/*` |
-| HC-13c | POST | `/api/chat/cancel` | - | 200, `{cancelled: true}` (idempotent when nothing is in flight; `/loop stop`) |
-| HC-13d | POST | `/api/chat` | `{loop: true}` with a session goal set | 200 chat-only (or documented 502 with no backend) -- never 4xx `LOOP_REQUIRES_GOAL`, never starts `/api/agent/*` |
-
-### GitHub Status / Harness Runs
-
-| Test | Method | Endpoint | Expected |
-|------|--------|----------|----------|
-| HC-14 | GET | `/api/github/status` | Well-formed JSON envelope (subprocess-backed via `utils.ops_runner.run_agentic_op`; a sandbox without a configured git remote still returns a well-formed error, not a 500) |
-| HC-15 | GET | `/api/harness/runs` | 200, `{runs: [...], count: int}` |
-
-### Console / Security
-
-| Test | Method | Endpoint | Expected |
-|------|--------|----------|----------|
-| HC-16 | GET | `/` | 200, serves `static/harness.html`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY` |
-| HC-17 | GET | `/docs`, `/redoc`, `/openapi.json` | 404 (auto-docs disabled -- `docs_url`/`redoc_url`/`openapi_url=None`) |
-| HC-18 | GET | `/api/status` with a non-loopback `Host` header | 400 (`TrustedHostMiddleware` DNS-rebinding defense) |
-
-### Coding Agent Runs (`/api/agent/*`)
-
-| Test | Method | Endpoint | Expected |
-|------|--------|----------|----------|
-| HC-19 | GET | `/api/agent/checks` | 200, `{profiles: [...]}` -- lists named check profiles; open by design (no `guarded` dependency), same reasoning as `/api/registry` -- the console must populate before an operator key is entered |
-| HC-20 | POST | `/api/agent/run` | Auth-gate only: expect 401/403 unauthenticated -- NOT exercised live, it clones a repo, calls a model, and blocks synchronously (wall-clock budget derived per request, capped at 3600s) |
-| HC-21 | GET | `/api/agent/runs/{id}` | Run status (Bearer-gated) |
-| HC-22 | POST | `/api/agent/runs/{id}/decision` | Approve/reject a pending run -- auth-gate only, NOT exercised live: an authorized decision reaches a git write |
-
-### Test Environment Notes
-
-- Isolate `CYCLAW_HOME` to a fresh temp directory before building the app --
-  never touch the operator's real `~/.CyClaw` / `%USERPROFILE%\.CyClaw`.
-- Inject a `HarnessChatClient` backed by `httpx.MockTransport` for
-  deterministic chat responses (HC-10), matching
-  `tests/test_harness.py`'s own `_mock_transport()` fixture; alternatively,
-  pair a live server with `mock_ollama.py` on `127.0.0.1:11434` for an
-  end-to-end real HTTP round trip (HC-10 via `harness_emulation.py`).
-- HC-13's rate-limit ceiling must be read from `config.yaml`'s
-  `api.rate_limit.max_requests`, never hardcoded -- it is shared config with
-  `gate.py`'s own `/query` limiter, and drifts if either side changes.
 
 ---
 

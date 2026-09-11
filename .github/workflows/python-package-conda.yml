@@ -115,7 +115,6 @@ jobs:
           --cov=memory \
           --cov=utils.agent_identity \
           --cov=utils.repo_paths \
-          --cov=utils.auth \
           --cov=utils.authn \
           --cov=utils.authn_store \
           --cov=utils.authn_manager \
@@ -163,7 +162,6 @@ jobs:
           --cov=sync.scheduler \
           --cov=agentic \
           --cov=guardrails \
-          --cov=harness \
           --cov=telegram \
           --cov=opentweet \
           --cov=schemas \

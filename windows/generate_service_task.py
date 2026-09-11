@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate (never register) a supervised Task Scheduler job for gate.py or
-the coding harness. Windows-only.
+"""Generate (never register) a supervised Task Scheduler job for gate.py.
+Windows-only.
 
 READ THIS FIRST -- the highest-risk of CyClaw's Windows task generators
 (twin of macos/generate_service_plist.py / PR #912): a logon-triggered
-task with RestartOnFailure turns gate.py or the harness into an
+task with RestartOnFailure turns gate.py into an
 ALWAYS-RUNNING, AUTO-RESTARTING network listener. That survives logout,
 reboot, and process crashes. This script does not judge whether that
 posture is appropriate; it only writes XML + a .cmd launcher, and —
@@ -14,8 +14,6 @@ an explicit --confirm and a non-empty --reason.
 Usage:
   python windows/generate_service_task.py --service gate \\
       --reason "keep the RAG server up across reboots" --confirm
-  python windows/generate_service_task.py --service harness \\
-      --reason "keep the coding console up across reboots" --confirm
   python windows/generate_service_task.py --service gate \\
       --api-key-target com.cgfixit.cyclaw.api-key \\
       --reason "..." --confirm
@@ -47,9 +45,7 @@ from utils.telemetry_kill import scheduler_env_overlay  # noqa: E402
 
 _TASK_NAMES = types.MappingProxyType({
     "gate": "CyClaw gate",
-    "harness": "CyClaw harness",
 })
-_DEFAULT_HARNESS_PORT = 8790
 _DEFAULT_THROTTLE_SEC = 30
 
 _RISK_TEXT = """
@@ -71,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python windows/generate_service_task.py",
         description=(
             "Generate (never register) a supervised Task Scheduler job "
-            "for gate.py or the harness. Windows-only."
+            "for gate.py. Windows-only."
         ),
     )
     parser.add_argument("--service", choices=sorted(_TASK_NAMES), required=True)
@@ -152,14 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     # utils/win_schtasks.write_cmd_launcher).
     env: dict[str, str] = dict(scheduler_env_overlay())
 
-    if args.service == "gate":
-        port = _read_gate_port(Path(args.config).resolve())
-        inner_argv = [win_schtasks.python_executable(), str(_REPO_ROOT / "gate.py")]
-    else:
-        port = _DEFAULT_HARNESS_PORT
-        inner_argv = [win_schtasks.python_executable(), "-m", "harness.server"]
-        env["CYCLAW_HOME"] = str(Path.home() / ".CyClaw")
-        env["CYCLAW_REPO"] = str(_REPO_ROOT)
+    port = _read_gate_port(Path(args.config).resolve())
+    inner_argv = [win_schtasks.python_executable(), str(_REPO_ROOT / "gate.py")]
 
     secrets: list[tuple[str, str]] = []
     if args.api_key_target:

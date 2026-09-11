@@ -386,9 +386,9 @@ NDJSON mainline plane (every audit record projected, fail-soft); default-off
 Unslop slop-detection probe for the agentic loop; per-user auth with RBAC,
 sessions, CSRF, device tokens, TLS via `cyclaw-gen-cert`; default-off memory
 subsystem (facts + episodes, SQLite FTS5, propose/apply governance); out-of-band
-Telegram and OpenTweet channels (disabled by default); the coding harness
-console on `127.0.0.1:8790`; `real_repo_loop` plan → patch → verify → human
-decides → commit. Local model moved LM Studio → Ollama, `qwen3.6:27b` →
+Telegram and OpenTweet channels (disabled by default); `real_repo_loop` plan →
+patch → verify → human decides → commit. The Python coding-harness console was
+removed on 2026-09-11; that role moved to the sibling CG-agent-harness repo. Local model moved LM Studio → Ollama, `qwen3.6:27b` →
 `qwen3.8:27b-mlx` on 2026-08-15.
 
 **Open threads he keeps returning to** (verify status before acting — see the

@@ -431,9 +431,7 @@ async def _on_validation_error(_request: Request, exc: RequestValidationError) -
     ``password`` field turns a merely too-long or wrong-type password into a
     verbatim disclosure in the 422 response body (and a malformed/non-JSON
     body echoes the WHOLE raw request, username+password included, the same
-    way). Mirrors harness/server.py's ``_validation_error_response``, which
-    solved the identical problem for that app: report only the field
-    location, never the value. Applies to every route (there is no way to
+    way). Report only the field location, never the value. Applies to every route (there is no way to
     scope a FastAPI exception handler to one path), but only ever REMOVES
     information from the existing default body -- no other route's tests
     assert anything more specific than the 422 status code.
@@ -1316,8 +1314,7 @@ def _looks_cross_site(request: Request) -> bool:
     forces a preflight the browser then blocks. api_key_optional removes that
     key, so this check has to replace what it was implicitly providing.
 
-    Absent headers are ALLOWED, matching harness/server.py's
-    _enforce_same_origin: curl and PowerShell send neither, and a non-browser
+    Absent headers are ALLOWED: curl and PowerShell send neither, and a non-browser
     client is not a CSRF vector. Every browser capable of mounting this attack
     sends at least Origin on a cross-origin POST.
 

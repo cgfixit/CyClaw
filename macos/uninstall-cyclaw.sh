@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Removes the CyClaw harness integration from the current user's environment
+# Removes the CyClaw integration from the current user's environment
 # (macOS/Linux). Removes the cyclaw() shell function, the ~/.CyClaw/bin
 # PATH entry, and the `# >>> cyclaw keys >>>` source block -- install-cyclaw.sh
 # and setup-cyclaw-keys.sh's independent marker blocks in the shell rc file.
@@ -20,8 +20,8 @@
 # a missing TTY or empty answer is N. --yes alone deletes nothing extra.
 #
 # Before rc/home teardown this script best-effort frees loopback listeners on
-# CYCLAW_GATE_PORT / CYCLAW_HARNESS_PORT (defaults 8787 / 8790) after LaunchAgent
-# bootout, so a later reinstall is not talking to a stale gate/harness. Kill
+# CYCLAW_GATE_PORT (default 8787) after LaunchAgent bootout, so a later
+# reinstall is not talking to a stale gate. Kill
 # failure never aborts uninstall. Duplicated in setup-cyclaw-keys.sh because
 # that script is copied standalone to ~/.CyClaw/bin/.
 
@@ -46,7 +46,6 @@ FSCONNECT_DIR="$HOME/CyClaw-FS"
 # Same account naming as setup-cyclaw-keys.sh / cyclaw-keychain-set.sh.
 ACCOUNT="$(id -un)"
 GATE_PORT="${CYCLAW_GATE_PORT:-8787}"
-HARNESS_PORT="${CYCLAW_HARNESS_PORT:-8790}"
 SECURITY_BIN=""
 _LOOPBACK_PORT_HELD=0
 
@@ -125,11 +124,10 @@ free_loopback_port() {
 
 free_cyclaw_loopback_ports() {
   _LOOPBACK_PORT_HELD=0
-  echo "[cyclaw] freeing loopback listeners on :$GATE_PORT / :$HARNESS_PORT (best-effort)..."
+  echo "[cyclaw] freeing loopback listener on :$GATE_PORT (best-effort)..."
   free_loopback_port "$GATE_PORT"
-  free_loopback_port "$HARNESS_PORT"
   if [ "$_LOOPBACK_PORT_HELD" -eq 1 ]; then
-    echo "[cyclaw] WARNING: :$GATE_PORT / :$HARNESS_PORT may still be held; a later start can hit address-in-use" >&2
+    echo "[cyclaw] WARNING: :$GATE_PORT may still be held; a later start can hit address-in-use" >&2
   fi
 }
 
@@ -214,7 +212,9 @@ unschedule_sync_job
 
 # -- Landed LaunchAgent cleanup -----------------------------------------------
 # Generators (none of these go through sync.cli): telegram-poll KeepAlive,
-# telegram-health, fsconnect-trash, gate/harness (generate_service_plist.py),
+# telegram-health, fsconnect-trash, gate (generate_service_plist.py; the
+# harness label is the retired coding console's, kept so an older install's
+# agent is still booted out),
 # keys-rotate (setup-cyclaw-keys.sh --schedule-rotate), opentweet
 # (python -m opentweet.cli schedule-plist). A loaded KeepAlive or crash-restart
 # agent would keep running after `cyclaw` is gone. Best-effort: bootout the

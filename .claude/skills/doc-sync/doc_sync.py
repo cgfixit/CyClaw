@@ -418,24 +418,7 @@ def main(argv: list[str] | None = None) -> int:
             # literal curl URLs against a loopback host:port.
             claimed = set(re.findall(r"`(/[A-Za-z0-9_/*-]*)`", body))
             claimed |= set(re.findall(r"https?://127\.0\.0\.1:\d+(/[A-Za-z0-9_/-]*)", body))
-            # The section closes by naming a few harness-console routes to make
-            # the point that they live on a DIFFERENT app and port. Those are
-            # real routes, so validate them against harness/server.py rather
-            # than either ignoring them (no coverage) or flagging them (noise).
-            # server.py owns 23 of the 29 guarded routes; the other six
-            # (/api/agent/*) are in agent_routes.py and the /api/auth/*
-            # surface is in auth_routes.py. Reading only server.py meant a
-            # doc citing a REAL route from either of those was reported as a
-            # phantom -- a false positive in the one direction of D5 that
-            # nothing else covers.
-            harness_routes: set[str] = set()
-            for _hname in ("server.py", "agent_routes.py", "auth_routes.py"):
-                _hp = root / "harness" / _hname
-                if _hp.exists():
-                    harness_routes |= set(
-                        re.findall(_decl, _hp.read_text(encoding="utf-8"))
-                    )
-            known = set(api_routes) | harness_routes | {"/", "/static/*"}
+            known = set(api_routes) | {"/", "/static/*"}
 
             def _known(token: str) -> bool:
                 if token in known:

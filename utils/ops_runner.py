@@ -100,7 +100,7 @@ _REAL_REPO_RUN_OVERHEAD_SEC = 300
 # console cannot tell it from a hang. Capping means a genuinely enormous
 # request fails with a legible AGENTIC_TIMEOUT instead, which is the more
 # honest outcome. Raise it deliberately if a real workload ever needs to.
-# Public: harness/server.py refuses request shapes whose uncapped budget
+# Public: a caller can refuse request shapes whose uncapped budget
 # (real_repo_run_budget_sec below) exceeds this, before any subprocess starts.
 REAL_REPO_RUN_MAX_TIMEOUT_SEC = 3600
 
@@ -147,12 +147,10 @@ def real_repo_run_budget_sec(max_iterations: int | None, check_count: int) -> in
 def _real_repo_run_timeout_sec(max_iterations: int | None, check_count: int) -> int:
     """Capped subprocess budget: the request-shape budget, held to the ceiling.
 
-    Whether the min() actually binds depends on the caller. The harness route
-    (POST /api/agent/run) now refuses over-cap shapes up front, so for that path
-    this is provably a no-op. It stays load-bearing for every caller that skips
-    the route -- gate.py's /ops/agentic and direct `python -m agentic.cli` use --
-    where nothing has pre-validated the shape and an unbounded budget would hand
-    subprocess.run a timeout long enough to look like a hang.
+    Load-bearing for every caller: nothing upstream pre-validates the request
+    shape today (the console route that once refused over-cap shapes up front is
+    gone), so without the min() an unbounded budget would hand subprocess.run a
+    timeout long enough to look like a hang.
     """
     return min(real_repo_run_budget_sec(max_iterations, check_count), REAL_REPO_RUN_MAX_TIMEOUT_SEC)
 

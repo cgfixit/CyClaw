@@ -34,7 +34,7 @@ latency target on endpoints or imports.
 - Preserve RAG-first retrieval, graph-enforced routing, external-provider
   gates, audit convergence, and human-reason soul governance.
 - Use the maintained invariant checker's complete six-core/out-of-band sets,
-  including harness, Telegram, and OpenTweet, rather than a partial copied list.
+  including Telegram and OpenTweet, rather than a partial copied list.
 - Preserve both local nodes' destination checks, separate cloud consent, typed
   error results, and guarded bridge calls when extracting shared generation code.
 - Do not mix dependency, CI, formatting, and behavior changes into the refactor.

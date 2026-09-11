@@ -1,8 +1,7 @@
 """Regression test pinning macos/*.sh's duplicated CyClaw home-dir literal.
 
 install-cyclaw.sh and invoke-cyclaw.sh each hardcode the "~/.CyClaw" home
-directory independently (shell scripts can't import harness/config.py's
-_default_home()). invoke-cyclaw.sh's CYCLAW_HOME fallback drifted to the
+directory independently. invoke-cyclaw.sh's CYCLAW_HOME fallback drifted to the
 undotted "$HOME/CyClaw" for a while -- masked in the common path because the
 installed `cyclaw` shim always exports CYCLAW_HOME first, but broke direct
 invocation of the script without that env var pre-set. This pins the literal
@@ -55,16 +54,15 @@ def test_invoke_cyclaw_home_dir_matches_install_cyclaw() -> None:
     assert invoke_match.group(1) == install_match.group(1)
 
 
-def test_invoke_cyclaw_probes_harness_startup_and_watches_both_pids() -> None:
-    """The harness must get the same startup-death probe the gateway already
-    has, and the script must not block forever on one PID if the other dies."""
+def test_invoke_cyclaw_probes_gateway_startup_and_watches_its_pid() -> None:
+    """The gateway gets a startup-death probe, and the script must not block
+    forever on a wait if the process dies later."""
     text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
-    assert "/api/status" in text, "harness startup probe must target /api/status"
-    assert "HARNESS_READY=0" in text, "harness startup readiness variable missing"
-    assert "coding harness exited during startup" in text, "harness startup death message missing"
-    # Dual-PID liveness loop replaces the old single wait.
+    assert "/health" in text, "gateway startup probe must target /health"
+    assert "GATE_READY=0" in text, "gateway startup readiness variable missing"
+    assert "RAG gateway exited during startup" in text, "gateway startup death message missing"
+    # Liveness loop replaces a bare wait.
     assert "while true; do" in text, "liveness watch loop missing"
-    assert "kill -0 \"$HARNESS_PID\"" in text
     assert "kill -0 \"$GATE_PID\"" in text
     assert "CHILD_EXIT_STATUS=$?" in text, "liveness watch must preserve a failed child's status"
     assert 'exit "$CHILD_EXIT_STATUS"' in text, "launcher must propagate the child exit status"
@@ -76,17 +74,21 @@ def test_invoke_cyclaw_probes_harness_startup_and_watches_both_pids() -> None:
 
 @pytest.mark.skipif(os.name == "nt", reason="requires POSIX child-process exit semantics")
 def test_invoke_cyclaw_propagates_a_post_start_child_failure(tmp_path: Path) -> None:
-    """A harness that dies after the startup probe must not become exit 0."""
+    """A gateway that dies after the startup probe must not become exit 0."""
     home = tmp_path / "home"
     fake_python = home / "venv" / "bin" / "python"
     fake_python.parent.mkdir(parents=True)
-    fake_python.write_text("#!/bin/sh\nsleep 4\nexit 37\n", encoding="utf-8")
+    # The launcher probes `python -c "import uvicorn"` and the telemetry-kill
+    # export before spawning uvicorn; answer those two, then die as uvicorn.
+    fake_python.write_text(
+        "#!/bin/sh\ncase \"$1\" in -c) exit 0 ;; -S) exit 1 ;; esac\nsleep 4\nexit 37\n",
+        encoding="utf-8",
+    )
     fake_python.chmod(0o755)
 
     repo = tmp_path / "repo"
-    harness = repo / "harness"
-    harness.mkdir(parents=True)
-    (harness / "server.py").write_text("# launcher probe\n", encoding="utf-8")
+    repo.mkdir()
+    (repo / "gate.py").write_text("# launcher probe\n", encoding="utf-8")
 
     env = os.environ.copy()
     env["CYCLAW_HOME"] = str(home)
@@ -96,7 +98,6 @@ def test_invoke_cyclaw_propagates_a_post_start_child_failure(tmp_path: Path) -> 
             str(_REPO_ROOT / "macos" / "invoke-cyclaw.sh"),
             "--repo",
             str(repo),
-            "--no-gate",
             "--no-browser",
         ],
         cwd=_REPO_ROOT,
@@ -108,7 +109,7 @@ def test_invoke_cyclaw_propagates_a_post_start_child_failure(tmp_path: Path) -> 
     )
 
     assert result.returncode == 37, result.stdout + result.stderr
-    assert "harness process" in result.stderr
+    assert "RAG gateway process" in result.stderr
 
 
 def test_invoke_cyclaw_loads_persisted_api_key_from_dotenv() -> None:
@@ -144,6 +145,7 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     # Record presence/match only. Never echo the secret.
     fake_python.write_text(
         "#!/bin/sh\n"
+        'case "$1" in -c) exit 0 ;; -S) exit 1 ;; esac\n'
         f'status="{status_file.as_posix()}"\n'
         'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "set\\n" > "$status"; else printf "unset\\n" > "$status"; fi\n'
         'if [ "${CYCLAW_API_KEY:-}" = "from-dotenv" ]; then printf "match\\n" >> "$status"; fi\n'
@@ -157,9 +159,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     dotenv.chmod(0o600)
 
     repo = tmp_path / "repo"
-    harness = repo / "harness"
-    harness.mkdir(parents=True)
-    (harness / "server.py").write_text("# launcher probe\n", encoding="utf-8")
+    repo.mkdir()
+    (repo / "gate.py").write_text("# launcher probe\n", encoding="utf-8")
 
     env = os.environ.copy()
     env["CYCLAW_HOME"] = str(home)
@@ -170,7 +171,6 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
             str(_REPO_ROOT / "macos" / "invoke-cyclaw.sh"),
             "--repo",
             str(repo),
-            "--no-gate",
             "--no-browser",
         ],
         cwd=_REPO_ROOT,
@@ -234,7 +234,6 @@ def test_replace_repo_recovery_is_documented_with_its_destructive_scope() -> Non
     guide_paths = (
         _REPO_ROOT / "macos" / "README.md",
         _REPO_ROOT / "setup-guide.md",
-        _REPO_ROOT / "docs" / "HARNESS_MACOS.md",
     )
     for guide_path in guide_paths:
         text = guide_path.read_text(encoding="utf-8")
@@ -334,20 +333,8 @@ def test_uninstaller_bootouts_landed_launchagent_labels() -> None:
     # Label-domain bootout must run even when the plist file is already gone.
     assert 'bootout "gui/${uid}/${label}"' in text
 
-    # Docs must not still claim "three landed" agents or that gate/harness
-    # survive uninstall (#922 landed with #912). The brace list and the
-    # "eight generated" phrasing must match the live uninstall loop.
-    harness_doc = (_REPO_ROOT / "docs" / "HARNESS_MACOS.md").read_text(encoding="utf-8")
-    assert "three landed generated LaunchAgents" not in harness_doc
-    assert "future gate/harness agent, are left alone" not in harness_doc
-    assert "five generated LaunchAgent labels" not in harness_doc
-    assert "seven generated LaunchAgent labels" not in harness_doc
-    assert "eight generated LaunchAgent labels" in harness_doc
-    for label in labels:
-        short = label.removeprefix("com.cgfixit.cyclaw.")
-        assert short in harness_doc
     readme = (_REPO_ROOT / "macos" / "README.md").read_text(encoding="utf-8")
-    assert "gate, harness" in readme
+    assert "gate, keys-rotate" in readme
     assert "keys-rotate" in readme
     assert "opentweet" in readme
     assert "--remove-keychain" in readme
@@ -464,9 +451,7 @@ def test_setup_cyclaw_clipboard_clear_job_is_disowned() -> None:
 def test_setup_cyclaw_cleans_up_browser_fill_temp_dir_on_interrupt() -> None:
     """fill_browser_key stages CYCLAW_API_KEY in a 0600 temp file for osascript
     to read. An interrupt between mktemp and the function's own closing
-    `rm -rf` must not leave that secret-bearing file behind -- same failure
-    class harness/env_keys.py's _write_temp_file guards against for the
-    harness console's key writer."""
+    `rm -rf` must not leave that secret-bearing file behind."""
     setup = (_REPO_ROOT / "macos" / "setup-cyclaw.sh").read_text(encoding="utf-8")
     assert "FILL_KEY_TMP_DIR=" in setup
     cleanup_match = re.search(r"cleanup_runner\(\) \{.*?\n\}", setup, re.DOTALL)
@@ -615,6 +600,7 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
     status_file = home / "key_status"
     fake_python.write_text(
         "#!/bin/sh\n"
+        'case "$1" in -c) exit 0 ;; -S) exit 1 ;; esac\n'
         f'status="{status_file.as_posix()}"\n'
         'if [ "${CYCLAW_API_KEY:-}" = "from-repo" ]; then printf "repo\\n" > "$status";'
         ' else printf "other:${CYCLAW_API_KEY:-unset}\\n" > "$status"; fi\n'
@@ -630,9 +616,8 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
     home_dotenv.chmod(0o644)
 
     repo = tmp_path / "repo"
-    harness = repo / "harness"
-    harness.mkdir(parents=True)
-    (harness / "server.py").write_text("# launcher probe\n", encoding="utf-8")
+    repo.mkdir()
+    (repo / "gate.py").write_text("# launcher probe\n", encoding="utf-8")
     repo_dotenv = repo / ".env"
     repo_dotenv.write_text("CYCLAW_API_KEY=from-repo\n", encoding="utf-8")
     repo_dotenv.chmod(0o600)
@@ -646,7 +631,6 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
             str(_REPO_ROOT / "macos" / "invoke-cyclaw.sh"),
             "--repo",
             str(repo),
-            "--no-gate",
             "--no-browser",
         ],
         cwd=_REPO_ROOT,

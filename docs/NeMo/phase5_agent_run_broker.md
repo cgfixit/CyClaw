@@ -1,5 +1,7 @@
 # NeMo Phase 5 — wrap `POST /api/agent/run` through ToolBroker
 
+> **Status update — 2026-09-11 (doc-sync, PR #1367):** HISTORICAL. The Python coding-harness console (`harness/`, `static/harness.html`, `:8790`, every `/api/*` route named below) was removed from CyClaw; the coding console now lives in the sibling Rust project CG-agent-harness. Nothing below is a live claim.
+
 > **Status update — 2026-09-06 (docs review, Claude Code):** COMPLETE.
 > Verified live: `harness/server.py:92` imports `from utils.tool_broker import
 > ToolDenied, assert_allowed`, and `assert_allowed(...)` is called at line

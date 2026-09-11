@@ -314,7 +314,7 @@ jobs:
             & $Installer -RepoPath $env:GITHUB_WORKSPACE -SkipPythonDeps -NoProfileEdit -NoPathEdit
 
             $HomeDir = Join-Path $env:USERPROFILE ".CyClaw"
-            foreach ($relative in @("bin", "sessions", "skills", "tools", "memory")) {
+            foreach ($relative in @("bin")) {
               if (-not (Test-Path -LiteralPath (Join-Path $HomeDir $relative))) {
                 throw "installer did not create .CyClaw\$relative"
               }
@@ -339,9 +339,9 @@ jobs:
             $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "cyclaw-installer-ps51-adversarial"
             New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
             $EvilDir = Join-Path $env:RUNNER_TEMP 'evil$(Get-Date)'
-            New-Item -ItemType Directory -Force -Path (Join-Path $EvilDir "harness") | Out-Null
-            Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "harness\server.py") `
-              -Destination (Join-Path $EvilDir "harness\server.py")
+            New-Item -ItemType Directory -Force -Path $EvilDir | Out-Null
+            Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "gate.py") `
+              -Destination (Join-Path $EvilDir "gate.py")
 
             $threw = $false
             try {
@@ -382,7 +382,7 @@ jobs:
         # three OSes; torch gets its own macOS-specific install step (below)
         # because torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu
         # for macOS -- confirmed on this matrix leg's first run, and documented
-        # in docs/HARNESS_MACOS.md.
+        # in setup-guide.md.
         os: [ubuntu-latest, windows-latest, macos-latest]
     # All three supported hosts are release gates. Platform-specific skips are
     # reported below with `pytest -rs`; a failing Windows result is not masked.
@@ -395,7 +395,7 @@ jobs:
       - name: macOS install-script smoke test (layout + shim + profile integration)
         if: runner.os == 'macOS'
         # Exercises macos/install-cyclaw.sh's and uninstall-cyclaw.sh's own shell
-        # logic -- the one part of the macOS/Linux harness port with no CI coverage
+        # logic -- the one part of the macOS/Linux launcher with no CI coverage
         # at all (confirmed: no workflow file anywhere references install-cyclaw.sh
         # or uninstall-cyclaw.sh). Placed here, before "Setup Python 3.12", because
         # install-cyclaw.sh is self-contained -- it clones its own repo copy and
@@ -436,7 +436,7 @@ jobs:
           # NOT "repo" -- that dir is only created on the clone path; --repo-path
           # points REPO_DIR straight at the external checkout instead (verified
           # against the script's own home-layout loop).
-          for d in bin sessions skills tools memory; do
+          for d in bin; do
             [ -d "$HOME/.CyClaw/$d" ] || fail "missing \$HOME/.CyClaw/$d"
           done
           [ -x "$HOME/.CyClaw/bin/cyclaw" ] || fail "cyclaw shim missing or not executable"
@@ -511,7 +511,7 @@ jobs:
 
           # A real directory whose name is itself an injection payload -- the
           # exact class this finding is about, not a synthetic string. Only
-          # harness\server.py needs to exist for Install-CyClaw.ps1's
+          # gate.py needs to exist for Install-CyClaw.ps1's
           # -RepoPath validation to pass. The payload must be a LEGAL single
           # NTFS path component: no <>:"/\|?* (reserved chars). A previous
           # version embedded a quoted absolute Windows path (drive letter +
@@ -523,8 +523,8 @@ jobs:
           # 'evil$(Get-Date)' both creates cleanly and still contains the
           # exact character class ($) Assert-SafeRepoPath rejects.
           $EvilDir = Join-Path "${{ runner.temp }}" 'evil$(Get-Date)'
-          New-Item -ItemType Directory -Force -Path (Join-Path $EvilDir "harness") | Out-Null
-          Copy-Item "$env:GITHUB_WORKSPACE\harness\server.py" (Join-Path $EvilDir "harness\server.py")
+          New-Item -ItemType Directory -Force -Path $EvilDir | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\gate.py" (Join-Path $EvilDir "gate.py")
 
           $threw = $false
           try {
@@ -568,12 +568,12 @@ jobs:
 
           # A real directory whose name is itself an injection payload -- the
           # exact class this finding is about, not a synthetic string. Only
-          # harness/server.py needs to exist for install-cyclaw.sh's --repo-path
+          # gate.py needs to exist for install-cyclaw.sh's --repo-path
           # validation to pass (see the check at repo-resolution time); a full
           # copy of $GITHUB_WORKSPACE is unnecessary and needlessly slow.
           EVIL_DIR="${{ runner.temp }}/evil\$(touch ${{ runner.temp }}/PWNED_VIA_INSTALLER)"
-          mkdir -p "$EVIL_DIR/harness"
-          cp "$GITHUB_WORKSPACE/harness/server.py" "$EVIL_DIR/harness/server.py"
+          mkdir -p "$EVIL_DIR"
+          cp "$GITHUB_WORKSPACE/gate.py" "$EVIL_DIR/gate.py"
 
           if bash macos/install-cyclaw.sh --repo-path "$EVIL_DIR" --skip-python-deps < /dev/null 2>/tmp/adversarial_install.log; then
             fail "installer accepted a --repo-path containing shell metacharacters (should have refused)"
@@ -654,7 +654,7 @@ jobs:
           # https://download.pytorch.org/whl/cpu for macOS -- that index lists
           # plain (non "+cpu"-suffixed) versions there instead, because Apple
           # Silicon has no separate CPU/CUDA build to disambiguate (this was
-          # flagged as an unverified gap in docs/HARNESS_MACOS.md; this is the
+          # flagged as an unverified gap in the macOS launcher docs; this is the
           # fix it named). requirements.txt/constraints.txt both hardcode the
           # +cpu pin by design (dependency-confusion-proof reproducibility on
           # Linux/Windows), so this leg installs plain torch directly, then
@@ -732,11 +732,10 @@ jobs:
           # (Unit tests + coverage run in the next step.)
           python -m tests.ci_rag_smoke
 
-      - name: macOS live gateway + harness API smoke
+      - name: macOS live gateway API smoke
         # macOS is CyClaw's stated primary platform (CLAUDE.md). This step
-        # boots mock-ollama + gate.py + harness.server, then runs the Darwin
-        # twin of windows-smoke.ps1 (macos-smoke.sh) for the same 22-check
-        # live-API contract. Isolated CYCLAW_HOME so the session residue
+        # boots mock-ollama + gate.py, then runs the Darwin twin of
+        # windows-smoke.ps1 (macos-smoke.sh) for the same live-API contract. Isolated CYCLAW_HOME so the session residue
         # (title macos-smoke) never touches the runner's real home.
         if: runner.os == 'macOS'
         shell: bash
@@ -744,10 +743,7 @@ jobs:
           GROK_API_KEY: dummy
           CYCLAW_API_KEY: smoke-test-key-ci
           CYCLAW_HOME: ${{ runner.temp }}/cyclaw-runtime-home
-          CYCLAW_HARNESS_HOST: 127.0.0.1
-          CYCLAW_HARNESS_PORT: '8790'
           PORT: '8787'
-          HARNESS_PORT: '8790'
           PYTHON: python
         run: |
           set -uo pipefail
@@ -828,25 +824,19 @@ jobs:
           GATEWAY_PID="$LAST_PID"
           wait_for_endpoint "gateway" "http://127.0.0.1:8787/health" "$GATEWAY_PID" || { on_failure; exit 1; }
 
-          start_process "harness" python -m harness.server
-          HARNESS_PID="$LAST_PID"
-          wait_for_endpoint "harness" "http://127.0.0.1:8790/api/status" "$HARNESS_PID" || { on_failure; exit 1; }
-
-          echo "=== CyClaw macOS live smoke (http://127.0.0.1:8787, http://127.0.0.1:8790) ==="
+          echo "=== CyClaw macOS live smoke (http://127.0.0.1:8787) ==="
           if ! bash "$GITHUB_WORKSPACE/.claude/skills/CyClaw-Sandbox/macos-smoke.sh"; then
             on_failure
             exit 1
           fi
 
-      - name: Windows live gateway + harness API smoke
+      - name: Windows live gateway API smoke
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           GROK_API_KEY: dummy
           CYCLAW_API_KEY: smoke-test-key-ci
           CYCLAW_HOME: ${{ runner.temp }}\cyclaw-runtime-home
-          CYCLAW_HARNESS_HOST: 127.0.0.1
-          CYCLAW_HARNESS_PORT: '8790'
         run: |
           $ErrorActionPreference = "Stop"
           $Python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
@@ -906,11 +896,6 @@ jobs:
             )
             Wait-CyClawEndpoint -Name "gateway" -Uri "http://127.0.0.1:8787/health" -Process $gateway
 
-            $harness = Start-CyClawProcess -Name "harness" -WorkingDirectory $env:GITHUB_WORKSPACE -Arguments @(
-              "-m", "harness.server"
-            )
-            Wait-CyClawEndpoint -Name "harness" -Uri "http://127.0.0.1:8790/api/status" -Process $harness
-
             $smokeStdout = Join-Path $RuntimeDir "windows-smoke.stdout.log"
             $smokeStderr = Join-Path $RuntimeDir "windows-smoke.stderr.log"
             $smoke = Start-Process -FilePath $Pwsh -ArgumentList @(
@@ -957,7 +942,6 @@ jobs:
             --cov=memory \
             --cov=utils.agent_identity \
             --cov=utils.repo_paths \
-            --cov=utils.auth \
             --cov=utils.authn \
             --cov=utils.authn_store \
             --cov=utils.authn_manager \
@@ -1005,7 +989,6 @@ jobs:
             --cov=sync.scheduler \
             --cov=agentic \
             --cov=guardrails \
-            --cov=harness \
             --cov=telegram \
             --cov=opentweet \
             --cov=schemas \

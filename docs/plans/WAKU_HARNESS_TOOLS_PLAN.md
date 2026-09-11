@@ -1,5 +1,7 @@
 # Waku-Tools → CyClaw Harness — Implementation Plan (2026-08-17)
 
+> **Status update — 2026-09-11 (doc-sync, PR #1367):** HISTORICAL. The Python coding-harness console (`harness/`, `static/harness.html`, `:8790`, every `/api/*` route named below) was removed from CyClaw; the coding console now lives in the sibling Rust project CG-agent-harness. Nothing below is a live claim.
+
 > **Status update — 2026-09-06 (docs review, Claude Code):** PARTIAL. Only Slice S1 shipped: `harness/tools_view.py:102,104` carries the `web-search`/`keys` catalog rows and `tests/test_harness_tools_contract.py` exists and enforces the two-way contract. S2 (`/memory search`), S4 (engine-backed web search), and S5 (`retrieval/corpus_report.py`) were never started — no `search` subcommand in `static/harness.html`'s `/memory` handler (verified `static/harness.html:931-969`), no `engine` code in `harness/web_search.py`, and `retrieval/corpus_report.py` does not exist. S3 (run manifests) remains a deliberate, documented deferral per the plan's own text.
 >
 > **What's left:**

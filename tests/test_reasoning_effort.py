@@ -11,8 +11,8 @@ Two vocabularies, deliberately not interchangeable:
 
 No live Ollama. Each target is exercised through its own established seam:
 ``LocalLLMClient`` has no injectable transport, so it gets a real loopback
-HTTPServer (wire bytes) or a patched ``_client.post``; the harness and agentic
-clients take ``transport=`` and get ``httpx.MockTransport``.
+HTTPServer (wire bytes) or a patched ``_client.post``; the agentic client
+takes ``transport=`` and gets ``httpx.MockTransport``.
 """
 
 from __future__ import annotations
@@ -31,9 +31,6 @@ from fastapi.testclient import TestClient
 
 from agentic.harness_optimizer.model_adapter import LocalProposerClient
 from guardrails.integration import _apply_guardrails_config
-from harness.config import HarnessConfig
-from harness.ollama import HarnessChatClient
-from harness.server import create_app
 from llm.client import LocalLLMClient, reset_local_backend_cache, resolve_local_backend
 from utils.config_validation import (
     resolve_grok_reasoning_effort,
@@ -444,169 +441,6 @@ class TestCloudPayloadsUnchanged:
 
 
 # =============================================================================
-# 4. Harness -- normal chat AND /loop, each exercised on its own
-# =============================================================================
-
-_HARNESS_KEY = "harness-test-key"
-
-
-def _harness_auth(app) -> dict:
-    return {"Authorization": f"Bearer {_HARNESS_KEY}", "X-CyClaw-CSRF": app.state.csrf_token}
-
-
-@pytest.fixture()
-def harness_cfg(tmp_path, monkeypatch):
-    monkeypatch.setenv("CYCLAW_API_KEY", _HARNESS_KEY)
-    monkeypatch.setenv("CYCLAW_HOME", str(tmp_path / ".CyClaw"))
-    return HarnessConfig.load()
-
-
-def _capturing_transport(captured: list[dict]):
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(json.loads(request.content))
-        return httpx.Response(200, json={
-            "model": "qwen3.8:27b-mlx",
-            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
-            "usage": {"prompt_tokens": 11, "completion_tokens": 7},
-        })
-
-    return httpx.MockTransport(handler)
-
-
-class TestHarnessOutboundPayload:
-    def test_direct_chat_call_carries_the_field_and_keeps_existing_shape(self):
-        captured: list[dict] = []
-        chat = HarnessChatClient(
-            base_url="http://127.0.0.1:11434/v1",
-            model="qwen3.8:27b-mlx",
-            reasoning_effort="none",
-            transport=_capturing_transport(captured),
-        )
-        result = chat.chat(system_prompt="sys", messages=[{"role": "user", "content": "hi"}])
-        chat.close()
-
-        body = captured[0]
-        assert body["reasoning_effort"] == "none"
-        assert "think" not in body
-        # Nothing else moved.
-        assert body["model"] == "qwen3.8:27b-mlx"
-        assert body["messages"][0] == {"role": "system", "content": "sys"}
-        assert body["messages"][1] == {"role": "user", "content": "hi"}
-        assert body["max_tokens"] == 2048
-        assert body["temperature"] == pytest.approx(0.3)
-        assert body["stream"] is False
-        # Token accounting / ChatResult unchanged.
-        assert result.prompt_tokens == 11
-        assert result.completion_tokens == 7
-
-    def test_client_without_the_setting_omits_the_field(self):
-        captured: list[dict] = []
-        chat = HarnessChatClient(
-            base_url="http://127.0.0.1:11434/v1",
-            model="qwen3.8:27b-mlx",
-            transport=_capturing_transport(captured),
-        )
-        chat.chat(system_prompt="sys", messages=[{"role": "user", "content": "hi"}])
-        chat.close()
-
-        assert "reasoning_effort" not in captured[0]
-        assert "think" not in captured[0]
-
-    def test_normal_chat_route_carries_the_field(self, harness_cfg):
-        captured: list[dict] = []
-        chat = HarnessChatClient(
-            base_url="http://127.0.0.1:11434/v1",
-            model="qwen3.8:27b-mlx",
-            reasoning_effort="none",
-            transport=_capturing_transport(captured),
-        )
-        app = create_app(harness_cfg, chat)
-        client = TestClient(app, base_url="http://127.0.0.1", headers=_harness_auth(app))
-        assert client.post("/api/chat", json={"message": "status"}).status_code == 200
-
-        assert captured[0]["reasoning_effort"] == "none"
-
-    def test_loop_iteration_carries_the_field_independently_of_plain_chat(self, harness_cfg):
-        # /loop is not a route -- it is `loop: true` on POST /api/chat, sharing
-        # one HarnessChatClient. Driving a REAL loop turn (not asserting that it
-        # "eventually calls the same client") is what proves the loop
-        # orchestration does not bypass config propagation.
-        captured: list[dict] = []
-        chat = HarnessChatClient(
-            base_url="http://127.0.0.1:11434/v1",
-            model="qwen3.8:27b-mlx",
-            reasoning_effort="none",
-            transport=_capturing_transport(captured),
-        )
-        app = create_app(harness_cfg, chat)
-        client = TestClient(app, base_url="http://127.0.0.1", headers=_harness_auth(app))
-
-        sid = client.post("/api/sessions", json={"title": "loop"}).json()["session_id"]
-        client.post(f"/api/sessions/{sid}/goal", json={"goal": "finish the loop feature"})
-        assert client.post(
-            "/api/chat", json={"message": "plain", "session_id": sid}
-        ).status_code == 200
-        assert client.post(
-            "/api/chat", json={"message": "loop-now", "session_id": sid, "loop": True}
-        ).status_code == 200
-
-        assert len(captured) == 2
-        plain, loop = captured
-        assert plain["reasoning_effort"] == "none"
-        assert loop["reasoning_effort"] == "none"
-        assert "think" not in loop
-        # The loop's own budget still differs from plain chat -- proof this is a
-        # genuine loop turn and that max_tokens was not touched by this change.
-        assert loop["max_tokens"] != plain["max_tokens"]
-
-    def test_default_chat_client_propagates_from_the_resolved_backend(self, monkeypatch):
-        # Proves config propagation at the real construction site rather than a
-        # hand-passed constructor argument.
-        from harness import server as harness_server
-
-        monkeypatch.setattr(
-            harness_server,
-            "_llm_settings",
-            lambda: {
-                "provider": "ollama",
-                "base_url": "http://127.0.0.1:11434/v1",
-                "model": "qwen3.8:27b-mlx",
-                "timeout_sec": 30,
-                "reasoning_effort": "none",
-            },
-        )
-        backend = harness_server._resolve_backend()
-        assert backend.reasoning_effort == "none"
-        chat = harness_server._default_chat_client(backend)
-        try:
-            assert chat.reasoning_effort == "none"
-        finally:
-            chat.close()
-
-    def test_default_chat_client_drops_it_for_a_non_ollama_backend(self, monkeypatch):
-        from harness import server as harness_server
-
-        monkeypatch.setattr(
-            harness_server,
-            "_llm_settings",
-            lambda: {
-                "provider": "lmstudio",
-                "base_url": "http://127.0.0.1:1234/v1",
-                "model": "local-model",
-                "timeout_sec": 30,
-                "reasoning_effort": "none",
-            },
-        )
-        backend = harness_server._resolve_backend()
-        chat = harness_server._default_chat_client(backend)
-        try:
-            assert backend.reasoning_effort is None
-            assert chat.reasoning_effort is None
-        finally:
-            chat.close()
-
-
-# =============================================================================
 # 5. Agentic local proposer
 # =============================================================================
 
@@ -916,8 +750,6 @@ def _code_lines(path: Path) -> str:
 
 _SOURCES = [
     _REPO_ROOT / "llm" / "client.py",
-    _REPO_ROOT / "harness" / "ollama.py",
-    _REPO_ROOT / "harness" / "server.py",
     _REPO_ROOT / "agentic" / "harness_optimizer" / "model_adapter.py",
     _REPO_ROOT / "guardrails" / "integration.py",
     _REPO_ROOT / "scripts" / "measure_local_llm_throughput.py",
@@ -935,11 +767,6 @@ class TestNoPromptLevelWorkaround:
         assert "<think>" not in text
         assert "</think>" not in text
 
-    def test_no_system_prompt_instructs_the_model_not_to_reason(self):
-        prompts = (_REPO_ROOT / "harness" / "prompts.py").read_text(encoding="utf-8").lower()
-        for phrase in ("do not think", "don't think", "no thinking", "without thinking"):
-            assert phrase not in prompts
-
     def test_shipped_budgets_and_sampling_were_not_touched(self):
         with open(_SHIPPED_CONFIG, encoding="utf-8") as f:
             shipped = yaml.safe_load(f)
@@ -954,7 +781,6 @@ class TestNoPromptLevelWorkaround:
     def test_openai_compatible_clients_never_send_think(self):
         for path in (
             _REPO_ROOT / "llm" / "client.py",
-            _REPO_ROOT / "harness" / "ollama.py",
             _REPO_ROOT / "agentic" / "harness_optimizer" / "model_adapter.py",
         ):
             assert '"think"' not in _code_lines(path)

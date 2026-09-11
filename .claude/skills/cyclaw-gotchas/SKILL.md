@@ -5,7 +5,7 @@ description: >-
   a driver that does the setup the right way. Load before: installing deps or
   building a venv, running pytest, launching or probing gate.py, opening or
   driving a PR to green, answering a Codex/Copilot review, scheduling a PR
-  check-in, running doc-sync or verify-deps, touching the harness chat/agent
+  check-in, running doc-sync or verify-deps,
   concurrency gates, or when something "hangs", "won't install", "prints no
   test summary", or "says 409 busy". Every command here was run in this
   container; every gotcha names the session, PR, or file that proved it.
@@ -49,7 +49,7 @@ session 2026-09-06):
 1. `python3.12 -m venv /root/.venv-cyclaw-312` -- outside the repo, so no
    `.gitignore` entry and no chance of `ruff`/pytest walking site-packages.
    Bare `python3` is 3.11 and always will be on this image; do not
-   `update-alternatives` it (the harness hooks resolve through it).
+   `update-alternatives` it (the session-runtime hooks resolve through it).
 2. Tries `torch==2.13.0+cpu` from the CPU index with `--retries 1`. On this
    proxy that fails in seconds, not minutes.
 3. Falls back to plain `torch==2.13.0` from PyPI **with** its dependency tree.
@@ -167,29 +167,10 @@ expire it.
 
 ### Runtime behaviour that looks like a bug
 
-- **The "too many concurrent requests / second chat hangs" issue is the local
-  model being single-stream, and the 409s are the fix, not the bug.**
-  `harness/server.py`'s `GenerationGate` docstring: `qwen3.8:27b-mlx` on
-  Apple Silicon serves one stream; a second concurrent chat (two tabs, jammed
-  Enter, `/loop` plus a typed line) queues behind Metal and looks like a hang,
-  so the harness answers `409 CHAT_BUSY` instead. `macos/ollama-mlx.env` pins
-  `OLLAMA_NUM_PARALLEL=1` and `OLLAMA_MAX_LOADED_MODELS=1` to match. PR #1247
-  (merged 2026-09-02) extended this to `POST /api/agent/run`: a separate
-  `agent_run_gate` always rejects a duplicate run (`409 AGENT_RUN_BUSY`, a
-  financial-risk control since a run can spend paid planner tokens), and the
-  chat gate is shared only when the live-resolved chat backend and
-  `deepagent_github.base_url` are the same server after canonicalising
-  loopback aliases and default ports. `/loop` has its own
-  `LOOP_IN_FLIGHT` claim with a 900 s TTL. Rules: never add parallelism to
-  "fix" a 409; an agent run holds the shared gate for its whole life (up to
-  3600 s), so chat being busy for an hour during a run is by design; and any
-  new route that reaches the local model claims the gate the same
-  claim/try/finally way.
-- **Open thread on that PR.** Codex's fourth P2 on #1247 (a non-numeric port
-  in either base URL makes `parsed.port` raise `ValueError` outside the
-  guarded block, so `/api/agent/run` 500s instead of taking the cautious
-  `None` path) was **not resolved before merge** and is still open as of
-  2026-09-06. Fix it if you are in that file; do not report it as new.
+
+- **Codex's fourth P2 on #1247** (a non-numeric port in a harness base URL
+  made `parsed.port` raise outside the guarded block) is moot since PR #1367
+  removed the harness server module; do not report it as new.
 - **`/health` `degraded`, `TELEMETRY KILL` on stdout, `503 INDEX_NOT_FOUND`,
   `needs_confirm: true` on `/query`** are all normal states, not errors
   (CLAUDE.md §4 "Environment & install" and `.claude/commands/run.md`).
@@ -306,7 +287,6 @@ expire it.
 | `discover-skills` job: `unclassified skill '<name>'` | new `verify.sh` without a profile arm in `ci.yml` | add the skill to the `stdlib` (or `yaml`/`heavy`) case |
 | `update_trigger` → "requested resource was not found" | the timer was deleted earlier | `send_later` a new one; do not assume one exists |
 | stop hook: "N unpushed commits" on a branch you just reset to `origin/main`; `push --force-with-lease` → `rejected (stale info)` | GitHub deleted the merged head branch; local tracking ref is stale | `git fetch --prune origin` then plain `git push -u origin <branch>` |
-| harness `409 CHAT_BUSY` / `AGENT_RUN_BUSY` / `LOOP_IN_FLIGHT` | single-stream local model, gate held by another turn or an agent run | wait or stop the other work; never add parallelism |
 
 ## Guardrails
 
@@ -317,7 +297,7 @@ expire it.
 - CLAUDE.md §3's six invariants and §7's escalation tiers still govern. A
   gotcha here is never a licence to skip a guard; it is a reason you will not
   be surprised by one.
-- Never "fix" a 409 from the harness gates, a `degraded` health, or a
+- Never "fix" a `degraded` health or a
   `503 INDEX_NOT_FOUND` by changing code. They are controls and fail-soft
   states, not defects.
 

@@ -18,7 +18,7 @@ scope. Code establishes behavior; it does not authorize changing policy.
   `/soul/reload` adopt content unscanned (INVARIANTS.md Rule 5). Missing soul
   self-initializes at boot; read-only checks must avoid that write.
 - I6: gate.py, gate_ops.py, gate_auth.py, gate_memory.py, graph.py, and
-  mcp_hybrid_server.py must not import agentic, sync, guardrails, harness,
+  mcp_hybrid_server.py must not import agentic, sync, guardrails,
   telegram, or opentweet. Use maintained bridges/subprocess boundaries.
   memory is a separate optional subsystem, not an I6 forbidden import.
 
@@ -32,7 +32,7 @@ scope. Code establishes behavior; it does not authorize changing policy.
 | API-key bypass | security.api_key_optional is separately gated by loopback peer, forwarding headers, and origin; it does not disable auth/RBAC. |
 | Optional state | Shipped auth, memory, agentic, and guardrails masters are off. Hybrid and external providers are enabled; Numbat is enabled. Read actual config before claiming active behavior. |
 | MCP | Retrieval-only, input-sanitized, no generation/sampling path. |
-| Harness/agent execution | harness/server.py, harness/agent_routes.py, utils/tool_broker.py, agentic/executor/. ToolBroker permission is not reason/confirm authorization. |
+| Agent execution | utils/ops_runner.py, agentic/executor/. Broker permission is not reason/confirm authorization. |
 
 Use the current invariant checker and targeted endpoint/graph/auth tests.
 Neither a static pass nor a configured flag proves every runtime path.

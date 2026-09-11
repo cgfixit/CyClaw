@@ -31,7 +31,6 @@ Steps, with the exact command or request you ran:
 <!-- Delete the ones that don't apply. -->
 - [ ] Gateway `/query` or another HTTP route (`gate.py`, port 8787)
 - [ ] Soul Console / terminal UI (`static/terminal.html`)
-- [ ] Harness console (`harness/`, port 8790)
 - [ ] MCP server (`mcp_hybrid_server.py`)
 - [ ] Retrieval / indexing (`retrieval/`, `python -m retrieval.indexer`)
 - [ ] Out-of-band subsystem (`agentic/`, `sync/`, `telegram/`, `opentweet/`)

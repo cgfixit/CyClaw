@@ -21,9 +21,8 @@ Not in this directory but adjacent in spirit: the retrieval indices live in
 embedding model cache in `.emb_cache/` (regenerable —
 `python -m retrieval.clear_cache`), and the audit log at
 `logs/audit.jsonl` (append-only JSONL; query text stored only as SHA-256
-hashes). The coding console's mutable state is **not** here — it lives under
-`~/.CyClaw` / `%USERPROFILE%\.CyClaw` (`sessions/`, `tools/web_allowlist.json`,
-`config.json`). See [`harness/README.md`](../harness/README.md).
+hashes). The per-user launcher state (venv, `.env`) is **not** here — it lives
+under `~/.CyClaw` / `%USERPROFILE%\.CyClaw`.
 
 ## Related
 

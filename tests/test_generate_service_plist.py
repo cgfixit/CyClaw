@@ -1,5 +1,5 @@
 """Tests for macos/generate_service_plist.py -- the supervised launchd
-LaunchAgent generator for gate.py / the harness (highest-risk of CyClaw's
+LaunchAgent generator for gate.py (highest-risk of CyClaw's
 launchd generators; see docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md).
 
 Loaded as a standalone script via importlib (it lives under macos/, not a
@@ -198,52 +198,6 @@ def test_gate_plist_api_key_service_wraps_keychain(tmp_path: Path) -> None:
     assert document["EnvironmentVariables"] == scheduler_env_overlay()
 
 
-# ---------------------------------------------------------------------------
-# harness plist
-# ---------------------------------------------------------------------------
-
-
-def test_harness_plist_structure(tmp_path: Path, capsys) -> None:
-    home = tmp_path / "home"
-
-    code = _run(home, "--service", "harness", "--confirm", "--reason", "keep console up")
-    assert code == 0
-
-    plist_path = home / "Library" / "LaunchAgents" / "com.cgfixit.cyclaw.harness.plist"
-    document = plistlib.loads(plist_path.read_bytes())
-
-    assert document["Label"] == "com.cgfixit.cyclaw.harness"
-    assert document["RunAtLoad"] is True
-    assert document["KeepAlive"] == {"SuccessfulExit": False}
-    args = document["ProgramArguments"]
-    assert args[1:3] == ["-m", "harness.server"]
-    assert document["EnvironmentVariables"]["CYCLAW_HOME"] == str(home / ".CyClaw")
-    assert document["EnvironmentVariables"]["CYCLAW_REPO"] == str(_REPO_ROOT)
-
-    out = capsys.readouterr().out
-    assert "port 8790" in out
-    assert "keep console up" in out
-
-
-def test_harness_plist_with_api_key_service_wraps_keychain(tmp_path: Path) -> None:
-    # harness/server.py DOES guard its routes with require_api_key, so
-    # --api-key-service is meaningful for harness. The wrapper runs and
-    # exports CYCLAW_API_KEY, which harness/server.py consumes. No warning.
-    home = tmp_path / "home"
-    code = _run(
-        home, "--service", "harness", "--api-key-service", "com.cgfixit.cyclaw.api-key",
-        "--confirm", "--reason", "x",
-    )
-    assert code == 0
-    plist_path = home / "Library" / "LaunchAgents" / "com.cgfixit.cyclaw.harness.plist"
-    document = plistlib.loads(plist_path.read_bytes())
-    args = document["ProgramArguments"]
-    assert args[0].endswith("cyclaw-keychain-env.sh")
-    assert args[1] == "com.cgfixit.cyclaw.api-key"
-    assert args[2] == "CYCLAW_API_KEY"
-    assert args[3] == "--"
-
-
 def test_gate_plist_with_api_key_service_has_no_no_effect_note(tmp_path: Path, capsys) -> None:
     config = _write_config(tmp_path)
     home = tmp_path / "home"
@@ -257,27 +211,14 @@ def test_gate_plist_with_api_key_service_has_no_no_effect_note(tmp_path: Path, c
     assert "no effect" not in out
 
 
-def test_harness_plist_custom_throttle(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    assert (
-        _run(
-            home, "--service", "harness", "--confirm", "--reason", "x", "--throttle-sec", "60",
-        )
-        == 0
-    )
-    plist_path = home / "Library" / "LaunchAgents" / "com.cgfixit.cyclaw.harness.plist"
-    assert plistlib.loads(plist_path.read_bytes())["ThrottleInterval"] == 60
-
-
 # ---------------------------------------------------------------------------
 # Cross-cutting
 # ---------------------------------------------------------------------------
 
 
-def test_neither_plist_ever_contains_a_secret_or_replace_marker(tmp_path: Path) -> None:
+def test_plist_never_contains_a_secret_or_replace_marker(tmp_path: Path) -> None:
     home = tmp_path / "home"
     _run(home, "--service", "gate", "--confirm", "--reason", "x")
-    _run(home, "--service", "harness", "--confirm", "--reason", "x")
 
     agents_dir = home / "Library" / "LaunchAgents"
     for plist_path in agents_dir.glob("com.cgfixit.cyclaw.*.plist"):

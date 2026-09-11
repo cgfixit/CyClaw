@@ -2,7 +2,7 @@
 
 macos-smoke.sh is the operator-facing + macos-latest CI equivalent of
 .claude/skills/CyClaw-Sandbox/windows-smoke.ps1. It is not executed here
-(needs live gate.py + harness.server); this module pins the contract so a
+(needs a live gate.py); this module pins the contract so a
 later edit cannot silently drop an endpoint, require jq/Homebrew, echo a
 secret, or leave Darwin bash 3.2.
 """
@@ -28,18 +28,6 @@ _SHARED_PATHS = (
     "/query",
     "/soul",
     "/static/terminal.html",
-    "/api/status",
-    "/api/registry",
-    "/api/sessions",
-    "/rename",
-    "/api/soul",
-    "/api/model",
-    "/api/chat",
-    "/api/github/status",
-    "/api/harness/runs",
-    "/api/agent/checks",
-    "/api/agent/run",
-    "/decision",
     "/ops/fsconnect",
 )
 
@@ -94,7 +82,6 @@ def test_macos_smoke_does_not_start_servers() -> None:
     text = _macos_text()
     code = _code_lines(text)
     assert "uvicorn" not in code
-    assert "harness.server" not in code
     assert "already-running" in text
 
 
@@ -115,17 +102,13 @@ def test_macos_smoke_covers_windows_smoke_endpoints() -> None:
     for path in _SHARED_PATHS:
         assert path in win, f"windows-smoke.ps1 lost {path} — update _SHARED_PATHS"
         assert path in mac, f"macos-smoke.sh missing Windows twin path {path}"
-    assert "X-CyClaw-CSRF" in mac
-    assert "csrf-token" in mac
     assert "/ops/sync" in mac
     assert "/ops/agentic" in mac
     assert "/ops/sqlconnect" in mac
-    assert "auth-gate-only" in mac
-    assert "3600" in mac
 
 
 def test_ci_invokes_macos_smoke_full_bomb() -> None:
-    """macos-latest live-smoke must run the 22-check twin, not the old 5-check inline body."""
+    """macos-latest live-smoke must run the full twin, not the old 5-check inline body."""
     ci = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "macos-smoke.sh" in ci
     assert "SMALLER check set" not in ci

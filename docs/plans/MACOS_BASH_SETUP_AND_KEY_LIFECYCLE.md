@@ -154,7 +154,7 @@ Implementation: **wont** as a code change. Documented in wrapper headers + Appen
 - Changing Keychain service names (launchd generators and tests pin them).
 - Flipping `auth.enabled` / `api.tls.enabled`.
 - Loading LaunchAgents from setup scripts.
-- Anything in `static/terminal.js` / `static/harness.html` / `gate.py`.
+- Anything in `static/terminal.js` / `gate.py`.
 - Custom keychain files / `set-generic-password-partition-list` (see ACL appendix).
 
 ## Verify when code lands

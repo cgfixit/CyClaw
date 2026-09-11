@@ -31,7 +31,7 @@ def test_installer_update_checks_git_exit() -> None:
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell 5.1")
 def test_installer_git_failure_stops_before_launcher(tmp_path: Path) -> None:
     home = tmp_path / "operator"
-    server = home / ".CyClaw" / "repo" / "harness" / "server.py"
+    server = home / ".CyClaw" / "repo" / "gate.py"
     server.parent.mkdir(parents=True)
     server.write_text("", encoding="utf-8")
 
@@ -125,23 +125,28 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
     assert "refusing to source" in text
     assert "ACL is not owner-only" in text
     load_idx = text.index('Join-Path $Home_ ".env"')
-    start_idx = text.index("-m harness.server")
+    start_idx = text.index("& $VenvPy gate.py")
     assert load_idx < start_idx
     warn = "Typing the key in the browser cannot configure the server"
     assert warn in text
     assert load_idx < text.index(warn)
 
 
-def test_invoke_validates_port_before_console_url() -> None:
-    """Port range must match harness _MIN_USER_PORT/_MAX_PORT before URL print."""
+def test_invoke_starts_gate_through_main_not_bare_uvicorn() -> None:
+    """Only gate.main() -> _serve() applies the loopback bind guard, api.tls
+    certfile/keyfile, and proxy_headers=False; a bare `uvicorn gate:app` would
+    serve plaintext with forwarded headers trusted (Codex review, PR #1367).
+    The console URL comes from config.yaml (api.port, api.tls) with a fallback
+    to the shipped default, and is resolved before it is printed or opened."""
     text = (_PS / "Invoke-CyClaw.ps1").read_text(encoding="utf-8")
-    assert re.search(
-        r"\$Port\s+-lt\s+1024\s+-or\s+\$Port\s+-gt\s+65535",
-        text,
-    )
-    range_idx = text.index("$Port -lt 1024")
-    url_idx = text.index("http://127.0.0.1:$Port")
-    assert range_idx < url_idx
+    assert "& $VenvPy gate.py" in text
+    assert "-m uvicorn" not in text
+    assert "$Port" not in text
+    probe_idx = text.index("yaml.safe_load")
+    assert 'api.get("tls")' in text
+    assert "http://127.0.0.1:8787" in text  # fallback only
+    assert probe_idx < text.index("[cyclaw] console : $Url")
+    assert probe_idx < text.index("-ArgumentList $Url")
 
 
 def test_installer_requires_explicit_flag_to_replace_existing_repo() -> None:

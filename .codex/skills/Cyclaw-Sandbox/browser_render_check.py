@@ -63,7 +63,6 @@ def _render(page: Any, name: str, url: str, out: Path, mobile: bool, exercise: b
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gateway", default="http://127.0.0.1:8787/")
-    parser.add_argument("--harness", default="http://127.0.0.1:8790/")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--no-exercise", action="store_true")
@@ -83,13 +82,12 @@ def main() -> int:
             (False, {"width": 1440, "height": 1000}),
             (True, {"width": 390, "height": 844}),
         ):
-            for name, url in (("terminal", args.gateway), ("harness", args.harness)):
-                context = browser.new_context(viewport=viewport, is_mobile=mobile)
-                page = context.new_page()
-                failures.extend(
-                    _render(page, name, url, args.out, mobile, not args.no_exercise)
-                )
-                context.close()
+            context = browser.new_context(viewport=viewport, is_mobile=mobile)
+            page = context.new_page()
+            failures.extend(
+                _render(page, "terminal", args.gateway, args.out, mobile, not args.no_exercise)
+            )
+            context.close()
         browser.close()
 
     if failures:

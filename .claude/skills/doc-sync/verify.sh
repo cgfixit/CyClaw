@@ -75,12 +75,9 @@ print(len(cfg['policy']['prompt_filter']['banned_patterns']))
 ")
 stale_pattern_count=$((real_pattern_count + 1))
 
-mkdir -p "$tmp/.claude" "$tmp/harness"
+mkdir -p "$tmp/.claude"
 cp "$repo_root"/.claude/settings.json "$tmp/.claude/"
 cp -r "$repo_root"/.claude/skills "$tmp/.claude/"
-for h in server.py agent_routes.py auth_routes.py; do
-  [ -f "$repo_root/harness/$h" ] && cp "$repo_root/harness/$h" "$tmp/harness/"
-done
 # A CLAUDE.md that mentions almost nothing => guaranteed D1/D5 drift. The planted
 # stale node-count claim is D8's own fixture -- copying graph.py into $tmp (above)
 # without ever planting a stale claim against it meant this self-test never

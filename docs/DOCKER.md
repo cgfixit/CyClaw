@@ -21,7 +21,7 @@ Tags (from `.github/workflows/publish-ghcr.yml`):
 
 Architecture today: **`linux/amd64` only**. Apple Silicon Macs should use the
 native install path ([`macos/install-cyclaw.sh`](../macos/install-cyclaw.sh) /
-[`docs/HARNESS_MACOS.md`](./HARNESS_MACOS.md)) or Docker Desktop until a
+[`macos/README.md`](../macos/README.md)) or Docker Desktop until a
 dedicated `linux/arm64` image is verified against the torch pin.
 
 ## What is *not* in the image (by design)

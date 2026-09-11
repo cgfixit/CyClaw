@@ -379,13 +379,6 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "database traffic is the feature; no vendor telemetry mechanism in these drivers",
     },
     {
-        "name": "harness /web fetch", "category": 3, "controls": {},
-        "url": "harness/README.md",
-        "versions": "allowlist-only, off by default",
-        "enforcement": "config allowlist; loopback console", "scope": "harness only",
-        "reviewed": "2026-08-27", "evidence": "operator-directed fetches, not telemetry",
-    },
-    {
         "name": "hf model bootstrap fetch", "category": 3, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
         "versions": "sentence-transformers==5.6.0 / huggingface-hub==1.26.0",

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Generate (never load) a supervised launchd LaunchAgent for gate.py or the
-coding harness. Darwin-only.
+"""Generate (never load) a supervised launchd LaunchAgent for gate.py.
+Darwin-only.
 
 READ THIS FIRST -- the highest-risk of CyClaw's launchd generators (see
 docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md's "Next integrations" section
 and docs/THREAT_MODEL.md before using this on anything but a personal,
-single-operator deployment): a KeepAlive LaunchAgent turns gate.py or the
-harness into an ALWAYS-RUNNING, AUTO-RESTARTING network listener. That is a
+single-operator deployment): a KeepAlive LaunchAgent turns gate.py into
+an ALWAYS-RUNNING, AUTO-RESTARTING network listener. That is a
 materially different availability/security posture than "runs only while a
 terminal is open" -- it survives logout, reboot, and process crashes. This
 script does not judge whether that posture is appropriate for your
@@ -19,8 +19,6 @@ consequential action.
 Usage:
   python macos/generate_service_plist.py --service gate \\
       --reason "keep the RAG server up across reboots" --confirm
-  python macos/generate_service_plist.py --service harness \\
-      --reason "keep the coding console up across reboots" --confirm
   python macos/generate_service_plist.py --service gate \\
       --api-key-service com.cgfixit.cyclaw.api-key \\
       --reason "..." --confirm
@@ -37,7 +35,7 @@ launchd semantics chosen deliberately conservative:
     surviving reboot), matching the actual gap this closes ("servers stay
     dead after reboot").
   - KeepAlive: {SuccessfulExit: false} -- restart ONLY on crash / non-zero
-    exit, never after a clean stop. Both gate.py and the harness delegate
+    exit, never after a clean stop. gate.py delegates
     to uvicorn.run(), which installs its own SIGTERM handler and returns
     normally (exit 0) on a graceful `launchctl stop`/`bootout` -- verified
     by reading both entry points' main() before writing this generator, not
@@ -53,7 +51,7 @@ launchd semantics chosen deliberately conservative:
     always a separate, explicit operator action.
 
 If the target port is already held by an independently-started instance,
-both gate.py and harness/server.py exit cleanly (0) via a pre-flight port
+gate.py exits cleanly (0) via a pre-flight port
 check and will NOT be retried by KeepAlive (SuccessfulExit: false). Stop
 any manually-started instance of a service before loading its supervised
 agent so you are not left talking to the other process.
@@ -62,7 +60,6 @@ agent so you are not left talking to the other process.
 from __future__ import annotations
 
 import argparse
-import os
 import platform
 import sys
 import types
@@ -82,9 +79,7 @@ from utils.telemetry_kill import scheduler_env_overlay  # noqa: E402
 
 _LABELS = types.MappingProxyType({
     "gate": "com.cgfixit.cyclaw.gate",
-    "harness": "com.cgfixit.cyclaw.harness",
 })
-_DEFAULT_HARNESS_PORT = 8790
 _DEFAULT_THROTTLE_SEC = 30
 
 _RISK_TEXT = """
@@ -104,12 +99,12 @@ once you have.
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python macos/generate_service_plist.py",
-        description="Generate (never load) a supervised launchd LaunchAgent for gate.py or the harness. Darwin-only.",
+        description="Generate (never load) a supervised launchd LaunchAgent for gate.py. Darwin-only.",
     )
     parser.add_argument("--service", choices=sorted(_LABELS), required=True)
     parser.add_argument(
         "--config", default=str(_REPO_ROOT / "config.yaml"),
-        help="Path to config.yaml, read for api.port (gate only; default: repo config.yaml).",
+        help="Path to config.yaml, read for api.port (default: repo config.yaml).",
     )
     parser.add_argument(
         "--api-key-service", default="",
@@ -163,27 +158,18 @@ def main(argv: list[str] | None = None) -> int:
     label = _LABELS[args.service]
     # Start from the canonical telemetry/update-check block: launchd hands a
     # job a near-empty environment, so the plist itself must deliver these
-    # before the interpreter starts (the gate/harness import-time apply is the
+    # before the interpreter starts (gate.py's import-time apply is the
     # second layer, not the first). Non-secret fixed literals only.
     env: dict[str, str] = dict(scheduler_env_overlay())
 
-    if args.service == "gate":
-        port = _read_gate_port(Path(args.config).resolve())
-        inner_argv = [launchd_plist.python_executable(), str(_REPO_ROOT / "gate.py")]
-        # NOTE: gate.py does not accept --config; it always loads config.yaml from
-        # the repo root (anchored via _BASE_DIR). The --config flag above is for the
-        # operator's verification only ("what port will this use?"); the actual plist
-        # will always run against repo config.yaml. If you need a different config at
-        # runtime, modify config.yaml directly or bind-mount a custom one in a
-        # container context.
-    else:
-        port = int(os.environ.get("CYCLAW_HARNESS_PORT", _DEFAULT_HARNESS_PORT))
-        inner_argv = [launchd_plist.python_executable(), "-m", "harness.server"]
-        # Non-secret, so directly in EnvironmentVariables (unlike CYCLAW_API_KEY
-        # below, which only ever flows through the Keychain wrapper's export).
-        env["CYCLAW_HOME"] = str(Path.home() / ".CyClaw")
-        env["CYCLAW_REPO"] = str(_REPO_ROOT)
-        env["CYCLAW_HARNESS_PORT"] = str(port)
+    port = _read_gate_port(Path(args.config).resolve())
+    inner_argv = [launchd_plist.python_executable(), str(_REPO_ROOT / "gate.py")]
+    # NOTE: gate.py does not accept --config; it always loads config.yaml from
+    # the repo root (anchored via _BASE_DIR). The --config flag above is for the
+    # operator's verification only ("what port will this use?"); the actual plist
+    # will always run against repo config.yaml. If you need a different config at
+    # runtime, modify config.yaml directly or bind-mount a custom one in a
+    # container context.
 
     secrets: list[tuple[str, str]] = []
     if args.api_key_service:

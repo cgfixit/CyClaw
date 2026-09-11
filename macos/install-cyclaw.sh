@@ -1,24 +1,19 @@
 #!/usr/bin/env bash
-# CyClaw coding harness installer -- macOS (Apple Silicon arm64) and Linux.
+# CyClaw installer -- macOS (Apple Silicon arm64) and Linux.
 #
 # Mirrors powershell/Install-CyClaw.ps1's behavior and home layout exactly
 # (see that file's header for the full home-directory description). This is a
 # separate OS-native script, not a shared abstraction with the PowerShell
 # scripts -- there is no meaningful capability overlap between a .ps1 file and
-# a POSIX shell script beyond both eventually running `python -m harness.server`.
+# a POSIX shell script beyond both eventually starting gate.py.
 #
-# After install, typing `cyclaw` in any new terminal starts the grok-build-style
-# local coding harness (browser console on 127.0.0.1:8790).
+# After install, typing `cyclaw` in any new terminal starts the RAG gateway
+# (terminal console on 127.0.0.1:8787).
 #
 # Everything mutable lives under ~/.CyClaw:
 #   repo/       the CyClaw checkout (cloned, or linked via --repo-path)
 #   venv/       the Python virtual environment
 #   bin/        the cyclaw shim + launcher
-#   sessions/   chat sessions with token tallies
-#   skills/     user-visible copy of .claude/skills
-#   tools/      connector/tool state
-#   memory/     harness memory log
-#   config.json selected model, soul on/off
 #
 # Usage:
 #   bash macos/install-cyclaw.sh
@@ -91,20 +86,20 @@ HOME_DIR="$HOME/.CyClaw"
 BIN_DIR="$HOME_DIR/bin"
 REPO_DIR="$HOME_DIR/repo"
 VENV_DIR="$HOME_DIR/venv"
-for d in "$HOME_DIR" "$BIN_DIR" "$HOME_DIR/sessions" "$HOME_DIR/skills" "$HOME_DIR/tools" "$HOME_DIR/memory"; do
+for d in "$HOME_DIR" "$BIN_DIR"; do
   [ -d "$d" ] || mkdir -p "$d"
 done
 step "home layout ready at $HOME_DIR"
 
 # -- 2. Repo --------------------------------------------------------------------
 if [ -n "$REPO_PATH" ]; then
-  if [ ! -f "$REPO_PATH/harness/server.py" ]; then
-    echo "--repo-path '$REPO_PATH' does not look like a CyClaw checkout with the harness package." >&2
+  if [ ! -f "$REPO_PATH/gate.py" ]; then
+    echo "--repo-path '$REPO_PATH' does not look like a CyClaw checkout." >&2
     exit 1
   fi
   REPO_DIR="$(CDPATH= cd -- "$REPO_PATH" && pwd)"
   step "using existing repo at $REPO_DIR"
-elif [ ! -f "$REPO_DIR/harness/server.py" ]; then
+elif [ ! -f "$REPO_DIR/gate.py" ]; then
   if [ -d "$REPO_DIR" ]; then
     if [ "$REPLACE_REPO" -ne 1 ]; then
       echo "[cyclaw] error: '$REPO_DIR' exists but is not a usable CyClaw checkout." >&2
@@ -231,7 +226,7 @@ chmod +x "$BIN_DIR/invoke-cyclaw.sh"
 SHIM="$BIN_DIR/cyclaw"
 cat > "$SHIM" <<EOF
 #!/usr/bin/env bash
-# CyClaw harness launcher (installed shim).
+# CyClaw launcher (installed shim).
 export CYCLAW_HOME="\$HOME/.CyClaw"
 export CYCLAW_REPO="$REPO_DIR"
 exec "\$CYCLAW_HOME/bin/invoke-cyclaw.sh" "\$@"
@@ -300,4 +295,4 @@ fi
 
 echo ""
 step "install complete. Open a NEW terminal (or 'source $RC_FILE') and run:  cyclaw"
-step "the harness console opens at http://127.0.0.1:8790 -- /help lists commands."
+step "the terminal console opens at http://127.0.0.1:8787."

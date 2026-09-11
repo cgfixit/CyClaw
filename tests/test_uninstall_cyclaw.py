@@ -157,9 +157,8 @@ def _run(
     env = os.environ.copy()
     env["HOME"] = str(home)
     env["SHELL"] = "/bin/bash"
-    # Never touch the host's 8787/8790 in unit tests.
+    # Never touch the host's 8787 in unit tests.
     env.setdefault("CYCLAW_GATE_PORT", str(_unused_port()))
-    env.setdefault("CYCLAW_HARNESS_PORT", str(_unused_port()))
     if fake_security_bin is not None:
         env["PATH"] = f"{fake_security_bin}{os.pathsep}{env.get('PATH', '')}"
         env["CYCLAW_UNINSTALL_TEST_MODE"] = "1"
@@ -310,12 +309,10 @@ def test_missing_lsof_marks_port_unverified() -> None:
 
 def test_uninstall_without_lsof_warns_ports_may_still_be_held(tmp_path: Path) -> None:
     gate = _unused_port()
-    harness = _unused_port()
     result = _run(
         home=tmp_path,
         extra_env={
             "CYCLAW_GATE_PORT": str(gate),
-            "CYCLAW_HARNESS_PORT": str(harness),
             "PATH": _path_without_lsof(None, tmp_path / "nopath"),
         },
     )
@@ -328,7 +325,7 @@ def test_uninstall_without_lsof_warns_ports_may_still_be_held(tmp_path: Path) ->
 def test_garbage_gate_port_does_not_abort_uninstall(tmp_path: Path) -> None:
     result = _run(
         home=tmp_path,
-        extra_env={"CYCLAW_GATE_PORT": "not-a-port", "CYCLAW_HARNESS_PORT": str(_unused_port())},
+        extra_env={"CYCLAW_GATE_PORT": "not-a-port"},
     )
     assert result.returncode == 0, result.stderr
     assert "non-numeric port" in result.stderr
@@ -370,10 +367,7 @@ def test_uninstall_stops_loopback_listener_and_survives_if_already_gone(
 
         result = _run(
             home=tmp_path,
-            extra_env={
-                "CYCLAW_GATE_PORT": str(port),
-                "CYCLAW_HARNESS_PORT": str(_unused_port()),
-            },
+            extra_env={"CYCLAW_GATE_PORT": str(port)},
         )
         assert result.returncode == 0, result.stderr
         assert f"stopping listener pid {listener.pid} on :{port}" in result.stdout

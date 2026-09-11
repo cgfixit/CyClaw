@@ -233,7 +233,7 @@ the backward-compatible path for a custom config, not a way to turn it off.
 
 | Endpoint | Control | Used by |
 |---|---|---|
-| `/v1/chat/completions` (OpenAI-compatible) | `"reasoning_effort": "none"` | `/query`, the harness console and `/loop`, the agentic local proposer, NeMo guardrails |
+| `/v1/chat/completions` (OpenAI-compatible) | `"reasoning_effort": "none"` | `/query`, the agentic local proposer, NeMo guardrails |
 | `/api/chat`, `/api/generate` (native) | `"think": false` | `scripts/measure_local_llm_throughput.py` |
 
 Sending `think` to the OpenAI-compatible endpoint does nothing, and
@@ -303,8 +303,7 @@ With defaults: `8000 + 4096 + 1500 = 13596`, so **16384** remains the recommende
 The formula above is derived only from the `/query` RAG path's budget
 (`retrieval.max_context_tokens` + `models.local_llm.max_tokens`). It is **not**
 enough by itself if you also drive `agentic/real_repo_loop.py` (the
-`real-repo-run` / `real-repo-run-plan` CLI subcommands, or the harness
-console's `/api/agent/run`) against the same Ollama instance — that pathway's
+`real-repo-run` / `real-repo-run-plan` CLI subcommands) against the same Ollama instance — that pathway's
 per-iteration prompt can legitimately be several times larger, and the
 "0% processing" stall applies to it identically.
 
@@ -314,7 +313,7 @@ files read for edit-in-place context (`_MAX_TOTAL_READ_CHARS`, 12,000 chars),
 prior-iteration verification feedback (`_MAX_FEEDBACK_TOTAL_CHARS`, at least
 4,000 chars once check output is included), quoted GitHub PR/issue context
 capped in `agentic/cli.py` (8,000 chars), the fixed system prompt (~900 chars),
-and an instruction up to 8,192 chars via the harness route (`harness/schemas.py`)
+and an instruction up to 8,192 chars
 — the worst case is roughly **39,000–40,000 characters of INPUT alone for one
 iteration**, before reserving any output budget. At this project's own
 ~4-chars/token convention (see the formula above), that is approximately
@@ -402,8 +401,7 @@ That file sets `OLLAMA_CONTEXT_LENGTH=16384`, `OLLAMA_KEEP_ALIVE=30m`,
 q8_0 are llama.cpp-runner knobs that Ollama applies when the backend
 supports them; they may be no-ops on a pure MLX tag and still help if you
 fall back to `qwen3.8:27b` GGUF. Do **not** raise `OLLAMA_NUM_PARALLEL`
-on this class of machine — it multiplies KV RAM and stalls both `/query`
-and harness `/loop`.
+on this class of machine — it multiplies KV RAM and stalls `/query`.
 
 `macos/setup-from-clone.sh` sources the same file when *it* launches
 `ollama serve`. An already-running Ollama.app ignores it until quit.

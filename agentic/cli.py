@@ -459,8 +459,8 @@ def _refuse_if_injected_instruction(instruction: str, app_cfg: dict, *, repo: st
     finding posture, as the ``--plan-file`` scan, so the two operator-supplied-
     text paths cannot drift into different strengths.
 
-    This is not a remote-attacker surface (every entry path -- direct CLI,
-    ``harness``'s ``/api/agent/run`` via ``utils.ops_runner`` -- requires the
+    This is not a remote-attacker surface (every entry path -- direct CLI, or
+    a caller going through ``utils.ops_runner``'s shim -- requires the
     operator to type or paste the value themselves), it is a confused-deputy
     one: text pasted from a ticket, chat, or web page straight into a command
     that clones and writes to a real repo. A human typing ``--instruction``

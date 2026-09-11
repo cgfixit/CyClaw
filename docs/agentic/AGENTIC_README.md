@@ -5,11 +5,7 @@ GitHub-context + skills-registry surface, this layer also owns
 `real_repo_loop`, fsconnect/sqlconnect CLIs, and (retired but retained)
 `deepagent_github` subgraph code — see §9 and
 `docs/agentic/GITHUB_WRITE_ENABLEMENT.md`. Primary invocation remains
-`python -m agentic.cli` (or authenticated harness/`/ops/*` subprocess shims).
-The harness console (`python -m harness.server`) is a **sibling** package:
-`/skills` / `/tools` are wiring diagrams, `/goal`+`/loop` are chat-only, and
-`/web` is allowlist-only GET — none of them write this registry. See
-[`harness/README.md`](../../harness/README.md).
+`python -m agentic.cli` (or the authenticated `/ops/*` subprocess shim).
 
 An **opt-in, out-of-band** layer that gives CyClaw read-only GitHub context and a
 governed local skills registry. It runs strictly as `python -m agentic.cli` and is
@@ -151,12 +147,12 @@ configured model (local by default, or a gated cloud provider via
 verifies it with `agentic/executor/`'s real `pytest`/`ruff`/invariant-guard
 subprocesses against that worktree -- an accepted candidate is a real git
 commit, gated behind a separate human decision
-(`real-repo-run-decide`/the harness's approve-reject endpoint). It never
+(`real-repo-run-decide`). It never
 pushes or opens a GitHub PR on its own (`agentic/writer.py`, §5, is the only
 path that can, and remains disarmed). Reachable via `agentic.cli`'s
-`real-repo-run`/`real-repo-run-status`/`real-repo-run-decide` subcommands and,
-authenticated, via the harness's `POST /api/agent/run` /
-`GET /api/agent/runs/{id}` / `POST /api/agent/runs/{id}/decision` routes.
+`real-repo-run`/`real-repo-run-status`/`real-repo-run-decide` subcommands only:
+`utils/ops_runner.py` allowlists them, but `OpsAgenticRequest.action`
+(`schemas/api.py`) does not, so `POST /ops/agentic` answers 422 for them.
 
 **Two-stage: plan with cloud, implement locally.** `real-repo-run-plan`
 (`agentic/real_repo_loop.py`'s `generate_plan`) is a separate, one-shot
@@ -183,10 +179,9 @@ entirely on the follow-up `real-repo-run` call**. Passing `--provider` to
 *both* is allowed and does something real (the plan text still reaches the
 prompt) but silently defeats the two-stage economics above — the cloud model
 is now billed on every `--max-iterations` attempt, not once, with no warning
-from the CLI either way. As of this writing this whole two-stage recipe is
-CLI-only: the harness console's `/api/agent/run` has no `--provider`/
-`--plan-file` equivalent, so drive this step from a terminal even if you
-otherwise use the console for the run itself.
+from the CLI either way. As of this writing the whole pipeline, this two-stage recipe
+included, is CLI-only (see the reachability note above), so drive this step
+from a terminal.
 
 **The DeepAgents-graph path, retired (owner decision, 2026-07-31)**
 (`agentic/deepagent_github/builder.py`'s `create_deep_agent` integration,
@@ -281,7 +276,7 @@ into the 27B coder. They already existed; the burst prompt does not relax them.
 **MCP integration strategy (this loop)**
 
 `real-repo-run` / `real-repo-run-plan` are **not** MCP clients. They are
-`python -m agentic.cli` subprocesses (harness `/ops` uses the same CLI shim).
+`python -m agentic.cli` subprocesses (`/ops/agentic` uses the same CLI shim).
 They must not import `mcp_hybrid_server.py`.
 
 | Surface | Role | This PR |

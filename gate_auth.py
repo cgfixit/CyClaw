@@ -62,7 +62,7 @@ _HTTP_CONFLICT = 409
 _HTTP_LOCKED = 423
 _HTTP_SERVICE_UNAVAILABLE = 503
 _LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost"})
-# Presence-only, same set as gate.py / harness.server -- a proxy on this host
+# Presence-only, same set as gate.py -- a proxy on this host
 # makes every remote caller a loopback peer.
 _FORWARDING_HEADERS = (
     "x-forwarded-for",
@@ -179,9 +179,8 @@ def register_auth_routes(
 
     def _enforce_same_origin(request: Request) -> None:
         """Reject a browser-initiated cross-site request to a state-changing
-        auth route. Mirrors harness/server.py's _enforce_same_origin exactly,
-        parameterized by cfg's allowed_hosts rather than a hardcoded loopback
-        tuple: unlike the loopback-only harness, gate.py may legitimately be
+        auth route. Parameterized by cfg's allowed_hosts rather than a
+        hardcoded loopback tuple: gate.py may legitimately be
         reached from a LAN host once auth+TLS are configured (gate.py's
         _auth_and_tls_enabled).
 
@@ -316,8 +315,7 @@ def register_auth_routes(
     def _enforce_csrf(request: Request, session: SessionInfo = Depends(_session_from_cookie)) -> SessionInfo:
         """Reject a state-changing request that doesn't carry this session's
         CSRF token. Only applies to the cookie path: a bearer-token caller is
-        not a browser and is not a CSRF vector, the same reasoning
-        harness/server.py's identical dependency documents.
+        not a browser and is not a CSRF vector.
         """
         # session.csrf_token is the stored HASH (see authn_manager.SessionInfo's
         # docstring), never the plaintext -- hash the header value the same

@@ -42,8 +42,8 @@
 #   --no-copy-key       do not touch the pasteboard
 #   --clipboard-ttl N   clear the pasteboard after N seconds if it still holds
 #                       the key (default 90; 0 = leave it)
-#   --open-consoles     open the loopback RAG + harness consoles
-#   --fill-browser      inject the key into #apiKeyInput / #apiKey on
+#   --open-consoles     open the loopback RAG console
+#   --fill-browser      inject the key into #apiKeyInput on
 #                       127.0.0.1 only (never localStorage / never a cookie —
 #                       that is the console contract). Implies --open-consoles
 #                       and --copy-key.
@@ -53,11 +53,10 @@
 #                       launchctl bootstrap command.
 #   --unschedule-rotate bootout + delete that LaunchAgent
 #   --restart-servers   after a successful write, best-effort free the
-#                       configured gate/harness loopback ports so a stale
+#                       configured gate loopback port so a stale
 #                       process is not still holding the old CYCLAW_API_KEY.
 #                       Does not start the servers (open a new shell + cyclaw).
 #   --gate-port PORT    RAG console (default 8787 / CYCLAW_GATE_PORT)
-#   --harness-port PORT harness console (default 8790 / CYCLAW_HARNESS_PORT)
 #   --repo-path PATH    CyClaw checkout to receive a sibling .env
 #   --help
 #
@@ -101,7 +100,6 @@ SCHEDULE_ROTATE=""
 UNSCHEDULE_ROTATE=0
 RESTART_SERVERS=0
 GATE_PORT="${CYCLAW_GATE_PORT:-8787}"
-HARNESS_PORT="${CYCLAW_HARNESS_PORT:-8790}"
 REPO_PATH=""
 
 require_port() {
@@ -152,10 +150,6 @@ while [ $# -gt 0 ]; do
       GATE_PORT="${2:?--gate-port requires a value}"
       shift 2
       ;;
-    --harness-port)
-      HARNESS_PORT="${2:?--harness-port requires a value}"
-      shift 2
-      ;;
     --repo-path) REPO_PATH="${2:?--repo-path requires a value}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -163,7 +157,6 @@ while [ $# -gt 0 ]; do
 done
 
 require_port "gate port (--gate-port / CYCLAW_GATE_PORT)" "$GATE_PORT"
-require_port "harness port (--harness-port / CYCLAW_HARNESS_PORT)" "$HARNESS_PORT"
 
 case "$SCHEDULE_ROTATE" in
   ""|monthly|weekly|never) ;;
@@ -225,7 +218,7 @@ reject_shell_metachars() {
 }
 
 _looks_like_repo() {
-  [ -f "$1/gate.py" ] || [ -f "$1/harness/server.py" ]
+  [ -f "$1/gate.py" ]
 }
 
 REPO_DIR=""
@@ -233,7 +226,7 @@ _find_repo() {
   local cand
   if [ -n "$REPO_PATH" ]; then
     if ! _looks_like_repo "$REPO_PATH"; then
-      echo "--repo-path '$REPO_PATH' does not look like a CyClaw checkout (missing gate.py / harness/server.py)." >&2
+      echo "--repo-path '$REPO_PATH' does not look like a CyClaw checkout (missing gate.py)." >&2
       exit 1
     fi
     REPO_DIR="$(CDPATH= cd -- "$REPO_PATH" && pwd)"
@@ -795,8 +788,10 @@ free_loopback_port() {
   return 0
 }
 
-# Crash-only KeepAlive would respawn a SIGTERM'd launchd job. Boot those two
-# labels out first (fail-soft), then free leftover invoke-cyclaw listeners.
+# Crash-only KeepAlive would respawn a SIGTERM'd launchd job. Boot the gate
+# label out first (fail-soft; the harness label is the retired coding
+# console's, kept so an older install's agent is still booted out), then free
+# the leftover invoke-cyclaw listener.
 _bootout_server_agents() {
   local uid label
   uid="$(id -u 2>/dev/null || echo 0)"
@@ -809,34 +804,30 @@ _bootout_server_agents() {
 
 _restart_servers() {
   _LOOPBACK_PORT_HELD=0
-  step "freeing loopback listeners on :$GATE_PORT / :$HARNESS_PORT (best-effort)..."
+  step "freeing loopback listener on :$GATE_PORT (best-effort)..."
   _bootout_server_agents
   free_loopback_port "$GATE_PORT"
-  free_loopback_port "$HARNESS_PORT"
   if [ "$_LOOPBACK_PORT_HELD" -eq 0 ]; then
     step "ports freed. Start cyclaw in a new shell to load the new CYCLAW_API_KEY"
   else
-    warn ":$GATE_PORT / :$HARNESS_PORT may still be held; start cyclaw in a new shell only after those listeners exit"
+    warn ":$GATE_PORT may still be held; start cyclaw in a new shell only after that listener exits"
   fi
-  step "browser still holds the old #apiKey until you paste or re-run --fill-browser"
+  step "browser still holds the old #apiKeyInput until you paste or re-run --fill-browser"
 }
 
 _open_consoles() {
-  local gate harness
+  local gate
   gate="http://127.0.0.1:${GATE_PORT}"
-  harness="http://127.0.0.1:${HARNESS_PORT}"
   if ! command -v open >/dev/null 2>&1; then
-    warn "open(1) not found — open $gate and $harness yourself"
+    warn "open(1) not found — open $gate yourself"
     return 0
   fi
   open "$gate" >/dev/null 2>&1 || warn "could not open $gate"
-  open "$harness" >/dev/null 2>&1 || warn "could not open $harness"
-  step "opened $gate (terminal) and $harness (harness)"
+  step "opened $gate (terminal)"
 }
 
-# Inject into the in-memory #apiKeyInput / #apiKey fields on loopback tabs
-# only. CyClaw's consoles refuse localStorage and cookies on purpose
-# (harness.html: "never localStorage, never a cookie").
+# Inject into the in-memory #apiKeyInput field on loopback tabs only. The
+# console refuses localStorage and cookies on purpose.
 _fill_browser() {
   local secret_file scpt
   if ! command -v osascript >/dev/null 2>&1; then
@@ -854,15 +845,14 @@ _fill_browser() {
   chmod 600 "$secret_file"
   cat > "$scpt" <<'APPLESCRIPT'
 on run argv
-  if (count of argv) < 3 then return
+  if (count of argv) < 2 then return
   set secretFile to item 1 of argv
   set gatePort to item 2 of argv
-  set harnessPort to item 3 of argv
   set theKey to do shell script "/bin/cat " & quoted form of secretFile
   if theKey is "" then return
   set js to "var el=document.getElementById('apiKeyInput')||document.getElementById('apiKey');if(el){el.value=" & my jsonString(theKey) & ";try{el.dispatchEvent(new Event('input',{bubbles:true}));}catch(e){}}"
-  my fillChrome(js, gatePort, harnessPort)
-  my fillSafari(js, gatePort, harnessPort)
+  my fillChrome(js, gatePort)
+  my fillSafari(js, gatePort)
 end run
 
 on jsonString(s)
@@ -880,9 +870,9 @@ on replaceText(t, f, r)
   return out
 end replaceText
 
-on urlAllowed(u, gatePort, harnessPort)
+on urlAllowed(u, gatePort)
   if u is missing value or u is "" then return false
-  set prefixes to {"http://127.0.0.1:" & gatePort, "http://[::1]:" & gatePort, "http://127.0.0.1:" & harnessPort, "http://[::1]:" & harnessPort}
+  set prefixes to {"http://127.0.0.1:" & gatePort, "http://[::1]:" & gatePort}
   repeat with p in prefixes
     if u is p then return true
     if u starts with (p & "/") then return true
@@ -892,7 +882,7 @@ on urlAllowed(u, gatePort, harnessPort)
   return false
 end urlAllowed
 
-on fillChrome(js, gatePort, harnessPort)
+on fillChrome(js, gatePort)
   tell application "System Events"
     if not (exists process "Google Chrome") then return
   end tell
@@ -901,7 +891,7 @@ on fillChrome(js, gatePort, harnessPort)
       repeat with w in windows
         repeat with t in tabs of w
           try
-            if my urlAllowed(URL of t, gatePort, harnessPort) then
+            if my urlAllowed(URL of t, gatePort) then
               execute t javascript js
             end if
           end try
@@ -911,7 +901,7 @@ on fillChrome(js, gatePort, harnessPort)
   end try
 end fillChrome
 
-on fillSafari(js, gatePort, harnessPort)
+on fillSafari(js, gatePort)
   tell application "System Events"
     if not (exists process "Safari") then return
   end tell
@@ -920,7 +910,7 @@ on fillSafari(js, gatePort, harnessPort)
       repeat with w in windows
         repeat with t in tabs of w
           try
-            if my urlAllowed(URL of t, gatePort, harnessPort) then
+            if my urlAllowed(URL of t, gatePort) then
               do JavaScript js in t
             end if
           end try
@@ -931,8 +921,8 @@ on fillSafari(js, gatePort, harnessPort)
 end fillSafari
 APPLESCRIPT
   chmod 600 "$scpt"
-  if osascript "$scpt" "$secret_file" "$GATE_PORT" "$HARNESS_PORT" >/dev/null 2>&1; then
-    step "filled #apiKeyInput / #apiKey on loopback tabs (memory only — reload clears it)"
+  if osascript "$scpt" "$secret_file" "$GATE_PORT" >/dev/null 2>&1; then
+    step "filled #apiKeyInput on loopback tabs (memory only — reload clears it)"
   else
     warn "browser fill failed (Safari/Chrome must allow JavaScript from Apple Events). Paste from the clipboard into the key field."
   fi
@@ -1159,8 +1149,8 @@ if [ "$GENERATED_NEW" -eq 1 ]; then
   step "server      : restart gate.py to load the new CYCLAW_API_KEY"
   step "            : nothing in CyClaw reads .env at runtime; the key was NOT applied live"
   if [ "$RESTART_SERVERS" -eq 0 ]; then
-    step "            : stale :$GATE_PORT / :$HARNESS_PORT listeners keep the old key"
-    step "            : pass --restart-servers to free those ports, then start cyclaw in a new shell"
+    step "            : a stale :$GATE_PORT listener keeps the old key"
+    step "            : pass --restart-servers to free that port, then start cyclaw in a new shell"
   fi
 fi
 

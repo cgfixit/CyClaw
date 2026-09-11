@@ -112,17 +112,10 @@ scan**:
   newest `soul_versions` row, the on-disk content is adopted verbatim (a
   `DRIFT_RECOVERY` version row + `soul_drift_detected` audit event are recorded).
 - **`reload()`** (`POST /soul/reload`): re-reads and adopts `soul.md` verbatim.
-- **`harness/prompts.py::compose_system_prompt`**: reads `data/personality/soul.md`
-  directly from disk, bypassing `PersonalityManager` entirely — no scan, no
-  `_bounded_soul` truncation logic, no drift row, no `soul_drift_detected` audit
-  event, and it does not go through `get_system_prompt_additive()` at all (the
-  sentence below predates this consumer). It injects the raw text into the
-  harness console's system prompt for every chat turn when soul mode is enabled.
 
 The adopted text is prepended to every local-LLM and offline prompt via
-`get_system_prompt_additive()` — except the harness path above, which reads the
-file directly. So a soul edited out-of-band (editor, restore, drift) is trusted
-with no scan, by any of the three consumers. Under the single-operator threat
+`get_system_prompt_additive()`. So a soul edited out-of-band (editor, restore,
+drift) is trusted with no scan, by either consumer. Under the single-operator threat
 model this is acceptable — but do not describe the soul as "always guarded by
 the query-path banned list"; that is true only for `POST /soul/apply`.
 
@@ -188,7 +181,7 @@ already declared"; the flag is not a guard.
 
 **Must never change:** `gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`,
 `graph.py`, and `mcp_hybrid_server.py` never import `agentic`, `sync`,
-`guardrails`, `harness`, `telegram`, or `opentweet` (and those packages never import the
+`guardrails`, `telegram`, or `opentweet` (and those packages never import the
 core six). The `/ops/*` routes reach the out-of-band CLIs only through
 `utils/ops_runner.py`, a `subprocess.run([...])` shim — never an import. This
 isolation is what keeps the out-of-band subsystems from becoming a path around

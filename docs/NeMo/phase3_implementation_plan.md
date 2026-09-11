@@ -12,6 +12,8 @@ related:
   - agentic/registry.py
 ---
 
+> **Status update — 2026-09-11 (doc-sync, PR #1367):** HISTORICAL. The Python coding-harness console (`harness/`, `static/harness.html`, `:8790`, every `/api/*` route named below) was removed from CyClaw; the coding console now lives in the sibling Rust project CG-agent-harness. Nothing below is a live claim.
+
 > **Status update — 2026-09-06 (docs review, Claude Code):** SUPERSEDED by
 > `docs/NeMo/README.md`. 3A (scanner consolidation into `guardrails/rails.py`)
 > is shipped: `guardrails/rails.py` no longer holds only 7 markers, per
@@ -236,6 +238,7 @@ Commands are the canonical ones from `CLAUDE.md` §8 — no invented invocations
 
 ```bash
 # Both isolation suites — the load-bearing check for this redirect
+
 GROK_API_KEY=dummy pytest tests/test_agentic_isolation.py tests/test_guardrails_isolation.py -q
 
 # Static invariants, with attention to I5 (soul write-path scan)

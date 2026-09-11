@@ -368,8 +368,8 @@ class TestValidationErrorNeverEchoesTheSubmittedValue:
     submitted value under detail[].input -- harmless for /query's query text,
     but /auth/login's password field turns a merely too-long or wrong-type
     password into a verbatim disclosure in the 422 body. gate.py's own
-    _on_validation_error handler (mirroring harness/server.py's identical
-    fix) reports only the field location, never the value. This class runs
+    _on_validation_error handler reports only the field location, never the
+    value. This class runs
     the auth-specific case through the REAL gate.app -- pure Pydantic
     validation happens before the route body, so auth.enabled being false in
     the test config does not skip it."""
@@ -565,28 +565,16 @@ class TestSecurityResponseHeaders:
         the whole static/ directory, so a second HTML page with the same
         inline-script defect would stay invisible if we only checked "/".
         Walking the directory means a newly added page with an inline block
-        fails here rather than shipping inert.
-
-        harness.html is the one deliberate exemption. It lives in static/ but its
-        working home is harness/server.py on :8790, which sends a different (much
-        looser) CSP, and it is only reachable here as a side effect of mounting
-        the directory. Externalizing its script is a real follow-up -- four test
-        modules parse that file by line position and would need retargeting -- so
-        it is named explicitly rather than silently skipped. The set is asserted,
-        not just consulted, so a second exemption cannot be added by accident.
+        fails here rather than shipping inert. There are no exemptions.
         """
         from pathlib import Path
 
         test_client, _ = client
         static_dir = Path(__file__).resolve().parent.parent / "static"
-        exempt = {"harness.html"}
         pages = sorted(p.name for p in static_dir.glob("*.html"))
-        assert exempt <= set(pages), f"exemption names a file that no longer exists: {exempt - set(pages)}"
 
         offenders = {}
         for name in pages:
-            if name in exempt:
-                continue
             resp = test_client.get(f"/static/{name}")
             assert resp.status_code == 200, f"/static/{name} did not serve: {resp.status_code}"
             csp = resp.headers.get("content-security-policy", "")
@@ -1360,8 +1348,7 @@ class TestApiKeyOptionalPeer:
         """The console itself and non-browser clients must still work.
 
         Absent headers are allowed on purpose (curl/PowerShell/the sandbox
-        verifier send neither and are not CSRF vectors) -- the same carve-out
-        harness/server.py's _enforce_same_origin documents.
+        verifier send neither and are not CSRF vectors).
         """
         import gate
         monkeypatch.delenv("CYCLAW_API_KEY", raising=False)

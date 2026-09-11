@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Removes the CyClaw harness integration from the current user's environment.
+  Removes the CyClaw integration from the current user's environment.
 
 .DESCRIPTION
   Windows 10/11 + Server 2019/2022, Windows PowerShell 5.1 or PowerShell 7+.
@@ -28,9 +28,10 @@ $Bin   = Join-Path $Home_ "bin"
 $FsConnectDir = Join-Path $env:USERPROFILE "CyClaw-FS"
 
 # Known Task Scheduler names CyClaw generators / sync.cli own. Never a
-# wildcard delete — only these exact /TN values. Gate/harness names are
-# listed so a generated (never auto-registered) listener cannot outlive
-# uninstall if the operator did load it by hand.
+# wildcard delete — only these exact /TN values. The gate name is listed so
+# a generated (never auto-registered) listener cannot outlive uninstall if
+# the operator did load it by hand; "CyClaw harness" is the retired coding
+# console's task name, kept so an older install's task is still removed.
 $KnownTaskNames = @(
     "CyClaw Dropbox Sync",
     "CyClaw fsconnect-trash",

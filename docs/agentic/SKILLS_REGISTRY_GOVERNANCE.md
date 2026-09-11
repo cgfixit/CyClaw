@@ -6,10 +6,7 @@
 > - Nothing outstanding — this is a living design/governance reference for shipped code, not a roadmap; keep it in sync with `agentic/registry.py` if the registry's shape ever changes.
 
 > Implemented in `agentic/registry.py`. This doc explains *why* it is shaped like
-> the soul layer and what guarantees it inherits. The harness console **reads**
-> this file (`GET /api/registry`, `/skills all`) and never writes it.
-> `/skills` without `all` is a wiring diagram of what the console injects or
-> runs, not this store. See [`harness/README.md`](../../harness/README.md).
+> the soul layer and what guarantees it inherits.
 
 ## Motivation
 Hermes/ClawHub show the value of a *named, versioned, reusable* skills catalog.

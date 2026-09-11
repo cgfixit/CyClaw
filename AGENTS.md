@@ -26,12 +26,12 @@ never reset an unknown or dirty checkout to make it match remote.
   clients; `utils/` and `schemas/` hold helpers and contracts.
 - `mcp_hybrid_server.py` provides retrieval-only MCP access, with input
   sanitization and no generation/sampling path.
-- `agentic/`, `sync/`, `guardrails/`, `harness/`, `telegram/`, and `opentweet/`
-  are out-of-band packages. The six core modules listed above must not import
+- `agentic/`, `sync/`, `guardrails/`, `telegram/`, and `opentweet/` are
+  out-of-band packages. The six core modules listed above must not import
   them; optional behavior crosses maintained bridges/subprocess boundaries.
   `memory/` is a separate default-off subsystem, not an I6 forbidden import.
 - Browser assets live in `static/`; the gateway console uses `terminal.html`
-  plus `terminal.js`, while `harness.html` serves the coding console. Tests are
+  plus `terminal.js`. Tests are
   in `tests/`; maintained docs and skills live under `docs/` and `.claude/`.
 
 Check live switches before describing availability. Shipped mode is hybrid
