@@ -244,4 +244,18 @@ p="$(_mkdockertree)"
 sed -i.bak 's/, "--port", "8787"//' "$p/Dockerfile"
 _expect_docker_fail "$p" "E6 missing CMD --port" "missing CMD --port"
 
+# 20. E7: a runtime pin nothing imports must surface. E7 warns rather than
+#     fails (a pin can be a deliberately-pinned transitive), so this asserts
+#     the --strict exit, which is where a warning becomes a gate failure.
+q="$(_mktree)"
+echo "sortedcontainers==2.4.0" >> "$q/requirements.txt"
+out="$(python3 "$drift" --repo-root "$q" --strict 2>&1)"; rc=$?
+rm -rf "$q"
+if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "warn  \[E7\].*sortedcontainers"; then
+  echo "environment mutation (E7 orphan runtime pin): FAIL - expected exit 2 + E7 line, got rc=$rc" >&2
+  echo "$out" >&2
+  exit 1
+fi
+echo "environment mutation (E7 orphan runtime pin): PASS (exit 2)"
+
 echo "== verify-deps verify: OK =="

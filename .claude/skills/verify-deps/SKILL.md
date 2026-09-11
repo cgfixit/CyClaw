@@ -1,6 +1,6 @@
 ---
 name: verify-deps
-description: Verify CyClaw's four install surfaces (pyproject.toml+uv, requirements.txt+pip, the Docker surface — Dockerfile + docker-compose.yml + .dockerignore + publish-ghcr.yml — and environment.yml) actually agree AND are current against upstream PyPI — and that the environment dependencies declared OUTSIDE the pin manifests (workflow-pinned tool versions, the Python version's four independent declarations, third-party imports declared in no manifest, the Docker fallback torch pin vs constraints.txt, compose/.dockerignore/publish-workflow coherence with the Dockerfile) have not drifted. dep-guard checks internal pin agreement (static, no network); this adds requirements.txt (which dep-guard never reads), the install-surface scope contract (which surface may carry extras — constraints.txt is a version ceiling, not an install list), the non-manifest drift surfaces, a real dry-run of each surface's install command, and a PyPI currency sweep with CVE awareness. Reports findings; never auto-bumps a runtime pin (Medium-High risk, CLAUDE.md §7) without explicit approval. Use when asked to verify/audit dependencies, check if deps are up to date, check whether a merge introduced dependency drift, or before a dependency-heavy release.
+description: Verify CyClaw's four install surfaces (pyproject.toml+uv, requirements.txt+pip, the Docker surface — Dockerfile + docker-compose.yml + .dockerignore + publish-ghcr.yml — and environment.yml) actually agree AND are current against upstream PyPI — and that the environment dependencies declared OUTSIDE the pin manifests (workflow-pinned tool versions, the Python version's four independent declarations, third-party imports declared in no manifest, runtime pins no first-party module imports, the Docker fallback torch pin vs constraints.txt, compose/.dockerignore/publish-workflow coherence with the Dockerfile) have not drifted. dep-guard checks internal pin agreement (static, no network); this adds requirements.txt (which dep-guard never reads), the install-surface scope contract (which surface may carry extras — constraints.txt is a version ceiling, not an install list), the non-manifest drift surfaces, a real dry-run of each surface's install command, and a PyPI currency sweep with CVE awareness. Reports findings; never auto-bumps a runtime pin (Medium-High risk, CLAUDE.md §7) without explicit approval. Use when asked to verify/audit dependencies, check if deps are up to date, check whether a merge introduced dependency drift, or before a dependency-heavy release.
 ---
 
 # Verify Deps
@@ -103,7 +103,7 @@ python3 .claude/skills/verify-deps/check_env_drift.py     # add --strict to fail
 
 Steps 1 and 2 both stop at the manifest boundary — they compare pin files to
 other pin files. But CyClaw declares load-bearing environment dependencies in
-places no manifest checker reads, and nothing cross-checks those. Six classes:
+places no manifest checker reads, and nothing cross-checks those. Seven classes:
 
 - **E1 — tool versions pinned inline in workflow YAML.** `flake8==7.3.0` and
   `wemake-python-styleguide==1.6.2` run in the (advisory) lint lane
@@ -146,6 +146,19 @@ places no manifest checker reads, and nothing cross-checks those. Six classes:
   `publish-ghcr.yml` builds `./Dockerfile` and pushes the `IMAGE_NAME` compose
   pulls. Each file is info-skipped when absent (the Docker surface may be the
   Dockerfile alone), never silently passed when present and incoherent.
+- **E7 — a runtime pin no first-party module imports**: the reverse of E3.
+  E3 asks "is every import declared?"; E7 asks "is every declared runtime pin
+  still called?". It reuses E3's own import set so the two can never disagree
+  about scope, and it **warns rather than fails**, because "not imported" is
+  not the same as "unused": a pin can be a transitive deliberately version-
+  pinned on this surface, and deleting one of those silently floats the real
+  dependency. Every exemption in `_PINNED_NOT_IMPORTED` therefore carries the
+  package that pulls it — `websockets` is `uvicorn[standard]`'s
+  (`websockets>=13.0`), `numpy` is chromadb/onnxruntime/sentence-transformers'
+  held at the documented `<2` ceiling, `onnxruntime` is chromadb's. Added
+  after #1367's harness removal made the question live; commit 92afb95
+  ("drop two things nothing calls") had found and removed exactly one such
+  orphan — a `tzdata` runtime pin kept for a test-only import — by hand.
 
 Pure stdlib, no network, no install — same constraints as `dep-guard` and
 `extract_pins.py`, so it runs in a fresh clone before pip does. Exits 0 with
@@ -247,7 +260,7 @@ serially.
 Verify Deps: <n> packages checked | <n> currency gaps | <n> flagged CVEs | <n> install-surface failures
 dep-guard: <PASS/FAIL from Step 1>
 requirements.txt drift: <none | list from Step 2>
-Env drift (E1-E6): <n> failure(s), <n> warning(s) — <every E3 name reported, or "none">
+Env drift (E1-E7): <n> failure(s), <n> warning(s) — <every E3 name reported, or "none">
 Install surfaces dry-run: local-dev=<PASS/FAIL/unverified> legacy-CI=<...> Dockerfile=<...> conda=<not dry-run-verified, unless actually tested>
 Currency: <table or summary — current / bump-candidate / needs-review / CVE-flagged>
 Verdict: <fixes applied (list) | findings for review (list) | none>

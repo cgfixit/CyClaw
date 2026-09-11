@@ -6,7 +6,7 @@ description: >-
   upstream PyPI. Delegates static pin agreement to dep-guard, adds the
   requirements.txt cross-check dep-guard skips, the install-surface scope
   contract (constraints.txt is a version ceiling, not an install list), the
-  non-manifest drift checks E1–E6, a real dry-run of each surface's install
+  non-manifest drift checks E1–E7, a real dry-run of each surface's install
   command, and a PyPI currency + CVE sweep. Never auto-bumps a runtime pin.
 ---
 
