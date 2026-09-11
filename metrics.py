@@ -21,8 +21,10 @@ apply_telemetry_kill()
 import json  # noqa: E402 - must follow the telemetry kill above
 import math  # noqa: E402 - must follow the telemetry kill above
 from collections import Counter  # noqa: E402 - must follow the telemetry kill above
+from collections.abc import Iterator  # noqa: E402 - must follow the telemetry kill above
 from datetime import UTC, date, datetime, timedelta  # noqa: E402 - must follow the telemetry kill above
 from pathlib import Path  # noqa: E402 - must follow the telemetry kill above
+from typing import Any  # noqa: E402 - must follow the telemetry kill above
 
 import yaml  # noqa: E402 - must follow the telemetry kill above
 
@@ -49,26 +51,36 @@ def _resolve_config_path(config_path: str = "config.yaml") -> Path:
     return path.resolve()
 
 
-def iter_events(audit_file: str):
-    """Yield parsed audit events one line at a time (constant memory).
-
-    ``audit.jsonl`` is append-only and unbounded; streaming keeps
-    ``GET /audit/summary`` and the ``cyclaw-metrics`` CLI at O(1) memory as
-    history grows instead of materializing the whole file.
-    """
-    if not Path(audit_file).exists():
+def _iter_records(file_path: str, integrity: dict[str, int] | None = None) -> Iterator[dict[str, Any]]:
+    """Stream JSON objects, optionally counting audit integrity in the same pass."""
+    if integrity is not None:
+        integrity.update(malformed_lines=0, events_with_raw_query=0, rag_events_missing_query_hash=0)
+    if not Path(file_path).exists():
         return
-    with open(audit_file, encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         for line in f:
+            # Blank lines are not corruption; malformed JSON and non-objects are.
+            if not line.strip():
+                continue
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                event = None
+            if not isinstance(event, dict):
+                if integrity is not None:
+                    integrity["malformed_lines"] += 1
                 continue
-            # JSON-valid but non-object lines (null, 42, "text", []) parse fine
-            # yet crash every consumer's first e.get(...) — same untrusted-file
-            # posture as the JSONDecodeError skip and the top_score guard below.
-            if isinstance(event, dict):
-                yield event
+            if integrity is not None:
+                if "query" in event:
+                    integrity["events_with_raw_query"] += 1
+                if event.get("event") in ("rag_query", "mcp_rag_query") and "query_hash" not in event:
+                    integrity["rag_events_missing_query_hash"] += 1
+            yield event
+
+
+def iter_events(audit_file: str):
+    """Yield parsed audit events one line at a time (constant memory)."""
+    yield from _iter_records(audit_file)
 
 
 def load_events(audit_file: str):
@@ -79,21 +91,10 @@ def load_events(audit_file: str):
 def iter_spend(spend_file: str):
     """Yield parsed spend records one line at a time (constant memory).
 
-    ``spend.jsonl`` is the same class of untrusted append-only evidence as
-    ``audit.jsonl``: skip bad JSON and JSON-valid non-objects so one corrupt
-    line cannot take down ``cyclaw-metrics``. Dollars are never stored on the
-    ledger — callers price via :func:`utils.spend.estimate_usd` at read time.
+    Skip bad JSON and non-objects, as for the audit log. Dollars are never
+    stored on the ledger; callers price via utils.spend.estimate_usd at read time.
     """
-    if not Path(spend_file).exists():
-        return
-    with open(spend_file, encoding="utf-8") as f:
-        for line in f:
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(event, dict):
-                yield event
+    yield from _iter_records(spend_file)
 
 
 def _spend_event_date(event: dict) -> date | None:
@@ -308,38 +309,9 @@ def _print_spend(spend: dict | None) -> None:
 
 def compute_audit_integrity(audit_file: str) -> dict:
     """Count audit-log issues that weaken evidence quality without exposing data."""
-    stats = {
-        "malformed_lines": 0,
-        "events_with_raw_query": 0,
-        "rag_events_missing_query_hash": 0,
-    }
-    path = Path(audit_file)
-    if not path.exists():
-        return stats
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                # A blank or whitespace-only line (manual editing, log rotation,
-                # an interleaved partial write from a concurrent writer) is not
-                # corruption -- counting it as malformed_lines alongside genuine
-                # bad JSON produces a false data-integrity alarm on an audit
-                # trail whose actual event data is intact.
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                stats["malformed_lines"] += 1
-                continue
-            if not isinstance(event, dict):
-                # A JSON-valid non-object (null, 42, "text", []) is just as
-                # malformed as unparseable text for evidence purposes, and
-                # `"query" in event` would TypeError on it below.
-                stats["malformed_lines"] += 1
-                continue
-            if "query" in event:
-                stats["events_with_raw_query"] += 1
-            if event.get("event") in ("rag_query", "mcp_rag_query") and "query_hash" not in event:
-                stats["rag_events_missing_query_hash"] += 1
+    stats: dict[str, int] = {}
+    for _ in _iter_records(audit_file, stats):
+        pass
     return stats
 
 
@@ -416,11 +388,8 @@ def compute_metrics(events) -> dict:
         if e.get("guardrail_degraded") is True:
             guardrail_degraded_count += 1
 
-        # Folded into this loop rather than given its own function: summarize_audit
-        # passes iter_events(...), a generator, so a second aggregator would either
-        # receive an exhausted iterator or force a third full file pass on top of
-        # compute_audit_integrity's second one. Single-pass is this function's
-        # stated design (see the docstring).
+        # Keep every aggregate in this loop: summarize_audit supplies a streaming
+        # iterator, so another pass would require reopening the file.
         if e.get("event") == INJECTION_EVENT:
             injection_total += 1
             # Every bucket key goes through _bucket_key for the reason documented
@@ -513,48 +482,9 @@ def compute_metrics(events) -> dict:
 
 
 def summarize_audit(audit_file: str) -> dict:
-    """Summarize audit metrics and evidence-quality counters in one pass over the file.
-
-    Previously called compute_metrics(iter_events(...)) and compute_audit_integrity(...)
-    separately -- two independent opens/reads of the same append-only, unbounded
-    audit.jsonl on every GET /audit/summary hit and every cyclaw-metrics run. This
-    streams the file once, feeding compute_metrics the same filtered events
-    iter_events() would yield while counting the integrity stats iter_events()
-    silently drops (malformed JSON, JSON-valid non-dict lines) as a side effect of the
-    single pass. compute_audit_integrity() itself is untouched -- kept for its own
-    direct callers/tests -- this only removes the second file pass from the hot path.
-    """
-    integrity = {
-        "malformed_lines": 0,
-        "events_with_raw_query": 0,
-        "rag_events_missing_query_hash": 0,
-    }
-
-    def _events():
-        path = Path(audit_file)
-        if not path.exists():
-            return
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    # See compute_audit_integrity's identical guard: a blank
-                    # line is not corruption and must not trip the alarm.
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    integrity["malformed_lines"] += 1
-                    continue
-                if not isinstance(event, dict):
-                    integrity["malformed_lines"] += 1
-                    continue
-                if "query" in event:
-                    integrity["events_with_raw_query"] += 1
-                if event.get("event") in ("rag_query", "mcp_rag_query") and "query_hash" not in event:
-                    integrity["rag_events_missing_query_hash"] += 1
-                yield event
-
-    summary = compute_metrics(_events())
+    """Summarize metrics and integrity counters in one streaming pass over the audit file."""
+    integrity: dict[str, int] = {}
+    summary = compute_metrics(_iter_records(audit_file, integrity))
     summary["audit_integrity"] = integrity
     return summary
 

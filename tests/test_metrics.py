@@ -8,6 +8,7 @@ here previously bucketed every ``mcp_rag_query`` as "unknown".
 
 import json
 
+import pytest
 import yaml
 
 import metrics
@@ -113,9 +114,7 @@ class TestAuditIntegrity:
         }
 
     def test_summarize_audit_blank_lines_are_not_counted_as_malformed(self, tmp_path):
-        """summarize_audit's _events() duplicates compute_audit_integrity's
-        loop for a single-pass optimization; the blank-line guard must hold
-        in both copies."""
+        """Summary integrity counts must also ignore blank lines."""
         p = tmp_path / "audit.jsonl"
         p.write_text(
             "\n".join([
@@ -399,3 +398,38 @@ class TestMain:
         out = capsys.readouterr().out
         assert "Total events: 1" in out
         assert "hybrid: 1" in out
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_jsonl_readers_preserve_streaming_and_integrity_contract(tmp_path, present):
+    from unittest.mock import patch
+
+    path = tmp_path / "records.jsonl"
+    records = [
+        {}, {"event": "rag_query", "query": None},
+        {"event": "mcp_rag_query", "query_hash": None},
+        {"event": [], "query_hash": ""}, {"event": {}, "query": "synthetic"},
+    ]
+    if present:
+        path.write_text(
+            "\n \t\nBAD JSON\nnull\n42\n\"text\"\n[]\n"
+            + "\n".join(json.dumps(row) for row in records), encoding="utf-8",
+        )
+    expected = {
+        "malformed_lines": 5 if present else 0,
+        "events_with_raw_query": 2 if present else 0,
+        "rag_events_missing_query_hash": 1 if present else 0,
+    }
+    for reader, keyword in [(metrics.iter_events, "audit_file"), (metrics.iter_spend, "spend_file")]:
+        with patch("builtins.open", wraps=open) as opened:
+            stream = reader(**{keyword: str(path)})
+            opened.assert_not_called()
+            assert list(stream) == (records if present else [])
+            assert opened.call_count == int(present)
+    assert compute_audit_integrity(str(path)) == expected
+    with patch("builtins.open", wraps=open) as opened:
+        summary = summarize_audit(str(path))
+        assert opened.call_count == int(present)
+    assert summary["audit_integrity"] == expected
+    assert summary["total_events"] == (len(records) if present else 0)
+    assert "synthetic" not in json.dumps(summary)
