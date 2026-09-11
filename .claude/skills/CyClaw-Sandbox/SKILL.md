@@ -12,13 +12,9 @@ description: >
   manifest drift pin, and OS scheduler glue. Covers the terminal console
   fully: its REST surface (/soul, /ops/sync, /ops/agentic, /ops/fsconnect,
   /ops/sqlconnect, /index/*, /memory/*, /auth/*) and all four of its slash
-  commands.
-  Use when asked to verify, smoke-test, validate, or test CyClaw; mentions
-  CyClaw swarm, the terminal console, triple-gate API,
-  Grok/Claude fallback, key redaction, due-diligence invariants, guardrails,
-  memory, telegram, opentweet, netconnect, or running the test suite. Not
-  the Claude Code session-memory skill (memory-orchestrator /
-  docs/memories/).
+  commands. Not the Claude Code session-memory skill
+  (memory-orchestrator / docs/memories/).
+disable-model-invocation: true
 ---
 
 # CyClaw Swarm Verification
