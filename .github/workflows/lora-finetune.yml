@@ -1,0 +1,74 @@
+# CI for the offline LoRA fine-tune kit (tools/lora_finetune/), out-of-band
+# per CyClaw's I6 module isolation: no CyClaw runtime install surface pulls
+# Unsloth/Transformers/TRL/Datasets/Accelerate (see tools/lora_finetune/README.md
+# and the root README's "Local Model Fine-Tuning" section), and this kit is
+# never imported by gate.py/graph.py/mcp_hybrid_server.py.
+#
+# The kit's own test suite (tools/lora_finetune/tests/) mocks unsloth/trl/
+# datasets entirely (see tests/test_finetune_integration.py's `fakes_installed`
+# fixture), so this job needs nothing beyond stdlib + pytest — no torch, no
+# CUDA, no GPU runner. `dryrun_finetune.py` additionally exercises the same
+# mocked control flow end-to-end as a smoke check, matching the order of
+# operations documented in tools/lora_finetune/README.md.
+#
+# Path-filtered: this kit is not discovered by the root `pytest tests/ -q`
+# invocation in ci.yml (its tests live under tools/lora_finetune/tests/, a
+# separate tree), so it needs its own workflow rather than riding along.
+
+name: LoRA Fine-Tune Kit
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+      - 'grok/**'
+      - 'codex/**'
+      - 'kimi/**'
+      - 'agent/**'
+      - 'CyClaw/**'
+      - 'cyclaw/**'
+    paths:
+      - 'tools/lora_finetune/**'
+      - '.github/workflows/lora-finetune.yml'
+  pull_request:
+    branches: [main, cc]
+    paths:
+      - 'tools/lora_finetune/**'
+      - '.github/workflows/lora-finetune.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest + dry-run (no GPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/lora_finetune
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: .github/workflows/lora-finetune.yml
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run the kit's own test suite (mocked unsloth/trl/datasets, no GPU)
+        run: python -m pytest tests/ -q --tb=short
+
+      - name: Dry-run the fine-tune script's control flow end-to-end
+        run: python dryrun_finetune.py
