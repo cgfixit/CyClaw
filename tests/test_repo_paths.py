@@ -13,7 +13,31 @@ from __future__ import annotations
 
 import pytest
 
+from agentic.deepagent_github.repo_workspace import canonical_repo_path
 from utils.repo_paths import canonical_repo_relative_path
+
+# Inputs where the two jails MUST produce identical output. Excludes trailing
+# dot/space, the one rule repo_paths deliberately adds -- pinned separately
+# below so the divergence cannot widen unnoticed.
+_SHARED_CONTRACT_INPUTS = (
+    "README.md",
+    "docs/guide.md",
+    "./README.md",
+    "docs/./guide.md",
+    "docs//guide.md",
+    "docs\\guide.md",
+    "",
+    "/etc/passwd",
+    "C:\\Windows\\System32\\config",
+    "-rf",
+    "../etc/passwd",
+    "docs/../../etc/passwd",
+    "..",
+    "stream:alt",
+    ".",
+    "./",
+    "a\x00b",
+)
 
 
 @pytest.mark.parametrize(
@@ -72,6 +96,33 @@ def test_rejects_trailing_dot_or_space_segments(raw: str) -> None:
     confirmed, and then failing silently in the reader.
     """
     assert canonical_repo_relative_path(raw) is None
+
+
+@pytest.mark.parametrize("raw", _SHARED_CONTRACT_INPUTS)
+def test_both_jails_agree_on_the_shared_base_contract(raw: str) -> None:
+    """The drift pin the harness removal dropped.
+
+    I6 keeps ``utils.ops_runner`` from importing ``agentic``, so this
+    acceptance rule is duplicated rather than shared -- which is exactly why a
+    test has to hold the two in step. Hard-coded expectations alone cannot do
+    it: the write jail could change and every other test in this file would
+    stay green while the two controls silently diverged.
+    """
+    assert canonical_repo_relative_path(raw) == canonical_repo_path(raw)
+
+
+@pytest.mark.parametrize("raw", ["README.md.", "README.md ", "docs./guide.md", "docs /guide.md"])
+def test_read_jail_is_stricter_than_the_write_jail_only_on_trailing_dot_or_space(raw: str) -> None:
+    """The single deliberate divergence, pinned in both directions.
+
+    Documented on ``canonical_repo_relative_path`` itself: Windows silently
+    strips a trailing dot or space from a component, so the read jail refuses
+    outright rather than staging a path that would later open a different
+    file. Asserting the write jail still ACCEPTS these is what keeps the
+    divergence exactly one rule wide -- if either side moves, this fails.
+    """
+    assert canonical_repo_relative_path(raw) is None
+    assert canonical_repo_path(raw) is not None
 
 
 def test_rejection_never_launders_an_absolute_path_into_a_relative_one() -> None:
