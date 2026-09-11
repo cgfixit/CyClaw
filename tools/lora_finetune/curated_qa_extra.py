@@ -183,7 +183,10 @@ EXTRA_QA: list[dict] = [
             "by design."
         )},
     ],
-    "source_refs": ["utils/personality.py:_CORE_INJECTION_PATTERNS,ENFORCED_SOUL_PATTERNS,OWASP_INJECTION_PATTERNS", "INVARIANTS.md:Rule 4,5"],
+    "source_refs": [
+        "utils/personality.py:_CORE_INJECTION_PATTERNS,ENFORCED_SOUL_PATTERNS,OWASP_INJECTION_PATTERNS",
+        "INVARIANTS.md:Rule 4,5",
+    ],
 },
 
 {
@@ -361,7 +364,10 @@ EXTRA_QA: list[dict] = [
             "shadow DB)."
         )},
     ],
-    "source_refs": ["utils/personality.py:_init_db,_sql_insert_soul", "utils/personality_db.py:connect,ddl_soul_versions"],
+    "source_refs": [
+        "utils/personality.py:_init_db,_sql_insert_soul",
+        "utils/personality_db.py:connect,ddl_soul_versions",
+    ],
 },
 
 {
@@ -470,7 +476,10 @@ EXTRA_QA: list[dict] = [
             "DO_NOT_TRACK)."
         )},
     ],
-    "source_refs": ["utils/telemetry_kill.py:TELEMETRY_KILL,module docstring", "retrieval/embeddings.py:_load_model,_model_offline_eligible"],
+    "source_refs": [
+        "utils/telemetry_kill.py:TELEMETRY_KILL,module docstring",
+        "retrieval/embeddings.py:_load_model,_model_offline_eligible",
+    ],
 },
 
 {
@@ -508,7 +517,11 @@ EXTRA_QA: list[dict] = [
             "guardrails/integration.py."
         )},
     ],
-    "source_refs": ["utils/telemetry_kill.py:apply_telemetry_kill,build_telemetry_safe_env", "utils/onnx_telemetry.py", "utils/ops_runner.py"],
+    "source_refs": [
+        "utils/telemetry_kill.py:apply_telemetry_kill,build_telemetry_safe_env",
+        "utils/onnx_telemetry.py",
+        "utils/ops_runner.py",
+    ],
 },
 
 # ═══ ERROR HANDLING (+3) ═══════════════════════════════════════════════════
@@ -586,7 +599,11 @@ EXTRA_QA: list[dict] = [
             "SoulPersistenceError means the recovery path itself failed."
         )},
     ],
-    "source_refs": ["utils/errors.py:SoulPersistenceError", "utils/personality.py:apply_evolution", "INVARIANTS.md:Rule 4"],
+    "source_refs": [
+        "utils/errors.py:SoulPersistenceError",
+        "utils/personality.py:apply_evolution",
+        "INVARIANTS.md:Rule 4",
+    ],
 },
 
 {
@@ -661,7 +678,11 @@ EXTRA_QA: list[dict] = [
             "endpoint is expected, and only in hybrid mode."
         )},
     ],
-    "source_refs": ["utils/telemetry_kill.py:TELEMETRY_KILL", "SECURITY.md:Egress classification", "tests/test_telemetry_kill.py"],
+    "source_refs": [
+        "utils/telemetry_kill.py:TELEMETRY_KILL",
+        "SECURITY.md:Egress classification",
+        "tests/test_telemetry_kill.py",
+    ],
 },
 
 # ═══ DEBUGGING SCENARIOS (+3) ═════════════════════════════════════════════
@@ -851,7 +872,10 @@ EXTRA_QA: list[dict] = [
             "loaded; you have to establish it before they're born."
         )},
     ],
-    "source_refs": ["utils/telemetry_kill.py:module docstring,apply_telemetry_kill", "retrieval/indexer.py:apply_telemetry_kill() call"],
+    "source_refs": [
+        "utils/telemetry_kill.py:module docstring,apply_telemetry_kill",
+        "retrieval/indexer.py:apply_telemetry_kill() call",
+    ],
 },
 
 ]

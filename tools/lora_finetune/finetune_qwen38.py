@@ -106,8 +106,15 @@ def main() -> int:
     ap.add_argument("--lora-rank", type=int, default=16)
     ap.add_argument("--lora-alpha", type=int, default=16)
     ap.add_argument("--learning-rate", type=float, default=2e-4)
-    ap.add_argument("--offload-embedding", action=argparse.BooleanOptionalAction, default=True,
-                    help="Keep the large untied input embedding in RAM to reduce VRAM (default on; use --no-offload-embedding).")
+    ap.add_argument(
+        "--offload-embedding",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Keep the large untied input embedding in RAM to reduce VRAM "
+            "(default on; use --no-offload-embedding)."
+        ),
+    )
     ap.add_argument("--output-dir", default="outputs_qwen38")
     ap.add_argument("--export-gguf", action=argparse.BooleanOptionalAction, default=True,
                     help="Export a q4_k_m GGUF for Ollama (default on; use --no-export-gguf).")
@@ -115,9 +122,9 @@ def main() -> int:
 
     _check_unsloth()
     # Imports that need Unsloth/CUDA — after the version guard.
-    from unsloth import FastModel  # type: ignore[import]
     from datasets import load_dataset  # type: ignore[import]
-    from trl import SFTTrainer, SFTConfig  # type: ignore[import]
+    from trl import SFTConfig, SFTTrainer  # type: ignore[import]
+    from unsloth import FastModel  # type: ignore[import]
 
     examples = load_canonical_dataset(Path(args.json))
 

@@ -74,7 +74,7 @@ class _FakeSFTConfig:
 
 
 class _FakeSFTTrainer:
-    instances: list["_FakeSFTTrainer"] = []
+    instances: list[_FakeSFTTrainer] = []
     def __init__(self, model=None, tokenizer=None, train_dataset=None, args=None):
         self.model = model
         self.tokenizer = tokenizer

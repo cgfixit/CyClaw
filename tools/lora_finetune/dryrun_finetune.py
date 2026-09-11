@@ -53,7 +53,7 @@ class _FakeModel:
         self.lora_path = path
         Path(path).mkdir(parents=True, exist_ok=True)
     def save_pretrained_gguf(self, gguf_dir, tokenizer, quantization_method):
-        self.gguf_kwargs = dict(path=gguf_dir, quant=quantization_method)
+        self.gguf_kwargs = {"path": gguf_dir, "quant": quantization_method}
         self.gguf_dir = Path(gguf_dir)
         Path(gguf_dir).mkdir(parents=True, exist_ok=True)
         # Simulate llama.cpp producing a .gguf file.
@@ -67,10 +67,10 @@ class _FakeFastModel:
     @classmethod
     def from_pretrained(cls, model_name, max_seq_length, load_in_4bit,
                         full_finetuning, offload_embedding):
-        cls.last_from_pretrained = dict(
-            model_name=model_name, max_seq_length=max_seq_length,
-            load_in_4bit=load_in_4bit, full_finetuning=full_finetuning,
-            offload_embedding=offload_embedding)
+        cls.last_from_pretrained = {
+            "model_name": model_name, "max_seq_length": max_seq_length,
+            "load_in_4bit": load_in_4bit, "full_finetuning": full_finetuning,
+            "offload_embedding": offload_embedding}
         return _FakeModel(), _FakeTokenizer()
     @classmethod
     def get_peft_model(cls, model, finetune_vision_layers, finetune_language_layers,
@@ -78,11 +78,11 @@ class _FakeFastModel:
                       r, lora_alpha, lora_dropout, bias,
                       use_gradient_checkpointing, random_state,
                       use_rslora, loftq_config):
-        cls.last_get_peft_model = dict(
-            vision=finetune_vision_layers, language=finetune_language_layers,
-            attention=finetune_attention_modules, mlp=finetune_mlp_modules,
-            r=r, alpha=lora_alpha, dropout=lora_dropout, bias=bias,
-            grad_ckpt=use_gradient_checkpointing, rslora=use_rslora)
+        cls.last_get_peft_model = {
+            "vision": finetune_vision_layers, "language": finetune_language_layers,
+            "attention": finetune_attention_modules, "mlp": finetune_mlp_modules,
+            "r": r, "alpha": lora_alpha, "dropout": lora_dropout, "bias": bias,
+            "grad_ckpt": use_gradient_checkpointing, "rslora": use_rslora}
         model.peft_kwargs = cls.last_get_peft_model
         return model
 
@@ -95,7 +95,7 @@ class _FakeSFTConfig:
 
 class _FakeSFTTrainer:
     """trl.SFTTrainer that stores args and records train() was called."""
-    instances: list["_FakeSFTTrainer"] = []
+    instances: list[_FakeSFTTrainer] = []
     def __init__(self, model=None, tokenizer=None, train_dataset=None, args=None):
         self.model = model
         self.tokenizer = tokenizer
