@@ -515,7 +515,7 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
 ### Dependencies
 - **Trap:** bumping `pydantic-core` alone, or adding `[standard]` to the uvicorn
   constraint. **Rule:** `pydantic` and `pydantic-core` are lock-step
-  (2.13.4 ↔ 2.46.4); the `uvicorn` constraint carries no extras (pip ≥26.1.2
+  (2.13.5 ↔ 2.46.5); the `uvicorn` constraint carries no extras (pip ≥26.1.2
   rejects extras in a constraints file).
 - **Trap:** letting numpy float to 2.x. **Rule:** numpy is pinned `<2`
   (dependabot ignores `numpy>=2.0.0`) — numpy 2 removes `np.float_` and breaks

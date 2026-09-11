@@ -37,7 +37,7 @@ dependencies:
   # 1.5.9 carries no such pin. Re-check this pin if chromadb is ever bumped here.
   - fastapi=0.115.9
   - uvicorn=0.51.0
-  - pydantic=2.13.4
+  - pydantic=2.13.5
   - pyyaml=6.0.3
   - httpx=0.28.1
   - langchain-core=1.5.0
@@ -127,7 +127,7 @@ dependencies:
       - websockets==15.0.1
       # Telemetry-control floor from the pip path (pyproject.toml/constraints.txt).
       # conda-forge chromadb=1.5.9 only declares onnxruntime>=1.14.1.
-      - onnxruntime==1.29.0
+      - onnxruntime==1.30.0
 
 # Optional: Create with mamba for speed
 # mamba env create -f environment.yml
