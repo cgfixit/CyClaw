@@ -89,7 +89,11 @@ jobs:
       - name: Ruff full configured set (advisory)
         if: always()
         continue-on-error: true
-        run: ruff check --select E,F,I,B,C4,UP,S .
+        # CLI --select is higher-priority than pyproject lint.select and
+        # re-enables E501 even though pyproject ignores it
+        # (https://docs.astral.sh/ruff/linter/#rule-selection). Pass
+        # --ignore E501 so this lane matches pyproject.toml.
+        run: ruff check --select E,F,I,B,C4,UP,S --ignore E501 .
 
       - name: wemake-python-styleguide on changed Python files
         if: always()
