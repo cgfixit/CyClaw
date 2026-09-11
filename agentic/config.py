@@ -135,10 +135,14 @@ def _validate_bool(value: object, field_name: str) -> None:
         )
 
 
-# Duplicated rather than imported: I6 forbids agentic/ importing the core
-# request path, and guardrails/config.py keeps its own copy for the same
-# reason; the values are a closed set (the three spellings of localhost),
-# not a tunable.
+# Duplicated rather than imported from llm/client.py, which holds the same
+# frozenset. NOT an I6 constraint -- I6 names six core modules (gate*.py,
+# graph.py, mcp_hybrid_server.py) and llm/client.py is not one of them. The
+# actual reasons are the out-of-band convention (no agentic/guardrails/sync/
+# telegram/opentweet module imports llm/ today) and cost: importing that
+# module for three strings pulls httpx, yaml and utils.spend into agentic's
+# import graph. guardrails/config.py keeps its own copy on the same grounds.
+# The values are a closed set (the three spellings of localhost), not a tunable.
 _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 
