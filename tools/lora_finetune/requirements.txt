@@ -1,0 +1,16 @@
+# Optional operator install for the LoRA fine-tune kit ONLY.
+# CyClaw runtime (root requirements.txt / pyproject extras / Docker / conda)
+# does NOT install these. Do not copy this file into a core install surface.
+#
+# Install on a CUDA GPU box when you actually train:
+#   pip install -r tools/lora_finetune/requirements.txt
+#
+# Floors match finetune_qwen38.py's Unsloth FastModel + SFTTrainer path
+# (Qwen3.8-27B support from Unsloth >= 0.1.800, 2026-08-14). Pin tighter
+# on the GPU box if you need a locked resolve; CI never installs this file.
+
+unsloth>=0.1.800
+unsloth_zoo>=0.1.0
+transformers>=4.51.0
+trl>=0.15.0
+datasets>=3.0.0

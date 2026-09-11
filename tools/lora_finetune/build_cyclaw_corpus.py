@@ -121,17 +121,24 @@ def _try_apply_chat_template(messages: list[dict]) -> str | None:
     """Use the real tokenizer if transformers is importable. Returns None on failure."""
     try:
         from transformers import AutoTokenizer  # type: ignore[import]
-    except Exception:
+    except ImportError:
         return None
     # Use a small, universally-available tokenizer just to get a correct
     # ChatML-style rendering. The trainer swaps in the real Qwen tokenizer at
     # train time; here we only need structurally-correct turn delimiters.
+    # ImportError is the only expected miss; a load/network failure is logged
+    # and we fall through to the ChatML fallback instead of swallowing every
+    # exception (S112).
+    last_err: str | None = None
     for name in ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen2-0.5B"):
         try:
             tok = AutoTokenizer.from_pretrained(name)
             return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-        except Exception:
-            continue
+        except (OSError, ValueError, RuntimeError) as exc:
+            last_err = f"{name}: {exc}"
+    if last_err is not None:
+        print(f"[build_cyclaw_corpus] tokenizer unavailable ({last_err}); using ChatML fallback",
+              file=sys.stderr)
     return None
 
 

@@ -22,7 +22,6 @@ import json
 import sys
 import types
 from pathlib import Path
-from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -32,7 +31,8 @@ sys.path.insert(0, str(HERE))
 class _FakeTokenizer:
     """Stand-in for the Qwen tokenizer. apply_chat_template -> ChatML."""
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
-        assert tokenize is False
+        if tokenize is not False:
+            raise ValueError("fake tokenizer expected tokenize=False")
         parts = []
         for m in messages:
             parts.append(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>")
@@ -125,8 +125,10 @@ def _install_fakes():
     fake_datasets = types.ModuleType("datasets")
     _rows: list = []
     def _load_dataset(name, data_files, split):
-        assert name == "json"
-        assert split == "train"
+        if name != "json":
+            raise ValueError(f"expected dataset name 'json', got {name!r}")
+        if split != "train":
+            raise ValueError(f"expected split 'train', got {split!r}")
         with open(data_files, encoding="utf-8") as f:
             _rows[:] = [json.loads(line) for line in f]
         return _FakeDataset(list(_rows))
@@ -137,17 +139,22 @@ def _install_fakes():
     return fake_unsloth, fake_trl, fake_datasets, _rows
 
 
+def _expect(failures: list[str], cond: bool, msg: str) -> None:
+    if not cond:
+        failures.append(msg)
+
+
 def main() -> int:
     # Stub the version-check import so _check_unsloth passes.
-    fake_unsloth, fake_trl, fake_datasets, rows = _install_fakes()
+    *_, rows = _install_fakes()
 
     # Import the module under test AFTER fakes are installed so its
     # `from unsloth import FastModel` etc. resolve to our shims.
-    import importlib
     import finetune_qwen38 as ft  # type: ignore[import]
 
     # Sanity: the version guard should have found the fake unsloth.
-    assert hasattr(ft, "main"), "finetune_qwen38.main not found"
+    if not hasattr(ft, "main"):
+        raise RuntimeError("finetune_qwen38.main not found")
 
     # Run with a small max_steps so train() is called once.
     sys.argv = [
@@ -162,62 +169,75 @@ def main() -> int:
     ]
     rc = ft.main()
 
-    # ── Assertions ──────────────────────────────────────────────────────────
+    # ── Checks (no assert — Bandit S101 treats this file as shipped code) ──
     failures: list[str] = []
+    if rc != 0:
+        failures.append(f"finetune_qwen38.main() max_steps branch returned {rc}")
 
     # 1. from_pretrained got the verified API args.
     fp = _FakeFastModel.last_from_pretrained
     if fp is None:
         failures.append("FastModel.from_pretrained was never called")
     else:
-        assert fp["model_name"] == "unsloth/Qwen3.8-27B-unsloth-bnb-4bit", fp
-        assert fp["load_in_4bit"] is True, fp
-        assert fp["full_finetuning"] is False, fp
-        assert fp["offload_embedding"] is True, fp
-        assert fp["max_seq_length"] == 2048, fp
+        _expect(failures, fp["model_name"] == "unsloth/Qwen3.8-27B-unsloth-bnb-4bit",
+                f"from_pretrained model_name: {fp}")
+        _expect(failures, fp["load_in_4bit"] is True, f"from_pretrained load_in_4bit: {fp}")
+        _expect(failures, fp["full_finetuning"] is False, f"from_pretrained full_finetuning: {fp}")
+        _expect(failures, fp["offload_embedding"] is True, f"from_pretrained offload_embedding: {fp}")
+        _expect(failures, fp["max_seq_length"] == 2048, f"from_pretrained max_seq_length: {fp}")
 
     # 2. get_peft_model used boolean module flags, not target_modules.
     peft = _FakeFastModel.last_get_peft_model
     if peft is None:
         failures.append("get_peft_model was never called")
     else:
-        assert peft["vision"] is False, peft
-        assert peft["language"] is True, peft
-        assert peft["attention"] is True, peft
-        assert peft["mlp"] is True, peft
-        assert peft["r"] == 16, peft
-        assert "target_modules" not in peft, "should use boolean flags not target_modules"
+        _expect(failures, peft["vision"] is False, f"peft vision: {peft}")
+        _expect(failures, peft["language"] is True, f"peft language: {peft}")
+        _expect(failures, peft["attention"] is True, f"peft attention: {peft}")
+        _expect(failures, peft["mlp"] is True, f"peft mlp: {peft}")
+        _expect(failures, peft["r"] == 16, f"peft r: {peft}")
+        _expect(failures, "target_modules" not in peft,
+                "should use boolean flags not target_modules")
 
     # 3. SFTConfig got correct args incl. max_steps (the branch we exercised).
-    trainer = _FakeSFTTrainer.instances[-1]
-    cfg = trainer.args
-    assert cfg.dataset_text_field == "text", cfg
-    assert cfg.max_seq_length == 2048, cfg
-    assert cfg.max_steps == 5, cfg
-    assert cfg.per_device_train_batch_size == 1, cfg
-    assert cfg.gradient_accumulation_steps == 4, cfg
-    assert cfg.learning_rate == 2e-4, cfg
-    assert cfg.optim == "adamw_8bit", cfg
-    assert cfg.report_to == "none", cfg
-    assert trainer.trained is True, "trainer.train() was not called"
+    if not _FakeSFTTrainer.instances:
+        failures.append("SFTTrainer was never constructed (max_steps branch)")
+    else:
+        trainer = _FakeSFTTrainer.instances[-1]
+        cfg = trainer.args
+        _expect(failures, cfg.dataset_text_field == "text", f"SFTConfig dataset_text_field: {cfg}")
+        _expect(failures, cfg.max_seq_length == 2048, f"SFTConfig max_seq_length: {cfg}")
+        _expect(failures, cfg.max_steps == 5, f"SFTConfig max_steps: {cfg}")
+        _expect(failures, cfg.per_device_train_batch_size == 1, f"SFTConfig batch: {cfg}")
+        _expect(failures, cfg.gradient_accumulation_steps == 4, f"SFTConfig grad_accum: {cfg}")
+        _expect(failures, cfg.learning_rate == 2e-4, f"SFTConfig lr: {cfg}")
+        _expect(failures, cfg.optim == "adamw_8bit", f"SFTConfig optim: {cfg}")
+        _expect(failures, cfg.report_to == "none", f"SFTConfig report_to: {cfg}")
+        _expect(failures, trainer.trained is True, "trainer.train() was not called")
 
     # 4. Dataset loaded and every rendered text is non-empty.
-    assert len(rows) == 70, f"expected 70 rendered rows got {len(rows)}"
+    _expect(failures, len(rows) == 70, f"expected 70 rendered rows got {len(rows)}")
     empty = [i for i, r in enumerate(rows) if not r["text"].strip()]
-    assert not empty, f"empty rendered text at rows {empty}"
-    assert all("<|im_start|>" in r["text"] and "<|im_end|>" in r["text"] for r in rows)
+    _expect(failures, not empty, f"empty rendered text at rows {empty}")
+    missing_chatml = [
+        i for i, r in enumerate(rows)
+        if "<|im_start|>" not in r["text"] or "<|im_end|>" not in r["text"]
+    ]
+    _expect(failures, not missing_chatml, f"missing ChatML markers at rows {missing_chatml}")
 
     # 5. Ollama Modelfile written inside gguf_dir with correct FROM path.
     gguf_dir = HERE / "_dryrun_out" / "gguf"
     modelfile = gguf_dir / "Modelfile.cyclaw"
-    assert modelfile.exists(), f"Modelfile not written at {modelfile}"
-    mf_text = modelfile.read_text(encoding="utf-8")
-    assert "FROM ./model.q4_k_m.gguf" in mf_text, mf_text
-    assert "PARAMETER num_ctx 32768" in mf_text, mf_text
-    assert (gguf_dir / "model.q4_k_m.gguf").exists(), "GGUF not written"
+    if not modelfile.exists():
+        failures.append(f"Modelfile not written at {modelfile}")
+    else:
+        mf_text = modelfile.read_text(encoding="utf-8")
+        _expect(failures, "FROM ./model.q4_k_m.gguf" in mf_text, f"Modelfile FROM: {mf_text}")
+        _expect(failures, "PARAMETER num_ctx 32768" in mf_text, f"Modelfile num_ctx: {mf_text}")
+    _expect(failures, (gguf_dir / "model.q4_k_m.gguf").exists(), "GGUF not written")
 
     # 6. LoRA adapter dir written.
-    assert (HERE / "_dryrun_out" / "lora").exists(), "lora dir not written"
+    _expect(failures, (HERE / "_dryrun_out" / "lora").exists(), "lora dir not written")
 
     # ── Also exercise the epochs branch (max_steps=0) ────────────────────────
     _FakeSFTTrainer.instances.clear()
@@ -232,22 +252,27 @@ def main() -> int:
         "--no-export-gguf",
     ]
     rc2 = ft.main()
-    trainer2 = _FakeSFTTrainer.instances[-1]
-    assert trainer2.args.max_steps == -1, trainer2.args
-    assert trainer2.args.num_train_epochs == 3, trainer2.args
-    assert trainer2.trained is True
+    if rc2 != 0:
+        failures.append(f"finetune_qwen38.main() epochs branch returned {rc2}")
+    if not _FakeSFTTrainer.instances:
+        failures.append("SFTTrainer was never constructed (epochs branch)")
+    else:
+        trainer2 = _FakeSFTTrainer.instances[-1]
+        _expect(failures, trainer2.args.max_steps == -1, f"epochs max_steps: {trainer2.args}")
+        _expect(failures, trainer2.args.num_train_epochs == 3, f"epochs num_train_epochs: {trainer2.args}")
+        _expect(failures, trainer2.trained is True, "epochs trainer.train() was not called")
 
     if failures:
         print("FAILURES:", failures, file=sys.stderr)
         return 1
 
     print("DRY-RUN VALIDATION PASSED")
-    print(f"  dataset: 70 examples, all rendered with non-empty ChatML text")
-    print(f"  from_pretrained: verified API args (4bit, offload_embedding, no full_finetune)")
-    print(f"  get_peft_model: boolean module flags (no target_modules)")
-    print(f"  SFTConfig: dataset_text_field=text, max_steps/epochs branches both correct")
-    print(f"  Ollama Modelfile: written in gguf dir, FROM ./model.q4_k_m.gguf")
-    print(f"  epochs branch: max_steps=-1, num_train_epochs=3")
+    print("  dataset: 70 examples, all rendered with non-empty ChatML text")
+    print("  from_pretrained: verified API args (4bit, offload_embedding, no full_finetune)")
+    print("  get_peft_model: boolean module flags (no target_modules)")
+    print("  SFTConfig: dataset_text_field=text, max_steps/epochs branches both correct")
+    print("  Ollama Modelfile: written in gguf dir, FROM ./model.q4_k_m.gguf")
+    print("  epochs branch: max_steps=-1, num_train_epochs=3")
     return 0
 
 

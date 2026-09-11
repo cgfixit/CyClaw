@@ -14,7 +14,6 @@ sys.path.insert(0, str(HERE))
 import build_cyclaw_corpus as bcc  # type: ignore[import]
 import curated_qa_extra as extra  # type: ignore[import]
 import cyclaw_debug_qa as debug  # type: ignore[import]
-from curated_qa import CURATED_QA  # type: ignore[import]
 
 
 # Fixtures
@@ -119,7 +118,9 @@ class TestCategoryDistribution:
 # Rendering
 class TestRendering:
     def test_jsonl_has_seventy_lines(self, rendered_jsonl):
-        assert sum(1 for _ in open(rendered_jsonl)) == 70
+        with open(rendered_jsonl, encoding="utf-8") as handle:
+            line_count = sum(1 for _ in handle)
+        assert line_count == 70
 
     def test_jsonl_text_non_empty(self, rendered_jsonl):
         for line in open(rendered_jsonl):

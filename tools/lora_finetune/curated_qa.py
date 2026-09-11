@@ -721,8 +721,8 @@ CURATED_QA: list[dict[str, str]] = [
     "instruction": "CyClaw is showing a 'Soul drift forensic event on startup' message. What does this mean and how do you investigate?",
     "input": "",
     "output": (
-        "This means PersonalityManager's startup SHA-256 check detected a mismatch between soul.md "
-        "and the latest hash in the soul_versions SQLite table.\n\n"
+        "This means PersonalityManager's startup integrity-hash check detected a mismatch between soul.md "
+        "and the latest content digest in the soul_versions SQLite table.\n\n"
         "Possible causes:\n"
         "1. Someone manually edited soul.md outside the /soul/apply flow (e.g., vim data/personality/soul.md)\n"
         "2. A crash occurred between step 2 (INSERT into SQLite) and step 3 (write soul.md) of a "
@@ -731,8 +731,8 @@ CURATED_QA: list[dict[str, str]] = [
         "Investigation:\n"
         "1. Check the audit log for recent soul events:\n"
         "   grep 'soul' logs/audit.jsonl | tail -20\n\n"
-        "2. Check the SQLite version log:\n"
-        "   sqlite3 data/personality/cyclaw_soul.db 'SELECT version, sha256, timestamp, reason FROM soul_versions ORDER BY version DESC LIMIT 5;'\n\n"
+        "2. Check the SQLite version log (content digest / integrity hash of on-disk soul.md, plus the human reason):\n"
+        "   sqlite3 data/personality/cyclaw_soul.db 'SELECT version, content_digest, reason FROM soul_versions ORDER BY version DESC LIMIT 5;'\n\n"
         "3. Compare soul.md with soul.md.bak (the backup from the last successful evolution):\n"
         "   diff data/personality/soul.md data/personality/soul.md.bak\n\n"
         "4. If the drift is from a manual edit that you WANT to keep:\n"

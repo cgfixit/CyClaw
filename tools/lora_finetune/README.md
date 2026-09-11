@@ -5,6 +5,11 @@ curated CyClaw (github.com/CGFixIT/CyClaw) Q&A dataset. Grounded in the live
 CyClaw source read from `main` on 2026-09-07 (`graph.py`, `INVARIANTS.md`,
 `retrieval/indexer.py`, `llm/client.py`, `config.yaml`).
 
+This is an **offline operator toolkit**. The CyClaw runtime install
+(`requirements.txt`, `pyproject.toml` extras, Docker, conda) does **not**
+install Unsloth, Transformers, TRL, or Datasets. Train only on a CUDA box
+after `pip install -r tools/lora_finetune/requirements.txt`.
+
 ## Files
 
 | File | Purpose |
@@ -16,6 +21,7 @@ CyClaw source read from `main` on 2026-09-07 (`graph.py`, `INVARIANTS.md`,
 | `curated_qa_extra.py` | **22 expansion pairs** (extra-001 … extra-022), grounded in `utils/personality.py`, `utils/telemetry_kill.py`, `utils/errors.py`, `utils/sanitizer.py`, `graph.py`. |
 | `build_cyclaw_corpus.py` | Builds `cyclaw_training.json` + `.jsonl` from all three sources. |
 | `finetune_qwen38.py` | Unsloth QLoRA training script (verified API). |
+| `requirements.txt` | Optional operator pins (`unsloth`/`transformers`/`trl`/`datasets`). Not part of the CyClaw runtime install. |
 | `dryrun_finetune.py` | Dry-run harness: mocks `unsloth`/`trl`/`datasets` and runs `finetune_qwen38.py` end-to-end without a GPU. |
 | `tests/test_build_corpus.py` | Unit tests: dataset structure, provenance, rendering, JSON round-trip (14 tests). |
 | `tests/test_finetune_integration.py` | Integration tests: mocked control-flow for `finetune_qwen38.py` (13 tests). |
@@ -60,7 +66,7 @@ python -m pytest tests/ -q          # 27 tests
 python dryrun_finetune.py            # end-to-end control-flow check
 
 # 1. fine-tune (on a CUDA box with >=24 GB VRAM)
-pip install --upgrade --force-reinstall --no-cache-dir unsloth unsloth_zoo
+pip install -r requirements.txt
 python finetune_qwen38.py --json cyclaw_training.json
 
 # 2. load in Ollama (the script writes outputs_qwen38/gguf/Modelfile.cyclaw)
