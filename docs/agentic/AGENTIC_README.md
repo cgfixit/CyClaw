@@ -150,8 +150,9 @@ commit, gated behind a separate human decision
 (`real-repo-run-decide`). It never
 pushes or opens a GitHub PR on its own (`agentic/writer.py`, §5, is the only
 path that can, and remains disarmed). Reachable via `agentic.cli`'s
-`real-repo-run`/`real-repo-run-status`/`real-repo-run-decide` subcommands and,
-authenticated, via the terminal's `POST /ops/agentic` shim.
+`real-repo-run`/`real-repo-run-status`/`real-repo-run-decide` subcommands only:
+`utils/ops_runner.py` allowlists them, but `OpsAgenticRequest.action`
+(`schemas/api.py`) does not, so `POST /ops/agentic` answers 422 for them.
 
 **Two-stage: plan with cloud, implement locally.** `real-repo-run-plan`
 (`agentic/real_repo_loop.py`'s `generate_plan`) is a separate, one-shot
@@ -178,9 +179,9 @@ entirely on the follow-up `real-repo-run` call**. Passing `--provider` to
 *both* is allowed and does something real (the plan text still reaches the
 prompt) but silently defeats the two-stage economics above — the cloud model
 is now billed on every `--max-iterations` attempt, not once, with no warning
-from the CLI either way. As of this writing this whole two-stage recipe is
-CLI-only: the `/ops/agentic` shim has no `--provider`/`--plan-file`
-equivalent, so drive this step from a terminal.
+from the CLI either way. As of this writing the whole pipeline, this two-stage recipe
+included, is CLI-only (see the reachability note above), so drive this step
+from a terminal.
 
 **The DeepAgents-graph path, retired (owner decision, 2026-07-31)**
 (`agentic/deepagent_github/builder.py`'s `create_deep_agent` integration,

@@ -403,7 +403,7 @@ def test_powershell_launcher_exports_canonical_block():
     text = (REPO_ROOT / "powershell" / "Invoke-CyClaw.ps1").read_text(encoding="utf-8")
     assert "-S -E -m utils.telemetry_kill --export powershell" in text
     assert text.index("Import-CyclawDotenv") < text.index("--export powershell")
-    assert text.index("--export powershell") < text.index("-m uvicorn gate:app")
+    assert text.index("--export powershell") < text.index("& $VenvPy gate.py")
 
 
 def test_install_shim_sets_pwsh_optouts_before_powershell_starts():

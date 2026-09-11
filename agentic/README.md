@@ -531,12 +531,12 @@ python -m agentic.cli real-repo-run-publish --run-id "<id>" --reason "..." --con
 python -m agentic.cli real-repo-run-discard --run-id "<id>"
 ```
 
-Also reachable (authenticated) via the terminal's `POST /ops/agentic` shim,
-whose allowlist carries every `real-repo-run*` action.
-Two-stage `--provider` (cloud plan) is **CLI-only** today —
-`real-repo-run-plan` is not in `ops_runner._AGENTIC_ACTIONS`. `--plan-file`
-**is** reachable over HTTP via `POST /api/agent/run`'s `plan` body field,
-which the shim materializes to a temp file.
+**CLI-only.** `utils/ops_runner.py`'s allowlist and `run_agentic_op` carry
+every `real-repo-run*` action, but `schemas/api.py`'s `OpsAgenticRequest.action`
+Literal and `gate_ops.py`'s forwarding stop at `status`/`test`/`context`/
+`propose-skill`/`apply-skill`, so `POST /ops/agentic` answers 422 for them.
+No HTTP route reaches the pipeline; wiring it into the terminal is a separate
+decision. `real-repo-run-plan` is not in `ops_runner._AGENTIC_ACTIONS` at all.
 
 **`--provider` semantics differ by subcommand:**
 

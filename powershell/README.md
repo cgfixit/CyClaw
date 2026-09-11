@@ -14,7 +14,7 @@ Mutable state lives under `%USERPROFILE%\.CyClaw`.
 |---|---|
 | `Install-CyClaw.ps1` | Home layout, venv, `cyclaw` shim, optional PATH / profile function. `-RepoPath`, `-SkipPythonDeps`, `-NoProfileEdit`, `-NoPathEdit`, `-ReplaceRepo` (required before deleting a stale `%USERPROFILE%\.CyClaw\repo`; does not apply with `-RepoPath`). |
 | `Uninstall-CyClaw.ps1` | Removes the profile function and PATH entry. Keeps `~\.CyClaw` unless `-RemoveHome`. Optional `-RemoveFsConnect`. Best-effort unschedules Dropbox sync and deletes **known** CyClaw Task Scheduler names only (never a wildcard). |
-| `Invoke-CyClaw.ps1` | Starts the RAG gateway (`uvicorn gate:app` on `127.0.0.1:8787`) from `~\.CyClaw\venv`. `-Port`, `-NoBrowser`, `-Repo`. If `CYCLAW_API_KEY` is unset, sources `%USERPROFILE%\.CyClaw\.env` then the repo `.env` (owner-only ACL; refused HOME does not shadow repo). |
+| `Invoke-CyClaw.ps1` | Starts the RAG gateway (`python gate.py`, so `gate.main()`'s bind guard and `api.tls` apply; host/port from `config.yaml`) from `~\.CyClaw\venv`. `-NoBrowser`, `-Repo`. If `CYCLAW_API_KEY` is unset, sources `%USERPROFILE%\.CyClaw\.env` then the repo `.env` (owner-only ACL; refused HOME does not shadow repo). |
 | `Setup-FsConnect.ps1` | Creates confined `%USERPROFILE%\CyClaw-FS` (current-user ACL). Unless `-PrepareOnly`, enables list/stat/read via `macos/_enable_fsconnect_readlist.py`. Writes stay off. |
 | `CyClaw-CredMan-Set.ps1` | Interactive Credential Manager store. `Read-Host -AsSecureString` + `CredWriteW`. Secret never in argv. Requires a TTY. |
 | `CyClaw-CredMan-Env.ps1` | Fetch one GENERIC credential, export it, run the wrapped command. Fail-closed if missing/empty. |

@@ -1120,9 +1120,11 @@ What this changes in the surface this document describes:
   amendment's `/web` DNS TOCTOU residual) describes a surface that no longer
   exists. They are kept as the dated record of why those controls were
   shaped as they were; none of them is a live claim.
-- The `agentic/` pipeline is unchanged and still reachable through
-  `python -m agentic.cli` and the terminal's `POST /ops/agentic` shim, which
-  already allowlists every `real-repo-run*` action. Its gates
+- The `agentic/` pipeline is unchanged and reachable through
+  `python -m agentic.cli` only. `utils/ops_runner.py` allowlists every
+  `real-repo-run*` action, but `OpsAgenticRequest.action` (`schemas/api.py`)
+  does not, so `POST /ops/agentic` answers 422 for them and no HTTP route
+  reaches the pipeline after this removal. Its gates
   (`agentic.enabled`, `deepagent_github.enabled`, `allow_git_write_tools`)
   still ship `false`.
 - **Windows coding-console support is withdrawn from CyClaw.**
