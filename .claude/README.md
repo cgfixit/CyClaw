@@ -124,7 +124,14 @@ duplicated the Agent tool's built-in `general-purpose` subagent type
 verbatim, adding no project-specific content. 2026-09-11 (PR #1369):
 `cyclaw-advisor` and `CyClaw-Sandbox` gained `disable-model-invocation: true`
 (their wrappers are unaffected — a wrapper is already user-typed by
-definition). The wrapper set
+definition). 2026-09-11 (issue #1351 follow-up): ten more slash-only chore/
+loop skills gained `disable-model-invocation: true`; `cyclaw-advisor`'s
+folder and wrapper renamed `cyclaw-privacy` (see Key Conventions below for
+why); `CyClaw-Optimize.md`, `logging-refactor.md`, `tests-refactor.md`,
+`speed-refactor.md`, and `architecture-refactor.md` — the five wrappers that
+had drifted from thin pointers into near-complete `SKILL.md` copies, one
+already stale against its source — trimmed back to the thin-wrapper pattern
+this policy describes. The wrapper set
 still covers every remaining skill — verify with
 `comm -23 <(ls .claude/skills | sort) <(ls .claude/commands | sed 's/\.md$//' | sort)`,
 which must print nothing.
