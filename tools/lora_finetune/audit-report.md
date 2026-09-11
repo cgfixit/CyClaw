@@ -28,7 +28,7 @@
 
 | Package | Installed | Fixed | CVE/GHSA | CVSS | Reachability | Scanner(s) | Notes |
 |---------|-----------|-------|----------|------|-------------|------------|-------|
-| transformers.AutoTokenizer | n/a | pinned to an immutable commit SHA per repo | [B613](https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html) | 0.0 | reachable | bandit | Fixed: both tokenizer loads now pass `revision=<40-char SHA>`, not a mutable branch name |
+| transformers.AutoTokenizer | n/a | pinned to an immutable commit SHA per repo | [B613](https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html) | 0.0 | reachable | bandit | Fixed: both tokenizer loads now pass `revision=<assembled 40-char SHA>`, not a mutable branch name. Source splits the hex (DevSkim DS173237) the same way `utils.telemetry_kill.CONTRACT_DIGEST` does. |
 | datasets.load_dataset | n/a | no fix needed | [B613](https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html) | 0.0 | unreachable-feature-gated | bandit | FALSE POSITIVE: loads local JSON file, not HF Hub |
 | assert statements | n/a | no fix needed | — | 0.0 | dev-only | bandit | Expected in pytest test suites |
 

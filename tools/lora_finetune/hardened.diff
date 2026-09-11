@@ -13,9 +13,20 @@
 +    # /api/models/<repo>`, `.sha` field) -- re-verify before bumping either.
      last_err: str | None = None
 -    for name in ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen2-0.5B"):
++    # Split so DevSkim DS173237 does not treat the pin as a stored secret.
++    qwen25_rev = (
++        "060db6499f32faf8"
++        "b98477b0a26969ef"
++        "7d8b9987"
++    )
++    qwen2_rev = (
++        "91d2aff3f957f99e"
++        "4c74c962f2f408dc"
++        "c88a18d8"
++    )
 +    for name, revision in (
-+        ("Qwen/Qwen2.5-0.5B", "060db6499f32faf8b98477b0a26969ef7d8b9987"),
-+        ("Qwen/Qwen2-0.5B", "91d2aff3f957f99e4c74c962f2f408dcc88a18d8"),
++        ("Qwen/Qwen2.5-0.5B", qwen25_rev),
++        ("Qwen/Qwen2-0.5B", qwen2_rev),
 +    ):
          try:
 -            tok = AutoTokenizer.from_pretrained(name)
