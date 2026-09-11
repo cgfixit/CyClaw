@@ -1,5 +1,7 @@
 # CyClaw Qwen3.8-27B LoRA Fine-Tune Kit
 
+> Interesting to learn more about but not compatible with current GPU
+
 Fine-tune **Qwen3.8-27B** with QLoRA via [Unsloth](https://unsloth.ai) on a
 curated CyClaw (github.com/CGFixIT/CyClaw) Q&A dataset. Grounded in the live
 CyClaw source read from `main` on 2026-09-07 (`graph.py`, `INVARIANTS.md`,
