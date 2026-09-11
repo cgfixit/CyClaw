@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0f14">
+<title>CyClaw Product Pulse · Sep 4–11, 2026</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg-elev: #121821;
+    --bg-card: #151c27;
+    --bg-chip: #1c2633;
+    --border: #243041;
+    --border-soft: #1a2330;
+    --text: #e8eef6;
+    --text-muted: #9aa8ba;
+    --text-dim: #6b7a8d;
+    --accent: #5b9fd4;
+    --accent-soft: rgba(91, 159, 212, 0.15);
+    --link: #7eb8e8;
+    --link-hover: #a8d0f5;
+    --num: #5b9fd4;
+    --theme: #8bc4a0;
+    --radius: 12px;
+    --shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px rgba(0,0,0,0.35);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --max: 42rem;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--text);
+    background: var(--bg);
+    padding-bottom: calc(2.5rem + var(--safe-bottom));
+  }
+  a { color: var(--link); text-decoration: none; }
+  a:hover, a:focus-visible { color: var(--link-hover); text-decoration: underline; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  .site-header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(11, 15, 20, 0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: calc(0.75rem + var(--safe-top)) 1rem 0.75rem;
+  }
+  .site-header-inner {
+    max-width: var(--max); margin: 0 auto;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.65rem;
+  }
+  .brand { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em; color: var(--text); }
+  .sep { color: var(--text-dim); font-weight: 400; user-select: none; }
+  .window-label { color: var(--accent); font-size: 0.875rem; font-weight: 600; }
+  .gen-ts { width: 100%; font-size: 0.75rem; color: var(--text-dim); margin-top: 0.15rem; }
+  main { max-width: var(--max); margin: 0 auto; padding: 1.25rem 1rem 0; }
+  .methodology {
+    background: var(--bg-elev); border: 1px solid var(--border-soft);
+    border-radius: var(--radius); padding: 0.9rem 1rem;
+    font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;
+  }
+  .methodology strong { color: var(--text); font-weight: 600; }
+  .snapshot {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.9rem 1rem;
+    margin-bottom: 1.25rem; font-size: 0.85rem; color: var(--text-muted);
+    box-shadow: var(--shadow);
+  }
+  .snapshot strong { color: var(--text); }
+  .snapshot ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+  .snapshot li { margin: 0.25rem 0; }
+  .intro { margin-bottom: 1.25rem; }
+  .intro p { margin: 0 0 0.75rem; color: var(--text-muted); font-size: 0.95rem; }
+  .toc {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1rem 1rem 0.85rem;
+    margin-bottom: 1.75rem; box-shadow: var(--shadow);
+  }
+  .toc h2 {
+    margin: 0 0 0.65rem; font-size: 0.8rem; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700;
+  }
+  .toc ol { margin: 0; padding-left: 1.35rem; font-size: 0.9rem; }
+  .toc li { margin: 0.35rem 0; color: var(--text-muted); }
+  .toc a { color: var(--text); font-weight: 500; }
+  .toc a:hover { color: var(--link); }
+  .stories { display: flex; flex-direction: column; gap: 1.1rem; }
+  .story {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1.1rem 1rem 1rem;
+    box-shadow: var(--shadow); scroll-margin-top: 5.5rem;
+  }
+  .story-head { display: flex; gap: 0.65rem; align-items: flex-start; margin-bottom: 0.55rem; }
+  .story-num {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.75rem; height: 1.75rem; padding: 0 0.35rem; border-radius: 8px;
+    background: var(--accent-soft); color: var(--num); font-weight: 700;
+    font-size: 0.85rem; font-variant-numeric: tabular-nums;
+  }
+  .story h2 {
+    margin: 0; font-size: 1.05rem; line-height: 1.35;
+    letter-spacing: -0.015em; font-weight: 650; color: var(--text);
+  }
+  .story p { margin: 0 0 0.85rem; color: var(--text-muted); font-size: 0.925rem; }
+  .citations { font-size: 0.85rem; margin-bottom: 0.55rem; }
+  .citations .label, .chips-wrap .label {
+    color: var(--text-dim); font-weight: 600; font-size: 0.75rem;
+    text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 0.25rem;
+  }
+  .citations .cite-list { display: flex; flex-direction: column; gap: 0.2rem; }
+  .citations a { word-break: break-word; }
+  .chips-wrap { margin-top: 0.35rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip {
+    display: inline-block; padding: 0.28rem 0.65rem; background: var(--bg-chip);
+    border: 1px solid var(--border); border-radius: 999px; font-size: 0.78rem;
+    color: var(--text-muted); font-weight: 500; line-height: 1.3;
+  }
+  .themes {
+    margin-top: 2rem; background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1.15rem 1rem 1.1rem; scroll-margin-top: 5.5rem;
+  }
+  .themes h2 { margin: 0 0 0.75rem; font-size: 1.05rem; color: var(--theme); letter-spacing: -0.02em; }
+  .themes p { margin: 0 0 0.85rem; color: var(--text-muted); font-size: 0.925rem; }
+  .themes ol { margin: 0; padding-left: 1.25rem; }
+  .themes li { margin: 0.45rem 0; color: var(--text-muted); font-size: 0.925rem; }
+  .themes li strong { color: var(--text); }
+  footer {
+    max-width: var(--max); margin: 2rem auto 0; padding: 1rem 1rem calc(1rem + var(--safe-bottom));
+    font-size: 0.75rem; color: var(--text-dim); border-top: 1px solid var(--border-soft);
+  }
+  code { font-size: 0.88em; background: var(--bg-chip); padding: 0.1em 0.35em; border-radius: 4px; }
+  @media (min-width: 640px) {
+    body { font-size: 17px; }
+    .story { padding: 1.25rem 1.25rem 1.15rem; }
+    .story h2 { font-size: 1.125rem; }
+  }
+</style>
+</head>
+<body>
+<header class="site-header"><div class="site-header-inner">
+<span class="brand">CyClaw Product Pulse</span><span class="sep">·</span>
+<span class="window-label">Week · Sep 4–11, 2026</span>
+<div class="gen-ts">Generated ~9:05 AM ET · America/New_York · first Friday run</div>
+</div></header>
+<main>
+<section class="methodology"><strong>Product pulse digest.</strong> Primary GitHub/releases over secondhand media. Live <code>gh</code> verification against <code>cgfixit/*</code>. No invented PR numbers, stars, or HN mentions. Community: HN Algolia for CyClaw/cgfixit — no authentic hits this week.</section>
+
+<section class="snapshot">
+<strong>Live snapshot</strong>
+<ul>
+<li><a href="https://github.com/cgfixit/CyClaw" rel="noopener noreferrer" target="_blank">cgfixit/CyClaw</a> — 6★ · 0 forks · 6 open issues · <strong>55</strong> merged PRs in window</li>
+<li><a href="https://github.com/cgfixit/CG-agent-harness" rel="noopener noreferrer" target="_blank">CG-agent-harness</a> — created Sep 7 · v0.1.1 (Sep 11) · ~39 merged PRs</li>
+<li><a href="https://github.com/cgfixit/CyClaw-Net-Viewer" rel="noopener noreferrer" target="_blank">CyClaw-Net-Viewer</a> — v0.1.0 (Sep 6) · ~30 merged PRs</li>
+<li><a href="https://github.com/cgfixit/CG-Paste" rel="noopener noreferrer" target="_blank">CG-Paste</a> — created Sep 11 · daily tag shipped</li>
+<li>Hub <a href="https://cgfixit.com/" rel="noopener noreferrer" target="_blank">cgfixit.com</a> → HTTP 200</li>
+</ul>
+</section>
+
+<section class="intro"><p>Split-the-stack week: CyClaw stays the offline-first RAG + invariant graph; coding/chat UX moves to a Rust sibling with real macOS release assets. Security stayed on-path. Public discovery still quiet.</p></section>
+
+<nav class="toc" aria-label="Items"><h2>Contents</h2><ol>
+<li><a href="#s1">CyClaw sheds Python coding console; CG-agent-harness takes the role</a></li>
+<li><a href="#s2">CG-agent-harness ships: universal macOS app, daily releases, chat-first</a></li>
+<li><a href="#s3">LoRA fine-tune kit for Qwen3.8-27B lands in CyClaw tooling</a></li>
+<li><a href="#s4">Security &amp; deadline hygiene on the CyClaw request path</a></li>
+<li><a href="#s5">CyClaw-Net-Viewer 0.1.0 + security/UX polish</a></li>
+<li><a href="#s6">Open issues worth watching</a></li>
+<li><a href="#s7">Companion: CG-Paste spun up</a></li>
+<li><a href="#s8">Community / HN — no authentic mentions</a></li>
+<li><a href="#s9">Landscape: local-first RAG / offline agents</a></li>
+<li><a href="#themes">Product-pulse synthesis</a></li>
+</ol></nav>
+
+<div class="stories">
+
+<article class="story" id="s1">
+<div class="story-head"><span class="story-num">1</span>
+<h2>CyClaw sheds Python coding console; CG-agent-harness takes the role</h2></div>
+<p>On Sep 11, CyClaw merged #1367, removing the in-tree Python <code>harness/</code> package, <code>static/harness.html</code>, harness-only helpers/tests/docs, and every launch/CI/packaging path that started it. Ownership of the coding/chat console moves to the sibling Rust repo <code>cgfixit/CG-agent-harness</code> (created Sep 7). Same-day follow-ups #1373 / #1374 (open at digest time) scrub residual harness references from LoRA data, the README security table, and comments.</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/cgfixit/CyClaw/pull/1367" rel="noopener noreferrer" target="_blank">CyClaw #1367 — remove Python coding-harness console</a>
+<a href="https://github.com/cgfixit/CG-agent-harness" rel="noopener noreferrer" target="_blank">cgfixit/CG-agent-harness</a>
+<a href="https://github.com/cgfixit/CyClaw/pull/1373" rel="noopener noreferrer" target="_blank">CyClaw #1373 (open) — LoRA/README scrub</a>
+<a href="https://github.com/cgfixit/CyClaw/pull/1374" rel="noopener noreferrer" target="_blank">CyClaw #1374 (open) — repo_paths / comment scrub</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">infra</span><span class="chip">split</span><span class="chip">shipped</span></div></div>
+</article>
+
+<article class="story" id="s2">
+<div class="story-head"><span class="story-num">2</span>
+<h2>CG-agent-harness ships: universal macOS app, daily releases, chat-first</h2></div>
+<p>In its first week the Rust harness landed ~39 merged PRs, published <strong>v0.1.0</strong> (Sep 11 ~1:09 UTC) and <strong>v0.1.1</strong> (Sep 11 ~8:51 UTC) with ad-hoc-signed universal macOS <code>.app</code> assets, plus daily publish-when-main-changes infra (#33). Merged #45 recovers chat-first defaults, persona/skills/goals routes, and a setup guide; earlier PRs add bounded skills, staged goals, truthful capability reporting, and Chrome acceptance CI. Open tracking: skills batches A/B (#46, #47) and infra PR #48.</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/cgfixit/CG-agent-harness/releases/tag/v0.1.1" rel="noopener noreferrer" target="_blank">Release v0.1.1</a>
+<a href="https://github.com/cgfixit/CG-agent-harness/pull/45" rel="noopener noreferrer" target="_blank">PR #45 — chat-first defaults + setup guide</a>
+<a href="https://github.com/cgfixit/CG-agent-harness/issues/46" rel="noopener noreferrer" target="_blank">Issue #46 — skills batch A</a>
+<a href="https://github.com/cgfixit/CG-agent-harness/issues/47" rel="noopener noreferrer" target="_blank">Issue #47 — skills batch B</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">release</span><span class="chip">rust</span><span class="chip">macos</span></div></div>
+</article>
+
+<article class="story" id="s3">
+<div class="story-head"><span class="story-num">3</span>
+<h2>LoRA fine-tune kit for Qwen3.8-27B lands in CyClaw tooling</h2></div>
+<p>#1368 (merged Sep 11) adds <code>tools/lora_finetune/</code>: Unsloth QLoRA kit, 70-example curated Q&amp;A grounded in live CyClaw source, corpus builder, dry-run validation, 27 tests, and security-audit deliverables. Documented as <strong>tooling</strong>, not a change to the online request path.</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/cgfixit/CyClaw/pull/1368" rel="noopener noreferrer" target="_blank">CyClaw #1368 — LoRA fine-tune kit</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">feat</span><span class="chip">tooling</span><span class="chip">qwen</span></div></div>
+</article>
+
+<article class="story" id="s4">
+<div class="story-head"><span class="story-num">4</span>
+<h2>Security &amp; deadline hygiene on the CyClaw request path</h2></div>
+<p>Week’s security/reliability cluster: #1354 rejects unknown <code>/query</code> fields and providers before the graph (<code>extra='forbid'</code> + provider literal); #1355 / #1356 / #1359 cap LLM HTTP timeout to remaining graph budget and stop retries whose backoff would exhaust the deadline (Local/Grok/Claude); #1332 applies endpoint trust to <code>/health</code> local probes; #1372 folds NFC in <code>_fs_equiv_path</code> so macOS filename aliases collide in the duplicate-block check. Doc sync #1362 / #1366 reconcile THREAT_MODEL, READMEs, and residual invariant counts with HEAD.</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/cgfixit/CyClaw/pull/1354" rel="noopener noreferrer" target="_blank">#1354 — reject unknown /query fields</a>
+<a href="https://github.com/cgfixit/CyClaw/pull/1359" rel="noopener noreferrer" target="_blank">#1359 — stop retries past graph deadline</a>
+<a href="https://github.com/cgfixit/CyClaw/pull/1372" rel="noopener noreferrer" target="_blank">#1372 — NFC path alias collision</a>
+<a href="https://github.com/cgfixit/CyClaw/pull/1332" rel="noopener noreferrer" target="_blank">#1332 — /health endpoint trust</a>
+<a href="https://github.com/cgfixit/CyClaw/pull/1362" rel="noopener noreferrer" target="_blank">#1362 — full doc-sync audit</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">security</span><span class="chip">invariants</span><span class="chip">reliability</span></div></div>
+</article>
+
+<article class="story" id="s5">
+<div class="story-head"><span class="story-num">5</span>
+<h2>CyClaw-Net-Viewer 0.1.0 + security/UX polish</h2></div>
+<p><code>CyClaw-Net-Viewer</code> published <strong>v0.1.0</strong> on Sep 6 (universal ad-hoc-signed <code>.app</code> + sha256). Same week: ~30 merged PRs including Finder reveal path after <code>open --</code> (#40), clipboard sanitize (#46), DNS GUI resolver cache bound at 4096 (#47), hiring-manager README (#39), and Finder spawn failure status re-land (#48).</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/cgfixit/CyClaw-Net-Viewer/releases/tag/v0.1.0" rel="noopener noreferrer" target="_blank">Release v0.1.0</a>
+<a href="https://github.com/cgfixit/CyClaw-Net-Viewer" rel="noopener noreferrer" target="_blank">cgfixit/CyClaw-Net-Viewer</a>
+<a href="https://github.com/cgfixit/CyClaw-Net-Viewer/pull/40" rel="noopener noreferrer" target="_blank">#40 — Finder reveal after open --</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">release</span><span class="chip">egress</span><span class="chip">macos</span></div></div>
+</article>
+
+<article class="story" id="s6">
+<div class="story-head"><span class="story-num">6</span>
+<h2>Open issues worth watching</h2></div>
+<p>Still open on CyClaw: #1128 remaining Numbat enforcement / sequence-policy (detector shipped; on-path policy plane not); #1129 Unslop Phase-2 validate/document (v1 already on main; plan header stale); #1255 chromadb 1.5.9 CVE posture / alternatives (low-ish pri; audit notes telemetry already neutered); #1013 agentic spend ledger vs live billing. Repo API open_issues count is 6 (GitHub counts open PRs in that field).</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/cgfixit/CyClaw/issues/1128" rel="noopener noreferrer" target="_blank">#1128 — Numbat enforcement tracking</a>
+<a href="https://github.com/cgfixit/CyClaw/issues/1129" rel="noopener noreferrer" target="_blank">#1129 — Unslop bridge validate/document</a>
+<a href="https://github.com/cgfixit/CyClaw/issues/1255" rel="noopener noreferrer" target="_blank">#1255 — chromadb CVE / alternatives</a>
+<a href="https://github.com/cgfixit/CyClaw/issues/1013" rel="noopener noreferrer" target="_blank">#1013 — spend ledger vs billing</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">open</span><span class="chip">security</span><span class="chip">debt</span></div></div>
+</article>
+
+<article class="story" id="s7">
+<div class="story-head"><span class="story-num">7</span>
+<h2>Companion: CG-Paste spun up</h2></div>
+<p><code>cgfixit/CG-Paste</code> created Sep 11 — local macOS clipboard history for Apple Silicon (Ditto-inspired). Daily tag published; early commits cover HTML script-tag casing and clipboard readiness waits. Adjacent workstation tooling, not on the CyClaw request path.</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/cgfixit/CG-Paste" rel="noopener noreferrer" target="_blank">cgfixit/CG-Paste</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">companion</span><span class="chip">rust</span><span class="chip">new</span></div></div>
+</article>
+
+<article class="story" id="s8">
+<div class="story-head"><span class="story-num">8</span>
+<h2>Community / HN — no authentic mentions</h2></div>
+<p>HN Algolia search for CyClaw and cgfixit (stories + recent comments) found <strong>no authentic mentions</strong> this week. No Show HN / Launch HN for CyClaw, Net-Viewer, or CG-agent-harness located. Public hub cgfixit.com responds 200; demos remain the existing bit.ly CyClawOS links (not treated as live product pages).</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://hn.algolia.com/?q=CyClaw" rel="noopener noreferrer" target="_blank">HN Algolia — CyClaw query</a>
+<a href="https://cgfixit.com/" rel="noopener noreferrer" target="_blank">cgfixit.com (HTTP 200)</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">distribution</span><span class="chip">null-result</span></div></div>
+</article>
+
+<article class="story" id="s9">
+<div class="story-head"><span class="story-num">9</span>
+<h2>Landscape: local-first RAG / offline agents</h2></div>
+<p>Adjacent public work this cycle: <strong>Axon</strong> (local-first RAG, GraphRAG, MCP, strict offline; ~5★, pushed Sep 10), <strong>haiku.rag</strong> (LanceDB embedded agentic RAG + MCP; ~606★, active Sep 11), <strong>PharosRAG</strong> (local-first agentic RAG with HTTP+MCP exits and ACL). Differentiator remains CyClaw’s LangGraph topology-as-policy + offline-first invariants versus retrieval-first local RAG kits — they raise the bar on polish and MCP packaging, not the security-graph pitch.</p>
+<div class="citations"><span class="label">Citations</span><div class="cite-list">
+<a href="https://github.com/jyunming/Axon" rel="noopener noreferrer" target="_blank">jyunming/Axon</a>
+<a href="https://github.com/ggozad/haiku.rag" rel="noopener noreferrer" target="_blank">ggozad/haiku.rag</a>
+<a href="https://github.com/Laurent00TT/PharosRAG" rel="noopener noreferrer" target="_blank">Laurent00TT/PharosRAG</a>
+</div></div>
+<div class="chips-wrap"><span class="label">Tags</span><div class="chips"><span class="chip">landscape</span><span class="chip">competitors</span></div></div>
+</article>
+
+</div>
+
+<section class="themes" id="themes">
+<h2>Product-pulse synthesis</h2>
+<p>This was a <strong>split-the-stack</strong> week more than a feature week: CyClaw stays the offline-first RAG + invariant graph, while coding/chat UX moves into a fast-shipping Rust sibling with real release artifacts. Security work stayed on-path (query schema, graph deadlines, NFC path aliasing, health trust) rather than marketing-layer. Net-Viewer graduated to a tagged 0.1.0 app for the no-egress story. Public discovery is still near-zero on HN — the week’s leverage is product clarity (one console owner, documented LoRA kit, shippable macOS binaries) more than distribution.</p>
+<p>Next pulse should watch whether #1128/#1129 move, whether CG-agent-harness skills batches A/B land, and whether any external mention appears after the harness/Net-Viewer release assets exist.</p>
+<ol>
+<li><strong>Console extraction</strong> — complete in intent; residual doc scrub still open (#1373/#1374).</li>
+<li><strong>Topology/deadline security</strong> — still compounding weekly on the request path.</li>
+<li><strong>Multi-repo ship surface</strong> — CyClaw + harness + Net-Viewer + Paste; outsiders need a one-page “what to install” narrative.</li>
+</ol>
+</section>
+</main>
+<footer>
+CyClaw Product Pulse · first Friday run · artifacts under <code>/workspace/cyclaw-pulse-digest/2026-09-11/</code> · verified with live GitHub · America/New_York
+</footer>
+</body>
+</html>
