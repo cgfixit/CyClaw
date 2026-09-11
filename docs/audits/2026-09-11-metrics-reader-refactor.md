@@ -45,3 +45,9 @@ The runtime copy matches all 178 tracked Python files outside `tests/`, `docs/`,
 ## Limits and rollback
 
 Mypy remains advisory: 31 existing file errors after the refactor, versus 33 before, including missing PyYAML stubs; the new reader has no reported error. Local execution is macOS, not native Windows/Linux, PostgreSQL integration, NeMo-engine acceptance or a Docker build. Hosted checks provide those separate CI results where configured. The all-in-one sandbox script was not rerun because it duplicates the suite and launches over the operator's Ollama port; its relevant runtime checks were exercised separately. No claim is made that every optional service was live-tested. Reverting this single PR restores the prior readers; no data migration is involved.
+
+## Browser evidence
+
+User-provided screenshot from baseline verification: a real local-model answer with five sources, followed by HTTP 400 `PROMPT_INJECTION_BLOCKED`. The separate post-refactor browser run is recorded above.
+
+![Local RAG answer and rejected prompt injection](../screenshots/2026-09-11-local-rag-and-injection-verification.png)
