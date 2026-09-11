@@ -39,7 +39,7 @@ HTTP POST /query → gate.py (TrustedHost, rate-limit, injection filter, soul in
 | `pyproject.toml` / `requirements.txt` / `constraints.txt` | Packaging and reproducibility |
 | `tests/` | pytest suite + `ci_rag_smoke.py` (not pytest-discovered; runs as its own CI step) |
 | `gate_ops.py` `gate_auth.py` `gate_memory.py` | Register `/ops/*`, `/auth/*`, `/memory/*` onto `gate.py`'s app; part of the core six for I6 (see below) |
-| `sync/` `agentic/` `guardrails/` `harness/` `telegram/` `opentweet/` | Optional out-of-band layers; never imported by core (this is I6 below) |
+| `sync/` `agentic/` `guardrails/` `telegram/` `opentweet/` | Optional out-of-band layers; never imported by core (this is I6 below) |
 | `memory/` | Optional default-off RAG memory store. **Not** an I6-isolated layer: `gate_memory.py` lazy-imports `memory.*` inside its route handlers and `graph.py` lazy-imports `memory.store` on the enabled path. Imports are deferred and feature-gated (every `memory:` switch ships `false`), never module-scope. I6's isolated list correctly excludes `memory` — do not "fix" that by adding it |
 
 ---
@@ -55,7 +55,7 @@ Six invariants are design constraints enforced by graph wiring, not runtime flag
 | I3 | **Triple-gated external fallback** — Grok/Claude require `mode=="hybrid"` AND `<provider>.enabled` AND `user_confirmed_online` | Route to `grok_fallback`/`claude_fallback` without all three |
 | I4 | **Audit convergence** — all paths reach `audit_logger` before END | Add any path to END that skips `audit_logger` |
 | I5 | **Soul governance** — soul mutation requires a non-empty human `reason` string and goes through `PersonalityManager.apply_evolution` atomically with injection scan | Write `soul.md` without `reason`, or bypass `PersonalityManager` |
-| I6 | **Module isolation** — `gate.py`/`gate_ops.py`/`gate_auth.py`/`gate_memory.py`/`graph.py`/`mcp_hybrid_server.py` (the core six) never import `agentic`/`sync`/`guardrails`/`harness`/`telegram`/`opentweet`, and vice versa | `import agentic` (or similar) anywhere in the core six |
+| I6 | **Module isolation** — `gate.py`/`gate_ops.py`/`gate_auth.py`/`gate_memory.py`/`graph.py`/`mcp_hybrid_server.py` (the core six) never import `agentic`/`sync`/`guardrails`/`telegram`/`opentweet`, and vice versa | `import agentic` (or similar) anywhere in the core six |
 
 **Additional non-negotiables:** telemetry-kill env block in `gate.py` must precede all heavy imports (verified by AST in invariant guard); services bind to loopback only (`127.0.0.1`), never `0.0.0.0`; BM25 index stays JSON — no pickle (RCE risk); MCP server declares `sampling: None` and has no LLM call path; `data/personality/soul.md` must not be deleted or autonomously mutated.
 
@@ -131,7 +131,7 @@ Coverage `fail_under = 80` is configured in `pyproject.toml` and enforced by CI 
 
 | Workflow | Role |
 |---|---|
-| `ci.yml` | **Main blocking matrix** (Ubuntu + Windows + macOS): install gate, wheel packaging, RAG smoke, pytest coverage, invariant guard, optional harness/Postgres/smoke steps |
+| `ci.yml` | **Main blocking matrix** (Ubuntu + Windows + macOS): install gate, wheel packaging, RAG smoke, pytest coverage, invariant guard, optional Postgres/smoke steps |
 | `lint.yml` | Ruff repo-wide + changed-file flake8/WPS |
 | `pr-template-check.yml` | Enforces PR body structure + the core-path invariant-mention rule |
 | `pr-review.yml` | Automated PR review assistant (secret-gated; see the workflow's own header) |

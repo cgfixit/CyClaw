@@ -31,7 +31,7 @@ def test_installer_update_checks_git_exit() -> None:
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell 5.1")
 def test_installer_git_failure_stops_before_launcher(tmp_path: Path) -> None:
     home = tmp_path / "operator"
-    server = home / ".CyClaw" / "repo" / "harness" / "server.py"
+    server = home / ".CyClaw" / "repo" / "gate.py"
     server.parent.mkdir(parents=True)
     server.write_text("", encoding="utf-8")
 
@@ -125,7 +125,7 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
     assert "refusing to source" in text
     assert "ACL is not owner-only" in text
     load_idx = text.index('Join-Path $Home_ ".env"')
-    start_idx = text.index("-m harness.server")
+    start_idx = text.index("-m uvicorn gate:app")
     assert load_idx < start_idx
     warn = "Typing the key in the browser cannot configure the server"
     assert warn in text
@@ -133,7 +133,7 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
 
 
 def test_invoke_validates_port_before_console_url() -> None:
-    """Port range must match harness _MIN_USER_PORT/_MAX_PORT before URL print."""
+    """Port range must be validated before the console URL is printed."""
     text = (_PS / "Invoke-CyClaw.ps1").read_text(encoding="utf-8")
     assert re.search(
         r"\$Port\s+-lt\s+1024\s+-or\s+\$Port\s+-gt\s+65535",

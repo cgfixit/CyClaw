@@ -171,7 +171,7 @@ _IMPORT_ALLOWLIST = {
     "onnxruntime",
 }
 _FIRST_PARTY = {
-    "utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "harness", "telegram",
+    "utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "telegram",
     "opentweet",
     "gate", "gate_ops", "gate_auth", "gate_memory", "graph", "mcp_hybrid_server", "metrics",
     "memory", "tests", "conftest",

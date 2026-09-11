@@ -66,7 +66,7 @@ def require_api_key(
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 ```
 
-Note: `utils/auth.py` has a **second** `require_api_key` for the harness. Memory admin routes must use **gate.py’s** dependency (injected like ops), not the harness copy.
+Note: memory admin routes use **gate.py’s** `require_api_key` dependency (injected like ops).
 
 **Soul routes live in `gate.py` (745–806), NOT `gate_ops.py`.**  
 `gate_ops.py` is only `/ops/*` via `register_ops_routes(...)`.  

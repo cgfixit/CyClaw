@@ -100,7 +100,7 @@ _REAL_REPO_RUN_OVERHEAD_SEC = 300
 # console cannot tell it from a hang. Capping means a genuinely enormous
 # request fails with a legible AGENTIC_TIMEOUT instead, which is the more
 # honest outcome. Raise it deliberately if a real workload ever needs to.
-# Public: harness/server.py refuses request shapes whose uncapped budget
+# Public: a caller can refuse request shapes whose uncapped budget
 # (real_repo_run_budget_sec below) exceeds this, before any subprocess starts.
 REAL_REPO_RUN_MAX_TIMEOUT_SEC = 3600
 

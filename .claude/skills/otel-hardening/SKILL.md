@@ -122,7 +122,7 @@ these values silence vendor telemetry readers; they do not close sockets.
   the API half lives in `utils/onnx_telemetry.py` at the seams.
 - **I6 module isolation** is untouched by this skill: the kill module is
   shared `utils/`, imported by both core and out-of-band packages; never make
-  it import `agentic/`/`sync/`/`guardrails/`/`harness/`/`telegram/`/`opentweet/`.
+  it import `agentic/`/`sync/`/`guardrails/`/`telegram/`/`opentweet/`.
 - **I3 and the egress classification**: category-3 traffic (cloud fallbacks,
   channels, sync) is gated by CyClaw policy — never "fix" it with the kill
   map, and never weaken a gate to make a kill var simpler.

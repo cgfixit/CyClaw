@@ -5,10 +5,9 @@ Verified 2026-07-29 against `main`; macOS path re-verified 2026-08-02.
 
 This is the canonical setup guide (`docs/work/SETUP.md` and `docs/! How-To-Guides/setup-guide.md` redirect here). For the
 full architecture tour — agentic layer, filesystem/SQL connectors, NeMo
-Guardrails, the coding harness, Telegram channel design, and the security model — see
+Guardrails, Telegram channel design, and the security model — see
 [`README.md`](README.md). This guide covers what's needed to get the core RAG
-gateway running, plus how to launch the harness console beside it and exercise
-every REST endpoint from a terminal.
+gateway running and how to exercise every REST endpoint from a terminal.
 
 **On a Mac, go straight to [macOS (Apple Silicon)](#macos-apple-silicon)** —
 the Linux block above it does not work here, for a reason spelled out in that
@@ -167,9 +166,8 @@ It will:
    you pass `--ollama-install-script`); pull the shipped local model
    (`qwen3.8:27b-mlx`, or `--small-model` for `qwen2.5:7b`)
 8. Build the retrieval index (`python -m retrieval.indexer`)
-9. `exec macos/invoke-cyclaw.sh --repo <this checkout>` so both the
-   terminal (`:8787`) and the harness (`:8790`) start, and Ctrl+C owns
-   the process tree
+9. `exec macos/invoke-cyclaw.sh --repo <this checkout>` so the
+   terminal (`:8787`) starts and Ctrl+C owns the process tree
 
 Useful flags: `--dry-run`, `--skip-prompts`, `--no-start`, `--small-model`,
 `--ollama-model TAG`, `--grok-dummy`, `--skip-install`, `--skip-keys`,
@@ -226,11 +224,9 @@ Option B; it is a different target:
 
 It also installs its venv at `~/.CyClaw/venv`, **not** into your clone's
 `.venv` — so after Option A you still have no environment in the clone itself.
-This targets the **harness console** on `127.0.0.1:8790`
-([`docs/HARNESS_MACOS.md`](docs/HARNESS_MACOS.md)), which is a different thing
-from the core RAG gateway on `:8787`. **If you want both servers from a
-fresh clone, use Option C.** Option A alone still needs Ollama, the
-index, and keys (table above). Option B is the by-hand core-RAG path.
+**If you want the gateway from a fresh clone in one step, use Option C.**
+Option A alone still needs Ollama, the index, and keys (table above).
+Option B is the by-hand core-RAG path.
 
 
 ### Option B — by hand, step by step
@@ -306,7 +302,7 @@ Claude (`ANTHROPIC_API_KEY`) / Grok / GitHub (skip any), and stores them in the
 macOS Keychain plus `~/.CyClaw/.env` (`chmod 600`). The rc file only *sources*
 that dotenv — it never inlines a secret. LaunchAgents still read Keychain via
 `cyclaw-keychain-env.sh`. Flags and service names: [`macos/README.md`](macos/README.md).
-A rotate does not change a running server; if harness/soul routes 401 after
+A rotate does not change a running server; if soul routes 401 after
 a key change, follow
 [401 / key drift recovery](macos/README.md#401--key-drift-recovery)
 (`--restart-servers`, new shell, `--fill-browser` / paste; `--remove-keychain`
@@ -331,43 +327,17 @@ source .venv/bin/activate
 uvicorn gate:app --host 127.0.0.1 --port 8787
 #    → http://127.0.0.1:8787
 
-# 2) The coding-harness console — serves static/harness.html
-#    In a SECOND Terminal tab (this one blocks too):
-source .venv/bin/activate
-python -m harness.server        # → http://127.0.0.1:8790
 ```
 
-Three things about the harness command that differ from the gateway:
-
-- **Use `python -m harness.server`, not `cyclaw-harness`.** `cyclaw-harness` is
-  a `[project.scripts]` console script, and pip writes that shim into the venv
-  only when the CyClaw *project itself* is installed (`pip install -e .`). The
-  install above installs `requirements.txt`, which is a third-party pin list
-  with no self-install line — so after following this guide exactly,
-  `cyclaw-harness` is `command not found`. The `-m` form always works and is
-  what both shipped launchers use (`macos/invoke-cyclaw.sh:258`,
-  `powershell/Invoke-CyClaw.ps1:78`). If you want the short names, add
-  `pip install -e . -c constraints.txt` after step 3. The same applies to
-  `cyclaw-server`, `cyclaw-index`, `cyclaw-mcp`, `cyclaw-metrics`, and
-  `cyclaw-clear-cache` — every `python -m …` form in this guide is chosen
-  because it needs no self-install.
-- **`uvicorn harness.server:app` also works, but the `-m` form is safer.** The
-  module exposes `app` lazily — built on first attribute access, not at import,
-  so importing `harness.server` never reads or creates `~/.CyClaw`. The catch
-  is that the uvicorn form skips the bind-address guard in `main()`, so
-  `--host 0.0.0.0` opens a public socket that `python -m harness.server` would
-  have refused. `TrustedHostMiddleware` still rejects any non-loopback `Host`
-  header in both forms, so a bound socket is not an open door — but the `-m`
-  form keeps both layers.
-- **The port is 8790, and you change it with an env var, not a flag:**
-
-  ```bash
-  CYCLAW_HARNESS_PORT=8795 python -m harness.server
-  ```
-
-  Values outside 1024–65535 are rejected at startup. `CYCLAW_HARNESS_HOST`
-  exists too but only accepts loopback addresses — a non-loopback host exits
-  immediately, by threat-model design.
+**The `cyclaw-*` short names need a self-install.** `cyclaw-server`,
+`cyclaw-index`, `cyclaw-mcp`, `cyclaw-metrics`, `cyclaw-clear-cache`,
+`cyclaw-user`, and `cyclaw-gen-cert` are `[project.scripts]` console scripts,
+and pip writes those shims into the venv only when the CyClaw *project itself*
+is installed (`pip install -e .`). The install above installs
+`requirements.txt`, a third-party pin list with no self-install line, so after
+following this guide exactly they are `command not found`. Every `python -m …`
+form in this guide is chosen because it needs no self-install; add
+`pip install -e . -c constraints.txt` after step 3 if you want the short names.
 
 Add `--reload` to the `uvicorn gate:app` line while editing code; leave it off
 otherwise (it doubles the process count and re-imports the whole retrieval
@@ -407,10 +377,10 @@ not a problem to fix.
 
 ### macOS smoke test
 
-Darwin twin of `windows-smoke.ps1`. Same 22 checks (gateway + harness),
+Darwin twin of `windows-smoke.ps1`. Same checks against the gateway,
 same non-zero exit on any failure, bash 3.2 / BSD userland, no jq and no
-Homebrew. Servers must already be running (`invoke-cyclaw.sh` or the
-uvicorn + `python -m harness.server` pair):
+Homebrew. The server must already be running (`invoke-cyclaw.sh` or the
+uvicorn line above):
 
 ```bash
 export CYCLAW_API_KEY="the-value-you-generated"
@@ -673,17 +643,6 @@ endpoints, is read-only.
 | `503` | `INDEX_NOT_FOUND` — run `python -m retrieval.indexer` |
 | `504` | the graph exceeded `api.graph_timeout_sec` (780s) |
 
-### The harness console's API
-
-The coding-harness console on `:8790` is a **separate app with its own route
-set** (`/api/status`, `/api/chat`, `/api/sessions`, …), documented in
-[`docs/HARNESS_MACOS.md`](docs/HARNESS_MACOS.md). Two mounts overlap between
-the two apps — `GET /` (different pages: `gate.py:516` the terminal console,
-`harness/server.py:926` the harness console) and `/static/*` (`gate.py:514`,
-`harness/server.py:924` — each app serves its own `static/` directory under
-the same mount path). Apart from those two, none of the routes above exist on
-`:8790`, and none of the harness routes exist on `:8787`.
-
 ---
 
 ## Key Notes
@@ -716,7 +675,7 @@ Two consequences worth stating plainly:
 Three places in the repo already implement the correct macOS behavior and
 agree with each other — the CI lane (`.github/workflows/ci.yml:641-659`), the
 installer (`macos/install-cyclaw.sh:124-137`), and
-[`docs/HARNESS_MACOS.md`](docs/HARNESS_MACOS.md). The by-hand steps in the
+[`macos/README.md`](macos/README.md). The by-hand steps in the
 macOS section above are those same commands.
 
 ### Running a different local model
@@ -755,8 +714,8 @@ a large model, not less — a bigger model does not raise `num_ctx` for you.
 Full detail, including the per-session `/set parameter num_ctx` alternative:
 [`docs/! How-To-Guides/OLLAMA_SETUP.md`](docs/!%20How-To-Guides/OLLAMA_SETUP.md).
 
-**Driving `agentic/real_repo_loop.py`** (`real-repo-run`/`real-repo-run-plan`,
-or the harness console's `/api/agent/run`) against the same Ollama instance
+**Driving `agentic/real_repo_loop.py`** (`real-repo-run`/`real-repo-run-plan`)
+against the same Ollama instance
 needs more headroom than the formula above — that pathway's per-iteration
 prompt can legitimately run several times larger. See
 [`OLLAMA_SETUP.md`'s agentic context guidance](docs/!%20How-To-Guides/OLLAMA_SETUP.md#the-agentic-real-repo-coding-loop-needs-more-headroom-than-that).
@@ -814,7 +773,7 @@ network egress this project otherwise avoids for no benefit.
 ### Telemetry
 
 Every maintained CyClaw Python chokepoint — the gateway, the MCP server, the
-metrics/indexer/vector-store/cache CLIs, the harness server, the auth/cert
+metrics/indexer/vector-store/cache CLIs, the auth/cert
 CLIs, and the sync/agentic/guardrails/telegram/opentweet packages — applies a
 shared telemetry-kill block (`utils/telemetry_kill.py`) before any SDK
 import; the same canonical values are also delivered as literal environment
@@ -943,9 +902,7 @@ the request path: a GitHub-context/governed-skills **agentic layer**, a
 local/SMB **filesystem connector** and read-only **SQL connector**, an
 explicitly scoped passive **network connector**, an
 optional **NeMo Guardrails** content-safety layer (Phase 2 input + Phase 4a
-output grounding when enabled), a separate **coding-harness** console on
-`127.0.0.1:8790` (Windows via `powershell/`, macOS/Linux via `macos/` — same
-Python app, different install glue), and an out-of-band **Telegram** channel
+output grounding when enabled), and an out-of-band **Telegram** channel
 (`python -m telegram.cli`, default disabled — design:
 [`docs/channels/TELEGRAM_DESIGN.md`](docs/channels/TELEGRAM_DESIGN.md)). See
 README for product overview and

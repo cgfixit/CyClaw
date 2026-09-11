@@ -9,16 +9,12 @@ description: >
   redaction, all 14 due-diligence invariant classes, spend/Numbat/
   sequence-detection forensics, the memory/Telegram/OpenTweet/unslop
   subsystems, the auth subsystem (bootstrap/session+CSRF/RBAC/TLS), the MCP
-  manifest drift pin, and OS scheduler glue. Covers BOTH consoles fully:
-  the terminal console's REST surface (/soul, /ops/sync, /ops/agentic,
-  /ops/fsconnect, /ops/sqlconnect, /index/*, /memory/*, /auth/*) and all
-  four of its slash commands, and the harness console's full guarded +
-  unguarded route set (status/registry/tools/skills/web/memory/sessions/
-  goal/loop/soul/model/keys/chat/github/harness-runs/all seven agent
-  routes/auth), its ToolBroker capability gate on /loop and agent runs, and
-  its full slash-command palette including the hidden `registry` alias.
+  manifest drift pin, and OS scheduler glue. Covers the terminal console
+  fully: its REST surface (/soul, /ops/sync, /ops/agentic, /ops/fsconnect,
+  /ops/sqlconnect, /index/*, /memory/*, /auth/*) and all four of its slash
+  commands.
   Use when asked to verify, smoke-test, validate, or test CyClaw; mentions
-  CyClaw swarm, terminal consoles, the harness console, triple-gate API,
+  CyClaw swarm, the terminal console, triple-gate API,
   Grok/Claude fallback, key redaction, due-diligence invariants, guardrails,
   memory, telegram, opentweet, netconnect, or running the test suite. Not
   the Claude Code session-memory skill (memory-orchestrator /
@@ -30,7 +26,7 @@ description: >
 **The contract, stated precisely.** A green run of this skill's full audit
 means: the 12-node graph routes all 5 sample queries correctly at whichever
 local-LLM realism tier was actually live; the Grok/Claude triple gate holds
-end to end with zero real API spend; every terminal- and harness-console
+end to end with zero real API spend; every terminal-console
 REST endpoint and slash command this document lists is registered and
 behaves per its documented contract; the 14 due-diligence invariant classes
 and the 26-row Guardrails table below all hold; and the out-of-band
@@ -58,51 +54,15 @@ one is **not** evidence the others would also pass. Always invoke with
 `python3.12` (never bare `python3` -- see Gotchas).
 
 **Claude Code `/memory` is not this skill.** In a Claude Code session,
-`/memory` still means `memory-orchestrator` -> `docs/memories/`. The
-harness console slash command `/memory` (below) is a separate, fail-closed
-operator-note toggle under `~/.CyClaw/memory`. It does not extract session
-memory, does not write `docs/memories/`, and does not replace the
-PreCompact / SessionEnd hooks.
+`/memory` still means `memory-orchestrator` -> `docs/memories/`.
 
 | Ladder | Command | Proves | Does **not** prove |
 |---|---|---|---|
-| **A. `/goal` + `/loop` only** | subsection below | session goal CRUD, goal in system prompt, `LOOP_REQUIRES_GOAL`, loop limiter ≠ chat limiter, cancel idempotence, HTML slash wiring, I6 (no `agentic` import from `harness/`) | RAG/graph, live model quality, browser `/loop auto` + `GOAL_DONE`, `/api/agent/run` |
-| **B. In-process swarm** | `python3.12 .claude/skills/CyClaw-Sandbox/run_full_verification.py` | 11 phases (config invariants, telemetry maps, mock RAG index + 5 queries, triple-gate, redaction, due-diligence, terminal REST + slash commands, harness `TestClient` incl. `/api/keys` + agent auth-gates, harness HTML contract) -- prints its own totals, never hand-count them | Live HTTP servers, browser JS, Windows installer, real chromadb (stub mode) |
-| **C. CI lifecycle** | `bash .claude/skills/CyClaw-Sandbox/verify.sh` | 3.12 venv, full pytest, RAG smoke, live `gate.py` + harness + `mock_ollama`, both emulations | Browser `/loop auto`, real 27b-class model, Auth beyond the shipped default, live NeMo rail |
-| **D. Surface smoke** | `bash .claude/skills/CyClaw-Sandbox/smoke.sh` (a.k.a. `/run`, Quick Mode) | Sections A-G against a live server it starts itself -- prints its own PASS/FAIL totals to `.claude/sandbox-test.txt`, never a fixed count | Due-diligence classes, harness `/goal`/`/loop`, agent-run routes, the full Ladder F sweep below |
-| **E. Live API bomb** | `windows-smoke.ps1` / `macos-smoke.sh` | Matching live-HTTP checks (gate + harness) against already-running servers -- see the scripts' own numbered comments for the current count | Broader fsconnect/sqlconnect/guardrails/Postgres (that's ladder D); `/ops/sync`, `/ops/agentic`, `/ops/sqlconnect` (documented gap in both scripts' headers) |
+| **B. In-process swarm** | `python3.12 .claude/skills/CyClaw-Sandbox/run_full_verification.py` | 9 phases (config invariants, telemetry maps, mock RAG index + 5 queries, triple-gate, redaction, due-diligence, terminal REST + slash commands, terminal HTML contract) -- prints its own totals, never hand-count them | Live HTTP servers, browser JS, Windows installer, real chromadb (stub mode) |
+| **C. CI lifecycle** | `bash .claude/skills/CyClaw-Sandbox/verify.sh` | 3.12 venv, full pytest, RAG smoke, live `gate.py`, terminal emulation | Browser `/loop auto`, real 27b-class model, Auth beyond the shipped default, live NeMo rail |
+| **D. Surface smoke** | `bash .claude/skills/CyClaw-Sandbox/smoke.sh` (a.k.a. `/run`, Quick Mode) | Sections A-G against a live server it starts itself -- prints its own PASS/FAIL totals to `.claude/sandbox-test.txt`, never a fixed count | Due-diligence classes, the full Ladder F sweep below |
+| **E. Live API bomb** | `windows-smoke.ps1` / `macos-smoke.sh` | Matching live-HTTP checks against an already-running gate -- see the scripts' own numbered comments for the current count | Broader fsconnect/sqlconnect/guardrails/Postgres (that's ladder D); `/ops/sync`, `/ops/agentic`, `/ops/sqlconnect` (documented gap in both scripts' headers) |
 | **F. Full sandbox clone audit** | Steps section below | Everything in B-D plus spend/Numbat/sequence-detection, the full auth lifecycle (bootstrap through RBAC and TLS), memory/Telegram/OpenTweet/unslop, MCP manifest pin, OS scheduler glue, and the groundedness evaluator -- the "verify everything" ladder | Nothing it doesn't say it skips (opt-in stages are marked SKIP, not silently passed) |
-
-### A. `/goal` + `/loop` only (harness console contract)
-
-From repo root, test extras installed, `CYCLAW_HOME` isolated if you launch
-a server:
-
-```bash
-python3.12 -m pytest tests/test_harness.py tests/test_harness_console_contract.py \
-  tests/test_harness_auth.py tests/test_harness_isolation.py -q --tb=short
-
-python3.12 .claude/skills/CyClaw-Sandbox/harness_runtime_check.py
-
-# Live HTTP -- verify.sh Stage 9 does this with mock_ollama on :11434:
-CYCLAW_HOME=$(mktemp -d) CYCLAW_API_KEY=verify-soul-key-ci \
-  python3.12 -m harness.server &
-python3.12 .claude/skills/CyClaw-Sandbox/harness_emulation.py http://127.0.0.1:8790
-```
-
-Rows that must pass before claiming `/goal` / `/loop` work:
-
-| Check | Where it is asserted |
-|---|---|
-| Goal set / trim / persist / clear / unknown-id 404; listing omits `goal` | pytest + swarm Phase 11 + emulation step 14 |
-| Goal lands in the chat system prompt; blank goal omitted | `tests/test_harness.py` |
-| `loop: true` with no goal -> 400 `LOOP_REQUIRES_GOAL` | pytest + swarm + emulation step 15 |
-| `loop: true` with a goal is chat-only (200, or documented 502 with no backend) | pytest + swarm + emulation step 15 |
-| `POST /api/chat/cancel` is idempotent (`/loop stop`) | pytest + swarm + emulation step 16 |
-| Dedicated loop limiter ≠ chat limiter; `CHAT_BUSY` generation gate | pytest only (`test_loop_rate_limit_*`, `test_chat_busy_*`) |
-| `/goal` and `/loop` in `COMMANDS` / dispatch switch; no `innerHTML` | HTML contract + `test_harness_console_contract.py` |
-| `/loop` never calls `/api/agent/*` | `test_loop_command_never_starts_a_real_repo_run` |
-| The named-capability ToolBroker gate (issue #1134) allows a `/loop` turn and denies per its allowlist | `test_guardrails_tool_broker.py`, `test_tool_broker_adversarial.py` -- forcing a live denial needs monkeypatching the allowlist; the runtime check only confirms the gate is wired |
 
 ### `verify.sh` stage numbers (historical -- do not renumber)
 
@@ -115,10 +75,8 @@ them; do not "fix" the numbers.
 | Stage 2 | 2nd | `pytest tests/` |
 | Stage 3 | 3rd | emulated RAG (`tests/ci_rag_smoke.py`) |
 | Stage 5 | 4th | `gate_runtime_check.py` |
-| Stage 8 | 5th | `harness_runtime_check.py` |
-| Stage 4 | 6th | live `gate.py` API smoke |
-| Stage 7 | 7th | `terminal_emulation.py` |
-| Stage 9 | 8th | live harness + `harness_emulation.py` |
+| Stage 4 | 5th | live `gate.py` API smoke |
+| Stage 7 | 6th | `terminal_emulation.py` |
 | Stage 6 | last | write `/tmp/cyclaw-verify-report.md` |
 
 Stage 1's hard failure on a missing/wrong `python3.12` is deliberate, not a
@@ -141,8 +99,6 @@ regression on its own, independent of this skill.
 | Auth routes | `gate_auth.py` | 13 paths (`/auth/setup-status`, `/bootstrap-password`, `/login`, `/logout`, `/whoami`, `/users` GET+POST, `/password`, `/users/{u}/password`, `/users/{u}/role`, `/users/{u}/disable`, `/users/{u}/enable`, `/users/{u}` DELETE, `/audit/summary`); every route exists and answers **503** (not 404) when `auth.enabled` is false (the shipped default); identity attaches to `POST /query` only when an `AuthManager` exists; `audit` role is forbidden from `/query`; account lockout answers **423**; a raced duplicate username or device-token label is a typed conflict (`AuthUserExists`/`AuthTokenLabelExists` -> **409**, mirrored by the harness create-user route, which previously 500'd) | `test_auth_admin_contract.py`, `tests/test_due_diligence_invariants.py` |
 | Memory routes | `gate_memory.py` | `/memory/status` is always 200 (probeable when the subsystem is off); `/memory/{facts,episodes,proposals,propose,apply,reject}` and `/query/export/html` are **404** when their toggle is off (all ship false); flag resolution goes through `memory/flags.py` -- the fact-retrieval switch is `memory.facts.retrieval_enabled` (legacy `memory.facts.enabled` honored with a one-time warning), the status payload reports `facts_retrieval_enabled`, and every flag echo is a strict boolean (`is True` -- a YAML `"false"` string reports off) | `test_memory_isolation.py`-style isolation + live probe |
 | Terminal console | `static/terminal.html` + `static/terminal.js` (CSP forces `script-src 'self'`, so the console's JS logic lives in the sibling file -- read both together) | 5 toolbar panels (Soul/Sync/Agentic/FS/SQL); the confirm dialog's generic `handleConfirm(confirmed, entryId, onlineProvider)`; the four slash commands `/users /admin /audit /help` (everything else is a toolbar button or a RAG query, not a command) | `tests/test_terminal_contract.py` (reads `terminal.html + terminal.js` combined; pins the 5 POST-only paths) |
-| Harness console | `harness/server.py` + `static/harness.html` | Guard order rate-limit -> same-origin -> API key -> CSRF (`guarded` dependency list); ~29 guarded + ~11 unguarded routes (derive the exact split from `app.routes` -- don't hardcode it, this skill has been burned by a stale count here before); the `COMMANDS` array (derive the full palette from the array itself, currently ~19 distinct commands incl. two rows both dispatching to `/agent`) plus the hidden `registry` alias of `/connectors` (`case 'connectors': case 'registry':`) | `test_harness_contract.py`, `test_harness_console_contract.py`, `test_harness_tools_contract.py` |
-| Harness ToolBroker gate | `utils/tool_broker.py`, wired into `harness/server.py` | Named-capability gate (issue #1134) in front of `/loop` turns and `POST /api/agent/run`; `assert_allowed(...)` raises `ToolDenied` -> 403. No route was added by this gate -- it's a control layered on two existing ones | `test_guardrails_tool_broker.py`, `test_tool_broker_adversarial.py` |
 | MCP | `mcp_hybrid_server.py` | Single tool `hybrid_search`; `sampling: None`; `check_input` runs before retrieval; `mcp_manifest.json` SHA-256 drift pin | `tests/test_mcp_server.py`, `tests/test_mcp_manifest.py` |
 | Graph | `graph.py` | 12 nodes (`retrieve`, `route_by_score`, `guardrail_input`, `guardrail_output`, `local_llm`, `user_gate`, `pre_action_hook_grok`, `pre_action_hook_claude`, `grok_fallback`, `claude_fallback`, `offline_best_effort`, `audit_logger`); 4 routers (`score_router`, `guardrail_router`, `pre_action_hook_router`, `user_gate_router`) | `tests/test_operator_docs_node_count.py` (`>=12`), `tests/test_graph.py` |
 | CLIs | `sync/cli.py`, `agentic/cli.py`, `agentic/fsconnect/cli.py`, `agentic/sqlconnect/cli.py`, `agentic/netconnect/cli.py`, `telegram/cli.py`, `opentweet/cli.py`, `guardrails/cli.py`, `utils/authn_cli.py`, `utils/gen_cert.py`, `retrieval/indexer.py`, `retrieval/clear_cache.py`, `metrics.py`, `utils/telemetry_kill.py --export` | Name + exit-code contract only (`--help` for the current subcommand set -- never hardcode a subcommand count in this document, it drifts every time a CLI grows one) | `tests/test_*_cli.py` per connector |
@@ -180,7 +136,7 @@ includes an `sk-ant-*` pattern, `policy.fallback.pre_action_hook.enabled`
 (shipped false), `security.api_key_optional` (shipped false).
 
 Verify module isolation (I6): `agentic/`, `sync/`, `guardrails/`,
-`harness/`, `telegram/`, `opentweet/`, `netconnect/` are never imported by
+`telegram/`, `opentweet/`, `netconnect/` are never imported by
 `gate.py`, `graph.py`, or `mcp_hybrid_server.py`, and vice versa; the
 `agentic.*.cli` modules run only via subprocess from `utils/ops_runner.py`.
 
@@ -279,34 +235,6 @@ from loopback only, session cookie + CSRF on `/query`, RBAC (`audit` role
 403s on `/query`), and TLS via `cyclaw-gen-cert` (session cookie gains
 `secure` once `api.tls.enabled: true`).
 
-### 6. Live harness (:8790)
-
-```bash
-CYCLAW_HOME=$(mktemp -d) CYCLAW_API_KEY=$CYCLAW_API_KEY nohup python3.12 -m harness.server \
-  >/tmp/harness.log 2>&1 &
-# pair with mock_ollama.py on :11434 for a deterministic /api/chat 200:
-python3.12 .claude/skills/CyClaw-Sandbox/mock_ollama.py --port 11434 --model qwen3.8:27b-mlx &
-python3.12 .claude/skills/CyClaw-Sandbox/harness_runtime_check.py
-python3.12 .claude/skills/CyClaw-Sandbox/harness_emulation.py http://127.0.0.1:8790
-```
-Verify: every guarded route enforces the full chain (missing key -> 401,
-missing/bad CSRF -> 403, cross-origin -> refused); `/api/keys` GET returns
-presence + masked tail only (never a value -- assert the caller's own
-Bearer key never round-trips in the response) and a non-`MANAGED_KEYS` name
-is refused on POST; `/api/auth/setup-status` is 503 `AUTH_DISABLED` with
-the shipped default (200 + `{enabled, needs_password, username}` once an
-operator config turns auth on); the seven `/api/agent/*` routes
-(`checks`, `run`, `runs/{id}`, `runs/{id}/decision`, `runs/{id}/push`,
-`runs/{id}/publish`, `runs/{id}/discard`) are auth-gate-only here -- a bad
-bearer 401s on every write route, and none of `run`/`decision`/`push`/
-`publish`/`discard` is ever actually invoked (a real run clones a repo,
-calls a model, can block ~900s, and push/publish/discard reach a git
-write); the full slash-command palette (derive from `COMMANDS`, see the
-surfaces table) responds, including the hidden `registry` alias; no
-`innerHTML` anywhere in `harness.html` (`textContent`/`createElement`
-only -- chat replies, skill descriptions, and session titles are all
-untrusted-origin strings).
-
 ### 7. Out-of-band subsystems
 
 - **Spend** (`utils/spend.py`, `logs/spend.jsonl`): append-only; each real
@@ -395,8 +323,7 @@ covering sections A-G (core API, fsconnect, sqlconnect, NeMo soft-import,
 Postgres-backend skip-cleanly, and the full pytest suite as its final
 section). It builds its own index if one is missing, starts and stops its
 own `gate.py`, and writes `.claude/sandbox-test.txt`. It does **not** build
-the mock RAG corpus, walk the due-diligence invariant classes, exercise the
-harness console at all, or touch any agent-run route -- a green Quick Mode
+the mock RAG corpus or walk the due-diligence invariant classes -- a green Quick Mode
 is not evidence the full Ladder F audit would also pass, and the reverse
 holds too.
 
@@ -406,22 +333,17 @@ All scripts below live flat in this skill directory
 (`.claude/skills/CyClaw-Sandbox/`), not under a `scripts/`/`references/`
 subdirectory -- invoke them by that path.
 
-- **`run_full_verification.py`** -- the in-process swarm (Ladder B, 11
+- **`run_full_verification.py`** -- the in-process swarm (Ladder B, 9
   phases). Env: `CYCLAW_REPO=/path` to use an existing checkout instead of
   cloning fresh (warns before writing mock corpus/index/report files into
   it); `FULL_DEPS=1` to attempt a full dependency install first. Both this
   script and `verify.sh` auto-detect the live Ollama realism tier.
-- **`gate_runtime_check.py`** / **`harness_runtime_check.py`** --
-  independent, import-time-only checks: app builds, telemetry-kill maps
-  are active, the expected route subset registers, auto-docs stay
-  disabled, entry points are callable. `harness_runtime_check.py` also
-  confirms the ToolBroker gate's symbols import cleanly.
-- **`terminal_emulation.py`** / **`harness_emulation.py`** -- exercise the
-  exact HTTP fetch lifecycle each console's own JS performs, against an
-  already-running server. Wired into `verify.sh` (stages 7 and 9); also
-  runnable standalone. Pair `harness_emulation.py` with `mock_ollama.py`
-  on `127.0.0.1:11434` for a deterministic `/api/chat` 200 instead of the
-  documented 502 no-backend fallback.
+- **`gate_runtime_check.py`** -- independent, import-time-only checks: app
+  builds, telemetry-kill maps are active, the expected route subset
+  registers, auto-docs stay disabled, entry points are callable.
+- **`terminal_emulation.py`** -- exercises the exact HTTP fetch lifecycle
+  the console's own JS performs, against an already-running server. Wired
+  into `verify.sh` (stage 7); also runnable standalone.
 - **`test_terminal_consoles.py`** -- stdlib-`urllib` integration test
   against a running `gate.py` with `CYCLAW_API_KEY` set. Asserts every
   `/soul/*`/`/ops/*` route's auth gate, an unknown `action` 422s at the
@@ -490,15 +412,11 @@ for the six canonical ones plus supporting guards this table extends).
 | 10 | FsConnect Op Whitelist | Capability list is closed (derive the current set from `config.yaml`'s `fsconnect.allowed_fs_ops` -- it grows over time, e.g. `fs_largest`) |
 | 11 | SQL Read-Only Default | `sqlconnect.read_only=true`, `allow_write=false` |
 | 12 | SQL Query Guard | Only SELECT/WITH; comments and `;` rejected |
-| 13 | Module Isolation (I6) | `agentic/sync/guardrails/harness/telegram/opentweet/netconnect` never imported by `gate.py`/`graph.py`/`mcp_hybrid_server.py`, and vice versa |
+| 13 | Module Isolation (I6) | `agentic/sync/guardrails/telegram/opentweet/netconnect` never imported by `gate.py`/`graph.py`/`mcp_hybrid_server.py`, and vice versa |
 | 14 | Soul Privacy | Soul preamble never forwarded to Grok/Claude (off-box) |
 | 15 | API Key Gate | All mutating gate.py routes require `CYCLAW_API_KEY`, fail-closed on an unset key |
 | 16 | Rate Limit | Every route shares the per-IP `RateLimiter` |
 | 17 | Key Redaction Parity | `ANTHROPIC_API_KEY` redacted the same as `GROK_API_KEY`; `sk-ant-*` pattern present in both `gate.py` and `config.yaml` |
-| 18 | Harness Loopback Only | `harness/server.py` binds only `127.0.0.1`/`localhost`/`::1` |
-| 19 | Harness Module Isolation | `harness/` never imported by the core-six modules, and vice versa (I6) |
-| 20 | Harness Chat Rate Limit | `/api/chat` shares the same `RateLimiter` + `config.yaml` rate-limit block as `gate.py`'s `/query` |
-| 21 | Harness Console XSS Safety | All model/registry output rendered via `textContent`/`createElement`; no `innerHTML` |
 | 22 | Auth Disabled By Default | `auth.enabled=false` ships default, matching every other opt-in subsystem |
 | 23 | Auth Route Presence Doesn't Disclose State | Every `/auth/*` route always returns 503, never 404, while `auth.enabled` is false |
 | 24 | Auth Stage 3 Enforced | The identity dependency (`require_session_or_token`) attaches to `POST /query` whenever an `AuthManager` exists; the `audit` role is forbidden from `/query`; the 503-when-disabled contract is unchanged when auth stays off |

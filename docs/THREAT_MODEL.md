@@ -37,7 +37,7 @@ consolidates the threat-model assumptions previously scattered across
 | Data store | Embedded ChromaDB (`PersistentClient`) + local BM25 + SQLite. No HTTP DB. |
 | LLM | Local Ollama over loopback; optional Grok and/or Claude fallback (triple-gated per provider). **Since 2026-08-07 the shipped `config.yaml` satisfies two of those three gates** — `app.mode: "hybrid"` and both `models.grok.enabled` / `models.claude.enabled` are `true`. The third, `user_confirmed_online`, is per-request and cannot be pre-set by config. See the eighth amendment in §5. |
 | Outbound model egress | **Three planes.** Core and agentic are not fully off by default; see the eighth amendment in §5. Core plane: two of its three gates ship satisfied (`app.mode: "hybrid"`, both providers `enabled: true`); only the per-request `user_confirmed_online` still stands. Agentic plane: `allow_cloud_providers` and both `providers.<name>.enabled` ship `true`; `agentic.enabled`, `deepagent_github.enabled`, the API-key env var, and `--confirm-online` still stand. Evaluation plane: `tests/judge_eval.py` is a standalone, default-off forensic tool requiring `CYCLAW_EVAL_LIVE=1` and `ANTHROPIC_API_KEY`; it is never imported by a production or live-request path. The core graph's triple-gated fallback is `mode==hybrid` AND `<provider>.enabled` AND `user_confirmed_online`. The out-of-band Deep Agents harness has a six-condition chain: `agentic.enabled`, `deepagent_github.enabled`, `allow_cloud_providers`, `providers.<name>.enabled`, the provider's API-key env var present, and a per-run `--confirm-online`. External destinations remain `api.x.ai` and `api.anthropic.com`; the evaluation plane permits only `api.anthropic.com`. `agentic/deepagent_github/handoff.py` implements a `HandoffEnvelope`/`sanitize_handoff` to record agentic egress as a SHA-256 of the outbound prompt, its length, the context doc ids, and a redaction count, never the prompt text. **The agentic chain has two consumers with different egress-recording states (see §5's fifth amendment):** `agentic/cli.py`'s `real-repo-run --provider`, wired to `agentic.deepagent_github.chat_client.ChatModelProposerClient`, calls `sanitize_handoff` on every real invocation. The separate, still-unwired `builder.py`/DeepAgents-graph path (`deepagent-plan`, probe-only) passes its cloud `BaseChatModel` straight to `creator(model=model, ...)` without `sanitize_handoff`; that path's egress is not recorded and remains out-of-scope follow-on work. |
-| Agentic / sync layers | **Out-of-band, opt-in, disabled by default.** Never imported by the six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`; I6). |
+| Agentic / sync layers | **Out-of-band, opt-in, disabled by default.** Never imported by the six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`; I6). The Python coding-console package that used to sit beside them was removed on 2026-09-11 (sixteenth amendment). |
 | Host | A machine the operator controls. Host root is **trusted**. |
 
 If you deploy outside these assumptions (internet-facing, multi-tenant, running
@@ -1101,3 +1101,38 @@ findings and their status live in
 [`docs/audits/SECURITY_REVIEW_STATUS.md`](./audits/SECURITY_REVIEW_STATUS.md).
 
 ---
+
+### Sixteenth amendment — the Python coding-harness console is removed (2026-09-11)
+
+The `harness/` package, its `static/harness.html` console on `127.0.0.1:8790`,
+and the launch paths that started it are gone from this repository. The
+coding and chat console now lives in the sibling Rust project
+[CG-agent-harness](https://github.com/cgfixit/CG-agent-harness), a separate
+install with its own home (`~/.CGagentHarness`), its own config, and its own
+threat model; nothing in CyClaw starts it or reads its state.
+
+What this changes in the surface this document describes:
+
+- The out-of-band package set for I6 is five (`agentic`, `sync`,
+  `guardrails`, `telegram`, `opentweet`), not six.
+- Every amendment above that names a harness route (`/api/agent/*`,
+  `/api/keys`, `/api/web`, the harness's `guarded` set, the tenth
+  amendment's `/web` DNS TOCTOU residual) describes a surface that no longer
+  exists. They are kept as the dated record of why those controls were
+  shaped as they were; none of them is a live claim.
+- The `agentic/` pipeline is unchanged and still reachable through
+  `python -m agentic.cli` and the terminal's `POST /ops/agentic` shim, which
+  already allowlists every `real-repo-run*` action. Its gates
+  (`agentic.enabled`, `deepagent_github.enabled`, `allow_git_write_tools`)
+  still ship `false`.
+- **Windows coding-console support is withdrawn from CyClaw.**
+  `powershell/Invoke-CyClaw.ps1` now starts the RAG gateway only. The
+  coding console's future Windows path is CG-agent-harness once its Windows
+  CI and release legs are unparked; until then Windows has the terminal
+  console and no coding console.
+- `utils/auth.py`, the harness-only copy of `require_api_key`, is deleted.
+  `gate.py`'s own implementation is the only one left, so the fourteenth
+  amendment's "both copies" wording is historical.
+- The retired `com.cgfixit.cyclaw.harness` LaunchAgent label and
+  `CyClaw harness` Task Scheduler name stay in the uninstallers so an older
+  install's supervised agent is still booted out.

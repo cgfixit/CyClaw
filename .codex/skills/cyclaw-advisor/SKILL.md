@@ -53,10 +53,9 @@ producer deduplication before changing observation behavior.
 
 ## Out-of-band execution
 
-`harness/agent_routes.py` owns agent run/push/publish handlers registered by
-`harness/server.py`. The ToolBroker in `utils/tool_broker.py` gates tool names;
-empty allowlists deny, and broker approval does not replace reason/confirm.
-Agentic execution travels through `ops_runner`, not direct core imports.
+The ToolBroker in `utils/tool_broker.py` gates tool names; empty allowlists
+deny, and broker approval does not replace reason/confirm. Agentic execution
+travels through `ops_runner`, not direct core imports.
 
 Real-repo approval uses acceptance manifests bound to run/base/path hashes and
 a disposable-copy verification before finalize. Read `agentic/executor/` and

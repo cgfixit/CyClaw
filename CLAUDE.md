@@ -128,11 +128,8 @@ The four `/ops/*` endpoints reach out-of-band subsystems ONLY through
 `utils/ops_runner.py` (a `subprocess.run([...])` shim). They never import those
 subsystems.
 
-Every route marked **API key** above — plus the harness console's 29
-`guarded` routes (23 in `harness/server.py`, the other 6 in
-`harness/agent_routes.py`, which owns `/api/agent/run`/`push`/`publish`) —
-is gated by `require_api_key` (two independent implementations, one per
-app; see `utils/auth.py`'s module docstring for why). `config.yaml`'s
+Every route marked **API key** above is gated by `gate.py`'s
+`require_api_key`. `config.yaml`'s
 `security.api_key_optional` (default `false`) is the one deliberate bypass. It
 does **not** touch the separate session/RBAC `/auth/*` system below, which
 stays governed by `auth.enabled` regardless. Two controls bound it:
@@ -145,9 +142,9 @@ the request is **not cross-site** (a page the operator visits is a loopback peer
 too, and a CORS-simple POST executes before CORS withholds the response). Do not
 read the loopback check as the whole control — the function's own docstring notes
 each condition closes a hole the previous ones left. A remote caller always needs
-the real key, on both apps, regardless of how the process was launched, including
-`uvicorn gate:app --host 0.0.0.0` (the container's own `CMD`) and
-`uvicorn harness.server:app`, neither of which runs a bind guard. Keyed on the
+the real key regardless of how the process was launched, including
+`uvicorn gate:app --host 0.0.0.0` (the container's own `CMD`), which runs no
+bind guard. Keyed on the
 peer, never the `Host` header (`TrustedHostMiddleware` is a DNS-rebinding
 control, not authentication) and never `security.allowed_hosts`/`allowed_origins`
 (those filter headers on requests that already arrived and open no socket).
@@ -187,7 +184,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | Path | Role |
 |---|---|
 | `gate.py` | FastAPI entry, auth, rate limit, sanitizer, security headers, telemetry kill |
-| `utils/telemetry_kill.py` | The canonical maps — `TELEMETRY_KILL` (21 telemetry pairs), a visibly-separate `UPDATE_CHECK_OPT_OUT` (4 ancillary pairs), and `SCRUBBED_ENV_KEYS` (5 tracing credentials + the 2 declarative-OTel config names, removed outright) — plus `apply_telemetry_kill()`, the pure child builder `build_telemetry_safe_env(base)`, `scheduler_env_overlay()` for generated jobs, and the launcher CLI `python -m utils.telemetry_kill --export {shell,powershell}`. Applied at import by every maintained chokepoint (invariant-guard G1 pins 15 orderings) and delivered as literal env by Docker/launchers/generators. Stdlib-only on purpose — it loads ahead of everything heavy; the ONNX API half deliberately lives in `utils/onnx_telemetry.py` instead. Deliberately excludes `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` — see `retrieval/embeddings.py` |
+| `utils/telemetry_kill.py` | The canonical maps — `TELEMETRY_KILL` (21 telemetry pairs), a visibly-separate `UPDATE_CHECK_OPT_OUT` (4 ancillary pairs), and `SCRUBBED_ENV_KEYS` (5 tracing credentials + the 2 declarative-OTel config names, removed outright) — plus `apply_telemetry_kill()`, the pure child builder `build_telemetry_safe_env(base)`, `scheduler_env_overlay()` for generated jobs, and the launcher CLI `python -m utils.telemetry_kill --export {shell,powershell}`. Applied at import by every maintained chokepoint (invariant-guard G1 pins 14 orderings) and delivered as literal env by Docker/launchers/generators. Stdlib-only on purpose — it loads ahead of everything heavy; the ONNX API half deliberately lives in `utils/onnx_telemetry.py` instead. Deliberately excludes `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` — see `retrieval/embeddings.py` |
 | `utils/onnx_telemetry.py` | `suppress_onnx_telemetry()` — the post-import ONNX Runtime API suppression (`disable_telemetry_events()`), getattr-guarded, idempotent, absent-safe; called at the two load seams (`retrieval/vector_store.py`, `guardrails/integration.py` with `force_import=True` before `LLMRails`). Env half (`ORT_DISABLE_TELEMETRY=1`) rides the kill map |
 | `gate_ops.py` | The four `/ops/*` endpoints, registered onto gate.py's app with its auth/rate-limit/audit callables injected; never imports `sync`/`agentic` |
 | `gate_auth.py` | The `/auth/*` endpoint set — Stage 2's login/logout/whoami plus the RBAC/admin routes it has since grown (`docs/AUTHENTICATION_DESIGN.md`; the full list is in the route table above) — registered onto gate.py's app the same way `gate_ops.py` registers `/ops/*`. Session cookie + CSRF for browsers, bearer device tokens for programmatic clients; Stage 3 attaches `require_session_or_token` to `/query` by name (`_AUTH_DEPENDENCY_NAME`) only when `auth_manager` is not None |
@@ -212,8 +209,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `utils/config_validation.py` | Boot-time config validation; fails fast |
 | `utils/ops_runner.py` | Subprocess shim behind the four `/ops/*` endpoints |
 | `utils/guardrail_bridge.py` | Inversion shim: builds the `guardrail_input` and `guardrail_output` nodes' callables, or `None` for either when disabled; the only module through which `graph.py` reaches `guardrails/` (never a direct import) |
-| `utils/auth.py` | Harness-only API-key auth: fail-closed on unset `CYCLAW_API_KEY`, `hmac.compare_digest` on UTF-8 bytes. `gate.py` keeps its own separate copy (see §4's mypy/CI trap) — never refactored onto this module. Both copies honor `security.api_key_optional` (default `false`); harness wraps the call in a `create_app()`-local closure rather than teaching this module to read `config.yaml` itself |
-| `utils/authn.py` | **Not `utils/auth.py` above** — per-user authentication primitives (`docs/AUTHENTICATION_DESIGN.md`): scrypt password hash/verify, per-account lockout arithmetic, session/CSRF/device-token id generation. Pure functions, no DB, no HTTP |
+| `utils/authn.py` | Per-user authentication primitives (`docs/AUTHENTICATION_DESIGN.md`): scrypt password hash/verify, per-account lockout arithmetic, session/CSRF/device-token id generation. Pure functions, no DB, no HTTP |
 | `utils/authn_store.py` | SQLite/Postgres backend for `users`/`sessions`/`device_tokens`, mirroring `utils/personality_db.py`'s `connect()` pattern; own `CYCLAW_AUTH_DB_URL` env var, deliberately not shared with personality's `CYCLAW_DB_URL` |
 | `utils/authn_manager.py` | `AuthManager` — ties `utils/authn.py` + `utils/authn_store.py` together: bootstrap, login/logout, session validation, device-token CRUD. No HTTP awareness; `gate_auth.py` is the only caller that knows about cookies/headers/status codes |
 | `utils/authn_cli.py` | `cyclaw-user` console script (`add`/`list`/`disable`/`enable`/`passwd`/`token create`/`token list`/`token revoke`), local-only by construction (no HTTP route reaches it) |
@@ -226,12 +222,10 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `agentic/fsconnect/` | Out-of-band local/SMB filesystem connector; POSIX held-fd security core; macOS installer enables list/stat/read only for `~/CyClaw-FS` while writes/indexing stay off |
 | `agentic/sqlconnect/` | Out-of-band SQL connector; SELECT/WITH-only guard |
 | `agentic/netconnect/` | Out-of-band passive LAN inventory; explicit RFC1918/loopback CIDRs; local host + existing neighbor cache only, with no active probes |
-| `agentic/real_repo_loop.py` | Plan → patch → verify → (human decides) → commit against a real jailed clone; the first live caller of `agentic/executor`. Wired to `agentic.cli`'s `real-repo-run`/`real-repo-run-status`/`real-repo-run-decide` and the harness's authenticated agent-run routes. `real-repo-run-plan` is a separate one-shot subcommand for the optional cloud-planner recipe (`ChatModelProposerClient` behind `--provider`/`--confirm-online`) — `--provider` means something different on each subcommand (one-shot plan call vs. every iteration of the whole loop); see `docs/agentic/AGENTIC_README.md` §9 for the two-stage "cloud plans, local implements" recipe and the gotcha of passing `--provider` to both. GitHub writes (push, PR) reachable via `real-repo-run-decide --push`/`--publish` (one-shot) or the standalone `real-repo-run-push`/`real-repo-run-publish` subcommands and their harness routes (each its own decision) — push/PR still gated (`allow_git_write_tools` ships false; `EXECUTION_ENABLED` is True but `agentic.enabled` ships false) — see `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` |
+| `agentic/real_repo_loop.py` | Plan → patch → verify → (human decides) → commit against a real jailed clone; the first live caller of `agentic/executor`. Wired to `agentic.cli`'s `real-repo-run`/`real-repo-run-status`/`real-repo-run-decide` and the terminal's `/ops/agentic` shim. `real-repo-run-plan` is a separate one-shot subcommand for the optional cloud-planner recipe (`ChatModelProposerClient` behind `--provider`/`--confirm-online`) — `--provider` means something different on each subcommand (one-shot plan call vs. every iteration of the whole loop); see `docs/agentic/AGENTIC_README.md` §9 for the two-stage "cloud plans, local implements" recipe and the gotcha of passing `--provider` to both. GitHub writes (push, PR) reachable via `real-repo-run-decide --push`/`--publish` (one-shot) or the standalone `real-repo-run-push`/`real-repo-run-publish` subcommands (each its own decision) — push/PR still gated (`allow_git_write_tools` ships false; `EXECUTION_ENABLED` is True but `agentic.enabled` ships false) — see `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` |
 | `agentic/executor/` | Sandboxed verification: runs caller-declared checks (pytest/ruff/etc.) as argv-list subprocesses against a jailed worktree, scrubbed env, disposable `HOME`/`USERPROFILE`, per-check timeout. Every non-empty check list goes through `hard_sandbox.py`'s `production_sandbox()` (issue #1134 Phase 4) — Windows Job Object (`KILL_ON_JOB_CLOSE`), Darwin `sandbox-exec` (network and off-cwd writes denied), Linux `unshare --net` — and a missing binary or failed capability probe raises `HardSandboxUnavailable`. There is **no** silent fallback to unconstrained `subprocess.run`; `run_verification`'s `sandbox=` parameter is test-only. Still not a kernel boundary: no microVM, and Windows is a process-tree kill rather than a netns, so sockets keep working there — see `docs/THREAT_MODEL.md`'s executor amendments for the residual limits |
 | `agentic/deepagent_github/` | Two subsystems: the live one (`RepoWorkspaceTools`: clone/read/write_file/commit/push, jailed via `agentic/fsconnect/pathsafe.ScopedRoots`; `chat_client.py`/`model_adapter.py`, the cloud-provider planner `real_repo_loop.py` uses) and the **retired** one (`builder.py`'s DeepAgents subgraph — owner decision 2026-07-31, no further development planned, superseded by `real_repo_loop.py`; code/tests/CI kept, not deleted — see `docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md`'s retirement note). Both gated `false`/disarmed by default |
 | `guardrails/` | Optional NeMo Guardrails; soft-imported, disabled by default. Phase 2 wires an offline input rail into `graph.py`'s `guardrail_input` node when `enabled: true`; Phase 4 adds an offline output (grounding) rail via `guardrail_output`, scoped to the `local_llm` answer only — both via `utils/guardrail_bridge.py`, still opt-in, still never imported directly by `gate.py`/`graph.py` |
-| `harness/env_keys.py` | Allowlisted dotenv secret store behind the console's `/api` panel. Writes `$CYCLAW_HOME/.env` (atomic everywhere; mode 600 on POSIX — Windows `os.chmod` cannot express owner-only, so confinement there is the inherited `%USERPROFILE%` ACL) in the same `export KEY='v'` form `macos/setup-cyclaw-keys.sh` uses, so the two never corrupt each other. File-only by design — nothing in CyClaw reads `.env` at runtime, so a write needs a restart to reach `gate.py`; `write_keys` reports `restart_required` rather than implying otherwise. Returns presence + a masked tail, never a value |
-| `harness/` | Out-of-band coding harness (`cyclaw-harness` / `python -m harness.server`): slash-command console on 127.0.0.1:8790 (`/goal`, `/loop`, `/skills`, `/tools`, allowlist-only `/web` off by default). `%USERPROFILE%\.CyClaw` home on Windows (`~/.CyClaw` on macOS/Linux). Reuses `agentic/` + `agentic/harness_optimizer/` via `utils.ops_runner`; same I6 isolation as `agentic/`. `/loop` and `/web` never start `/api/agent/*`. Launched via `powershell/` (Windows) or `macos/` (macOS/Linux). See `harness/README.md`, `docs/HARNESS_POWERSHELL.md`, `docs/HARNESS_MACOS.md` |
 | `telegram/` | Out-of-band Telegram channel (`python -m telegram.cli`), shipped `enabled: false`. Outbound notify (`mode: notify`) and, when configured, long-poll inbound chat (`mode: chat`) via the Telegram Bot API; inbound text only ever becomes an answer through HTTP `POST /query` on loopback — never a direct call into `graph.py`. `gate.py`/`graph.py`/`mcp_hybrid_server.py` never import it (I6). T3 hybrid-confirm consent (`allow_hybrid_confirm`, default off) is the only way chat text can set `user_confirmed_online`, and only via the exact `/online on <grok|claude>` command — core's triple gate remains the final authority. T4 media staging (default off) writes only through the existing `agentic/fsconnect` write path. See `docs/channels/TELEGRAM_DESIGN.md` and `docs/THREAT_MODEL.md`'s seventh amendment |
 | `opentweet/` | Out-of-band OpenTweet X channel (`python -m opentweet.cli`), shipped `enabled: false`. Weekly generate-don't-load LaunchAgent / generate-don't-register Windows task. Generation is loopback `POST /query` with `user_confirmed_online: false`; default write is an OpenTweet draft; `scheduled_date` is opt-in. Never a graph node, never X/Tweepy, never hosted OpenTweet MCP. See `docs/channels/OPENTWEET_DESIGN.md` |
 
@@ -271,15 +265,15 @@ statically; run it after any change to the core files.
 | I3 | **Triple-gated external fallback** — a call to Grok or Claude needs `mode=="hybrid"` AND `<provider>.enabled` AND `user_confirmed_online`, all three, for whichever provider is selected (`online_provider`) | `gate.py` construction + `graph.py` `user_gate_router` | `test_graph`, `test_gate` | route to `grok_fallback`/`claude_fallback` without all three conditions for that provider |
 | I4 | **Audit convergence** — all eleven upstream paths reach `audit_logger` before END | `graph.py` edges | `test_graph` | add a node with a path to END that skips `audit_logger` |
 | I5 | **Soul governance** — soul mutation requires a human `reason` string; writes are atomic | `utils/personality.py` `apply_evolution` | `test_personality` | write `soul.md` without a non-empty `reason`, or bypass `PersonalityManager` |
-| I6 | **Module isolation** — `gate.py`/`gate_ops.py`/`gate_auth.py`/`gate_memory.py`/`graph.py`/`mcp_hybrid_server.py` never import `agentic`/`sync`/`guardrails`/`harness`/`telegram`/`opentweet`, and those never import the core six | import graph | invariant-guard I6; `test_agentic_isolation` (AST, both directions) | `import agentic` (etc.) anywhere in the core six to "reuse" something |
+| I6 | **Module isolation** — `gate.py`/`gate_ops.py`/`gate_auth.py`/`gate_memory.py`/`graph.py`/`mcp_hybrid_server.py` never import `agentic`/`sync`/`guardrails`/`telegram`/`opentweet`, and those never import the core six | import graph | invariant-guard I6; `test_agentic_isolation` (AST, both directions) | `import agentic` (etc.) anywhere in the core six to "reuse" something |
 
 Supporting guards (also checked by `invariant-guard`): telemetry-kill ordering
-across 15 files — gate.py's `_TELEMETRY_KILL` anchor precedes its heavy
+across 14 files — gate.py's `_TELEMETRY_KILL` anchor precedes its heavy
 imports; every out-of-band package `__init__.py` (agentic, guardrails,
 telegram, opentweet, sync) applies the kill before ANY other import; and the
-nine module-level appliers (MCP server, metrics, harness server,
-vector_store, indexer, clear_cache, guardrails/integration, gen_cert,
-authn_cli) apply it before any third-party import — so no entry point
+eight module-level appliers (MCP server, metrics, vector_store, indexer,
+clear_cache, guardrails/integration, gen_cert, authn_cli) apply it before
+any third-party import — so no entry point
 inherits an ambient telemetry env;
 unset `CYCLAW_API_KEY` fails auth **closed** (401);
 the sanitizer contract phrases stay caught; BM25 stays JSON (pickle = RCE); MCP
@@ -360,8 +354,8 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   survive session end — the container is reclaimed and rebuilt from the same
   generic image, not from anything in this repo — so treat it as a
   per-session setup step, not a one-time fix. Do not change the container's
-  system-wide `python3` default (`update-alternatives`): the harness's own
-  hook scripts (`~/.claude/*.py`) shebang `#!/usr/bin/env python3` and resolve
+  system-wide `python3` default (`update-alternatives`): the session
+  runtime's own hook scripts (`~/.claude/*.py`) shebang `#!/usr/bin/env python3` and resolve
   through it.
 - **Trap:** assuming the server refuses to boot without `GROK_API_KEY`.
   **Rule:** `security.require_env` is **decorative** — no code reads it. The
@@ -789,9 +783,9 @@ packaging) fails the workflow. Advisory lanes elsewhere are
 blocks), and best-effort steps in the
 nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources:
 `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`,
-`utils`, `sync`, `agentic`, `guardrails`, `harness`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
+`utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
 all external deps — no live services required. The full test-file list is
-discoverable in `tests/` (220 `test_*.py` files including the two under
+discoverable in `tests/` (206 `test_*.py` files including the two under
 `tests/nemo_runtime/`, auto-collected by pytest).
 
 ---
@@ -820,7 +814,7 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | Skill | Type | Purpose |
 |---|---|---|
 | `/CyClaw-Optimize` | task | Scan main for optimizations; open focused draft PRs |
-| `/CyClaw-Sandbox` | task | Clone main, mock Ollama (3-tier realism), full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR) |
+| `/CyClaw-Sandbox` | task | Clone main, mock Ollama, full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR) |
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
 | `/wrap-up` | task | End-of-session checklist (ship / remember / improve / publish) |
 | `/create-session-notes` | task | Maintain `SESSION_NOTES.md` |
@@ -828,7 +822,7 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails: surgical diffs, surfaced assumptions, verifiable success criteria |
 | `/cyclaw-advisor` | mode | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes |
-| `/cyclaw-gotchas` | reference + driver | Session-tested traps for Claude Code sandboxes (proxy-denied torch/Hugging Face hosts, the 3.12 venv, the silent pytest summary, PR/check-in/review-bot process, the harness single-stream 409s) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Load before installing deps, running tests, launching `gate.py`, or driving a PR |
+| `/cyclaw-gotchas` | reference + driver | Session-tested traps for Claude Code sandboxes (proxy-denied torch/Hugging Face hosts, the 3.12 venv, the silent pytest summary, PR/check-in/review-bot process) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Load before installing deps, running tests, launching `gate.py`, or driving a PR |
 
 ### Standalone commands (no skill folder)
 
@@ -897,8 +891,8 @@ switch fires no hook, so after switching to Sonnet or Opus mid-session run
 Single source of truth: `utils/agent_identity.py`. Committer defaults are
 **driver-agnostic** (not Claude/Anthropic) because the agentic loop is often a
 local model or another coding agent — attribution should not pretend otherwise.
-All three write surfaces read the same module: repo_workspace commits, writer
-PR heads, and harness console branch validation.
+Both write surfaces read the same module: repo_workspace commits and writer
+PR heads.
 
 **Branch namespaces** follow `.github/PULL_REQUEST_TEMPLATE.md` — validation
 accepts every listed vendor (and `agent/`):

@@ -24,7 +24,6 @@ Other approaches you thought about, and why this one seems better.
 <!-- Delete the ones that don't apply. -->
 - [ ] Core RAG/gateway path (`gate.py`, `graph.py`, `retrieval/`)
 - [ ] Soul Console / terminal UI
-- [ ] Harness console
 - [ ] Out-of-band subsystem (`agentic/`, `sync/`, `telegram/`, `opentweet/`)
 - [ ] CI / packaging / dev workflow
 - [ ] Documentation only

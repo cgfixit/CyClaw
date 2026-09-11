@@ -56,7 +56,7 @@ def main() -> int:
     # gate_auth.py and gate_memory.py register onto this same app (see
     # gate.py's register_*_routes() calls), so a new route added to any of
     # them is silently uncovered here until it's listed, same convention as
-    # harness_runtime_check.py's own comment on this exact pattern.
+    # the same pattern the retired console runtime check used.
     routes = {getattr(r, "path", None) for r in getattr(app, "routes", [])}
     expected = {
         "/health", "/query", "/soul", "/soul/propose", "/soul/apply",

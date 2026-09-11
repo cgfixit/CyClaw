@@ -540,7 +540,6 @@ _ASSERT_KILLED = (
         "import retrieval.vector_store",
         "import agentic",
         "import guardrails",
-        "import harness.server",
         "import metrics",
         "import retrieval.clear_cache",
         # issue #1135 additions: the remaining out-of-band packages, the two

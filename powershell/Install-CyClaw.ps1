@@ -1,23 +1,18 @@
 <#
 .SYNOPSIS
-  Installs the CyClaw PowerShell coding harness for the current user.
+  Installs the CyClaw RAG gateway launcher for the current user.
 
 .DESCRIPTION
   Target platforms: Windows 10, Windows 11, Windows Server 2019/2022 with
   Windows PowerShell 5.1 (also works on PowerShell 7+).
 
-  After install, typing `cyclaw` in any PowerShell window starts the
-  grok-build-style local coding harness (browser console on 127.0.0.1:8790).
+  After install, typing `cyclaw` in any PowerShell window starts the RAG
+  gateway (terminal console on 127.0.0.1:8787).
 
   Everything mutable lives under %USERPROFILE%\.CyClaw:
     repo\       the CyClaw checkout (cloned, or linked via -RepoPath)
     venv\       the Python virtual environment
     bin\        the cyclaw.cmd shim + launcher
-    sessions\   chat sessions with token tallies
-    skills\     user-visible copy of .claude/skills
-    tools\      connector/tool state
-    memory\     harness memory log
-    config.json selected model, soul on/off
 
 .PARAMETER RepoPath
   Use an existing CyClaw clone instead of cloning from GitHub.
@@ -35,7 +30,7 @@
 
 .PARAMETER ReplaceRepo
   If %USERPROFILE%\.CyClaw\repo exists but is not a usable CyClaw checkout
-  (no harness\server.py), delete it and clone origin/main. Without this
+  (no gate.py), delete it and clone origin/main. Without this
   switch the installer refuses rather than silently Remove-Item -Recurse.
   Does not apply with -RepoPath.
 
@@ -85,21 +80,20 @@ $Home_ = Join-Path $env:USERPROFILE ".CyClaw"
 $Bin   = Join-Path $Home_ "bin"
 $Repo  = Join-Path $Home_ "repo"
 $Venv  = Join-Path $Home_ "venv"
-foreach ($d in @($Home_, $Bin, (Join-Path $Home_ "sessions"), (Join-Path $Home_ "skills"),
-                 (Join-Path $Home_ "tools"), (Join-Path $Home_ "memory"))) {
+foreach ($d in @($Home_, $Bin)) {
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null }
 }
 Write-Step "home layout ready at $Home_"
 
 # -- 2. Repo ------------------------------------------------------------------
 if ($RepoPath -ne "") {
-    if (-not (Test-Path (Join-Path $RepoPath "harness\server.py"))) {
-        throw "RepoPath '$RepoPath' does not look like a CyClaw checkout with the harness package."
+    if (-not (Test-Path (Join-Path $RepoPath "gate.py"))) {
+        throw "RepoPath '$RepoPath' does not look like a CyClaw checkout."
     }
     $Repo = (Resolve-Path $RepoPath).Path
     Write-Step "using existing repo at $Repo"
 }
-elseif (-not (Test-Path (Join-Path $Repo "harness\server.py"))) {
+elseif (-not (Test-Path (Join-Path $Repo "gate.py"))) {
     if (Test-Path $Repo) {
         if (-not $ReplaceRepo) {
             throw "cyclaw: '$Repo' exists but is not a usable CyClaw checkout. Move it aside or re-run with -ReplaceRepo to overwrite it."
@@ -181,7 +175,7 @@ Copy-Item $LauncherSrc $LauncherDst -Force
 $Shim = Join-Path $Bin "cyclaw.cmd"
 $ShimBody = @"
 @echo off
-rem CyClaw harness launcher (installed shim). PowerShell 5.1+ required.
+rem CyClaw launcher (installed shim). PowerShell 5.1+ required.
 rem The two telemetry/update-check lines below must run BEFORE powershell
 rem starts: pwsh reads POWERSHELL_TELEMETRY_OPTOUT once, at its own process
 rem startup, so setting it inside an already-running host is too late for
@@ -241,4 +235,4 @@ function global:cyclaw {
 
 Write-Host ""
 Write-Step "install complete. Open a NEW PowerShell window and run:  cyclaw"
-Write-Step "the harness console opens at http://127.0.0.1:8790 -- /help lists commands."
+Write-Step "the terminal console opens at http://127.0.0.1:8787."

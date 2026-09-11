@@ -17,7 +17,7 @@ dependencies = [
     "chromadb==1.5.9",  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
     "sentence-transformers==5.6.0",
     # huggingface_hub and starlette are imported directly by first-party source
-    # (retrieval/embeddings.py, gate.py/harness/server.py) but were, until now,
+    # (retrieval/embeddings.py, gate.py) but were, until now,
     # only implicit transitives of sentence-transformers/fastapi respectively --
     # a resolver has no obligation to keep pulling them in just because a parent
     # happens to today. Pinned to the exact version a clean `pip install -c
@@ -148,12 +148,11 @@ cyclaw-mcp = "mcp_hybrid_server:main"
 cyclaw-index = "retrieval.indexer:main"
 cyclaw-metrics = "metrics:main"
 cyclaw-clear-cache = "retrieval.clear_cache:main"
-cyclaw-harness = "harness.server:main"
 cyclaw-user = "utils.authn_cli:main"
 cyclaw-gen-cert = "utils.gen_cert:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "harness", "telegram", "opentweet", "memory"]
+packages = ["utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "telegram", "opentweet", "memory"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "gate.py" = "gate.py"
@@ -173,7 +172,7 @@ include = [
     "gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py", "graph.py", "mcp_hybrid_server.py", "metrics.py",
     "mcp_manifest.json",
     "config.yaml", "constraints.txt", "environment.yml", "utils", "retrieval", "memory",
-    "llm", "schemas", "static", "data", "sync", "agentic", "guardrails", "harness", "telegram", "opentweet", "powershell", "macos", "windows",
+    "llm", "schemas", "static", "data", "sync", "agentic", "guardrails", "telegram", "opentweet", "powershell", "macos", "windows",
 ]
 
 [tool.pytest.ini_options]
@@ -190,7 +189,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gate", "gate_ops", "gate_auth", "gate_memory", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils", "sync", "agentic", "guardrails", "harness", "telegram", "opentweet", "memory", "schemas"]
+source = ["gate", "gate_ops", "gate_auth", "gate_memory", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils", "sync", "agentic", "guardrails", "telegram", "opentweet", "memory", "schemas"]
 omit = ["tests/*", "*/test_*", "*/__pycache__/*", "agentic/fsconnect/*", "agentic/sqlconnect/*", "agentic/netconnect/*", "agentic/vendor/*"]
 
 [tool.coverage.report]
@@ -210,10 +209,10 @@ exclude = [".claude", "agentic/vendor"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "C4", "UP", "S"]
 ignore = ["E501"]
-per-file-ignores = { "tests/*" = ["S101", "S603", "S108", "F401", "I001", "S105", "F841", "B007", "C408", "F541", "B904", "E501"], "gate.py" = ["E402", "I001", "B008", "E501"], "gate_auth.py" = ["B008"], "graph.py" = ["E501"], "utils/personality.py" = ["S608"], "utils/authn_manager.py" = ["S608"], "agentic/__init__.py" = ["E402"], "guardrails/__init__.py" = ["E402"], "telegram/__init__.py" = ["E402"], "opentweet/__init__.py" = ["E402"], "sync/__init__.py" = ["E402"], "harness/server.py" = ["E402", "B008", "E501"] }
+per-file-ignores = { "tests/*" = ["S101", "S603", "S108", "F401", "I001", "S105", "F841", "B007", "C408", "F541", "B904", "E501"], "gate.py" = ["E402", "I001", "B008", "E501"], "gate_auth.py" = ["B008"], "graph.py" = ["E501"], "utils/personality.py" = ["S608"], "utils/authn_manager.py" = ["S608"], "agentic/__init__.py" = ["E402"], "guardrails/__init__.py" = ["E402"], "telegram/__init__.py" = ["E402"], "opentweet/__init__.py" = ["E402"], "sync/__init__.py" = ["E402"] }
 
 [tool.ruff.lint.isort]
-known-first-party = ["utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "harness", "telegram", "opentweet", "memory"]
+known-first-party = ["utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "telegram", "opentweet", "memory"]
 
 [tool.mypy]
 python_version = "3.12"

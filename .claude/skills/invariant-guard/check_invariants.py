@@ -13,7 +13,7 @@ Checks (one section per invariant, plus supporting guards):
   I3  Triple-gated external providers  hybrid mode + provider.enabled + user confirmation
   I4  Audit convergence  every node reaches audit_logger; audit_logger -> END
   I5  Soul governance    apply_evolution refuses an empty reason
-  I6  Module isolation   agentic/sync/guardrails/harness/telegram/opentweet never meet gate/graph/mcp
+  I6  Module isolation   agentic/sync/guardrails/telegram/opentweet never meet gate/graph/mcp
 
   G1  Telemetry kill     env kill-block precedes heavy imports in gate.py
   G2  Auth fail-closed   soul endpoints 401 when CYCLAW_API_KEY unset
@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 CORE_FILES = ("gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py", "graph.py", "mcp_hybrid_server.py")
-OUT_OF_BAND_PKGS = ("agentic", "sync", "guardrails", "harness", "telegram", "opentweet")
+OUT_OF_BAND_PKGS = ("agentic", "sync", "guardrails", "telegram", "opentweet")
 
 # The full documented graph shape (CLAUDE.md's "12-node LangGraph topology").
 # I1/I2 previously checked only that specific expected edges/sources were
@@ -480,7 +480,7 @@ def main(argv: list[str] | None = None) -> int:
     # gate_auth.py / gate_memory.py join gate_ops.py here for the same reason:
     # each is imported directly by gate.py (`register_*_routes`), so anything
     # they import is transitively pulled into gate.py's process -- an
-    # `import agentic` (or sync/guardrails/harness/telegram) landing there
+    # `import agentic` (or sync/guardrails/telegram) landing there
     # would be a substantive I6 violation this check must not stay blind to.
     for fname, tree in (("gate.py", gate_tree), ("gate_ops.py", gate_ops_tree),
                         ("gate_auth.py", gate_auth_tree),
@@ -569,7 +569,6 @@ def main(argv: list[str] | None = None) -> int:
     for label in (
         "mcp_hybrid_server.py",
         "metrics.py",
-        "harness/server.py",
         "retrieval/vector_store.py",
         "retrieval/indexer.py",
         "retrieval/clear_cache.py",

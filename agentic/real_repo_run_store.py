@@ -1,6 +1,6 @@
 """On-disk persistence for pending real-repo coding runs.
 
-A CLI-subprocess-per-call model (the only way ``harness/server.py`` may reach
+A CLI-subprocess-per-call model (the only way a core route may reach
 ``agentic/`` at all -- see I6) can't hold a ``RealRepoLoopResult`` or an open
 ``RepoWorkspaceTools`` in memory between "start a run" and a later "check
 status" or "decide" call -- each is a separate process that exits after doing

@@ -1,6 +1,6 @@
 ---
 name: cyclaw-sandbox
-description: Comprehensive, mock-safe CyClaw sandbox verification against current origin/main. Use when asked to verify or test CyClaw, its RAG graph, terminal or harness consoles, REST endpoints, audit logs, installers, platform vault behavior, CI, unit/integration coverage, or browser-rendered screenshots.
+description: Comprehensive, mock-safe CyClaw sandbox verification against current origin/main. Use when asked to verify or test CyClaw, its RAG graph, terminal console, REST endpoints, audit logs, installers, platform vault behavior, CI, unit/integration coverage, or browser-rendered screenshots.
 metadata:
   short-description: Full current-main CyClaw sandbox verification
   tailored-for: "codex"
@@ -11,8 +11,7 @@ metadata:
 This Codex skill mirrors the runnable resources in the Claude
 `.claude/skills/Cyclaw-Sandbox/` bundle under `.codex/skills/Cyclaw-Sandbox/`.
 The copied runners are kept in that directory: `run_full_verification.py`,
-`gate_runtime_check.py`, `harness_runtime_check.py`,
-`terminal_emulation.py`, `harness_emulation.py`, `test_terminal_consoles.py`,
+`gate_runtime_check.py`, `terminal_emulation.py`, `test_terminal_consoles.py`,
 `verify.sh`, `smoke.sh`, `windows-smoke.ps1`, `macos-smoke.sh`,
 `mock_ollama.py`, and the specifications. Invoke this skill as
 `/cyclaw-sandbox`; it is explicit-only and does not replace Claude's skill.
@@ -51,14 +50,14 @@ configuration before running tests. Verify rather than copy these values:
 - `config.yaml`: `app.mode`, loopback `api.host`/`port`, local `trusted_hosts`, local model and
   `fallback` model, provider enablement, retrieval `rrf_k` and `min_score`,
   auth/memory/agentic/guardrails/fsconnect/sqlconnect/sync/Telegram/OpenTweet
-  switches, Numbat, and harness defaults.
+  switches, and Numbat.
 - `graph.py`: count live `graph.add_node` calls (current main is expected to
   have 12, including `pre_action_hook_grok` and `pre_action_hook_claude`),
   confirm `retrieve` is entry, policy routers are conditional edges, and every
   path converges at `audit_logger`. Both local answer nodes must preserve typed
   malformed-URL errors, default loopback trust, and explicit trusted-host access.
-- `gate.py`, `gate_auth.py`, `gate_memory.py`, `gate_ops.py`,
-  `harness/server.py`, `static/terminal.html`, and `static/harness.html`:
+- `gate.py`, `gate_auth.py`, `gate_memory.py`, `gate_ops.py`, and
+  `static/terminal.html`:
   derive the actual route table and browser fetch calls instead of assuming
   the copied checklist is current.
 - `pyproject.toml`, `requirements*.txt`, `constraints.txt`, `environment.yml`,
@@ -137,7 +136,7 @@ Also run the relevant focused groups, not only the aggregate suite:
 - `test_due_diligence_invariants.py`, `test_security.py`, `test_sanitizer.py`,
   `test_logger.py`, `test_metrics.py`, `test_numbat_emitter.py`,
   `test_numbat_audit_projection.py`, and `test_sequence_detect.py`;
-- all `test_terminal*`, `test_harness*`, `test_gate*`, `test_gate_auth*`,
+- all `test_terminal*`, `test_gate*`, `test_gate_auth*`,
   `test_memory*`, `test_auth*`, `test_mcp*`, and `test_telemetry_kill.py`;
 - installer and OS glue tests: `test_readme_install_contract.py`,
   `test_installer_python_contract.py`, `test_setup_from_clone.py`,
@@ -197,7 +196,7 @@ and external `answer_sources` remains `[]`. Never use live keys.
 ### 5. Audit and observability integrity
 
 Create an isolated `logs/audit.jsonl`, drive local, denied, blocked,
-external-unavailable, and harness/operator actions, then verify:
+external-unavailable, and operator actions, then verify:
 
 - every graph route reaches `audit_logger` exactly once;
 - records contain hashed queries and redacted fields, never plaintext queries,
@@ -234,36 +233,19 @@ limits, schema errors, disabled optional layers, and successful read-only
 operations. Never execute a real agentic write, SQL mutation, filesystem
 escape, sync upload, or external-provider request in the sandbox.
 
-### 7. Harness REST surface and slash commands
-
-Start `harness.server` on isolated loopback port `8790` with a temp
-`CYCLAW_HOME`, then run `harness_runtime_check.py` and
-`harness_emulation.py`. Verify all routes used by the current
-`static/harness.html`, including status/registry, sessions, goals, soul/model
-local toggles, chat fallback/rate limit, cancellation, tools/skills, web
-allow/deny/fetch/search/inject/forget, memory-local notes, keys masking,
-GitHub status, harness runs, and agent-run decision gates.
-
-Probe every guard independently: missing API key, missing CSRF, cross-origin,
-non-loopback bind, unknown IDs, and disabled features. Do not start a real
-`/api/agent/run`; verify its auth gate and human decision transition only.
-Confirm no secret values enter `.env` output, audit records, browser DOM, or
-reports; only masked tails/key names may appear.
-
-### 8. Browser rendering and screenshots
+### 7. Browser rendering and screenshots
 
 HTTP emulation and HTML string contracts are not full browser verification.
 When Playwright or an equivalent browser is available, run it against the
-isolated mock-backed gateway and harness:
+isolated mock-backed gateway:
 
-1. Load `http://127.0.0.1:8787/` and `http://127.0.0.1:8790/` in Chromium;
+1. Load `http://127.0.0.1:8787/` in Chromium;
    wait for network idle and the application readiness signal.
-2. Capture desktop and narrow/mobile viewport screenshots of the terminal and
-   harness, including each visible console/pane, status/error banners, and
+2. Capture desktop and narrow/mobile viewport screenshots of the terminal,
+   including each visible console/pane, status/error banners, and
    responsive overflow behavior. Save only to an ignored temp/report folder.
 3. Exercise the browser's actual click/input/fetch flows for query, health
-   refresh, soul/ops auth errors, harness sessions/goal/loop/cancel, and the
-   current safe chat fallback. Assert no uncaught page errors, failed required
+   refresh, and soul/ops auth errors. Assert no uncaught page errors, failed required
    requests, console errors, or unexpected navigation.
 4. Inspect the rendered DOM for the current security contracts: no model or
    registry content is inserted through unsafe `innerHTML`, CSP/frame headers
@@ -278,11 +260,11 @@ does not prove native macOS/Windows behavior, LLM quality, CI, or security
 invariants by itself. Review each screenshot before publication and include
 only sanitized images in a PR/report.
 
-### 9. Platform live smoke and OS glue
+### 8. Platform live smoke and OS glue
 
 On native Windows run `windows-smoke.ps1` with the mock provider and isolated
 homes. On native macOS run `macos-smoke.sh` with the same contract. Both must
-cover the gateway and harness live HTTP surfaces and be compared for endpoint
+cover the gateway live HTTP surface and be compared for endpoint
 parity. On Linux, run static/platform simulation checks only and label the live
 native-only lanes `SKIP`.
 
@@ -292,7 +274,7 @@ cross-platform invocation. Secrets must come from a protected store or
 process-local environment and never appear in argv, shell history, plist/task
 XML, screenshots, or logs.
 
-### 10. Report and evidence ledger
+### 9. Report and evidence ledger
 
 Use this compact final record, expanding it with exact commands and failures:
 
@@ -309,7 +291,6 @@ Vault RRF parity: <P/F/S; platform/evidence noted>
 Triple-gate providers (mocked): <P/F/S>
 Audit + metrics + Numbat/sequence: <P/F/S/SKIP by surface>
 Gateway/terminal REST: <P/F/S>
-Harness REST/slash: <P/F/S>
 Browser rendering/screenshots: <P/F/S; tool + viewports>
 Windows native lane: <P/F/S>
 macOS native lane: <P/F/S>

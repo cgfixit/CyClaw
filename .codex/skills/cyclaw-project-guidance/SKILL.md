@@ -13,8 +13,8 @@ and inspect the live diff before carrying those observations forward.
 | Task | Sources |
 |---|---|
 | Routing, local/container models | `graph.py`, `utils/endpoint_trust.py`, `llm/client.py`, `config.yaml`, `tests/test_endpoint_trust.py`, `tests/test_graph.py` |
-| Auth or public HTTP surface | `gate.py`, `gate_auth.py`, `utils/auth.py`, `utils/authn_manager.py`, `INVARIANTS.md`, `docs/THREAT_MODEL.md` |
-| Harness/agent runs | `harness/server.py`, `harness/agent_routes.py`, `agentic/executor/`, `utils/tool_broker.py`, `docs/agentic/` |
+| Auth or public HTTP surface | `gate.py`, `gate_auth.py`, `utils/authn_manager.py`, `INVARIANTS.md`, `docs/THREAT_MODEL.md` |
+| Agent runs | `utils/ops_runner.py`, `agentic/executor/`, `docs/agentic/` |
 | Install, launch, or dependencies | `setup-guide.md`, `macos/`, `powershell/`, manifests, Docker, active workflows |
 | Skills/docs | `.codex/README.md`, relevant skill plus UI metadata, `.claude/skills/doc-sync/` |
 

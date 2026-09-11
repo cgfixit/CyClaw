@@ -49,7 +49,7 @@ Scoped behavioral rules and non-negotiable constraints for Claude Code sessions 
 
 ### Testing
 
-- **Coverage Target:** 80% minimum (measured across the 18 sources in `pyproject.toml`'s `[tool.coverage.run]`: `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`, `harness`, `telegram`, `opentweet`, `memory`, `schemas`)
+- **Coverage Target:** 80% minimum (measured across the 17 sources in `pyproject.toml`'s `[tool.coverage.run]`: `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`)
 - **Test Command:** `GROK_API_KEY=dummy pytest tests/ -q --tb=short`
 - **No Live Services:** All external deps mocked via `tests/conftest.py`
 - **Exit Codes:** Respect exit code conventions (0=success, 2=operation failed, 3=env/config error, 4=write refused)
@@ -61,7 +61,7 @@ Scoped behavioral rules and non-negotiable constraints for Claude Code sessions 
 ### Never Import Into Core Paths
 
 The following modules **must never** import `agentic/`, `sync/`, `guardrails/`,
-`harness/`, `telegram/`, `opentweet/`, or each other:
+`telegram/`, `opentweet/`, or each other:
 - `gate.py` — FastAPI server entry
 - `gate_ops.py` / `gate_auth.py` / `gate_memory.py` — route modules registered onto gate.py's app
 - `graph.py` — LangGraph security topology

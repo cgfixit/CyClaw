@@ -51,10 +51,6 @@ credential is not readable on the wire.
   same model. `docs/THREAT_MODEL.md` §1 stays single-tenant, and this document
   does not change that.
 - **MCP server.** Separate app, stdio, `sampling: None`. Untouched.
-- **The harness (`:8790`).** Still loopback-only with its own API-key +
-  origin + CSRF chain on coding routes. Stage 6 shares the **same users
-  table** and a separate `cyclaw_harness_session` cookie. It is not a LAN
-  app.
 - **Authorization / roles.** **Amended (Stage 6).** Accounts now carry a
   `role` of `admin`, `operator`, or `audit`. This is authorization on the
   same single-tenant corpus, not multi-tenancy. See §12.
@@ -102,10 +98,8 @@ the shared `CYCLAW_API_KEY`.
 **Amendment (2026-08-15).** A second, independent escape hatch landed
 alongside the session/RBAC system this document specifies:
 `config.yaml`'s `security.api_key_optional` (default `false`). It bypasses
-`require_api_key` — the shared-secret mechanism row 2 above describes, in
-both its `gate.py` and `harness/server.py` (`utils/auth.py`) copies — for
-every route it gates, not just `/soul/*`/`/ops/*`/`/audit/summary` but also
-the harness console's 29 `guarded` routes (23 in `harness/server.py`, 6 in `harness/agent_routes.py`). It is orthogonal to everything in
+`require_api_key` — the shared-secret mechanism row 2 above describes — for
+every route it gates (`/soul/*`/`/ops/*`/`/memory/*`/`/audit/summary`). It is orthogonal to everything in
 this document: it does not touch `auth.enabled`, sessions, device tokens, or
 `/auth/*`, and an operator can run with `auth.enabled: true` (this design)
 and `api_key_optional: true` (bypassing the older mechanism) at the same
@@ -129,8 +123,7 @@ statement of "my own auth is in front") still outranks it.
 That bind-time refusal is defence in depth, not the primary control. The
 primary one is per-request: the bypass requires all of a loopback peer, no forwarding header, and a non-cross-site request, which holds
 regardless of how the process was launched — including the container's
-`uvicorn gate:app --host 0.0.0.0` and `uvicorn harness.server:app`, neither
-of which reaches a bind guard at all.
+`uvicorn gate:app --host 0.0.0.0`, which reaches no bind guard at all.
 
 Two consequences worth stating plainly.
 
@@ -244,13 +237,10 @@ bearer path issues *named, per-device, individually revocable* tokens stored as
 hashes — not the current single shared key. The existing `CYCLAW_API_KEY`
 continues to govern `/soul/*` and `/ops/*` unchanged, so this is additive.
 
-CSRF reuses the harness's proven pattern (`harness/server.py`:
-`secrets.token_urlsafe(32)`, `hmac.compare_digest`) rather than a new
-mechanism — with one deliberate deviation: the gate's token is **per
-session**, minted at login and returned in the `/auth/login` response body,
+CSRF uses `secrets.token_urlsafe(32)` + `hmac.compare_digest`: the gate's
+token is **per session**, minted at login and returned in the `/auth/login` response body,
 then echoed back by the browser in the `X-CyClaw-CSRF` header on
-state-changing routes. (The harness's own variant stores its token in a
-`<meta>` tag; that is the harness surface, not the gate's.)
+state-changing routes.
 
 At rest, `sessions.session_id` and `sessions.csrf_token` store
 `utils.authn.hash_token()` of the values above, never the plaintext — the
@@ -287,10 +277,9 @@ Turning `auth.enabled` on still seeds `admin` with an unusable `pending$`
 hash (CodeQL #1057: no one-time password on stdout). `cyclaw-user passwd
 admin` remains the local CLI path.
 
-When the operator opens the terminal (`:8787`) or harness (`:8790`) with
+When the operator opens the terminal (`:8787`) with
 auth on and that pending hash still in place, the UI shows a **Set admin
-password** panel instead of login. `GET /auth/setup-status` (and
-`/api/auth/setup-status` on the harness) reports `{enabled, needs_password, username}`
+password** panel instead of login. `GET /auth/setup-status` reports `{enabled, needs_password, username}`
 with no hashes. `POST /auth/bootstrap-password` accepts the new password
 **only from a loopback peer** (the literal set `127.0.0.1` / `::1` / `localhost`, plus anything `ipaddress.ip_address(...).is_loopback` accepts) with no reverse-proxy
 forwarding headers, then mints a session. A non-loopback or proxied caller
@@ -466,7 +455,6 @@ authenticated role can call for its own account **over a session cookie + CSRF**
 bearer path requires an admin token (`_require_write_actor`)); `/auth/whoami` returns
 `username` + `role`, and — on the session-cookie path only, never for a device token —
 a freshly rotated `csrf_token`; the response is sent `Cache-Control: no-store`. The
-rotate is load-bearing: without it a reload leaves logout and Users writes 403. The
-harness exposes the same store at `/api/auth/*`
-with a separate cookie. Telegram still uses a named
+rotate is load-bearing: without it a reload leaves logout and Users writes 403.
+Telegram still uses a named
 device token (`cyclaw-user token create <user> telegram`).

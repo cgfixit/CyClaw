@@ -354,7 +354,7 @@ class RepoWorkspaceTools:
         """Re-open an EXISTING clone directory a prior ``clone()`` call populated.
 
         Does not clone anything new. A CLI-subprocess-per-call model (the only
-        way ``harness/server.py`` may reach ``agentic/`` at all -- see I6) can't
+        way a core route may reach ``agentic/`` at all -- see I6) can't
         hold a live ``RepoWorkspaceTools`` object in memory between a "start a
         run" call and a later "decide" call; the clone directory's path,
         persisted on disk by whatever started the run, is the only thing that

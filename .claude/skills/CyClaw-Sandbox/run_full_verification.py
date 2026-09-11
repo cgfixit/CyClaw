@@ -6,8 +6,8 @@ Runs in sandbox mode (no external dependencies needed) or full-dependency mode.
 Executes 5 queries covering: vault hit x2, offline best-effort (Qwen),
 Grok API connection-only, Claude API connection-only.
 
-Runs 11 phases (Phase 1 Config & Security Invariants ... Phase 11 Harness HTML
-Contract) totalling ~189 checks; each phase prints its own PASS/FAIL tally and
+Runs 9 phases (Phase 1 Config & Security Invariants ... Phase 9 Terminal HTML
+Contract); each phase prints its own PASS/FAIL tally and
 the final report is never hand-counted here -- see verification_report.json.
 
 Verifies:
@@ -19,16 +19,10 @@ Verifies:
   6. API key redaction parity (Anthropic keys redacted same as Grok)
   7. Metrics escalation + due-diligence invariants (unwired
      require_user_confirm, module isolation, RAG-first entry point)
-  8. Terminal + harness REST endpoint registration (gate.py + gate_ops.py +
+  8. Terminal REST endpoint registration (gate.py + gate_ops.py +
      gate_auth.py + gate_memory.py; SQL read-only guards; security headers)
   9. Terminal console contract (terminal.html + terminal.js combined source --
      panels, provider buttons, all 4 slash commands, REST endpoint calls)
-  10. Harness console REST API (status, registry, tools/skills wiring,
-      sessions, soul/model toggles, /api/keys, chat, GitHub status, harness
-      runs, agent routes) via a real FastAPI TestClient -- plus rate-limit,
-      auto-docs-disabled, and DNS-rebinding checks against the live app object
-  11. Harness HTML contract (panes, API endpoints, the full slash-command
-      palette derived from harness.html's own COMMANDS array, XSS safety)
 
 Usage:
     python3 .claude/skills/CyClaw-Sandbox/run_full_verification.py
@@ -1003,9 +997,7 @@ def phase_terminal_consoles() -> PhaseResult:
     # the same app) -- a gate.py-only grep silently "loses" every route that
     # moved out during that split. Concatenating the four files' source stays
     # in this script's existing style (every other phase here is static-text
-    # analysis; Phase 10 is deliberately the only one that live-imports an
-    # app, and only harness.server's, which -- unlike gate.py -- has none of
-    # the heavy retrieval/graph dependencies this sandbox stubs).
+    # analysis).
     gate_src = "\n".join(
         Path(f).read_text()
         for f in ("gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py")
@@ -1195,424 +1187,6 @@ def phase_terminal_html() -> PhaseResult:
 
 
 # ---------------------------------------------------------------------------
-# Phase 10: Harness Console REST API Verification
-# ---------------------------------------------------------------------------
-def _harness_mock_transport(reply: str = "mock harness reply", prompt_tokens: int = 5, completion_tokens: int = 8):
-    import httpx
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={
-            "model": "qwen3.8:27b-mlx",
-            "choices": [{"message": {"role": "assistant", "content": reply}}],
-            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens},
-        })
-
-    return httpx.MockTransport(handler)
-
-
-def phase_harness_console() -> PhaseResult:
-    banner("Phase 10: Harness Console REST API Verification")
-    phase = PhaseResult("Harness Console")
-
-    # Real FastAPI TestClient, not source-text grepping like the terminal
-    # phases above -- harness/server.py has none of gate.py's heavy retrieval/
-    # graph dependencies, so building and hitting the real app is cheap and
-    # strictly more thorough than checking for endpoint string literals.
-    try:
-        from fastapi.testclient import TestClient
-        from harness.config import HarnessConfig
-        from harness.ollama import HarnessChatClient
-        from harness.server import create_app
-    except ImportError as exc:
-        log(f"  Harness console phase skipped (import error): {exc}", Y)
-        phase.checks.append(Check("harness_console_importable", False, str(exc)))
-        return phase
-
-    # Isolate the harness home so this phase never touches the operator's
-    # real ~/.CyClaw / %USERPROFILE%\.CyClaw.
-    home = Path(tempfile.mkdtemp(prefix="cyclaw-harness-sandbox-"))
-    os.environ["CYCLAW_HOME"] = str(home)
-
-    cfg = HarnessConfig.load()
-    chat = HarnessChatClient(
-        base_url="http://127.0.0.1:11434/v1", model="qwen3.8:27b-mlx", transport=_harness_mock_transport(),
-    )
-    # The five state-changing POSTs, GET /api/github/status and the three
-    # /api/agent/* run routes are Bearer-gated (utils/auth.py) AND require the
-    # per-process CSRF token create_app() mints and exposes on app.state --
-    # verify.sh exports CYCLAW_API_KEY; fall back to a literal so a standalone
-    # run still exercises the guarded routes instead of 401ing.
-    _key = os.environ.setdefault("CYCLAW_API_KEY", "sandbox-harness-key")
-    _app = create_app(cfg, chat)
-    _auth = {"Authorization": f"Bearer {_key}", "X-CyClaw-CSRF": _app.state.csrf_token}
-    client = TestClient(_app, base_url="http://127.0.0.1", headers=_auth)
-
-    log("\n  --- Status / Registry ---")
-    r = client.get("/api/status")
-    phase.checks.append(Check("harness_status_200", r.status_code == 200))
-    status_fields = ("version", "model", "provider", "base_url", "soul_enabled",
-                      "home", "repo_root", "sessions", "total_tokens", "layout")
-    phase.checks.append(Check("harness_status_fields", all(k in r.json() for k in status_fields)))
-
-    r = client.get("/api/registry")
-    reg = r.json()
-    phase.checks.append(Check("harness_registry_200", r.status_code == 200))
-    phase.checks.append(Check(
-        "harness_registry_shape",
-        all(isinstance(reg.get(k), list) for k in ("skills", "tools", "connectors")),
-    ))
-
-    r = client.get("/api/tools")
-    tools_payload = r.json() if r.status_code == 200 else {}
-    phase.checks.append(Check("harness_tools_200", r.status_code == 200))
-    phase.checks.append(Check(
-        "harness_tools_shape",
-        isinstance(tools_payload.get("tools"), list)
-        and isinstance(tools_payload.get("diagram"), str)
-        and "HARNESS TOOLS" in (tools_payload.get("diagram") or ""),
-    ))
-    tool_names = {t.get("name") for t in tools_payload.get("tools") or []}
-    phase.checks.append(Check(
-        "harness_tools_includes_goal_and_hybrid_search",
-        {"goal", "loop", "hybrid_search"} <= tool_names,
-    ))
-    phase.checks.append(Check(
-        "harness_tools_all_harness_rows_wired",
-        all(t.get("wired") for t in (tools_payload.get("tools") or []) if t.get("kind") == "harness"),
-    ))
-
-    r = client.get("/api/skills")
-    skills_payload = r.json() if r.status_code == 200 else {}
-    phase.checks.append(Check("harness_skills_200", r.status_code == 200))
-    phase.checks.append(Check(
-        "harness_skills_shape",
-        isinstance(skills_payload.get("skills"), list)
-        and isinstance(skills_payload.get("diagram"), str)
-        and "HARNESS SKILLS" in (skills_payload.get("diagram") or ""),
-    ))
-    skill_names = {s.get("name") for s in skills_payload.get("skills") or []}
-    phase.checks.append(Check(
-        "harness_skills_includes_prompt_and_check",
-        {"ponytail", "karpathy-guidelines", "invariant-guard"} <= skill_names,
-    ))
-
-    r = client.get("/api/web")
-    web_payload = r.json() if r.status_code == 200 else {}
-    phase.checks.append(Check("harness_web_200", r.status_code == 200))
-    phase.checks.append(Check(
-        "harness_web_default_off_empty_allowlist",
-        web_payload.get("enabled") is False and web_payload.get("allowlist") == [],
-    ))
-    deny = client.post("/api/web/fetch", json={"url": "https://example.com/"})
-    phase.checks.append(Check(
-        "harness_web_fetch_disabled_is_409",
-        deny.status_code == 409
-        and (deny.json().get("detail") or {}).get("code") == "WEB_DISABLED",
-    ))
-
-    r = client.get("/api/memory")
-    mem_payload = r.json() if r.status_code == 200 else {}
-    phase.checks.append(Check("harness_memory_200", r.status_code == 200))
-    phase.checks.append(Check(
-        "harness_memory_default_off",
-        mem_payload.get("enabled") is False
-        and mem_payload.get("count") == 0
-        and mem_payload.get("rag", {}).get("writable_from_harness") is False,
-    ))
-    added = client.post("/api/memory/add", json={"text": "prefer ruff"})
-    phase.checks.append(Check(
-        "harness_memory_add",
-        added.status_code == 200 and added.json().get("count") == 1,
-    ))
-    client.post("/api/memory/clear")
-
-    log("  --- Sessions CRUD ---")
-    r = client.post("/api/sessions", json={"title": "sandbox check"})
-    phase.checks.append(Check("harness_session_create_201", r.status_code == 201))
-    sid = r.json().get("session_id")
-    phase.checks.append(Check("harness_session_create_has_id", bool(sid)))
-
-    r = client.get(f"/api/sessions/{sid}")
-    phase.checks.append(Check("harness_session_get", r.status_code == 200 and r.json().get("session_id") == sid))
-
-    r = client.post(f"/api/sessions/{sid}/rename", json={"title": "renamed"})
-    phase.checks.append(Check("harness_session_rename", r.status_code == 200 and r.json().get("title") == "renamed"))
-
-    r = client.post(f"/api/sessions/{sid}/goal", json={"goal": "  sandbox goal  "})
-    phase.checks.append(Check(
-        "harness_session_goal_set",
-        r.status_code == 200 and r.json().get("goal") == "sandbox goal",
-    ))
-    r = client.get(f"/api/sessions/{sid}")
-    phase.checks.append(Check(
-        "harness_session_goal_persists",
-        r.status_code == 200 and r.json().get("goal") == "sandbox goal",
-    ))
-    r = client.post(
-        "/api/chat",
-        json={"message": "loop toward sandbox goal", "session_id": sid, "loop": True},
-    )
-    phase.checks.append(Check(
-        "harness_loop_turn_with_goal",
-        r.status_code == 200,
-        f"status={r.status_code}",
-    ))
-    r = client.post(f"/api/sessions/{sid}/goal", json={"goal": ""})
-    phase.checks.append(Check(
-        "harness_session_goal_clear",
-        r.status_code == 200 and r.json().get("goal") == "",
-    ))
-    r = client.post("/api/sessions/000000000000/goal", json={"goal": "nope"})
-    phase.checks.append(Check("harness_session_goal_unknown_404", r.status_code == 404))
-
-    r = client.get("/api/sessions/000000000000")
-    phase.checks.append(Check("harness_session_unknown_404", r.status_code == 404))
-
-    log("  --- Soul / Model toggles ---")
-    before = client.get("/api/soul").json().get("enabled")
-    flipped = client.post("/api/soul", json={"enabled": not before}).json().get("enabled")
-    phase.checks.append(Check("harness_soul_toggle_flips", flipped == (not before)))
-    client.post("/api/soul", json={"enabled": before})  # restore
-
-    # /api/model stores whatever string is posted (model_select() does not
-    # validate against a registry) -- use the shipped local model tag rather
-    # than an unrelated literal, matching harness_emulation.py's own check.
-    r = client.post("/api/model", json={"model": "qwen3.8:27b-mlx"})
-    phase.checks.append(Check("harness_model_select", r.json().get("model") == "qwen3.8:27b-mlx"))
-
-    log("  --- API keys panel (/api set) ---")
-    r = client.get("/api/keys")
-    phase.checks.append(Check("harness_keys_200", r.status_code == 200))
-    keys_payload = r.json() if r.status_code == 200 else {}
-    phase.checks.append(Check(
-        "harness_keys_shape", "keys" in keys_payload and "env_file" in keys_payload,
-    ))
-    # The one secret value this process actually holds (the Bearer key this
-    # very phase authenticates with) must never round-trip in the response --
-    # a direct leak check, not a length heuristic.
-    phase.checks.append(Check(
-        "harness_keys_no_secret_leak", _key not in json.dumps(keys_payload),
-    ))
-
-    log("  --- Chat (mocked backend) ---")
-    r = client.post("/api/chat", json={"message": "hi", "session_id": sid})
-    phase.checks.append(Check("harness_chat_200", r.status_code == 200))
-    cd = r.json()
-    phase.checks.append(Check(
-        "harness_chat_fields", all(k in cd for k in ("session_id", "reply", "model", "usage", "tally")),
-    ))
-    phase.checks.append(Check("harness_chat_reply_matches_mock", cd.get("reply") == "mock harness reply"))
-
-    r = client.post("/api/chat/cancel")
-    phase.checks.append(Check(
-        "harness_chat_cancel_idempotent",
-        r.status_code == 200 and r.json().get("cancelled") is True,
-    ))
-
-    r = client.post("/api/chat", json={"message": "loop without goal", "session_id": sid, "loop": True})
-    loop_body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-    loop_detail = loop_body.get("detail") if isinstance(loop_body, dict) else {}
-    loop_code = loop_detail.get("code") if isinstance(loop_detail, dict) else None
-    phase.checks.append(Check(
-        "harness_loop_requires_goal",
-        r.status_code == 400 and loop_code == "LOOP_REQUIRES_GOAL",
-        f"status={r.status_code} code={loop_code!r}",
-    ))
-
-    log("  --- GitHub status / harness runs ---")
-    r = client.get("/api/github/status")
-    phase.checks.append(Check("harness_github_status_well_formed", isinstance(r.json(), dict)))
-
-    r = client.get("/api/harness/runs")
-    rd = r.json()
-    phase.checks.append(Check("harness_runs_shape", "runs" in rd and "count" in rd))
-
-    log("  --- Agent run routes (auth-gate only -- never a real invocation) ---")
-    # /api/agent/run and /decision drive `python -m agentic.cli`: a real run
-    # clones a repo, calls a model, and can block ~900s; push/publish/discard
-    # reach a git write. None of that belongs in a sandbox check -- only that
-    # a bad bearer is rejected, mirroring harness_emulation.py's own approach.
-    r = client.get("/api/agent/checks")
-    profiles = r.json().get("profiles") if r.status_code == 200 else None
-    phase.checks.append(Check("harness_agent_checks_lists_profiles", bool(profiles)))
-
-    bad_auth = {"Authorization": "Bearer wrong-key"}
-    for path in (
-        "/api/agent/run",
-        f"/api/agent/runs/{'0' * 32}/decision",
-        f"/api/agent/runs/{'0' * 32}/push",
-        f"/api/agent/runs/{'0' * 32}/publish",
-        f"/api/agent/runs/{'0' * 32}/discard",
-    ):
-        resp = client.post(path, json={}, headers=bad_auth)
-        phase.checks.append(Check(
-            f"harness_agent_route_rejects_bad_key_{path.rsplit('/', 1)[-1]}",
-            resp.status_code == 401,
-            f"status={resp.status_code}",
-        ))
-
-    log("  --- Auth setup status (/api/auth/setup-status) ---")
-    # Shipped default is auth.enabled: false -> _require_harness_auth() raises
-    # 503 AUTH_DISABLED (harness/server.py), matching gate_auth.py's own
-    # /auth/setup-status contract exactly. This asserts the DEFAULT posture;
-    # an operator config with auth enabled would instead see 200 + the three
-    # {enabled, needs_password, username} fields.
-    r = client.get("/api/auth/setup-status")
-    detail = (r.json().get("detail") or {}) if r.status_code != 200 else {}
-    phase.checks.append(Check(
-        "harness_auth_setup_status_disabled_by_default",
-        r.status_code == 503 and detail.get("code") == "AUTH_DISABLED",
-        f"status={r.status_code}",
-    ))
-
-    log("  --- Security: rate limit, auto-docs, host rebinding ---")
-    # /api/chat rate limit (per-IP, reusing utils.ratelimit.RateLimiter and
-    # config.yaml's api.rate_limit block -- same mechanism gate.py's /query
-    # uses). Read the configured ceiling rather than hardcoding it, matching
-    # this repo's "config.yaml is the single source of truth" convention.
-    try:
-        import yaml
-        rl_cfg = (yaml.safe_load(Path("config.yaml").read_text()) or {}).get("api", {}).get("rate_limit", {})
-        max_requests = int(rl_cfg.get("max_requests", 60))
-    except (OSError, ValueError):
-        max_requests = 60
-    saw_429 = False
-    for _ in range(max_requests + 5):
-        resp = client.post("/api/chat", json={"message": "spam", "session_id": sid})
-        if resp.status_code == 429:
-            saw_429 = True
-            break
-    phase.checks.append(Check(
-        "harness_chat_rate_limit_engages", saw_429,
-        f"no 429 within {max_requests + 5} requests (configured limit={max_requests})",
-    ))
-
-    for path in ("/docs", "/redoc", "/openapi.json"):
-        r = client.get(path)
-        phase.checks.append(Check(f"harness_auto_docs_disabled_{path.strip('/').replace('.', '_')}",
-                                   r.status_code == 404))
-
-    # DNS-rebinding defense: TrustedHostMiddleware reads the Host header off
-    # base_url, so this needs its own client rather than an overridden header
-    # on the loopback one above -- mirrors tests/test_harness.py's own
-    # test_rejects_non_loopback_host_header technique exactly.
-    rebind_client = TestClient(create_app(cfg, chat), base_url="http://attacker.example", headers=_auth)
-    r = rebind_client.get("/api/status")
-    phase.checks.append(Check("harness_trusted_host_rejects_rebinding", r.status_code == 400))
-
-    return phase
-
-
-# ---------------------------------------------------------------------------
-# Phase 11: Harness HTML Console Contract
-# ---------------------------------------------------------------------------
-def phase_harness_html() -> PhaseResult:
-    banner("Phase 11: Harness HTML Console Contract")
-    phase = PhaseResult("Harness HTML Contract")
-
-    html_path = Path("static/harness.html")
-    if not html_path.exists():
-        log("  static/harness.html not found", R)
-        phase.checks.append(Check("harness_html_exists", False))
-        return phase
-    html = html_path.read_text()
-
-    log("\n  --- Console Panes ---")
-    for name, pane_id, tab_marker in [
-        ("Commands pane", "pane-commands", "data-pane=\"commands\""),
-        ("Sessions pane", "pane-sessions", "data-pane=\"sessions\""),
-        ("Registry pane", "pane-registry", "data-pane=\"registry\""),
-    ]:
-        passed = pane_id in html and tab_marker in html
-        status = f"{G}PASS{N}" if passed else f"{R}FAIL{N}"
-        log(f"    [{status}] {name}")
-        phase.checks.append(Check(f"harness_pane_{pane_id.replace('-', '_')}", passed))
-
-    log("\n  --- Console API Endpoints ---")
-    for name, endpoint in [
-        ("status", "/api/status"),
-        ("registry", "/api/registry"),
-        ("sessions_list", "/api/sessions"),
-        ("soul", "/api/soul"),
-        ("model", "/api/model"),
-        ("keys", "/api/keys"),
-        ("chat", "/api/chat"),
-        ("chat_cancel", "/api/chat/cancel"),
-        ("github_status", "/api/github/status"),
-        ("harness_runs", "/api/harness/runs"),
-        ("agent_checks", "/api/agent/checks"),
-        ("tools", "/api/tools"),
-        ("skills", "/api/skills"),
-        ("web", "/api/web"),
-        ("web_fetch", "/api/web/fetch"),
-        ("memory", "/api/memory"),
-        ("memory_add", "/api/memory/add"),
-        ("auth_setup_status", "/api/auth/setup-status"),
-    ]:
-        found = endpoint in html
-        status = f"{G}PASS{N}" if found else f"{R}FAIL{N}"
-        log(f"    [{status}] {name} -> {endpoint}")
-        phase.checks.append(Check(f"harness_html_api_{name}", found))
-
-    phase.checks.append(Check(
-        "harness_html_api_session_goal",
-        "+ '/goal'" in html or "/goal', 'POST'" in html,
-    ))
-
-    log("\n  --- Slash Commands (derived from harness.html's own COMMANDS array) ---")
-    # A hardcoded list drifts the moment a command is added -- derive the base
-    # token of every row instead. Each row is ['/cmd rest-of-syntax', 'help
-    # text']; the regex takes the leading /word before the first space/quote,
-    # so '/agent run|plan|...' and '/agent status|approve|...' both collapse
-    # to /agent (deduped via the set).
-    commands_block_match = re.search(r"const COMMANDS\s*=\s*\[(.*?)\n\s*\];", html, re.DOTALL)
-    commands_block = commands_block_match.group(1) if commands_block_match else ""
-    slash = sorted(set(re.findall(r"\['(/[^'\s]+)", commands_block)))
-    phase.checks.append(Check("harness_html_commands_array_found", bool(slash)))
-    for cmd in slash:
-        found = f"'{cmd}" in html or f'"{cmd}' in html or f"case '{cmd.lstrip('/')}" in html
-        status = f"{G}PASS{N}" if found else f"{R}FAIL{N}"
-        log(f"    [{status}] {cmd}")
-        phase.checks.append(Check(f"harness_html_cmd_{cmd.lstrip('/')}", found))
-
-    # The hidden `registry` alias of /connectors (shares its case label,
-    # SKILL.md's operator map calls it out explicitly) -- worth its own
-    # check since it wouldn't otherwise be found by the COMMANDS-array walk
-    # above (it isn't a COMMANDS row at all, just a second case label).
-    has_registry_alias = "case 'connectors': case 'registry':" in html
-    log(f"    [{'PASS' if has_registry_alias else 'FAIL'}] hidden 'registry' alias of /connectors")
-    phase.checks.append(Check("harness_html_registry_alias", has_registry_alias))
-
-    log("\n  --- XSS Safety (untrusted model/registry output) ---")
-    # harness.html's own comment documents this invariant explicitly: model
-    # output and registry data are DATA, never HTML. innerHTML would let a
-    # skill description, a chat reply, or a session title inject markup/script
-    # into the console DOM (fable-protocol's CATEGORY-ERROR RULE: this lens
-    # applies to every generated artifact, not just "protected" surfaces).
-    no_inner_html = "innerHTML" not in html
-    log(f"    [{'PASS' if no_inner_html else 'FAIL'}] no innerHTML usage (textContent/createElement only)")
-    phase.checks.append(Check("harness_html_no_inner_html", no_inner_html))
-
-    has_text_content = "textContent" in html
-    log(f"    [{'PASS' if has_text_content else 'FAIL'}] renders via textContent")
-    phase.checks.append(Check("harness_html_uses_text_content", has_text_content))
-
-    log("\n  --- API-key field (Bearer-gated writes) ---")
-    # Guarded POSTs (/goal, /chat, /chat/cancel, /agent/*) require
-    # Authorization: Bearer. harness.html reads #apiKey via apiKeyInput
-    # inside api(); it must NOT reuse terminal.html's authHeaders() helper
-    # (that would mean the two consoles had silently coupled).
-    has_key_field = "apiKeyInput" in html and 'id="apiKey"' in html
-    log(f"    [{'PASS' if has_key_field else 'FAIL'}] apiKeyInput present for guarded POSTs")
-    phase.checks.append(Check("harness_html_has_api_key_field", has_key_field))
-    no_terminal_helper = "authHeaders" not in html
-    log(f"    [{'PASS' if no_terminal_helper else 'FAIL'}] no terminal.html authHeaders() helper")
-    phase.checks.append(Check("harness_html_no_terminal_auth_helper", no_terminal_helper))
-
-    return phase
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -1627,7 +1201,7 @@ def main():
     # _ensure_repo() chdirs into the target checkout, but launching this
     # script by path (as documented below) sets sys.path[0] to this skill's
     # own directory, not the repo root -- every phase that imports a
-    # repo-root module (retrieval, graph, gate, agentic, harness, ...) would
+    # repo-root module (retrieval, graph, gate, agentic, ...) would
     # otherwise fail with ModuleNotFoundError regardless of cwd. Mirrors
     # gate_runtime_check.py's identical fix for the identical reason.
     sys.path.insert(0, os.getcwd())
@@ -1653,8 +1227,6 @@ def main():
         phase_metrics_and_invariants,
         phase_terminal_consoles,
         phase_terminal_html,
-        phase_harness_console,
-        phase_harness_html,
     ]
 
     for fn in phases:
@@ -1726,8 +1298,6 @@ def main():
     print(f"Due-Diligence Invariants: {'PASS' if _phase('Metrics & Invariants').passed else 'FAIL'}")
     print(f"REST API surface: {'PASS' if _phase('Terminal Consoles').passed else 'FAIL'}")
     print(f"Terminal HTML contract: {'PASS' if _phase('Terminal HTML Contract').passed else 'FAIL'}")
-    print(f"Harness Console REST API: {'PASS' if _phase('Harness Console').passed else 'FAIL'}")
-    print(f"Harness HTML contract: {'PASS' if _phase('Harness HTML Contract').passed else 'FAIL'}")
     config_phase = _phase("Config Invariants")
     print(f"Security Invariants: {config_phase.passed_count}/{len(config_phase.checks)} passed")
     tier_note = "real daemon/mock already up" if OLLAMA_TIER == 2 else "own mock_ollama.py needed"

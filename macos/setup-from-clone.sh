@@ -9,8 +9,8 @@
 #   install-cyclaw.sh      home layout, venv, torch (plain 2.13.0), shim
 #   setup-cyclaw-keys.sh   CYCLAW_API_KEY + Telegram / Claude / Grok / GitHub
 #   (this script)          Python 3.12 offer, brew analytics off, Ollama,
-#                          retrieval index, gh login hint, start both servers
-#   invoke-cyclaw.sh       RAG gateway :8787 + harness :8790
+#                          retrieval index, gh login hint, start the server
+#   invoke-cyclaw.sh       RAG gateway :8787
 #
 # Usage (from the checkout root, after git clone):
 #   bash macos/setup-from-clone.sh
@@ -25,7 +25,7 @@
 #   --skip-ollama         do not check / pull a local model
 #   --skip-index          do not run python -m retrieval.indexer
 #   --skip-advisor        do not run .claude/skills/cyclaw-advisor/verify.sh
-#   --no-start            do not launch the terminal + harness servers
+#   --no-start            do not launch the gateway
 #   --start               launch servers even under --skip-prompts
 #   --no-browser          pass --no-browser to invoke-cyclaw.sh
 #   --no-fsconnect        pass --no-fsconnect to the installer
@@ -166,11 +166,11 @@ reject_shell_metachars() {
 }
 
 _looks_like_repo() {
-  [ -f "$1/gate.py" ] && [ -f "$1/harness/server.py" ] && [ -f "$1/macos/install-cyclaw.sh" ]
+  [ -f "$1/gate.py" ] && [ -f "$1/macos/install-cyclaw.sh" ]
 }
 
 if ! _looks_like_repo "$REPO_DIR"; then
-  die "not a CyClaw checkout (expected gate.py + harness/server.py next to macos/). Run this from the clone, after git clone."
+  die "not a CyClaw checkout (expected gate.py next to macos/). Run this from the clone, after git clone."
 fi
 reject_shell_metachars "$REPO_DIR"
 reject_shell_metachars "$HOME_DIR"
@@ -251,7 +251,6 @@ step "repo     : $REPO_DIR"
 step "home     : $HOME_DIR"
 step "model    : $OLLAMA_MODEL"
 step "terminal : http://127.0.0.1:8787  (RAG gateway / static/terminal.html)"
-step "harness  : http://127.0.0.1:8790  (coding console / static/harness.html)"
 echo ""
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -595,19 +594,18 @@ elif [ "$FORCE_START" -eq 1 ]; then
 elif [ "$SKIP_PROMPTS" -eq 1 ]; then
   _should_start=0
   step "not starting servers under --skip-prompts (pass --start to launch them)"
-elif _confirm "Start both servers now (terminal :8787 + harness :8790)?" "y"; then
+elif _confirm "Start the gateway now (terminal :8787)?" "y"; then
   _should_start=1
 fi
 
 echo ""
 step "setup complete."
 step "  terminal UI : http://127.0.0.1:8787"
-step "  harness UI  : http://127.0.0.1:8790"
 step "  this tab    : source $HOME_DIR/.env   (if you open a new one, rc already sources it)"
 step "  later       : cyclaw     (or: bash macos/invoke-cyclaw.sh)"
-step "  stop        : Ctrl+C in the tab that is running the servers"
+step "  stop        : Ctrl+C in the tab that is running the server"
 if [ -z "${CYCLAW_API_KEY:-}" ]; then
-  warn "CYCLAW_API_KEY is unset in this process — Soul / ops / harness state-changing routes will 401."
+  warn "CYCLAW_API_KEY is unset in this process — Soul / ops state-changing routes will 401."
   warn "source $HOME_DIR/.env  then re-run  bash macos/invoke-cyclaw.sh"
 fi
 echo ""
@@ -615,7 +613,7 @@ echo ""
 if [ "$_should_start" -eq 1 ]; then
   INVOKE_ARGS=(--repo "$REPO_DIR")
   [ "$NO_BROWSER" -eq 1 ] && INVOKE_ARGS+=(--no-browser)
-  step "starting RAG gateway + coding harness (Ctrl+C stops both)"
+  step "starting RAG gateway (Ctrl+C stops it)"
   # exec so Ctrl+C / the EXIT trap in invoke-cyclaw.sh own the process tree.
   exec bash "$REPO_DIR/macos/invoke-cyclaw.sh" "${INVOKE_ARGS[@]}"
 fi

@@ -6,8 +6,7 @@ cfg/auth_manager existed then, so patching `gate.cfg` afterward would never
 reach gate_auth's already-closed-over values (unlike route handlers that read
 `cfg` live on every request). Tests instead build a throwaway FastAPI app and
 a real AuthManager (SQLite in tmp_path) and call register_auth_routes
-directly -- the same reason harness/server.py's create_app() factory is
-tested by calling it fresh per test rather than importing a module-level app.
+directly, fresh per test rather than importing a module-level app.
 """
 
 from __future__ import annotations

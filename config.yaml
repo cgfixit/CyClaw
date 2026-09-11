@@ -481,7 +481,7 @@ api:
 # stdout is persisted by journald/Docker/log shippers, so "printed once" was
 # never really once). Set the first real password on the server machine with
 # `cyclaw-user passwd admin` (prompts via getpass, no echo) or the loopback
-# Set-password panel on the terminal (:8787) and harness (:8790). Manage
+# Set-password panel on the terminal (:8787). Manage
 # accounts after that with the same local-only CLI (add/list/disable/enable/
 # passwd/token) -- see utils/authn_cli.py. No account exists until you turn
 # this on; nothing is ever created automatically.
@@ -579,11 +579,9 @@ security:
   require_env:
     - "GROK_API_KEY"
   # Operator opt-out from the CYCLAW_API_KEY Bearer-token gate (require_api_key
-  # in gate.py and utils/auth.py) -- NOT the separate session/RBAC /auth/*
-  # system, which stays governed by auth.enabled regardless of this flag.
-  # Read by both gate.py (soul/*, ops/*, memory/*, audit/summary -- 18 routes)
-  # and harness/server.py (29 routes behind its `guarded` list, including
-  # /api/agent/run+push+publish and /api/keys).
+  # in gate.py) -- NOT the separate session/RBAC /auth/* system, which stays
+  # governed by auth.enabled regardless of this flag.
+  # Read by gate.py (soul/*, ops/*, memory/*, audit/summary -- 18 routes).
   #
   # Ships false: unchanged fail-closed behavior (an unset CYCLAW_API_KEY
   # refuses the endpoint; a wrong key 401s).
@@ -604,7 +602,7 @@ security:
   #     DNS-rebinding control, not authentication; or
   #   * the bind address -- unknown to a request handler, and the bind guard
   #     below runs only under main(), which `uvicorn gate:app --host 0.0.0.0`
-  #     (the shipped container CMD) and `uvicorn harness.server:app` skip.
+  #     (the shipped container CMD) skips.
   # So entries in allowed_hosts / allowed_origins below do NOT widen this: they
   # filter Host/Origin headers on requests that already arrived and open no
   # listening socket. LAN names there cannot make a loopback-bound server

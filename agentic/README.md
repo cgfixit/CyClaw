@@ -57,13 +57,7 @@ invariant holds without needing a special case.
 
 ---
 
-## How `harness/` and `skills_registry.json` relate
-
-`harness/` is a **sibling** package, not a subpackage of `agentic/`. It is the
-loopback coding console on `127.0.0.1:8790` (`python -m harness.server`). It
-never imports `agentic` write paths; GitHub actions go through
-`utils.ops_runner` → `python -m agentic.cli`, the same shim as `POST /ops/agentic`.
-See [`harness/README.md`](../harness/README.md).
+## How `skills_registry.json` relates to the console
 
 `data/agentic/skills_registry.json` is the **governed store** named by
 `agentic.registry_path` (must resolve under the repo `data/` tree). The file
@@ -73,25 +67,8 @@ the RAG graph. Mutations are `propose-skill` / `apply-skill` only (master
 switch + non-empty `reason` + `--confirm` + injection scan + atomic write +
 sha256 history). Design: [`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`](../docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md).
 
-The harness **reads** that store. `harness/registry_view.py` builds a merged
-read-only view of three catalogs for `GET /api/registry` (sidebar / `/registry`):
-
-| Catalog | Source | Who mutates it |
-|---|---|---|
-| Repo skills | `.claude/skills/*/SKILL.md` frontmatter | humans / PRs, not this layer |
-| Governed registry | `data/agentic/skills_registry.json` | `agentic.cli apply-skill` only |
-| MCP tools | AST-parsed `TOOLS` in `mcp_hybrid_server.py` | never imported (I6) |
-
-The console slash commands `/skills` and `/tools` are **stricter** than that
-merge. `/skills` reports what this console actually injects (`ponytail`,
-`karpathy-guidelines`) or runs as `/agent checks` (`invariant-guard`,
-`config-guard`); `/skills all` adds the repo/governed catalog. `/tools`
-reports live FastAPI routes; MCP `hybrid_search` is catalog-only (`/tools all`).
-`/web` is a separate allowlist-only GET (off by default) and is not an MCP
-tool. Usage: [`harness/README.md`](../harness/README.md).
-
-A fourth surface — the install-time `~/.CyClaw/skills/` copy used by the
-console installers — is home-dir state, not the JSON store.
+The terminal console reaches this store only through `POST /ops/agentic`
+(`propose-skill` / `apply-skill`), never by reading the file directly.
 
 ---
 
@@ -554,10 +531,8 @@ python -m agentic.cli real-repo-run-publish --run-id "<id>" --reason "..." --con
 python -m agentic.cli real-repo-run-discard --run-id "<id>"
 ```
 
-Also reachable (authenticated) via harness routes:
-`POST /api/agent/run`, `GET /api/agent/runs/{id}`, and
-`POST /api/agent/runs/{id}/decision|push|publish|discard` — the full run
-lifecycle including the draft-PR publish.
+Also reachable (authenticated) via the terminal's `POST /ops/agentic` shim,
+whose allowlist carries every `real-repo-run*` action.
 Two-stage `--provider` (cloud plan) is **CLI-only** today —
 `real-repo-run-plan` is not in `ops_runner._AGENTIC_ACTIONS`. `--plan-file`
 **is** reachable over HTTP via `POST /api/agent/run`'s `plan` body field,
@@ -738,8 +713,5 @@ python -m agentic.netconnect.cli test
 | [`docs/agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md`](../docs/agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md) | FS write enablement |
 | [`docs/agentic/FSCONNECT_SECURITY_REVIEW_CHECKLIST.md`](../docs/agentic/FSCONNECT_SECURITY_REVIEW_CHECKLIST.md) | FS security review checklist |
 | [`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`](../docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md) | Skills registry governance |
-| [`harness/README.md`](../harness/README.md) | Coding-console package (`:8790`) |
 | [`macos/README.md`](../macos/README.md) | launchd glue — the fsconnect trash-empty plist generator's runtime home |
-| [`docs/HARNESS_MACOS.md`](../docs/HARNESS_MACOS.md) | macOS/Linux harness install |
-| [`docs/HARNESS_POWERSHELL.md`](../docs/HARNESS_POWERSHELL.md) | Windows harness install |
 | [`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md) | Threat-model amendments for this layer |

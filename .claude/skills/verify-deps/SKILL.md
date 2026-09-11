@@ -151,7 +151,7 @@ warnings, 2 on a failure; `--strict` promotes warnings to a failure.
 
 **A clean tree currently reports zero E3 warnings.** `huggingface_hub` and
 `starlette` were the first two findings this check ever surfaced
-(`retrieval/embeddings.py` and `gate.py`/`harness/server.py` import them
+(`retrieval/embeddings.py` and `gate.py` import them
 directly; both survived only as hard transitives of `sentence-transformers`/
 `fastapi`) and have since been promoted to explicit pins in
 `pyproject.toml`/`constraints.txt`/`requirements.txt` — real resolved

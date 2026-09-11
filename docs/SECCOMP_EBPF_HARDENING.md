@@ -297,7 +297,7 @@ Every capture candidate must cover:
   actually permit them.
 - Every `/ops` action in a separate trace. Never silently fold those syscalls
   into a file named `gate-seccomp.json`.
-- Separate traces for MCP, harness, sync, Telegram, indexer, and a future
+- Separate traces for MCP, sync, Telegram, indexer, and a future
   executor service.
 
 ### Build the candidate without deleting upstream protections
@@ -581,7 +581,7 @@ Fail closed. Do not mark a stage complete from static parsing alone.
 
 These changes do not modify Python application code, graph topology, routing,
 retrieval, soul governance, audit convergence, or model gates. They preserve
-I1-I6. No `agentic`, `sync`, `harness`, `telegram`, or optional runtime import is
+I1-I6. No `agentic`, `sync`, `telegram`, or optional runtime import is
 moved into `gate.py`, `graph.py`, or MCP. A future executor service split must
 remain optional and communicate across an out-of-band process boundary.
 

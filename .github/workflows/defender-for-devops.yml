@@ -83,7 +83,6 @@ jobs:
             sync \
             agentic \
             guardrails \
-            harness \
             telegram \
             opentweet \
             memory \

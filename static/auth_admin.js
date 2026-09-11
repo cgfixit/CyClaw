@@ -1,4 +1,4 @@
-/* Shared Users panel for terminal.html and harness.html. No inline script. */
+/* Users panel for terminal.html. No inline script. */
 (function (global) {
   function el(tag, attrs, text) {
     const node = document.createElement(tag);

@@ -477,15 +477,12 @@ def test_restart_servers_without_lsof_does_not_claim_ports_freed(
     fake_security: Path, tmp_path: Path
 ) -> None:
     gate = _unused_listen_port()
-    harness = _unused_listen_port()
     result = _run(
         "--skip-prompts",
         "--no-print-key",
         "--restart-servers",
         "--gate-port",
         str(gate),
-        "--harness-port",
-        str(harness),
         fake_security_bin=fake_security,
         home=tmp_path,
         extra_env={"PATH": _path_without_lsof(fake_security, tmp_path / "nopath")},
@@ -498,20 +495,17 @@ def test_restart_servers_without_lsof_does_not_claim_ports_freed(
 
 def test_restart_servers_runs_after_generate(fake_security: Path, tmp_path: Path) -> None:
     gate = _unused_listen_port()
-    harness = _unused_listen_port()
     result = _run(
         "--skip-prompts",
         "--no-print-key",
         "--restart-servers",
         "--gate-port",
         str(gate),
-        "--harness-port",
-        str(harness),
         fake_security_bin=fake_security,
         home=tmp_path,
     )
     assert result.returncode == 0, result.stderr
-    assert f"freeing loopback listeners on :{gate} / :{harness}" in result.stdout
+    assert f"freeing loopback listener on :{gate}" in result.stdout
     assert "NOT applied live" in result.stdout
     # Missing lsof is now an unverified/held result (this change). The
     # dedicated no-lsof test covers that path; here only claim "freed"
@@ -560,8 +554,6 @@ def test_restart_servers_stops_a_loopback_listener(fake_security: Path, tmp_path
             "--restart-servers",
             "--gate-port",
             str(port),
-            "--harness-port",
-            str(_unused_listen_port()),
             fake_security_bin=fake_security,
             home=tmp_path,
         )
@@ -617,8 +609,6 @@ def test_restart_servers_warns_if_listener_ignores_term(
             "--restart-servers",
             "--gate-port",
             str(port),
-            "--harness-port",
-            str(_unused_listen_port()),
             fake_security_bin=fake_security,
             home=tmp_path,
         )

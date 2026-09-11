@@ -109,9 +109,8 @@ its dependency bootstrap is Linux-oriented.
 - Runtime prep: `data/personality`, `index`, and `logs` directories; `GROK_API_KEY=dummy`; `ANTHROPIC_API_KEY=dummy`; `CYCLAW_API_KEY` set to a dummy local key.
 - RAG/API smoke: `/health`, `/query` vault-hit, alternate RAG query, offline-declined query, broad miss-style query, and prompt-injection rejection.
 - Terminal console surfaces: `/`, `/static/terminal.html`, `/soul`, `/soul/reload`, unauthenticated fail-closed checks for `/soul/propose`, `/soul/apply`, `/soul/restore`, `/audit/summary`, `/ops/sync`, `/ops/agentic`, `/ops/fsconnect`, and `/ops/sqlconnect`.
-- Runtime contracts: independent `gate.py` and `harness/server.py` FastAPI,
-  telemetry-kill, endpoint-registration, and loopback checks. The harness
-  contract receives a temporary `CYCLAW_HOME`, never the operator's real state.
+- Runtime contracts: independent `gate.py` FastAPI, telemetry-kill,
+  endpoint-registration, and loopback checks.
 - Targeted tests: `tests.ci_rag_smoke`, `tests/test_client.py`, `tests/test_health.py`, `tests/test_graph.py`, `tests/test_rag_integration.py`, `tests/test_terminal_contract.py`, and `tests/test_cyclaw_sandbox_skill.py`.
 
 ## Safety Rules

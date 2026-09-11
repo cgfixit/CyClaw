@@ -11,7 +11,7 @@ LangGraph 12-node security topology (`graph.py`), ChromaDB + BM25 hybrid
 retrieval, local LLM via Ollama with a triple-gated Grok (xAI) and/or Claude
 fallback, the MCP hybrid server, the `agentic/` GitHub layer (including
 `deepagent_github/`, the GitHub coding agent, and `fsconnect/`, the filesystem
-bridge), the `harness/` coding-agent server, and the out-of-band `sync/`
+bridge), and the out-of-band `sync/`
 Dropbox pipeline — all of which ship platform launchers for **macOS** (primary
 target) and **Windows** (close secondary) under `macos/` and `powershell/`.
 You read code for leverage: performance, security, financial risk / oversight
@@ -341,10 +341,6 @@ any), never for chunk changes.
   no cover`, and `tests/test_fsconnect_pathsafe.py` skips entirely on
   `os.name == "nt"` — documented as "FS Phase 4" in
   `docs/work/FSCONNECT_SQL_ROADMAP.md`.
-- **macOS/Windows launcher asymmetry — use judgment.** `macos/invoke-cyclaw.sh`
-  starts both `gate.py` and `harness.server`; `powershell/Invoke-CyClaw.ps1`
-  starts only `harness.server`. May or may not be worth a finding — confirm
-  intent before proposing a fix.
 
 ---
 

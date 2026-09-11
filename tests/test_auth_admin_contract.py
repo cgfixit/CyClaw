@@ -1,8 +1,8 @@
 """Contract tests for static/auth_admin.js — the shared Users admin panel.
 
 Deliberately its own file rather than an append to test_terminal_contract.py:
-auth_admin.js is a SHARED component (terminal.html and harness.html both load
-it), not part of the terminal console's route contract, and keeping it separate
+auth_admin.js is its own component (terminal.html loads it as a separate
+script), not part of the terminal console's route contract, and keeping it separate
 means a PR touching this panel does not collide at EOF with a PR touching the
 terminal contract tests.
 
@@ -146,12 +146,12 @@ def test_reload_surfaces_list_failures_and_clears_on_success():
     assert body.count("onStatus()") >= 1, "reload() must clear status on success"
 
 
-def test_embedders_pass_an_onStatus_callback():
-    """Both terminal.html and harness.html instantiate the shared panel with a
-    real status callback; without one the default no-op swallows errors."""
-    for filename in ("terminal.js", "harness.html"):
-        text = (_STATIC / filename).read_text(encoding="utf-8")
-        assert "onStatus:" in text, f"{filename} does not pass onStatus to CyClawAuthAdmin.render"
-        assert "usersPanelStatus" in text, f"{filename} is missing the usersPanelStatus node"
-        status_callback = text.split("onStatus: function (msg)", 1)[1].split("\n      }", 1)[0]
-        assert "el.textContent = msg;" in status_callback, f"{filename} must render status as text"
+def test_embedder_passes_an_onStatus_callback():
+    """terminal.js instantiates the panel with a real status callback; without
+    one the default no-op swallows errors."""
+    filename = "terminal.js"
+    text = (_STATIC / filename).read_text(encoding="utf-8")
+    assert "onStatus:" in text, f"{filename} does not pass onStatus to CyClawAuthAdmin.render"
+    assert "usersPanelStatus" in text, f"{filename} is missing the usersPanelStatus node"
+    status_callback = text.split("onStatus: function (msg)", 1)[1].split("\n      }", 1)[0]
+    assert "el.textContent = msg;" in status_callback, f"{filename} must render status as text"

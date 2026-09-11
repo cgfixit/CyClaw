@@ -10,7 +10,7 @@ Hooks and `utils/agent_identity.py` enforce this allowlist; casual / generic nam
 | Grok Build | `grok/<feature>` | `grok/pr-template-branch-rules` |
 | Kimi / Kimi Code | `kimi/<feature>` | `kimi/docs-sync` |
 | CyClaw direct / MCP | `CyClaw/<feature>-<YYYYMMDD>` or `cyclaw/<feature>` | `CyClaw/harness-timeout-20260805` |
-| Unknown / harness default | `agent/<feature>` | `agent/harness-browser-parity` |
+| Unknown / generic | `agent/<feature>` | `agent/launcher-browser-parity` |
 
 Rules for agents:
 1. Pick the prefix that matches **the tool that is creating the branch**, not a generic label.
@@ -25,7 +25,7 @@ Also allowed by hooks (non-feature): `main`, `dependabot/*`, `renovate/*`, `rele
 `[prefix] - Short descriptive sentence of the change`
 
 **Recommended prefixes (pick the most relevant):**  
-`[invariant]` • `[governance]` • `[fsconnect]` • `[agentic]` • `[rag]` • `[harness]` • `[security]` • `[docs]` • `[infra]` • `[fix]` • `[feat]`
+`[invariant]` • `[governance]` • `[fsconnect]` • `[agentic]` • `[rag]` • `[security]` • `[docs]` • `[infra]` • `[fix]` • `[feat]`
 
 Example: `[governance] - add two-phase audit + quota enforcement to fsconnect write path`
 
@@ -79,8 +79,8 @@ _Put an `x` in the boxes that apply. You can fill these out after creating the P
 - [ ] This change preserves all 6 security invariants and I6 module isolation (explicit evidence or invariant matrix included for core changes)
 - [ ] Full sandbox validation has been run (`GROK_API_KEY=dummy pytest tests/ -q --tb=short`, and `bash .claude/skills/CyClaw-Sandbox/verify.sh` for core RAG/agentic paths) and passes with no regressions
 - [ ] No new external network dependencies or mandatory online LLM assumptions were introduced without explicit justification + offline fallback path
-- [ ] For any agentic/fsconnect/harness change: two-phase audit, quota enforcement, governed delete/trash, and write guards have been verified
-- [ ] Relevant architecture docs, threat model notes, or harness phase documentation have been updated if core behavior or topology changed
+- [ ] For any agentic/fsconnect change: two-phase audit, quota enforcement, governed delete/trash, and write guards have been verified
+- [ ] Relevant architecture docs or threat model notes have been updated if core behavior or topology changed
 - [ ] Commit messages follow the title prefix convention above
 - [ ] For large or complex changes: before/after invariant matrix + sandbox evidence is included in "Further comments" or linked
 
@@ -104,7 +104,7 @@ If this is a relatively large, complex, or core-path change, kick off the discus
 
 **Notes for contributors (including solo maintainer / multi-agent PRs):**
 - Core invariant or governance changes require the strongest evidence.
-- Out-of-band layers (`agentic/`, `sync/`, harness, `.claude/`) may use a lighter checklist, but still need Benefits + Risks + the relevant items.
+- Out-of-band layers (`agentic/`, `sync/`, `.claude/`) may use a lighter checklist, but still need Benefits + Risks + the relevant items.
 - Docs-only or audit PRs may skip some technical checklist rows; Benefits and Risks remain required.
 - Prefer squash-and-merge. The final squashed commit message is the permanent record; keep intermediate agent WIP out of `main`.
 - Be blunt about impact: if invariants, offline posture, or audit behavior are affected, say so explicitly.

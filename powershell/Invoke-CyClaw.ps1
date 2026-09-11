@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-  Launches the CyClaw coding harness (installed by Install-CyClaw.ps1).
+  Launches the CyClaw RAG gateway (installed by Install-CyClaw.ps1).
 
 .DESCRIPTION
   Windows 10/11 + Server 2019/2022, Windows PowerShell 5.1 or PowerShell 7+.
 
-  Starts the harness control plane on 127.0.0.1:8790 (loopback only) using the
-  per-user venv under %USERPROFILE%\.CyClaw\venv and the repo at
-  %CYCLAW_REPO% (or %USERPROFILE%\.CyClaw\repo), then opens the console in the
-  default browser. Ctrl+C stops the server.
+  Starts gate.py on 127.0.0.1:8787 (loopback only) using the per-user venv
+  under %USERPROFILE%\.CyClaw\venv and the repo at %CYCLAW_REPO% (or
+  %USERPROFILE%\.CyClaw\repo), then opens the terminal console in the default
+  browser. Ctrl+C stops the server.
 
 .PARAMETER Port
-  Override the console port (default 8790; gate.py owns 8787).
+  Override the gateway port (default 8787).
 
 .PARAMETER NoBrowser
   Do not open the browser; just serve.
@@ -21,19 +21,19 @@
 
 .EXAMPLE
   cyclaw                 # via the installed shim / profile function
-  .\Invoke-CyClaw.ps1 -NoBrowser -Port 8800
+  .\Invoke-CyClaw.ps1 -NoBrowser -Port 8788
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = $(if ($env:CYCLAW_HARNESS_PORT) { [int]$env:CYCLAW_HARNESS_PORT } else { 8790 }),
+    [int]$Port = $(if ($env:CYCLAW_GATE_PORT) { [int]$env:CYCLAW_GATE_PORT } else { 8787 }),
     [switch]$NoBrowser,
     [string]$Repo = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-# Match harness/server.py _MIN_USER_PORT/_MAX_PORT so a privileged or out-of-range
-# override fails before we print a working-looking console URL.
+# Privileged or out-of-range overrides fail before we print a working-looking
+# console URL.
 if ($Port -lt 1024 -or $Port -gt 65535) {
     throw "Port must be between 1024 and 65535 (got $Port)"
 }
@@ -44,7 +44,7 @@ if ($Repo -eq "") {
 }
 $VenvPy = Join-Path $Home_ "venv\Scripts\python.exe"
 
-if (-not (Test-Path (Join-Path $Repo "harness\server.py"))) {
+if (-not (Test-Path (Join-Path $Repo "gate.py"))) {
     throw "CyClaw repo not found at '$Repo'. Run Install-CyClaw.ps1 first (or pass -Repo)."
 }
 if (-not (Test-Path $VenvPy)) {
@@ -55,7 +55,7 @@ if (-not (Test-Path $VenvPy)) {
 
 $env:CYCLAW_HOME = $Home_
 $env:CYCLAW_REPO = $Repo
-$env:CYCLAW_HARNESS_PORT = "$Port"
+$env:CYCLAW_GATE_PORT = "$Port"
 # CYCLAW_API_KEY is inherited from the caller, or loaded below from
 # %USERPROFILE%\.CyClaw\.env then the repo .env (Darwin twin:
 # macos/invoke-cyclaw.sh). Browser paste cannot set the server env.
@@ -110,7 +110,7 @@ Write-Host "[cyclaw] repo    : $Repo" -ForegroundColor Cyan
 Write-Host "[cyclaw] home    : $Home_" -ForegroundColor Cyan
 Write-Host "[cyclaw] console : http://127.0.0.1:$Port  (Ctrl+C to stop)" -ForegroundColor Cyan
 if (-not $env:CYCLAW_API_KEY) {
-    Write-Host "[cyclaw] warn    : CYCLAW_API_KEY not set - Soul / ops / harness state-changing routes will 401. Typing the key in the browser cannot configure the server; source $Home_\.env or set the env var, then restart." -ForegroundColor Yellow
+    Write-Host "[cyclaw] warn    : CYCLAW_API_KEY not set - Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server; source $Home_\.env or set the env var, then restart." -ForegroundColor Yellow
 }
 
 if (-not $NoBrowser) {
@@ -126,7 +126,7 @@ if (-not $NoBrowser) {
 Push-Location $Repo
 try {
     # Canonical telemetry/update-check block, set in THIS process so the
-    # harness (and every child it spawns) inherits it before any interpreter
+    # gateway (and every child it spawns) inherits it before any interpreter
     # starts. Single source of truth: utils/telemetry_kill.py renders the
     # lines; nothing here hand-copies a key. Positioned after the .env import
     # above so canonical values overwrite any hostile dotenv value, mirroring
@@ -155,7 +155,7 @@ try {
     } else {
         Write-Host "[cyclaw] warn    : could not export telemetry-kill block (children still self-apply at import)" -ForegroundColor Yellow
     }
-    & $VenvPy -m harness.server
+    & $VenvPy -m uvicorn gate:app --host 127.0.0.1 --port $Port --log-level warning
 }
 finally {
     Pop-Location

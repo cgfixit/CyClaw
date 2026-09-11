@@ -106,11 +106,10 @@ def test_health_template_documents_the_hardcoded_gate_port() -> None:
 
 
 def test_invoke_launcher_validates_ports_before_use() -> None:
-    """--port/--gate-port and their env defaults must be checked as integers."""
+    """--gate-port and its env default must be checked as an integer."""
     text = _INVOKE.read_text(encoding="utf-8")
     assert "require_port()" in text, "invoke-cyclaw.sh lost its port validator"
-    # Both the flag-supplied and the environment-supplied values must be checked.
-    assert 'require_port "harness port' in text
+    # Both the flag-supplied and the environment-supplied value must be checked.
     assert 'require_port "gate port' in text
     assert "65535" in text, "port validator no longer bounds the upper range"
 
@@ -119,9 +118,9 @@ def test_invoke_launcher_detects_a_gate_that_died_on_startup() -> None:
     """The readiness loop must check liveness, not only the socket.
 
     gate.py exits fast on a missing index, a bound port, or an invalid config.
-    Polling /health alone let that fall through silently: the harness still
-    started, a browser still opened on a dead port, and the final
-    `wait "$HARNESS_PID"` blocked forever with no diagnostic.
+    Polling /health alone let that fall through silently: a browser still
+    opened on a dead port and the final wait blocked forever with no
+    diagnostic.
     """
     text = _INVOKE.read_text(encoding="utf-8")
     assert 'kill -0 "$GATE_PID"' in text, (

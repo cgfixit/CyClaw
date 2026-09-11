@@ -126,8 +126,7 @@ def test_submit_query_refuses_to_start_while_one_is_in_flight():
 
     The guard belongs at the top of submitQuery — before the input is cleared,
     so a refused send does not eat the operator's text — because the confirm
-    buttons stay clickable while a later query is running. static/harness.html
-    carries the same guard in onSend() for the same reason.
+    buttons stay clickable while a later query is running.
 
     Issue #1298 N1: a confirm click that hits this guard used to return before
     pendingConfirmById.delete, so the stored query stuck. The disabled path
@@ -199,8 +198,7 @@ def test_enter_handler_ignores_ime_composition():
 
 
 def test_health_polling_is_visibility_aware():
-    """Background tabs should not keep polling /health; harness.html already
-    does this for /api/status. The terminal must pause scheduling when hidden
+    """Background tabs should not keep polling /health. The terminal must pause scheduling when hidden
     and refresh immediately when visible again."""
     js = _TERMINAL_JS.read_text(encoding="utf-8")
     assert "let healthVisible = !document.hidden" in js, (
