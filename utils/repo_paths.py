@@ -9,8 +9,11 @@ reject the same escapes *before* a staged path is forwarded as ``--read-file``.
 
 This module is a stdlib-only mirror of that acceptance rule, plus one
 deliberately stricter segment check documented on the function itself.
-``tests/test_repo_paths.py`` pins both halves: the shared base contract, and
-the trailing dot/space rule the write jail does not need.
+``tests/test_repo_paths.py`` pins both halves by comparing the two functions
+directly: they must agree on the shared base contract, and diverge on exactly
+one rule (trailing dot/space), which the write jail does not need. Comparing
+rather than restating hard-coded expectations is the point -- a mirror that is
+only checked against itself cannot notice the original moving.
 """
 
 from __future__ import annotations
