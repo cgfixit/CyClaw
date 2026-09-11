@@ -3,4 +3,5 @@ __pycache__/
 _dryrun_out/
 _dryrun_out2/
 *.rendered.jsonl
-.gguf
+*.gguf
+outputs_qwen38/

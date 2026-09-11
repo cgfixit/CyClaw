@@ -1,5 +1,5 @@
 ---
-name: cyclaw-swarm-verification
+name: CyClaw-Sandbox
 description: >
   CyClaw Swarm Verification -- comprehensive test system for the CyClaw
   offline-first RAG project (github.com/CGFixIT/CyClaw). Verifies the

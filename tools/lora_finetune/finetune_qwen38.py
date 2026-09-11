@@ -64,8 +64,13 @@ def _check_unsloth() -> None:
 
 
 def load_canonical_dataset(json_path: Path) -> list[dict]:
-    with open(json_path, encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        sys.exit(f"Dataset file not found: {json_path}\nRun build_cyclaw_corpus.py first, or check --json.")
+    except json.JSONDecodeError as e:
+        sys.exit(f"Dataset file is not valid JSON: {json_path}\n{e}")
     if not isinstance(data, list) or not data:
         sys.exit(f"Expected a non-empty JSON array in {json_path}")
     return data

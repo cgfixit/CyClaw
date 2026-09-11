@@ -42,6 +42,7 @@ pip install --upgrade --force-reinstall --no-cache-dir unsloth==2026.9.4
 | `dryrun_finetune.py` | Dry-run harness: mocks `unsloth`/`trl`/`datasets` and runs `finetune_qwen38.py` end-to-end without a GPU. |
 | `tests/test_build_corpus.py` | Unit tests: dataset structure, provenance, rendering, JSON round-trip (19 tests). |
 | `tests/test_finetune_integration.py` | Integration tests: mocked control-flow for `finetune_qwen38.py` (8 tests). |
+| `tests/test_hardening_and_cli.py` | Revision-pinning regression tests (audit-report.md's must-fix finding), `finetune_qwen38.py` CLI error paths (missing/malformed/empty dataset, missing Unsloth), and `.gitignore` hygiene (11 tests). |
 | `README.md` | This file. |
 
 ## Dataset shape
@@ -79,7 +80,7 @@ python build_cyclaw_corpus.py
 
 # 0b. run the test suites (no GPU needed)
 pip install pytest
-python -m pytest tests/ -q          # 27 tests
+python -m pytest tests/ -q          # 38 tests
 python dryrun_finetune.py            # end-to-end control-flow check
 
 # 1. fine-tune (on a CUDA box with >=24 GB VRAM)
@@ -101,7 +102,7 @@ ollama run cyclaw-qwen
 | `--lora-rank` / `--lora-alpha` | 16 / 16 | LoRA rank and alpha. |
 | `--max-steps` | 0 | If >0, cap training to N steps. If 0, use `--epochs`. |
 | `--epochs` | 3 | Used only when `--max-steps` is 0. |
-| `--batch-size` / `--grad-accum` | 2 / 4 | Per-device batch and gradient accumulation. |
+| `--batch-size` / `--grad-accum` | 1 / 4 | Per-device batch and gradient accumulation. The VRAM-tier and epoch-count guidance below assumes `--batch-size 2` (effective batch 8) — pass it explicitly; the script's own default is 1 (effective batch 4). |
 | `--learning-rate` | 2e-4 | AdamW 8-bit learning rate. |
 | `--no-export-gguf` | off | Skip the GGUF + Modelfile export (LoRA adapter only). |
 | `--no-offload-embedding` | off | Disable `offload_embedding=True` (not recommended). |
@@ -141,7 +142,7 @@ that. For deeper internalization you'd need ~3–5M tokens of curated pairs.
 
 **Order of operations:**
 
-1. Run `python -m pytest tests/ -q` first (27 tests, no GPU). This catches
+1. Run `python -m pytest tests/ -q` first (38 tests, no GPU). This catches
    dataset-structure regressions and script control-flow bugs before you pay
    for GPU time.
 2. Run `python dryrun_finetune.py` — confirms the script's control flow,

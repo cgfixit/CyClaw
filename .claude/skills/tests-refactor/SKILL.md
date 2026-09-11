@@ -1,6 +1,7 @@
 ---
 name: tests-refactor
 description: Iterative test coverage and quality loop — adds tests under tests/ until coverage reaches 100%, diagnoses and fixes failing tests, and continues until all test results exceed 85% pass rate (targeting 100%). Use when asked to improve test coverage, fix failing tests, or get the test suite green.
+disable-model-invocation: true
 ---
 
 # Tests Refactor Loop

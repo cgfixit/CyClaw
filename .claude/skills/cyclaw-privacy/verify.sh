@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# verify.sh — cyclaw-advisor verification.
+# verify.sh — cyclaw-privacy verification.
 # Checks consistency of dep files, security posture, and compliance readiness.
 
 set -euo pipefail
 
-echo "Verifying cyclaw-advisor skill..."
+echo "Verifying cyclaw-privacy skill..."
 
 # Check key files
 for f in pyproject.toml constraints.txt requirements.txt Dockerfile; do

@@ -192,7 +192,7 @@ skill and I5 exist to stop.
 4. Compact **after** the write. Next turn loads: system + I6 list + scratchpad slice + current file + current test. Not the whole transcript.
 5. Do not enable raw-query persistence. Do not send the scratchpad to Grok/Claude unless the operator passed `--confirm-online` for that call. Default `send_local_context_to_grok/claude` is false.
 
-## Data handling (cyclaw-advisor notes, not counsel)
+## Data handling (cyclaw-privacy notes, not counsel)
 
 A local scratchpad is fine for a single-operator loopback box if it is session
 workspace, not a new personal-data or identity store. The moment it auto-writes

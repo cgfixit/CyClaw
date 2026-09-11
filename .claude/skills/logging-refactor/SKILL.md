@@ -1,6 +1,7 @@
 ---
 name: logging-refactor
 description: Iterative logging coverage loop — reviews system logging, adds missing log statements until every important path produces useful tested logs, diagnoses low coverage or errors, makes a plan, then applies fixes until all tests exceed 85% pass rate (targeting 100%).
+disable-model-invocation: true
 ---
 
 # Logging Refactor Loop

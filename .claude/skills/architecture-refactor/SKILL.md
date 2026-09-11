@@ -1,6 +1,7 @@
 ---
 name: architecture-refactor
 description: Iterative architecture refactor loop — refactors code, live-tests after each significant step, runs autoreview, commits, and tracks progress in /tmp/refactor-{projectname}.md. Use when asked to refactor the architecture, clean up structure, or improve code organization autonomously.
+disable-model-invocation: true
 ---
 
 # Architecture Refactor Loop

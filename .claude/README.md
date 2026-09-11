@@ -81,8 +81,11 @@ utilities shipped by Claude Code itself or by installed marketplaces).
 
 This directory intentionally vendors only the **project** scope — every skill
 in `CLAUDE.md` §9's tables already lives under `.claude/skills/` here, one
-folder per skill, named for the `name:` in its `SKILL.md` frontmatter — with
-one exception: `CyClaw-Sandbox/` declares `name: cyclaw-swarm-verification`. User-scope and built-in
+folder per skill, named for the `name:` in its `SKILL.md` frontmatter.
+(2026-09-11, issue #1351: `CyClaw-Sandbox/`'s frontmatter used to declare
+`name: cyclaw-swarm-verification`, a folder/frontmatter mismatch that made
+repo audits relying on either name alone miss the other — corrected to
+`name: CyClaw-Sandbox`.) User-scope and built-in
 skills are **not** copied in, for three concrete reasons:
 
 1. **YAGNI / no current caller.** No CyClaw code path or documented workflow
@@ -121,7 +124,14 @@ duplicated the Agent tool's built-in `general-purpose` subagent type
 verbatim, adding no project-specific content. 2026-09-11 (PR #1369):
 `cyclaw-advisor` and `CyClaw-Sandbox` gained `disable-model-invocation: true`
 (their wrappers are unaffected — a wrapper is already user-typed by
-definition). The wrapper set
+definition). 2026-09-11 (issue #1351 follow-up): ten more slash-only chore/
+loop skills gained `disable-model-invocation: true`; `cyclaw-advisor`'s
+folder and wrapper renamed `cyclaw-privacy` (see Key Conventions below for
+why); `CyClaw-Optimize.md`, `logging-refactor.md`, `tests-refactor.md`,
+`speed-refactor.md`, and `architecture-refactor.md` — the five wrappers that
+had drifted from thin pointers into near-complete `SKILL.md` copies, one
+already stale against its source — trimmed back to the thin-wrapper pattern
+this policy describes. The wrapper set
 still covers every remaining skill — verify with
 `comm -23 <(ls .claude/skills | sort) <(ls .claude/commands | sed 's/\.md$//' | sort)`,
 which must print nothing.
@@ -217,10 +227,11 @@ repo:
 
 - Skill folders match the `name:` in SKILL.md frontmatter. Most are
   `kebab-case`; two ship mixed-case by convention (`CyClaw-Optimize`,
-  `CyClaw-Sandbox`), and `CyClaw-Sandbox/`'s frontmatter
-  declares `name: cyclaw-swarm-verification`. (`OTel-Hardening` was the
-  third until issue #1135 renamed it `otel-hardening` to satisfy the Agent
-  Skills spec's lowercase name-matches-directory rule.)
+  `CyClaw-Sandbox`). (`OTel-Hardening` was a third until issue #1135 renamed
+  it `otel-hardening` to satisfy the Agent Skills spec's lowercase
+  name-matches-directory rule; `CyClaw-Sandbox` itself carried a similar
+  mismatch — frontmatter `name: cyclaw-swarm-verification` — until issue
+  #1351 aligned it to `name: CyClaw-Sandbox`.)
 - All SKILL.md files use YAML frontmatter: `name:`, `description:`
 - Refactor progress is tracked in `/tmp/refactor-CyClaw.md`
 - Git identity must be set before commits (driver-agnostic defaults from

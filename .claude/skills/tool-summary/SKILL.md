@@ -1,6 +1,7 @@
 ---
 name: tool-summary
 description: Compose a brief label describing what recent tool calls accomplished. Use when asked to summarize tools used, describe recent actions, or produce a compact activity label for the UI or logs.
+disable-model-invocation: true
 ---
 
 Compose a brief label describing what the tool calls accomplished.

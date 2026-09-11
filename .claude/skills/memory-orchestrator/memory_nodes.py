@@ -5,7 +5,7 @@ Extracted from the monolithic orchestrate.py so the mechanical memory lifecycle
 in LangGraph while preserving 100% backward compatibility for the existing
 CLI + Claude Code hooks (PreCompact, SessionEnd, timer).
 
-Design principles (cyclaw-advisor invariants):
+Design principles (cyclaw-privacy invariants):
 - Nodes are pure functions: take state + cfg, return state updates.
 - No autonomous self-modification of soul or topology.
 - All writes that were atomic in the CLI remain atomic.

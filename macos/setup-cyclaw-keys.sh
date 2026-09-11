@@ -6,7 +6,7 @@
 # cannot invent: Telegram, Claude (ANTHROPIC_API_KEY — llm/client.py never
 # reads CLAUDE_API_KEY), Grok, and GitHub. Skip is allowed on every prompt.
 #
-# Persistence (survives reboot; matches macos/ conventions + cyclaw-advisor):
+# Persistence (survives reboot; matches macos/ conventions + cyclaw-privacy):
 #   1. macOS Keychain — the official path. launchd generators chain
 #      cyclaw-keychain-env.sh; they never read .env and never write a token
 #      into a plist or the cyclaw shim.
@@ -63,7 +63,7 @@
 # Target: macOS 14+ Apple Silicon (arm64), bash 3.2 / zsh, BSD userland.
 # No Homebrew required. Tests set CYCLAW_SETUP_KEYS_SKIP_PLATFORM=1.
 #
-# Privacy (cyclaw-advisor): never log secret values, never write them to
+# Privacy (cyclaw-privacy): never log secret values, never write them to
 # config.yaml, never put them in argv of a child we do not control. step()
 # messages name services and variable names only.
 

@@ -822,7 +822,7 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | `/ponytail` | mode | Lazy-senior-dev mode: YAGNI, stdlib-first, minimal abstraction |
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails: surgical diffs, surfaced assumptions, verifiable success criteria |
-| `/cyclaw-advisor` | mode, user-invoked only (`disable-model-invocation: true`) | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes; Claude never auto-routes here |
+| `/cyclaw-privacy` | mode, user-invoked only (`disable-model-invocation: true`) | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes; Claude never auto-routes here. Renamed from `cyclaw-advisor` 2026-09-11 (issue #1351) to resolve an in-repo name collision with `.codex/skills/cyclaw-advisor` (architecture advice — a different skill, same name) |
 | `/cyclaw-gotchas` | reference + driver | Session-tested traps for Claude Code sandboxes (proxy-denied torch/Hugging Face hosts, the 3.12 venv, the silent pytest summary, PR/check-in/review-bot process) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Load before installing deps, running tests, launching `gate.py`, or driving a PR |
 
 ### Standalone commands (no skill folder)

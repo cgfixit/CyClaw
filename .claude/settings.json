@@ -99,7 +99,7 @@
       "Bash(bash .claude/skills/CyClaw-Sandbox/verify.sh)",
       "Bash(bash .claude/skills/CyClaw-Sandbox/smoke.sh)",
       "Bash(bash .claude/skills/CyClaw-Sandbox/macos-smoke.sh)",
-      "Bash(bash .claude/skills/cyclaw-advisor/verify.sh)"
+      "Bash(bash .claude/skills/cyclaw-privacy/verify.sh)"
     ]
   }
 }

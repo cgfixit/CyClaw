@@ -23,7 +23,7 @@
 #   HttpClient surface + no trust_remote_code. The advisory requires the
 #   Chroma HTTP server API (/api/v2/... collections endpoint), which CyClaw
 #   never runs.
-# References: .github/workflows/pip-audit.yml, cyclaw-advisor §K / §M
+# References: .github/workflows/pip-audit.yml, cyclaw-privacy §K / §M
 # Notes: OSV serves the same CVE under both IDs; the GHSA ID alone was ignored
 #   on 2026-06-20 and the PYSEC alias was added 2026-07-20 so the acceptance is
 #   explicit even if a scanner build does not resolve aliases. Track
