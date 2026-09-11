@@ -1017,8 +1017,8 @@ def test_verification_audit_events_use_the_loops_own_config_not_the_default(tmp_
 def test_parse_file_blocks_handles_crlf_line_endings():
     """_FILE_BLOCK_RE hardcodes bare \\n, so a CRLF response previously matched
     NOTHING -- silently reporting no_files_changed for every iteration
-    regardless of what the model proposed. Matters specifically because the
-    operator surface is Windows-hosted (harness/)."""
+    regardless of what the model proposed. Matters because a model backend can
+    reply CRLF regardless of the platform the CLI runs on."""
     crlf = "=== FILE target.txt ===\r\nexpected marker\r\n=== END FILE ===\r\nfix"
     assert _parse_file_blocks(crlf) == {"target.txt": "expected marker"}
 
@@ -1038,6 +1038,8 @@ def test_parse_file_blocks_rejects_a_duplicate_path():
         ("Target.py", "target.py"),
         ("report.txt", "report.txt. "),
         ("src/visible.py", "src/visible\u200b.py"),
+        # NFC vs NFD spelling of "caf\u00e9.md" -- two strings, one file on APFS/HFS+.
+        ("docs/caf\u00e9.md", "docs/cafe\u0301.md"),
     ],
 )
 def test_parse_file_blocks_rejects_filesystem_equivalent_paths(first, second):
