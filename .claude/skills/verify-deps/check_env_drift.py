@@ -210,7 +210,7 @@ def _skipped(rel: str) -> bool:
     return any(rel.startswith(d) for d in _SKIP_DIRS)
 
 
-def check_undeclared_imports() -> None:
+def check_undeclared_imports() -> dict[str, list[str]]:
     print("E3 every third-party module imported by source is declared somewhere")
     manifests = {
         name: (REPO / name).read_text(encoding="utf-8").lower()
@@ -225,7 +225,7 @@ def check_undeclared_imports() -> None:
     }
     if not manifests:
         warn("E3", "no manifests found to check against")
-        return
+        return {}
 
     stdlib = set(sys.stdlib_module_names)
     venv_roots = {p.parent for p in REPO.rglob("pyvenv.cfg")}
@@ -263,6 +263,72 @@ def check_undeclared_imports() -> None:
                        f"-- relies on being a transitive of something else")
     else:
         ok("E3", f"all {len(imported)} imported modules resolve to stdlib, first-party, a manifest, or the allowlist")
+    return imported
+
+
+# --- E7: the reverse of E3 -- a runtime pin no first-party module imports -------
+# E3 asks "is every import declared?". Nothing asked the opposite until #1367's
+# harness removal made it matter: "is every runtime pin still called?" Commit
+# 92afb95 ("drop two things nothing calls") dropped exactly such an orphan --
+# a tzdata runtime pin held for a test-only import -- by hand.
+#
+# "Not imported" is NOT the same as "unused", which is why this warns rather
+# than fails and why every exemption below carries its reason. A pin can be a
+# transitive deliberately version-pinned on this surface, and deleting one of
+# those silently floats the real dependency. Each entry states which package
+# pulls it, so the next reader does not have to re-derive it from installed
+# metadata the way this check's author did.
+_PINNED_NOT_IMPORTED = {
+    "torch": "sentence-transformers' backend; imported by that library, not by CyClaw source",
+    "onnxruntime": "transitive of chromadb, pinned here to hold the same ORT_DISABLE_TELEMETRY floor (see the comment above it)",
+    "websockets": "transitive of uvicorn[standard] (requires websockets>=13.0); pinned so this surface fixes the version the extra would float",
+    "starlette": "transitive of fastapi, pinned explicitly to keep this surface's version fixed",
+    "huggingface-hub": "transitive of sentence-transformers; retrieval/embeddings.py reaches it through that library's loader",
+    # chromadb (>=1.22.5), onnxruntime (>=1.21.6) and sentence-transformers
+    # (>=1.20.0) all require numpy and would each float it to 2.x. The pin is
+    # the <2 ceiling CLAUDE.md documents: numpy 2 removes np.float_ and breaks
+    # chromadb/onnxruntime. Dropping it because nothing here imports numpy
+    # directly would silently re-open that break.
+    "numpy": "transitive of chromadb/onnxruntime/sentence-transformers, pinned <2 -- numpy 2 removes np.float_ and breaks chromadb/onnxruntime",
+}
+
+
+def check_orphan_runtime_pins(imported: dict[str, list[str]]) -> None:
+    print("E7 every runtime pin is still reachable from first-party source")
+    req = REPO / "requirements.txt"
+    if not req.is_file():
+        warn("E7", "requirements.txt missing -- cannot check for orphan runtime pins")
+        return
+    # Reuse E3's import set so the two checks can never disagree about scope
+    # (same skip rules, same AST walk) -- a divergence here would read as an
+    # orphan that is merely out of the other check's view.
+    dist_of = {mod: _DIST_ALIAS.get(mod, mod).lower() for mod in imported}
+    imported_dists = set(dist_of.values()) | {m.lower() for m in imported}
+
+    orphans: list[str] = []
+    checked = 0
+    for raw in req.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", "-")):
+            continue
+        # "uvicorn[standard]==0.51.0" -> "uvicorn"; "torch==2.13.0+cpu" -> "torch"
+        name = re.split(r"[=<>!;\[]", line)[0].strip().lower()
+        if not name:
+            continue
+        checked += 1
+        if name in imported_dists or name.replace("-", "_") in imported_dists:
+            continue
+        if name in _PINNED_NOT_IMPORTED:
+            continue
+        orphans.append(name)
+
+    if orphans:
+        for name in orphans:
+            warn("E7", f"'{name}' is pinned in requirements.txt but no first-party module imports it "
+                       f"-- confirm it is a deliberately-pinned transitive and add it to "
+                       f"_PINNED_NOT_IMPORTED with the reason, or drop the pin (cf. 92afb95)")
+    else:
+        ok("E7", f"all {checked} runtime pins are imported or carry a documented transitive reason")
 
 
 # --- E4: the install-surface scope contract ------------------------------------
@@ -493,10 +559,11 @@ def main() -> int:
     print("== verify-deps: environment-dependency drift (outside the pin manifests) ==")
     check_workflow_tool_pins()
     check_python_version()
-    check_undeclared_imports()
+    imported = check_undeclared_imports()
     check_install_surface_scope()
     check_docker_install_contract()
     check_docker_surface_coherence()
+    check_orphan_runtime_pins(imported)
     print()
     print(f"{len(failures)} failure(s), {len(warnings)} warning(s)")
     if "--strict" in sys.argv and warnings and not failures:

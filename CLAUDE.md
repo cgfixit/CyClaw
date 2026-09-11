@@ -768,7 +768,7 @@ python3 .claude/skills/invariant-guard/check_invariants.py
 python3 .claude/skills/config-guard/check_config.py     # add --strict to lock shipped defaults
 python3 .claude/skills/dep-guard/check_deps.py          # pure stdlib; runs pre-install
 python3 .claude/skills/verify-deps/extract_pins.py      # requirements.txt cross-check; add --json
-python3 .claude/skills/verify-deps/check_env_drift.py   # non-manifest drift E1-E6 incl. the Docker surface; add --strict
+python3 .claude/skills/verify-deps/check_env_drift.py   # non-manifest drift E1-E7 incl. the Docker surface; add --strict
 python3 .claude/skills/doc-sync/doc_sync.py
 python3 .claude/skills/index-doctor/doctor.py --rebuild
 python3 .claude/skills/injection-redteam/redteam.py
@@ -803,7 +803,7 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | `/invariant-guard` | check | Static-assert the six invariants + guards against a diff | Yes (stdlib) |
 | `/config-guard` | check | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, safe posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
 | `/dep-guard` | check | Static-validate dependency-pin invariants across pyproject + constraints + environment.yml (pydantic lock-step, numpy<2, torch +cpu, uvicorn no-extras, cross-file agreement) | Yes (stdlib) |
-| `/verify-deps` | check | Extends dep-guard: adds the requirements.txt cross-check dep-guard skips, the non-manifest drift checks E1–E6 (workflow tool pins, Python version, undeclared imports, install-surface scope, the Dockerfile install contract incl. its torch pin vs constraints.txt, and docker-compose.yml/.dockerignore/publish-ghcr.yml coherence with the Dockerfile), a dry-run of each install surface's actual command, and a PyPI currency + CVE sweep. Reports only — never auto-bumps a runtime pin | extract_pins.py + check_env_drift.py yes (stdlib); currency sweep needs network |
+| `/verify-deps` | check | Extends dep-guard: adds the requirements.txt cross-check dep-guard skips, the non-manifest drift checks E1–E7 (workflow tool pins, Python version, undeclared imports, install-surface scope, the Dockerfile install contract incl. its torch pin vs constraints.txt, docker-compose.yml/.dockerignore/publish-ghcr.yml coherence with the Dockerfile, and runtime pins no first-party module imports), a dry-run of each install surface's actual command, and a PyPI currency + CVE sweep. Reports only — never auto-bumps a runtime pin | extract_pins.py + check_env_drift.py yes (stdlib); currency sweep needs network |
 | `/injection-redteam` | loop | Adversarial probe corpus vs the sanitizer; close bypasses | Needs venv |
 | `/index-doctor` | check | Rebuild + validate ChromaDB/BM25/RRF; probe retrieval health | Needs venv |
 | `/doc-sync` | check | Detect code↔docs drift; reconcile the docs | Needs PyYAML |
