@@ -813,6 +813,7 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 
 | Skill | Type | Purpose |
 |---|---|---|
+| `/babysit-github-pr` | loop | Watch a GitHub PR end-to-end — rebase if behind, triage CI failures (flaky vs code), address review comments, drive to green or escalate to human |
 | `/CyClaw-Optimize` | task | Scan main for optimizations; open focused draft PRs |
 | `/CyClaw-Sandbox` | task, user-invoked only (`disable-model-invocation: true`) | Clone main, mock Ollama, full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR). Claude never auto-routes here — the full audit's cost (clone, venv, report, PR) is an explicit-ask action, not an inference from a technical prompt |
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
