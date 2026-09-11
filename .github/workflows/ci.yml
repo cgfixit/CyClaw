@@ -339,6 +339,7 @@ jobs:
             $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "cyclaw-installer-ps51-adversarial"
             New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
             $EvilDir = Join-Path $env:RUNNER_TEMP 'evil$(Get-Date)'
+            New-Item -ItemType Directory -Force -Path $EvilDir | Out-Null
             Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "gate.py") `
               -Destination (Join-Path $EvilDir "gate.py")
 
@@ -522,6 +523,7 @@ jobs:
           # 'evil$(Get-Date)' both creates cleanly and still contains the
           # exact character class ($) Assert-SafeRepoPath rejects.
           $EvilDir = Join-Path "${{ runner.temp }}" 'evil$(Get-Date)'
+          New-Item -ItemType Directory -Force -Path $EvilDir | Out-Null
           Copy-Item "$env:GITHUB_WORKSPACE\gate.py" (Join-Path $EvilDir "gate.py")
 
           $threw = $false
