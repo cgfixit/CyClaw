@@ -9,7 +9,7 @@ decided entirely by `graph.py`'s edges and `gate.py`'s construction gates
 
 | Class | Backend | Protocol |
 |---|---|---|
-| `LocalLLMClient` | Ollama (default) or LM Studio | OpenAI-compatible `/chat/completions` on loopback (or an operator-listed `local_llm.trusted_hosts` entry); ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so localhost traffic can't be redirected off-box |
+| `LocalLLMClient` | Ollama (default) or LM Studio | OpenAI-compatible `/chat/completions` on loopback (or an operator-listed `models.local_llm.trusted_hosts` entry); ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so localhost traffic can't be redirected off-box |
 | `GrokClient` | x.ai | OpenAI-compatible `/chat/completions`; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `GROK_API_KEY` cannot transit an operator proxy |
 | `ClaudeClient` | Anthropic | Messages API; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `ANTHROPIC_API_KEY` cannot transit an operator proxy |
 
@@ -45,9 +45,10 @@ recorded to `logs/spend.jsonl` — see [`docs/spend/README.md`](../docs/spend/RE
   that prefers the primary backend (Ollama) and falls back to the secondary
   (LM Studio) if unreachable; selection cached per process. Ships disabled so
   single-backend installs stay fail-closed.
-- Timeouts and model names come from `config.yaml` (`local_llm.*`, `grok.*`,
-  `claude.*`) — see `CLAUDE.md` §2 "Load-bearing numbers" for the ones that
-  interact (e.g. `api.graph_timeout_sec` must exceed `local_llm.timeout_sec`).
+- Timeouts and model names come from `config.yaml` (`models.local_llm.*`,
+  `models.grok.*`, `models.claude.*`) — see `CLAUDE.md` §2 "Load-bearing
+  numbers" for the ones that interact (e.g. `api.graph_timeout_sec` (780) must
+  exceed `models.local_llm.timeout_sec` (720)).
 
 ## Related
 

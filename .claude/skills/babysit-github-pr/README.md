@@ -207,4 +207,6 @@ No configuration in the repo itself is needed — the skill auto-detects everyth
 
 - `SKILL.md` — Full loop description, Never list, exit conditions
 - `.github/PULL_REQUEST_TEMPLATE.md` — PR body template (if present)
+- `verify.sh` — stdlib self-check; run in CI by the per-skill verify matrix in `.github/workflows/ci.yml`
+- `scripts/` — `classify-failure.py`, `detect-test-command.py`, and the shell helpers the loop shells out to (`scripts/tests/` covers the two Python ones)
 

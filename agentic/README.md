@@ -32,7 +32,7 @@ It is **never imported** by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`
 | `agentic/real_repo_run_store.py` | Persisted run records under `workspace_root/runs/` |
 | `agentic/executor/` | Sandboxed verification (`pytest` / `ruff` / custom checks) — required fail-closed hard sandbox (`hard_sandbox.py`: Job Object / Seatbelt / `unshare --net`); no silent `subprocess.run` fallback |
 | `agentic/deepagent_github/` | Real-repo workspace tools + **retired** DeepAgents graph probe |
-| `agentic/harness_optimizer/` | **Retired** (owner decision 2026-07-31) fixture/harness optimizer + scoped proposer workspace tools; code/tests/CI kept |
+| `agentic/harness_optimizer/` | **Retired** (owner decision 2026-07-31) fixture/harness optimizer *loop* + scoped proposer workspace tools; code/tests/CI kept. Its `harness_optimizer/governance.py`, `harness_optimizer/model_adapter.py`, and `harness_optimizer/mcp/tools.py` are still on the live real-repo path |
 | `agentic/fsconnect/` | Scoped filesystem connector (`python -m agentic.fsconnect.cli`) |
 | `agentic/sqlconnect/` | Read-only SQL connector (`python -m agentic.sqlconnect.cli`) |
 | `agentic/netconnect/` | Passive LAN inventory (`python -m agentic.netconnect.cli`) |
@@ -662,6 +662,18 @@ python -m agentic.cli real-repo-run-publish --run-id ... --reason ... --confirm
 python -m agentic.cli real-repo-run-discard --run-id ...
 python -m agentic.cli deepagent-plan --repo --instruction "..."   # retired probe, no invoke
 python -m agentic.cli test
+```
+
+Flags the block above elides, all real (`agentic/cli.py` argparse):
+
+```bash
+python -m agentic.cli --config path/to/config.yaml <subcommand>   # global; default config.yaml
+python -m agentic.cli context --pr N --no-diff                    # omit the PR diff
+python -m agentic.cli real-repo-run ... --max-iterations N        # default 3; multiplies against
+                                                                  # planner_timeout_sec for the
+                                                                  # /ops wall clock
+python -m agentic.cli deepagent-plan --repo --instruction "..." [--task-id ID] \
+    [--provider grok|claude --confirm-online]
 ```
 
 ### Exit codes
