@@ -1,0 +1,85 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "bandit",
+          "version": "1.7.5",
+          "informationUri": "https://bandit.readthedocs.io"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "B613",
+          "level": "warning",
+          "message": {
+            "text": "AutoTokenizer.from_pretrained without revision pinning - FIXED"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "build_cyclaw_corpus.py"
+                },
+                "region": {
+                  "startLine": 131
+                }
+              }
+            }
+          ],
+          "properties": {
+            "reachability": "reachable",
+            "severity": "medium",
+            "fix_status": "fixed"
+          }
+        },
+        {
+          "ruleId": "B613",
+          "level": "none",
+          "message": {
+            "text": "FALSE POSITIVE: load_dataset loads local JSON, not HF Hub"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "finetune_qwen38.py"
+                },
+                "region": {
+                  "startLine": 130
+                }
+              }
+            }
+          ],
+          "properties": {
+            "reachability": "unreachable-feature-gated",
+            "severity": "medium",
+            "fix_status": "accepted_risk"
+          }
+        }
+      ]
+    },
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "version": "1.85.0",
+          "informationUri": "https://semgrep.dev"
+        }
+      },
+      "results": []
+    },
+    {
+      "tool": {
+        "driver": {
+          "name": "pip-audit",
+          "version": "2.7.3",
+          "informationUri": "https://pypi.org/project/pip-audit"
+        }
+      },
+      "results": []
+    }
+  ]
+}

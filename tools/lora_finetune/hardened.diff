@@ -1,0 +1,14 @@
+--- a/build_cyclaw_corpus.py
++++ b/build_cyclaw_corpus.py
+@@ -126,9 +126,9 @@
+     # Use a small, universally-available tokenizer just to get a correct
+     # ChatML-style rendering. The trainer swaps in the real Qwen tokenizer at
+     # train time; here we only need structurally-correct turn delimiters.
+-    for name in ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen2-0.5B"):
++    for name, rev in (("Qwen/Qwen2.5-0.5B", "main"), ("Qwen/Qwen2-0.5B", "main")):
+         try:
+-            tok = AutoTokenizer.from_pretrained(name)
++            tok = AutoTokenizer.from_pretrained(name, revision=rev)
+             return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+         except Exception:
+             continue
