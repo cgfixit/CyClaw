@@ -7,7 +7,7 @@
 
 [![Screenshots: local AI](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/grok-a5efec11-9333-4583-8f97-5fa78803f703.jpg)](https://github.com/CGFixIT/CyClaw/tree/main/docs/screenshots)
 
-A private RAG server for your own documents: hybrid retrieval over a local
+A private Local AI RAG/Chatbot/Research server for your own documents: hybrid retrieval over a local
 corpus, a local model answering from it, and the safety rules written into the
 graph that routes the request rather than into a prompt asking a model to
 behave. It binds to `127.0.0.1:8787`, runs offline by default, and treats any
