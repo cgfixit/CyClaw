@@ -116,12 +116,21 @@ from its first query onward.
    (`max_tokens`), and every timeout are `config.yaml` values; nothing tunable
    is hardcoded elsewhere.
 4. **A persistent personality layer** (`data/personality/soul.md`) with SHA-256
-   drift detection, atomic writes, and a required human `reason` string on
-   every mutation. The soul is governed — neither frozen nor self-editable.
+   drift detection and atomic writes. `POST /soul/apply` — the route that adopts
+   *new* content — requires a human `reason` string and runs an enforced
+   injection scan. Two paths deliberately differ and are documented as such:
+   `POST /soul/restore` re-adopts previously-vetted `.bak` content under a
+   hardcoded reason with the scan advisory rather than enforced, and a missing
+   `soul.md` self-heals to a default at boot. The soul is governed — neither
+   frozen nor self-editable.
 5. **Optional online fallback, gated three ways per question** — `app.mode:
    hybrid` AND the chosen provider's own `enabled` flag AND a
-   `user_confirmed_online` that exists for exactly one request and cannot be
-   pre-set. Grok (xAI) and Claude (Anthropic) are picked per query via
+   `user_confirmed_online` that lives only in that one request body — it is
+   never persisted, never a config key, and never carried over to the next
+   question. (It is not a server-enforced two-step challenge: a programmatic
+   client may send `true` on its first `POST /query`. What the gate guarantees
+   is that *something* has to assert it per request, and that nothing in
+   `config.yaml` can assert it once for all of them.) Grok (xAI) and Claude (Anthropic) are picked per query via
    `online_provider`, and both ship armed, so on a default checkout the
    per-question confirmation is the gate actually holding the line. Outbound
    calls are additionally capped by the remaining `api.graph_timeout_sec`
@@ -131,22 +140,36 @@ from its first query onward.
    console at `/`) and a retrieval-only MCP server (`mcp_hybrid_server.py`,
    `sampling: None`) for Claude Desktop / Copilot Studio, which exposes search
    and no model path at all.
-7. **An audit trail that never stores the question.** All eleven upstream paths
+7. **An audit trail that hashes the question.** All eleven upstream paths
    converge on `audit_logger` before END, writing a SHA-256 query hash plus
-   PII-redacted metadata — never raw query text — to `logs/audit.jsonl`, with
-   `cyclaw-metrics` as the offline reader.
+   PII-redacted metadata to `logs/audit.jsonl`, with `cyclaw-metrics` as the
+   offline reader. Hashing is the shipped default and the reason the log cannot
+   become an exfiltration vector; setting
+   `logging.audit_fields.include_query_hash: false` stores raw query text
+   instead (redactors still apply) and is privacy-affecting — `utils/logger.py`
+   says so in its own module docstring.
 
-Five of those properties are enforced by graph topology and a sixth by import
-structure; `python3 .claude/skills/invariant-guard/check_invariants.py` asserts
-all six statically, and [`INVARIANTS.md`](INVARIANTS.md) records which are code
-and which are convention.
+Those properties are enforced in four different places, and the distinction
+matters to anyone auditing them: graph topology (`retrieve` as entry, routing by
+edges, audit convergence), `gate.py` construction (two of the three
+external-provider gates — only the per-request confirmation is decided in the
+graph), `utils/personality.py` (the soul reason gate and atomic write), and
+import structure (module isolation). `python3
+.claude/skills/invariant-guard/check_invariants.py` asserts all six statically;
+[`INVARIANTS.md`](INVARIANTS.md) records which are enforced by code and which by
+convention, and names the test pinning each.
 
 ### Optional layers
 
-Two of them (authentication, memory) are route modules registered onto the
-gateway itself; the rest are out-of-band subsystems that `gate.py`, `graph.py`,
-and the MCP server never import at all — the isolation is asserted statically,
-not just intended. Every row marked `off` is a no-op until you edit
+They are not all isolated the same way, and the table below mixes three kinds.
+Authentication and memory are route modules registered onto the gateway itself.
+The numbat stream and the spend ledger run *inside* the core path — `audit_log`
+lazy-imports `utils/numbat_emitter` on every audit record, and `graph.py`
+reaches `utils/spend` through `llm/client.py` — which is why both are `utils/`
+rather than out-of-band packages. Only the remaining rows are the I6-isolated
+subsystems that `gate.py`, `graph.py`, and the MCP server never import at all,
+a boundary asserted statically rather than merely intended. Every row marked
+`off` is a no-op until you edit
 `config.yaml`. The two marked **on** need no edit to start writing: the numbat
 stream projects every audit record, so it grows from your first ordinary local
 query, and the spend ledger appends as soon as a confirmed Grok/Claude call is
@@ -865,12 +888,19 @@ source — `graph.py`, `INVARIANTS.md`, `retrieval/indexer.py`, `llm/client.py`,
 `config.yaml` — with each example carrying `source_refs` back to the file it
 came from.
 
-**It is an offline operator toolkit, deliberately outside the runtime.** No
-CyClaw install surface — `requirements.txt`, `pyproject.toml` extras, Docker,
-or conda — pulls Unsloth, Transformers, TRL, Datasets, or Accelerate. Training
-happens on a separate CUDA box; the server never imports any of it, and the
-kit's own pins are excluded from this repo's OSV walk precisely because that
-GPU tree is not installed here.
+**It is an operator toolkit deliberately outside the runtime.** No CyClaw
+install surface — `requirements.txt`, `pyproject.toml` extras, Docker, or conda
+— pulls Unsloth, Transformers, TRL, Datasets, or Accelerate. Training happens on
+a separate CUDA box; the server never imports any of it, and the kit's own pins
+are excluded from this repo's OSV walk precisely because that GPU tree is not
+installed here.
+
+**It is not air-gapped, though.** `finetune_qwen38.py` calls
+`FastModel.from_pretrained` with a Hugging Face repo id and no
+`local_files_only`, so the base checkpoint downloads on first run, and
+rebuilding the dataset can pull a tokenizer the same way. On a machine with no
+egress, seed the model and tokenizer caches first — "offline" here means
+independent of the CyClaw server and its config, not free of network.
 
 ```bash
 python tools/lora_finetune/build_cyclaw_corpus.py   # rebuild the dataset from source
