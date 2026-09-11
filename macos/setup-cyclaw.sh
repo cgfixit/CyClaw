@@ -61,7 +61,7 @@ Forwarded to macos/setup-from-clone.sh:
   --skip-keys
   --skip-ollama
   --skip-index
-  --skip-advisor
+  --skip-privacy
   --no-fsconnect
   --no-profile-edit
   --no-path-edit
@@ -142,7 +142,7 @@ while [ "$#" -gt 0 ]; do
       FORWARD_ARGS+=(--ollama-model "${2:?--ollama-model requires a tag}")
       shift 2
       ;;
-    --skip-install|--skip-python-deps|--skip-ollama|--skip-index|--skip-advisor|\
+    --skip-install|--skip-python-deps|--skip-ollama|--skip-index|--skip-privacy|\
     --no-fsconnect|--no-profile-edit|--no-path-edit|--grok-dummy|--rotate-key|\
     --small-model|--ollama-install-script)
       FORWARD_ARGS+=("$1")

@@ -2,6 +2,7 @@
 name: create-session-notes
 description: >
   Maintain a structured session notes file that preserves execution context for future continuation.
+disable-model-invocation: true
 ---
 
 # create-session-notes

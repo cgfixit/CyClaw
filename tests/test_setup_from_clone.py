@@ -165,7 +165,7 @@ def test_chains_existing_macos_scripts_does_not_reimplement_them() -> None:
     assert "add-generic-password" not in text
     # Must not run the skill harness that git-fetches origin/main
     assert "bootstrap.sh" in text  # mentioned as something we will NOT run
-    assert "bash .claude/skills/cyclaw-advisor/bootstrap.sh" not in text
+    assert "bash .claude/skills/cyclaw-privacy/bootstrap.sh" not in text
 
 
 def test_bash32_and_bsd_userland() -> None:
@@ -187,7 +187,7 @@ def test_never_enables_fsconnect_writes_or_indexing() -> None:
 def test_never_writes_secrets_to_config_yaml() -> None:
     text = _script_text()
     # The orchestrator may READ config.yaml for the shipped model tag.
-    # It must never write a key into it (cyclaw-advisor).
+    # It must never write a key into it (cyclaw-privacy).
     assert "config.yaml" in text
     for key in _KEY_ENVS:
         # No assignment-into-config pattern.
@@ -251,12 +251,12 @@ def test_execs_invoke_so_ctrl_c_owns_the_tree() -> None:
     assert "--repo" in text
 
 
-def test_mentions_cyclaw_advisor_privacy_contract() -> None:
+def test_mentions_cyclaw_privacy_privacy_contract() -> None:
     text = _script_text()
-    assert "cyclaw-advisor" in text
+    assert "cyclaw-privacy" in text
     assert "never log secret values" in text
     assert "never write them to config.yaml" in text
-    assert ".claude/skills/cyclaw-advisor/verify.sh" in text
+    assert ".claude/skills/cyclaw-privacy/verify.sh" in text
     assert "I6" in text
     assert "xtrace" in text
 

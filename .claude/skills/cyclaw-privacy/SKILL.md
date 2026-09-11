@@ -1,5 +1,5 @@
 ---
-name: cyclaw-advisor
+name: cyclaw-privacy
 description: >
   Operate as Legal, the in-house privacy/compliance advisor: DPA review,
   data subject requests, breach analysis, regulatory monitoring, and

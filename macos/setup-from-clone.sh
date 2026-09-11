@@ -24,7 +24,7 @@
 #   --skip-keys           do not run setup-cyclaw-keys.sh
 #   --skip-ollama         do not check / pull a local model
 #   --skip-index          do not run python -m retrieval.indexer
-#   --skip-advisor        do not run .claude/skills/cyclaw-advisor/verify.sh
+#   --skip-privacy        do not run .claude/skills/cyclaw-privacy/verify.sh
 #   --no-start            do not launch the gateway
 #   --start               launch servers even under --skip-prompts
 #   --no-browser          pass --no-browser to invoke-cyclaw.sh
@@ -46,7 +46,7 @@
 # Target: macOS 14+ Apple Silicon (arm64), bash 3.2 / zsh, BSD userland.
 # No Homebrew required. Tests set CYCLAW_SETUP_FROM_CLONE_SKIP_PLATFORM=1.
 #
-# Privacy (cyclaw-advisor SKILL.md):
+# Privacy (cyclaw-privacy SKILL.md):
 #   never log secret values
 #   never write them to config.yaml
 #   never put them in argv of a child we do not control
@@ -56,7 +56,7 @@
 #   I3: do not flip app.mode or models.*.enabled (triple-gated fallback stays)
 #   I5: do not touch soul.md
 #   I6: this file is installer glue — gate.py / graph.py never import it
-#   do not run cyclaw-advisor/bootstrap.sh (it git-fetches origin/main)
+#   do not run cyclaw-privacy/bootstrap.sh (it git-fetches origin/main)
 #
 # What this script will NOT do (deliberate):
 #   - curl | sh Homebrew or Ollama unless you pass --ollama-install-script
@@ -80,7 +80,7 @@ SKIP_PYTHON_DEPS=0
 SKIP_KEYS=0
 SKIP_OLLAMA=0
 SKIP_INDEX=0
-SKIP_ADVISOR=0
+SKIP_PRIVACY=0
 NO_START=0
 FORCE_START=0
 NO_BROWSER=0
@@ -102,7 +102,7 @@ while [ $# -gt 0 ]; do
     --skip-keys) SKIP_KEYS=1; shift ;;
     --skip-ollama) SKIP_OLLAMA=1; shift ;;
     --skip-index) SKIP_INDEX=1; shift ;;
-    --skip-advisor) SKIP_ADVISOR=1; shift ;;
+    --skip-privacy) SKIP_PRIVACY=1; shift ;;
     --no-start) NO_START=1; shift ;;
     --start) FORCE_START=1; shift ;;
     --no-browser) NO_BROWSER=1; shift ;;
@@ -255,7 +255,7 @@ echo ""
 
 if [ "$DRY_RUN" -eq 1 ]; then
   step "dry-run plan (no writes, no network):"
-  echo "  1. cyclaw-advisor verify.sh (dep-file presence)"
+  echo "  1. cyclaw-privacy verify.sh (dep-file presence)"
   echo "  2. brew analytics off (if brew is on PATH)"
   echo "  3. require Python 3.12.x (offer brew install python@3.12 if missing)"
   if [ "$SKIP_INSTALL" -eq 0 ]; then
@@ -287,16 +287,16 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# -- 1. cyclaw-advisor verify -------------------------------------------------
+# -- 1. cyclaw-privacy verify -------------------------------------------------
 # verify.sh only checks dep-file presence. Do NOT run bootstrap.sh here —
 # that skill harness git-fetches origin/main.
 
-if [ "$SKIP_ADVISOR" -eq 0 ] && [ -x "$REPO_DIR/.claude/skills/cyclaw-advisor/verify.sh" ]; then
-  step "cyclaw-advisor: verifying checkout posture"
-  ( CDPATH= cd -- "$REPO_DIR" && bash .claude/skills/cyclaw-advisor/verify.sh ) || \
-    warn "cyclaw-advisor verify.sh reported a problem; continuing"
-elif [ "$SKIP_ADVISOR" -eq 0 ]; then
-  warn "cyclaw-advisor verify.sh not executable; skipping"
+if [ "$SKIP_PRIVACY" -eq 0 ] && [ -x "$REPO_DIR/.claude/skills/cyclaw-privacy/verify.sh" ]; then
+  step "cyclaw-privacy: verifying checkout posture"
+  ( CDPATH= cd -- "$REPO_DIR" && bash .claude/skills/cyclaw-privacy/verify.sh ) || \
+    warn "cyclaw-privacy verify.sh reported a problem; continuing"
+elif [ "$SKIP_PRIVACY" -eq 0 ]; then
+  warn "cyclaw-privacy verify.sh not executable; skipping"
 fi
 
 # -- 2. Homebrew analytics (only if brew is already here) ---------------------
@@ -459,7 +459,7 @@ if command -v gh >/dev/null 2>&1; then
     step "gh: already authenticated (status ok; token not printed)"
   elif [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; then
     if [ "$SKIP_PROMPTS" -eq 0 ] && _confirm "Log gh(1) in from the token we just stored (stdin, never argv)?" "y"; then
-      # Prefer GH_TOKEN. Pipe via stdin — never an argv token (cyclaw-advisor).
+      # Prefer GH_TOKEN. Pipe via stdin — never an argv token (cyclaw-privacy).
       if [ -n "${GH_TOKEN:-}" ]; then
         printf '%s\n' "$GH_TOKEN" | gh auth login --with-token
       else
@@ -563,7 +563,7 @@ else
 fi
 
 # If the operator pulled a tag other than the shipped default, do NOT edit
-# config.yaml (cyclaw-advisor + config-guard C11). Warn so /query does not 404.
+# config.yaml (cyclaw-privacy + config-guard C11). Warn so /query does not 404.
 _SHIPPED_MODEL="$(_read_shipped_model)"
 if [ -n "$_SHIPPED_MODEL" ] && [ "$OLLAMA_MODEL" != "$_SHIPPED_MODEL" ]; then
   warn "using Ollama tag $OLLAMA_MODEL but config.yaml ships $_SHIPPED_MODEL."

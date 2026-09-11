@@ -18,7 +18,7 @@
 #     real-repo-run wiring, closing a gap the existing CLI contract tests
 #     leave open by mocking every outer boundary in Python
 #   - Aligns with v1.9.0 invariants (reproducible CI security gate, Python 3.12, stable Chroma pin)
-#   - Cross-ref: cyclaw-advisor + python-development best practices for observable, testable CI
+#   - Cross-ref: cyclaw-privacy + python-development best practices for observable, testable CI
 # ==============================================================================
 
 name: CyClaw CI (Tests + Coverage + Gate)
@@ -1285,7 +1285,7 @@ jobs:
               case "$skill" in
                 CyClaw-Sandbox|index-doctor) profile=heavy ;;
                 config-guard|doc-sync|injection-redteam) profile=yaml ;;
-                babysit-github-pr|cyclaw-advisor|cyclaw-gotchas|dep-guard|invariant-guard|otel-hardening|verify-deps) profile=stdlib ;;
+                babysit-github-pr|cyclaw-privacy|cyclaw-gotchas|dep-guard|invariant-guard|otel-hardening|verify-deps) profile=stdlib ;;
                 *)
                   # Unknown skills must fail closed: a silent stdlib default can
                   # skip-green when the verifier needs PyYAML/runtime the stdlib

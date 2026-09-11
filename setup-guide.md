@@ -151,7 +151,7 @@ bash ./macos/setup-from-clone.sh
 
 It will:
 
-1. Run cyclaw-advisor `verify.sh` (checkout posture — dep-file presence).
+1. Run cyclaw-privacy `verify.sh` (checkout posture — dep-file presence).
    It does **not** run `bootstrap.sh` (that skill harness git-fetches
    `origin/main`).
 2. `brew analytics off` if Homebrew is already on PATH

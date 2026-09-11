@@ -3,6 +3,7 @@ name: wrap-up
 description: Use when user says "wrap up", "close session", "end session" or "done"
   "wrap things up", "close out this task", or invokes /wrap-up — runs
   end-of-session checklist for shipping, memory, and self-improvement
+disable-model-invocation: true
 ---
 
 # Session Wrap-Up

@@ -202,7 +202,7 @@ jobs:
         #   - Pre-computed embeddings via sentence-transformers (no dynamic embedding functions or trust_remote_code paths)
         #   - Offline-first design + full telemetry kill switch in gate.py
         #   - Reproducible install gate (verify-install matrix on Ubuntu/Windows/macOS + Python 3.12)
-        # Cross-ref: cyclaw-advisor §K / §M, hybrid_search.py:55, indexer.py:58, gate.py:TELEMETRY_KILL
+        # Cross-ref: cyclaw-privacy §K / §M, hybrid_search.py:55, indexer.py:58, gate.py:TELEMETRY_KILL
         # Track upstream for patched 1.5.x release; re-evaluate on bump.
         #
         # CVE-2026-45830 / CVE-2026-45831 / CVE-2026-45833 — same HTTP-server

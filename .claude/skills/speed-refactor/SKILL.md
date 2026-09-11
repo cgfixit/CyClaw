@@ -1,6 +1,7 @@
 ---
 name: speed-refactor
 description: Iterative speed optimization loop — continuously optimizes code for performance, measures page-load across every page under repeatable test conditions after each change, and continues until every page and module loads or runs in under 50 ms.
+disable-model-invocation: true
 ---
 
 # Speed Refactor Loop

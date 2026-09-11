@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bootstrap.sh — cyclaw-advisor skill harness.
+# bootstrap.sh — cyclaw-privacy skill harness.
 # Sets up the compliance advisor environment, verifies latest main branch state,
 # and prepares reference files for privacy/DPA/DSR/breach workflows.
 
@@ -7,7 +7,7 @@ set -euo pipefail
 
 hr() { printf '%s\n' "------------------------------------------------------------"; }
 
-echo "Bootstrapping cyclaw-advisor skill..."
+echo "Bootstrapping cyclaw-privacy skill..."
 hr
 
 git fetch origin main --quiet || echo "WARN: fetch may have issues (offline?)"

@@ -1,6 +1,7 @@
 ---
 name: session-title
 description: Generate a concise title for this session. Use when asked to title the session, name the conversation, or produce a session label for notes or memory.
+disable-model-invocation: true
 ---
 
 Produce a concise title for this session.

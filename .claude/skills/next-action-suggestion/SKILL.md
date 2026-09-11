@@ -1,6 +1,7 @@
 ---
 name: next-action-suggestion
 description: Suggest the single highest-value next action after completing a task or at the end of a session. Use when asked "what should I do next?", "what's next?", "next steps?", or to surface a logical continuation point.
+disable-model-invocation: true
 ---
 
 Recommend the single highest-value next action the user could take.
