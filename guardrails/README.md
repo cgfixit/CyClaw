@@ -45,7 +45,7 @@ python -m guardrails.cli test
 | `errors.py` | `GuardrailsError` hierarchy, rooted at `utils.errors.RAGError` |
 | `boundary.py` | Provider-independent typed decisions + provenance (#1134 Phase 1). Hashes and reason codes only — never raw prompts/responses. Never imported by the core six (I6). **No consumer as of 2026-09-04** — Phases 2a/3/4/5 shipped without adopting these types (Phase 5 went out as `utils/tool_broker.py`), and `profiles.py` mirrors `GuardrailStage` by hand. Kept as the typed vocabulary a future broker would adopt |
 | `broker.py` | NeMo non-generating `LLMRails.check` around the existing generation helper (#1134 Phase 3). Never grants I3, never calls `generate_async`; graph reaches it only via `utils/guardrail_bridge` |
-| `tool_broker.py` | Re-export of `utils.tool_broker` (canonical name-gate). Harness imports `utils`, not this package |
+| `tool_broker.py` | Re-export of `utils.tool_broker` (canonical name-gate) for guardrails-side tests. Out-of-band callers import `utils.tool_broker` directly, not this package (I6) |
 | `call_inventory.py` | Fail-closed AST inventory of `ChatOpenAI`/`ChatXAI`/`ChatAnthropic`/`generate_async` call sites. Unregistered files fail pytest and `python -m guardrails.call_inventory` (exit 1) |
 | `profiles.py` / `profiles.yaml` | Machine-readable guardrail profile matrix; rejects any profile claiming `mode: enforced` for a rail outside `IMPLEMENTED_RAILS` |
 | `qwen_registry.py` / `qwen_manifest.yaml` | Optional Qwen/Ollama tag manifest; strict mode default-off, no weight fetch. **No caller as of 2026-09-04** — it feeds `boundary.py`'s unconstructed `GuardrailDecision.provenance_ids`; kept with it |
@@ -63,7 +63,7 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 | Output grounding (`local_llm` only) | Shipped |
 | Soul-leak output rail | **Shipped** — `detect_soul_leak` on `check_output` (#1155). Not `scan_injection`. Graph still skips non-`local_llm`. |
 | `check()` wrap around existing generate | **Shipped** when enabled+NeMo installed (`GuardrailBroker`). Disabled path stays pass-through. |
-| ToolBroker name-gate | **Shipped** in `utils.tool_broker` — `web_fetch`/`web_search`, `harness_loop`, `agent_run`. |
+| ToolBroker name-gate | **Shipped** in `utils.tool_broker` (fail-closed allowlist + argv-digest audit). **No production caller as of PR #1367** — the harness console that gated `web_fetch`/`web_search`/`harness_loop`/`agent_run` was removed; only tests exercise it today. Kept as the canonical gate a future tool caller adopts. |
 | Generate-call inventory | **Shipped** — fail-closed AST (`python -m guardrails.call_inventory`). |
 | `check_jailbreak` input rail | **Not enforced offline** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. |
 | Topical rails (`stay_in_local_knowledge`, `no_unauthed_external_advice`) | **Not enforced offline** — configured but not referenced in `integration.py`. |

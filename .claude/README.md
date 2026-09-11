@@ -150,7 +150,8 @@ the command ended in `2>/dev/null || true` it silently no-opped on every prompt
 instead of erroring — which is precisely why it went unnoticed for weeks. The
 operator's call was to unwire it rather than write a replacement: the skill stays
 reachable as `/fable-protocol` and through its `description` trigger, and injecting
-an 18KB skill into every prompt is cost the skill's own §7 warns about. **Lesson
+a ~22KB skill into every prompt is cost the skill's own v1.2 preamble warns
+about (§7's [S5] row makes the same case on attack-surface grounds). **Lesson
 encoded:** the sync-check hook added the same day carries no `|| true`, because the
 script already always exits 0 and that tail is the thing that hid the last failure.
 The five registered hook *entries* now resolve to four distinct scripts:

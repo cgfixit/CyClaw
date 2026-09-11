@@ -82,8 +82,11 @@ python build_cyclaw_corpus.py
 
 # 0b. run the test suites (no GPU needed)
 pip install pytest
-python -m pytest tests/ -q          # 38 tests
+python -m pytest tests/ -q          # 38 tests -- run from tools/lora_finetune/
 python dryrun_finetune.py            # end-to-end control-flow check
+# NOTE: these tests live outside pyproject.toml's testpaths = ["tests"], so a
+# root-level `pytest tests/` does NOT collect them -- it runs the main suite
+# instead. CI covers this kit in .github/workflows/lora-finetune.yml.
 
 # 1. fine-tune (on a CUDA box with >=24 GB VRAM)
 pip install -r requirements.txt

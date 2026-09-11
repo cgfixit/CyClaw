@@ -770,6 +770,7 @@ CyClaw/
 │   ├── ratelimit.py
 │   ├── launchd_plist.py        # stdlib-only plist builder shared by the telegram / fsconnect / opentweet / generate_service_plist generators (sync.scheduler builds its own)
 │   ├── guardrail_bridge.py     # only bridge from graph.py to guardrails/ (never a direct import)
+│   ├── endpoint_trust.py       # destination allowlist: loopback-or-trusted_hosts for the local model, api.x.ai / api.anthropic.com for the online ones
 │   ├── ops_runner.py           # subprocess shim behind /ops/* — never imports sync/ or agentic/
 │   ├── config_validation.py    # boot-time config validation; fails fast
 │   ├── errors.py               # typed exception hierarchy rooted at RAGError
@@ -782,7 +783,7 @@ CyClaw/
 │   ├── authn_manager.py        # AuthManager — ties authn.py + authn_store.py together; no HTTP awareness
 │   ├── authn_cli.py            # cyclaw-user console script (local-only by construction)
 │   ├── gen_cert.py             # cyclaw-gen-cert — self-signed cert + key with hostname/LAN SAN
-│   ├── telemetry_kill.py       # shared kill block — applied by gate.py, mcp_hybrid_server.py, retrieval/vector_store.py
+│   ├── telemetry_kill.py       # shared kill block — applied by gate.py, the five out-of-band package __init__.py files, and eight module-level chokepoints (invariant-guard G1 pins all 14 orderings)
 │   └── onnx_telemetry.py       # post-import ONNX Runtime suppression at the two model-load seams
 ├── schemas/                    # Pydantic API models (api.py; extra='forbid', strict)
 ├── scripts/                    # install-githooks.sh, check-pr-template.sh, measure_local_llm_throughput.py
@@ -799,9 +800,10 @@ CyClaw/
 └── .github/workflows/
 ```
 
-Every top-level package and directory above now carries its own `README.md`
-(map + traps + links to its authoritative doc); the tree omits most of them
-for brevity.
+Every top-level package and directory above carries its own `README.md`
+(map + traps + links to its authoritative doc) — the one exception is `tools/`,
+whose README lives a level down at `tools/lora_finetune/README.md`. The tree
+omits most of them for brevity.
 
 ---
 
@@ -1355,6 +1357,7 @@ are in [`macos/README.md`](macos/README.md) and
 | Layer | Mechanism |
 |---|---|
 | Network | Binds `127.0.0.1:8787` — no external exposure by design |
+| Endpoint trust | `utils/endpoint_trust.py` allowlists where a generation client may talk, checked in `graph.py` itself. The local nodes accept loopback or an exact host from `models.local_llm.trusted_hosts` (ships `[]`) before any local context or soul text leaves the process; the online nodes pin Grok to `api.x.ai` and Claude to `api.anthropic.com`, so a tampered `base_url` cannot redirect a confirmed call, and an explicit `user_confirmed_online: false` is refused a second time here as a backstop to the triple gate. Denials surface as a typed `ENDPOINT_TRUST` error |
 | Input | Config-driven injection filter (`policy.prompt_filter`) |
 | Rate limit | 60 req/min per IP |
 | Proxy bypass | All `httpx` clients set `trust_env=False` — ambient `HTTP(S)_PROXY`/`.netrc` cannot reroute local traffic, see the path-embedded Telegram bot token, or carry `GROK_API_KEY` / `ANTHROPIC_API_KEY` on a confirmed hybrid call (`utils/health.py`, `llm/client.py` local + Grok + Claude, `telegram/client.py`, `opentweet/client.py`). This reverses the old “operator proxy governs paid egress” exception. |

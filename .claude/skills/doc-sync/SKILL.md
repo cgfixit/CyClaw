@@ -42,6 +42,9 @@ them wrongly. Exit `0` no drift · `2` drift found · `3` env error.
 | D6 | `.claude/settings.json` hooks | A "stop hook" claim is either backed by a wired Stop hook or accurately attributed to the session runtime |
 | D7 | `config.yaml` + `macos/ollama-mlx.env` | `docs/m5-48gb-coding-expectations.md` cites the shipped local model tag, `max_tokens`, timeouts, `max_context_tokens`, and `OLLAMA_CONTEXT_LENGTH`. Citation only; the no-stall inequality lives in config-guard C12 and `tests/test_m5_ollama_runtime_contract.py` |
 | D8 | `graph.py` `add_node()` calls (AST-counted) | Every "`<n>`-node"/"`<n>` nodes" claim across CLAUDE.md, docs, and agent-facing prompt files matches the real count. Excludes approximate ("`~10` nodes") sizing advice and version-pinned snapshot docs |
+| D9 | Files on disk | Every multi-segment repo path cited in any README resolves. Bare filenames are out of scope on purpose (a `falco.yaml` in prose is the container image's own file), as are runtime artifacts (`logs/`, `index/`) and paths the doc itself marks as deleted/excluded/not-yet-generated |
+| D10 | Link targets + headings | Relative markdown links in READMEs resolve, and same-file `#anchor` links match a real heading under **GitHub's** slug rule — spaces become hyphens one-for-one and are never collapsed, so `## macOS launchd & Keychain` is `#macos-launchd--keychain` with a double hyphen |
+| D11 | Modules on disk | Every `python -m <module>` in a README resolves to a real module or package, or is a known external runner (`pytest`, `pip`, `venv`, …) |
 
 ### Step 2 — Reconcile each mechanical drift item
 
@@ -56,6 +59,9 @@ keeps the history reviewable. Examples of the fix direction:
   (not wired in repo `settings.json`), OR wire the hook if that is the intent —
   the latter is a settings change, so confirm with the user first.
 - D8 → replace the stale node-count claim with the real `graph.py` count
+- D9 → fix the path, or say plainly in the doc that the file is gone (the checker reads "deleted"/"removed"/"excluded"/"not yet generated" as a deliberate absence)
+- D10 → repoint the link, or fix the anchor to match the heading's real GitHub slug
+- D11 → correct the module path, or add a genuinely-external runner to `_D11_EXTERNAL` in `doc_sync.py` **with a reason**
   (never edit `graph.py` to match the doc).
 
 ### Step 3 — Manual pass for prose claims the checker can't parse
@@ -139,6 +145,7 @@ Seed list so the first run has context — reconcile these:
 - **D3 only flags a WRONG cited number, not an undocumented one.** Not every
   tunable must be in CLAUDE.md; the check fires only when the doc discusses a key
   but shows a value that no longer matches config.
+- **D9/D10/D11 are regression guards, not bug-finders.** On the tree they were written against (the 2026-09-11 README sweep) all three found *zero* true positives. The real drift that sweep caught was prose-level — a security control described backwards, an over-broad "retired" banner, a module missing from the module map — and no path resolver can see any of that. Step 3's manual pass is still where the findings come from; these three only stop a rename from rotting a reference unnoticed. Resist "improving" them into noisy checks: the hand-run versions produced 13 false positives before the scoping rules above were added, and a checker that fires on a healthy tree gets ignored within a week.
 - **D7 is citation presence, not arithmetic.** It does not prove
   `max_context_tokens + max_tokens + 1500 <= OLLAMA_CONTEXT_LENGTH`. That
   relationship is C12 (FAILs when `OLLAMA_CONTEXT_LENGTH` is below the RAG
