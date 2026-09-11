@@ -71,7 +71,7 @@ dependencies:
   # solve, while a modern exporter ships regenerated protos that work with it.
   # conda-forge currently carries 1.42.1 and 1.43.0 (checked 2026-07-29).
   - opentelemetry-exporter-otlp-proto-grpc>=1.42
-  - sentence-transformers=5.6.0
+  - sentence-transformers=6.0.1
   # pytorch is sentence-transformers' hard transitive and is pinned explicitly
   # here for the same reason constraints.txt pins torch==2.13.0+cpu: post-
   # CVE-2025-32434 safety plus keeping the conda lane testing the same 2.13

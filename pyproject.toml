@@ -15,7 +15,7 @@ dependencies = [
     # exact pydantic-core (2.46.5), and constraints.txt locks that same version. The
     # dep-guard D1 lock-step check reads the pair from constraints.txt, not pyproject.
     "chromadb==1.5.9",  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
-    "sentence-transformers==5.6.0",
+    "sentence-transformers==6.0.1",
     # huggingface_hub and starlette are imported directly by first-party source
     # (retrieval/embeddings.py, gate.py) but were, until now,
     # only implicit transitives of sentence-transformers/fastapi respectively --
