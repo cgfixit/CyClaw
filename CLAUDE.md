@@ -814,14 +814,14 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | Skill | Type | Purpose |
 |---|---|---|
 | `/CyClaw-Optimize` | task | Scan main for optimizations; open focused draft PRs |
-| `/CyClaw-Sandbox` | task | Clone main, mock Ollama, full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR) |
+| `/CyClaw-Sandbox` | task, user-invoked only (`disable-model-invocation: true`) | Clone main, mock Ollama, full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR). Claude never auto-routes here — the full audit's cost (clone, venv, report, PR) is an explicit-ask action, not an inference from a technical prompt |
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
 | `/wrap-up` | task | End-of-session checklist (ship / remember / improve / publish) |
 | `/create-session-notes` | task | Maintain `SESSION_NOTES.md` |
 | `/ponytail` | mode | Lazy-senior-dev mode: YAGNI, stdlib-first, minimal abstraction |
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails: surgical diffs, surfaced assumptions, verifiable success criteria |
-| `/cyclaw-advisor` | mode | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes |
+| `/cyclaw-advisor` | mode, user-invoked only (`disable-model-invocation: true`) | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes; Claude never auto-routes here |
 | `/cyclaw-gotchas` | reference + driver | Session-tested traps for Claude Code sandboxes (proxy-denied torch/Hugging Face hosts, the 3.12 venv, the silent pytest summary, PR/check-in/review-bot process) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Load before installing deps, running tests, launching `gate.py`, or driving a PR |
 
 ### Standalone commands (no skill folder)
@@ -834,16 +834,26 @@ short inline procedures wired only as `.claude/commands/*.md`, with no
 ### Agent skills
 
 `/verification-specialist`, `/code-explorer`,
-`/general-purpose`, `/documentation-guide`, `/next-action-suggestion`,
+`/documentation-guide`, `/next-action-suggestion`,
 `/session-title`, `/tool-summary`, and the memory
 skills (`/memory-extraction`, `/memory-consolidation`, `/memory-orchestrator`)
 are each a `.claude/skills/*/SKILL.md` entry. `/conversation-summary` plays the
 same session-continuation role but is wired as `.claude/commands/conversation-summary.md`
 (a slash command), not a SKILL.md-backed skill — listed here for discoverability, not
 because it is a skill directory.
-`/python-coding-agent` auto-loads via the SessionStart hook; its Planning Mode
-covers pre-implementation design (formerly a separate `solution-architect`
-skill, folded in since both need the same CyClaw-specific grounding).
+`/python-coding-agent` auto-loads via the SessionStart hook (the full `SKILL.md`
+body, per `.claude/settings.json`); its Planning Mode covers pre-implementation
+design (formerly a separate `solution-architect` skill, folded in since both
+need the same CyClaw-specific grounding). Trimmed 2026-09-11 (issue #1351) to
+cut what the hook injects on every session start and compact: the library
+table, the three code/corpus scaffolds, and the forward-looking notes now
+live in `references/stack-and-templates.md`, read on demand rather than
+always in context.
+
+`general-purpose` (the project skill, not the Agent tool's identically-named
+built-in subagent type) was removed 2026-09-11 (issue #1351) — it duplicated
+that built-in agent's own description verbatim and added nothing project-
+specific, so it was pure listing tax.
 
 ### Cross-repo behavioral skill
 
