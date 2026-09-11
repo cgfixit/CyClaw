@@ -156,12 +156,10 @@ test:
         }))
 
         test_cmd, _ = detect_from_makefile()
-        # DevSkim: ignore DS197836 - "test" is a string literal, not weak crypto
-        assert test_cmd == "make test"
+        assert test_cmd == "make test"  # DevSkim: ignore DS197836
 
         test_cmd2, _ = detect_from_package_json()
-        # DevSkim: ignore DS197836 - "jest" is a package name, not weak crypto
-        assert "jest" in test_cmd2
+        assert "jest" in test_cmd2  # DevSkim: ignore DS197836
 
 
 if __name__ == "__main__":
