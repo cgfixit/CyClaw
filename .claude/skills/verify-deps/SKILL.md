@@ -1,6 +1,6 @@
 ---
 name: verify-deps
-description: Verify CyClaw's four install surfaces (pyproject.toml+uv, requirements.txt+pip, the Docker surface — Dockerfile + docker-compose.yml + .dockerignore + publish-ghcr.yml — and environment.yml) actually agree AND are current against upstream PyPI — and that the environment dependencies declared OUTSIDE the pin manifests (workflow-pinned tool versions, the Python version's four independent declarations, third-party imports declared in no manifest, runtime pins no first-party module imports, the Docker fallback torch pin vs constraints.txt, compose/.dockerignore/publish-workflow coherence with the Dockerfile) have not drifted. dep-guard checks internal pin agreement (static, no network); this adds requirements.txt (which dep-guard never reads), the install-surface scope contract (which surface may carry extras — constraints.txt is a version ceiling, not an install list), the non-manifest drift surfaces, a real dry-run of each surface's install command, and a PyPI currency sweep with CVE awareness. Reports findings; never auto-bumps a runtime pin (Medium-High risk, CLAUDE.md §7) without explicit approval. Use when asked to verify/audit dependencies, check if deps are up to date, check whether a merge introduced dependency drift, or before a dependency-heavy release.
+description: Verify CyClaw's four install surfaces (pyproject.toml+pip, requirements.txt+pip, the Docker surface — Dockerfile + docker-compose.yml + .dockerignore + publish-ghcr.yml — and environment.yml) actually agree AND are current against upstream PyPI — and that the environment dependencies declared OUTSIDE the pin manifests (workflow-pinned tool versions, the Python version's four independent declarations, third-party imports declared in no manifest, runtime pins no first-party module imports, the Docker CPU-torch pre-install pin vs constraints.txt, compose/.dockerignore/publish-workflow coherence with the Dockerfile) have not drifted. dep-guard checks internal pin agreement (static, no network); this adds requirements.txt (which dep-guard never reads), the install-surface scope contract (which surface may carry extras — constraints.txt is a version ceiling, not an install list), the non-manifest drift surfaces, a real dry-run of each surface's install command, and a PyPI currency sweep with CVE awareness. Reports findings; never auto-bumps a runtime pin (Medium-High risk, CLAUDE.md §7) without explicit approval. Use when asked to verify/audit dependencies, check if deps are up to date, check whether a merge introduced dependency drift, or before a dependency-heavy release.
 ---
 
 # Verify Deps
@@ -27,6 +27,17 @@ falling through to its pip fallback on every single build — a bug no
 existing check would have caught, because it's a install-command-shaped
 bug, not a pin-agreement-shaped one.
 
+The same shape recurred 2026-09-11, which is why Step 4 is not optional: the
+rewritten uv line resolved fine until `constraints.txt` gained a `setuptools`
+pin (2026-09-07, for a pip-audit advisory floor). The PyTorch CPU index
+mirrors `setuptools` at a different version, and uv's **default**
+`first-index` strategy then refuses to consult PyPI for a package an earlier
+index already carried — so uv failed on `setuptools`, not on torch, and
+`2>/dev/null ||` sent every build down the pip branch again. Nothing static
+caught it: the pins agreed, and pip (which searches all indexes) kept CI
+green. The Dockerfile now runs pip as its only path, and E5 fails any
+dependency-install `RUN` that redirects stderr or branches on `||`.
+
 ---
 
 ## The install surfaces are not four copies of one list
@@ -40,7 +51,7 @@ tree. Verified against the repo, 2026-08-02:
 |---|---|---|
 | `pip install -r requirements.txt -c constraints.txt` | Base runtime + torch CPU. 18 requirement lines (test tools live in `requirements-test.txt`, kept out of the Docker image). Header declares itself a **legacy compatibility surface**, kept in sync with `pyproject.toml`/`constraints.txt` for the Dockerfile and legacy CI/tools | **None.** Zero extras, by design |
 | `pip install -e ".[<extra>]" -c constraints.txt` | The 17 base deps, plus whichever of the 11 extras are named | **Yes — the only surface that can install one** |
-| `Dockerfile` (+ `docker-compose.yml`, `.dockerignore`, `.github/workflows/publish-ghcr.yml`) | Runs `uv pip install --system -r requirements.txt -c constraints.txt`, with a pip fallback (`Dockerfile:40-43`). Compose runs the image (loopback publish, runtime-state mounts), `.dockerignore` shapes the build context, `publish-ghcr.yml` ships the image compose pulls — E5/E6 pin the four files to each other | **None** — it *is* surface #1, containerized |
+| `Dockerfile` (+ `docker-compose.yml`, `.dockerignore`, `.github/workflows/publish-ghcr.yml`) | Runs `pip install --upgrade pip==<ci pin>`, then the CPU torch wheel, then `pip install --no-cache-dir -r requirements.txt -c constraints.txt` — one path, no `||` branch, no stderr redirect. Compose runs the image (loopback publish, runtime-state mounts), `.dockerignore` shapes the build context, `publish-ghcr.yml` ships the image compose pulls — E5/E6 pin the four files to each other | **None** — it *is* surface #1, containerized |
 | `conda env create -f environment.yml` | Base runtime + test/dev tools from conda-forge, plus a 3-package `pip:` tail | **None** |
 
 Two consequences that drive every judgement in this skill:
@@ -193,19 +204,35 @@ skill was born from had perfectly agreeing pins and a still-broken install
 line. For each surface, dry-run the documented/executed primary command
 against a real Python 3.12 venv:
 
+Use the installer each surface actually names — `pip`, not `uv`. CyClaw
+invokes `uv` nowhere: no workflow, no documented command, and since
+2026-09-11 not the Dockerfile either. Dry-running `uv` here tests a command
+the repo does not run, and (per the failure classes below) fails today for a
+reason that has nothing to do with the manifests.
+
 ```bash
 python3.12 -m venv /tmp/verify-deps-venv
 source /tmp/verify-deps-venv/bin/activate
-# 1. Local dev (AGENTS.md / README):
-uv pip install --dry-run -e . -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
-# 2. Legacy/CI (CLAUDE.md §8):
-uv pip install --dry-run -r requirements.txt -c constraints.txt
-# 3. Dockerfile's primary line — same command as #2, run with --system to
-#    match the container's real invocation:
-uv pip install --dry-run --system -r requirements.txt -c constraints.txt
-deactivate && rm -rf /tmp/verify-deps-venv
-# 4. The compose half of the Docker surface renders (needs the docker CLI;
-#    report "not verified" rather than skipping silently when it is absent):
+# 1. Local dev (CLAUDE.md §8 / AGENTS.md) — the --extra-index-url is required:
+#    constraints.txt pins torch==...+cpu, which sentence-transformers pulls in,
+#    and that wheel exists only on the CPU index. Omit it and you get a
+#    ResolutionImpossible that is your invocation's fault, not the tree's.
+pip install --dry-run -e . -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# 2. Legacy/CI (CLAUDE.md §8) — requirements.txt carries its own
+#    --extra-index-url line, so none is needed here:
+pip install --dry-run -r requirements.txt -r requirements-test.txt -c constraints.txt
+# 3. Dockerfile's install path, in the same three steps the builder stage runs:
+pip install --dry-run torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
+pip install --dry-run -r requirements.txt -c constraints.txt
+# 4. The packaging config itself — the one check a dry-run cannot make. This
+#    really builds the wheel through hatchling, so a stale entry in
+#    [tool.hatch.build] `packages`/`force-include` (a deleted module left
+#    behind, say) fails here and nowhere else:
+pip wheel --no-deps -w /tmp/verify-deps-wheel .
+deactivate && rm -rf /tmp/verify-deps-venv /tmp/verify-deps-wheel
+# 5. The compose half of the Docker surface renders (needs the docker CLI AND a
+#    running daemon — the CLI alone is not enough; report "not verified" rather
+#    than skipping silently when either is absent):
 docker compose config --quiet
 ```
 
@@ -213,8 +240,23 @@ Read the failure class if any command errors:
 - `no version of torch==...+cpu` (or similar unresolvable pin) → the CPU
   wheel index isn't being reached; check for a missing `--extra-index-url`
   or a stripped `[tool.uv.sources]` route (see Gotchas).
-- `no virtual environment found` → you forgot `--system` or an active venv;
-  not a real finding, fix the test invocation.
+- `no version of setuptools==<pin> and torch==...+cpu depends on
+  setuptools==<pin>` **from uv** → read past the first clause. This is NOT
+  the torch case above, even though torch is what the message blames and
+  `--extra-index-url` is present. uv's default `first-index` strategy found
+  `setuptools` on the PyTorch index, refused to look at PyPI for the pinned
+  version, and reported it as torch being unusable. pip resolves the same
+  tree fine because it searches every index. `--index-strategy
+  unsafe-best-match` "fixes" it by dropping the dependency-confusion guard
+  `requirements.txt`'s own comment relies on — so the finding is "this
+  surface should not be invoked through uv," not "bump a pin."
+- `ResolutionImpossible: sentence-transformers X depends on torch>=... / the
+  user requested (constraint) torch==...+cpu` **on `-e .`** → you omitted
+  `--extra-index-url`. Not a finding; fix the invocation and re-run.
+- `error: externally-managed-environment` (pip) or `no virtual environment
+  found` (uv) → you are outside the venv the block above creates; not a real
+  finding, fix the test invocation rather than reaching for `--system` or
+  `--break-system-packages`.
 - A network/proxy error reaching `download.pytorch.org` specifically →
   environment-local (sandboxes/CI runners sometimes restrict egress to
   approved hosts); note it as unverified rather than asserting pass or fail.
@@ -261,7 +303,7 @@ Verify Deps: <n> packages checked | <n> currency gaps | <n> flagged CVEs | <n> i
 dep-guard: <PASS/FAIL from Step 1>
 requirements.txt drift: <none | list from Step 2>
 Env drift (E1-E7): <n> failure(s), <n> warning(s) — <every E3 name reported, or "none">
-Install surfaces dry-run: local-dev=<PASS/FAIL/unverified> legacy-CI=<...> Dockerfile=<...> conda=<not dry-run-verified, unless actually tested>
+Install surfaces dry-run: local-dev=<PASS/FAIL/unverified> legacy-CI=<...> Dockerfile=<...> wheel-build=<...> conda=<not dry-run-verified, unless actually tested>
 Currency: <table or summary — current / bump-candidate / needs-review / CVE-flagged>
 Verdict: <fixes applied (list) | findings for review (list) | none>
 ```
@@ -357,6 +399,18 @@ delegates Step 1 to it rather than duplicating it).
   `torch==...+cpu`, because that wheel only exists on the CPU index, never
   on PyPI. Verified by dry-run against this repo's real pins,
   2026-07 — this is not a hypothetical.
+- **`--extra-index-url` plus an exactly-pinned transitive is unresolvable
+  under uv's default index strategy**, and that combination is one
+  `constraints.txt` line away at all times. uv resolves each package from the
+  *first* index that carries it at all; the PyTorch CPU index mirrors a slice
+  of PyPI (`setuptools` among it), so pinning one of those mirrored packages
+  to a version the mirror lacks makes uv stop rather than fall back. pip has
+  no such rule. Reproduced 2026-09-11 on uv 0.7.22 and 0.8.17 against Python
+  3.12 for both `-r requirements.txt` and `-e .`; the resolution was to take
+  uv out of the Dockerfile, not to relax the strategy. **Do not "fix" a uv
+  resolution failure with `--index-strategy unsafe-best-match`** without
+  owner sign-off: it is the dependency-confusion control, not a verbosity
+  flag.
 - **A build stage that copies only manifest files (`pyproject.toml`,
   `constraints.txt`, `requirements.txt`) before installing** (the
   Dockerfile's layer-caching pattern) cannot use `-e .` or `-r

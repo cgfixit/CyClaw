@@ -36,6 +36,63 @@ class _HealthHandler(BaseHTTPRequestHandler):
         return
 
 
+def test_dockerfile_dependency_install_fails_loudly() -> None:
+    """The builder stage's dependency install must be ONE path that fails the
+    build when it fails.
+
+    It used to read ``uv pip install ... 2>/dev/null || ( pip ... )``. uv could
+    not resolve that line at all -- constraints.txt pins setuptools, the
+    PyTorch CPU index carries a different setuptools, and uv's default
+    first-index strategy then refuses to consult PyPI for it -- so every build
+    silently took the pip branch while the stderr redirect hid the reason
+    (reproduced 2026-09-11 on uv 0.7.22 and 0.8.17). A swallowed install is
+    how a container ends up with a different tree than the one reviewed.
+    """
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    # Join continuations so a multi-line RUN is inspected as the single shell
+    # command Docker actually executes.
+    joined = dockerfile.replace("\\\n", " ")
+    install_runs = [
+        line for line in joined.splitlines()
+        if line.startswith("RUN ") and "requirements.txt" in line
+    ]
+    assert len(install_runs) == 1, f"expected exactly one dependency-install RUN, got {install_runs}"
+    run = install_runs[0]
+    assert "2>/dev/null" not in run and "2> /dev/null" not in run, (
+        "the dependency-install RUN discards stderr; a failing install must fail the build visibly"
+    )
+    assert "||" not in run, (
+        "the dependency-install RUN branches on '||'; a fallback resolver installs a different "
+        "tree than the reviewed one, and the build stays green while it happens"
+    )
+    assert "pip install --no-cache-dir -r requirements.txt -c constraints.txt" in run, (
+        "the image must install the constrained legacy surface"
+    )
+
+
+def test_dockerfile_torch_preinstall_matches_constraints_pin() -> None:
+    """The explicit CPU-torch pre-install and constraints.txt must move together.
+
+    When constraints moved 2.12.1 -> 2.13.0 this line stayed behind, the build
+    installed the old wheel, and the constrained resolve then failed. Asserting
+    only that *some* torch== is present is exactly the assertion that passed
+    that tree.
+    """
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    in_docker = re.search(
+        r"pip install --no-cache-dir torch==(\S+) --index-url "
+        r"https://download\.pytorch\.org/whl/cpu",
+        dockerfile,
+    )
+    assert in_docker, "Dockerfile must pre-install the CPU torch wheel from the PyTorch CPU index"
+    pinned = re.search(r"(?m)^torch==(\S+)", (REPO_ROOT / "constraints.txt").read_text(encoding="utf-8"))
+    assert pinned, "constraints.txt carries no torch== pin"
+    assert in_docker.group(1) == pinned.group(1), (
+        f"Dockerfile pre-installs torch=={in_docker.group(1)} but constraints.txt pins "
+        f"torch=={pinned.group(1)}; keep the two in lock-step on every torch bump"
+    )
+
+
 def test_dockerfile_refreshes_ca_certificates_before_nonroot_user() -> None:
     """DLA-4726-1 / issue #1024: digest-pinned slim-bookworm ships a stale
     Mozilla CA bundle. The one-package refresh must run as root (before
