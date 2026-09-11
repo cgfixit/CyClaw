@@ -423,6 +423,14 @@ def _fs_equiv_path(path: str) -> str:
     ``Tests/`` vs ``tests/``, or ``pyproject.toml.`` vs ``pyproject.toml``.
     Platform-independent on purpose so Linux CI cannot claim safety that
     Windows operators do not have.
+
+    Segments are additionally folded to NFC because APFS and HFS+ compare
+    filenames normalization-insensitively: ``café.md`` spelled NFC and the
+    same name spelled NFD are two distinct Python strings but one file on a
+    macOS volume. Without this fold the duplicate-block check in
+    :func:`_parse_file_blocks` accepts both spellings, both writes land on
+    that one file, and the second silently overwrites the first — leaving the
+    human reviewer a single diff for two proposed bodies.
     """
     normalized = path.replace("\\", "/")
     parts: list[str] = []
@@ -431,7 +439,8 @@ def _fs_equiv_path(path: str) -> str:
             continue
         trimmed = part.rstrip(". ")
         cleaned = "".join(ch for ch in trimmed if unicodedata.category(ch) != "Cf")
-        parts.append(cleaned.casefold())
+        # NFC after casefold: casefolding can itself denormalize a segment.
+        parts.append(unicodedata.normalize("NFC", cleaned.casefold()))
     return "/".join(parts)
 
 
@@ -477,10 +486,9 @@ def _parse_file_blocks(text: str) -> dict[str, str]:
     silently reporting ``no_files_changed`` every iteration regardless of
     what the model actually proposed, burning ``max_iterations`` on a
     line-ending mismatch rather than the content the operator is trying to
-    debug. This matters here specifically because the operator surface is
-    ``harness/``, whose Windows launcher (PowerShell) is CRLF-native and whose
-    macOS/Linux launcher (shell) is not -- a fixed model backend can still
-    reply with either line ending regardless of which one launched it.
+    debug. This matters because a fixed model backend is free to reply with
+    either line ending regardless of the platform the CLI runs on, so a
+    POSIX host is no guarantee the response arrives LF-only.
 
     Raises :class:`AgenticError` if the same destination appears in two
     different blocks, including case/trailing-dot aliases that collide on
