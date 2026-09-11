@@ -1,0 +1,23 @@
+# Optional operator install for the LoRA fine-tune kit ONLY.
+# CyClaw runtime (root requirements.txt / pyproject extras / Docker / conda)
+# does NOT install these. Do not copy this file into a core install surface.
+#
+# Direct packages only — not a lockfile of Unsloth's GPU tree. OSV-Scanner
+# v2 resolves requirements.txt transitives via deps.dev and, for this stack,
+# materializes ancient wheels (aiohttp 3.9.5, pillow 9.5, setuptools 9.1,
+# torch 2.9.1) that are not what a current `pip install unsloth` lands.
+# The kit directory is therefore excluded from the repo OSV walk
+# (--experimental-exclude=r:lora_finetune). Audit on the CUDA box after install:
+#   pip-audit -r tools/lora_finetune/requirements.txt
+#
+# Pins are current patched PyPI releases as of 2026-09-11 (each named
+# package is OSV-clean at this exact version). Unsloth 2026.9.4 still
+# publishes transformers<=5.5.0 / trl<=0.24.0 / datasets<4.4; if pip
+# refuses this set, install Unsloth alone and let it resolve the HF stack:
+#   pip install --upgrade --force-reinstall --no-cache-dir unsloth==2026.9.4
+
+unsloth==2026.9.4
+transformers==5.17.0
+trl==1.13.0
+datasets==5.0.1
+accelerate==1.15.0

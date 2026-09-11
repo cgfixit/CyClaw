@@ -1,0 +1,1509 @@
+[
+  {
+    "id": "curated-000",
+    "category": "Architecture & Topology",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Describe the CyClaw LangGraph controller flow, including the guardrail nodes."
+      },
+      {
+        "role": "assistant",
+        "content": "CyClaw uses a LangGraph StateGraph where topology IS the security policy.\n\nFull flow:\n  ENTRY → retrieve → route_by_score → guardrail_input → {local_llm | user_gate}\n  user_gate → {pre_action_hook_grok → grok_fallback | pre_action_hook_claude → claude_fallback | guardrail_input → offline_best_effort}\n  {local_llm | grok_fallback | claude_fallback | offline_best_effort} → guardrail_output\n  ALL paths → audit_logger → END\n\nNode responsibilities:\n1. retrieve: Hybrid search (ChromaDB vector + BM25 keyword + RRF fusion). Unconditional first node.\n2. route_by_score: Conditional edge. top_score >= min_score (0.028 RRF) → guardrail_input → local_llm. Otherwise → user_gate.\n3. guardrail_input: Sync, offline-only input rail (injection markers + soul-mutation regex, no LLM). Built by utils/guardrail_bridge.py. None default = pass-through.\n4. local_llm: Builds prompt from soul_core + retrieved docs, calls Ollama at 127.0.0.1:11434.\n5. user_gate: Sets needs_user_confirm flag. Client resubmits with user_confirmed_online.\n6. grok_fallback: Triple-gated external (xAI API). Soul preamble INTENTIONALLY omitted — identity must never leave the box.\n7. claude_fallback: Alternative external fallback (Anthropic Messages API). Same triple-gate.\n8. offline_best_effort: Best-effort local LLM when online is declined/unavailable. Soul preamble IS included here.\n9. guardrail_output: Sync, offline-only grounding (hallucination) check after response nodes, before audit. Scoped to local_llm path initially. Single unconditional edge to audit_logger.\n10. audit_logger: SHA-256 hashed, PII-redacted, append-only JSONL. ALL paths converge here.\n\nKey invariants enforced by graph edges (not prompts):\n- Every query passes through retrieval first (no bypass edge from ENTRY)\n- No LLM is called before the score gate\n- No external LLM without explicit user confirmation AND hybrid mode\n- Every response passes through audit logging before END\n- Soul evolution is NOT a graph node — it's an HTTP endpoint (POST /soul/apply)"
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-001",
+    "category": "Architecture & Topology",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What are the three CyClaw invariants and why are they enforced by graph topology rather than prompts?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three invariants:\n1. RAG-first: retrieve is the unconditional first node from ENTRY. No bypass edge exists.\n2. Topology = enforcement: the LangGraph topology IS the security policy. Graph edges enforce safety, not prompts. Injected prompts cannot add graph edges.\n3. Identity ≠ memory ≠ topology: soul is governed independently from memory and control flow. soul.md is the source of truth, SQLite is the version log. Evolution requires explicit human reason via POST /soul/apply.\n\nWhy topology over prompts:\nPrompt-based enforcement (e.g., 'CRITICAL: always call rag_query first') is probabilistic — LLM compliance ranges 85-95%. An injected prompt can override, ignore, or rephrase instructions. Graph topology is deterministic: if the edge from ENTRY to retrieve doesn't exist as a bypass, no prompt can create it. The StateGraph's add_edge() calls at build time are the enforcement mechanism. This is the core design insight — model control flow as a directed graph where safety properties become topology properties."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-002",
+    "category": "Architecture & Topology",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What is the GraphState TypedDict in CyClaw and what fields does it carry?"
+      },
+      {
+        "role": "assistant",
+        "content": "GraphState is a TypedDict(total=False) that flows through every LangGraph node. Fields:\n\nInputs:\n- query: str — the user's question\n- user_confirmed_online: bool | None — per-query client confirmation for external LLM\n- soul_core: str — current soul.md content (injected at prompt construction, not as a graph node)\n\nSet by retrieve:\n- retrieved_docs: list[RetrievedDoc] — search results with full RRF provenance\n- top_score: float — highest RRF fused score\n- retrieval_mode: str — 'hybrid' | 'vector' | 'bm25' | 'none'\n\nSet by route_by_score / user_gate:\n- needs_user_confirm: bool — flag for the client to show confirmation UI\n\nSet by responding nodes (local_llm / grok_fallback / claude_fallback / offline_best):\n- answer: str — the generated response\n- answer_model: str — 'local' | 'grok' | 'claude' | 'offline-best-effort'\n- answer_sources: list[RetrievedDoc] — docs cited in the answer\n\nSet by audit_logger:\n- audit_event: dict — SHA-256 hashed, PII-redacted audit record\n\nSet by any node on failure:\n- error: str | None — typed error message\n\nRetrievedDoc is also a TypedDict(total=False) carrying: text, score, source, chunk_id, source_sha256, stem_tags, mode, semantic_score, semantic_rank, keyword_score, keyword_rank, rrf_score, rrf_semantic_contrib, rrf_keyword_contrib."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-003",
+    "category": "Architecture & Topology",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Why is soul evolution an HTTP endpoint rather than a LangGraph node? What was the model council consensus?"
+      },
+      {
+        "role": "assistant",
+        "content": "Soul evolution is NOT a graph node. It's an explicit HTTP endpoint: POST /soul/apply.\n\nThe model council consensus was: no autonomous self-modification in the graph. If soul evolution were a graph node, a retrieved document or an LLM response could potentially route to it, creating a path where the agent modifies its own identity based on untrusted input.\n\nBy making it an HTTP endpoint:\n1. It requires an explicit external HTTP call — no graph edge can reach it\n2. apply_evolution() requires a human-authored reason string — no anonymous mutations\n3. The endpoint is behind CYCLAW_API_KEY authentication (fail-closed if unset)\n4. The proposed soul is scanned with the SAME banned-pattern set as user queries, unioned with OWASP injection patterns, before any write\n5. threading.Lock serializes SQLite writes — concurrent evolution attempts are ordered\n\nSoul content IS injected at the prompt level inside local_llm and offline_best_effort nodes — but that's read-only injection, not evolution. The soul is prepended as a stable system preamble, and retrieved docs are explicitly separated with hard delimiters labeled 'untrusted context' to prevent retrieved content from overriding identity directives."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-004",
+    "category": "Architecture & Topology",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the guardrail_input node work and what is its relationship to the NeMo Guardrails integration?"
+      },
+      {
+        "role": "assistant",
+        "content": "guardrail_input is a sync, offline-only input rail positioned between route_by_score and local_llm. It checks for injection markers and soul-mutation regex patterns — no LLM involved.\n\nKey design decisions:\n1. graph.py NEVER imports guardrails — the input_guard is an injected callable built by utils/guardrail_bridge.py. This preserves module isolation (invariant I6).\n2. build_graph() accepts an optional input_guard parameter. None (default) is a pure pass-through, so every existing caller is byte-identical to pre-guardrail behavior.\n3. The guardrail_router checks the guardrail's verdict: blocked → audit_logger, else → local_llm. Extended to also route to offline_best_effort as the offline branch's entry point.\n4. The actual check logic lives in guardrails/rails.py as plain, fully-typed, offline-testable Python — NOT in Colang flows. This means every check is unit-testable without a running LLM or nemoguardrails.\n\nPhase 4 added guardrail_output: a sync grounding (hallucination) check after response nodes, before audit_logger. It has exactly one unconditional outbound edge to audit_logger — scope/verdict branching happens inside the node and changes what gets logged, never which node runs next. This preserves invariant I2 by construction."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-005",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the CyClaw prompt injection filter work? Describe the normalization, pattern matching, and two-level sanitization."
+      },
+      {
+        "role": "assistant",
+        "content": "The sanitizer (utils/sanitizer.py) operates at two levels: user input (reject on match) and corpus chunks at ingestion time (strip + replace with [FILTERED]).\n\nNormalization pipeline (before pattern matching):\n1. NFKC Unicode normalization — folds fullwidth characters back to ASCII. e.g., 'ｉｇｎｏｒｅ ａｌｌ ｐｒｅｖｉｏｕｓ' collapses onto the plain form patterns already catch.\n2. Invisible character removal — zero-width space/non-joiner/joiner, LTR/RTL marks, word joiner, BOM, soft hyphen. These render as nothing but break regex matching when dropped inside a word: 'ig<ZWSP>nore all previous instructions' matches no pattern, yet tokenizes back to the instruction it spells.\n\nBoth transforms only fold text TOWARD the ASCII the patterns are written in, so the normalized copy matches a superset of what the raw string would — this cannot silently stop catching something that used to be caught.\n\nPattern compilation:\n- Patterns are loaded from config.yaml (policy.prompt_filter.banned_patterns)\n- 40 curated regex patterns (expanded from original 8→13→32→39→40)\n- Categories: Core Override, Role Reassignment, System/New Instructions, Memory/Persistence Manipulation, Authority/Urgency, Tool/Action Hijacking, Light Obfuscation/Jailbreak\n- All compiled with re.IGNORECASE | re.DOTALL (DOTALL so patterns spanning newlines still match)\n- Compiled once per config file and cached via @lru_cache(maxsize=8)\n- A malformed regex in config skips that entry with a warning rather than crashing all queries\n\nMax input length: 4000 chars (configurable via max_input_chars)"
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-006",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Explain the triple-gate pattern for external LLM fallback in CyClaw. What are the three gates, and where in the code does each one actually live?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three gates must ALL be true simultaneously for external LLM access, and they live in two different places — not inside GrokClient/ClaudeClient:\n1. app.mode == 'hybrid' — checked in gate.py, at module load, before GrokClient/ClaudeClient are even constructed.\n2. models.grok.enabled == true (or models.claude.enabled) — checked in the SAME gate.py construction guard as gate 1. If either condition is false, the client object is never built at all: the module-level `grok`/`claude` name stays None.\n3. user_confirmed_online == true — a per-query, client-supplied boolean, checked by graph.py's user_gate_router, which also re-checks provider selection and availability (is_available(), i.e. an API key is present) before routing to pre_action_hook_grok/claude and then grok_fallback/claude_fallback.\n\nGraph topology enforces gate 3: route_by_score routes to user_gate (never directly to grok_fallback/claude_fallback), and user_gate_router only proceeds past the pre_action_hook node when user_confirmed_online is true. No graph edge bypasses this — it's structural, not a prompt instruction.\n\nGrokClient and ClaudeClient do NOT re-validate any of the three gates. Read their generate() methods: the only check either one performs is 'do I have an API key' (self.api_key), and only to raise GrokServiceError/ClaudeServiceError if it's missing — mode, enabled, and confirmation are never referenced inside either class. This is deliberate, not an oversight: CyClaw's own principle is topology-as-policy, not prompt- or object-level trust, so the enforcement lives exactly once, in gate.py's construction guard and graph.py's router. The practical consequence is important to know, not just reassuring to forget: there is no client-side backstop. If a future change ever altered gate.py's construction guard or graph.py's user_gate_router to skip a check, nothing inside GrokClient/ClaudeClient would catch it — which is exactly why those specific lines get extra scrutiny in review, not why they're safe to touch casually.\n\nAdditional safety: soul_core is INTENTIONALLY omitted from the Grok/Claude prompt. The soul/identity layer must never be forwarded off-box (invariant I3 + privacy). When context forwarding is enabled, it uses data-trust framing (labeled 'untrusted context')."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-007",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the CyClaw API key authentication work for soul mutation endpoints? What is the fail-closed design?"
+      },
+      {
+        "role": "assistant",
+        "content": "The require_api_key dependency guards soul mutation endpoints (/soul/apply, /soul/propose, etc.) and ops/memory routes.\n\nFail-closed design:\n1. If CYCLAW_API_KEY is not set, the endpoint is REFUSED (401) — not open. No key is generated, logged, or stored. Previously, unset key meant 'open mode' with no auth.\n2. security.api_key_optional (default false) is the one escape hatch: an operator who explicitly opts in gets the dependency skipped entirely. BUT this bypass additionally requires a LOOPBACK PEER — the request must come from 127.0.0.1/localhost.\n3. The peer address check is load-bearing: a Host header is attacker-controlled, a peer address is not. TrustedHostMiddleware alone is insufficient.\n\nConstant-time comparison:\n- Uses hmac.compare_digest(credentials.encode('utf-8'), api_key.encode('utf-8'))\n- Plain != short-circuits on the first differing byte, leaking key length/prefix via response timing\n- Compares UTF-8 bytes, not str: hmac.compare_digest raises TypeError on str with non-ASCII chars, and Starlette decodes the Authorization header latin-1, so a token with any byte > 0x7F would escape as an unhandled 500 instead of the fail-closed 401"
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-008",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What patterns does the soul-write boundary enforce and why?"
+      },
+      {
+        "role": "assistant",
+        "content": "PersonalityManager.apply_evolution() scans proposed soul text with ENFORCED_SOUL_PATTERNS before any write. These are core injection patterns:\n- ignore previous/all/prior instructions\n- disregard previous/all/prior\n- forget previous/all/prior instructions\n- new instructions:\n- system prompt:\n- override instructions\n- jailbreak\n- DAN mode\n- developer mode\n\nWhy this matters: soul.md is prepended to EVERY LLM system prompt. Anything that reaches it persists as a standing instruction to the LLM across all future queries. This is the most dangerous injection surface in the system — a successful soul poisoning is permanent.\n\nAdditionally, propose_evolution uses OWASP_INJECTION_PATTERNS for advisory review — the core set plus softer patterns (you are now, pretend you are, act as, <script>) that are suspicious in arbitrary text but may be legitimate in author-controlled identity statements.\n\nThese are surfaced for human review but are NOT enforced at the write boundary — only the core ENFORCED_SOUL_PATTERNS block the write."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-009",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the guardrails soul-mutation detection work?"
+      },
+      {
+        "role": "assistant",
+        "content": "guardrails/rails.py contains detect_soul_mutation_intent() which checks whether a query tries to modify or override the soul/identity layer.\n\nThe _SOUL_MUTATION_RE regex matches:\n- (re)?write your soul/personality/identity/system prompt\n- change your soul/personality/identity/persona/name\n- update your soul/personality/identity\n- forget who you are / your soul/identity/personality\n- you are now a/an/my\n- from now on you are/will be\n- ignore your soul/identity/personality/persona\n- overwrite your soul/identity\n\nThis is the enforcement arm of CyClaw's Soul-Governance invariant at the guardrails layer. Soul mutation must always carry an explicit human reason via the gate.py endpoint; a query that tries to do it inline is refused outright.\n\nThe module also has _INJECTION_MARKERS for defense-in-depth — these are a lightweight subset of the authoritative 40-pattern filter in utils/sanitizer.py + config.yaml. They exist so the guardrails CLI can flag obvious payloads offline without loading the full sanitizer config.\n\nCritically, guardrails/rails.py is NEVER imported by gate.py, graph.py, or mcp_hybrid_server.py. The NeMo action decorator is a no-op shim when nemoguardrails is not installed, so importing the module always succeeds offline."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-010",
+    "category": "Retrieval & RAG",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does CyClaw's BM25 score caching work and why is it per-instance rather than class-level?"
+      },
+      {
+        "role": "assistant",
+        "content": "HybridRetriever caches BM25 scores using lru_cache(maxsize=256) wrapped around self.bm25.get_scores. This avoids re-running get_scores() — an O(corpus size) computation over the full BM25 term/document matrix — on repeated identical queries.\n\nCritical design detail: the cache is built as an lru_cache-wrapped closure stored as an INSTANCE attribute (self._bm25_scores), NOT a bare @lru_cache decorating the method.\n\nWhy per-instance:\nA class-level @lru_cache would be one cache shared by the whole class, pinning every HybridRetriever instance ever passed to it alive for the life of the process — a real memory leak across the many short-lived instances that tests construct. The per-instance cache dies with the instance.\n\nWhat it caches:\nOnly the raw, never-mutated scores array returned by BM25Okapi.get_scores() — NOT the SearchResult objects that keyword_search() builds from it. Downstream RRF fusion mutates those objects in place (hit.score / hit.rrf_score in _normalize_single_path and hybrid_search), so returning shared instances across calls would leak one query's fusion state into the next identical query."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-011",
+    "category": "Retrieval & RAG",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What is the embedding fingerprint check in HybridRetriever and why does it behave differently on Apple Silicon?"
+      },
+      {
+        "role": "assistant",
+        "content": "_check_embedding_fingerprint() guards against serving a semantic index built on a different embedding device/model/dimension than the one currently configured.\n\nThree cases:\n1. MISMATCHED fingerprint (present but different): Always fatal. The index was built with a different embedding space — comparing vectors from different spaces is meaningless. Raises IndexNotFoundError (gate boot handles as 503 INDEX_NOT_FOUND).\n\n2. ABSENT fingerprint (index built before this check existed): Only fatal when MPS is available on the current machine. CyClaw's Linux/Windows torch pin (torch==X+cpu) has never had MPS/CUDA kernels compiled in, so an absent fingerprint there provably means the old index was CPU-built. On Apple Silicon (which has no separate CPU torch build to pin), the old index could have auto-selected MPS — different embedding space, different results. Warn-and-continue on non-MPS.\n\n3. CHECK FAILURE (bad fingerprint_fn() call, torch import error): Degrades to warning. The check's own plumbing must never block retrieval; only a positive finding of staleness does.\n\n_mps_risk_present() does a deferred torch import (matching embeddings.py's pattern) to avoid pulling torch into every module that imports hybrid_search. Any failure resolves to False — the safer direction is to warn rather than refuse."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-012",
+    "category": "Retrieval & RAG",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Describe the RRF (Reciprocal Rank Fusion) implementation in CyClaw. What are the weights, k value, and how does graceful degradation work?"
+      },
+      {
+        "role": "assistant",
+        "content": "RRF fusion combines semantic (ChromaDB) and keyword (BM25) search results:\n\nscore = Σ 1/(k + rank_i) * weight_i\n\nParameters:\n- Semantic weight: 0.6 (cosine similarity via ChromaDB, all-MiniLM-L6-v2 384-dim CPU embeddings)\n- Keyword weight: 0.4 (BM25Okapi with Porter stemmer, ASCII-only tokenizer)\n- rrf_k: 60 (smoothing constant)\n- top_k_semantic: 5, top_k_keyword: 5 (max results per leg)\n- min_score: 0.028 (RRF fused-rank threshold — NOT cosine similarity, different scale)\n- max_context_tokens: 2400 (token budget for retrieved context in the prompt)\n\nEach SearchResult carries full provenance: semantic_score, semantic_rank, keyword_score, keyword_rank, rrf_score, rrf_semantic_contrib, rrf_keyword_contrib.\n\nGraceful degradation:\n- If semantic (vector) search fails → keyword-only mode. BM25 results are rebased to a 0..1 scale and fused with the semantic weight applied to a synthetic rank.\n- If keyword (BM25) search fails → semantic-only mode.\n- The retrieval_mode field in GraphState records which mode was actually used.\n\nWhy both: BM25 nails exact technical terms (CVE IDs, function names, product SKUs) where semantic struggles. Semantic captures meaning where exact match fails. RRF gives both worlds without requiring score calibration between the two systems."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-013",
+    "category": "Retrieval & RAG",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the CyClaw indexer handle chunking, and what validation does it perform on config values?"
+      },
+      {
+        "role": "assistant",
+        "content": "The indexer (retrieval/indexer.py) chunks documents by word count, not character count:\n- chunk_size: 512 words per chunk (sentence-snapped via split(' '))\n- chunk_overlap: 50 words\n- step = max(1, chunk_size - overlap) — always >= 1\n\nValidation (fail-fast at build time):\n1. chunk_size < 1 → ValueError (every window would be empty, collection.add() ingests blanks)\n2. overlap < 0 → ValueError (negative overlap makes step > chunk_size, silently drops content)\n3. overlap >= chunk_size → ValueError (stride would be 0 or negative, infinite loop / one-word stride)\n4. batch_size < 1 → ValueError (negative batch_size yields empty range, Chroma leg never written, every query silently falls back to BM25-only whose rebased scores top out below min_score)\n\nCorpus loading:\n- rglob('*') over corpus directory, filtering by configured extensions\n- Symlink escape check: rejects files that resolve outside the corpus directory\n- Extension matching is case-insensitive (.MD matches .md)\n- UnicodeDecodeError/OSError on a file → skip with warning, don't crash the whole build\n\nBM25 index format (JSON, not pickle):\n{\"tokenized_corpus\": [[tokens]], \"chunks\": [text], \"metadata\": [{source, chunk_id, source_sha256, stem_tags}]}\nLoad-time validation: tokenized/chunks/metadata lengths must be equal and non-zero."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-014",
+    "category": "Soul Governance",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Describe the crash-safe write ordering for soul evolution. What happens at each step and why is the order important?"
+      },
+      {
+        "role": "assistant",
+        "content": "PersonalityManager.apply_evolution() uses a strict 4-step write order so any crash leaves the system recoverable:\n\n1. BACKUP: soul.md → soul.md.bak (original preserved if subsequent steps fail)\n2. INSERT: new version row into SQLite soul_versions table (DB has record; file unchanged yet)\n3. WRITE: updated soul.md to disk via _atomic_write_owner_only() (file + DB consistent)\n4. UPDATE: in-memory soul_core (runtime matches persisted state)\n\nWhy this order matters:\n- Crash after step 1: soul.md.bak exists, soul.md unchanged, DB unchanged. No inconsistency.\n- Crash after step 2: DB has a version row pointing to content that's not in soul.md yet. Startup drift detection catches this (SHA-256 mismatch) and inserts a recovery version.\n- Crash after step 3: File and DB are consistent. In-memory may be stale but startup reloads it.\n- Crash after step 4: Everything is consistent.\n\n_atomic_write_owner_only() uses tempfile.mkstemp + os.replace (atomic on POSIX) with chmod 0600 so the temp file is owner-only. The file handle is closed before os.replace, and the temp file is cleaned up in a finally block if the write fails.\n\nthreading.Lock serializes all SQLite writes — concurrent evolution attempts are ordered, preventing race conditions in the version log."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-015",
+    "category": "Soul Governance",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does CyClaw's startup drift detection for soul.md work?"
+      },
+      {
+        "role": "assistant",
+        "content": "On startup, PersonalityManager computes SHA-256 of soul.md and compares it against the latest hash in the soul_versions SQLite table.\n\nMatch: system is consistent, proceed normally.\nMismatch (manual edit, tampering, crash corruption): insert a recovery version row into soul_versions and log a forensic event. The audit trail always reflects the true on-disk state — it never silently 'fixes' soul.md to match the DB.\n\nThe mismatch could mean:\n1. Someone manually edited soul.md outside the /soul/apply flow\n2. A crash occurred between the INSERT step and the WRITE step of a previous evolution\n3. Deliberate tampering attempt\n\nIn all cases, the system records what it found and continues with the actual on-disk content. This is why the write order is backup → INSERT → write → update: the DB record without the file write is the most likely crash state, and drift detection makes it observable."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-016",
+    "category": "Soul Governance",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What is the soul injection pattern in local_llm_node? How is untrusted context separated from identity?"
+      },
+      {
+        "role": "assistant",
+        "content": "Soul injection happens at the prompt construction level inside local_llm_node and offline_best_effort_node — NOT as a graph node.\n\nPrompt structure:\n1. soul_core is prepended as a STABLE PREAMBLE (system-level)\n2. Retrieved docs are EXPLICITLY SEPARATED with hard delimiters (\\n\\n---\\n\\n) and labeled 'untrusted context'\n3. The user query follows last\n\nStructural separation prevents retrieved content from overriding identity directives. Per OWASP LLM01: RAG does NOT remove prompt injection risk — it must be combined with structural separation.\n\nKey distinction between response paths:\n- local_llm_node and offline_best_effort_node: soul preamble IS included (local model, identity stays on-box)\n- grok_fallback_node and claude_fallback_node: soul preamble is INTENTIONALLY OMITTED — Grok/Claude are external models and the soul/identity layer must never be forwarded off-box (invariant 3 + privacy). When context forwarding is enabled for Grok, it uses the same data-trust framing (labeled 'untrusted context').\n\nThe breakline + prompt-prepend formatting (consistent \\n\\n---\\n\\n separators, 'USER QUERY:' label) was replicated across all response paths for consistency."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-017",
+    "category": "Telemetry & Offline",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Why does CyClaw have a separate utils/telemetry_kill.py module instead of just setting env vars in gate.py?"
+      },
+      {
+        "role": "assistant",
+        "content": "The telemetry kill block originally lived only in gate.py. But every process that reaches ChromaDB — python -m retrieval.indexer (cyclaw-index) and mcp_hybrid_server.py — never imports gate, so none of them applied it. They were relying entirely on upstream defaults staying benign.\n\nutils/telemetry_kill.py exists because:\n1. Any of these env var names present in the ambient environment (operator's shell profile, container base image, site-wide observability agent) would be honored by the libraries.\n2. Libraries latch their telemetry config at IMPORT or CONSTRUCTION time — setting vars afterwards is too late.\n3. Every entry point must apply the kill BEFORE any heavy import (langchain, chromadb, etc.)\n\nThe module is deliberately stdlib-only (just os). It's imported at the very top of entry points, ahead of anything heavy, so it must never pull in a third-party package of its own.\n\nNOT included on purpose: HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE. These would turn retrieval/embeddings.py's documented cache-miss bootstrap fetch into a guaranteed failure on any machine that has never run CyClaw before. huggingface_hub freezes HF_HUB_OFFLINE at its own import time — no retry past that once set. Instead, these are applied conditionally by retrieval/embeddings.py only once the embedding model is confirmed already on disk.\n\nHF_HUB_DISABLE_TELEMETRY and DO_NOT_TRACK ARE included unconditionally — they suppress only a background HEAD telemetry ping, not file downloads or cache lookups."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-018",
+    "category": "Telemetry & Offline",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Explain the four-name LangSmith tracing precedence and why all four must be pinned."
+      },
+      {
+        "role": "assistant",
+        "content": "LangSmith tracing is controlled by four environment variables that are ONE switch with a namespace precedence order, not four independent mechanisms:\n\nPrecedence (highest to lowest):\n  LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING > LANGCHAIN_TRACING\n\nThe value must be exactly 'true' to enable, and a non-empty 'false' at a higher-precedence name shadows everything after it. A non-empty value at any single unpinned name would win over every pinned lower-precedence one.\n\nAll four must be pinned because: if an ambient environment (shell profile, container image, observability agent) sets LANGSMITH_TRACING_V2=true and CyClaw only pins LANGCHAIN_TRACING_V2=false, the ambient value wins. Tracing is silently enabled and graph execution traces are sent to api.smith.langchain.com.\n\nVerified August 2026 against langsmith 0.10.15 (which langchain-core 1.5.0's _tracing_v2_is_enabled fully delegates to): tracing_is_enabled() calls get_env_var('TRACING_V2', default=get_env_var('TRACING')) at utils.py:141, and get_env_var tries the LANGSMITH_ prefix before LANGCHAIN_ and skips only EMPTY values.\n\nTELEMETRY_KILL dict pins all four to 'false'. tests/test_telemetry_kill.py asserts each one and treats a failure as P0 (live telemetry leakage)."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-019",
+    "category": "Error Handling",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Describe the CyClaw typed exception hierarchy. What is the base class and what are the key sub-errors?"
+      },
+      {
+        "role": "assistant",
+        "content": "RAGError is the base exception. All CyClaw errors carry message, code (str), and details (dict).\n\nCore retrieval/gateway errors:\n- EmbeddingServiceError (EMBEDDING_ERROR)\n- LLMServiceError (LLM_SERVICE_ERROR)\n- GrokServiceError (GROK_SERVICE_ERROR)\n- ClaudeServiceError (CLAUDE_SERVICE_ERROR)\n- IndexNotFoundError (INDEX_NOT_FOUND)\n- CorpusEmptyError (CORPUS_EMPTY)\n- PromptInjectionError (PROMPT_INJECTION_BLOCKED)\n- SoulPersistenceError (SOUL_PERSISTENCE_INCONSISTENT)\n- ConfigError (CONFIG_ERROR)\n\nOut-of-band feature hierarchies (never imported by gate.py/graph.py/mcp_hybrid_server.py):\n- SyncError → RcloneNotInstalledError, RcloneVersionError, RcloneTimeoutError, SyncConfigError, SchedulerError, SyncRuntimeError\n- AgenticError → GhNotInstalledError, GhVersionError, AgenticConfigError, AgenticWriteRefused, SkillRegistryError\n- FsConnectError → FsConnectConfigError, FsPathError → FsMacOSPermissionError, FsWriteRefused, FsConnectRuntimeError\n- SqlConnectError → SqlConnectConfigError, SqlDriverNotInstalledError, SqlConnectRuntimeError\n- TelegramError → TelegramConfigError, TelegramRefused, TelegramRuntimeError\n- AuthError → AuthConfigError, AuthLoginFailed, AuthAccountLocked, AuthUserExists, AuthUserNotFound, AuthPermissionDenied, AuthLastAdmin, AuthTokenLabelExists\n\nDesign pattern: each out-of-band feature gets its own hierarchy mirroring SyncError's convention — a dedicated base so the gateway can stay oblivious to features it never imports."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-020",
+    "category": "Error Handling",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the LLM client handle retries, timeouts, and malformed responses?"
+      },
+      {
+        "role": "assistant",
+        "content": "llm/client.py implements bounded exponential backoff retry with careful classification:\n\nRetryable: 5xx server errors and 429 (rate limit). These are transient.\nNon-retryable: other 4xx (client errors) and unexpected exceptions. Retrying a 400/401 wastes time and, for Grok, external credits.\nRetry is config-driven via a 'retry' block under each model; max_retries defaults to 0 (preserving original single-attempt behavior).\n\nTimeout design:\n- _client_timeout() gives connect its own short ceiling (10s), capped at overall_timeout_sec.\n- Without this, httpx applies one number to connect/read/write/pool alike, so a stalled connect attempt burns the ENTIRE overall timeout before the caller sees an error.\n- Mirrors telegram/client.py's identical httpx.Timeout(N, connect=10.0) pattern.\n\nResponse extraction (_extract_content):\n- Pulls choices[0].message.content from OpenAI-compatible /chat/completions response\n- A 2xx body that isn't valid JSON or lacks expected shape raises ValueError with a type-only message (no body fragments that could leak into answers/HTTP responses)\n- Empty/whitespace content is treated as malformed (non-retryable) — some backends return content=null alongside a refusal or tool-call\n- finish_reason=length logs a WARNING (truncated at max_tokens) but still returns the partial text\n\nClaude uses _extract_claude_content instead — pulls text blocks from Anthropic Messages API. Empty content names the specific stop_reason (refusal vs tool_use) rather than generic emptiness.\n\nOptional local failover: models.local_llm.fallback enables a short HTTP probe that prefers Ollama and falls back to LM Studio if unreachable. Selection is cached per-process; default is fallback disabled (single-backend installs stay fail-closed)."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-021",
+    "category": "Error Handling",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the audit logger work? Describe the file handle caching and thread safety."
+      },
+      {
+        "role": "assistant",
+        "content": "utils/logger.py implements append-only JSONL audit logging with SHA-256 query hashing and PII redaction.\n\nFile handle caching:\n- _AUDIT_HANDLES: dict[str, TextIO] caches one append-mode file handle per resolved audit path\n- _audit_handle() opens (or returns the cached) handle under _AUDIT_WRITE_LOCK\n- Previously opened, wrote, and closed on EVERY call — each event paid a fresh open() (path resolution, inode lookup, possible file creation) plus close(). Under sustained query volume that syscall overhead dominated the write itself.\n- Still flush() after every write so readers observe each event immediately.\n- Handles are closed via atexit.register at module level AND close_audit_handles() for tests.\n\nThread safety:\n- _AUDIT_WRITE_LOCK (threading.Lock) serializes all writes and handle creation\n- Multiple threads writing audit events are ordered — no interleaved JSONL lines\n\nQuery hashing:\n- When logging.audit_fields.include_query_hash is true (shipped default), query text is SHA-256 hashed\n- The audit log cannot become a data exfiltration vector — raw query text is never stored\n- Setting it false stores raw query text (PII redaction still applies) and is privacy-affecting\n- This invariant is tested in tests/test_due_diligence_invariants.py\n\nPII redaction patterns: emails, IPv4, AWS keys (AKIA...), Slack tokens (xoxb-...), API keys (sk-...)\n\nPath anchoring: _anchor() resolves relative paths against _REPO_ROOT (the module's parent.parent), so log_file/audit_file values from config.yaml don't depend on process CWD."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-022",
+    "category": "Extension Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How would you add a new tool to CyClaw? What invariants must be preserved?"
+      },
+      {
+        "role": "assistant",
+        "content": "Pattern for adding a new capability to CyClaw:\n\n1. Design as a NEW GRAPH NODE, not an MCP capability. The MCP server must stay retrieval-only with sampling=null — adding LLM access to it breaks the structural guarantee.\n\n2. Required properties:\n   - Behind a config flag (tools.<name>.enabled)\n   - Routed AFTER retrieval (never bypass the retrieve node)\n   - Requires user confirmation if it touches external systems (same triple-gate as Grok)\n   - Flows through guardrail_output and audit_logger before END (no bypass)\n\n3. Implementation steps:\n   - Add the node function in graph.py following the _GeneratingClient protocol pattern\n   - Add the conditional edge in build_graph() — the edge IS the policy\n   - Add tools.<name>.* section to config.yaml\n   - Add the client class in llm/client.py with retry/timeout/error handling matching LocalLLMClient/GrokClient patterns\n   - Add typed error in utils/errors.py (inherits from RAGError, carries code + details)\n   - Add tests under tests/test_<name>.py with mocked external deps\n\n4. Verify all 5 invariants hold:\n   - Does the new node bypass retrieve? NO — must be after ENTRY → retrieve\n   - Can it bypass audit? NO — must route through audit_logger before END\n   - Can it self-modify soul? NO — soul evolution is HTTP-only, not a graph node\n   - Does it need triple-gate for external access? YES if it calls any external API\n   - Does it add telemetry? Audit the dependency before merging — see telemetry kill switch docs"
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-023",
+    "category": "Extension Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How would you add a new API endpoint to gate.py? What security patterns must be followed?"
+      },
+      {
+        "role": "assistant",
+        "content": "Pattern for adding a new endpoint to the CyClaw FastAPI gateway:\n\n1. Register the route in gate.py following existing patterns (see gate_ops.py, gate_auth.py, gate_memory.py for examples of how routes are organized into sub-modules).\n\n2. Security requirements:\n   - If the endpoint performs mutations (write, delete, modify), require CYCLAW_API_KEY via the require_api_key dependency. This is fail-closed: no key set = 401, not open.\n   - If the endpoint touches external systems, apply the same triple-gate as Grok fallback.\n   - All endpoints bind to loopback only (127.0.0.1:8787 by default).\n   - CORS is restricted to allowed_origins (default: http://127.0.0.1, http://localhost).\n   - Methods limited to GET/POST. Headers restricted to Content-Type. Credentials disallowed.\n   - Rate limiting applies (60 req/min default, configurable via security.rate_limit).\n\n3. Input validation:\n   - Run check_input() from utils/sanitizer.py on all user-supplied text (before any LLM call)\n   - Max input size: 4000 chars (gateway-enforced via sanitizer config)\n   - Use Pydantic models (schemas/api.py) for request/response validation\n\n4. Audit:\n   - Every endpoint that invokes the graph flows through audit_logger\n   - For non-graph endpoints, call audit_log() directly for forensic visibility\n\n5. Error handling:\n   - Catch typed RAGError subtypes and map to proper HTTP responses\n   - Use the QueryResponse uniform JSON schema (answer, sources, model_used, retrieval_mode, needs_confirm, error)\n\n6. Path anchoring: use _BASE_DIR (Path(__file__).resolve().parent) for file resolution, not CWD — prevents Windows double-click launch failures."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-024",
+    "category": "Extension Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How would you add a new retrieval backend (e.g., pgvector) to CyClaw?"
+      },
+      {
+        "role": "assistant",
+        "content": "CyClaw already has a pluggable vector backend system (retrieval/vector_store.py). The backend is selected via indexing.vector_backend in config.yaml.\n\nExisting backends:\n- ChromaDB (default, embedded, offline-first)\n- pgvector (when indexing.vector_backend=pgvector)\n\nBoth implement the same writer/reader interface:\n- Writer: reset(fingerprint), add(ids, chunks, embeddings, metadata), finalize(), close()\n- Reader: search(query_embedding, top_k) → list[SearchResult], fingerprint() → str | None\n\nThe reader's fingerprint() method is checked by _check_embedding_fingerprint() at startup. A None fingerprint (not implemented) is handled gracefully — only a MISMATCHED fingerprint is fatal.\n\nTo add a new backend:\n1. Implement the writer and reader interfaces in retrieval/vector_store.py\n2. Register it in the get_vector_writer() and get_vector_reader() factory functions\n3. Add the backend name to config.yaml's indexing.vector_backend options\n4. Ensure cosine space / `1 - distance` scoring so RRF order and min_score gate are unaffected\n5. BM25 stays file-based regardless of the vector backend — it's JSON, not in the vector store\n\nThe per-chunk metadata (source, chunk_id, source_sha256, stem_tags) is identical across backends, so SearchResult provenance is preserved. Only where the vectors live changes."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-025",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "A CyClaw query returns 'needs_confirm: true' every time, even for simple questions. What could be wrong?"
+      },
+      {
+        "role": "assistant",
+        "content": "This means route_by_score is sending every query to user_gate instead of local_llm. The score gate threshold (min_score = 0.028 RRF) is not being met.\n\nDiagnostic steps:\n1. Check if the retrieval index exists:\n   curl -s http://127.0.0.1:8787/health\n   Look for INDEX_NOT_FOUND — if the BM25 index is missing, retrieval returns zero results.\n\n2. If index is missing, rebuild:\n   python -m retrieval.indexer\n   Verify data/corpus/ has documents with the configured extensions.\n\n3. Check the BM25 index integrity:\n   The JSON file at indexing.bm25_path must have tokenized_corpus, chunks, and metadata with equal non-zero lengths. A corrupt index raises IndexNotFoundError at HybridRetriever init.\n\n4. Check embedding fingerprint:\n   If the vector index was built with a different embedding model/dim/device, _check_embedding_fingerprint() raises IndexNotFoundError. Rebuild the index.\n   On Apple Silicon: an absent fingerprint is FATAL (MPS risk). On Linux/Windows: warn-and-continue.\n\n5. Check corpus content:\n   If the corpus was recently changed (e.g., new files added), the index may be stale.\n   Non-ASCII content produces zero BM25 tokens (the stemmer is ASCII-only) — keyword search won't see those chunks. Check build logs for 'produced no BM25 tokens' warnings.\n\n6. Check config.yaml retrieval.min_score — if it was raised above the typical RRF score range (~0.028), every query falls below threshold."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-026",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "CyClaw is showing a 'Soul drift forensic event on startup' message. What does this mean and how do you investigate?"
+      },
+      {
+        "role": "assistant",
+        "content": "This means PersonalityManager's startup integrity-hash check detected a mismatch between soul.md and the latest content digest in the soul_versions SQLite table.\n\nPossible causes:\n1. Someone manually edited soul.md outside the /soul/apply flow (e.g., vim data/personality/soul.md)\n2. A crash occurred between step 2 (INSERT into SQLite) and step 3 (write soul.md) of a previous evolution — the DB has a version row pointing to content that never made it to the file\n3. Deliberate tampering attempt\n\nInvestigation:\n1. Check the audit log for recent soul events:\n   grep 'soul' logs/audit.jsonl | tail -20\n\n2. Check the SQLite version log (content digest / integrity hash of on-disk soul.md, plus the human reason):\n   sqlite3 data/personality/cyclaw_soul.db 'SELECT version, content_digest, reason FROM soul_versions ORDER BY version DESC LIMIT 5;'\n\n3. Compare soul.md with soul.md.bak (the backup from the last successful evolution):\n   diff data/personality/soul.md data/personality/soul.md.bak\n\n4. If the drift is from a manual edit that you WANT to keep:\n   POST /soul/reload to re-read soul.md and insert a recovery version row\n   The system records what it found and continues with the actual on-disk content.\n\n5. If the drift is unexpected/tampering: investigate who has filesystem access to data/personality/soul.md. The file should be owner-only (chmod 0600 via _atomic_write_owner_only).\n\nThe system NEVER silently 'fixes' soul.md to match the DB. It records the true state and continues."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-027",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "A query to CyClaw returns a blank answer with model_used='local'. What could cause this?"
+      },
+      {
+        "role": "assistant",
+        "content": "A blank answer from local_llm means Ollama returned a response but _extract_content() received empty/whitespace content, OR the response was truncated.\n\nDiagnostic steps:\n\n1. Check Ollama is running and the model is loaded:\n   curl -s http://127.0.0.1:11434/api/tags\n   ollama run qwen3.8:27b-mlx 'Say hello'  # verify it responds\n\n2. Check the Ollama timeout:\n   config.yaml models.local_llm.timeout_sec (default 600s for qwen3.8:27b-mlx)\n   If the model is slow to generate, a timeout produces an LLMServiceError, not a blank answer.\n\n3. Check max_tokens vs context window:\n   Ollama allocates max_tokens up front. If (prompt_tokens + max_tokens) > loaded context length,    Ollama stalls at '0% processing'.\n   config.yaml: models.local_llm.max_tokens (RESERVED OUTPUT BUDGET)\n   graph.py bounds the prompt INPUT to retrieval.max_context_tokens\n   If soul_core + retrieved docs + query exceed the context budget, the LLM has no room to generate.\n\n4. Check if content was null/empty:\n   Some OpenAI-compatible backends return content=null alongside a refusal or tool-call.    _extract_content raises ValueError('empty LLM response: content missing or blank') in this case.\n   This would show as an error, not a blank answer — check if error is set in the response.\n\n5. Check finish_reason:\n   If finish_reason=length, the response was truncated at max_tokens. The partial text is returned    but a WARNING is logged. Increase max_tokens or reduce context budget.\n\n6. Check the audit log:\n   grep 'local' logs/audit.jsonl | tail -5\n   The audit event records answer_model and any error."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-028",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "CyClaw's network audit shows a connection to api.smith.langchain.com in offline mode. What happened and how do you fix it?"
+      },
+      {
+        "role": "assistant",
+        "content": "This is a telemetry leak — langsmith is attempting to send graph execution traces despite CyClaw's offline-first promise.\n\nRoot cause analysis:\n1. One of the four LangSmith tracing env vars was not pinned. The precedence is:\n   LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING > LANGCHAIN_TRACING\n   If an ambient env var (shell profile, container image) sets a higher-precedence name to 'true',    it shadows CyClaw's pinned lower-precedence 'false'.\n\n2. Check which vars are set in the process environment:\n   The startup table prints [TELEMETRY KILL] status for each var. Look for 'MISSING' entries.\n\n3. Check if LANGCHAIN_API_KEY is set:\n   apply_telemetry_kill() unsets LANGCHAIN_API_KEY — no key means no auth attempt.    If it's still set in the environment, langsmith may still attempt connections.\n\nFix:\n1. Ensure utils/telemetry_kill.apply_telemetry_kill() runs BEFORE any langchain/chromadb import.    It must be the first import in every entry point (gate.py, mcp_hybrid_server.py, indexer).\n\n2. If the leak persists after env vars are confirmed set, check if a new transitive dependency    has its own telemetry endpoint. Run the 4-phase network audit:\n   Phase 1: Index build — does sentence-transformers hit huggingface.co?\n   Phase 2: Live queries — any non-localhost connections?\n   Phase 3: Idle soak (5-10 min) — periodic heartbeat?\n   Phase 4: Online mode — only Grok endpoint expected\n\n3. If a dep won't behave with env vars: iptables DROP rule for the cyclaw user, then consider vendoring/forking the dependency to remove the telemetry code entirely.\n\nPASS criterion: zero non-localhost connections in phases 1-3."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-029",
+    "category": "Code Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Show the CyClaw pattern for a LangGraph node function. What does the _GeneratingClient protocol look like?"
+      },
+      {
+        "role": "assistant",
+        "content": "CyClaw graph nodes follow this pattern:\n\n```python\nfrom typing import Protocol, TypedDict\nfrom langgraph.graph import END, StateGraph\n\nclass _GeneratingClient(Protocol):\n    \"\"\"Structural type for LocalLLMClient/GrokClient — both expose generate(prompt) -> str.\"\"\"\n    def generate(self, prompt: str) -> str:\n        pass  # Protocol stub — never executed, only implementations' bodies run\n\ndef local_llm_node(state: GraphState, *, llm_client: _GeneratingClient, \n                   retriever: HybridRetriever, personality: PersonalityManager) -> dict:\n    \"\"\"Build prompt from soul_core + retrieved docs, call local LLM.\"\"\"\n    query = state[\"query\"]\n    soul_core = state.get(\"soul_core\", \"\")\n    retrieved = state.get(\"retrieved_docs\", [])\n\n    # Soul prepended as stable preamble (system-level)\n    # Retrieved docs explicitly separated with hard delimiters labeled 'untrusted context'\n    prompt_parts = []\n    if soul_core:\n        prompt_parts.append(soul_core)\n    prompt_parts.append(f\"USER QUERY:\\n{query}\")\n    if retrieved:\n        context = \"\\n\\n---\\n\\n\".join(doc[\"text\"] for doc in retrieved[:5])\n        prompt_parts.append(f\"---\\nuntrusted context:\\n{context}\")\n\n    prompt = \"\\n\\n\".join(prompt_parts)\n    answer = llm_client.generate(prompt)\n\n    return {\n        \"answer\": answer,\n        \"answer_model\": \"local\",\n        \"answer_sources\": retrieved[:5],\n    }\n```\n\nKey patterns:\n- Protocol for structural typing (duck typing with type checker support)\n- `pass` not `...` in protocol stubs (CodeQL's ineffectual-statement check doesn't flag it)\n- Node returns a dict (partial state update — LangGraph merges it)\n- Soul prepended, retrieved docs separated and labeled untrusted\n- GraphState is TypedDict(total=False) so all fields are optional"
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-030",
+    "category": "Code Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Show the CyClaw pattern for an atomic, owner-only file write. Why use tempfile + os.replace?"
+      },
+      {
+        "role": "assistant",
+        "content": "From utils/personality.py:\n\n```python\nimport os, tempfile\nfrom pathlib import Path\n\ndef _atomic_write_owner_only(path: Path, content: str) -> None:\n    \"\"\"Replace path atomically using an owner-only temporary file.\"\"\"\n    path.parent.mkdir(parents=True, exist_ok=True)\n    fd, tmp_name = tempfile.mkstemp(\n        prefix=f\".{path.name}.\",\n        suffix=\".tmp\",\n        dir=path.parent,  # same dir so os.replace is atomic (same filesystem)\n        text=True,\n    )\n    tmp_path = Path(tmp_name)\n    try:\n        os.chmod(tmp_path, 0o600)  # owner-only before content is written\n        with os.fdopen(fd, \"w\", encoding=\"utf-8\") as tmp_file:\n            fd = -1  # fd consumed by fdopen; prevent double-close in finally\n            tmp_file.write(content)\n        os.replace(tmp_path, path)  # atomic on POSIX\n    finally:\n        if fd >= 0:\n            os.close(fd)  # only if fdopen failed before consuming it\n        try:\n            tmp_path.unlink(missing_ok=True)  # cleanup if replace didn't happen\n        except OSError:\n            pass  # best-effort cleanup\n```\n\nWhy this pattern:\n1. os.replace is atomic on POSIX — readers never see a partially-written file\n2. tempfile.mkstemp in the SAME directory as the target ensures same filesystem (required for atomic rename)\n3. chmod 0o600 before writing content — the temp file is owner-only even if the process is compromised\n4. fd = -1 after fdopen consumes it — prevents double-close in the finally block\n5. missing_ok=True on unlink — Python 3.8+ idiom for 'delete if exists, don't crash if not'\n6. The finally block handles both success (tmp already replaced, unlink is no-op) and failure (tmp cleaned up)"
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-031",
+    "category": "Code Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Show the CyClaw pattern for the MCP server's hybrid_search tool. How does it enforce the retrieval-only constraint?"
+      },
+      {
+        "role": "assistant",
+        "content": "From mcp_hybrid_server.py:\n\n```python\nCAPABILITIES = {\n    \"tools\": {},\n    \"sampling\": None  # CRITICAL: No LLM path at protocol level\n}\n\nTOOLS = [{\n    \"name\": \"hybrid_search\",\n    \"description\": \"Search local .md corpus using semantic + keyword retrieval with RRF fusion\",\n    \"inputSchema\": {\n        \"type\": \"object\",\n        \"properties\": {\n            \"query\": {\"type\": \"string\"},\n            \"top_k\": {\"type\": \"integer\", \"default\": 5, \"minimum\": 1, \"maximum\": 50},\n            \"mode\": {\"type\": \"string\", \"enum\": [\"hybrid\", \"semantic\", \"keyword\"], \"default\": \"hybrid\"}\n        },\n        \"required\": [\"query\"]\n    }\n}]\n```\n\nThe retrieval-only constraint is STRUCTURAL, not policy:\n1. sampling: None in CAPABILITIES — at the JSON-RPC protocol level, the server declares it cannot invoke any LLM\n2. No write tools are exposed — only hybrid_search (read-only against existing indices)\n3. top_k is coerced via _coerce_top_k() — non-integer/negative values fall back to default 5, clamped to [1, 50]\n4. _MAX_QUERY_CHARS (65536) bounds request size — sanity bound, not a security filter\n5. The score scale is named in the response via _score_scale() because the three modes emit scores on incompatible scales (raw BM25 unbounded, cosine 0..1, RRF ~1/rrf_k)\n\nAny LLM processing must go through the gateway's LangGraph controller with full audit coverage. The MCP server cannot autonomously invoke an LLM — no prompt or config change can enable it."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-032",
+    "category": "Code Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Show the CyClaw pattern for constant-time API key comparison. Why compare bytes not str?"
+      },
+      {
+        "role": "assistant",
+        "content": "From gate.py:\n\n```python\nimport hmac\nfrom fastapi.security import HTTPBearer, HTTPAuthorizationCredentials\n\n_bearer_scheme = HTTPBearer(auto_error=False)\n\ndef require_api_key(\n    request: Request,\n    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),\n):\n    if _api_key_bypass_allowed(request):\n        return\n    api_key = os.environ.get(\"CYCLAW_API_KEY\", \"\")\n    if not api_key:\n        raise HTTPException(status_code=401,\n                            detail=\"Soul mutation disabled: CYCLAW_API_KEY not set\")\n    if not credentials or not hmac.compare_digest(\n        credentials.credentials.encode(\"utf-8\"),\n        api_key.encode(\"utf-8\")\n    ):\n        raise HTTPException(status_code=401, detail=\"Invalid or missing API key\")\n```\n\nWhy bytes, not str:\n1. hmac.compare_digest raises TypeError on a str operand containing a non-ASCII character\n2. Starlette decodes the Authorization header as latin-1\n3. A token with any byte > 0x7F (curly quote, accented character) would escape as an unhandled 500 instead of the fail-closed 401 this endpoint promises\n4. The bytes overload never raises on content and preserves the constant-time property\n\nWhy not plain `!=`:\nA plain != short-circuits on the first differing byte, leaking key length/prefix via response timing. compare_digest runs in time independent of how many leading characters match.\n\nThe _api_key_bypass_allowed(request) check requires BOTH:\n- security.api_key_optional == True (explicit opt-in)\n- Loopback peer address (not just bind address — a Host header is attacker-controlled, a peer address is not)"
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-033",
+    "category": "Design Philosophy",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Why does CyClaw use LangGraph instead of a simpler chain or prompt-based routing? What does the StateGraph give you that a chain doesn't?"
+      },
+      {
+        "role": "assistant",
+        "content": "The core insight: safety properties should be topology properties, not behavioral instructions.\n\nA LangChain chain or prompt-based router relies on the LLM following instructions: 'always retrieve first', 'never call Grok without user confirmation'. LLM compliance is probabilistic (85-95%) and vulnerable to prompt injection — an injected instruction can override, ignore, or rephrase the routing directive.\n\nLangGraph StateGraph makes invariants visible as code:\n1. ENTRY → retrieve is an add_edge() call at build time. No prompt can remove it. If the edge doesn't exist, the path doesn't exist.\n2. route_by_score is a conditional edge (add_conditional_edges), not an LLM decision. The routing function is deterministic Python code that checks top_score >= min_score.\n3. The user_gate → pre_action_hook_grok → grok_fallback edge only exists when user_confirmed_online is True. This is a graph condition, not a prompt instruction.\n4. ALL paths converge at audit_logger before END. There is no add_edge() call that bypasses it.\n\nWhat you get that a chain doesn't:\n- Visible security model: the graph IS the security policy. Reviewers can audit edges, not prompts.\n- Deterministic enforcement: topology is not probabilistic. No prompt compliance uncertainty.\n- Injection resistance: injected prompts cannot add graph edges. The graph structure is fixed at build time.\n- State typedness: GraphState TypedDict gives type checking across nodes. A chain passes opaque dicts.\n- Conditional routing: add_conditional_edges maps state values to next nodes deterministically.\n\nTrade-off: less flexibility. Adding a new path requires a code change (new edge), not a prompt edit. This is the intended friction — safety should require deliberate, reviewable changes."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-034",
+    "category": "Design Philosophy",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What is CyClaw's stance on RAG and prompt injection? Why doesn't RAG alone solve the injection problem?"
+      },
+      {
+        "role": "assistant",
+        "content": "Per OWASP LLM01: RAG does NOT remove prompt injection risk. It must be combined with structural separation.\n\nThe problem: retrieved documents are untrusted input. A corpus chunk could contain 'ignore previous instructions' or a role reassignment attack. When this chunk is injected into the LLM prompt alongside the system prompt, the LLM may follow the injected instruction instead of the system prompt.\n\nCyClaw's defense-in-depth approach:\n1. Corpus sanitization at index time: sanitize_chunk() strips banned patterns from corpus chunks during indexing, replacing them with [FILTERED]. This catches injection patterns in the source documents.\n2. User input filtering: check_input() rejects queries containing banned patterns before any LLM call.\n3. Structural separation in the prompt: soul_core is prepended as a stable system preamble. Retrieved docs are explicitly separated with hard delimiters (\\n\\n---\\n\\n) and labeled 'untrusted context'. This makes it structurally clear to the model that retrieved content is not an instruction.\n4. Score gate: low-confidence retrieval (top_score < min_score) routes to user_gate instead of local_llm. This prevents the model from acting on poorly-matched, potentially injected content.\n5. Guardrail input rail: guardrail_input node checks for injection markers and soul-mutation regex before the LLM is called.\n6. Guardrail output rail: guardrail_output checks for hallucination/grounding issues after generation.\n7. Audit logging: every query is SHA-256 hashed and PII-redacted, providing forensic visibility.\n\nNone of these alone is sufficient. The combination of structural separation + sanitization + score gating + guardrails + audit creates defense-in-depth where each layer catches what others miss."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "curated-035",
+    "category": "Design Philosophy",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does CyClaw handle the tension between offline-first and providing useful answers when local retrieval has no relevant results?"
+      },
+      {
+        "role": "assistant",
+        "content": "This is the core tension CyClaw was designed to resolve. The answer is the triple-gate fallback pattern.\n\nOffline-first means:\n- Default state: no external network access. All retrieval and LLM calls are local.\n- The system must work on a machine with no internet connection.\n- Telemetry is killed — no phone-home to posthog, langsmith, huggingface.\n\nBut local retrieval may return low-confidence results (top_score < min_score = 0.028 RRF). In that case, route_by_score sends the query to user_gate instead of local_llm.\n\nuser_gate sets needs_user_confirm=True in the response. The client (terminal.html or API caller) shows a confirmation prompt: 'No confident local results. Use online fallback?'\n\nIf the user confirms (user_confirmed_online=True in the resubmitted request) AND app.mode=='hybrid' AND models.grok.enabled==True, the query routes to grok_fallback (external LLM via xAI API).\n\nIf the user declines OR any gate fails, the query routes to offline_best_effort — the local LLM still generates a response, but without retrieved context confidence. The answer_model field is 'offline-best-effort' so the consumer knows this is a low-confidence answer.\n\nKey design decisions:\n1. The default is NO. External access is opt-in per query, not opt-out.\n2. The triple-gate is structural (graph topology), not behavioral (prompt instruction).\n3. soul_core is NOT forwarded to the external LLM — identity stays on-box.\n4. send_local_context_to_grok defaults to false — even when online, local data doesn't leave.\n5. All paths (including grok_fallback) flow through audit_logger before END."
+      }
+    ],
+    "source_refs": [
+      "curated_qa.py"
+    ]
+  },
+  {
+    "id": "debug-005-external-never-fires",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "I set app.mode: hybrid and models.grok.enabled: true, and the user confirmed online, but grok_fallback never runs — every low-score query still falls through to offline_best_effort. The router must be bugged. Where do I look?"
+      },
+      {
+        "role": "assistant",
+        "content": "The router is not the bug, and 'topology = policy' does not cover all three gates. Per INVARIANTS.md Rule 2, the external call is triple-gated, but the gates are split across two locations:\n\n1. graph.py `user_gate_router` enforces ONLY: the user confirmed, the selected `state.online_provider` matches, and that provider's client is not None and `is_available()`. It deliberately does NOT read `app.mode` or `models.<provider>.enabled` — there is a tripwire test (test_graph_gate_does_not_consult_app_mode_by_design) asserting it never will.\n\n2. `app.mode == 'hybrid'` and `models.<provider>.enabled` are enforced EXCLUSIVELY by gate.py's client construction: each of grok/claude stays None unless BOTH hold. A None client makes the router fall back to offline_best_effort.\n\nSo if grok_fallback never fires despite hybrid + enabled + confirm, the client is None at construction time. Check, in order:\n  - Is the provider's API key actually present? `is_available()` returns False (not None) when the key is missing, and the router treats that the same as 'no client'.\n  - Did someone construct GrokClient/ClaudeClient OUTSIDE its double-gated `if` in gate.py (a new entry point, a test harness wired into prod, an 'always build the client' refactor)? That is the only way to bypass mode/enabled — and it sends confirmed low-score queries to a paid API in offline mode.\n\nDo not 'fix' this by adding an app.mode check to the router. That would violate the deliberate construction/runtime split and delete the tripwire. The fix is in gate.py's client construction block."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:Rule 2",
+      "graph.py:user_gate_router",
+      "gate.py:client construction"
+    ]
+  },
+  {
+    "id": "debug-006-soul-reload-unscanned",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "I edited data/personality/soul.md directly with vim to add a new persona line, then hit POST /soul/reload. The audit log shows the new soul is live but there's no injection-scan event. Isn't the soul supposed to be scanned on every change?"
+      },
+      {
+        "role": "assistant",
+        "content": "No — and describing the soul as 'always scanned' is the most common wrong mental model. Per INVARIANTS.md Rule 5, the injection scan is WRITE-PATH-ONLY. Only `PersonalityManager.apply_evolution` (POST /soul/apply) scans, and only with scan=True (the default).\n\nThree paths change the live soul with NO scan:\n  - POST /soul/reload — re-reads and adopts soul.md verbatim.\n  - Startup drift recovery (_load_soul) — if soul.md differs from the newest soul_versions row, the on-disk content is adopted verbatim (a DRIFT_RECOVERY row + soul_drift_detected audit event are recorded, but the content is not scanned).\n  - harness/prompts.py::compose_system_prompt — reads data/personality/soul.md directly, bypassing PersonalityManager entirely: no scan, no _bounded_soul truncation, no drift row, and it does not go through get_system_prompt_additive().\n\nYour vim edit + /soul/reload is exactly the unscanned reload path. This is a documented sharp edge, not a bug. Under the single-operator threat model it is acceptable because only the operator can write soul.md. If you want it scanned, route the edit through POST /soul/apply with a non-empty human reason instead — that path rejects injection patterns (PromptInjectionError) BEFORE any file or DB write, and writes atomically (tmp + os.replace).\n\nIf you intend to harden the reload/drift path (legitimate), you must update test_reload_adopts_soul_without_scanning__scan_is_write_path_only and Rule 5 deliberately — do not silently delete the tripwire."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:Rule 4,5",
+      "utils/personality.py:apply_evolution,_load_soul,reload",
+      "harness/prompts.py:compose_system_prompt"
+    ]
+  },
+  {
+    "id": "debug-007-health-embeddings-static",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "GET /health returns {\"embeddings_local\": \"healthy\"} but retrieval is returning zero results. The health check says the embedding model is fine — is the retriever broken?"
+      },
+      {
+        "role": "assistant",
+        "content": "The health check is lying, by design. Per INVARIANTS.md ('Signals that are weaker than their name suggests'), `/health` `embeddings_local: healthy` is a hardcoded literal, not a probe — a broken embedding model still reports healthy. The test TestHealthEmbeddingsSignalIsStatic pins this.\n\nDo not trust it for retrieval readiness. Use the actual readiness fields: `index_ready` and `graph_ready`. For the real retrieval state, check whether the indices exist:\n  - ChromaDB persistent path (indexing.chroma_path) populated?\n  - BM25 JSON (indexing.bm25_path) has tokenized_corpus, chunks, and metadata with equal non-zero lengths? A corrupt/empty BM25 index raises IndexNotFoundError at HybridRetriever init.\n  - Embedding fingerprint matches? If the vector index was built with a different embedding model/dim/device, _check_embedding_fingerprint() raises IndexNotFoundError. On Apple Silicon an absent fingerprint is FATAL (MPS risk); on Linux/Windows it is warn-and-continue.\n\nIf the indices are missing or stale, rebuild: `python -m retrieval.indexer`. Verify data/corpus/ has documents with the configured extensions."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:decorative signals",
+      "retrieval/hybrid_search.py:_check_embedding_fingerprint",
+      "retrieval/indexer.py"
+    ]
+  },
+  {
+    "id": "debug-008-mcp-sampling-decorative",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "An external MCP client connected to mcp_hybrid_server.py and is trying to use sampling/tool-calling to make the model generate text. The server declares sampling: null in capabilities. Is that what's blocking it, and can I set sampling to enable it?"
+      },
+      {
+        "role": "assistant",
+        "content": "No — `sampling` is a red herring and toggling it changes nothing. Per INVARIANTS.md Rule 8, the MCP server is retrieval-only STRUCTURALLY, not by capability flag: mcp_hybrid_server.py imports no LLM client (LocalLLMClient/GrokClient/anything under llm/) and never calls .generate(). That — not the decorative CAPABILITIES['sampling'] = None — is what makes it retrieval-only.\n\n`sampling` is a CLIENT capability in MCP; a server declaring it None enforces nothing. The tests TestMcpNoLlmPath.test_mcp_server_imports_no_llm_client and test_mcp_capabilities_declare_no_sampling pin both the import absence and the declared value. Do not add an LLM import 'because the capability is already declared' — the flag is not a guard.\n\nIf you genuinely need generation over the MCP surface, the correct path is to add a new graph entry point that goes through retrieve → routing → audit (preserving I1/I4), not to wire an LLM into the MCP server. That would break I6 isolation and the retrieval-only contract the server exists to enforce."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:Rule 8",
+      "mcp_hybrid_server.py",
+      "tests/test_due_diligence_invariants.py:TestMcpNoLlmPath"
+    ]
+  },
+  {
+    "id": "debug-009-i6-isolation-break",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "CI is failing on TestCoreModuleIsolation with 'core module imports out-of-band package'. I only added `from guardrails.integration import apply_guard` to graph.py. What's wrong?"
+      },
+      {
+        "role": "assistant",
+        "content": "That import is the violation. Per INVARIANTS.md Rule 9 / I6, the core request-path modules — gate.py, gate_ops.py, gate_auth.py, gate_memory.py, graph.py, mcp_hybrid_server.py — must NEVER import agentic, sync, guardrails, harness, telegram, or opentweet (and those packages must never import the core six). The /ops/* routes reach the OOB CLIs only through utils/ops_runner.py, a subprocess.run([...]) shim — never an import.\n\nThis isolation is what keeps the OOB subsystems from becoming a path around the security invariants. guardrails is OOB precisely so a bug or override in the rails layer cannot reach into the core request path.\n\nThe graph touches guardrails ONLY through the injected bridge: utils/guardrail_bridge.py builds the guard functions and passes them in, so graph.py never imports guardrails. If you need a guardrail in the graph, add it as an injected callable (the generate_guard parameter on _generate_or_error is the existing pattern), do not import the guardrails package directly.\n\nNote: memory/ is NOT in the OOB set — it is default-off and lazy-imported from gate_memory.py, graph.py, and retrieval/hybrid_search.py, with its own isolation contract in tests/test_memory_isolation.py."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:Rule 9 / I6",
+      "graph.py:guardrail_bridge injection",
+      "utils/ops_runner.py",
+      "tests/test_due_diligence_invariants.py:I6"
+    ]
+  },
+  {
+    "id": "debug-010-audit-raw-query-leak",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "I turned logging.audit_fields.include_query_hash to false to make the audit log easier to read, and now audit.jsonl contains the raw query text. Is that expected?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, and it is a privacy regression, not a verbosity change. Per INVARIANTS.md Rule 7, with include_query_hash: true (the shipped default), audit_log() replaces the query field with its SHA-256 hash and never persists raw query text. Setting it false makes the audit log persist the raw query string — subject only to email/IP/secret redaction — turning audit.jsonl into a plaintext query log.\n\nThe tests TestAuditQueryPrivacy.test_query_is_hashed_and_raw_text_never_persisted, test_shipped_config_enables_query_hashing, and test_disabling_hashing_persists_raw_text__documented_leak pin this behavior explicitly. The last one is a tripwire: it documents that disabling hashing is a known leak, so no one 'fixes' it by making raw text the default.\n\nRevert to true. If you need queryable audit content for debugging, grep the hashed query and correlate via hash_query() in utils/logger.py — do not persist raw queries on the query path."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:Rule 7",
+      "utils/logger.py:audit_log,hash_query",
+      "tests/test_due_diligence_invariants.py"
+    ]
+  },
+  {
+    "id": "debug-011-indexer-chunk-validation",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "python -m retrieval.indexer crashes with 'overlap (60) must be < chunk_size (50)' during index build. My corpus is fine — what's wrong with my config?"
+      },
+      {
+        "role": "assistant",
+        "content": "The corpus is not the problem; the chunking config is. In retrieval/indexer.py, chunk_document validates its parameters explicitly and fails loud rather than silently degrading:\n  - chunk_size < 1 → ValueError('chunk_size must be >= 1')\n  - overlap < 0 → ValueError('overlap must be >= 0')\n  - overlap >= chunk_size → ValueError('overlap must be < chunk_size')\n\nThe last one is your crash. With overlap >= chunk_size, the step (chunk_size - overlap) would be <= 0; a negative overlap makes step exceed chunk_size so each window jumps FORWARD past its own end and silently drops the words in the gap — a corpus indexed with a sign-typo'd overlap loses content from both retrieval legs with no error. The guard turns that silent data loss into a hard failure.\n\nFix config.yaml: set indexing.chunk_overlap to a value strictly less than indexing.chunk_size (e.g. chunk_size: 512, chunk_overlap: 50). Then rebuild. Note build_index() also validates config values, but chunk_document() is called directly by tests and ad-hoc tooling, so the per-call guard is what caught your typo."
+      }
+    ],
+    "source_refs": [
+      "retrieval/indexer.py:chunk_document,build_index"
+    ]
+  },
+  {
+    "id": "debug-012-llm-retry-4xx",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Grok fallback is burning credits — it retries a 401 Unauthorized three times before giving up. Shouldn't a bad key fail immediately?"
+      },
+      {
+        "role": "assistant",
+        "content": "It should, and the shipped client does — so if you are seeing 401 retries, you are running a modified retry policy. In llm/client.py, _is_retryable_status returns True ONLY for status >= 500 (_RETRYABLE_STATUS_FLOOR) or status == 429 (_RETRYABLE_EXTRA_STATUS). All other 4xx — including 401 and 400 — fail fast. The docstring states this directly: 'Client errors (other 4xx) and unexpected exceptions fail fast — retrying a 400/401 only wastes time and, for Grok, external credits.'\n\nRetry is config-driven via a retry block under each model; when absent, max_retries defaults to 0, preserving single-attempt behavior. So check:\n  - Did someone add 401 to _RETRYABLE_EXTRA_STATUS or lower _RETRYABLE_STATUS_FLOOR? That is the regression.\n  - Is the retry block on models.grok setting max_retries > 0? That is correct for 5xx/429 but must not widen the retryable set.\n\nAlso note _extract_content: a 2xx body that is malformed (non-JSON, missing choices[0].message.content, or content=null/empty) raises ValueError('malformed LLM response (...)') — and this is NOT retried, because a retry would re-fetch the same malformed body."
+      }
+    ],
+    "source_refs": [
+      "llm/client.py:_is_retryable_status,_extract_content,_client_timeout"
+    ]
+  },
+  {
+    "id": "debug-013-corpus-symlink-rejected",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "I symlinked a file into data/corpus/ from outside the repo and the indexer logged 'Skipping <path>: resolves outside corpus directory' and never indexed it. Why is it rejecting my file?"
+      },
+      {
+        "role": "assistant",
+        "content": "That is a path-traversal guard, not a bug. In retrieval/indexer.py load_corpus, rglob follows symlinks by default, so a link pointing outside data/corpus could pull arbitrary filesystem content into the index. The function checks file_path.resolve().is_relative_to(corpus_resolved) and skips any file whose resolved path escapes the corpus directory, logging the skip. This is why your symlinked file is rejected.\n\nTo include the content legitimately, copy the actual file bytes into data/corpus/ (or a subdirectory) rather than symlinking across a trust boundary. If the target lives outside the corpus for a good reason (e.g. a shared corpus on another volume), point corpus.path at that directory directly in config.yaml — the anchor resolves the path, and everything under it is in-bounds.\n\nAlso note load_corpus matches extensions case-insensitively (.MD matches a .md config entry) and skips files that fail UnicodeDecodeError/OSError on read with a warning. If no documents match at all, it raises CorpusEmptyError."
+      }
+    ],
+    "source_refs": [
+      "retrieval/indexer.py:load_corpus"
+    ]
+  },
+  {
+    "id": "debug-014-soul-401-fail-closed",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "POST /soul/apply returns 401 even though I'm on localhost. There's no 'open mode' for local dev? And the docs mention security.require_env — do I set that?"
+      },
+      {
+        "role": "assistant",
+        "content": "There is no open mode, by design. Per INVARIANTS.md Rule 6, with CYCLAW_API_KEY unset, every /soul/*, /ops/*, and /audit/summary route returns 401 — never 'open mode.' Key comparison uses hmac.compare_digest (constant-time), so do not try to shortcut it with ==. Reintroducing an unauthenticated fallback is explicitly forbidden.\n\nsecurity.require_env is decorative — no code reads it, and the server boots fine without GROK_API_KEY (Grok just reports unavailable). Setting it does nothing for auth. Set CYCLAW_API_KEY in the environment to a strong secret and send it as the API key header on /soul/* and /ops/* requests.\n\nSeparately, the scanner path resolution is CWD-independent: utils/sanitizer.check_input resolves a non-absolute config_path against the repo root (_REPO_ROOT), so the injection filter works from any working directory. Do not revert to a bare open('config.yaml') — that reintroduces the CWD-relative crash that took down the entire /query path when launched from outside the repo root (finding F4)."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:Rule 6",
+      "utils/sanitizer.py:check_input,_REPO_ROOT",
+      "gate.py:auth"
+    ]
+  },
+  {
+    "id": "debug-015-connect-timeout-burns-budget",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "A local_llm call to Ollama is taking the full 600s timeout and then failing, even though Ollama is up. The connect step seems to hang."
+      },
+      {
+        "role": "assistant",
+        "content": "This is the httpx single-timeout failure mode that llm/client.py was specifically hardened against. Without a separate connect ceiling, httpx applies one number to connect/read/write/pool alike, so a stalled connect attempt (a black-holed TCP handshake — firewall/proxy drop, not a fast ECONNREFUSED) burns the ENTIRE overall timeout on a worker thread before the caller sees an error. For GrokClient/ClaudeClient that repeats on every retry attempt.\n\nThe fix in llm/client.py: _CONNECT_TIMEOUT_SEC = 10.0, and _client_timeout(overall) returns httpx.Timeout(overall, connect=min(overall, 10.0)) — connect gets its own short ceiling capped at the overall timeout. So a black-holed connect fails in ~10s, not 600s.\n\nIf you are seeing the full 600s burn, either:\n  - You are on an older client.py without the connect cap (mirrors telegram/client.py's identical pattern), or\n  - The hang is in read/write, not connect — in which case check the graph deadline. gate.py sets _graph_deadline (a ContextVar) to monotonic() + graph_timeout_sec before to_thread(invoke). _call_timeout(cap) shrinks the per-POST timeout to the remaining graph budget; if remaining <= 0 it raises httpx.TimeoutException('graph deadline elapsed') immediately.\n\nSo a 600s wall-clock hang with Ollama up almost always means either the connect cap is missing or the model is generating into a context window that leaves no room (see the blank-answer diagnostic: max_tokens reserved output budget vs context window)."
+      }
+    ],
+    "source_refs": [
+      "llm/client.py:_CONNECT_TIMEOUT_SEC,_client_timeout,_call_timeout,_graph_deadline"
+    ]
+  },
+  {
+    "id": "debug-016-banned-patterns-homoglyph",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's debugging assistant. You diagnose failures by reading the real source, not by guessing. Distinguish established fact (the code does X) from reasonable inference (a config probably caused it). Never propose a fix that weakens an I1-I6 invariant. If a signal is decorative (require_env, /health embeddings_local, sampling=None), say so explicitly rather than treating it as enforcement. Cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "A prompt-injection red-team probe spelled 'іgnore' (with a Cyrillic і) past the input filter, but the ASCII 'ignore previous instructions' variant was caught. Is the filter broken?"
+      },
+      {
+        "role": "assistant",
+        "content": "The filter is working as designed — it is defense-in-depth, not a completeness guarantee. Per INVARIANTS.md, banned_patterns is best-effort regex over raw text (~40 patterns in the shipped config). Homoglyph and zero-width evasion is explicitly out of scope per the threat model. The probe that spelled 'іgnore' with a Cyrillic і does not byte-match the ASCII 'ignore' pattern, so the regex does not fire — that is the expected gap, not a bug.\n\nDo not try to 'fix' this by expanding the regex to every Unicode lookalike; that is an unbounded arms race. The layered defense is what actually contains it:\n  - The NFKC normalization in the injection filter folds some lookalikes before matching, but not all.\n  - The untrusted-context framing in graph.py (UNTRUSTED_NOTE + delimiters) tells the model retrieved content is not an instruction, so even if a probe reaches the LLM, the model is structurally told to disregard instruction-like text in the retrieved block.\n  - The output grounding rail (guardrail_output) checks the local answer for grounding.\n  - Every path audits, so a probe that succeeds is still logged.\n\nIf a homoglyph probe reaches generation and the model follows it, treat it as a soul/identity boundary issue (is the probe in retrieved docs or in the soul?) and route the soul edit through POST /soul/apply, which scans at the write boundary."
+      }
+    ],
+    "source_refs": [
+      "INVARIANTS.md:decorative signals, banned_patterns",
+      "graph.py:UNTRUSTED_NOTE",
+      "utils/sanitizer.py"
+    ]
+  },
+  {
+    "id": "extra-001-graphstate-fields",
+    "category": "Architecture & Topology",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Walk through the GraphState TypedDict in graph.py. Which fields does the local_llm path populate versus the external fallback path, and what is served_model for?"
+      },
+      {
+        "role": "assistant",
+        "content": "GraphState is a total=False TypedDict (every field optional) so callers that don't set auth.username keep working. Key fields:\n\nInputs: query (str), username (optional, only when auth.enabled).\n\nRetrieval outputs: retrieved_docs (list[RetrievedDoc]), top_score (float), retrieval_mode ('semantic'|'keyword'|'hybrid'|'none').\n\nControl flags: needs_user_confirm (bool), user_confirmed_online (bool|None), online_provider (str|None).\n\nModel outputs: answer (str), answer_model — one of 'local'|'grok'|'claude'|'offline-best-effort'|'guardrail-blocked'|'hook-denied'|'external-unavailable'. served_model (str) is the vendor-resolved model id an external provider echoed, when it sent one; it can differ from the configured tag behind an unpinned alias, so audit records the real served id rather than the configured name.\n\nPath split:\n  - local_llm sets answer_model='local', answer_sources from _format_context_chunks (the subset actually rendered, not raw docs[:limit]).\n  - grok_fallback/claude_fallback set answer_model to 'grok'/'claude' and omit the soul preamble (identity never leaves the box).\n  - offline_best_effort includes the soul preamble and uses a truncated char_cap context.\n  - A blocked input rail or denied pre-action hook routes to audit_logger with answer_model='guardrail-blocked'/'hook-denied', no generation.\n\nGuardrail fields: guardrail_blocked (bool), guardrail_rails (list[str]), guardrail_degraded (bool — distinct from blocked so audit can tell 'passed' from 'failed-open/Decision 3'). pre_action_hook_denied (bool, issue #963). audit_event (dict) and error (str|None) close the state."
+      }
+    ],
+    "source_refs": [
+      "graph.py:GraphState,RetrievedDoc",
+      "graph.py:_format_context_chunks"
+    ]
+  },
+  {
+    "id": "extra-002-generating-client-protocol",
+    "category": "Architecture & Topology",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Why does graph.py define _GeneratingClient as a typing.Protocol with a generate() stub whose body is `pass` (not `...`), instead of an ABC or a shared base class?"
+      },
+      {
+        "role": "assistant",
+        "content": "It's a structural type, not a runtime contract. _GeneratingClient declares a single generate(prompt, *, spend_context) -> str method. LocalLLMClient, GrokClient, and ClaudeClient all satisfy it by having a matching generate() signature — no inheritance, no import coupling. The graph node code (_generate_or_error) is written against the Protocol, so it can accept any of the three clients uniformly without knowing which concrete class it holds.\n\nThe body is `pass` (not `...`) deliberately: the comment says it's there so CodeQL's ineffectual-statement check doesn't flag a bare Ellipsis expression statement. The Protocol method is never executed — only the implementations' bodies run. This is a static-typing construct, not an abstract method that subclasses override.\n\nWhy a Protocol over an ABC: CyClaw keeps the LLM client layer behind llm/client.py and the graph behind graph.py. An ABC would force a shared base class import, coupling the graph module to the client implementation hierarchy. A structural Protocol lets the graph depend on a shape, not a module — which is the same isolation posture as the I6 import boundary (core never imports the OOB packages)."
+      }
+    ],
+    "source_refs": [
+      "graph.py:_GeneratingClient,_generate_or_error"
+    ]
+  },
+  {
+    "id": "extra-003-sanitizer-nfkc-invisible",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does the prompt injection filter handle Unicode evasion — fullwidth characters, zero-width splits, and homoglyphs?"
+      },
+      {
+        "role": "assistant",
+        "content": "In utils/sanitizer.py, _normalize_for_match(text) produces a normalized COPY that the patterns match against, without mutating the user's original query. Two transforms, both folding TOWARD the ASCII the patterns are written in:\n\n1. unicodedata.normalize('NFKC', text) — folds compatibility forms back to ASCII. So fullwidth 'ｉｇｎｏｒｅ ａｌｌ ｐｒｅｖｉｏｕｓ ｉｎｓｔｒｕｃｔｉｏｎｓ' collapses onto the plain form the patterns already catch.\n\n2. _INVISIBLE_CHARS.sub('', ...) — strips zero-width space/non-joiner/joiner, LTR/RTL marks, word joiner, BOM, and soft hyphen (\\u200b-\\u200f, \\u2060, \\ufeff, \\u00ad). Deleting them (not replacing with a space) is what rejoins a split word: 'ig<ZWSP>nore all previous instructions' matches no pattern as raw text, yet tokenizes back to the instruction it spells.\n\nThis only ever matches a SUPERSET of what the raw string would, so it cannot silently stop catching something that used to be caught. Caveat: it is NOT a complete homoglyph defense — a Cyrillic 'і' substituted for Latin 'i' is a distinct codepoint that NFKC does not fold, so 'іgnore' bypasses the ASCII pattern. That homoglyph gap is explicitly out of scope per the threat model; the layered defense (untrusted-context framing in graph.py + output grounding + audit) is what contains it, not the regex."
+      }
+    ],
+    "source_refs": [
+      "utils/sanitizer.py:_normalize_for_match,_INVISIBLE_CHARS",
+      "graph.py:UNTRUSTED_NOTE"
+    ]
+  },
+  {
+    "id": "extra-004-soul-advisory-vs-enforced",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "PersonalityManager compiles two pattern lists — advisory and enforced. What's the difference, and why does the soul (prepended to every system prompt) get the enforced set at the write boundary?"
+      },
+      {
+        "role": "assistant",
+        "content": "Both lists share a _CORE_INJECTION_PATTERNS base (ignore/disregard/forget previous/all/prior instructions, new instructions:, system prompt:, override instructions, jailbreak, DAN mode, developer mode). They diverge:\n\n- ENFORCED_SOUL_PATTERNS = the core set only. These are checked at the soul-WRITE boundary in apply_evolution(scan=True): a soul containing any of them raises PromptInjectionError BEFORE any file or DB write. The reasoning is explicit in the source: soul.md is prepended to every LLM system prompt, so anything reaching it would persist as a standing instruction to the LLM across all future queries — the worst-case injection.\n\n- OWASP_INJECTION_PATTERNS = core + broader constructs ('you are now', 'pretend you are/to be', 'act as', '<script>'). These are ADVISORY: surfaced for human review in propose_evolution, but not enforced at the write boundary, because they may be legitimate in author-controlled identity statements ('You are now CyClaw; act as...').\n\nThe same banned-pattern set the query path uses (config.yaml policy.prompt_filter) is unioned with the OWASP baseline for the soul — so the soul is never guarded by a weaker list than user queries. This is the write-path-only scan described in INVARIANTS Rule 4/5; reload and drift adopt soul.md unscanned by design."
+      }
+    ],
+    "source_refs": [
+      "utils/personality.py:_CORE_INJECTION_PATTERNS,ENFORCED_SOUL_PATTERNS,OWASP_INJECTION_PATTERNS",
+      "INVARIANTS.md:Rule 4,5"
+    ]
+  },
+  {
+    "id": "extra-005-atomic-write-owner-only",
+    "category": "Security & Defense",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Explain _atomic_write_owner_only in personality.py. Why tempfile in the target dir, chmod 0600, and os.replace — and what failure does the finally block guard against?"
+      },
+      {
+        "role": "assistant",
+        "content": "It replaces a file atomically with owner-only permissions:\n1. mkdir parents (idempotent).\n2. tempfile.mkstemp(prefix='.{name}.', suffix='.tmp', dir=path.parent, text=True) — creates the temp file IN THE SAME DIRECTORY as the target. Same-directory matters: os.replace is atomic within a filesystem, but only within the same mount. A cross-device tmp (e.g. /tmp on a separate mount) would make os.replace fall back to copy+unlink, losing atomicity.\n3. os.chmod(tmp_path, 0o600) — owner read/write only, before any content is written, so a crash between open and chmod can't leave a world-readable soul on disk.\n4. write content, flush via context close.\n5. os.replace(tmp_path, path) — the atomic swap. Readers either see the old soul or the complete new soul, never a partial write.\n\nThe finally block: if fd >= 0 (the context manager didn't take ownership of the fd), os.close(fd) prevents a leak; then tmp_path.unlink(missing_ok=True) cleans up a temp file left behind by a failure between mkstemp and os.replace. The OSError swallow on unlink is logged, not silent.\n\nThis is the soul-write primitive that apply_evolution and restore_from_backup both rely on — and why a crash between the DB INSERT and the os.replace produces soul drift on the next startup (the version row points at content that never made it to disk)."
+      }
+    ],
+    "source_refs": [
+      "utils/personality.py:_atomic_write_owner_only",
+      "INVARIANTS.md:Rule 4"
+    ]
+  },
+  {
+    "id": "extra-006-context-chunk-rendering",
+    "category": "Retrieval & RAG",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does _format_context_chunks in graph.py render retrieved docs into the prompt, and why does it track which chunks it actually kept instead of just slicing docs[:limit]?"
+      },
+      {
+        "role": "assistant",
+        "content": "_format_context_chunks(docs, limit, char_cap, total_char_budget) renders the context block with per-chunk source headers and RRF scores: '[Source: {source}, Score: {score:.3f}]\\n{text}'. Chunks are joined by SECTION_SEP ('\\n\\n---\\n\\n').\n\nThree rendering modes by parameter:\n- char_cap=None: full chunk text (local_llm path).\n- char_cap=int: truncated chunk text (best-effort / grok partial).\n- total_char_budget=int: cap the TOTAL rendered length including headers and separators. Once the budget is reached it stops adding chunks and truncates the crossing chunk to exactly what fit.\n\nIt returns (context_text, included_docs). included_docs is the subset of docs[:limit] that actually contributed body text — a chunk truncated mid-text by the budget still counts, with its 'text' clipped to what reached the model; a chunk for which only the header would fit does NOT count.\n\nWhy track this: callers use included_docs for answer_sources, so a cited source always matches what the model and the grounding check actually saw. The prior code reported raw docs[:limit] regardless of what was rendered — meaning a source could be cited that the model never saw, or a source omitted that it did. The fix ties citations to the real context window."
+      }
+    ],
+    "source_refs": [
+      "graph.py:_format_context_chunks,SECTION_SEP,UNTRUSTED_NOTE"
+    ]
+  },
+  {
+    "id": "extra-007-context-char-budget",
+    "category": "Retrieval & RAG",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How is the context token budget computed in graph.py, and what happens when soul + query + framing exhaust it?"
+      },
+      {
+        "role": "assistant",
+        "content": "_context_char_budget(cfg, soul_preamble, query, framing_chars) estimates context space after reserving soul, query, and framing:\n  budget = retrieval.max_context_tokens (default 8000) * CHARS_PER_TOKEN (3)\n  reserved = len(soul) + len(query) + framing_chars\n  available = budget - reserved\n  return max(_MIN_CONTEXT_CHARS, available)  # floor 800\n\nCHARS_PER_TOKEN=3 is a heuristic estimate, not a tokenizer bound — lower values reduce the context allowance and increase the post-assembly estimate. The actual token usage depends on the backend and text.\n\nWhen reservations exhaust the budget, available drops below _MIN_CONTEXT_CHARS (800). Rather than returning 0 or negative (which would produce an empty context and a blank answer), it floors to 800 and logs a debug line. The trade-off: this floor can make the assembled input exceed the configured estimate. Neither the floor nor the char estimate guarantees the assembled prompt fits the backend's token window — that's the local_llm blank-answer failure mode when (prompt_tokens + max_tokens) > loaded context length."
+      }
+    ],
+    "source_refs": [
+      "graph.py:_context_char_budget,CHARS_PER_TOKEN,_MIN_CONTEXT_CHARS"
+    ]
+  },
+  {
+    "id": "extra-008-soul-max-chars-ceiling",
+    "category": "Soul Governance",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What bounds the size of the soul text that gets prepended to every LLM system prompt, and why is there a hard ceiling at all?"
+      },
+      {
+        "role": "assistant",
+        "content": "PersonalityManager.soul_max_chars (config: personality.soul_max_chars, default 8000) is a hard ceiling on the soul text prepended to EVERY LLM system prompt. Two layers enforce it: PersonalityManager truncates via _bounded_soul at read time, and the /soul/apply schema enforces a matching outer cap at the HTTP boundary (SoulEvolutionRequest).\n\nWhy a ceiling: the soul is prepended to every local_llm and offline_best_effort prompt (NOT the external grok/claude paths — identity never leaves the box). An unbounded soul would inflate the system prompt and consume the Ollama context budget, leaving less room for retrieved context and the query — directly causing the blank-answer / truncation failure when (prompt + max_tokens) exceeds the loaded context window. The ceiling bounds prompt inflation no matter how soul.md was written or edited (including the unscanned reload/drift paths).\n\nCaveat from INVARIANTS Rule 5: harness/prompts.py reads soul.md directly and bypasses PersonalityManager entirely — so it skips _bounded_soul truncation too. A soul larger than soul_max_chars gets injected untruncated into the harness console's system prompt."
+      }
+    ],
+    "source_refs": [
+      "utils/personality.py:soul_max_chars,_bounded_soul",
+      "INVARIANTS.md:Rule 5",
+      "harness/prompts.py:compose_system_prompt"
+    ]
+  },
+  {
+    "id": "extra-009-db-backend-swap",
+    "category": "Soul Governance",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "How does CyClaw switch the soul version DB from SQLite to Postgres, and what stays the same across backends?"
+      },
+      {
+        "role": "assistant",
+        "content": "Default is SQLite (zero-config, offline-first). Set CYCLAW_DB_URL=postgresql://... or personality.database_url in config.yaml to switch to Postgres. The connection shim lives in utils/personality_db.py: connect(db_path, pers_cfg) returns (conn, placeholder, backend) where placeholder is the backend-specific SQL parameter marker (?, %s, etc.) and backend identifies the dialect.\n\nWhat stays the same: PersonalityManager builds parameterized SQL templates using self._ph for both inserts (soul_versions and interactions) and the TTL delete, so the same code works across backends. DDL is backend-specific — personality_db.ddl_soul_versions, ddl_interactions, and ddl_indexes take the backend and return the right statement.\n\nTwo columns are independent by design: soul_versions stores sha256 (a hash of soul file CONTENT) and timestamp separately — the hash is of content, not of the timestamp, so drift detection compares the current file's hash against the latest row's hash, not against a time-derived value. The soul_versions table is the version log; the soul.md FILE is the source of truth (file-as-truth with a shadow DB)."
+      }
+    ],
+    "source_refs": [
+      "utils/personality.py:_init_db,_sql_insert_soul",
+      "utils/personality_db.py:connect,ddl_soul_versions"
+    ]
+  },
+  {
+    "id": "extra-010-interaction-ttl-pruning",
+    "category": "Soul Governance",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Why does PersonalityManager prune old interaction records every N inserts instead of on every record_interaction() call?"
+      },
+      {
+        "role": "assistant",
+        "content": "Amortized pruning. _prune_every (config: personality.interaction_prune_every, default 100) sweeps the interactions table once per that many inserts, not per insert. _inserts_since_prune counts up; when it hits _prune_every, a DELETE FROM interactions WHERE timestamp < ? runs (the cutoff is now - interaction_ttl_days, default 365), then the counter resets.\n\nWhy not per-call: a DELETE on every interaction insert would make every query pay a write + a delete + an index maintenance cost, amplifying write amplification on the SQLite/Postgres backing store for no benefit — the TTL is a retention bound (don't keep interactions forever), not a real-time eviction. Sweeping every 100 inserts amortizes the delete cost across many queries while still bounding the table size to roughly ttl_days * (queries_per_day) + 100.\n\nThe interaction log is separate from the audit log: interactions store query_hash + outcome + timestamp for the soul layer's own history; audit_log (utils/logger.py) is the append-only JSONL of every query path including the soul events. They serve different consumers."
+      }
+    ],
+    "source_refs": [
+      "utils/personality.py:_prune_every,_inserts_since_prune,maintenance",
+      "utils/logger.py:audit_log"
+    ]
+  },
+  {
+    "id": "extra-011-langsmith-precedence-lru",
+    "category": "Telemetry & Offline",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Explain the four-name LangSmith tracing precedence and why a non-empty 'false' at a higher-precedence name is load-bearing."
+      },
+      {
+        "role": "assistant",
+        "content": "The four names are ONE switch with a namespace precedence order, not four mechanisms. Verified against langsmith 0.10.15: tracing_is_enabled() calls get_env_var('TRACING_V2', default=get_env_var('TRACING')) at utils.py:141, and get_env_var (utils.py:418-442) tries the LANGSMITH_ prefix before LANGCHAIN_ and skips only EMPTY values. So the live precedence is:\n\n  LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 >\n  LANGSMITH_TRACING  > LANGCHAIN_TRACING\n\nThe value must be exactly 'true' to enable. A non-empty 'false' at a HIGHER-precedence name shadows everything after it — so pinning LANGSMITH_TRACING_V2=false does NOT stop tracing if an ambient LANGCHAIN_TRACING_V2=true is set by a lower-precedence name? No — wait: higher precedence wins, so LANGSMITH_TRACING_V2=false shadows a lower-precedence true. That's why all four must be pinned: an ambient value at any single UNPINNED name would win over every pinned LOWER-precedence one.\n\nWorse, the value latches permanently via get_env_var's @functools.lru_cache — once read, it's cached for the process. And langsmith attempts the upload even with NO API key (it only warns), so unsetting LANGCHAIN_API_KEY alone is not a substitute for pinning all four names to false. This is why utils/telemetry_kill.py sets all four to 'false' before any langchain import."
+      }
+    ],
+    "source_refs": [
+      "utils/telemetry_kill.py:TELEMETRY_KILL",
+      "tests/test_telemetry_kill.py"
+    ]
+  },
+  {
+    "id": "extra-012-hf-hub-offline-excluded",
+    "category": "Telemetry & Offline",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Why is HF_HUB_OFFLINE deliberately NOT in the telemetry_kill block, while HF_HUB_DISABLE_TELEMETRY IS?"
+      },
+      {
+        "role": "assistant",
+        "content": "They suppress different things, and HF_HUB_OFFLINE is dangerous to set unconditionally.\n\nHF_HUB_DISABLE_TELEMETRY=1 suppresses ONLY huggingface_hub's background telemetry HEAD request to {ENDPOINT}/api/telemetry/{topic} — a separate code path from any file download or cache lookup. It never blocks a real download or cache-miss fetch, so it's safe to set for every process from the start. It's in the block.\n\nHF_HUB_OFFLINE / TRANSFORMERS_OFFLINE are deliberately EXCLUDED from the canonical block. Reason: huggingface_hub freezes HF_HUB_OFFLINE at its own import time, with no way to retry past it once set. Forcing it on for every process would turn retrieval/embeddings.py's documented cache-miss bootstrap fetch (downloading all-MiniLM-L6-v2 on first run) into a guaranteed failure on any machine that has never run CyClaw before.\n\nInstead, retrieval/embeddings.py::_load_model applies them CONDITIONALLY — only once the embedding model is confirmed already on disk (see _model_offline_eligible there). So the first run fetches the model; subsequent runs go fully offline. DO_NOT_TRACK=1 is also included unconditionally — it's a cross-ecosystem opt-out that huggingface_hub 1.26.0 honors (constants.py computes HF_HUB_DISABLE_TELEMETRY as the OR of three env vars including DO_NOT_TRACK)."
+      }
+    ],
+    "source_refs": [
+      "utils/telemetry_kill.py:TELEMETRY_KILL,module docstring",
+      "retrieval/embeddings.py:_load_model,_model_offline_eligible"
+    ]
+  },
+  {
+    "id": "extra-013-build-telemetry-safe-env",
+    "category": "Telemetry & Offline",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "apply_telemetry_kill mutates os.environ process-wide. How do child processes (subprocess.run, rclone) inherit the same kill values, and why must the module be stdlib-only?"
+      },
+      {
+        "role": "assistant",
+        "content": "apply_telemetry_kill mutates os.environ for the whole interpreter — that's the point, because the libraries read the process environment, not a config object. But child processes built from a MINIMAL environment inherit nothing, so they'd run without the kill values. build_telemetry_safe_env() produces a copy of the canonical TELEMETRY_KILL dict merged into the child's environment, so the same values reach subprocesses (rclone, the OOB CLIs via utils/ops_runner.py).\n\nWhy stdlib-only (just `os`): the module is imported at the very top of every entry point — gate.py, mcp_hybrid_server.py, retrieval/indexer.py — AHEAD of anything heavy (langchain, chromadb, sentence-transformers). If it imported a third-party package of its own, that import would pull in a transitive dependency before the kill is applied, and the transitive might read its own telemetry config at import time. So telemetry_kill.py imports only `os`, `ast`, `hashlib`, `json`, `pathlib` — nothing that drags a heavy tree.\n\nThe same reasoning is why the real ONNX Runtime API suppression (onnxruntime.disable_telemetry_events()) does NOT live in this module — importing onnxruntime here would drag its transitive into every entry point. That call lives at the optional ONNX load seams in utils/onnx_telemetry.py, called by retrieval/vector_store.py and guardrails/integration.py."
+      }
+    ],
+    "source_refs": [
+      "utils/telemetry_kill.py:apply_telemetry_kill,build_telemetry_safe_env",
+      "utils/onnx_telemetry.py",
+      "utils/ops_runner.py"
+    ]
+  },
+  {
+    "id": "extra-014-rag-error-code-details",
+    "category": "Error Handling",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Describe the RAGError exception hierarchy in utils/errors.py and how the gateway maps it to HTTP responses."
+      },
+      {
+        "role": "assistant",
+        "content": "RAGError is the base, a dataclass-style Exception carrying message, code (str), and details (dict|None). Every subclass sets a stable code string the gateway catches and maps to an HTTP response:\n\n  RAGError          -> RAG_ERROR\n  EmbeddingServiceError -> EMBEDDING_ERROR\n  LLMServiceError   -> LLM_SERVICE_ERROR\n  GrokServiceError  -> GROK_SERVICE_ERROR\n  ClaudeServiceError -> CLAUDE_SERVICE_ERROR\n  IndexNotFoundError -> INDEX_NOT_FOUND\n  CorpusEmptyError  -> CORPUS_EMPTY\n  PromptInjectionError -> PROMPT_INJECTION_BLOCKED\n  SoulPersistenceError -> SOUL_PERSISTENCE_INCONSISTENT\n  ConfigError       -> CONFIG_ERROR\n\nThe OOB layer has its own parallel hierarchies that the gateway stays oblivious to (I6 isolation): SyncError (and its sub-errors RcloneNotInstalledError, RcloneVersionError, RcloneTimeoutError, SyncConfigError, SchedulerError, SyncRuntimeError) for Dropbox/rclone sync; AgenticError for the GitHub-context / skills layer. The gateway never imports agentic or sync, so those error types can't surface through the core request path — they're handled in their own OOB consoles.\n\nThe code field is the stable contract: the gateway switches on code, not on exception type, so a new sub-error that reuses an existing code doesn't need a gateway change. The details dict carries machine-readable context (e.g. which provider, which chunk index) for audit without being in the user-facing message."
+      }
+    ],
+    "source_refs": [
+      "utils/errors.py:RAGError,hierarchy",
+      "gate.py:exception mapping"
+    ]
+  },
+  {
+    "id": "extra-015-soul-persistence-error",
+    "category": "Error Handling",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "What is SoulPersistenceError and when is it raised — what inconsistency does it signal?"
+      },
+      {
+        "role": "assistant",
+        "content": "SoulPersistenceError (code SOUL_PERSISTENCE_INCONSISTENT) signals that a soul update failed AND its filesystem compensation was incomplete. It's raised when apply_evolution cannot guarantee the soul.md file and the soul_versions DB row agree.\n\nThe normal write ordering (INVARIANTS Rule 4) is: scan for injection (raise PromptInjectionError before any write) -> atomic file write (_atomic_write_owner_only: tmp + os.replace) -> DB INSERT of the version row with the new content's sha256. If the process crashes between the file write and the DB insert, the file has the new soul but the DB has no row for it — that's soul DRIFT (detected on next startup by the SHA-256 mismatch, adopted unscanned as a DRIFT_RECOVERY row). If the crash happens the other way — DB row written but file write failed — the DB points at content that never reached disk.\n\nSoulPersistenceError is raised when the compensation logic itself can't restore consistency — e.g. the atomic replace succeeded but the DB insert raised, and the rollback (delete the new file / restore the prior) also failed. It tells the caller the soul store is in a state that needs human attention, not a silent retry. This is distinct from drift (a detectable, recoverable state) — SoulPersistenceError means the recovery path itself failed."
+      }
+    ],
+    "source_refs": [
+      "utils/errors.py:SoulPersistenceError",
+      "utils/personality.py:apply_evolution",
+      "INVARIANTS.md:Rule 4"
+    ]
+  },
+  {
+    "id": "extra-016-rclone-timeout-bypass",
+    "category": "Error Handling",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "In utils/errors.py, RcloneTimeoutError calls RAGError.__init__ directly instead of super().__init__. Why the deliberate bypass?"
+      },
+      {
+        "role": "assistant",
+        "content": "It's a workaround for a real inheritance bug. The comment is explicit: SyncError.__init__ hardcodes code='SYNC_ERROR' and provides no way to pass a sub-code through. If RcloneTimeoutError called super().__init__ (SyncError), it would get code='SYNC_ERROR' — losing the distinction between a timeout, a version-too-old, a not-installed, a config-invalid, a scheduler-failed, and a runtime-failed sync error.\n\nSo RcloneTimeoutError bypasses SyncError.__init__ and calls RAGError.__init__(self, message, code='RCLONE_TIMEOUT', details) directly. This sets the right code without triggering SyncError.__init__'s hardcoded overwrite. The same pattern is used by RcloneNotInstalledError, RcloneVersionError, SyncConfigError, SchedulerError, and SyncRuntimeError — each sets self.code AFTER super().__init__ to overwrite the hardcoded 'SYNC_ERROR'.\n\nRcloneTimeoutError can't use that pattern because it needs to set the code DURING construction, not after — and SyncError.__init__ would overwrite any code set before super() returns. The direct RAGError.__init__ call is the only way to get the right code through. It's ugly but correct; the alternative would be refactoring SyncError to accept a code parameter, which would touch every sub-error."
+      }
+    ],
+    "source_refs": [
+      "utils/errors.py:RcloneTimeoutError,SyncError,RAGError"
+    ]
+  },
+  {
+    "id": "extra-017-add-telemetry-dependency",
+    "category": "Extension Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "I want to add a new dependency to CyClaw that has its own analytics/telemetry. What's the safe path?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three gates, in order:\n\n1. Audit the dependency's egress BEFORE merge. Identify every endpoint it contacts (telemetry, update-check, model-download). Classify each against SECURITY.md 'Egress classification': is it intentional policy-gated traffic (allowed, behind its own gate), or unsolicited secondary telemetry (forbidden)?\n\n2. If it latches config at import time, add its env var to utils/telemetry_kill.py TELEMETRY_KILL — BEFORE the heavy import, same as the four LangSmith names. The block is stdlib-only, so don't import the dep there; just set the env var. Add a test to tests/test_telemetry_kill.py asserting the new name against the expected map (P0 on failure = live telemetry leak).\n\n3. If it has a runtime API suppression (like onnxruntime's disable_telemetry_events()), put that call at the optional load seam, NOT in telemetry_kill.py — importing the dep in the kill module would drag its transitive into every entry point. Mirror the utils/onnx_telemetry.py pattern.\n\nIf the dep won't behave with env vars: a network DROP rule for the cyclaw user (iptables/eBPF), then consider vendoring/forking to remove the telemetry code. PASS criterion: zero non-localhost connections in the 4-phase network audit (index build, live query, idle soak, online mode) — only the policy-gated Grok/Claude endpoint is expected, and only in hybrid mode."
+      }
+    ],
+    "source_refs": [
+      "utils/telemetry_kill.py:TELEMETRY_KILL",
+      "SECURITY.md:Egress classification",
+      "tests/test_telemetry_kill.py"
+    ]
+  },
+  {
+    "id": "extra-018-bad-banned-regex-warn",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "I have a typo in a banned_patterns regex in config.yaml. Will it crash every /query, and how do I know which pattern is bad?"
+      },
+      {
+        "role": "assistant",
+        "content": "It will NOT crash — it degrades with a warning, by design. In utils/sanitizer.py _load_filter, each banned pattern is compiled INDIVIDUALLY inside a try/except re.error. A single malformed regex (an unbalanced paren typo) would otherwise raise on the FIRST /query, and since check_input's only caller-side handler catches PromptInjectionError (not re.error), it would escape as an unhandled 500 on EVERY query, benign ones included.\n\nInstead, the bad entry is SKIPPED with a warning, and the filter keeps enforcing its remaining patterns. The warning logs the entry INDEX and the compile error (which carries the fault position), NOT the pattern text — so the log tells you 'banned_patterns entry #7 failed to compile (missing ) at position 42)' without dumping the pattern.\n\nFind it: the warning is at logger 'cyclaw.sanitizer'. Grep the server logs for 'failed to compile' or 'non-string type' to find the bad entry index, then fix that line in config.yaml policy.prompt_filter. Note: a non-string entry (a YAML number or null) is also skipped with a warning, not a crash — same warn-on-degrade posture."
+      }
+    ],
+    "source_refs": [
+      "utils/sanitizer.py:_load_filter,check_input"
+    ]
+  },
+  {
+    "id": "extra-019-no-banned-patterns-noop",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "policy.prompt_filter.enabled is true but banned_patterns is an empty list. Is injection filtering doing anything?"
+      },
+      {
+        "role": "assistant",
+        "content": "No — it has silently degraded to a length-only check, and the code explicitly warns about it. In _load_filter, after compiling all patterns, if enabled AND not patterns (enabled=True but zero patterns compiled), it logs: 'prompt_filter is enabled but no banned_patterns are configured in {path}; injection filtering is disabled (length check only).'\n\nThis is the warn-on-degrade posture: the filter refuses to become a silent no-op. The length check (max_input_chars, default 4000) still runs — so overly long input is still rejected — but no injection patterns are matched. Under the threat model this is a misconfiguration, not a crash.\n\nFix: populate policy.prompt_filter.banned_patterns in config.yaml with the shipped pattern set (or your own). The patterns are compiled once per config file path and cached via @lru_cache, so the hot path (every /query and every chunk at index time) does not recompile regexes on each call. After editing config.yaml, restart the server — the cache is per-process."
+      }
+    ],
+    "source_refs": [
+      "utils/sanitizer.py:_load_filter,lru_cache"
+    ]
+  },
+  {
+    "id": "extra-020-ambient-langsmith-shadow",
+    "category": "Debugging Scenarios",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "I set LANGSMITH_TRACING_V2=false in the CyClaw .env, but the network audit still shows api.smith.langchain.com traffic. The kill block sets all four names — what's shadowing it?"
+      },
+      {
+        "role": "assistant",
+        "content": "An ambient value at a lower-precedence name that you DIDN'T pin, OR the kill block ran too late. Per the precedence (LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING > LANGCHAIN_TRACING), a higher-precedence 'false' shadows a lower-precedence value — but only if the higher-precedence name is non-empty. If LANGSMITH_TRACING_V2 is unset (empty) in the ambient environment, get_env_var skips it and reads the NEXT name. So an ambient LANGCHAIN_TRACING=true in a shell profile, container base image, or site-wide observability agent would win — and you only pinned the LANGSMITH_ names.\n\nThe kill block sets all four to 'false' to prevent exactly this — so if traffic persists, the block didn't apply. Check:\n1. Did apply_telemetry_kill() run BEFORE the langchain import? It must be the first import in gate.py, mcp_hybrid_server.py, and retrieval/indexer.py. A heavy import that fires first reads the ambient env and latches it via @functools.lru_cache — after that, setting the env var is too late.\n2. Is a new entry point missing the kill call? Every process that reaches ChromaDB or langchain must apply it. If you added a new CLI or script that imports langchain without the kill, that process traces.\n3. Did a transitive dep start its own telemetry on a new endpoint? Run the 4-phase network audit to isolate which phase leaks.\n\nPASS: zero non-localhost connections in phases 1-3 (index, query, idle). Only the Grok endpoint is expected, and only in phase 4 (hybrid mode, user-confirmed)."
+      }
+    ],
+    "source_refs": [
+      "utils/telemetry_kill.py:TELEMETRY_KILL,apply_telemetry_kill",
+      "INVARIANTS.md:telemetry"
+    ]
+  },
+  {
+    "id": "extra-021-lru-cache-compiled-patterns",
+    "category": "Code Patterns",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Show the CyClaw pattern for compiling config-driven regexes once and caching them. Why @lru_cache on the loader, not on the match function?"
+      },
+      {
+        "role": "assistant",
+        "content": "utils/sanitizer.py _load_filter is decorated with @lru_cache(maxsize=8), keyed by config_path (a str). It returns (enabled, max_input_chars, compiled_patterns) — a tuple of a bool, an int, and a tuple of compiled re.Pattern objects. The cache key is the config file PATH, not the query.\n\nWhy cache the loader, not the match: check_input(query) runs on EVERY /query and EVERY chunk at index time. If it recompiled the banned_patterns regexes on each call, the hot path would pay O(n) regex compilation per query — and regex compilation is expensive (re.error handling, AST building). Caching the COMPILED patterns once per config path means the hot path does O(1) dict lookup + O(n) pattern MATCH (cheap) per query.\n\nmaxsize=8: the cache holds up to 8 distinct config paths. In practice there's one (config.yaml), but the cache tolerates test fixtures and alternate configs without eviction. The cache is per-process — editing config.yaml requires a server restart, because the compiled patterns are already in memory.\n\nThis is the same pattern BM25 uses (per-instance lru_cache on the tokenizer) and the same reasoning: compile-once, match-many. The trade-off is staleness — a config edit isn't picked up until restart. For the prompt filter that's acceptable; for the soul it's not, which is why /soul/reload exists to re-read without a full restart."
+      }
+    ],
+    "source_refs": [
+      "utils/sanitizer.py:_load_filter,lru_cache",
+      "retrieval/hybrid_search.py:BM25"
+    ]
+  },
+  {
+    "id": "extra-022-stdlib-only-kill-before-imports",
+    "category": "Design Philosophy",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are CyClaw's assistant. You reason about the CyClaw architecture (github.com/CGFixIT/CyClaw, v1.9.x) from source, follow its I1-I6 invariants, and never propose changes that bypass retrieval, audit, or soul governance. Distinguish established fact from reasonable inference, and cite the file and function."
+      },
+      {
+        "role": "user",
+        "content": "Why is utils/telemetry_kill.py stdlib-only and imported at the very top of every entry point, ahead of anything heavy? What's the philosophy?"
+      },
+      {
+        "role": "assistant",
+        "content": "The philosophy: kill switches must be in place BEFORE the libraries that read them are imported, because those libraries latch their config at import or construction time. LangChain/LangSmith, LangGraph, NeMo Guardrails, ChromaDB's PostHog client, ONNX Runtime, and the OpenTelemetry SDK all read their env vars once — setting them afterwards is too late. apply_telemetry_kill() mutates os.environ at the top of the entry point, before the heavy imports below it.\n\nWhy stdlib-only (just os, ast, hashlib, json, pathlib): the kill module is imported at the very top of entry points, ahead of anything heavy. If it imported a third-party package of its own, that import would pull a transitive dependency before the kill is applied — and the transitive might read its OWN telemetry config at import time, defeating the kill. So telemetry_kill.py imports nothing that drags a heavy tree.\n\nThis is also why the module exists as a separate file at all: the block used to live only in gate.py. But python -m retrieval.indexer (cyclaw-index) and mcp_hybrid_server.py never import gate, so none of them applied it — they relied on upstream defaults staying benign, which CyClaw doesn't control. An ambient env var in an operator's shell profile or container base image would be honored. The canonical module fixes that: every entry point that reaches ChromaDB or langchain applies the same kill, first.\n\nThe deeper principle: offline-first is a property of the PROCESS, not a config flag. You can't bolt it on after the libraries are loaded; you have to establish it before they're born."
+      }
+    ],
+    "source_refs": [
+      "utils/telemetry_kill.py:module docstring,apply_telemetry_kill",
+      "retrieval/indexer.py:apply_telemetry_kill() call"
+    ]
+  }
+]

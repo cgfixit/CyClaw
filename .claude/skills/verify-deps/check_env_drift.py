@@ -194,7 +194,11 @@ _DIST_ALIAS = {
 # fragile -- the venv in this tree was once ".venv312", not ".venv" -- so the rule is
 # structural: any hidden directory, any build output, and any directory that
 # IS a virtualenv (identified by its own pyvenv.cfg, whatever it is named).
-_SKIP_DIRS = ("tests/", "docs/", "build/", "dist/", "site-packages/")
+# tools/ is an operator-optional offline-toolkit tree (LoRA fine-tune kit,
+# etc.). CyClaw runtime / Docker / extras never install it; each kit carries
+# its own requirements.txt. Skipping it keeps E3 from demanding unsloth/trl
+# in the root manifests.
+_SKIP_DIRS = ("tests/", "docs/", "build/", "dist/", "site-packages/", "tools/")
 
 
 def _skipped(rel: str) -> bool:

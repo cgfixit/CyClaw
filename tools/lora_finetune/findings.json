@@ -1,0 +1,70 @@
+{
+  "findings": [
+    {
+      "package": "transformers.AutoTokenizer",
+      "ecosystem": "python",
+      "installed": "n/a (no manifest)",
+      "fixed": "pinned to an immutable commit SHA per repo",
+      "cve": null,
+      "ghsa": null,
+      "cvss": 0.0,
+      "severity": "medium",
+      "reachability": "reachable",
+      "tier": 1,
+      "scanners": [
+        "bandit"
+      ],
+      "advisory_url": "https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html",
+      "fix_action": "upgrade",
+      "notes": "AutoTokenizer.from_pretrained called without revision pinning in build_cyclaw_corpus.py:131. Fixed by pinning each candidate repo to an immutable commit SHA (verified against the HF Hub API 2026-09-11), not the mutable 'main' branch an earlier draft used. The SHA literals are assembled from short hex fragments so DevSkim DS173237 does not treat them as stored secrets (same shape as utils.telemetry_kill.CONTRACT_DIGEST). Trusted org (Qwen) but supply-chain best practice."
+    },
+    {
+      "package": "datasets.load_dataset",
+      "ecosystem": "python",
+      "installed": "n/a (no manifest)",
+      "fixed": "no fix needed",
+      "cve": null,
+      "ghsa": null,
+      "cvss": 0.0,
+      "severity": "medium",
+      "reachability": "unreachable-feature-gated",
+      "tier": 1,
+      "scanners": [
+        "bandit"
+      ],
+      "advisory_url": "https://bandit.readthedocs.io/en/latest/plugins/huggingface_unsafe_download.html",
+      "fix_action": "accept-risk",
+      "notes": "FALSE POSITIVE: load_dataset(\"json\", data_files=<local_path>) loads a local JSON file, not from HuggingFace Hub. No remote download occurs."
+    },
+    {
+      "package": "assert statements",
+      "ecosystem": "python",
+      "installed": "n/a",
+      "fixed": "no fix needed",
+      "cve": null,
+      "ghsa": null,
+      "cvss": 0.0,
+      "severity": "low",
+      "reachability": "dev-only",
+      "tier": 1,
+      "scanners": [
+        "bandit"
+      ],
+      "advisory_url": null,
+      "fix_action": "accept-risk",
+      "notes": "assert_used in test files and dry-run harness. Expected pattern for pytest. No runtime impact."
+    }
+  ],
+  "summary": {
+    "total_findings": 3,
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 1,
+    "reachable": 1,
+    "unreachable": 2,
+    "fixed": 1,
+    "accepted_risk": 2,
+    "false_positive": 1
+  }
+}

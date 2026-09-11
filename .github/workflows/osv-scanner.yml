@@ -41,8 +41,16 @@ jobs:
     with:
       # Use targeted ignore config + recurse from the repository root.
       # Keep strict on PRs so new vulns block merges.
+      # Skip tools/lora_finetune (regex, not a bare dirname: v2.5.1's
+      # exact-name exclude still walked this tree). Opt-in CUDA toolkit,
+      # not a CyClaw runtime lockfile. OSV v2 resolves requirements.txt
+      # transitives and Unsloth's published graph still expands to
+      # known-vulnerable wheels (pillow 9.5, aiohttp 3.9.5, torch 2.9.1)
+      # that this repo does not install. Operators pip-audit on the GPU
+      # box; see the kit README.
       scan-args: |-
         --config=.osv-scanner.toml
+        --experimental-exclude=r:lora_finetune
         -r
         ./
       fail-on-vuln: true
@@ -58,8 +66,10 @@ jobs:
     with:
       # Use targeted ignore config + recurse from the repository root.
       # Non-blocking on scheduled runs (reports to Security tab without failing workflow).
+      # Same lora_finetune exclude as scan-pr — opt-in GPU toolkit, not runtime.
       scan-args: |-
         --config=.osv-scanner.toml
+        --experimental-exclude=r:lora_finetune
         -r
         ./
       fail-on-vuln: false

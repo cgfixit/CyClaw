@@ -122,7 +122,9 @@ places no manifest checker reads, and nothing cross-checks those. Six classes:
 - **E3 — a third-party module imported by source but declared in no manifest.**
   The class `dep-guard` cannot see by construction: it reads manifests and never
   reads imports. Walks first-party source with `ast`, skipping virtualenvs
-  structurally (by their own `pyvenv.cfg`, not by guessing the directory name).
+  structurally (by their own `pyvenv.cfg`, not by guessing the directory name)
+  and skipping `tools/` (operator-optional offline kits; not a CyClaw runtime
+  install surface — see `tools/lora_finetune/requirements.txt`).
 - **E4 — the install-surface scope contract** from the table above: asserts
   `requirements.txt` carries no extras-only package.
 - **E5 — the Docker build's dependency-install contract**: asserts the
