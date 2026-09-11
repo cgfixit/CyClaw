@@ -102,17 +102,13 @@ def test_macos_smoke_covers_windows_smoke_endpoints() -> None:
     for path in _SHARED_PATHS:
         assert path in win, f"windows-smoke.ps1 lost {path} — update _SHARED_PATHS"
         assert path in mac, f"macos-smoke.sh missing Windows twin path {path}"
-    assert "X-CyClaw-CSRF" in mac
-    assert "csrf-token" in mac
     assert "/ops/sync" in mac
     assert "/ops/agentic" in mac
     assert "/ops/sqlconnect" in mac
-    assert "auth-gate-only" in mac
-    assert "3600" in mac
 
 
 def test_ci_invokes_macos_smoke_full_bomb() -> None:
-    """macos-latest live-smoke must run the 22-check twin, not the old 5-check inline body."""
+    """macos-latest live-smoke must run the full twin, not the old 5-check inline body."""
     ci = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "macos-smoke.sh" in ci
     assert "SMALLER check set" not in ci

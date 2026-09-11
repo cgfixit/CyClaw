@@ -276,15 +276,14 @@ def test_service_plist_generator_carries_overlay(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(gsp.platform, "system", lambda: "Darwin")
     code = gsp.main([
-        "--service", "harness", "--confirm", "--reason", "delivery test",
+        "--service", "gate", "--confirm", "--reason", "delivery test",
     ])
     assert code == 0
-    plist_path = home / "Library" / "LaunchAgents" / "com.cgfixit.cyclaw.harness.plist"
+    plist_path = home / "Library" / "LaunchAgents" / "com.cgfixit.cyclaw.gate.plist"
     document = plistlib.loads(plist_path.read_bytes())
     env = document["EnvironmentVariables"]
     for key, value in _CANONICAL.items():
         assert env.get(key) == value, f"{key} missing/wrong in generated plist"
-    assert env["CYCLAW_HOME"] == str(home / ".CyClaw"), "service-specific env must survive the overlay"
 
 
 def test_windows_cmd_launcher_set_lines(tmp_path):

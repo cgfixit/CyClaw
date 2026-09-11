@@ -334,7 +334,7 @@ def test_uninstaller_bootouts_landed_launchagent_labels() -> None:
     assert 'bootout "gui/${uid}/${label}"' in text
 
     readme = (_REPO_ROOT / "macos" / "README.md").read_text(encoding="utf-8")
-    assert "gate, harness" in readme
+    assert "gate, keys-rotate" in readme
     assert "keys-rotate" in readme
     assert "opentweet" in readme
     assert "--remove-keychain" in readme

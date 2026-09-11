@@ -1,6 +1,6 @@
 # `tests/` — the CyClaw test suite
 
-Pytest suite for the whole repository (220 `test_*.py` files, auto-collected
+Pytest suite for the whole repository (206 `test_*.py` files, auto-collected
 via `testpaths = ["tests"]` in `pyproject.toml`). Everything external is mocked
 in `conftest.py` — no live Ollama, no network, no real ChromaDB service. A
 fresh clone has **no** Python deps installed; install first (see `CLAUDE.md`
@@ -51,7 +51,6 @@ test files are auto-discovered and need neither.
 |---|---|
 | `conftest.py` | Shared fixtures; mocks every external dependency. `test_config` is a **deepcopy** on purpose — a shallow copy leaks mutations across tests (`test_conftest_fixtures` guards this). |
 | `fixtures/github_coding_repo/` | Canned repo used by the agentic real-repo-loop tests. |
-| `test_harness*.py` | Out-of-band coding console: `/goal`, `/loop`, `/skills`, `/tools`, `/memory`, allowlist-only `/web`, auth, HTML contract, I6. |
 | `ci_rag_smoke.py` | Deliberately NOT `test_*`-named so pytest ignores it; runs as a separate CI step against a real index. Renaming it double-runs it and drags ChromaDB into the unit lane. |
 | `judge_eval.py` | Default-off 24-case groundedness evaluator. Builds an isolated real Chroma/BM25 index from tracked synthetic fixtures and sends public-safe evaluation data to Claude only after both live gates pass. |
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
