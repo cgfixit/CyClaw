@@ -13,8 +13,8 @@
 #       manifest -- the class dep-guard structurally cannot see, because it
 #       reads manifests and never reads imports
 #   E4  the install-surface SCOPE contract (which surface may carry extras)
-#   E5  the Docker build's dependency-install contract, including the
-#       fallback torch pre-install held in lock-step with constraints.txt
+#   E5  the Docker build's dependency-install contract, including the CPU
+#       torch pre-install held in lock-step with constraints.txt
 #   E6  the rest of the Docker surface -- docker-compose.yml, .dockerignore,
 #       and publish-ghcr.yml -- agreeing with the Dockerfile and each other
 #
@@ -278,12 +278,19 @@ def check_undeclared_imports() -> dict[str, list[str]]:
 # those silently floats the real dependency. Each entry states which package
 # pulls it, so the next reader does not have to re-derive it from installed
 # metadata the way this check's author did.
+#
+# An entry here is only meaningful for a package E3's walk genuinely never
+# sees. Four entries were carried for packages that ARE imported -- torch
+# (retrieval/hybrid_search.py's MPS probe), onnxruntime
+# (utils/onnx_telemetry.py's load seam), huggingface-hub
+# (retrieval/embeddings.py's cache probe) and starlette (five hard imports in
+# gate.py, which pyproject.toml's own comment already documents) -- so their
+# stated reasons were not just redundant but wrong, and they masked the pin
+# from the very check meant to notice if the import went away. They are gone;
+# check_orphan_runtime_pins now reports a dead exemption so the map cannot rot
+# back into documentation nobody re-derived.
 _PINNED_NOT_IMPORTED = {
-    "torch": "sentence-transformers' backend; imported by that library, not by CyClaw source",
-    "onnxruntime": "transitive of chromadb, pinned here to hold the same ORT_DISABLE_TELEMETRY floor (see the comment above it)",
     "websockets": "transitive of uvicorn[standard] (requires websockets>=13.0); pinned so this surface fixes the version the extra would float",
-    "starlette": "transitive of fastapi, pinned explicitly to keep this surface's version fixed",
-    "huggingface-hub": "transitive of sentence-transformers; retrieval/embeddings.py reaches it through that library's loader",
     # chromadb (>=1.22.5), onnxruntime (>=1.21.6) and sentence-transformers
     # (>=1.20.0) all require numpy and would each float it to 2.x. The pin is
     # the <2 ceiling CLAUDE.md documents: numpy 2 removes np.float_ and breaks
@@ -321,6 +328,22 @@ def check_orphan_runtime_pins(imported: dict[str, list[str]]) -> None:
         if name in _PINNED_NOT_IMPORTED:
             continue
         orphans.append(name)
+
+    # An exemption for a pin that is imported, or no longer pinned at all, is
+    # dead weight that also silently suppresses the check. Report both shapes.
+    pinned = {
+        re.split(r"[=<>!;\[]", line.strip())[0].strip().lower()
+        for line in req.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith(("#", "-"))
+    }
+    for name in sorted(_PINNED_NOT_IMPORTED):
+        if name in imported_dists or name.replace("-", "_") in imported_dists:
+            warn("E7", f"_PINNED_NOT_IMPORTED still exempts '{name}', but first-party source does import it "
+                       f"({', '.join(imported.get(name, imported.get(name.replace('-', '_'), []))[:2]) or 'see E3'}) "
+                       f"-- drop the entry so the check can notice if that import goes away")
+        elif name not in pinned:
+            warn("E7", f"_PINNED_NOT_IMPORTED exempts '{name}', which requirements.txt no longer pins "
+                       f"-- drop the stale entry")
 
     if orphans:
         for name in orphans:
@@ -382,8 +405,7 @@ def check_docker_install_contract() -> None:
     text = dockerfile.read_text(encoding="utf-8")
     required = {
         "copies dependency manifests": "COPY pyproject.toml constraints.txt requirements.txt ./",
-        "uses constrained uv install": "uv pip install --system --no-cache-dir -r requirements.txt -c constraints.txt",
-        "uses constrained pip fallback": "pip install --no-cache-dir -r requirements.txt -c constraints.txt",
+        "uses constrained pip install": "pip install --no-cache-dir -r requirements.txt -c constraints.txt",
     }
     missing = [label for label, fragment in required.items() if fragment not in text]
     cpu_torch = re.search(
@@ -392,7 +414,7 @@ def check_docker_install_contract() -> None:
         text,
     )
     if not cpu_torch:
-        missing.append("installs fallback CPU torch from the PyTorch CPU index")
+        missing.append("pre-installs CPU torch from the PyTorch CPU index")
     if missing:
         fail("E5", "Dockerfile dependency contract missing: " + "; ".join(missing))
         return
@@ -400,26 +422,59 @@ def check_docker_install_contract() -> None:
         fail("E5", "Dockerfile must not copy or install requirements-test.txt -- "
                    "the production image stays test-tool-free")
         return
-    ok("E5", "Docker copies manifests and uses requirements.txt + constraints.txt in both install paths")
+    ok("E5", "Docker copies manifests and installs requirements.txt under constraints.txt")
 
-    # The fallback's explicit torch pre-install and constraints.txt's torch pin
-    # must move together. The Dockerfile's own comment records the miss this
-    # guards: constraints moved 2.12.1 -> 2.13.0, the fallback line stayed
-    # behind, and the fallback path installed the old wheel and then failed
-    # the constrained resolve. A check that only asks "is there some
-    # torch==" is exactly the check that passed that tree.
+    # The install used to read `uv pip install ... 2>/dev/null || ( pip ... )`.
+    # uv could not resolve it (constraints.txt pins setuptools, the PyTorch CPU
+    # index carries a different setuptools, and uv's default first-index
+    # strategy then refuses to fall back to PyPI for that package), so every
+    # build silently took the pip branch -- and `2>/dev/null` is precisely what
+    # kept that invisible. A dependency install is load-bearing: it must fail
+    # the build loudly rather than quietly resolve a different tree.
+    # Join backslash continuations first: the real install RUN spans several
+    # lines, and its FIRST line need not mention requirements.txt -- scanning
+    # raw lines finds no install at all and passes this guard vacuously.
+    joined = text.replace("\\\n", " ")
+    install_runs = [
+        line for line in joined.splitlines()
+        if line.startswith("RUN ") and "requirements.txt" in line
+    ]
+    if not install_runs:
+        fail("E5", "no RUN line installs requirements.txt -- the image's dependency install is unreadable "
+                   "to this check, so none of the guards below mean anything")
+        return
+    if len(install_runs) > 1:
+        fail("E5", f"{len(install_runs)} separate RUN lines install requirements.txt -- keep one install "
+                   f"path so there is a single reviewed dependency tree")
+        return
+    install_run = install_runs[0]
+    if "2>/dev/null" in install_run or "2> /dev/null" in install_run:
+        fail("E5", "the Dockerfile dependency-install RUN discards stderr -- a failing install must be "
+                   "visible, not swallowed (this is how the dead uv path hid; see the Dockerfile comment)")
+    elif "||" in install_run:
+        fail("E5", "the Dockerfile dependency-install RUN branches on '||' -- a fallback resolver silently "
+                   "installs a different tree than the one reviewed; keep one install path that fails loudly")
+    else:
+        ok("E5", "the dependency-install RUN fails loudly (no stderr redirect, no '||' fallback branch)")
+
+    # The explicit CPU-torch pre-install and constraints.txt's torch pin must
+    # move together. The Dockerfile's own comment records the miss this guards:
+    # constraints moved 2.12.1 -> 2.13.0, the pre-install line stayed behind,
+    # and the build installed the old wheel and then failed the constrained
+    # resolve. A check that only asks "is there some torch==" is exactly the
+    # check that passed that tree.
     constraints = REPO / "constraints.txt"
     if not constraints.is_file():
         info("E5", "no constraints.txt beside the Dockerfile; torch lock-step not checked")
         return
     pin = re.search(r"(?m)^torch==(\S+)", constraints.read_text(encoding="utf-8"))
     if not pin:
-        fail("E5", "constraints.txt carries no torch== pin to hold the Dockerfile fallback to")
+        fail("E5", "constraints.txt carries no torch== pin to hold the Dockerfile pre-install to")
     elif pin.group(1) != cpu_torch.group(1):
-        fail("E5", f"Dockerfile fallback pre-installs torch=={cpu_torch.group(1)} but constraints.txt "
+        fail("E5", f"Dockerfile pre-installs torch=={cpu_torch.group(1)} but constraints.txt "
                    f"pins torch=={pin.group(1)} -- keep the two in lock-step on every torch bump")
     else:
-        ok("E5", f"Dockerfile fallback torch=={pin.group(1)} matches the constraints.txt pin")
+        ok("E5", f"Dockerfile pre-installed torch=={pin.group(1)} matches the constraints.txt pin")
 
 
 # --- E6: the rest of the Docker surface must agree with the Dockerfile --------

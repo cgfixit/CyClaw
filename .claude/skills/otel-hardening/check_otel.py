@@ -455,14 +455,6 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "negative finding; ONNX sessions it builds are covered by the onnxruntime row",
     },
     {
-        "name": "uv", "category": 5, "controls": {},
-        "url": "https://docs.astral.sh/uv/",
-        "versions": "Docker build stage only (pinned image digest)",
-        "enforcement": "no telemetry/analytics mechanism documented or found; package resolution egress is "
-                       "the install feature itself", "scope": "image build",
-        "reviewed": "2026-08-27", "evidence": "negative finding recorded",
-    },
-    {
         "name": "git", "category": 5, "controls": {},
         "url": "agentic/deepagent_github/repo_workspace.py",
         "versions": "external binary",
@@ -526,7 +518,6 @@ INVENTORY_ALIASES: dict[str, str] = {
     "powershell": "powershell host telemetry",
     "pwsh": "powershell host telemetry",
     "brew": "homebrew analytics",
-    "uv": "uv",
     "git": "git",
     "ollama": "ollama daemon",
     "openssl": "core web/runtime libs",
@@ -555,7 +546,12 @@ INVENTORY_ALIASES: dict[str, str] = {
 
 # External executables/services CyClaw spawns or fronts -- swept by T13 along
 # with the manifests so a NEW launcher/binary needs a classification too.
-KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "uv", "git", "ollama", "openssl")
+# uv was here until 2026-09-11, classified "Docker build stage only". The
+# Dockerfile's uv line could not resolve (see that file's own comment) and was
+# replaced with plain pip, so the repo spawns uv nowhere; a classification for
+# a binary that is no longer invoked is the same stale documentation this
+# checker exists to prevent. Re-add the row if uv ever returns.
+KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl")
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []

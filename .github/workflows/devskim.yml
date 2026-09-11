@@ -68,8 +68,8 @@ jobs:
           # DS137138/DS162092: loopback-only binding/hardcoded-IP findings --
           # CyClaw's threat model is loopback-only by design (docs/THREAT_MODEL.md),
           # so these fire throughout on purpose; each true instance also carries an
-          # inline `# DevSkim: ignore` with a design rationale (see gate.py, harness/
-          # server.py, tests/conftest.py, etc.) -- excluded here to stop the alert
+          # inline `# DevSkim: ignore` with a design rationale (see gate.py,
+          # tests/conftest.py, etc.) -- excluded here to stop the alert
           # noise on every one of those already-justified sites.
           #
           # DS106863 ("Do not use the DES symmetric block cipher") is a BARE,

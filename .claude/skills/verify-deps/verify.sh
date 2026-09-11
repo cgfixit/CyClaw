@@ -112,7 +112,7 @@ echo "env drift mutation (E1 split tool pin): PASS (exit 2)"
 d="$(mktemp -d)"
 printf '# nemoguardrails lives in the guardrails extra, not here\nhttpx==0.28.1\n' > "$d/requirements.txt"
 printf 'pytest==9.1.1\n' > "$d/requirements-test.txt"
-printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nRUN uv pip install --system --no-cache-dir -r requirements.txt -c constraints.txt || ( pip install --no-cache-dir torch==1 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt -c constraints.txt )\n' > "$d/Dockerfile"
+printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nRUN pip install --no-cache-dir torch==1 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt -c constraints.txt\n' > "$d/Dockerfile"
 out="$(python3 "$drift" --repo-root "$d" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ]; then
   echo "env drift mutation (E4 comment is not an install): FAIL — a commented package must not trip E4, got rc=$rc" >&2
@@ -149,9 +149,9 @@ if [ "$rc" -ne 0 ]; then
 fi
 echo "strict environment clean tree: PASS (exit 0)"
 
-# 9. Docker must retain both constrained install paths and CPU-wheel routing.
+# 9. Docker must retain the constrained install path and CPU-wheel routing.
 f="$(mktemp -d)"
-printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nRUN uv pip install --system --no-cache-dir -r requirements.txt -c constraints.txt\n' > "$f/Dockerfile"
+printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nRUN pip install --no-cache-dir -r requirements.txt -c constraints.txt\n' > "$f/Dockerfile"
 out="$(python3 "$drift" --repo-root "$f" 2>&1)"; rc=$?
 rm -rf "$f"
 if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\]"; then
@@ -160,6 +160,78 @@ if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\]"; then
   exit 1
 fi
 echo "environment mutation (E5 Docker contract): PASS (exit 2)"
+
+# 9b. A silently-swallowed or fallback-branched dependency install must FAIL E5.
+# This is the shape that hid the dead uv resolver: the build stayed green while
+# installing a different tree than the reviewed one.
+for bad_run in \
+  'RUN pip install --no-cache-dir torch==1 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt -c constraints.txt 2>/dev/null' \
+  'RUN some-resolver install -r requirements.txt -c constraints.txt || ( pip install --no-cache-dir torch==1 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt -c constraints.txt )'
+do
+  f="$(mktemp -d)"
+  printf 'COPY pyproject.toml constraints.txt requirements.txt ./\n%s\n' "$bad_run" > "$f/Dockerfile"
+  out="$(python3 "$drift" --repo-root "$f" 2>&1)"; rc=$?
+  rm -rf "$f"
+  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\]"; then
+    echo "environment mutation (E5 silent install fallback): FAIL - expected exit 2 + E5 line, got rc=$rc" >&2
+    echo "$out" >&2
+    exit 1
+  fi
+done
+echo "environment mutation (E5 silent install fallback): PASS (exit 2)"
+
+# 9b-real. The same guard, against a copy of the REAL Dockerfile rather than a
+# synthetic one-line fixture. The first draft of this check scanned raw lines,
+# and the real install RUN spans backslash continuations whose FIRST line does
+# not mention requirements.txt -- so it found no install at all and passed
+# vacuously on the very file it was written for. A single-line fixture cannot
+# catch that class; only the real multi-line shape can.
+f="$(mktemp -d)"
+for m in pyproject.toml constraints.txt requirements.txt requirements-test.txt; do
+  cp "$repo_root/$m" "$f/$m"
+done
+sed 's#^    pip install --no-cache-dir -r requirements.txt -c constraints.txt$#    pip install --no-cache-dir -r requirements.txt -c constraints.txt 2>/dev/null#' \
+  "$repo_root/Dockerfile" > "$f/Dockerfile"
+if cmp -s "$repo_root/Dockerfile" "$f/Dockerfile"; then
+  echo "environment mutation (E5 real Dockerfile swallow): FAIL - the mutation did not apply; the install line's shape changed, update this scenario" >&2
+  rm -rf "$f"; exit 1
+fi
+out="$(python3 "$drift" --repo-root "$f" 2>&1)"; rc=$?
+rm -rf "$f"
+if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "discards stderr"; then
+  echo "environment mutation (E5 real Dockerfile swallow): FAIL - expected exit 2 + stderr-discard line, got rc=$rc" >&2
+  echo "$out" >&2
+  exit 1
+fi
+echo "environment mutation (E5 real Dockerfile swallow): PASS (exit 2)"
+
+# 9c. E7 must report a DEAD exemption. _PINNED_NOT_IMPORTED is a suppression
+# list, so a stale entry does not just mislead -- it hides the pin from the one
+# check meant to notice its import disappearing. Four such entries (torch,
+# onnxruntime, starlette, huggingface-hub) shipped with wrong reasons until
+# 2026-09-11. Injected into a COPY of the checker, run against the real tree,
+# so the scenario pins the behavior without a fixture that cannot carry a
+# module-level constant.
+f="$(mktemp -d)"
+python3 - "$drift" "$f/drift.py" <<'PYEOF'
+import pathlib, sys
+src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+text = src.read_text(encoding="utf-8")
+anchor = '_PINNED_NOT_IMPORTED = {\n'
+assert text.count(anchor) == 1, "checker constant not found"
+injected = anchor + '    "starlette": "stale: gate.py imports it directly",\n    "nosuchpkg": "stale: nothing pins this",\n'
+dst.write_text(text.replace(anchor, injected), encoding="utf-8")
+PYEOF
+out="$(python3 "$f/drift.py" --strict --repo-root "$repo_root" 2>&1)"; rc=$?
+rm -rf "$f"
+if [ "$rc" -ne 2 ] \
+   || ! echo "$out" | grep -q "still exempts 'starlette'" \
+   || ! echo "$out" | grep -q "exempts 'nosuchpkg'"; then
+  echo "environment mutation (E7 dead exemption): FAIL - expected exit 2 + both warn lines, got rc=$rc" >&2
+  echo "$out" >&2
+  exit 1
+fi
+echo "environment mutation (E7 dead exemption): PASS (exit 2)"
 
 # --- The Docker surface beyond the Dockerfile (E5 torch lock-step + E6) ------
 # A pin-manifest tree plus the four Docker-surface files, so E5/E6 run against
