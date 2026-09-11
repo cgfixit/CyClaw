@@ -39,6 +39,8 @@ under `CYCLAW_NEMO_RUNTIME=1` (`.github/workflows/nemo-guardrails.yml`).
 
 ## Path × stage × engine (today)
 
+The former harness console rows (`:8790` `/api/chat`, `/api/web`, `/api/agent/run`) left with PR #1367 (2026-09-11); their ToolBroker call sites no longer exist.
+
 | Path | Provider / model | Input | Retrieval | Output | Tool | Failure mode | Actual engine |
 |---|---|---|---|---|---|---|---|
 | `POST /query` high-score | local Qwen via Ollama (`models.local_llm`) | `guardrail_input` → offline `check_input` (injection + soul-mutation) when enabled; pass-through when disabled | untrusted chunks; provenance IDs; **no** NeMo retrieval rail | `guardrail_output` → offline `check_output` (token-overlap grounding vs `answer_sources` **and** `detect_soul_leak`) when enabled | none | disabled = pass-through; live NeMo missing/error = **degrade** (`guardrail_skipped`), offline floor still ran | **Python offline floor** on graph nodes. When enabled+NeMo installed, `GuardrailBroker` runs NVIDIA `check()` around the **existing** `client.generate` (`_generate_or_error`). No 13th node. No `generate_async`. |
@@ -46,9 +48,6 @@ under `CYCLAW_NEMO_RUNTIME=1` (`.github/workflows/nemo-guardrails.yml`).
 | `POST /query` Grok / Claude | allowlisted `api.x.ai` / `api.anthropic.com` after I3 | same `guardrail_input`; plus `pre_action_hook_*` | local context **not** forwarded by default | **no** output grounding rail | none | I3 deny → audit; hook deny → audit | no NeMo |
 | MCP retrieval | embeddings + BM25 | sanitizer only | retrieval-only, `sampling: None` | n/a | n/a | fail closed on sanitizer | no NeMo |
 | `safe_generate` / `guardrail_safety_node` | optional `LLMRails.generate_async` | offline floor then NeMo | context-role `relevant_chunks` | token-overlap after generate | none | degrade on load/provider error | **unused example**. Wiring it into the graph would double-generate. **Do not.** |
-| harness `:8790` `POST /api/chat` | local Ollama | not the graph rails | web results untrusted | n/a | `loop=true` → ToolBroker `harness_loop` (session_id argv digest) | `403 TOOL_DENIED`; inflight released | `utils.tool_broker` name-gate; not NVIDIA ToolRailAction |
-| harness `POST /api/web` | n/a | n/a | n/a | n/a | `web_fetch` / `web_search` after `_require_enabled`, before DNS/GET | `WEB_TOOL_DENIED` | ToolBroker + WebTool host allowlist |
-| harness `POST /api/agent/run` | n/a | n/a | n/a | n/a | `agent_run` with argv `("real-repo-run",)` before `run_agentic_op` | `403 TOOL_DENIED`; shim not spawned | ToolBroker. Confirm/reason still required. |
 | `agentic/executor` | n/a | n/a | n/a | n/a | argv-list inside `production_sandbox()` | **Windows** Job Object (`KILL_ON_JOB_CLOSE`; sockets still work). **Darwin** `sandbox-exec` profile (deny network + off-cwd writes). **Linux** `unshare --net`. Missing binary / EPERM → `HardSandboxUnavailable` (no `ArgvListSandbox` in production). Approve is digest-bound; `prove_disposable_copy` before finalize. | no NeMo |
 
 MCP `tools/call` is **not** wrapped (I6).
@@ -59,7 +58,7 @@ MCP `tools/call` is **not** wrapped (I6).
 |---|---|
 | `guardrails.broker.GuardrailBroker` | NVIDIA `LLMRails.check` around existing generation. Never `generate_async`. Never grants I3. |
 | `utils.tool_broker` | Provider-neutral **name-gate**. Callers pass an allowlist. Empty/unknown deny. Audit: tool name + argv digest, never raw argv/URLs/prompts. |
-| `guardrails.tool_broker` | Re-export of `utils.tool_broker` for guardrails-side tests. Harness must import `utils`. |
+| `guardrails.tool_broker` | Re-export of `utils.tool_broker` for guardrails-side tests. Out-of-band callers must import `utils`. |
 
 `python -m guardrails.call_inventory` fails closed on unregistered
 `ChatOpenAI` / `ChatXAI` / `ChatAnthropic` / `generate_async` call sites.

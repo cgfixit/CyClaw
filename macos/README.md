@@ -127,10 +127,10 @@ Soul routes return `401 bad_credentials` when Keychain,
 reinstall, or a leftover listener that still holds the old key. CyClaw never
 stores the operator key in `localStorage`.
 
-1. Stop stragglers on the configured loopback ports (defaults 8787 / 8790).
+1. Stop stragglers on the configured loopback port (default 8787).
    `uninstall-cyclaw.sh` does this best-effort before teardown. After a
-   rotate, `setup-cyclaw-keys.sh --restart-servers` frees the same ports
-   without starting the servers and without a process-name sweep.
+   rotate, `setup-cyclaw-keys.sh --restart-servers` frees the same port
+   without starting the server and without a process-name sweep.
 2. Open a **new** terminal tab so the `# >>> cyclaw keys >>>` rc block
    re-sources `~/.CyClaw/.env`. Confirm the file is mode 600
    (`stat -f %Lp ~/.CyClaw/.env` on macOS) and that

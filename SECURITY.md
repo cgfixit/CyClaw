@@ -88,7 +88,7 @@ or launcher lands unclassified:
    (first-party httpx clients performing intentional remote API operations;
    there is no installed vendor SDK and therefore no SDK telemetry key to
    set), rclone/Dropbox corpus sync, operator-configured SQL endpoints, the
-   harness's allowlist-only `/web`, and the one-time embedding-model
+   and the one-time embedding-model
    bootstrap fetch (`HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` stay conditional
    on the model being cached). Never mislabeled as telemetry, never blocked
    by the kill maps.

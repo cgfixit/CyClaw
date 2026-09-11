@@ -165,7 +165,7 @@ an unauthorized change.*
       |---|---|---|
       | CLI | `real-repo-run-decide --push --publish` | `--decision approve`, `--reason`, `--confirm-publish` |
       | CLI | `real-repo-run-publish` | run must be `approved` AND `pushed`, `--reason`, `--confirm` |
-      | HTTP | `POST /api/agent/runs/{id}/publish` | same run-state gates, plus `CYCLAW_API_KEY` + `Origin`/`Sec-Fetch-Site` |
+      | ~~HTTP~~ | ~~`POST /api/agent/runs/{id}/publish`~~ | **Removed 2026-09-11 (PR #1367)** with the Python coding-harness console; `POST /ops/agentic` does not accept `real-repo-run*`, so no HTTP route reaches `execute_write` today |
 
       **A GitHub mutation is therefore network-triggerable once the flag is
       flipped** — by an authenticated, same-origin caller on loopback, against
@@ -267,6 +267,10 @@ an unauthorized change.*
       code can push a `claude/*` branch and open a draft PR against the
       configured repo, as the authenticated `gh` identity. It cannot push to
       `main`, cannot force-push, and cannot delete anything.
+
+      **Amended 2026-09-11 (PR #1367):** the HTTP trigger below is gone with the
+      console; the surface is a terminal again. The 2026-07-31 text is kept as
+      the dated record.
 
       **Amended 2026-07-31 alongside item A:** the trigger surface is now wider
       than "a terminal." An authenticated same-origin request to

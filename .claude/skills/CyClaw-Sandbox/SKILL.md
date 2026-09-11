@@ -436,13 +436,6 @@ for the six canonical ones plus supporting guards this table extends).
   `run_full_verification.py` and `verify.sh` auto-detect which one is
   live and report it -- still state the tier honestly in your own sign-off
   rather than assuming Tier 2 realism from a Tier 0/1 run.
-- **The agent-run routes are auth-gate-only in this skill, on purpose.**
-  Only `/api/agent/checks` is ever actually invoked; `run`, `decision`,
-  `push`, `publish`, and `discard` are only probed for a 401 on a bad key,
-  because a real call clones a repo, calls a model, can block ~900s, and
-  the last three reach a git write. A green audit does not mean the agent
-  loop itself was verified end to end -- that is `agentic/real_repo_loop.py`
-  territory, out of scope here.
 - **`run_full_verification.py` writes into whatever `CYCLAW_REPO` points
   at** from Phase 3 onward (mock corpus, BM25 index, two JSON report
   files). Point it at a scratch clone, not a working tree, unless those

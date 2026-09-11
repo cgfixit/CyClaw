@@ -168,11 +168,9 @@ expire it.
 ### Runtime behaviour that looks like a bug
 
 
-- **Open thread on that PR.** Codex's fourth P2 on #1247 (a non-numeric port
-  in either base URL makes `parsed.port` raise `ValueError` outside the
-  guarded block, so `/api/agent/run` 500s instead of taking the cautious
-  `None` path) was **not resolved before merge** and is still open as of
-  2026-09-06. Fix it if you are in that file; do not report it as new.
+- **Codex's fourth P2 on #1247** (a non-numeric port in a harness base URL
+  made `parsed.port` raise outside the guarded block) is moot since PR #1367
+  removed `harness/server.py`; do not report it as new.
 - **`/health` `degraded`, `TELEMETRY KILL` on stdout, `503 INDEX_NOT_FOUND`,
   `needs_confirm: true` on `/query`** are all normal states, not errors
   (CLAUDE.md §4 "Environment & install" and `.claude/commands/run.md`).

@@ -133,8 +133,8 @@ a separate dual-run observation issue.
 
 ### Phase 0 — Daemonize local stack
 
-- launchd/systemd user units: Ollama/LM Studio + cyclaw gate :8787
-  (+ harness :8790 if used). Windows: see `windows/` service scripts.
+- launchd/systemd user units: Ollama/LM Studio + cyclaw gate :8787.
+  Windows: see `windows/` service scripts.
 - Health checks; crash restart; log rotation. No new authority.
 
 ### Phase 1 — Channels check-in only
