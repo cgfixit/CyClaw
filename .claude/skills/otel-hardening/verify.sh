@@ -257,11 +257,20 @@ _expect "T14 dropped-seam mutation" 2 "FAIL  \[T14\]"
 # 22. T13: the ONNX floor pin is lowered below the release where
 #     ORT_DISABLE_TELEMETRY starts governing the non-Windows 1DS path. Both
 #     required surfaces must go red, not just report an info line.
+#     The mutation rewrites WHATEVER version is pinned rather than a literal
+#     current one: hardcoding "1.29.0" here made this scenario silently no-op
+#     the moment the pin moved off the floor (caught on the 1.29.0 -> 1.30.0
+#     bump, 2026-09-11 -- the sed matched nothing, so nothing was mutated and
+#     the clean tree's exit 0 read as a pass). The floor in the EXPECTED
+#     message stays literal: that number is the ORT release the control landed
+#     in, not a pin, and it does not move.
 a="$(_mktree)"
 _mutate "$a/constraints.txt" '
-text = text.replace("onnxruntime==1.29.0", "onnxruntime==1.28.0")'
+import re
+text = re.sub(r"(?m)^onnxruntime==[^\n]*$", "onnxruntime==1.28.0", text)'
 _mutate "$a/pyproject.toml" '
-text = text.replace("onnxruntime==1.29.0", "onnxruntime==1.28.0")'
+import re
+text = re.sub(r"\"onnxruntime==[^\"]*\"", "\"onnxruntime==1.28.0\"", text)'
 _expect "T13 ONNX floor lowered mutation" 2 "FAIL  \[T13\].*below the 1.29.0 floor"
 
 # 23. T13: the pins are deleted outright, as a future dependency edit might do.

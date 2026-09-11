@@ -241,8 +241,8 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "controls": {"ORT_DISABLE_TELEMETRY": "1"},
         "url": "https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md",
         "versions": "transitive (chromadb, which asks only for >=1.14.1; fastembed under the "
-                    "guardrails extra) -- bounded at ==1.29.0 in constraints.txt so the env "
-                    "control cannot be resolved below the release that introduced it",
+                    "guardrails extra) -- bounded at ==1.30.0 in constraints.txt, at or above "
+                    "the v1.29.0 release that introduced the env control, so it cannot resolve below it",
         "enforcement": "env before import (process-lifetime control for the non-Windows 1DS path added in "
                        "v1.29.0, PRs #27379/#29872) + onnxruntime.disable_telemetry_events() at the load "
                        "seams (utils/onnx_telemetry.py) before session construction. Windows is "
@@ -250,8 +250,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
                        "an init-time event, and absolute suppression needs a --no_telemetry private build. "
                        "ORT_TELEMETRY_OPT_OUT is an inert legacy marker, not protection.",
         "scope": "chromadb default-EF path (never invoked -- precomputed vectors) + fastembed under live NeMo",
-        "reviewed": "2026-08-27",
-        "evidence": "disable_telemetry_events present in installed 1.29.0; v1.29.0 release notes + Privacy.md",
+        "reviewed": "2026-09-11",
+        "evidence": "disable_telemetry_events verified callable in installed 1.30.0 (2026-09-11, on the pin bump "
+                    "from 1.29.0); v1.29.0 release notes + Privacy.md. Re-verify on every onnxruntime bump -- the "
+                    "API half of this control is only a getattr away from silently disappearing.",
     },
     {
         "name": "opentelemetry sdk", "category": 1,

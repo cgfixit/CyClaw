@@ -15,13 +15,16 @@
 # result. Current state: direct pins aligned with v1.9.0.
 
 # CRITICAL: pydantic family must stay synchronized or pip resolver explodes
-# pydantic 2.13.4 hard-pins pydantic-core==2.46.4 (exact ==, not a range), and
-# 2.13.4 is the latest pydantic on PyPI — no release pairs with pydantic-core
-# 2.47.0 yet. Bumping pydantic-core alone makes `pip install -c constraints.txt`
+# pydantic 2.13.5 hard-pins pydantic-core==2.46.5 (exact ==, not a range), and
+# 2.13.5 is the latest pydantic on PyPI. pydantic-core publishes AHEAD of its
+# parent -- 2.49.0 is its latest as of 2026-09-11 -- and no pydantic release
+# pairs with it yet, so PyPI's "newer pydantic-core" is never a bump candidate
+# on its own: bumping pydantic-core alone makes `pip install -c constraints.txt`
 # unresolvable. Keep these two in lock-step; only bump pydantic-core together
-# with a compatible pydantic bump.
-pydantic==2.13.4
-pydantic-core==2.46.4
+# with a compatible pydantic bump, and move dep-guard's _PYDANTIC_LOCKSTEP in
+# the same commit.
+pydantic==2.13.5
+pydantic-core==2.46.5
 # Not imported directly anywhere in CyClaw's own source and not in pyproject.toml's
 # [project.dependencies] -- but it IS a real, unconditional (non-extra) transitive
 # of chromadb==1.5.9 (`pydantic-settings>=2.0` in chromadb's own requires_dist), so
@@ -29,7 +32,7 @@ pydantic-core==2.46.4
 # removing it lets the resolver pick any pydantic-settings satisfying chromadb's
 # loose >=2.0 floor, which is exactly the reproducibility gap constraints.txt exists
 # to close. Kept lock-step-compatible with the pydantic pair above (requires
-# pydantic>=2.7.0; pinned pydantic==2.13.4 satisfies that).
+# pydantic>=2.7.0; pinned pydantic==2.13.5 satisfies that).
 pydantic-settings==2.14.2
 
 # Direct dependencies from pyproject.toml [project.dependencies] -- versions MUST match exactly
@@ -67,7 +70,12 @@ sentence-transformers==5.6.0
 # apply a constraints file; a constraints-only bound left those surfaces free
 # to resolve below the floor. Keep the two in step -- dep-guard D6 cross-checks
 # them, and otel-hardening T13 now validates each install surface separately.
-onnxruntime==1.29.0
+#
+# The pin sits ABOVE the floor, not on it: v1.29.0 is the release that
+# introduced the control, and the pin is free to move forward from there.
+# Do not "correct" it back down to 1.29.0 on the assumption that the pin and
+# the floor must be the same number -- only resolves BELOW 1.29.0 are unsafe.
+onnxruntime==1.30.0
 # Direct imports (retrieval/embeddings.py; gate.py), promoted
 # from implicit sentence-transformers/fastapi transitives to explicit pins --
 # see pyproject.toml [project.dependencies] for why.

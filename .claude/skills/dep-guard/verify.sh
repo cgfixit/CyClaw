@@ -58,8 +58,13 @@ fi
 echo "mutation B (D4 uvicorn extra): PASS (exit 2, D4 reported)"
 
 # 2c. D1 WARN: drift pydantic-core out of the documented lock-step.
+# Rewrites WHATEVER pydantic-core version is pinned, not a literal current one:
+# a hardcoded 's/pydantic-core==2.46.4/.../' matched nothing the moment the pair
+# moved (caught on the 2.46.4 -> 2.46.5 bump, 2026-09-11), so no drift was
+# introduced and the missing WARN read as a checker regression instead of a
+# stale fixture. The replacement just has to differ from the real pin.
 c="$(_mktree)"
-sed -i.bak 's/pydantic-core==2.46.4/pydantic-core==2.47.0/' "$c/constraints.txt"
+sed -i.bak -E 's/^pydantic-core==.*/pydantic-core==99.99.99/' "$c/constraints.txt"
 if ! python3 "$checker" --repo-root "$c" >/tmp/depguard_warn.txt 2>&1; then
   echo "mutation C (D1): FAIL — a WARN alone must not fail (expected exit 0)" >&2
   cat /tmp/depguard_warn.txt >&2; rm -rf "$c"; exit 1
