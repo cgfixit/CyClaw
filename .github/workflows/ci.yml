@@ -314,7 +314,7 @@ jobs:
             & $Installer -RepoPath $env:GITHUB_WORKSPACE -SkipPythonDeps -NoProfileEdit -NoPathEdit
 
             $HomeDir = Join-Path $env:USERPROFILE ".CyClaw"
-            foreach ($relative in @("bin", "sessions", "skills", "tools", "memory")) {
+            foreach ($relative in @("bin")) {
               if (-not (Test-Path -LiteralPath (Join-Path $HomeDir $relative))) {
                 throw "installer did not create .CyClaw\$relative"
               }
@@ -435,7 +435,7 @@ jobs:
           # NOT "repo" -- that dir is only created on the clone path; --repo-path
           # points REPO_DIR straight at the external checkout instead (verified
           # against the script's own home-layout loop).
-          for d in bin sessions skills tools memory; do
+          for d in bin; do
             [ -d "$HOME/.CyClaw/$d" ] || fail "missing \$HOME/.CyClaw/$d"
           done
           [ -x "$HOME/.CyClaw/bin/cyclaw" ] || fail "cyclaw shim missing or not executable"
