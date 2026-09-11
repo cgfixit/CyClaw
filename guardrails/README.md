@@ -63,7 +63,7 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 | Output grounding (`local_llm` only) | Shipped |
 | Soul-leak output rail | **Shipped** — `detect_soul_leak` on `check_output` (#1155). Not `scan_injection`. Graph still skips non-`local_llm`. |
 | `check()` wrap around existing generate | **Shipped** when enabled+NeMo installed (`GuardrailBroker`). Disabled path stays pass-through. |
-| ToolBroker name-gate | **Shipped** in `utils.tool_broker` — WebTool, `harness_loop`, `agent_run`. |
+| ToolBroker name-gate | **Shipped** in `utils.tool_broker` — `web_fetch`/`web_search`, `harness_loop`, `agent_run`. |
 | Generate-call inventory | **Shipped** — fail-closed AST (`python -m guardrails.call_inventory`). |
 | `check_jailbreak` input rail | **Not enforced offline** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. |
 | Topical rails (`stay_in_local_knowledge`, `no_unauthed_external_advice`) | **Not enforced offline** — configured but not referenced in `integration.py`. |
