@@ -2,7 +2,7 @@
 
 **v1.9.0 | Offline-First | Ollama | ~15 min**
 Install execution verified 2026-07-29 against `main` (macOS path 2026-08-02);
-documentation reconciled with code 2026-09-11.
+documentation reconciled with code 2026-09-12.
 
 This is the canonical setup guide (`docs/work/SETUP.md` and `docs/! How-To-Guides/setup-guide.md` redirect here). For the
 full architecture tour — agentic layer, filesystem/SQL connectors, NeMo
@@ -76,6 +76,25 @@ only `fsconnect` is exercised. For a single quick manual check instead,
 `tests\apipsTest.ps1` fires one `POST /query` and prints the raw response —
 useful for eyeballing a response shape, not a pass/fail test.
 
+### Windows installer (optional)
+
+`powershell/Install-CyClaw.ps1` is the Windows twin of
+[`macos/install-cyclaw.sh`](#option-a--the-installer-script-handles-the-torch-difference-for-you):
+home layout under `%USERPROFILE%\.CyClaw`, venv, and a `cyclaw` shim. It does
+**not** install Ollama, build the retrieval index, or write `CYCLAW_API_KEY` —
+those stay the by-hand steps above. Flags (`-RepoPath`, `-ReplaceRepo`,
+`-SkipPythonDeps`, `-NoProfileEdit`, `-NoPathEdit`) and Credential Manager
+notes: [`powershell/README.md`](powershell/README.md).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\powershell\Install-CyClaw.ps1
+# or, from an existing clone:
+.\powershell\Install-CyClaw.ps1 -RepoPath (Get-Location)
+```
+
+`-ReplaceRepo` deletes only an unusable directory at the default
+`%USERPROFILE%\.CyClaw\repo` clone target; it does not apply with `-RepoPath`.
+
 ---
 
 ## Linux (Bash)
@@ -134,7 +153,9 @@ that `+cpu` pin.
 Three ways to do this. **Option C** is the recommended one-shot after
 `git clone` (install + keys + Ollama + index + a running server). **Option A**
 is the installer only if you already have keys/Ollama handled. **Option B**
-is the by-hand core-RAG install.
+is the by-hand core-RAG install. Before a clone exists,
+`macos/setup-cyclaw.sh` is the one-command wrapper: it offers to clone, then
+runs Option C (`macos/README.md` is the flag list).
 
 ### Option C — one-shot after clone (recommended)
 
@@ -510,6 +531,9 @@ nothing is ever printed, logged, or stored in plaintext. Set the first real
 password on the server machine itself (prompts via `getpass`, no echo):
 
 ```bash
+# Short name needs `pip install -e . -c constraints.txt` first (see
+# "The cyclaw-* short names need a self-install" above). Without it:
+#   python -m utils.authn_cli passwd admin
 cyclaw-user passwd admin
 ```
 
@@ -665,7 +689,8 @@ suffix exists on Linux and Windows specifically to avoid pip resolving the
 default CUDA-bundled wheel. **Apple Silicon has no CUDA build to disambiguate
 from, so no `+cpu`-suffixed macOS wheel is published at all** — that index
 404s for macOS, confirmed on this repo's first `macos-latest` CI run
-(`.github/workflows/ci.yml:641-655`).
+(`.github/workflows/ci.yml` step
+`Install deps (macOS -- plain torch, no +cpu suffix)`).
 
 Verified against PyPI, 2026-08-02: `torch==2.13.0` publishes exactly six macOS
 wheels, and every one of them is `macosx_14_0_arm64`
@@ -812,12 +837,15 @@ sensitive *local* log, not telemetry (file sink only, no HTTP anywhere).
 Disable it with `numbat.enabled: false` in `config.yaml`; it never belongs in
 the env kill map.
 
-**Homebrew (macOS) is not covered by any of the above, and is on by default.**
-Homebrew reports its own install and usage counts, independently of CyClaw —
-CyClaw cannot disable it, because CyClaw never launches `brew` (the installer
-declares no Homebrew dependency at all) and the kill block only reaches
-programs CyClaw itself spawns. If you installed Python or anything else with
-Homebrew, opt out once, per machine:
+**Homebrew (macOS) is not covered by the telemetry-kill block, and is on by default.**
+Homebrew reports its own install and usage counts, independently of CyClaw.
+`macos/install-cyclaw.sh` (Option A) never launches `brew` and declares no
+Homebrew dependency. `macos/setup-from-clone.sh` (Option C) will run
+`brew analytics off` when `brew` is already on PATH, and may run
+`brew install python@3.12` if you confirm that prompt. The Python kill block
+only reaches programs the gateway itself spawns, so a machine-wide Homebrew
+opt-out is still the operator's job if you installed Python (or anything else)
+with Homebrew:
 
 ```bash
 brew analytics off      # persistent; writes a config file, survives new shells
@@ -976,5 +1004,5 @@ results are hints, not a complete or live reachability map.
 
 *Built by [Chris Grady](https://cgfixit.com) · Repo: [github.com/CGFixIT/CyClaw](https://github.com/CGFixIT/CyClaw)*
 *v1.9.0 package train, Python 3.12 — documentation reconciled with code,
-config, manifests, and workflows on 2026-09-11; install execution last verified
+config, manifests, and workflows on 2026-09-12; install execution last verified
 2026-07-29 / macOS 2026-08-02.*

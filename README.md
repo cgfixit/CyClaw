@@ -297,7 +297,7 @@ CyClaw's soul mutation endpoints (`/soul/propose`, `/soul/apply`, `/soul/reload`
 
 > **All `/soul/*` endpoints — including `GET /soul` — require a valid `Authorization: Bearer <key>` token.** Only `/health`, `/query`, `GET /index/status`, `GET /auth/setup-status`, `POST /auth/login` (issues the session itself; 503 when `auth.enabled` is false), and the console pages (`GET /`, `/static/*`) are unauthenticated. `POST /index/build` and `POST /auth/bootstrap-password` carry no credential either, but neither is open: each is gated on a loopback socket peer plus a same-origin check and returns 403 off-box — `/index/build` 409 while a build is already running, `/auth/bootstrap-password` 409 once the first admin password is set. `POST /query`, though credential-free by default, additionally carries an **unconditional same-origin check** — a cross-site browser request is rejected 403 `CROSS_SITE_BLOCKED` regardless of `auth.enabled`; requests carrying neither `Origin` nor `Sec-Fetch-Site` (curl, PowerShell, schedulers) are unaffected.
 
-> **Opting out entirely:** `config.yaml`'s `security.api_key_optional` (default `false`) removes the `CYCLAW_API_KEY` requirement from every route above, for both apps at once — but **only for requests arriving from this machine**. The bypass is granted on the socket peer, so a remote caller still needs the real key no matter how the process was launched. Entries in `security.allowed_hosts` do not change that: that list filters request `Host` headers and opens no listening socket. What *would* matter is the bind itself — `gate.py` refuses to start with a non-loopback `api.host` while the flag is `true`, and `config-guard`'s C13 warns on that pair. Note it also does nothing under Docker: NAT rewrites the source address, so the container sees the bridge gateway rather than loopback and the routes stay key-gated (set `CYCLAW_API_KEY` in the container instead).
+> **Opting out entirely:** `config.yaml`'s `security.api_key_optional` (default `false`) removes the `CYCLAW_API_KEY` requirement from every route above — but **only for requests arriving from this machine**. The bypass is granted on the socket peer, so a remote caller still needs the real key no matter how the process was launched. Entries in `security.allowed_hosts` do not change that: that list filters request `Host` headers and opens no listening socket. What *would* matter is the bind itself — `gate.py` refuses to start with a non-loopback `api.host` while the flag is `true`, and `config-guard`'s C13 warns on that pair. Note it also does nothing under Docker: NAT rewrites the source address, so the container sees the bridge gateway rather than loopback and the routes stay key-gated (set `CYCLAW_API_KEY` in the container instead).
 
 ### macOS / Linux — zsh or bash
 
@@ -603,6 +603,10 @@ pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 ```
 
+The Windows twin of `macos/install-cyclaw.sh` is
+`powershell/Install-CyClaw.ps1` (home layout, venv, `cyclaw` shim). Flags and
+Credential Manager notes: [`powershell/README.md`](powershell/README.md).
+
 ### Every optional feature in one environment (any platform)
 
 For a from-scratch dev box or a full manual smoke test — Postgres/pgvector, NeMo
@@ -627,8 +631,8 @@ generic default, but that's a recovery path, not the normal first-run state.
 
 ### Run
 
-CyClaw ships **two** independent local web apps. Neither starts the other; run
-whichever you need, or both in separate terminal tabs.
+CyClaw is **one** local web app: the RAG gateway, which serves the browser
+console at `/` and the whole REST API from the same process and port.
 
 ```bash
 # The RAG gateway — serves static/terminal.html at / plus the whole REST API

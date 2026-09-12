@@ -95,7 +95,7 @@ ollama run qwen3.8:27b-mlx "Say hello"
 
 > **Note:** Model tags are case-sensitive in Ollama. Use the exact lowercase tag `ollama list` prints (e.g. `qwen3.8:27b-mlx`), not a display name like `Qwen3.8-27B-Instruct`.
 >
-> **Changing model = changing `config.yaml`.** `models.local_llm.model` AND `guardrails.model` must both match the tag you pulled — `config-guard`'s C11 check fails the build if they drift apart. Smaller model? Everything still works. Larger? Re-check `num_ctx` below.
+> **Changing model = changing `config.yaml`.** `models.local_llm.model` AND `guardrails.model` must both match the tag you pulled — `config-guard`'s C11 check **warns** if they drift (it only fails under `--strict`). Smaller model? Everything still works. Larger? Re-check `num_ctx` below.
 
 ---
 
@@ -113,8 +113,8 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # Install the pinned PyTorch CPU wheel first (Windows/Linux)
 pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
-# Install all other dependencies
-pip install -r requirements.txt -c constraints.txt
+# Install all other dependencies (PyYAML flag matches the canonical guide)
+pip install -r requirements.txt -c constraints.txt --ignore-installed PyYAML
 ```
 
 Do not download NLTK `punkt` data. CyClaw deliberately uses
@@ -146,7 +146,7 @@ models:
     max_tokens: 4096
 ```
 
-**If you pulled a different model in Step 2,** update **both** `models.local_llm.model` and `guardrails.model` to match it exactly (e.g. `mistral:7b`, `llama3.1:8b`) — `config-guard`'s C11 check fails the build if the two drift apart.
+**If you pulled a different model in Step 2,** update **both** `models.local_llm.model` and `guardrails.model` to match it exactly (e.g. `mistral:7b`, `llama3.1:8b`) — `config-guard`'s C11 check **warns** if the two drift (fails only under `--strict`).
 
 ---
 
@@ -204,7 +204,7 @@ ollama pull mistral:7b
 # Edit config.yaml -> BOTH keys must match the tag you pulled:
 #   models.local_llm.model: "mistral:7b"
 #   guardrails.model:       "mistral:7b"
-# (config-guard's C11 check fails the build if they disagree)
+# (config-guard's C11 check warns if they disagree; --strict makes it fail)
 
 # Restart CyClaw (no need to reindex — the index is model-independent;
 # it is built from the embedding model, not the chat model)
