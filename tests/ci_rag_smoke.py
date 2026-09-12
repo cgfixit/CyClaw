@@ -127,10 +127,15 @@ def groundedness_retrieval_metrics(retriever: HybridRetriever) -> tuple[int, flo
 def _run_groundedness_retrieval_gate() -> int:
     print("\n=== Groundedness retrieval metrics (isolated fixture index, no LLM) ===")
     scored_expected = sum(1 for case in judge_eval.load_cases() if case.expected_source_ids)
-    with tempfile.TemporaryDirectory(prefix="cyclaw-groundedness-retr-") as tmp:
+    # ignore_cleanup_errors: Windows Chroma keeps data_level0.bin mapped after
+    # search; rmtree then raises WinError 32. Metrics are already computed.
+    with tempfile.TemporaryDirectory(
+        prefix="cyclaw-groundedness-retr-", ignore_cleanup_errors=True
+    ) as tmp:
         config_path, _, _ = judge_eval.build_eval_index(Path(tmp))
         retriever = HybridRetriever(str(config_path))
         n_scored, hit, recall, mrr = groundedness_retrieval_metrics(retriever)
+        del retriever
     print(f"  scored_cases: {n_scored} (expected {scored_expected})")
     print(f"  hit@{K}:      {hit:.4f}  (floor {MIN_HIT_AT_K})")
     print(f"  recall@{K}:   {recall:.4f}  (floor {MIN_RECALL_AT_K})")

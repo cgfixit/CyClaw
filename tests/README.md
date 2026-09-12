@@ -1,6 +1,6 @@
 # `tests/` — the CyClaw test suite
 
-Pytest suite for this directory (207 `test_*.py` files, auto-collected
+Pytest suite for this directory (208 `test_*.py` files, auto-collected
 via `testpaths = ["tests"]` in `pyproject.toml`). Test trees outside `tests/` —
 notably `tools/lora_finetune/tests/`, whose CI is `.github/workflows/lora-finetune.yml` —
 are NOT collected by `pytest tests/`; see `CLAUDE.md` §8. Everything external is mocked
@@ -57,7 +57,7 @@ test files are auto-discovered and need neither.
 | `judge_eval.py` | Default-off 24-case groundedness evaluator. Builds an isolated real Chroma/BM25 index from tracked synthetic fixtures and sends public-safe evaluation data to Claude only after both live gates pass. |
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
-| `nemo_runtime/` | NeMo-guardrails runtime tests plus their own harness (`network_jail.py`, `mock_openai.py`); its two `test_*.py` files are part of the 207. |
+| `nemo_runtime/` | NeMo-guardrails runtime tests plus their own harness (`network_jail.py`, `mock_openai.py`); its two `test_*.py` files are part of the 208. |
 | `executor_sandbox_double.py`, `spend_live_probe.py` | Helper doubles/probes, not `test_*`-named, so not collected. |
 
 ## Conventions that bite
