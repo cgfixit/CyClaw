@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 
@@ -435,3 +436,58 @@ def test_artifact_lock_refuses_live_owner(tmp_path: Path) -> None:
 
     with pytest.raises(AgenticError, match="another harness-optimizer accept"):
         _acquire_artifact_lock(lock)
+
+
+def test_artifact_lock_serializes_stale_reclaim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two reclaimers must not rmtree a winner's freshly acquired lock."""
+    lock = tmp_path / "artifact.lock.d"
+    lock.mkdir()
+    token = {"pid": 999999, "started_at": time.time() - 9999}
+    lock.joinpath("owner.json").write_text(json.dumps(token), encoding="utf-8")
+    old = time.time() - (_LOCK_STALE_SEC + 60)
+    os.utime(lock, (old, old))
+    real_rmtree = shutil.rmtree
+    second_attempted = False
+
+    def _interleaved_rmtree(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal second_attempted
+        second_attempted = True
+        with pytest.raises(AgenticError, match="another harness-optimizer accept"):
+            _acquire_artifact_lock(lock)
+        assert lock.exists(), "a competing reclaimer must not delete this lock"
+        real_rmtree(path)
+
+    monkeypatch.setattr("agentic.harness_optimizer.patching.shutil.rmtree", _interleaved_rmtree)
+    _acquire_artifact_lock(lock)
+
+    assert second_attempted is True
+    assert _is_lock_owner(lock) is True
+    assert not lock.with_name(lock.name + ".reclaim.d").exists()
+    _release_artifact_lock(lock)
+
+
+def test_artifact_lock_reclaim_guard_mkdir_oserror_is_agentic_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Permission/ENOSPC on the reclaim-guard mkdir must be AgenticError,
+    not a raw OSError and not the 'another accept is in progress' lie.
+    """
+    lock = tmp_path / "artifact.lock.d"
+    lock.mkdir()
+    token = {"pid": 999999, "started_at": time.time() - 9999}
+    lock.joinpath("owner.json").write_text(json.dumps(token), encoding="utf-8")
+    old = time.time() - (_LOCK_STALE_SEC + 60)
+    os.utime(lock, (old, old))
+
+    real_mkdir = Path.mkdir
+
+    def _mkdir(self: Path, *args: object, **kwargs: object) -> None:
+        if str(self).endswith(".reclaim.d"):
+            raise PermissionError("denied")
+        real_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", _mkdir)
+    with pytest.raises(AgenticError, match="reclaim guard") as excinfo:
+        _acquire_artifact_lock(lock)
+    assert excinfo.value.code == "AGENTIC_ERROR"
+    assert not lock.with_name(lock.name + ".reclaim.d").exists()
