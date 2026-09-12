@@ -28,25 +28,16 @@ call to a paid provider as an exception you approve per question.
 
 - [API Key Setup (Soul Mutations)](#api-key-setup-soul-mutations)
 - [Per-User Authentication](#per-user-authentication)
-- [Docker / GHCR](docs/DOCKER.md)
 - [Full Setup Guide](setup-guide.md)
 - [Dropbox Corpus Sync](#dropbox-corpus-sync)
-- [macOS launchd & Keychain](#macos-launchd--keychain)
-- [Local Model Fine-Tuning](#local-model-fine-tuning)
 
 **Optional layers** (all six ship disabled; enable one by editing `config.yaml`)
 
-- [Agentic Layer](#agentic-layer)
 - [Filesystem, SQL & Passive Network Connectors](#filesystem-sql--passive-network-connectors)
 - [NeMo Guardrails](#nemo-guardrails)
 - [Agentic Coding Loop (GitHub)](#agentic-coding-loop-github)
 - [Telegram Channel](#telegram-channel)
 - [OpenTweet Channel](#opentweet-channel)
-
-**Beyond this file**
-
-- [Remaining Work](docs/plans/remaining_work.md)
-- [Archive & Roadmap](docs/ARCHIVE_AND_ROADMAP.md)
 
 ---
 
