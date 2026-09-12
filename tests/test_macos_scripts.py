@@ -54,6 +54,29 @@ def test_invoke_cyclaw_home_dir_matches_install_cyclaw() -> None:
     assert invoke_match.group(1) == install_match.group(1)
 
 
+def test_invoke_cyclaw_disables_uvicorn_proxy_headers() -> None:
+    """The Darwin launcher stays on uvicorn so --gate-port still works, but it
+    must pass --no-proxy-headers like gate._serve / the Dockerfile CMD.
+
+    uvicorn's default trusts X-Forwarded-For on loopback and would otherwise
+    let any local process mint a fresh 60/min rate-limit bucket per spoofed IP.
+    """
+    text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
+    spawn = [
+        line
+        for line in text.splitlines()
+        if "uvicorn gate:app" in line and not line.lstrip().startswith("#")
+    ]
+    assert spawn, "invoke-cyclaw.sh no longer spawns uvicorn gate:app"
+    assert all("--no-proxy-headers" in line for line in spawn), (
+        "macOS launcher must pass --no-proxy-headers so X-Forwarded-For cannot "
+        "rewrite the rate-limit client"
+    )
+    assert all("--port" in line for line in spawn), (
+        "--gate-port / CYCLAW_GATE_PORT must still reach uvicorn --port"
+    )
+
+
 def test_invoke_cyclaw_probes_gateway_startup_and_watches_its_pid() -> None:
     """The gateway gets a startup-death probe, and the script must not block
     forever on a wait if the process dies later."""

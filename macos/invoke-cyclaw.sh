@@ -182,8 +182,12 @@ else
 fi
 
 # --- start RAG gateway (serves terminal.html) ---
+# Stay on uvicorn so --gate-port / CYCLAW_GATE_PORT still bind. --no-proxy-headers
+# matches gate._serve and the Dockerfile CMD: uvicorn defaults proxy_headers=True
+# with forwarded_allow_ips 127.0.0.1, so a loopback peer could mint a fresh
+# 60/min rate-limit bucket by varying X-Forwarded-For.
 if "$VENV_PY" -c "import uvicorn" 2>/dev/null; then
-  "$VENV_PY" -m uvicorn gate:app --host 127.0.0.1 --port "$GATE_PORT" --log-level warning &
+  "$VENV_PY" -m uvicorn gate:app --host 127.0.0.1 --port "$GATE_PORT" --log-level warning --no-proxy-headers &
 else
   echo "[cyclaw] error: uvicorn not available in $VENV_PY. Install deps first." >&2
   exit 1
