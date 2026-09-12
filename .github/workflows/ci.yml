@@ -727,8 +727,9 @@ jobs:
       - name: RAG Query Smoke (ChromaDB + BM25 + RRF)
         shell: bash
         run: |
-          # Validates full retrieval path against committed corpus.
-          # Fails CI if min_score gate or hybrid fusion broken.
+          # Validates full retrieval path against committed corpus, then
+          # hit@5/Recall@5/MRR on tests/fixtures/groundedness (no LLM).
+          # Fails CI if min_score gate, hybrid fusion, or those floors break.
           # (Unit tests + coverage run in the next step.)
           python -m tests.ci_rag_smoke
 
