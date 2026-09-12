@@ -45,7 +45,7 @@ in the same change.
 | `verify-dep` | Reconcile dependency/install profiles, Docker, platform installers, and supply-chain checks. |
 | `cyclaw-run-cyclaw` | Prepare, index, start, and verify the local RAG gateway. |
 | `cyclaw-sandbox-test` | Fresh-main sandbox and mocked API/terminal smoke coverage. |
-| `Cyclaw-Sandbox` (`$cyclaw-sandbox`, explicit-only) | Full baseline or exact-PR-head sandbox: REST, terminal, audit, installers, platforms, CI, and browser evidence. |
+| `Cyclaw-Sandbox` (`$cyclaw-sandbox`, explicit-only) | Full baseline or exact-PR-head sandbox: RAG/gateway/terminal, optional CLIs, audit, installers, platforms, CI and browser evidence. |
 | `cyclaw-command-status` | Read-only environment and readiness status. |
 | `cyclaw-command-run` | Focused endpoint and local-runtime smoke checks. |
 | `cyclaw-command-audit` | Privacy-safe audit-log analysis. |
@@ -82,7 +82,10 @@ invocation policy when updating metadata.
 
 Use the canonical `.claude/skills/doc-sync/` checker. The Codex Python/shell
 entry points are wrappers, not separate parser implementations. Historical
-sandbox reports and `NEW_SKILL.md` describe prior runs only. Validate actual
+sandbox reports describe prior runs only; `NEW_SKILL.md` redirects to the
+current sandbox skill. That bundle was reconciled with `3d913754` on
+2026-09-12 after the Python coding console removal; the terminal gateway,
+`agentic/` CLI and retained `agentic/harness_optimizer/` components remain. Validate actual
 commands and paths, not just the presence of a skill name in this table.
 
 ## Prompt Templates
