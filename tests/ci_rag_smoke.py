@@ -66,19 +66,6 @@ QUERIES = [
 ]
 
 
-def unique_source_stems(hits: Sequence[object], k: int) -> list[str]:
-    """First-seen Path(hit.source).stem, capped at k unique documents."""
-    stems: list[str] = []
-    for hit in hits:
-        stem = Path(str(getattr(hit, "source", ""))).stem
-        if not stem or stem in stems:
-            continue
-        stems.append(stem)
-        if len(stems) >= k:
-            break
-    return stems
-
-
 def hit_at_k(ranked: Sequence[str], expected: frozenset[str], k: int) -> float | None:
     if not expected:
         return None
@@ -113,7 +100,9 @@ def groundedness_retrieval_metrics(retriever: HybridRetriever) -> tuple[int, flo
         expected = frozenset(case.expected_source_ids)
         if not expected:
             continue
-        ranked = unique_source_stems(retriever.hybrid_search(case.query), K)
+        # Match judge_eval's first K chunks; deduplication would admit later
+        # sources and inflate reciprocal rank when one document has many chunks.
+        ranked = [Path(hit.source).stem for hit in retriever.hybrid_search(case.query)[:K]]
         hit = hit_at_k(ranked, expected, K)
         rec = recall_at_k(ranked, expected, K)
         mrr = mean_reciprocal_rank(ranked, expected)

@@ -15,4 +15,6 @@ from this corpus and fails if macro hit@5 / Recall@5 / MRR on the 20
 source-labeled cases drop below floors in `tests/ci_rag_smoke.py`. The four
 `out_of_corpus` cases are skipped (no relevant documents). No LLM. Do not
 point this fixture at `data/corpus/` or a production index.
-
+Metrics use the first five retrieved chunks, matching the evaluator's hit
+window. Recall counts each expected source once; reciprocal rank uses the
+first matching chunk's original position, without deduplicating the ranking.

@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
-from tests.ci_rag_smoke import hit_at_k, mean_reciprocal_rank, recall_at_k, unique_source_stems
+from types import SimpleNamespace
+from unittest.mock import create_autospec
+
+import pytest
+
+from retrieval.hybrid_search import HybridRetriever
+from tests import ci_rag_smoke, judge_eval
+from tests.ci_rag_smoke import hit_at_k, mean_reciprocal_rank, recall_at_k
 
 
 class _Hit:
     def __init__(self, source: str) -> None:
         self.source = source
-
-
-def test_unique_source_stems_dedupes_chunks_and_caps_k() -> None:
-    hits = [
-        _Hit("aurora_harbor.md"),
-        _Hit("/tmp/aurora_harbor.md"),
-        _Hit("cedar_transit.md"),
-        _Hit("lumen_library.md"),
-    ]
-    assert unique_source_stems(hits, k=2) == ["aurora_harbor", "cedar_transit"]
 
 
 def test_empty_expected_is_skipped() -> None:
@@ -42,3 +39,23 @@ def test_miss_is_zero() -> None:
     assert hit_at_k(ranked, expected, 5) == 0.0
     assert recall_at_k(ranked, expected, 5) == 0.0
     assert mean_reciprocal_rank(ranked, expected) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("sources", "expected_metrics"),
+    [
+        (["noise.md"] * 5 + ["expected.md"], (1, 0.0, 0.0, 0.0)),
+        (["noise.md"] * 2 + ["expected.md"], (1, 1.0, 1.0, 1 / 3)),
+        (["expected.md"] * 5, (1, 1.0, 1.0, 1.0)),
+    ],
+)
+def test_metrics_respect_chunk_window_and_rank(
+    monkeypatch: pytest.MonkeyPatch,
+    sources: list[str],
+    expected_metrics: tuple[int, float, float, float],
+) -> None:
+    case = SimpleNamespace(query="fixture question", expected_source_ids=("expected",))
+    monkeypatch.setattr(judge_eval, "load_cases", lambda: [case])
+    retriever = create_autospec(HybridRetriever, instance=True)
+    retriever.hybrid_search.return_value = [_Hit(source) for source in sources]
+    assert ci_rag_smoke.groundedness_retrieval_metrics(retriever) == expected_metrics
