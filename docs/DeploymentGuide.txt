@@ -1,7 +1,8 @@
 CyClaw deployment guide — use the canonical setup doc, not this stub.
 
-  Repo root:  setup-guide.md
-  Under docs: docs/! How-To-Guides/setup-guide.md  (same content when in sync)
+  Repo root:  setup-guide.md                         (canonical full guide)
+  Under docs: docs/! How-To-Guides/setup-guide.md    (pointer only — not a second copy)
+  Also:       docs/work/SETUP.md                     (pointer only)
 
 Also useful:
 

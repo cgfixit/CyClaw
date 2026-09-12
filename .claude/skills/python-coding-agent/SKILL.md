@@ -24,8 +24,9 @@ Use when asked to plan before writing code, or the task is non-trivial
 enough that jumping to a diff would be premature (absorbs the former
 `solution-architect` skill).
 
-1. **Explore first** — `README.md`, `CLAUDE.md`, `CONTRIBUTING.md`, and
-   relevant convention docs. Ground the plan in established patterns.
+1. **Explore first** — `README.md`, `CLAUDE.md`, and relevant convention
+   docs (there is no `CONTRIBUTING.md` in this repo). Ground the plan in
+   established patterns.
 2. **Map the blast radius** — every file/module/dependency touched, and how
    they connect (imports, graph edges, config keys, test coverage).
 3. **Present ≥2 distinct options** with explicit tradeoffs.
