@@ -51,6 +51,13 @@ pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ig
 # 4. Required env (any non-empty value works — see "GROK_API_KEY" below)
 $env:GROK_API_KEY = "dummy"
 
+# 4b. API key for /soul/* and /ops/*. The gateway and the smoke test must
+#     share this value in the same session (set it before step 6). Persist:
+#     README.md#windows--powershell--cmdexe
+Add-Type -AssemblyName System.Web
+$env:CYCLAW_API_KEY = [System.Web.Security.Membership]::GeneratePassword(24, 4)
+Write-Host $env:CYCLAW_API_KEY   # copy this — you paste it into the console UI
+
 # 5. Build the retrieval index (safe to skip for now — see "Is the index
 #    really mandatory?" below — but /query 503s until you do this)
 python -m retrieval.indexer
@@ -62,6 +69,10 @@ uvicorn gate:app --reload --host 127.0.0.1 --port 8787
 Open `http://127.0.0.1:8787` → the terminal UI loads automatically.
 
 ### Windows smoke test
+
+The `/soul` and `/ops/fsconnect` checks send `Authorization: Bearer
+$env:CYCLAW_API_KEY` and expect the server to have inherited the same value
+at launch (step 4b). Run this from that same PowerShell session:
 
 ```powershell
 .\.claude\skills\CyClaw-Sandbox\windows-smoke.ps1
@@ -81,10 +92,13 @@ useful for eyeballing a response shape, not a pass/fail test.
 `powershell/Install-CyClaw.ps1` is the Windows twin of
 [`macos/install-cyclaw.sh`](#option-a--the-installer-script-handles-the-torch-difference-for-you):
 home layout under `%USERPROFILE%\.CyClaw`, venv, and a `cyclaw` shim. It does
-**not** install Ollama, build the retrieval index, or write `CYCLAW_API_KEY` —
-those stay the by-hand steps above. Flags (`-RepoPath`, `-ReplaceRepo`,
-`-SkipPythonDeps`, `-NoProfileEdit`, `-NoPathEdit`) and Credential Manager
-notes: [`powershell/README.md`](powershell/README.md).
+**not** install Ollama, build the retrieval index, or write `CYCLAW_API_KEY`.
+Set the key in the session that will start the server (step 4b above), then
+build the index and launch (`powershell/Invoke-CyClaw.ps1` or the uvicorn
+line). Persist: [README API Key Setup (Windows)](README.md#windows--powershell--cmdexe).
+Flags (`-RepoPath`, `-ReplaceRepo`, `-SkipPythonDeps`, `-NoProfileEdit`,
+`-NoPathEdit`) and Credential Manager notes:
+[`powershell/README.md`](powershell/README.md).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\powershell\Install-CyClaw.ps1
@@ -114,6 +128,11 @@ pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ig
 # 4. Required env (any non-empty value works — see "GROK_API_KEY" below)
 export GROK_API_KEY=dummy
 
+# 4b. API key for /soul/* and /ops/* (set before uvicorn; the smoke test
+#     below reuses it). See "CYCLAW_API_KEY" later for what it gates.
+export CYCLAW_API_KEY="$(openssl rand -hex 20)"
+echo "$CYCLAW_API_KEY"
+
 # 5. Build the retrieval index (see "Is the index really mandatory?" below)
 python -m retrieval.indexer
 
@@ -124,10 +143,11 @@ uvicorn gate:app --reload --host 127.0.0.1 --port 8787
 ### Linux smoke test
 
 Against an already-running gateway (the same 7-check contract as the Windows
-script). POSIX/bash 3.2; curl + python3 only:
+script). POSIX/bash 3.2; curl + python3 only. Reuse the key from step 4b
+(the server must have inherited it at launch):
 
 ```bash
-export CYCLAW_API_KEY="the-value-you-generated"
+export CYCLAW_API_KEY="${CYCLAW_API_KEY:-the-value-you-generated}"
 bash .claude/skills/CyClaw-Sandbox/macos-smoke.sh
 ```
 
