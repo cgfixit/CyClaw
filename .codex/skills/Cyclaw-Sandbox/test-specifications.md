@@ -1,476 +1,119 @@
-# CyClaw Test Specifications
-
-Detailed test case inventory for the CyClaw Swarm Verification skill. Covers
-PR#441 (Claude fallback), post-merge commits (key redaction, shared fallback
-node, metrics, due-diligence invariants), and all terminal console endpoints.
-
-## Table of Contents
-1. [Query Prompts](#query-prompts)
-2. [Triple-Gate Online API Tests](#triple-gate-online-api-tests)
-3. [API Key Redaction Tests](#api-key-redaction-tests)
-4. [Due-Diligence Invariant Tests](#due-diligence-invariant-tests)
-5. [Terminal Console Endpoint Tests](#terminal-console-endpoint-tests)
-6. [Config Invariants](#config-invariants)
-7. [macOS Realism Coverage](#macos-realism-coverage)
-
----
-
-## Query Prompts
-
-### Q1 -- Vault Hit (CyClaw Overview)
-- **Prompt**: `"what is CyClaw"`
-- **Expected**: high score, `local_llm`, `answer_model="local"`
-- **Corpus match**: `cyclaw_about.md`
-- **Purpose**: Verifies retrieval works, score routing, answer generation
-
-### Q2 -- Vault Hit (Security Doc)
-- **Prompt**: `"explain CyClaw security"`
-- **Expected**: high score, `local_llm`, `answer_model="local"`
-- **Corpus match**: `cyclaw_security.md`
-- **Purpose**: Multi-doc coverage, different vocabulary path
-
-### Q3 -- Offline Best-Effort / Qwen Test
-- **Prompt**: `"who wrote the theory of general relativity and when"`
-- **Expected**: low score, `user_gate`, `needs_user_confirm=True`
-- **On deny**: `offline_best_effort_node`, `answer_model="offline-best-effort"`
-- **Corpus**: `general_knowledge.md` has NO relativity content (only speed of light)
-- **Purpose**: Forces best-effort path. Qwen answers from parametric knowledge
-  (Einstein, 1915) with no vault context. Tests the deny-path through all 3 gates.
-
-### Q4 -- Grok API Connection-Only
-- **Prompt**: `"what are the latest features in xAI Grok 4"`
-- **Expected**: low score, `user_gate`, `needs_user_confirm=True`
-- **On confirm + provider="grok"**: Verify GrokClient.generate() called
-- **Mock HTTP**: Return `{choices:[{message:{content:"..."}}]}`
-- **Verify request**: `Authorization: Bearer <key>`, `/chat/completions`,
-  `model`, `messages`, `max_tokens`, `temperature`
-- **Does NOT require**: `GROK_API_KEY` to be set (mock the HTTP layer)
-- **Purpose**: Verifies Grok API integration without cost
-
-### Q5 -- Claude API Connection-Only
-- **Prompt**: `"explain quantum computing decoherence"`
-- **Expected**: low score, `user_gate`, `needs_user_confirm=True`
-- **On confirm + provider="claude"**: Verify ClaudeClient.generate() called
-- **Mock HTTP**: Return `{content:[{type:"text",text:"..."}]}`
-- **Verify request**: `x-api-key` header (NOT `Authorization: Bearer`),
-  `anthropic-version: 2023-06-01`, `/messages` endpoint (NOT `/chat/completions`),
-  `model`, `max_tokens`, `messages` (NO `temperature`)
-- **Does NOT require**: `ANTHROPIC_API_KEY` to be set (mock the HTTP layer)
-- **Purpose**: Verifies Claude API integration without cost
-
----
-
-## Triple-Gate Online API Tests
-
-### Architecture (Post-Refactor)
-
-```
-Query -> retrieve_node (N1) -> route_by_score_node (N2)
-  score < threshold -> user_gate_node (N3b)
-    user_confirmed_online=None -> needs_confirm=True (UI shows buttons)
-    user_confirmed_online=True + online_provider="grok" -> grok_fallback_node
-      = _external_fallback_node(..., provider="grok", label="Grok")
-    user_confirmed_online=True + online_provider="claude" -> claude_fallback_node
-      = _external_fallback_node(..., provider="claude", label="Claude")
-    user_confirmed_online=False -> offline_best_effort_node
-  score >= threshold -> local_llm_node (N3a)
-ALL paths -> audit_logger_node (N4) -> END
-```
-
-### Gate 1: Score Gate
-- `route_by_score_node(state, cfg)`: score >= 0.028 -> local_llm, else user_gate
-
-### Gate 2: User Gate (Hardcoded, NOT Config-Driven)
-- `user_gate_router`: `confirmed is None` -> `audit_logger` (pause, show buttons)
-- **IMPORTANT**: `policy.fallback.require_user_confirm` is UNWIRED. Setting it
-  false has NO effect. The pause is hardcoded in `user_gate_router`.
-
-### Gate 3: Availability Gate
-- `user_gate_router(state, grok, claude)`: checks `online_provider` + `client.is_available()`
-
-### _external_fallback_node Shared Implementation
-
-Extracted from the near-identical grok/claude fallback nodes. Parameterized on
-`provider` and `label`. Both wrappers are thin 1-line calls.
-
-**Config keys read dynamically**: `send_local_context_to_<provider>`,
-`<provider>_max_prompt_chars`
-
-**Audit event**: `<provider>_prompt_truncated` with `original_chars`,
-`truncated_chars`, `query`
-
-**Truncation edge case**: When context forwarding is ON, the trailing
-"Answer the query..." instruction must survive the truncation. Budget the
-variable context, not the framing.
-
-**No fabricated sources**: `answer_sources` is always `[]` for external fallbacks.
-
-### Grok Tests
-
-#### G1: Connection-Only Test (Mock HTTP)
-```python
-def test_grok_connection_only():
-    mock_resp = httpx.Response(200, json={
-        "choices": [{"message": {"content": "mocked grok response"}}]
-    })
-    client = GrokClient(cfg=test_cfg)
-    client.api_key = "test-grok-key"
-    client._client.post = MagicMock(return_value=mock_resp)
-    result = client.generate("test prompt")
-    call = client._client.post.call_args
-    assert call[0][0].endswith("/chat/completions")
-    assert "Bearer test-grok-key" in call[1]["headers"]["Authorization"]
-    assert call[1]["json"]["model"] == "grok-4.5"
-    assert call[1]["json"]["max_tokens"] == 256
-    assert call[1]["json"]["temperature"] == 0.2
-```
-
-#### G2: is_available() Contract
-- `GROK_API_KEY` set and non-empty -> `True`
-- `GROK_API_KEY` unset or empty -> `False`
-- Key stripped of whitespace before check
-
-#### G3: Retry Behavior
-- 5xx and 429: retried (with backoff)
-- 401/403: fail fast (no retry)
-- Read timeout: NOT retried (`retry_on_timeout=False`)
-
-#### G4-G6: Triple-Gate Integration, Deny Path, Unavailable
-See SKILL.md Phase 5 for full test code.
-
-### Claude Tests
-
-#### C1: Connection-Only Test (Mock HTTP)
-```python
-def test_claude_connection_only():
-    mock_resp = httpx.Response(200, json={
-        "content": [{"type": "text", "text": "mocked claude response"}]
-    })
-    client = ClaudeClient(cfg=test_cfg)
-    client.api_key = "test-anthropic-key"
-    client._client.post = MagicMock(return_value=mock_resp)
-    result = client.generate("test prompt")
-    call = client._client.post.call_args
-    assert call[0][0].endswith("/messages")  # NOT /chat/completions
-    assert call[1]["headers"]["x-api-key"] == "test-anthropic-key"
-    assert call[1]["headers"]["anthropic-version"] == "2023-06-01"
-    assert "temperature" not in call[1]["json"]  # Claude doesn't send temp
-    assert call[1]["json"]["messages"][0]["role"] == "user"
-```
-
-#### C2: is_available() Contract
-- `ANTHROPIC_API_KEY` set and non-empty -> `True`
-- `ANTHROPIC_API_KEY` unset or empty -> `False`
-
-#### C3: Retry Behavior (Parity with Grok)
-- 5xx and 429: retried
-- 401/403: fail fast
-- Malformed response: Claude-specific error mapping
-
-#### C4-C8: Triple-Gate, Cross-Provider, Soul Privacy, Unavailable
-See SKILL.md Phase 5.
-
-### Cross-Provider Tests
-
-#### X1: Both Enabled, Provider Selects Correct One
-```python
-def test_online_provider_selects_correct_client():
-    grok = MockGrokClient(response="Grok answer")
-    claude = MockClaudeClient(response="Claude answer")
-    graph = build_graph(retriever=r, llm=llm, grok=grok, claude=claude, cfg=cfg)
-    result_g = graph.invoke({..., "online_provider": "grok"})
-    assert result_g["answer_model"] == "grok"
-    result_c = graph.invoke({..., "online_provider": "claude"})
-    assert result_c["answer_model"] == "claude"
-```
-
-#### X2: Default Provider Behavior
-When `online_provider` is not set, `user_gate_router` defaults to "grok"
-(if available).
-
----
-
-## API Key Redaction Tests
-
-### Background
-Commit `78515b0` added Anthropic key redaction with the same rigor as Grok:
-- `ANTHROPIC_API_KEY` added to env-var redaction tuple in `gate.py`
-- `sk-ant-[A-Za-z0-9_\-]{20,}` pattern added to `_SECRET_PATTERNS`
-- `sk-ant-*` pattern added to `config.yaml` `policy.privacy.redact_secrets_like`
-
-### Test Cases
-
-#### R1: Env-Var Redaction
-```python
-def test_anthropic_key_env_redaction():
-    gate_src = Path("gate.py").read_text()
-    assert "ANTHROPIC_API_KEY" in gate_src
-    assert "GROK_API_KEY" in gate_src
-```
-
-#### R2: Pattern Redaction in gate.py
-```python
-def test_sk_ant_pattern_in_secret_patterns():
-    gate_src = Path("gate.py").read_text()
-    assert "sk-ant-" in gate_src
-```
-
-#### R3: Pattern Redaction in config.yaml
-```python
-def test_sk_ant_in_audit_config():
-    cfg = yaml.safe_load(Path("config.yaml").read_text())
-    patterns = cfg["policy"]["privacy"]["redact_secrets_like"]
-    assert any("sk-ant" in str(p) for p in patterns)
-```
-
-#### R4: Functional Redaction Test
-```python
-def test_anthropic_key_redacted_in_errors():
-    from gate import _sanitize_error
-    raw = "Error: key sk-ant-api03-testkey123456789 failed"
-    sanitized = _sanitize_error(raw)
-    assert "sk-ant-api03" not in sanitized or "[REDACTED]" in sanitized
-```
-
----
-
-## Due-Diligence Invariant Tests
-
-From `tests/test_due_diligence_invariants.py` (14 test classes):
-
-### TestRagFirstEntry
-- `retrieve` is the unconditional graph entry point
-- `build_graph` -> `set_entry_point("retrieve")` is present
-
-### TestExternalCallGateRuntimeHalf
-- Both grok+claude require: hybrid mode + model enabled + API key set + user confirm
-- Runtime gate fires for each provider independently
-
-### TestExternalCallGateConstructionHalf
-- `build_graph` only constructs GrokClient/ClaudeClient when mode=hybrid AND model enabled
-- Offline mode: no external clients constructed
-
-### TestAuditConvergence
-- Every node routes to `audit_logger`
-- `audit_logger` -> END (no further nodes)
-- Audit log written on every path
-
-### TestGuardrailInputAuditConvergence
-- I4 extension (Phase 2): a query blocked by the offline `guardrail_input`
-  node still converges at `audit_logger` with the blocked `answer_model`
-  recorded -- the new node must not create a shortcut around audit logging
-- See `docs/NeMo/phase2_implementation_plan.md` Decision 3
-
-### TestSoulReasonGate
-- `apply_evolution` refuses empty reason string
-- Non-empty reason required for soul mutation
-
-### TestSoulInjectionScanBoundary
-- Injection scanner covers the configured banned-pattern set (currently 40)
-- Scanner runs on proposed soul content before apply
-
-### TestAuditQueryPrivacy
-- Audit log contains SHA-256 hashes of queries, NEVER plaintext
-- `hash_query()` used for query identification
-
-### TestSanitizerCwdIndependence
-- Config loading works regardless of current working directory
-- `load_config()` resolves paths correctly
-
-### TestMcpNoLlmPath
-- MCP server code path never calls LLM directly
-- MCP routes through graph, not direct LLM calls
-
-### TestCoreModuleIsolation
-- `agentic/` never imported by `gate.py`, `graph.py`, `mcp_hybrid_server.py`
-- All agentic modules run via subprocess only
-
-### TestHealthEmbeddingsSignalIsStatic
-- Embeddings health signal does not depend on model being loaded
-- Static config check, not dynamic model inference
-
-### TestFallbackRequireUserConfirmIsUnwired
-- **CRITICAL**: `policy.fallback.require_user_confirm` is NOT read by any production code
-- `gate.py` and `graph.py` both grep-negative for the string
-- `user_gate_router` hardcodes `confirmed is None` -> pause
-- Config key kept for backward compat but documented as unwired
-- Test will FAIL if someone wires it up (deliberate breakage signal)
-
-### TestShippedCoreConfigContract
-- Pins the SHIPPED `config.yaml`'s core posture keys
-- `TestShippedAgenticConfigContract` (`tests/test_agentic_config.py`) already
-  pins the agentic block against the real file; the core request path had no
-  equivalent, and the gap is not hypothetical -- the operator commit of
-  2026-08-07 flipped `app.mode`, `app.debug`, and BOTH `models.<provider>.enabled`
-  in the shipped file and no test broke, because no test read those keys from it
-- Matters specifically for I3: per `INVARIANTS.md`, two of the triple gate's
-  three conditions (`mode == "hybrid"`, `<provider>.enabled`) are NOT enforced
-  in `graph.py` at all -- they live in `gate.py`'s client construction, and
-  `TestExternalCallGateConstructionHalf` above pins that the graph does not
-  read them. So a change to these config values silently changes what the
-  graph can reach, with the graph-side tests still green. This class is that
-  tripwire
-- These assertions pin the CURRENT posture, armed included -- not a claim that
-  the armed values are the safe ones, only that changing them should be
-  deliberate and visible in a diff
-- Also pins `policy.fallback.send_local_context_to_grok`/`_claude` are both
-  `false` (the load-bearing exfiltration guard), that `/health` does not probe
-  external providers by default, and that `app.debug` (ships `true`) is still
-  read by no production code path in `gate.py`/`graph.py` -- if that ever
-  changes, this test forces the wiring change to confront the shipped value in
-  the same diff
-
----
-
-## Terminal Console Endpoint Tests
-
-### Soul Console (`/soul/*`)
-
-All endpoints require `CYCLAW_API_KEY`.
-
-| Test | Method | Endpoint | Body | Expected |
-|------|--------|----------|------|----------|
-| SC-1 | GET | `/soul` | - | 401 without API key |
-| SC-2 | GET | `/soul` | `Authorization: Bearer <key>` | 200, `{soul, version, source}` |
-| SC-3 | POST | `/soul/propose` | `{new_soul, reason}` | 200, `{current_sha, proposed_sha, ...}` |
-| SC-4 | POST | `/soul/apply` | `{new_soul, reason}` | 200, `{status, version, source}` |
-| SC-5 | POST | `/soul/apply` | `{new_soul}` (no reason) | 400 (injection/reason required) |
-| SC-6 | POST | `/soul/reload` | - | 200, `{status: "reloaded", version}` |
-| SC-7 | POST | `/soul/restore` | - | 200 or 404 (no .bak) |
-| SC-8 | POST | `/soul/propose` | - | 429 when rate limited |
-
-### Sync Console (`/ops/sync`)
-
-| Test | Action | Body | Expected |
-|------|--------|------|----------|
-| SYNC-1 | `status` | `{action: "status"}` | `{config: {enabled, direction, schedule}}` |
-| SYNC-2 | `sync` + dry_run | `{action: "sync", dry_run: true}` | `{exit_code, label, ok}` |
-| SYNC-3 | `sync` | `{action: "sync", dry_run: false}` | Full sync |
-| SYNC-4 | `schedule` | `{action: "schedule"}` | Schedule enabled |
-| SYNC-5 | `unschedule` | `{action: "unschedule"}` | Schedule disabled |
-| SYNC-6 | unknown | `{action: "destroy"}` | 400 or 422 (`OPS_BAD_ACTION` when the request reaches the runner) |
-
-### Agentic Console (`/ops/agentic`)
-
-| Test | Action | Body | Expected |
-|------|--------|------|----------|
-| AG-1 | `status` | `{action: "status"}` | `{config: {enabled, mode, writes_enabled}, ...}` |
-| AG-2 | `context` + pr | `{action: "context", pr: 123}` | PR context |
-| AG-3 | `context` + issue | `{action: "context", issue: 456}` | Issue context |
-| AG-4 | `propose-skill` | `{action: "propose-skill", name, desc, body, reason}` | Proposal |
-| AG-5 | `apply-skill` (locked) | defaults | 4-gate checklist fails |
-| AG-6 | `apply-skill` (open) | `{..., confirm: true}` | Requires all 4 gates |
-| AG-7 | unknown | `{action: "hack"}` | 400 or 422 (schema validation may reject first) |
-
-### Filesystem Console (`/ops/fsconnect`)
-
-| Test | Action | Body | Expected |
-|------|--------|------|----------|
-| FS-1 | `status` | `{action: "status"}` | `{config: {...}}` |
-| FS-2 | `list` | `{action: "list", root, path}` | `{entries: [...]}` |
-| FS-3 | `read` | `{action: "read", root, path}` | `{content, size, ...}` |
-| FS-4 | `stat` | `{action: "stat", root, path}` | Path info dict |
-| FS-5 | `grep` | `{action: "grep", root, path, pattern}` | `{matches, match_count}` |
-| FS-6 | `glob` | `{action: "glob", root, pattern}` | `{matches, match_count}` |
-| FS-7 | unknown | `{action: "delete"}` | 400 or 422 (schema validation may reject first) |
-
-### SQL Console (`/ops/sqlconnect`)
-
-| Test | Action | Body | Expected |
-|------|--------|------|----------|
-| SQL-1 | `status` | `{action: "status"}` | `{config: {enabled, driver, read_only, max_rows}}` |
-| SQL-2 | `schema` | `{action: "schema"}` | Error envelope when DSN unset |
-| SQL-3 | `query` + table | `{action: "query", table: "users"}` | Table preview |
-| SQL-4 | `query` + sql | `{action: "query", sql: "SELECT 1"}` | Query results |
-| SQL-5 | `query` + explain | `{action: "query", sql: "...", explain: true}` | Explain plan |
-| SQL-6 | `query` + fmt | `{action: "query", sql: "...", fmt: "csv"}` | CSV output |
-| SQL-7 | unknown | `{action: "drop"}` | 400 or 422 (schema validation may reject first) |
-| SQL-8 | write SQL | `{action: "query", sql: "INSERT..."}` | Rejected by guard |
-
----
-
-## Config Invariants
-
-### Hybrid Mode (Default, shipped 2026-08-07)
-```yaml
-app:
-  mode: "hybrid"
-models:
-  grok:
-    enabled: true
-  claude:
-    enabled: true
-policy:
-  fallback:
-    require_user_confirm: true  # UNWIRED - hardcoded in user_gate_router
-    send_local_context_to_grok: false
-    send_local_context_to_claude: false
-    grok_max_prompt_chars: 8000
-    claude_max_prompt_chars: 8000
-policy:
-  privacy:
-    redact_secrets_like:
-      - "sk-[a-zA-Z0-9]{20,}"     # OpenAI-style
-      - "sk-ant-[a-zA-Z0-9_\\-]{20,}"  # Anthropic (Claude)
-```
-- This is the SHIPPED posture: `app.mode: "hybrid"` and both
-  `models.grok.enabled`/`models.claude.enabled` are `true` in the real
-  `config.yaml`, satisfying two of I3's three gates by default (see
-  `docs/THREAT_MODEL.md`'s eighth amendment). The third gate,
-  `user_confirmed_online`, is per-request and cannot be pre-set by config.
-- User confirmation still required (hardcoded, Gate 2)
-- `is_available()` checks API keys (Gate 3)
-- Pinned by `TestShippedCoreConfigContract` (see
-  [Due-Diligence Invariant Tests](#due-diligence-invariant-tests)) so a future
-  edit to these keys shows up as a visible diff, not a silent posture change
-
-### Offline Mode (available via `app.mode: "offline"`)
-```yaml
-app:
-  mode: "offline"
-models:
-  grok:
-    enabled: false
-  claude:
-    enabled: false
-```
-- Not the shipped default -- an operator opts into this by editing
-  `config.yaml`
-- No external clients constructed at all (`TestExternalCallGateConstructionHalf`)
-- A low-score query falls through to `offline_best_effort_node` instead of a
-  provider fallback
-
----
-
-## macOS Realism Coverage
-
-Four test files touch macOS/fsconnect behavior, and only some of them exercise
-real Darwin syscalls -- the rest are simulated (portable, run on any CI
-runner) or purely static. Know which is which before treating a green run on
-one of them as proof of real macOS behavior:
-
-| File | Realism | Notes |
-|------|---------|-------|
-| `tests/test_fsconnect_macos_policy.py` | SIMULATED | `sys.platform`/`os.stat` monkeypatched, cross-platform. |
-| `tests/test_macos_fsconnect_setup.py` | REAL | Real subprocess execution of the setup scripts, POSIX-generic. |
-| `tests/test_macos_scripts.py` | STATIC | Static content/regex pins, no execution. |
-| `tests/test_fsconnect_macos_real.py` (new) | REAL, Darwin-only | Real Darwin syscalls (`/Volumes` gate, Apple-metadata filtering, case-insensitive-APFS overlap, real `EACCES` mapping). `SF_DATALESS`/iCloud-dataless is explicitly NOT made real (can't be created deterministically in CI) and stays covered only by the simulated file above. |
-## Codex additions: install parity, vault scoring, and browser evidence
-
-The Codex adapter adds three explicit evidence lanes to the inherited endpoint
-specifications:
-
-1. **Installation parity:** exercise the manual/core, installer-only, and
-   one-shot clone profiles in isolated homes. Compare non-secret layout,
-   Python/pin, entry points, index creation, loopback ports, and the same REST
-   smoke result. Native platform claims require the matching OS.
-2. **Vault scoring:** index the same sanitized fixture with the same embedding
-   fingerprint and RRF configuration on Windows and macOS/Linux. Verify the
-   `1 / (rrf_k + rank)` fusion, top-score threshold semantics, expected rank
-   order, and prompt-included sources. Do not call an RRF score cosine
-   similarity or normalize away platform/model-fingerprint drift.
-3. **Browser evidence:** when Playwright or an equivalent browser is available,
-   render both consoles at desktop and mobile viewports, exercise their real
-   fetch/click flows against mock services, collect page/console/request
-   errors, and review sanitized screenshots. HTML contract tests and HTTP
-   emulation are fallback evidence and must not be reported as browser PASS.
+# CyClaw sandbox acceptance map
+
+Use with [SKILL.md](SKILL.md). Source baseline: `3d913754` (2026-09-12).
+Derive exact values and tests from the selected candidate; this map contains
+acceptance criteria, not previous PASS results. Run pytest commands with the
+selected Python 3.12 environment and `GROK_API_KEY=dummy` in a disposable tree.
+
+## Removed and retained surfaces
+
+`eb5a855f` removed `harness/`, `static/harness.html`, the `cyclaw-harness`
+entry point, harness launch/service targets, its `/api/*` endpoints and
+`tests/test_harness*`. The old extractor HTML/JS was removed in `c9b6b866`.
+Check the source inventory and packaging manifest instead of trying to boot
+these features. On the isolated gateway, confirm the removed HTML path returns
+404. Do not turn `agentic/harness_optimizer/`, `tests/test_agentic_harness*`, or the
+retired-but-retained DeepAgents compatibility suite into false deletion claims.
+
+The only shipped HTML console is `static/terminal.html`. It loads
+`static/terminal.js` and `static/auth_admin.js`; inspect all three for browser
+contracts. The UI's Users panel is not a second server. Memory's HTML export
+is a conditional gateway route, not a resurrected coding console.
+
+## Routing, retrieval and model fidelity
+
+| Lane | Acceptance | Source and tests |
+|---|---|---|
+| Topology | Retrieve first; conditional routers only; every terminal route audits. Read the actual node/edge sets. | `graph.py`; `tests/test_graph.py`, `tests/test_graph_outcomes.py`, `tests/test_due_diligence_invariants.py`; invariant-guard |
+| Three external gates | Mode and provider enablement control client construction in the gateway; graph requires fresh confirmation, selected available client. Reject each missing gate independently. Destination policy and pre-action hooks add checks; neither replaces consent. | `gate.py`, `graph.py`, `utils/endpoint_trust.py`; `tests/test_gate.py`, `tests/test_graph.py`, `tests/test_endpoint_trust.py` |
+| Local destination | Both local answer paths reject malformed/untrusted destinations and accept explicit trusted hosts. Trusted hosts receive context and soul; this is an operator trust grant. | `utils/endpoint_trust.py`, `graph.py`; `tests/test_endpoint_trust.py` |
+| Real retrieval | Synthetic corpus, real indexer/BM25/Chroma, expected document ranking and prompt-included sources; reject corpus escapes. BM25 remains JSON. | `retrieval/`; `tests/test_hybrid_search.py`, `tests/test_rag_integration.py`, `tests/test_indexer.py`, `tests/ci_rag_smoke.py` |
+| RRF parity | Same corpus, chunking, fingerprint and config on each OS. RRF contributions use `1 / (rrf_k + rank)` with rank starting at 0; use its configured score threshold and the separate cosine floor. Explain differences rather than normalizing them away. | `retrieval/hybrid_search.py`, `config.yaml`; hybrid/retrieval tests |
+| MCP | Stdio retrieval-only; sanitize inputs; no LLM imports/generation. Capability metadata alone is not enforcement. | `mcp_hybrid_server.py`; `tests/test_mcp_server.py`, `tests/test_mcp_manifest.py` |
+
+The bundled driver's five queries are two vault hits, one denied-online miss,
+and two provider-confirmation misses. Evaluate the expected outcome, not the
+literal prompt string. Its separate provider phase uses mocked clients/HTTP;
+external answers must not inherit soul or fabricate local sources.
+
+Report the three fidelity levels separately: in-process mocks (Tier 0), an
+owned socket mock with real HTTP clients (Tier 1), and actual local model
+inference (Tier 2). A `/v1/models` response alone proves neither ownership nor
+inference. `run_full_verification.py` uses Tier 0 regardless of listeners.
+Run `tests/test_llm_client_ollama.py` for the socket contract. A real-model run
+needs a separately recorded model ID, target process and successful response.
+
+## Gateway, terminal and auth
+
+Discover decorators in `gate.py`, `gate_ops.py`, `gate_auth.py`, and
+`gate_memory.py` (including multiline and parameterized routes). Compare the
+runtime route table with the static inventory after isolated startup. Inspect
+response JSON as well as HTTP status: an ops HTTP 200 can carry a failed or
+disabled subprocess result.
+
+| Surface | Checks and boundary | Maintained tests |
+|---|---|---|
+| `/`, `/static/*`, `/health` | Terminal HTML/JS load; CSP and frame headers; index/graph readiness separately from liveness. `embeddings_local` health is not an embedding inference probe. | `tests/test_gate.py`, `tests/test_health.py`, `tests/test_terminal_contract.py` |
+| `POST /query` | Schema 422, rate 429, injection rejection, correct routes/answers, timeout/error envelope. Same-origin always; session/device token and role checks only when auth enabled. API-key success is not session-auth proof. | `tests/test_gate.py`, `tests/test_gate_query_auth.py`, `tests/test_graph_outcomes.py` |
+| `POST /index/build`, `GET /index/status` | Build requires loopback/same-origin, rate limit and one-build-at-a-time; no API key by design. Status is an unrate-limited progress probe, not corpus content. Use synthetic data and verify owned process completion. | `tests/test_gate_index_build.py` |
+| `/soul`, `/soul/propose`, `/soul/apply`, `/soul/reload`, `/soul/restore` | API-key refusal, reason and scan on apply, atomic replacement. Restore uses a vetted backup; reload/drift adopt trusted disk content unscanned. Do not mutate the committed or operator soul. | `tests/test_gate.py`, `tests/test_personality.py`, `tests/test_due_diligence_invariants.py` |
+| `/audit/summary`, `/ops/sync`, `/ops/agentic`, `/ops/fsconnect`, `/ops/sqlconnect` | Key gate, action schema and subprocess result; disabled/mocked connectors. Test optional-key bypass only with loopback peer, no forwarding headers, non-cross-site request. | `tests/test_gate.py`, `tests/test_gate_ops.py` |
+| `/auth/*` | Off returns 503; bootstrap loopback/no-proxy rules; login/session+CSRF, logout/whoami, user/password/role/disable/enable/delete policies, last-admin protection, audit role and token revocation. CLI device-token lifecycle is distinct. | `tests/test_gate_auth.py`, `tests/test_gate_auth_admin.py`, `tests/test_authn_rbac.py`, `tests/test_authn_manager.py`, `tests/test_authn_cli.py` |
+| `/memory/*`, `/query/export/html` | Key-gated status; default-off subfeature gating; isolated facts/episodes/proposals, reason+scan on apply and safe HTML export. No shared operator DB. | `tests/test_memory_routes.py`, `tests/test_memory_store.py`, `tests/test_memory_policy.py`, `tests/test_memory_fusion.py`, `tests/test_memory_metadata_prompt_isolation.py` |
+
+Browser acceptance needs desktop and mobile screenshots, completed query/error
+rendering, confirmation focus handling, health/index progress, and the current
+soul/ops/Users panels. Assert safe DOM rendering, same-origin requests, masked
+credentials, no uncaught errors, no unexpected network destinations and no
+horizontal overflow. Use `tests/test_auth_admin_contract.py` and
+`tests/test_terminal_confirm_focus_trap.py` alongside browser interaction.
+`browser_render_check.py` supplies screenshots and a single terminal query;
+its visible container check does not cover the full matrix above.
+
+## Audit and optional subsystems
+
+| Lane | Required evidence |
+|---|---|
+| Audit/privacy | Hashed queries under shipped `include_query_hash: true`; redacted secrets, audit convergence, no raw corpus. Turning hashing off changes that guarantee. `tests/test_logger.py`, `tests/test_metrics.py`, `tests/test_due_diligence_invariants.py`. |
+| Spend/Numbat/sequences | Separate ledgers/projections, correct provider counts, no duplicate projection, fail-soft Numbat, hashed joins. `tests/test_spend.py`, `tests/test_metrics_spend.py`, `tests/test_numbat_emitter.py`, `tests/test_numbat_audit_projection.py`, `tests/test_sequence_detect.py`. |
+| Guardrails | Disabled pass-through and enabled input/output/hook behavior; bridge runs in process. Distinguish optional NeMo engine tests from heuristic mocks. Follow current guardrails workflow/jobs. |
+| Agentic and connectors | Remaining CLI/ops surface, denied writes by default, jailed paths, SQL read-only guards, approval/apply/verify/commit/push boundaries. `tests/test_agentic_real_repo_run_smoke.py`, `tests/test_agentic_executor.py`, `tests/test_agentic_hard_sandbox.py`, and relevant `test_agentic*`, `test_fsconnect*`, `test_sqlconnect*`, `test_netconnect*` groups. No live publication. |
+| Optimizer | `agentic/harness_optimizer/` retains a retired fixture loop plus governance/model-adapter code used by the real-repo CLI. Its `mcp/` contains Python tools, not a server; use `tests/test_agentic_harness_optimizer.py` and its dedicated source/tests for history, lock and workspace contracts. The deleted console is not a prerequisite. |
+| Unslop | `agentic/unslop_bridge.py` remains default-off, log-only and non-blocking in the local real-repo loop; it grants no execution authority. Use `tests/test_unslop_bridge.py` and `tests/test_unslop_suggest.py`; verify hashed metrics. |
+| Channels and sync | Telegram/OpenTweet/sync remain default-off out-of-band paths; mock service calls. Neither channel bypasses gateway consent. Native scheduler tests require the matching platform. |
+| Optional services/kit | PostgreSQL/pgvector and DeepAgents compatibility jobs need their selected profiles. `tests/judge_eval.py` is paid opt-in evaluation, not routine smoke. `tools/lora_finetune/tests/` is outside root pytest discovery; use its own workflow. |
+
+## Installation and platform evidence
+
+Read `setup-guide.md` and live manifests; do not copy pins from a past report.
+Manual/core, native installer and one-shot clone are distinct workflows. Conda
+(`environment.yml`) and Docker are additional supported surfaces when claiming
+installation parity. Compare Python, constrained packages, console scripts,
+config/layout, synthetic index creation and the same gateway checks.
+
+| Startup or OS lane | What must be established |
+|---|---|
+| `python gate.py` / `python -m gate` / `cyclaw-server` | Calls `gate.main()`; validate configured binding and optional auth/TLS before serving. Console scripts require installing the project, not only requirements. |
+| `macos/invoke-cyclaw.sh` | Runs uvicorn directly on loopback with its selected gate port and `--no-proxy-headers`; it does not apply `gate.main()` TLS options. Test its actual command. |
+| `powershell/Invoke-CyClaw.ps1` | Runs `gate.py`; validate launcher env/home and resulting main/TLS behavior on native Windows. Installer PowerShell 5.1 syntax and the bundled smoke helper's PowerShell 7 requirement are separate. |
+| Docker/Compose | Docker listens on `0.0.0.0` inside the container; Compose publishes loopback. Inspect mounts, non-root, readonly rootfs, resource limits, capabilities/seccomp and direct-uvicorn TLS behavior. No general egress firewall is implied. |
+| Storage | Resolve each consumer, not just `CYCLAW_HOME`: default corpus/index/soul/auth/log paths anchor to the repo. Memory's relative DB path is CWD-relative (`memory/store.py`); use an explicit absolute temporary path in fixtures. Docker mounts determine host locations. |
+| Native macOS | Plain Torch via constrained temporary manifests; installer layout, launchd/Keychain wrappers, dotenv modes, BSD stat under shadowed PATH, allexport and failed-source behavior; APFS and `/Volumes` tests on Darwin. Simulation is not native acceptance. |
+| Native Windows | Constrained CPU Torch, installer/shims, Task Scheduler/CredMan, ACL/path checks. A Linux or macOS pass cannot establish these. |
+| Executor containment | Darwin denies network and restricts writes but permits reads; Linux uses a network namespace; Windows uses Job Object process-tree control with sockets still available. Missing required backend fails closed. Do not call these equivalent isolation. |
+
+Use the relevant installer/launcher tests under `tests/`, including
+`tests/test_setup_from_clone.py`, `tests/test_setup_cyclaw_keys.py`,
+`tests/test_generate_service_plist.py`, `tests/test_generate_service_task.py`,
+`tests/test_fsconnect_macos_real.py`, and
+`tests/test_fsconnect_pathsafe_windows.py`. Native credential creation,
+service registration and physical model inference are separate user-authorized
+lanes, not side effects of a mock audit.
+
+## Completion record
+
+Record each lane's SHA, command, interpreter/dependency profile, host, fidelity,
+status, sanitized evidence path and concrete gap. Include current-head hosted
+CI URLs/states only when verified. Missing native hardware/service is `SKIP`;
+an assertion failure is `FAIL`. Do not total unlike lanes into a blanket
+"full functionality" verdict or reuse historical pass counts.

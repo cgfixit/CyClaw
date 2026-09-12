@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-CyClaw Full Verification Script -- Comprehensive smoke test harness.
+CyClaw in-process verification -- one lane of the full sandbox workflow.
 
-Runs in sandbox mode (no external dependencies needed) or full-dependency mode.
-Executes 5 queries covering: vault hit x2, offline best-effort (Qwen),
-Grok API connection-only, Claude API connection-only.
+Stubs heavy dependencies; lightweight imports still need to be installed.
+Executes 5 queries covering vault hit x2, mocked offline best-effort, and
+Grok/Claude confirmation misses. Provider calls are mocked separately.
 
 Verifies:
   1. LangGraph pipeline (5 queries through real node functions)
   2. Triple-gate online API fallback (Grok + Claude) with mocked HTTP
   3. API key redaction parity (Anthropic keys redacted same as Grok)
   4. _external_fallback_node shared implementation
-  5. All 5 terminal console REST endpoints (soul, sync, agentic, fs, sql)
+  5. Representative REST source contracts (soul, sync, agentic, fs, sql)
   6. Due-diligence invariants (unwired require_user_confirm, module isolation)
   7. Terminal HTML contract (5 panels, explicit provider buttons)
 
@@ -20,7 +20,11 @@ Usage:
 
 Env:
     CYCLAW_REPO=/path/to/CyClaw  -- use existing clone instead of fresh
-    FULL_DEPS=1                  -- attempt full dependency install first
+    CYCLAW_SKIP_ENSURE=1         -- preserve prepared candidate checkout
+    CYCLAW_RESULTS_FILE=/path    -- use a unique query-report path
+
+Use SKILL.md for constrained installation and the separate socket/browser/
+native lanes. This script does not prove real model inference.
 """
 from __future__ import annotations
 
@@ -49,12 +53,9 @@ RESULTS_FILE = Path(
     )
 )
 
-# Which of the 3-tier Ollama realism ladder this run actually exercised (see
-# SKILL.md's "3-tier realism" section). Tier 0 (in-process pytest MockLocalLLM
-# stub) is tests/conftest.py's concern, not this script's. Set once in main()
-# by _probe_ollama_tier() before any phase that talks to the local-LLM base_url
-# runs, then stamped into both report files this script writes.
-OLLAMA_TIER: int | None = None
+# Both query phases use MockLocalLLMClient. An unrelated listener cannot raise
+# this runner's fidelity to a socket mock or a real model inference.
+OLLAMA_TIER = 0
 
 # ANSI colors
 R = "\033[91m"
@@ -400,25 +401,6 @@ def _ensure_repo():
     os.chdir(CYCLAW_DIR)
 
 
-def _probe_ollama_tier() -> int:
-    """Which Ollama realism tier this run gets: 2 if a real daemon (or
-    mock_ollama.py started ahead of us by verify.sh) already answers on
-    127.0.0.1:11434, else 1 (this script has no live chat backend and the
-    local_llm queries in Phase 4 will hit connection errors instead of a
-    mocked 200). Short-timeout GET, stdlib-only so it needs no FULL_DEPS
-    install to run before any other phase.
-    """
-    import urllib.error
-    import urllib.request
-
-    try:
-        # DevSkim: ignore DS162092,DS137138 - loopback-only probe, offline-only
-        urllib.request.urlopen("http://127.0.0.1:11434/v1/models", timeout=1.5)
-        return 2
-    except (urllib.error.URLError, OSError, ValueError):
-        return 1
-
-
 def _install_deps() -> bool:
     if not os.environ.get("FULL_DEPS"):
         return False
@@ -665,7 +647,7 @@ def phase_execute_queries() -> PhaseResult:
     queries = [
         ("what is CyClaw", "local", True, "Vault hit - CyClaw overview"),
         ("explain CyClaw security", "local", True, "Vault hit - Security doc"),
-        ("Einstein relativity chronology", "offline-best-effort", False, "Offline best-effort (Qwen) - no vault match"),
+        ("Einstein relativity chronology", "offline-best-effort", False, "Offline best-effort (mock) - no vault match"),
         ("orbital launch window forecast", "grok", False, "Grok API connection-only"),
         ("neutrino decoherence tomography", "claude", False, "Claude API connection-only"),
     ]
@@ -715,16 +697,11 @@ def phase_execute_queries() -> PhaseResult:
         state.update(n4)
 
         # Evaluate
-        passed = True
-        if query_text == "what is CyClaw":
+        if expected_model == "local":
             passed = not needs_confirm and state.get("answer_model") == "local" and hit_count > 0
-        elif query_text == "explain CyClaw security":
-            passed = not needs_confirm and state.get("answer_model") == "local" and hit_count > 0
-        elif query_text == "who wrote the theory of general relativity and when":
+        elif expected_model == "offline-best-effort":
             passed = needs_confirm and state.get("answer_model") == "offline-best-effort"
-        elif query_text == "what are the latest features in xAI Grok 4":
-            passed = needs_confirm and state.get("needs_user_confirm") is True
-        elif query_text == "explain quantum computing decoherence":
+        else:
             passed = needs_confirm and state.get("needs_user_confirm") is True
 
         status = f"{G}PASS{N}" if passed else f"{R}FAIL{N}"
@@ -1316,10 +1293,7 @@ def main():
     else:
         log("Running in sandbox mode (stubs active)", Y)
 
-    global OLLAMA_TIER
-    OLLAMA_TIER = _probe_ollama_tier()
-    tier_desc = "real daemon/mock already answering" if OLLAMA_TIER == 2 else "this script's own mock_ollama.py"
-    log(f"Ollama realism: Tier {OLLAMA_TIER} ({tier_desc})", C)
+    log("Ollama realism: Tier 0 (in-process MockLocalLLMClient; no inference)", C)
 
     results: list[PhaseResult] = []
     phases = [
@@ -1360,38 +1334,15 @@ def main():
             if check.detail and not check.passed:
                 print(f"          -> {check.detail}")
 
-    # Query-specific summary
-    print(f"\n{C}  Query Results:{N}")
-    query_descs = [
-        ("Q1", "Vault hit (CyClaw overview)"),
-        ("Q2", "Vault hit (Security doc)"),
-        ("Q3", "Offline best-effort / Qwen (Einstein/relativity)"),
-        ("Q4", "Grok API connection-only"),
-        ("Q5", "Claude API connection-only"),
-    ]
-    for (qid, desc), pr in zip(
-        query_descs,
-        results[3].checks[:5] if len(results) > 3 else [],
-        strict=True,
-    ):
-        status = f"{G}PASS{N}" if pr.passed else f"{R}FAIL{N}"
-        print(f"    [{status}] {qid}: {desc}")
-
     print(f"\n{'='*60}")
     print("CyClaw Swarm Verification Complete.")
-    print(f"Full functionality status: {'PASS' if total_passed == total_checks else 'PARTIAL'}.")
+    print(f"In-process checks: {'PASS' if total_passed == total_checks else 'FAIL'}.")
     print(f"Total: {total_passed}/{total_checks} checks passed")
     print("")
-    print(f"RAG pipeline (5 queries): {'PASS' if results[3].passed else 'FAIL'}")
-    print(f"Triple-Gate Online API (Grok): {'PASS' if all(c.passed for c in results[4].checks[:6]) else 'FAIL'}")
-    print(f"Triple-Gate Online API (Claude): {'PASS' if all(c.passed for c in results[4].checks[6:]) else 'FAIL'}")
-    print(f"API Key Redaction (both providers): {'PASS' if results[5].passed else 'FAIL'}")
-    print(f"Due-Diligence Invariants: {'PASS' if results[6].passed else 'FAIL'}")
-    print(f"REST API surface: {'PASS' if results[7].passed else 'FAIL'}")
-    print(f"Terminal HTML contract: {'PASS' if results[8].passed else 'FAIL'}")
-    print(f"Security Invariants: {results[0].passed_count}/{len(results[0].checks)} passed")
-    tier_note = "real daemon/mock already up" if OLLAMA_TIER == 2 else "own mock_ollama.py needed"
-    print(f"Ollama realism tier: {OLLAMA_TIER} ({tier_note})")
+    # Phase names remain attached to their results when phases change order.
+    for phase_result in results:
+        print(f"{phase_result.name}: {'PASS' if phase_result.passed else 'FAIL'}")
+    print(f"Ollama realism tier: {OLLAMA_TIER} (in-process mock)")
     print(f"{'='*60}")
 
     report = {

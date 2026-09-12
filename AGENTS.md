@@ -133,7 +133,7 @@ Each skill lives at `.codex/skills/<directory>/SKILL.md` and has
 | `otel-hardening` | Telemetry suppression and process-boundary checks |
 | `cyclaw-run-cyclaw` | Setup, indexing, server startup, and verification |
 | `cyclaw-sandbox-test` | Isolated mock gateway/API smoke |
-| `Cyclaw-Sandbox` (`$cyclaw-sandbox`) | Explicit full sandbox/platform/browser verification |
+| `Cyclaw-Sandbox` (`$cyclaw-sandbox`) | Explicit full RAG/gateway/terminal, optional CLI, platform and browser verification |
 | `cyclaw-command-status` | Read-only environment/readiness checks |
 | `cyclaw-command-run` | Existing-runtime smoke checks |
 | `cyclaw-command-audit` | Privacy-safe audit/metrics summaries |

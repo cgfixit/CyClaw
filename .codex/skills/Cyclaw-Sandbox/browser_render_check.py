@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the two CyClaw consoles in isolated browser contexts.
+"""Render the CyClaw terminal in isolated browser contexts.
 
 This is an optional browser lane. It requires the Playwright Python package and
 an installed Chromium browser. It never contacts an external provider.
@@ -11,15 +11,10 @@ from pathlib import Path
 from typing import Any
 
 
-def _exercise(page: Any, name: str) -> None:
-    if name == "terminal":
-        page.locator("#queryInput").fill("what is CyClaw")
-        page.locator("#sendBtn").click()
-        page.locator("#results").wait_for(state="visible", timeout=15_000)
-    else:
-        page.locator("#input").fill("/status")
-        page.locator("#send").click()
-        page.locator("#stream").wait_for(state="visible", timeout=10_000)
+def _exercise(page: Any) -> None:
+    page.locator("#queryInput").fill("what is CyClaw")
+    page.locator("#sendBtn").click()
+    page.locator("#results").wait_for(state="visible", timeout=15_000)
 
 
 def _render(page: Any, name: str, url: str, out: Path, mobile: bool, exercise: bool) -> list[str]:
@@ -46,7 +41,7 @@ def _render(page: Any, name: str, url: str, out: Path, mobile: bool, exercise: b
         if not page.locator("body").inner_text().strip():
             failures.append(f"{name}: body rendered empty")
         if exercise:
-            _exercise(page, name)
+            _exercise(page)
     except Exception as exc:
         failures.append(f"{name}: browser flow failed: {type(exc).__name__}: {exc}")
     suffix = "mobile" if mobile else "desktop"

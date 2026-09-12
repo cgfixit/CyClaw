@@ -1,305 +1,197 @@
 ---
 name: cyclaw-sandbox
-description: Comprehensive, mock-safe CyClaw sandbox verification against current origin/main. Use when asked to verify or test CyClaw, its RAG graph, terminal console, REST endpoints, audit logs, installers, platform vault behavior, CI, unit/integration coverage, or browser-rendered screenshots.
+description: Run full, evidence-backed CyClaw sandbox verification for a baseline or exact PR head, covering RAG, gateway/terminal, security contracts, installers, native platforms, and CI. Use for an explicit full sandbox audit; use the narrower runtime skill for a quick smoke.
 metadata:
-  short-description: Full current-main CyClaw sandbox verification
+  short-description: Full current-source CyClaw sandbox verification
   tailored-for: "codex"
 ---
 
 # CyClaw Sandbox
 
-This Codex skill mirrors the runnable resources in the Claude
-`.claude/skills/Cyclaw-Sandbox/` bundle under `.codex/skills/Cyclaw-Sandbox/`.
-The copied runners are kept in that directory: `run_full_verification.py`,
-`gate_runtime_check.py`, `terminal_emulation.py`, `test_terminal_consoles.py`,
-`verify.sh`, `smoke.sh`, `windows-smoke.ps1`, `macos-smoke.sh`,
-`mock_ollama.py`, and the specifications. Invoke this skill as
-`/cyclaw-sandbox`; it is explicit-only and does not replace Claude's skill.
+Invoke as `$cyclaw-sandbox` (or `/cyclaw-sandbox` where slash skills are
+supported). Preserve the historical directory spelling `Cyclaw-Sandbox` and
+its explicit-only invocation policy. This is the Codex workflow; the Claude
+bundle is `.claude/skills/CyClaw-Sandbox/` (capital **C** in **Claw**).
 
-The goal is an evidence-backed sandbox report, not a claim that one host proves
-all platforms. Pin every result to the actual tested baseline or PR-head SHA and label each
-check `PASS`, `FAIL`, `SKIP`, or `NOT RUN` with the command and reason.
+## Current scope
 
-## Safety and authority
+Reconciled against `3d9137542546e196ea939f0009b794b09f8d4553` on 2026-09-12.
+Refresh the source before each run; this revision is evidence, not a pin to keep.
 
-1. Fetch `origin/main` before a baseline audit. Use a detached worktree/clone
-   of main for baseline claims, or of the exact PR head for fix verification.
-   Never let a runner switch the candidate to main. Set `CYCLAW_REPO` to the
-   disposable checkout and `CYCLAW_SKIP_ENSURE=1` for the Python driver;
-   `_ensure_repo` otherwise performs checkout/pull.
-2. Isolate `CYCLAW_HOME`, `XDG_CONFIG_HOME`, `HOME`-equivalent temp state,
-   `index/`, `logs/`, and server ports. Preserve committed
-   `data/personality/soul.md`; do not expose corpus contents or raw audit lines.
-3. Set only non-secret dummy values for local checks (`GROK_API_KEY=dummy` and
-   a generated ephemeral `CYCLAW_API_KEY`). Never use or print real Grok,
-   Anthropic, GitHub, Telegram, Ollama, or Keychain credentials.
-4. External provider checks must use mock HTTP or connection-shape tests. Do
-   not spend real provider tokens and do not call `curl | sh` installers.
-5. Never weaken a security invariant, enable agentic writes, bind off loopback,
-   or rewrite a user's checkout to make a check pass.
-6. A Windows host can run the Python and PowerShell lanes but cannot prove a
-   native macOS install, APFS behavior, Keychain, launchd, or Apple Silicon
-   Ollama. Use native macOS CI or a real macOS sandbox for those claims and
-   report local simulation separately.
+The Python coding console was removed in `eb5a855f` (#1367). Do not start
+`harness.server`, require port 8790, request `static/harness.html`, or test the
+removed `/api/keys`, `/api/web`, `/api/memory`, `/api/tools`, `/api/skills`,
+`/api/chat`, session/cancel or harness agent routes. The `cyclaw-harness`
+entry point, harness config block, launch targets, and `test_harness*` suite
+are gone. The older static extractor (`static/extractor.html` and
+`static/extractor.js`) was also removed; do not restore it for verification.
 
-## Current-main inspection
+What remains must still be covered:
 
-Record the current SHA, Python version, package/runtime availability, and live
-configuration before running tests. Verify rather than copy these values:
+- `gate.py` with `gate_ops.py`, `gate_auth.py`, and `gate_memory.py`;
+  `static/terminal.html`, `static/terminal.js`, and `static/auth_admin.js`.
+- RAG graph, retrieval, model clients, soul, auth, optional memory/export,
+  audit, spend, Numbat and sequence analysis; retrieval-only MCP over stdio.
+  The optional Unslop bridge remains a log-only agentic prose-quality check.
+- Out-of-band connectors and channels, installers and OS glue. `agentic/`
+  and its governed `real-repo-run` CLI remain. `agentic/harness_optimizer/` is
+  retained optimizer code: its fixture loop is retired, while governance and
+  model-adapter modules still serve the real-repo CLI. Its `mcp/` directory
+  contains Python workspace tools, not an MCP server.
+- The retired DeepAgents builder still has code/tests/CI. Distinguish that
+  compatibility lane from the live `real_repo_loop.py` consumer; do not
+  silently delete either because the browser console was removed.
 
-- `config.yaml`: `app.mode`, loopback `api.host`/`port`, local `trusted_hosts`, local model and
-  `fallback` model, provider enablement, retrieval `rrf_k` and `min_score`,
-  auth/memory/agentic/guardrails/fsconnect/sqlconnect/sync/Telegram/OpenTweet
-  switches, and Numbat.
-- `graph.py`: count live `graph.add_node` calls (current main is expected to
-  have 12, including `pre_action_hook_grok` and `pre_action_hook_claude`),
-  confirm `retrieve` is entry, policy routers are conditional edges, and every
-  path converges at `audit_logger`. Both local answer nodes must preserve typed
-  malformed-URL errors, default loopback trust, and explicit trusted-host access.
-- `gate.py`, `gate_auth.py`, `gate_memory.py`, `gate_ops.py`, and
-  `static/terminal.html`:
-  derive the actual route table and browser fetch calls instead of assuming
-  the copied checklist is current.
-- `pyproject.toml`, `requirements*.txt`, `constraints.txt`, `environment.yml`,
-  `Dockerfile`, and `.github/workflows/*.yml`: derive the install profiles,
-  CI commands, supported Python range, and platform exceptions.
+Use [test-specifications.md](test-specifications.md) for the source/test map,
+current trust boundaries, and platform acceptance. `NEW_SKILL.md` is only a
+redirect. `sandbox-findings-report.md` is an unchanged historical Windows
+report for `57e052ed`; none of its PASS counts describe today's checkout.
 
-## Full verification ladder
+## Guardrails
 
-Run the ladder in order. The bundled `run_full_verification.py` is the
-in-process/mock driver; `verify.sh` is the CI-shaped lifecycle driver. They
-complement the focused checks below and do not make browser, native-platform,
-or live optional-service claims by themselves. Read runner setup/cleanup before
-execution: `verify.sh` provisions a venv and mutates sandbox files, and the Python
-driver supplies dependency stubs. A stubbed phase does not prove real package
-compatibility. Use a unique disposable venv path, not an existing user venv.
-`NEW_SKILL.md` and `sandbox-findings-report.md` are historical records; their
-old PASS results do not validate the current checkout.
+- Read `AGENTS.md`, `CLAUDE.md`, `INVARIANTS.md`, `SECURITY.md`, and
+  `docs/THREAT_MODEL.md`. Preserve retrieval-first entry, topology policy,
+  all three external gates, audit convergence, governed soul writes, and I6.
+- I6 is direct-import isolation. The ops shim uses subprocesses; enabled
+  guardrails cross a bridge **in process**, and memory is in process too.
+  Neither I6 nor telemetry suppression is an OS or network sandbox.
+- Use a disposable checkout, synthetic corpus, unique ports, temp state and
+  dummy provider credentials. Clear inherited real credentials/DB DSNs in the
+  child environment. Inspect every effective storage path: `CYCLAW_HOME`
+  alone does not relocate repo-relative corpus, indexes, soul, logs or DBs.
+  Keep the operator's checkout, soul, Keychain and existing services intact.
+- Never reuse an unknown listener as a mock. Tie readiness to the child PID,
+  checkout, port and expected mock response. Stop only processes this run owns.
+- No real cloud calls, paid evaluation, SQL writes, agentic publication,
+  connector upload or credential-store mutation in a mock verification run.
+  An armed writer is not authorization. Use isolated fixtures for mutations.
+- Record `PASS`, `FAIL`, `SKIP`, or `NOT RUN` per lane with command, SHA,
+  environment and reason. A skip or stub is not a runtime pass. Reports contain
+  aggregate/redacted evidence, never private corpus, raw logs or credentials.
 
-### 0. Fresh baseline and inventory
+## Verification workflow
 
-```powershell
-git fetch origin main:refs/remotes/origin/main
-git rev-parse origin/main
-python --version
-python -c "import sys; print(sys.version)"
-```
+1. **Pin the candidate and inspect prerequisites.** From the selected checkout:
 
-Use `git worktree add --detach <temp-worktree> origin/main` or an equivalent
-fresh clone, then run all commands from that checkout. Record the exact SHA,
-not just the branch name.
+   ```bash
+   git status --short --branch
+   git fetch origin main
+   git rev-parse origin/main
+   python3.12 --version
+   SANDBOX_ROOT=$(mktemp -d)
+   git worktree add --detach "$SANDBOX_ROOT/repo" origin/main
+   ```
 
-### 1. Three installation profiles and parity
+   For a PR, detach at its fetched exact head instead. Run subsequent commands
+   from that disposable checkout with its selected Python 3.12 environment.
+   Record source SHA, config switches, package availability and OS. Do not let
+   any runner switch a candidate to main. In PowerShell use `py -3.12` and a
+   uniquely created temporary directory for the equivalent commands.
 
-Verify the three documented installation methods in isolated temp homes. The
-method names are deliberately distinct:
+2. **Static baseline and installation.** Run before runtime testing:
 
-1. **Manual/core profile:** Python 3.12 venv, platform-correct Torch first,
-   then the repository requirements/test profile with `constraints.txt`,
-   followed by `python -m retrieval.indexer` and the two `python -m` servers.
-2. **Installer-only profile:** `macos/install-cyclaw.sh` on native macOS or
-   `powershell/Install-CyClaw.ps1` on Windows, using skip-dependency flags in a
-   sandbox when needed. Verify home/venv/shim/profile layout and fail-closed
-   path validation without deleting an existing user home.
-3. **One-shot clone profile:** native macOS/Linux
-   `macos/setup-from-clone.sh` (or `macos/setup-cyclaw.sh` entry point), with
-   noninteractive skip flags for a test sandbox. Verify it chains the
-   installer/key bootstrap/index/server lifecycle and does not inline secrets.
+   ```bash
+   python .claude/skills/invariant-guard/check_invariants.py
+   python .claude/skills/dep-guard/check_deps.py --strict
+   python .claude/skills/doc-sync/doc_sync.py
+   ```
 
-For every profile compare only non-secret facts: Python major/minor, package
-pins, entry-point/module availability, config/template presence, expected
-`~/.CyClaw`-style layout, loopback ports, index creation, and the same REST
-smoke result. On Windows, validate the PowerShell 5.1 parser contract and
-PowerShell smoke; on macOS, validate plain `torch==2.13.0` and removal of
-Linux `+cpu`/PyTorch-index lines from temporary manifests. Do not call a
-Windows or macOS profile PASS from a different operating system; mark the
-native lane `SKIP` and cite CI/native evidence instead. Include dotenv mode
-600/400, absolute BSD stat under a GNU-shadowed PATH, failed HOME sourcing
-falling back to the repo file, and preserved shell allexport state.
+   The invariant/dependency guards use stdlib; doc-sync needs PyYAML. Resolve
+   missing prerequisites separately from failing assertions. Follow
+   `setup-guide.md`, `requirements*.txt`, `constraints.txt`, `environment.yml`
+   and the actual workflows for Python/Torch pins. Compare manual, native
+   installer and one-shot clone profiles; include conda and Docker when
+   reporting all supported install surfaces. Use temp filtered manifests for
+   macOS's plain Torch wheel. Never run `FULL_DEPS=1` as a replacement for the
+   constrained platform install, and never delete an existing venv to rebuild it.
 
-### 2. Static quality, unit, integration, and security gates
+3. **Application tests and coverage.** With dependencies installed:
 
-Use the commands actually present in current CI. At minimum, when dependencies
-are installed:
+   ```bash
+   GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short
+   GROK_API_KEY=dummy python -m tests.ci_rag_smoke
+   python -m ruff check --select F,B,S .
+   ```
 
-```bash
-python -m pytest tests/ -q --tb=short
-python -m tests.ci_rag_smoke
-ruff check --select E,F,I,B,C4,UP,S .
-python .claude/skills/invariant-guard/check_invariants.py --repo-root .
-```
+   Also run the focused groups in [test-specifications.md](test-specifications.md).
+   Copy coverage flags from current `.github/workflows/ci.yml`; bare pytest
+   does not exercise the coverage gate. `lint.yml` owns blocking F/B/S and
+   advisory broader Ruff/WPS. Include actionlint/Zizmor and the applicable
+   service/platform workflow jobs. The LoRA kit's tests live outside `tests/`.
 
-Also run the relevant focused groups, not only the aggregate suite:
+4. **In-process verification.** After preparing the disposable checkout and
+   child environment, leave `FULL_DEPS` unset and run:
 
-- `test_graph.py`, `test_graph_outcomes.py`, `test_hybrid_search.py`,
-  `test_rag_integration.py`, `test_indexer.py`, and `test_llm_client_ollama.py`;
-- `test_due_diligence_invariants.py`, `test_security.py`, `test_sanitizer.py`,
-  `test_logger.py`, `test_metrics.py`, `test_numbat_emitter.py`,
-  `test_numbat_audit_projection.py`, and `test_sequence_detect.py`;
-- all `test_terminal*`, `test_gate*`, `test_gate_auth*`,
-  `test_memory*`, `test_auth*`, `test_mcp*`, and `test_telemetry_kill.py`;
-- installer and OS glue tests: `test_readme_install_contract.py`,
-  `test_installer_python_contract.py`, `test_setup_from_clone.py`,
-  `test_setup_cyclaw_keys.py`, `test_cyclaw_keychain_scripts.py`,
-  `test_powershell_windows_parity.py`, `test_macos_scripts.py`,
-  `test_macos_smoke.py`, `test_macos_fsconnect_setup.py`,
-  `test_fsconnect_macos_policy.py`, `test_fsconnect_pathsafe_windows.py`,
-  `test_generate_service_plist.py`, and `test_generate_service_task.py`;
-- optional integration groups only when their isolated dependency/service exists:
-  guardrails, Postgres/pgvector, Deep Agents, Telegram, OpenTweet, sync, and
-  the opt-in groundedness evaluator.
+   ```bash
+   CYCLAW_REPO="$PWD" CYCLAW_SKIP_ENSURE=1 GROK_API_KEY=dummy \
+     CYCLAW_RESULTS_FILE="$SANDBOX_ROOT/query-results.json" \
+     python .codex/skills/Cyclaw-Sandbox/run_full_verification.py
+   ```
 
-Run workflow-specific checks from `.github/workflows/ci.yml` too: actionlint /
-Zizmor, coverage, installer adversarial paths, mock-Ollama socket tests,
-real-repo-run smoke, deepagents, Postgres, and the platform live-smoke jobs.
-A local green result is not a substitute for GitHub Actions at the current
-commit; record CI run/check URLs and terminal states when available.
+   This runner writes synthetic corpus/index/log/report files. It stubs heavy
+   dependencies and uses `MockLocalLLMClient`: always **Tier 0**. Its manual
+   five-query node walkthrough is distinct from compiled-graph tests. Read
+   `verification_report.json` phase results, not an old aggregate count.
+   Socket mocks and real inference require separate lanes.
 
-### 3. RAG, local vault, and cross-platform scoring
+5. **Gateway, browser and platforms.** Rebuild the synthetic index with the real
+   indexer (`python -m retrieval.indexer`) and the selected cached embedding
+   model before starting the gateway. Tier 0 overwrites BM25 and only creates
+   an in-memory Chroma collection; it cannot supply the real gateway's index.
+   Keep its results before rebuilding, and mark this lane `SKIP` if the real
+   dependencies/model cache are unavailable. Start an owned loopback mock and
+   gateway with dummy auth and synthetic data. Derive routes from all four gateway
+   modules and browser calls from both JS files. Follow the concrete checks in
+   [test-specifications.md](test-specifications.md), including index/auth/memory
+   surfaces and removed-console absence. Use `--no-proxy-headers` when starting
+   uvicorn directly. Direct uvicorn does not execute `gate.main()`'s TLS/bind
+   policy; verify the actual startup path on each platform.
 
-Use a sanitized fixture corpus with identical files, chunking config, embedding
-model/fingerprint, `top_k` values, and `rrf_k` on each platform. Verify:
+   ```bash
+   python .codex/skills/Cyclaw-Sandbox/gate_runtime_check.py
+   python .codex/skills/Cyclaw-Sandbox/terminal_emulation.py http://127.0.0.1:8787
+   python .codex/skills/Cyclaw-Sandbox/browser_render_check.py \
+     --gateway http://127.0.0.1:8787/ --out "$SANDBOX_ROOT/screenshots"
+   ```
 
-- the indexer rejects corpus escapes and writes an atomic BM25 JSON index;
-- semantic and BM25 legs return the expected fixture documents;
-- RRF follows `1 / (rrf_k + rank)` and a document present in both legs ranks
-  above a single-leg hit at the same effective position;
-- `top_score` is compared to the live `retrieval.min_score` as an RRF score,
-  never as cosine similarity;
-- high-score vault hits use the local path and sources are chunks actually
-  placed in the prompt; low-score misses pause at `user_gate`;
-- a Windows and a macOS/Linux run produce the same deterministic rank/order
-  for the same fixture and fingerprint. Differences caused by model download,
-  filesystem permissions, Apple Silicon embedding behavior, or a changed
-  fingerprint are failures to investigate, not silently normalized.
+   Substitute the owned gateway port. The browser helper captures desktop and
+   mobile terminal views and submits one query. Supplement it with readiness,
+   answer-completion, panel/auth/error and overflow assertions; visible
+   `#results` alone is not proof an answer arrived. Missing Playwright returns
+   2 (`SKIP`); a browser failure returns nonzero (`FAIL`). Inspect screenshots.
+   Native Windows/macOS, model inference and hosted CI require their own
+   evidence. Mark unavailable lanes explicitly; never infer them from mocks.
 
-Use `test_hybrid_search.py`, `test_rag_integration.py`, `test_indexer.py`, and
-`tests/ci_rag_smoke.py`. For filesystem-vault policy, add the platform-specific
-`pathsafe` tests and real native macOS tests only on Darwin. Do not claim that
-Linux simulation proves APFS metadata, `/Volumes` policy, Keychain, or native
-Windows ACL behavior.
+6. **Report and clean up.** Record the exact tested SHA, full commands/results,
+   install profile and platform, graph/consent/audit checks, fixture RRF parity,
+   REST/browser evidence, optional-layer and native skips, and current-head CI
+   URLs when checked. Report remaining failures and their scope. Preserve
+   privacy-safe artifacts outside the candidate; remove only owned temporary
+   processes/worktrees. A full audit request does not itself authorize a PR.
 
-### 4. Five-query graph and provider gates
+## Gotchas in bundled runners
 
-Run the bundled mock driver with CYCLAW_REPO and CYCLAW_SKIP_ENSURE=1 when using the prepared detached checkout, then inspect the resulting report. It must cover:
+- `run_full_verification.py` defaults to a shared temp clone and checkout/pull
+  unless `CYCLAW_REPO` and `CYCLAW_SKIP_ENSURE=1` are supplied. Its dependency
+  stubs and heuristic corpus do not prove real package or embedding parity.
+- `verify.sh` is a legacy Linux lifecycle helper: it removes `VENV_DIR` during
+  provisioning, uses fixed report paths, downloads NLTK data and temporarily
+  rewrites the sandbox soul. `smoke.sh` also builds/writes data. Read their
+  setup/cleanup and isolate them before use; they are not read-only checks or
+  proof the whole product works. Prefer current CI commands for install proof.
+- `test_terminal_consoles.py` issues authenticated ops, including sync dry-run
+  and SQL probes. Use disabled/mocked connectors and a disposable database;
+  do not point it at the operator's service. `terminal_emulation.py` needs
+  httpx; its missing-dependency zero exit is a `SKIP`, not a pass.
+- `macos-smoke.sh` and `windows-smoke.ps1` cover a gateway subset (only fsconnect
+  status among ops). They do not prove all REST routes, Keychain/CredMan, APFS,
+  Windows ACLs, TLS, or real model behavior. The Windows helper uses
+  `-SkipHttpErrorCheck` and needs PowerShell 7; installer compatibility with
+  Windows PowerShell 5.1 is a separate acceptance check.
+- Do not blindly mirror historical Claude resources into this bundle. Preserve
+  shared contracts, inspect current callers, and validate any changed helper:
 
-1. two high-score vault hits through `retrieve -> route_by_score ->
-   guardrail_input -> local_llm -> guardrail_output -> audit_logger`;
-2. a vault miss denied online through `offline_best_effort`;
-3. Grok connection shape with `hybrid + enabled + key + fresh confirmation`;
-4. Claude connection shape with the same gates and Anthropic headers.
-
-Confirm unavailable providers and `confirmed is None` fail closed, the offline
-branch is input-railed, external prompts never include the soul preamble,
-and external `answer_sources` remains `[]`. Never use live keys.
-
-### 5. Audit and observability integrity
-
-Create an isolated `logs/audit.jsonl`, drive local, denied, blocked,
-external-unavailable, and operator actions, then verify:
-
-- every graph route reaches `audit_logger` exactly once;
-- records contain hashed queries and redacted fields, never plaintext queries,
-  corpus passages, API keys, or raw authorization values;
-- `metrics.py` summarizes the expected model/escalation counts and does not
-  confuse `claude` with local output;
-- the optional Numbat projection is fail-soft, uses the separate NDJSON stream,
-  and preserves the authoritative audit log when projection fails;
-- spend/sequence outputs, when enabled in the current tree, remain separate,
-  privacy-safe, and joined only by the documented hash/ID contract.
-
-Report the paths and aggregate counts only. Do not paste raw log records into
-reports or screenshots.
-
-### 6. Gateway and terminal REST surface
-
-Start `mock_ollama.py`, the loopback gateway, and an isolated index/home. Run
-`gate_runtime_check.py`, `terminal_emulation.py`,
-`test_terminal_consoles.py`, and the platform smoke script available on the
-host. Derive and probe every current route, including:
-
-- `/`, `/health`, `/query`, `/audit/summary`;
-- `/soul`, `/soul/propose`, `/soul/apply`, `/soul/reload`;
-- `/ops/sync`, `/ops/agentic`, `/ops/fsconnect`, `/ops/sqlconnect`;
-- auth and memory routes when their current config/test profile enables them.
-
-Auth Stage 3 protects `/query` when enabled; same-origin applies always. For
-key-gated routes, verify the configured optional-key peer/proxy/origin bypass
-separately from session/device-token authentication. Never infer that keyless
-loopback success proves the route is universally unauthenticated.
-
-Check status codes for missing keys, missing reasons, invalid origins, rate
-limits, schema errors, disabled optional layers, and successful read-only
-operations. Never execute a real agentic write, SQL mutation, filesystem
-escape, sync upload, or external-provider request in the sandbox.
-
-### 7. Browser rendering and screenshots
-
-HTTP emulation and HTML string contracts are not full browser verification.
-When Playwright or an equivalent browser is available, run it against the
-isolated mock-backed gateway:
-
-1. Load `http://127.0.0.1:8787/` in Chromium;
-   wait for network idle and the application readiness signal.
-2. Capture desktop and narrow/mobile viewport screenshots of the terminal,
-   including each visible console/pane, status/error banners, and
-   responsive overflow behavior. Save only to an ignored temp/report folder.
-3. Exercise the browser's actual click/input/fetch flows for query, health
-   refresh, and soul/ops auth errors. Assert no uncaught page errors, failed required
-   requests, console errors, or unexpected navigation.
-4. Inspect the rendered DOM for the current security contracts: no model or
-   registry content is inserted through unsafe `innerHTML`, CSP/frame headers
-   are present, API keys are masked, and screenshots contain no real secret,
-   private corpus text, or raw audit record.
-5. Test at least one desktop and one mobile viewport. If Playwright is not
-   installed, run the HTML contract plus HTTP emulations and report browser
-   rendering as `SKIP`, never as `PASS`.
-
-A browser screenshot is evidence of presentation and browser wiring only; it
-does not prove native macOS/Windows behavior, LLM quality, CI, or security
-invariants by itself. Review each screenshot before publication and include
-only sanitized images in a PR/report.
-
-### 8. Platform live smoke and OS glue
-
-On native Windows run `windows-smoke.ps1` with the mock provider and isolated
-homes. On native macOS run `macos-smoke.sh` with the same contract. Both must
-cover the gateway live HTTP surface and be compared for endpoint
-parity. On Linux, run static/platform simulation checks only and label the live
-native-only lanes `SKIP`.
-
-Also verify platform installers, launchers, Keychain/CredMan wrappers,
-launchd/Task Scheduler generators, scheduler backend selection, and refusal of
-cross-platform invocation. Secrets must come from a protected store or
-process-local environment and never appear in argv, shell history, plist/task
-XML, screenshots, or logs.
-
-### 9. Report and evidence ledger
-
-Use this compact final record, expanding it with exact commands and failures:
-
-```text
-CyClaw sandbox
-HEAD: <tested SHA; baseline or PR head>
-Python: <version>
-Install profiles: manual <P/F/S>, installer <P/F/S>, one-shot <P/F/S>
-Graph nodes: <live add_node count>
-Invariant guard: <passed>/<total>
-Unit/integration suite: <passed/failed/skipped>
-RAG 5-query: <P/F/S>
-Vault RRF parity: <P/F/S; platform/evidence noted>
-Triple-gate providers (mocked): <P/F/S>
-Audit + metrics + Numbat/sequence: <P/F/S/SKIP by surface>
-Gateway/terminal REST: <P/F/S>
-Browser rendering/screenshots: <P/F/S; tool + viewports>
-Windows native lane: <P/F/S>
-macOS native lane: <P/F/S>
-CI current-head checks: <P/F/S; terminal state>
-Known residuals: <reconfirmed list>
-Recommendations: <none or evidence-backed items>
-```
-
-Keep an evidence ledger with command, exact result, environment, and privacy
-classification. A missing optional service is `SKIP`; an assertion failure is
-`FAIL`; an unavailable browser is not a rendering pass. Never publish raw
-sandbox output, credentials, private corpus files, or unreviewed screenshots.
+  ```bash
+  python -m unittest discover -s .codex/skills/Cyclaw-Sandbox \
+    -p test_verification_contract.py
+  ```
