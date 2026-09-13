@@ -132,6 +132,18 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
     assert load_idx < text.index(warn)
 
 
+def test_invoke_fallback_requires_python_312() -> None:
+    """A missing %USERPROFILE%\\.CyClaw\\venv must not launch under any python."""
+    text = (_PS / "Invoke-CyClaw.ps1").read_text(encoding="utf-8")
+    fallback = text.split("if (-not (Test-Path $VenvPy)) {", 1)[1]
+    fallback = fallback.split("$env:CYCLAW_HOME = $Home_", 1)[0]
+    assert "py -3.12" in fallback
+    assert 'print(sys.executable)' in fallback
+    assert '$v -eq "3.12"' in fallback
+    assert "no Python 3.12.x on PATH" in fallback
+    assert "(Get-Command python -ErrorAction SilentlyContinue).Source" not in fallback
+
+
 def test_invoke_starts_gate_through_main_not_bare_uvicorn() -> None:
     """Only gate.main() -> _serve() applies the loopback bind guard, api.tls
     certfile/keyfile, and proxy_headers=False; a bare `uvicorn gate:app` would

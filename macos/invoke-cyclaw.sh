@@ -76,9 +76,20 @@ if [ ! -f "$REPO_DIR/gate.py" ]; then
   exit 1
 fi
 if [ ! -x "$VENV_PY" ]; then
-  VENV_PY="$(command -v python3 || true)"
-  if [ -z "$VENV_PY" ]; then
-    echo "No venv at $HOME_DIR/venv and no python3 on PATH. Re-run install-cyclaw.sh." >&2
+  # Same 3.12 probe as install-cyclaw.sh. Bare `python3` on macOS is often
+  # 3.11 (Xcode CLT / unversioned Homebrew), and CyClaw requires 3.12.
+  VENV_PY=""
+  for candidate in python3.12 python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+      if [ "$ver" = "3.12" ]; then
+        VENV_PY="$(command -v "$candidate")"
+        break
+      fi
+    fi
+  done
+  if [ -z "$VENV_PY" ] || [ ! -x "$VENV_PY" ]; then
+    echo "No venv at $HOME_DIR/venv and no Python 3.12.x on PATH. Re-run install-cyclaw.sh." >&2
     exit 1
   fi
 fi
