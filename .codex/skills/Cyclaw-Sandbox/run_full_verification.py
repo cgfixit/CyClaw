@@ -550,19 +550,16 @@ def phase_build_corpus() -> PhaseResult:
     phase.checks.append(Check("corpus_files_written", True))
 
     chunks = []
-    # tokenized is paired with chunks in the Chroma zip below; initialize it
-    # here so a BM25 failure cannot UnboundLocalError that loop.
+    for fname in files:
+        text = (corpus_dir / fname).read_text(encoding="utf-8")
+        chunks.append({"text": text, "source": fname, "id": len(chunks)})
     tokenized = []
 
     # Build BM25 index using the same public tokenizer as retrieval/indexer.py.
     try:
         from retrieval.stemmer import tokenize_and_stem
 
-        tokenized = []
-        for fname in files:
-            text = (corpus_dir / fname).read_text(encoding="utf-8")
-            chunks.append({"text": text, "source": fname, "id": len(chunks)})
-            tokenized.append(tokenize_and_stem(text))
+        tokenized = [tokenize_and_stem(chunk["text"]) for chunk in chunks]
 
         index_dir = Path("index")
         index_dir.mkdir(exist_ok=True)
@@ -590,10 +587,13 @@ def phase_build_corpus() -> PhaseResult:
     try:
         encoder = MockSentenceTransformer()
         chroma_client = MockChromaClient()
+        if not chunks:
+            raise ValueError("no chunks to index")
         Path("index/chroma_db").mkdir(parents=True, exist_ok=True)
         collection = chroma_client.get_or_create_collection("cyclaw_kb")
 
-        for chunk, tokens in zip(chunks, tokenized, strict=True):
+        for i, chunk in enumerate(chunks):
+            tokens = tokenized[i] if i < len(tokenized) else []
             emb = encoder.encode([chunk["text"]])[0].tolist()
             collection.add(
                 embeddings=[emb],

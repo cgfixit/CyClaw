@@ -521,23 +521,26 @@ def phase_build_corpus() -> PhaseResult:
 
     phase.checks.append(Check("corpus_files_written", True))
 
-    # Build BM25 index
-    # chunks is initialized here so a BM25 import failure cannot leave the
-    # later Chroma loop reading an unbound name (reproduced 2026-09-13).
+    # Chunk text does not need rank_bm25. Build it first so a missing BM25
+    # dep cannot leave Chroma with an empty list and a false-positive pass
+    # (Codex review on #1401).
     chunks = []
+    for fname in files:
+        text = (corpus_dir / fname).read_text()
+        chunks.append({"text": text, "source": fname, "id": len(chunks)})
+
+    # Build BM25 index
     try:
         from rank_bm25 import BM25Okapi
         from retrieval.stemmer import tokenize_and_stem
 
         tokenized = []
-        for fname in files:
-            text = (corpus_dir / fname).read_text()
-            chunks.append({"text": text, "source": fname, "id": len(chunks)})
+        for chunk in chunks:
             # Same call retrieval/indexer.py and retrieval/hybrid_search.py make
             # when tokenizing real corpus/query text -- PorterStemmer is not a
             # public symbol here (removed), and hand-stemming would tokenize
             # this mock index differently from how a real query is tokenized.
-            tokenized.append(tokenize_and_stem(text))
+            tokenized.append(tokenize_and_stem(chunk["text"]))
 
         import json
         index_dir = Path("index")
@@ -557,6 +560,8 @@ def phase_build_corpus() -> PhaseResult:
 
     # Build mock ChromaDB index
     try:
+        if not chunks:
+            raise ValueError("no chunks to index")
         encoder = MockSentenceTransformer()
         chroma_client = MockChromaClient()
         collection = chroma_client.get_or_create_collection("cyclaw_kb")
