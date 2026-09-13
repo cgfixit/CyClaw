@@ -155,7 +155,7 @@ fi
 if [ ! -f index/bm25.json ]; then
   "$VPY" -m retrieval.indexer > /tmp/cyclaw-verify-index.txt 2>&1 || true
 fi
-"$VPY" -m uvicorn gate:app --host 127.0.0.1 --port "$PORT" > "$SERVER_LOG" 2>&1 &  # DevSkim: ignore DS162092 — loopback-only by design
+"$VPY" -m uvicorn gate:app --host 127.0.0.1 --port "$PORT" --no-proxy-headers > "$SERVER_LOG" 2>&1 &  # DevSkim: ignore DS162092 — loopback-only by design
 SERVER_PID=$!
 
 UP=0

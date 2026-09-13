@@ -550,6 +550,9 @@ def phase_build_corpus() -> PhaseResult:
     phase.checks.append(Check("corpus_files_written", True))
 
     chunks = []
+    # tokenized is paired with chunks in the Chroma zip below; initialize it
+    # here so a BM25 failure cannot UnboundLocalError that loop.
+    tokenized = []
 
     # Build BM25 index using the same public tokenizer as retrieval/indexer.py.
     try:
