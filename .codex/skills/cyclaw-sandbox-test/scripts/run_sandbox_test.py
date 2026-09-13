@@ -540,7 +540,7 @@ def main() -> int:
 
         server = _start_process(
             "uvicorn",
-            [str(py), "-m", "uvicorn", "gate:app", "--host", "127.0.0.1", "--port", "8787", "--log-level", "warning"],
+            [str(py), "-m", "uvicorn", "gate:app", "--host", "127.0.0.1", "--port", "8787", "--no-proxy-headers", "--log-level", "warning"],
             repo,
             env,
             server_log,

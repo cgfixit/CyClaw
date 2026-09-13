@@ -1621,6 +1621,40 @@ class TestProxyHeaderTrust:
         assert any("--no-proxy-headers" in ln for ln in cmd_lines), \
             "Dockerfile CMD must pass --no-proxy-headers to match gate._serve"
 
+    def test_ci_and_sandbox_uvicorn_spawns_disable_proxy_headers(self):
+        """Live uvicorn spawners that bypass gate._serve must pass the same
+        --no-proxy-headers flag the Dockerfile and macos/invoke-cyclaw.sh already
+        pin. Without it, uvicorn trusts X-Forwarded-For from any loopback peer.
+        """
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        shell_spawns = (
+            root / ".claude" / "skills" / "CyClaw-Sandbox" / "verify.sh",
+            root / ".claude" / "skills" / "CyClaw-Sandbox" / "smoke.sh",
+            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "verify.sh",
+            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "smoke.sh",
+        )
+        for path in shell_spawns:
+            spawn = [
+                line
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if "uvicorn gate:app" in line and not line.lstrip().startswith("#")
+            ]
+            assert spawn, f"{path} no longer spawns uvicorn gate:app"
+            assert all("--no-proxy-headers" in line for line in spawn), (
+                f"{path} must pass --no-proxy-headers to match gate._serve"
+            )
+
+        ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        assert "python -m uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers" in ci
+        assert '"--no-proxy-headers"' in ci
+
+        runner = (
+            root / ".codex" / "skills" / "cyclaw-sandbox-test" / "scripts" / "run_sandbox_test.py"
+        ).read_text(encoding="utf-8")
+        assert "--no-proxy-headers" in runner
+        assert '"-m", "uvicorn", "gate:app"' in runner
+
 
 class TestLoopbackBindGuard:
     """docs/THREAT_MODEL.md scopes CyClaw as single-operator and loopback-bound,
