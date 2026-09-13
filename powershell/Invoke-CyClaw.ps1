@@ -39,9 +39,25 @@ if (-not (Test-Path (Join-Path $Repo "gate.py"))) {
     throw "CyClaw repo not found at '$Repo'. Run Install-CyClaw.ps1 first (or pass -Repo)."
 }
 if (-not (Test-Path $VenvPy)) {
-    # Fall back to system python when the venv was skipped during install.
-    $VenvPy = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if (-not $VenvPy) { throw "No venv at $Home_\venv and no python on PATH. Re-run Install-CyClaw.ps1." }
+    # Same 3.12 gate as Install-CyClaw.ps1. A generic `python` on PATH is
+    # often the Store stub or 3.11/3.13; CyClaw requires 3.12.
+    $fallback = $null
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if ($py) {
+        $exe = & py -3.12 -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $exe) { $fallback = "$exe".Trim() }
+    }
+    if (-not $fallback) {
+        $python = Get-Command python -ErrorAction SilentlyContinue
+        if ($python) {
+            $v = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $v -eq "3.12") { $fallback = $python.Source }
+        }
+    }
+    if (-not $fallback) {
+        throw "No venv at $Home_\venv and no Python 3.12.x on PATH. Re-run Install-CyClaw.ps1."
+    }
+    $VenvPy = $fallback
 }
 
 $env:CYCLAW_HOME = $Home_
