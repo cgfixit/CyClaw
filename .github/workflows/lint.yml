@@ -41,6 +41,10 @@ on:
       - 'grok/**'
       - 'codex/**'
       - 'kimi/**'
+      - 'agent/**'
+      - 'CyClaw/**'
+      - 'cyclaw/**'
+      - 'cursor/**'
   pull_request:
     branches: [main, cc]
 

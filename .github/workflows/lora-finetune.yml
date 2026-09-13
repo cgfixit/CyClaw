@@ -28,6 +28,7 @@ on:
       - 'agent/**'
       - 'CyClaw/**'
       - 'cyclaw/**'
+      - 'cursor/**'
     paths:
       - 'tools/lora_finetune/**'
       - '.github/workflows/lora-finetune.yml'
