@@ -54,6 +54,22 @@ def test_invoke_cyclaw_home_dir_matches_install_cyclaw() -> None:
     assert invoke_match.group(1) == install_match.group(1)
 
 
+def test_invoke_cyclaw_fallback_requires_python_312() -> None:
+    """A missing ~/.CyClaw/venv must not launch under a random python3.
+
+    install-cyclaw.sh already probes python3.12 then checks major.minor == 3.12.
+    The invoke fallback used to take `command -v python3` with no version gate.
+    """
+    text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
+    fallback = text.split('if [ ! -x "$VENV_PY" ]; then', 1)[1]
+    fallback = fallback.split("export CYCLAW_HOME", 1)[0]
+    assert "python3.12" in fallback
+    assert 'print(f"{sys.version_info.major}.{sys.version_info.minor}")' in fallback
+    assert '[ "$ver" = "3.12" ]' in fallback
+    assert 'command -v python3 || true' not in fallback
+    assert "no Python 3.12.x on PATH" in fallback
+
+
 def test_invoke_cyclaw_disables_uvicorn_proxy_headers() -> None:
     """The Darwin launcher stays on uvicorn so --gate-port still works, but it
     must pass --no-proxy-headers like gate._serve / the Dockerfile CMD.
