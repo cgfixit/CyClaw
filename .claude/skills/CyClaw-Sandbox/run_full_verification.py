@@ -522,11 +522,13 @@ def phase_build_corpus() -> PhaseResult:
     phase.checks.append(Check("corpus_files_written", True))
 
     # Build BM25 index
+    # chunks is initialized here so a BM25 import failure cannot leave the
+    # later Chroma loop reading an unbound name (reproduced 2026-09-13).
+    chunks = []
     try:
         from rank_bm25 import BM25Okapi
         from retrieval.stemmer import tokenize_and_stem
 
-        chunks = []
         tokenized = []
         for fname in files:
             text = (corpus_dir / fname).read_text()

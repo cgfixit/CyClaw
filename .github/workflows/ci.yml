@@ -821,7 +821,7 @@ jobs:
           MOCK_PID="$LAST_PID"
           wait_for_endpoint "mock Ollama" "http://127.0.0.1:11434/api/tags" "$MOCK_PID" || { on_failure; exit 1; }
 
-          start_process "gateway" python -m uvicorn gate:app --host 127.0.0.1 --port 8787
+          start_process "gateway" python -m uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers
           GATEWAY_PID="$LAST_PID"
           wait_for_endpoint "gateway" "http://127.0.0.1:8787/health" "$GATEWAY_PID" || { on_failure; exit 1; }
 
@@ -893,7 +893,7 @@ jobs:
             Wait-CyClawEndpoint -Name "mock Ollama" -Uri "http://127.0.0.1:11434/api/tags" -Process $mock
 
             $gateway = Start-CyClawProcess -Name "gateway" -WorkingDirectory $env:GITHUB_WORKSPACE -Arguments @(
-              "-m", "uvicorn", "gate:app", "--host", "127.0.0.1", "--port", "8787"
+              "-m", "uvicorn", "gate:app", "--host", "127.0.0.1", "--port", "8787", "--no-proxy-headers"
             )
             Wait-CyClawEndpoint -Name "gateway" -Uri "http://127.0.0.1:8787/health" -Process $gateway
 
