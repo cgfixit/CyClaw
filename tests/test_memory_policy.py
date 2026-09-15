@@ -81,3 +81,18 @@ def test_scan_skips_non_string_pattern_and_enforces_valid_sibling():
     }
     assert scan_content("please cyclaw-only-sentinel now", cfg, enforced=True)
     assert scan_content("harmless fact about coffee", cfg, enforced=True) == []
+
+
+def test_scan_skips_malformed_regex_and_warns(caplog):
+    cfg = {
+        "policy": {
+            "prompt_filter": {
+                "banned_patterns": [r"(unclosed", r"cyclaw-only-sentinel"],
+            },
+        },
+    }
+    with caplog.at_level("WARNING", logger="cyclaw.memory.policy"):
+        assert scan_content("please cyclaw-only-sentinel now", cfg, enforced=True)
+        assert scan_content("harmless fact about coffee", cfg, enforced=True) == []
+    assert any("failed to compile" in rec.message for rec in caplog.records)
+    assert "(unclosed" not in caplog.text
