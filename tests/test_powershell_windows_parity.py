@@ -119,7 +119,10 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
     assert 'Join-Path $Home_ ".env"' in text
     assert 'Join-Path $Repo ".env"' in text
     assert "Test-CyclawDotenvOwnerOnly" in text
-    assert "BUILTIN\\Users" in text
+    assert "WindowsIdentity" in text
+    assert "GetCurrent().User" in text
+    assert "SecurityIdentifier" in text
+    assert "BUILTIN\\Users" not in text
     assert "FileSystemRights]::ReadData" not in text
     assert "(R,W)" in text
     assert "refusing to source" in text

@@ -69,17 +69,23 @@ $env:CYCLAW_REPO = $Repo
 function Test-CyclawDotenvOwnerOnly([string]$Path) {
     try {
         $acl = Get-Acl -LiteralPath $Path
+        $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
     } catch {
         return $false
     }
+    if (-not $me) { return $false }
+    $allowCount = 0
     foreach ($ace in $acl.Access) {
         if ($ace.AccessControlType -ne 'Allow') { continue }
-        $id = $ace.IdentityReference.Value
-        if ($id -eq 'Everyone' -or $id -eq 'BUILTIN\Users' -or $id -eq 'NT AUTHORITY\Authenticated Users') {
+        $allowCount++
+        try {
+            $sid = $ace.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier])
+        } catch {
             return $false
         }
+        if ($sid -ne $me) { return $false }
     }
-    return $true
+    return ($allowCount -gt 0)
 }
 
 function Import-CyclawDotenv([string]$Path) {
