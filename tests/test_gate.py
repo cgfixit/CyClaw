@@ -1656,6 +1656,52 @@ class TestProxyHeaderTrust:
         assert '"-m", "uvicorn", "gate:app"' in runner
 
 
+class TestListenPort:
+    """macos/invoke-cyclaw.sh exports CYCLAW_GATE_PORT; main() must honor it
+    so Darwin can run gate.py instead of a bare uvicorn spawn."""
+
+    def test_unset_env_uses_config_port(self, monkeypatch):
+        import gate
+        monkeypatch.delenv("CYCLAW_GATE_PORT", raising=False)
+        assert gate._listen_port({"port": 8799}) == 8799
+        assert gate._listen_port({}) == 8787
+
+    def test_env_overrides_config_port(self, monkeypatch):
+        import gate
+        monkeypatch.setenv("CYCLAW_GATE_PORT", "8788")
+        assert gate._listen_port({"port": 8787}) == 8788
+
+    def test_blank_env_uses_config_port(self, monkeypatch):
+        import gate
+        monkeypatch.setenv("CYCLAW_GATE_PORT", "  ")
+        assert gate._listen_port({"port": 8791}) == 8791
+
+    @pytest.mark.parametrize("raw", ["87go", "0", "65536", "-1", "true"])
+    def test_invalid_env_returns_none(self, monkeypatch, raw):
+        import gate
+        monkeypatch.setenv("CYCLAW_GATE_PORT", raw)
+        assert gate._listen_port({"port": 8787}) is None
+
+    def test_main_invalid_env_does_not_bind(self, monkeypatch):
+        import gate
+        monkeypatch.setenv("CYCLAW_GATE_PORT", "87go")
+        monkeypatch.setattr(gate, "cfg", {"api": {"host": "127.0.0.1", "port": 8787}})
+        with patch.object(gate, "_serve") as mock_serve:
+            with patch.object(gate, "_hold_console"):
+                gate.main()
+        mock_serve.assert_not_called()
+
+    def test_main_env_port_reaches_serve(self, monkeypatch):
+        import gate
+        monkeypatch.setenv("CYCLAW_GATE_PORT", "8788")
+        monkeypatch.setattr(gate, "cfg", {"api": {"host": "127.0.0.1", "port": 8787}})
+        monkeypatch.setattr(gate, "_require_loopback_bind", lambda host: True)
+        monkeypatch.setattr(gate, "_is_port_in_use", lambda host, port: False)
+        with patch.object(gate, "_serve") as mock_serve:
+            gate.main()
+        mock_serve.assert_called_once_with("127.0.0.1", 8788)
+
+
 class TestLoopbackBindGuard:
     """docs/THREAT_MODEL.md scopes CyClaw as single-operator and loopback-bound,
     and config-guard's C4 already fails a non-loopback api.host — but C4 is a CI

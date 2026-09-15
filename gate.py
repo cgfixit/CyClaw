@@ -1781,6 +1781,27 @@ def _hold_console() -> None:
         pass
 
 
+def _listen_port(api_cfg: dict[str, Any]) -> int | None:
+    """Resolve the bind port: ``CYCLAW_GATE_PORT`` overrides ``api.port``.
+
+    Darwin ``macos/invoke-cyclaw.sh`` exports the flag/env value before exec.
+    Unset or blank keeps config. A set value must be digits in 1..65535
+    (same range as the shell's ``require_port``). Returns None on a bad
+    override so ``main`` can refuse to bind.
+    """
+    raw = os.environ.get("CYCLAW_GATE_PORT")
+    if raw is None or not str(raw).strip():
+        port = api_cfg.get("port", 8787)
+        return int(port) if isinstance(port, int) else 8787
+    text = str(raw).strip()
+    if not text.isdigit():
+        return None
+    port = int(text)
+    if port < 1 or port > 65535:
+        return None
+    return port
+
+
 def main() -> None:
     """Console entry point for ``cyclaw-server`` (see pyproject [project.scripts]).
 
@@ -1791,7 +1812,15 @@ def main() -> None:
     """
     api_cfg = cfg.get("api", {})
     host = api_cfg.get("host", "127.0.0.1")  # DevSkim: ignore DS162092 - loopback-only binding by design
-    port = api_cfg.get("port", 8787)
+    port = _listen_port(api_cfg if isinstance(api_cfg, dict) else {})
+    if port is None:
+        print(
+            "\nRefusing to start: CYCLAW_GATE_PORT must be an integer 1..65535 "
+            f"(got {os.environ.get('CYCLAW_GATE_PORT')!r}).\n",
+            file=sys.stderr,
+        )
+        _hold_console()
+        return
 
     # Before the port probe, not after: a non-loopback host should be refused on
     # its own terms, not reported as "something is already listening".
