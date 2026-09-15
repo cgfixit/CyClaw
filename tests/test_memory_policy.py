@@ -93,6 +93,26 @@ def test_scan_skips_malformed_regex_and_warns(caplog):
     }
     with caplog.at_level("WARNING", logger="cyclaw.memory.policy"):
         assert scan_content("please cyclaw-only-sentinel now", cfg, enforced=True)
+        assert scan_content("please cyclaw-only-sentinel now", cfg, enforced=False)
         assert scan_content("harmless fact about coffee", cfg, enforced=True) == []
-    assert any("failed to compile" in rec.message for rec in caplog.records)
+    compile_msgs = [rec.message for rec in caplog.records if "failed to compile" in rec.message]
+    assert compile_msgs
+    assert all("banned_patterns entry #0" in msg for msg in compile_msgs)
     assert "(unclosed" not in caplog.text
+
+
+def test_scan_malformed_regex_uses_config_index_not_combined_list(caplog):
+    cfg = {
+        "policy": {
+            "prompt_filter": {
+                "banned_patterns": [r"jailbreak", r"(unclosed", r"cyclaw-only-sentinel"],
+            },
+        },
+    }
+    with caplog.at_level("WARNING", logger="cyclaw.memory.policy"):
+        assert scan_content("please cyclaw-only-sentinel now", cfg, enforced=True)
+        assert scan_content("please cyclaw-only-sentinel now", cfg, enforced=False)
+    compile_msgs = [rec.message for rec in caplog.records if "failed to compile" in rec.message]
+    assert compile_msgs
+    assert all("banned_patterns entry #1" in msg for msg in compile_msgs)
+    assert not any("entry #9" in msg or "entry #13" in msg for msg in compile_msgs)

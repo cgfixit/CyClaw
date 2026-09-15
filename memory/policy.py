@@ -26,27 +26,37 @@ def require_reason(reason: str) -> None:
 
 
 def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> list[tuple[str, re.Pattern[str]]]:
-    sources: list[str] = list(base)
     pf = (cfg.get("policy") or {}).get("prompt_filter") or {}
-    for p in pf.get("banned_patterns") or []:
-        if isinstance(p, str) and p not in sources:
-            sources.append(p)
     compiled: list[tuple[str, re.Pattern[str]]] = []
-    for idx, p in enumerate(sources):
+    seen: set[str] = set()
+    flags = re.IGNORECASE | re.DOTALL
+    for p in base:
         try:
             # IGNORECASE | DOTALL, matching utils/sanitizer.py's compile flags:
             # DOTALL so a pattern whose halves straddle a newline still
             # matches (e.g. 'maintenance\s+mode.*safety\s+filters\s+disabled'
             # split across two lines would otherwise slip through).
-            compiled.append((p, re.compile(p, re.IGNORECASE | re.DOTALL)))
+            compiled.append((p, re.compile(p, flags)))
+            seen.add(p)
         except re.error as exc:
-            # Index and compile error only. Pattern text is untrusted config.
             logger.warning(
-                "memory banned pattern #%d failed to compile (%s); it is skipped",
+                "memory banned pattern failed to compile (%s); it is skipped",
+                exc,
+            )
+    for idx, p in enumerate(pf.get("banned_patterns") or []):
+        if not isinstance(p, str) or p in seen:
+            continue
+        try:
+            compiled.append((p, re.compile(p, flags)))
+            seen.add(p)
+        except re.error as exc:
+            # Config-list index, matching utils/sanitizer.py. Combined-list
+            # index would shift with ENFORCED vs OWASP base length and dedup.
+            logger.warning(
+                "memory banned_patterns entry #%d failed to compile (%s); it is skipped",
                 idx,
                 exc,
             )
-            continue
     return compiled
 
 
