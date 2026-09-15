@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -14,6 +15,8 @@ from utils.personality import ENFORCED_SOUL_PATTERNS, OWASP_INJECTION_PATTERNS
 # already applies before matching, and a second hand-rolled copy would only
 # ever drift from it, not improve on it.
 from utils.sanitizer import _normalize_for_match
+
+logger = logging.getLogger("cyclaw.memory.policy")
 
 
 def require_reason(reason: str) -> None:
@@ -29,14 +32,20 @@ def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> list[tuple[str, r
         if isinstance(p, str) and p not in sources:
             sources.append(p)
     compiled: list[tuple[str, re.Pattern[str]]] = []
-    for p in sources:
+    for idx, p in enumerate(sources):
         try:
             # IGNORECASE | DOTALL, matching utils/sanitizer.py's compile flags:
             # DOTALL so a pattern whose halves straddle a newline still
             # matches (e.g. 'maintenance\s+mode.*safety\s+filters\s+disabled'
             # split across two lines would otherwise slip through).
             compiled.append((p, re.compile(p, re.IGNORECASE | re.DOTALL)))
-        except re.error:
+        except re.error as exc:
+            # Index and compile error only. Pattern text is untrusted config.
+            logger.warning(
+                "memory banned pattern #%d failed to compile (%s); it is skipped",
+                idx,
+                exc,
+            )
             continue
     return compiled
 
