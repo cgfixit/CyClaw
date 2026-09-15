@@ -21,9 +21,9 @@ GATE_PORT="${CYCLAW_GATE_PORT:-8787}"
 NO_BROWSER=0
 REPO_OVERRIDE=""
 
-# Validate a port before it reaches `uvicorn --port` and the printed URL.
+# Validate a port before it is exported as CYCLAW_GATE_PORT and printed.
 # Without this a typo ("--gate-port 87go") is echoed as a working-looking URL
-# and then fails deep inside uvicorn's own argument parsing.
+# and then fails inside gate.main().
 require_port() {
   case "$2" in
     ''|*[!0-9]*)
@@ -176,8 +176,8 @@ cd "$REPO_DIR"
 
 # Canonical telemetry/update-check block, exported into THIS shell so the
 # server (and every child it spawns) inherits it BEFORE any interpreter
-# starts -- including the bare `uvicorn gate:app` below, whose own module-level
-# kill fires only after uvicorn's stack has loaded. Single source of truth:
+# starts -- including `gate.py` below, whose own module-level kill fires
+# only after heavy imports have loaded. Single source of truth:
 # utils/telemetry_kill.py renders the lines; nothing here hand-copies a key.
 # Positioned after the .env sourcing above so the canonical values overwrite
 # any hostile dotenv value, mirroring apply_telemetry_kill()'s own overwrite
@@ -193,16 +193,11 @@ else
 fi
 
 # --- start RAG gateway (serves terminal.html) ---
-# Stay on uvicorn so --gate-port / CYCLAW_GATE_PORT still bind. --no-proxy-headers
-# matches gate._serve and the Dockerfile CMD: uvicorn defaults proxy_headers=True
-# with forwarded_allow_ips 127.0.0.1, so a loopback peer could mint a fresh
-# 60/min rate-limit bucket by varying X-Forwarded-For.
-if "$VENV_PY" -c "import uvicorn" 2>/dev/null; then
-  "$VENV_PY" -m uvicorn gate:app --host 127.0.0.1 --port "$GATE_PORT" --log-level warning --no-proxy-headers &
-else
-  echo "[cyclaw] error: uvicorn not available in $VENV_PY. Install deps first." >&2
-  exit 1
-fi
+# gate.py, not `uvicorn gate:app`: only main() -> _serve() applies the
+# loopback bind guard, api.tls certfile/keyfile, and proxy_headers=False.
+# --gate-port / CYCLAW_GATE_PORT still bind because gate._listen_port reads
+# the env this script already exported.
+"$VENV_PY" gate.py &
 GATE_PID=$!
 # Poll /health, but check the process is still alive on each pass. gate.py
 # exits fast on a missing retrieval index, an already-bound port, or an
