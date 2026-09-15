@@ -98,9 +98,22 @@ export CYCLAW_HOME="$HOME_DIR"
 export CYCLAW_REPO="$REPO_DIR"
 export CYCLAW_GATE_PORT="$GATE_PORT"
 
+# Scheme from api.tls.enabled (same probe as Invoke-CyClaw.ps1). Port stays
+# GATE_PORT / CYCLAW_GATE_PORT, not api.port. Probe failure keeps http.
+SCHEME="http"
+if SCHEME_PROBE="$("$VENV_PY" -c 'import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+api = cfg.get("api") if isinstance(cfg.get("api"), dict) else {}
+tls = api.get("tls") if isinstance(api.get("tls"), dict) else {}
+print("https" if tls.get("enabled") is True else "http")
+' "$REPO_DIR/config.yaml" 2>/dev/null)" && [ -n "$SCHEME_PROBE" ]; then
+  SCHEME="$SCHEME_PROBE"
+fi
+CONSOLE_URL="$SCHEME://127.0.0.1:$GATE_PORT"
+
 echo "[cyclaw] repo     : $REPO_DIR"
 echo "[cyclaw] home     : $HOME_DIR"
-echo "[cyclaw] terminal : http://127.0.0.1:$GATE_PORT  (RAG gateway / static/terminal.html)"
+echo "[cyclaw] terminal : $CONSOLE_URL  (RAG gateway / static/terminal.html)"
 echo "[cyclaw] Ctrl+C stops the server"
 
 # Load persisted keys into THIS process so gate.py inherits them.
@@ -217,9 +230,16 @@ for i in 1 2 3 4 5; do
     echo "[cyclaw]        already in use, or config.yaml is invalid." >&2
     exit 1
   fi
-  if curl -sf --max-time 2 "http://127.0.0.1:$GATE_PORT/health" >/dev/null 2>&1; then
-    GATE_READY=1
-    break
+  if [ "$SCHEME" = "https" ]; then
+    if curl -sfk --max-time 2 "$CONSOLE_URL/health" >/dev/null 2>&1; then
+      GATE_READY=1
+      break
+    fi
+  else
+    if curl -sf --max-time 2 "$CONSOLE_URL/health" >/dev/null 2>&1; then
+      GATE_READY=1
+      break
+    fi
   fi
   sleep 0.4
 done
@@ -234,9 +254,9 @@ if [ "$NO_BROWSER" -eq 0 ]; then
   (
     sleep 1.5
     if command -v open >/dev/null 2>&1; then
-      open "http://127.0.0.1:$GATE_PORT"
+      open "$CONSOLE_URL"
     elif command -v xdg-open >/dev/null 2>&1; then
-      xdg-open "http://127.0.0.1:$GATE_PORT" >/dev/null 2>&1
+      xdg-open "$CONSOLE_URL" >/dev/null 2>&1
     fi
   ) &
   disown 2>/dev/null || true

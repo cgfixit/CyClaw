@@ -94,6 +94,24 @@ def test_invoke_cyclaw_starts_gate_through_main() -> None:
     assert "export CYCLAW_GATE_PORT=" in text
 
 
+def test_invoke_cyclaw_console_url_follows_tls_scheme() -> None:
+    """gate.py honors api.tls; the launcher must not keep http:// after that spawn.
+
+    Port stays GATE_PORT. Probe failure keeps http, matching Invoke-CyClaw.ps1.
+    """
+    text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
+    probe_idx = text.index("yaml.safe_load")
+    assert 'tls.get("enabled") is True' in text
+    assert 'print("https" if tls.get("enabled") is True else "http")' in text
+    assert 'CONSOLE_URL="$SCHEME://127.0.0.1:$GATE_PORT"' in text
+    assert probe_idx < text.index("[cyclaw] terminal : $CONSOLE_URL")
+    assert probe_idx < text.index('open "$CONSOLE_URL"')
+    assert 'curl -sf --max-time 2 "$CONSOLE_URL/health"' in text
+    assert "curl -sfk" in text
+    assert 'open "http://127.0.0.1:$GATE_PORT"' not in text
+    assert 'xdg-open "http://127.0.0.1:$GATE_PORT"' not in text
+
+
 def test_invoke_cyclaw_probes_gateway_startup_and_watches_its_pid() -> None:
     """The gateway gets a startup-death probe, and the script must not block
     forever on a wait if the process dies later."""
