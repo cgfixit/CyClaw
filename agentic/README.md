@@ -349,8 +349,8 @@ per [`GITHUB_WRITE_ENABLEMENT.md`](../docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
 
 ### Real-repo & executor surface
 
-- **Checks files are operator-authored trust.** The harness sends profile
-  *names*, not raw argv, over HTTP — keep it that way. A local checks file of
+- **Checks files are operator-authored trust.** The real-repo pipeline is
+  CLI-only; the removed coding console no longer supplies check profiles. A local checks file of
   `{"argv": ["git", "push", ...]}` can bypass branch scoping if you author it;
   never paste untrusted argv into checks manifests.
 - **Declare `--read-file` paths explicitly.** The planner cannot browse the

@@ -63,7 +63,7 @@ Write-Host $env:CYCLAW_API_KEY   # copy this — you paste it into the console U
 python -m retrieval.indexer
 
 # 6. Run
-uvicorn gate:app --reload --host 127.0.0.1 --port 8787
+python gate.py
 ```
 
 Open `http://127.0.0.1:8787` → the terminal UI loads automatically.
@@ -137,7 +137,7 @@ echo "$CYCLAW_API_KEY"
 python -m retrieval.indexer
 
 # 6. Run
-uvicorn gate:app --reload --host 127.0.0.1 --port 8787
+python gate.py
 ```
 
 ### Linux smoke test
@@ -327,7 +327,7 @@ echo "$CYCLAW_API_KEY"          # copy this — you paste it into the console UI
 python -m retrieval.indexer
 
 # 6. Run
-uvicorn gate:app --reload --host 127.0.0.1 --port 8787
+python gate.py
 ```
 
 Open `http://127.0.0.1:8787` → the terminal UI loads automatically.
@@ -367,7 +367,7 @@ at `/` and the whole REST API from the same process and port.
 ```bash
 # The RAG gateway — serves static/terminal.html at /, plus the whole REST API
 source .venv/bin/activate
-uvicorn gate:app --host 127.0.0.1 --port 8787
+python gate.py
 #   → http://127.0.0.1:8787
 ```
 
@@ -385,11 +385,14 @@ is installed (`pip install -e .`). The install above installs
 `requirements.txt`, a third-party pin list with no self-install line, so after
 following this guide exactly they are `command not found`. Every `python -m …`
 form in this guide is chosen because it needs no self-install; add
-`pip install -e . -c constraints.txt` after step 3 if you want the short names.
+`pip install -e . -c constraints.txt` after step 3 if you want the short names
+(use `-c /tmp/constraints-macos.txt` on macOS).
 
-Add `--reload` to the `uvicorn gate:app` line while editing code; leave it off
-otherwise (it doubles the process count and re-imports the whole retrieval
-stack on every save).
+Use `python gate.py` (or `cyclaw-server`) for normal startup: `gate.main()`
+applies the bind guard, TLS configuration, port override, and
+`proxy_headers=False`. Direct `uvicorn gate:app` skips that startup path.
+The macOS launcher also uses `gate.py`; `--gate-port` / `CYCLAW_GATE_PORT`
+override `api.port`, and its console URL follows `api.tls.enabled`.
 
 ### Ollama on macOS
 

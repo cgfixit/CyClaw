@@ -79,7 +79,8 @@ test files are auto-discovered and need neither.
 | `conftest.py` | Shared fixtures; mocks every external dependency. `test_config` is a **deepcopy** on purpose — a shallow copy leaks mutations across tests (`test_conftest_fixtures` guards this). |
 | `fixtures/github_coding_repo/` | Canned repo used by the agentic real-repo-loop tests. |
 | `ci_rag_smoke.py` | Deliberately NOT `test_*`-named so pytest ignores it; runs as a separate CI step against a real index. Renaming it double-runs it and drags ChromaDB into the unit lane. |
-| `judge_eval.py` | Default-off 52-case groundedness evaluator. Builds an isolated real Chroma/BM25 index from tracked synthetic fixtures and sends public-safe evaluation data to Claude only after both live gates pass. |
+| `judge_eval.py` | Default-off 52-case groundedness evaluator. Builds an isolated real Chroma/BM25 index; the opt-in judge is Claude or a second loopback model. See `docs/EVALS.md`. |
+| `judge_calibrate.py` | Runs the selected judge over 30 labeled fixture answers without generating contestant answers; reports agreement, not a CI gate. |
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
 | `nemo_runtime/` | NeMo-guardrails runtime tests plus their own harness (`network_jail.py`, `mock_openai.py`); its two `test_*.py` files are part of the 209. |

@@ -34,10 +34,13 @@ one-time warning — see `memory/flags.py`.)
 
 ## Invariants
 
-- No top-level `import memory` in `gate.py` / `graph.py` / `mcp_hybrid_server.py` / `hybrid_search.py` / `gate_memory.py`.
+- No top-level `import memory` in `gate.py` / `graph.py` / `mcp_hybrid_server.py` / `hybrid_search.py` / `gate_memory.py` / `gate_ops.py`.
 - Memory failures never fail `/query` (non-fatal hooks).
 - Mutating routes require Bearer API key + non-empty reason.
-- Apply path runs injection scan before fact write.
+- Apply scans normalized text against the enforced soul patterns plus configured
+  `policy.prompt_filter.banned_patterns` before fact write. Invalid regexes are
+  skipped with a warning; config-pattern warnings identify the original list
+  index. A successful apply does not prove malformed patterns ran.
 - Soul (`personality`) remains identity, not memory.
 
 ## Operator API

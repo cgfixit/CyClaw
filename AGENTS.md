@@ -126,8 +126,8 @@ Each skill lives at `.codex/skills/<directory>/SKILL.md` and has
 | `cyclaw-optimize` | Find and implement warranted improvements within user scope |
 | `verification-specialist` | Independent read-only verification of a supplied change |
 | `dep-guard` | Static dependency-contract checks |
-| `verify-dep` | Install-profile, platform, and supply-chain verification |
-| `doc-sync` | Code-to-doc and skill inventory reconciliation |
+| `verify-dep` | Runtime/test/optional install profiles, platform, and supply-chain verification |
+| `doc-sync` | Code-to-doc, README link/path, and skill inventory reconciliation |
 | `invariant-guard` | Six invariants and supporting static guards |
 | `injection-redteam` | Sanitizer probes and regression validation |
 | `otel-hardening` | Telemetry suppression and process-boundary checks |

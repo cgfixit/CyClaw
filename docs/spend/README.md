@@ -81,8 +81,8 @@ turn a successful paid answer into a failed one.
 
 ## Who writes to the ledger
 
-Two call sites record usage today, and they are distinguished on the ledger by
-the `source` field rather than by file:
+Two production call sites record usage, distinguished on the ledger by
+the `source` field:
 
 - **`llm/client.py`** — the `/query` online fallback path, recorded as
   `source: "query"`. This is the triple-gated Grok/Claude escalation that a
@@ -90,8 +90,13 @@ the `source` field rather than by file:
 - **`agentic/deepagent_github/chat_client.py`** — the out-of-band cloud planner
   used by the agentic layer, recorded as `source: "agentic"`.
 
-Keeping both on one file with a `source` tag means a monthly total is a single
-pass over one file, while `utils/sequence_detect.py` can still restrict itself
+The opt-in evaluators (`tests/judge_eval.py` and `tests/judge_calibrate.py`)
+also use `llm/client.py` with `source: "eval"`, overriding the destination to
+`logs/evals/spend.jsonl`. These synthetic evaluation costs are separate from
+the production ledger; a local judge makes no billed external call.
+
+Keeping both production paths on one file with a `source` tag means a monthly
+total is a single pass over one file, while `utils/sequence_detect.py` can still restrict itself
 to `source == "query"` rows so the two planes never mix in a forensic join.
 
 A billed non-JSON response is still recorded. If a provider returns 2xx with a

@@ -10,7 +10,7 @@
 A secure Local AI RAG/Chatbot/Research server for your own documents: hybrid retrieval over a local
 corpus, a local model answering from it, and the safety rules written into the
 graph that routes the request rather than into a prompt asking a model to
-behave. It binds to `127.0.0.1:8787`, runs offline by default, and treats any
+behave. It binds to `127.0.0.1:8787`, answers locally by default, and treats any
 call to a paid provider as an exception you approve per question.
 
 ## Table of Contents
@@ -32,7 +32,7 @@ call to a paid provider as an exception you approve per question.
 - [Dropbox Corpus Sync](#dropbox-corpus-sync)
 - [Benchmarks and Evals](#benchmarks-and-evals)
 
-**Optional layers** (all six ship disabled; enable one by editing `config.yaml`)
+**Optional layers** (master switches ship disabled; see each layer's enablement gates)
 
 - [Filesystem, SQL & Passive Network Connectors](#filesystem-sql--passive-network-connectors)
 - [NeMo Guardrails](#nemo-guardrails)
@@ -44,9 +44,16 @@ call to a paid provider as an exception you approve per question.
 
 ## Quick Start
 
-The fastest path to a running RAG server — macOS/Linux shown; only the torch
-pin and the activation command differ on Windows (see
-[Installation](#installation) for the full per-platform split):
+On **macOS Apple Silicon**, the onboarding script handles installation, keys,
+Ollama, indexing, and startup:
+
+```bash
+git clone https://github.com/CGFixIT/CyClaw && cd CyClaw
+bash macos/setup-cyclaw.sh
+```
+
+For **Linux**, use the manual path below. Windows uses the same dependency
+pins with PowerShell activation; see [Installation](#installation).
 
 ```bash
 git clone https://github.com/CGFixIT/CyClaw && cd CyClaw
@@ -56,16 +63,14 @@ pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ig
 ollama pull qwen3.8:27b-mlx                      # Ollama must already be running on :11434
 export CYCLAW_API_KEY="$(openssl rand -hex 20)"  # needed for the /soul/* endpoints
 python -m retrieval.indexer                      # builds the retrieval index, once
-uvicorn gate:app --host 127.0.0.1 --port 8787    # → http://127.0.0.1:8787
+python gate.py                                  # → http://127.0.0.1:8787
 ```
 
 Confirm it's alive: `curl http://127.0.0.1:8787/health`.
 
-**On macOS (Apple Silicon, the primary platform):** the `+cpu` torch wheel
-above doesn't exist there — use plain `torch==2.13.0` and strip the `torch`/
-`--extra-index-url` lines from both manifests first, or just run
-`bash ./macos/setup-cyclaw.sh`, which handles the torch difference, Ollama,
-the index, and the server for you.
+**Manual macOS install:** use plain `torch==2.13.0`, remove the Torch/index
+lines only from a requirements copy, and keep the Torch constraint with its
+`+cpu` suffix removed. Exact commands: [Install — macOS](#install--macos-apple-silicon).
 
 **Full step-by-step guide** — exact per-platform commands, Docker, and
 every REST endpoint with a copy-pasteable `curl`:
@@ -94,9 +99,9 @@ from its first query onward.
 
 1. **Retrieval comes first, unconditionally.** `retrieve` is the entry node of
    the 12-node LangGraph state machine in `graph.py`; no model call can precede
-   it. Routing between nodes is graph edges, never a model's decision, so
-   "answer only from the corpus" is a property of the wiring rather than a
-   request the model may decline.
+   it. Graph edges enforce retrieval and provider selection; they do not
+   guarantee that generated claims are grounded. `offline_best_effort` can
+   answer from partial context or model knowledge after a vault miss.
 2. **Hybrid search over your Markdown corpus** — ChromaDB semantic vectors plus
    BM25 keyword ranking, fused by Reciprocal Rank Fusion (`retrieval.rrf_k`).
    Both legs run locally on CPU. A top hit weaker than `retrieval.min_score`
@@ -112,7 +117,7 @@ from its first query onward.
    *new* content — requires a human `reason` string and runs an enforced
    injection scan. Two paths deliberately differ and are documented as such:
    `POST /soul/restore` re-adopts previously-vetted `.bak` content under a
-   hardcoded reason with the scan advisory rather than enforced, and a missing
+   hardcoded reason after an advisory scan (`apply_evolution(..., scan=False)` skips enforcement), and a missing
    `soul.md` self-heals to a default at boot. The soul is governed — neither
    frozen nor self-editable.
 5. **Optional online fallback, gated three ways per question** — `app.mode:
@@ -135,8 +140,8 @@ from its first query onward.
 7. **An audit trail that hashes the question.** All eleven upstream paths
    converge on `audit_logger` before END, writing a SHA-256 query hash plus
    PII-redacted metadata to `logs/audit.jsonl`, with `cyclaw-metrics` as the
-   offline reader. Hashing is the shipped default and the reason the log cannot
-   become an exfiltration vector; setting
+   offline reader. Hashing reduces stored query content; the log still contains
+   sensitive metadata and needs local access controls. Setting
    `logging.audit_fields.include_query_hash: false` stores raw query text
    instead (redactors still apply) and is privacy-affecting — `utils/logger.py`
    says so in its own module docstring.
@@ -199,7 +204,7 @@ invariants it encodes are in [`INVARIANTS.md`](INVARIANTS.md).
 
 ```mermaid
 flowchart TD
-    A(["🌐 Client\nHTTP POST /query\nor MCP tool call"])
+    A(["🌐 Client\nHTTP POST /query"])
     A --> B
 
     subgraph GATEWAY ["gate.py — FastAPI 127.0.0.1:8787"]
@@ -260,7 +265,7 @@ flowchart TD
         S["agentic/cli.py\nGitHub read ops"]
         T["agentic/fsconnect/\nscoped FS read/write"]
         U["sync/cli.py\nDropbox corpus pull"]
-        V["guardrails/\nNeMo rails skeleton"]
+        V["guardrails/\noptional rails via guardrail_bridge"]
     end
 
     style GATEWAY fill:#1a3a5c,color:#ffffff,stroke:#4a90d9
@@ -273,6 +278,9 @@ flowchart TD
     style L fill:#1a1a3a,color:#ffffff
 ```
 
+
+The retrieval-only MCP server calls the retriever directly after sanitization;
+it does not enter this HTTP gateway or generation graph.
 
 What the diagram compresses: `HybridRetriever` (`retrieval/hybrid_search.py`)
 fuses ChromaDB (semantic, `all-MiniLM-L6-v2`, 384-dim cosine, CPU-only
@@ -299,7 +307,7 @@ Set it for the current shell. Generate a real value instead of typing one —
 ```bash
 export CYCLAW_API_KEY="$(openssl rand -hex 20)"
 echo "$CYCLAW_API_KEY"
-uvicorn gate:app --host 127.0.0.1 --port 8787
+python gate.py
 ```
 
 Persist it in your shell profile. macOS has defaulted to **zsh** since
@@ -325,7 +333,7 @@ first. Everything below still works and is CI-covered on `windows-latest`.)*
 
 ```powershell
 $env:CYCLAW_API_KEY = "your-strong-local-secret"      # current session only
-uvicorn gate:app --host 127.0.0.1 --port 8787
+python gate.py
 ```
 
 Persist it for the current user (writes the user environment permanently);
@@ -364,7 +372,8 @@ chmod 600 .env
 
 On Windows, a hand-created file often inherits `BUILTIN\Users` read. Tighten it
 the same way `powershell/Invoke-CyClaw.ps1` requires before it will source the
-file (owner-only; refuse Everyone / Users / Authenticated Users):
+file (every Allow ACE must resolve to the current user SID; shared or
+unresolvable entries are refused):
 
 ```powershell
 icacls .env /inheritance:r /grant:r "${env:USERNAME}:(R,W)"
@@ -383,7 +392,7 @@ Load it before launching:
 ```bash
 # Bash / Zsh
 export $(grep -v '^#' .env | xargs)
-uvicorn gate:app --host 127.0.0.1 --port 8787
+python gate.py
 ```
 
 ```powershell
@@ -393,7 +402,7 @@ Get-Content .env | ForEach-Object {
         [System.Environment]::SetEnvironmentVariable($Matches[1].Trim(), $Matches[2].Trim())
     }
 }
-uvicorn gate:app --host 127.0.0.1 --port 8787
+python gate.py
 ```
 
 ### Choosing an API key value
@@ -583,6 +592,10 @@ them. Flags, privacy notes, and tradeoffs:
 
 ### Install — Windows / Linux (fallback)
 
+The shell commands below use Linux activation. On Windows, create the venv
+with `py -3.12 -m venv .venv`, activate with `.\.venv\Scripts\Activate.ps1`,
+then run the same two pip install commands.
+
 ```bash
 git clone https://github.com/CGFixIT/CyClaw
 cd CyClaw
@@ -599,14 +612,24 @@ The Windows twin of `macos/install-cyclaw.sh` is
 `powershell/Install-CyClaw.ps1` (home layout, venv, `cyclaw` shim). Flags and
 Credential Manager notes: [`powershell/README.md`](powershell/README.md).
 
-### Every optional feature in one environment (any platform)
+### Combined optional-feature profile
 
 For a from-scratch dev box or a full manual smoke test — Postgres/pgvector, NeMo
-Guardrails, dev/test tools, and both cloud providers — substitute step 2 with:
+Guardrails, dev/test tools, Numbat CEL, and both cloud providers — after the
+platform-specific Torch preparation, install:
 
 ```bash
 pip install -e ".[all]" -c constraints.txt
 ```
+
+On macOS, use `-c /tmp/constraints-macos.txt` from the macOS steps instead.
+The current `[all]` aggregate omits the `mssql` extra; select `[all,mssql]`
+explicitly if you need that driver. Installing an extra does not enable its
+runtime switch.
+
+`requirements.txt` supplies the base runtime and CPU Torch; test tools are
+separate in `requirements-test.txt`. Docker installs only the runtime file.
+`constraints.txt` caps versions and does not install optional packages.
 
 ### Required local prep
 
@@ -629,7 +652,7 @@ console at `/` and the whole REST API from the same process and port.
 ```bash
 # The RAG gateway — serves static/terminal.html at / plus the whole REST API
 python -m retrieval.indexer                          # once, before the first /query
-uvicorn gate:app --host 127.0.0.1 --port 8787        # → http://127.0.0.1:8787
+python gate.py                                  # → http://127.0.0.1:8787
 ```
 
 **The `cyclaw-*` short names need a self-install.** `cyclaw-server`,
@@ -637,8 +660,12 @@ uvicorn gate:app --host 127.0.0.1 --port 8787        # → http://127.0.0.1:8787
 `cyclaw-clear-cache`, `cyclaw-user`, and `cyclaw-gen-cert` are
 `[project.scripts]` shims that pip writes only when the project itself is
 installed; `requirements.txt` has no self-install line, so add
-`pip install -e . -c constraints.txt` if you want them. The `python -m …` forms
+`pip install -e . -c constraints.txt` if you want them (use
+`/tmp/constraints-macos.txt` on macOS). The `python -m …` forms
 always work and are what both shipped launchers use.
+
+`python gate.py` enters the bind guard and TLS startup path and disables
+proxy-header trust. Direct `uvicorn gate:app` bypasses that startup path.
 
 Open `/` for the terminal UI and `/health` for readiness. The terminal exposes five operator consoles — **Soul**, **Sync**, **Agentic**, **Filesystem**, and **SQL** — the latter four calling `POST /ops/sync`, `/ops/agentic`, `/ops/fsconnect`, and `/ops/sqlconnect` (API-key gated, rate-limited, audited).
 
@@ -770,7 +797,7 @@ CyClaw/
 │   ├── ops_runner.py           # subprocess shim behind /ops/* — never imports sync/ or agentic/
 │   ├── config_validation.py    # boot-time config validation; fails fast
 │   ├── errors.py               # typed exception hierarchy rooted at RAGError
-│   ├── repo_paths.py           # repo-root anchoring so nothing resolves against cwd
+│   ├── repo_paths.py           # validates repo-relative paths for ops without importing agentic
 │   ├── numbat_emitter.py       # derived Numbat NDJSON stream: action-plane emits + mainline audit projection
 │   ├── spend.py                # append-only Grok/Claude token ledger (logs/spend.jsonl); dollars derived at read time
 │   ├── sequence_detect.py      # offline forensic join of audit.jsonl + spend.jsonl on query_hash (CLI only)
@@ -785,7 +812,7 @@ CyClaw/
 ├── scripts/                    # install-githooks.sh, check-pr-template.sh, measure_local_llm_throughput.py
 ├── tools/
 │   └── lora_finetune/          # offline QLoRA kit for local_llm.model; installed by no runtime surface (see Local Model Fine-Tuning)
-├── deploy/                     # apparmor/ falco/ seccomp/ container-hardening profiles (all opt-in)
+├── deploy/                     # apparmor/ falco/ seccomp/ container hardening: builtin seccomp + opt-in AppArmor/Falco
 ├── tests/
 ├── docs/
 ├── static/
@@ -886,12 +913,12 @@ source — `graph.py`, `INVARIANTS.md`, `retrieval/indexer.py`, `llm/client.py`,
 `config.yaml` — with each example carrying `source_refs` back to the file it
 came from.
 
-**It is an operator toolkit deliberately outside the runtime.** No CyClaw
-install surface — `requirements.txt`, `pyproject.toml` extras, Docker, or conda
-— pulls Unsloth, Transformers, TRL, Datasets, or Accelerate. Training happens on
-a separate CUDA box; the server never imports any of it, and the kit's own pins
-are excluded from this repo's OSV walk precisely because that GPU tree is not
-installed here.
+**It is an operator toolkit outside the runtime install profiles.** The
+kit's training requirements are installed separately on a CUDA host. The base
+RAG stack already pulls Transformers through sentence-transformers; that does
+not install or validate the Unsloth training stack. The kit's own requirements
+are excluded from this repo's OSV walk; audit the actual training environment
+separately.
 
 **It is not air-gapped, though.** `finetune_qwen38.py` calls
 `FastModel.from_pretrained` with a Hugging Face repo id and no
@@ -1115,7 +1142,10 @@ heuristics and live rails never drift. Decisions go to a **separate** metrics
 stream (`logs/guardrails.jsonl`) that stores only SHA-256 hashes.
 
 ```bash
-python -m guardrails.cli status | check "your query here" | metrics | test
+python -m guardrails.cli status
+python -m guardrails.cli check "your query here"
+python -m guardrails.cli metrics
+python -m guardrails.cli test
 ```
 
 Config keys (`guardrails.enabled`, `engine`, `model`, `hallucination_threshold`,
@@ -1161,7 +1191,8 @@ dependency is imported. The phase ledger is in
 ### How a run works
 
 0. **`real-repo-run-plan`** (optional, two-stage) asks a model for a plan and
-   prints it — clones, writes, and commits nothing. You read and edit the plan
+   prints it or writes it to `--out` — it creates no clone, patch, or commit.
+   You read and edit the plan
    and feed it back with `--plan-file`, so one model plans, a **human
    approves**, and another model codes against the approved text. The plan is
    injection-scanned on load, truncated at 6,000 chars, and its SHA-256 is
@@ -1172,7 +1203,8 @@ dependency is imported. The phase ledger is in
    that never passes reports `exhausted`).
 2. **`real-repo-run-decide --decision approve`** commits locally; `reject`
    discards. Neither pushes.
-3. **`real-repo-run-push`** puts the `claude/*` branch on origin.
+3. **`real-repo-run-push`** puts the approved feature branch on origin
+   (allowed prefixes come from `utils/agent_identity.py`).
 4. **`real-repo-run-publish`** opens a **draft** PR (`gh pr create --draft`).
 5. **`real-repo-run-discard`** reclaims a decided or orphaned run's clone
    (`reject` and `exhausted` free theirs immediately; only an approved run keeps
