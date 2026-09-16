@@ -390,6 +390,41 @@ def test_local_judge_inherits_the_hardened_loopback_client_config() -> None:
     assert judge["fallback"]["enabled"] is False
 
 
+def test_local_judge_never_reads_models_claude(monkeypatch) -> None:
+    # Codex review on #1411: a fully local config may omit models.claude entirely.
+    import llm.client
+
+    cfg = _cfg_with_local_judge(True, "other-family:1b")
+    del cfg["models"]["claude"]  # type: ignore[index]
+    assert judge_eval._local_judge_config(cfg) is not None
+
+    monkeypatch.setenv(judge_eval.LIVE_ENV, "1")
+    monkeypatch.delenv(judge_eval.KEY_ENV, raising=False)
+    monkeypatch.setattr(judge_eval, "_load_root_config", lambda: cfg)
+    assert judge_eval._require_live_authorization() is cfg
+
+    class _FakeLocal:
+        def __init__(self, cfg: dict[str, object]) -> None:
+            self.model = cfg["models"]["local_llm"]["model"]  # type: ignore[index]
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(llm.client, "LocalLLMClient", _FakeLocal)
+    monkeypatch.setattr(llm.client, "ClaudeClient", lambda **_: pytest.fail("Claude must not be built"))
+    local, judge, provider = judge_eval._new_clients(cfg)
+    assert (local.model, judge.model, provider) == (cfg["models"]["local_llm"]["model"], "other-family:1b", "local")  # type: ignore[index]
+
+    with pytest.raises(judge_eval.EvalError, match="models.claude"):
+        judge_eval._new_judge(_cfg_without_claude_and_without_local_judge())
+
+
+def _cfg_without_claude_and_without_local_judge() -> dict[str, object]:
+    cfg = _cfg_with_local_judge(False, "")
+    del cfg["models"]["claude"]  # type: ignore[index]
+    return cfg
+
+
 def test_live_gate_drops_the_anthropic_key_only_for_a_local_judge(monkeypatch) -> None:
     monkeypatch.delenv(judge_eval.KEY_ENV, raising=False)
     monkeypatch.setattr(judge_eval, "_load_root_config", lambda: _cfg_with_local_judge(True, "other-family:1b"))
