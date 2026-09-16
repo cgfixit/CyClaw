@@ -375,10 +375,10 @@ def validate_local_endpoint(raw: object) -> str:
     return raw.strip() if isinstance(raw, str) else ""
 
 
-def _client_configs(root_cfg: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+def _local_client_config(root_cfg: dict[str, object]) -> dict[str, object]:
+    """Hardened loopback contestant config; never reads models.claude (#1411 review)."""
     models = _mapping(root_cfg.get("models"), label="models")
     local = copy.deepcopy(_mapping(models.get("local_llm"), label="models.local_llm"))
-    claude = copy.deepcopy(_mapping(models.get("claude"), label="models.claude"))
     local["base_url"] = validate_local_endpoint(local.get("base_url"))
     local["max_tokens"] = _capped_tokens(local.get("max_tokens"))
     local["temperature"] = 0.0
@@ -388,13 +388,23 @@ def _client_configs(root_cfg: dict[str, object]) -> tuple[dict[str, object], dic
     fallback = _optional_mapping(local.get("fallback"))
     fallback["enabled"] = False
     local["fallback"] = fallback
+    return {"models": {"local_llm": local}}
 
+
+def _claude_client_config(root_cfg: dict[str, object]) -> dict[str, object]:
+    """Pinned Anthropic judge config; only consulted when the Claude judge is selected."""
+    models = _mapping(root_cfg.get("models"), label="models")
+    claude = copy.deepcopy(_mapping(models.get("claude"), label="models.claude"))
     claude["base_url"] = validate_claude_endpoint(claude.get("base_url"))
     claude["max_tokens"] = _capped_tokens(claude.get("max_tokens"))
     claude_retry = _optional_mapping(claude.get("retry"))
     claude_retry["max_retries"] = 0
     claude["retry"] = claude_retry
-    return {"models": {"local_llm": local}}, {"models": {"claude": claude}}
+    return {"models": {"claude": claude}}
+
+
+def _client_configs(root_cfg: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+    return _local_client_config(root_cfg), _claude_client_config(root_cfg)
 
 
 def _local_judge_config(root_cfg: dict[str, object]) -> dict[str, object] | None:
@@ -415,7 +425,7 @@ def _local_judge_config(root_cfg: dict[str, object]) -> dict[str, object] | None
     model = judge.get("model")
     if not isinstance(model, str) or not model.strip():
         raise EvalError("evals.local_judge.model must be a non-empty model tag when enabled")
-    local_cfg, _ = _client_configs(root_cfg)
+    local_cfg = _local_client_config(root_cfg)
     local = _mapping(_mapping(local_cfg["models"], label="models").get("local_llm"), label="models.local_llm")
     if model.strip() == str(local.get("model") or "").strip():
         raise EvalError("evals.local_judge.model must differ from models.local_llm.model")
@@ -430,8 +440,7 @@ def _new_judge(root_cfg: dict[str, object]) -> tuple[GenerateClient, str]:
     judge_cfg = _local_judge_config(root_cfg)
     if judge_cfg is not None:
         return LocalLLMClient(cfg=judge_cfg), "local"
-    _, claude_cfg = _client_configs(root_cfg)
-    judge = ClaudeClient(cfg=claude_cfg)
+    judge = ClaudeClient(cfg=_claude_client_config(root_cfg))
     if not judge.is_available():
         judge.close()
         raise EvalError(f"{KEY_ENV} is not set")
@@ -441,8 +450,7 @@ def _new_judge(root_cfg: dict[str, object]) -> tuple[GenerateClient, str]:
 def _new_clients(root_cfg: dict[str, object]) -> tuple[GenerateClient, GenerateClient, str]:
     from llm.client import LocalLLMClient
 
-    local_cfg, _ = _client_configs(root_cfg)
-    local = LocalLLMClient(cfg=local_cfg)
+    local = LocalLLMClient(cfg=_local_client_config(root_cfg))
     try:
         judge, judge_provider = _new_judge(root_cfg)
     except Exception:
