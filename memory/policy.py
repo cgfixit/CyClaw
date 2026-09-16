@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -15,6 +16,8 @@ from utils.personality import ENFORCED_SOUL_PATTERNS, OWASP_INJECTION_PATTERNS
 # ever drift from it, not improve on it.
 from utils.sanitizer import _normalize_for_match
 
+logger = logging.getLogger("cyclaw.memory.policy")
+
 
 def require_reason(reason: str) -> None:
     """Raise ValueError if reason is missing/blank (mirrors soul apply)."""
@@ -23,21 +26,37 @@ def require_reason(reason: str) -> None:
 
 
 def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> list[tuple[str, re.Pattern[str]]]:
-    sources: list[str] = list(base)
     pf = (cfg.get("policy") or {}).get("prompt_filter") or {}
-    for p in pf.get("banned_patterns") or []:
-        if isinstance(p, str) and p not in sources:
-            sources.append(p)
     compiled: list[tuple[str, re.Pattern[str]]] = []
-    for p in sources:
+    seen: set[str] = set()
+    flags = re.IGNORECASE | re.DOTALL
+    for p in base:
         try:
             # IGNORECASE | DOTALL, matching utils/sanitizer.py's compile flags:
             # DOTALL so a pattern whose halves straddle a newline still
             # matches (e.g. 'maintenance\s+mode.*safety\s+filters\s+disabled'
             # split across two lines would otherwise slip through).
-            compiled.append((p, re.compile(p, re.IGNORECASE | re.DOTALL)))
-        except re.error:
+            compiled.append((p, re.compile(p, flags)))
+            seen.add(p)
+        except re.error as exc:
+            logger.warning(
+                "memory banned pattern failed to compile (%s); it is skipped",
+                exc,
+            )
+    for idx, p in enumerate(pf.get("banned_patterns") or []):
+        if not isinstance(p, str) or p in seen:
             continue
+        try:
+            compiled.append((p, re.compile(p, flags)))
+            seen.add(p)
+        except re.error as exc:
+            # Config-list index, matching utils/sanitizer.py. Combined-list
+            # index would shift with ENFORCED vs OWASP base length and dedup.
+            logger.warning(
+                "memory banned_patterns entry #%d failed to compile (%s); it is skipped",
+                idx,
+                exc,
+            )
     return compiled
 
 

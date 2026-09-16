@@ -19,6 +19,8 @@ NO_TOPLEVEL_MEMORY = [
     "gate.py",
     "graph.py",
     "mcp_hybrid_server.py",
+    "gate_ops.py",
+    "gate_auth.py",
     "gate_memory.py",
     "retrieval/hybrid_search.py",
 ]
@@ -26,10 +28,12 @@ NO_TOPLEVEL_MEMORY = [
 MEMORY_FORBIDDEN_IMPORTS = {
     "gate",
     "gate_ops",
+    "gate_auth",
     "gate_memory",
     "graph",
     "mcp_hybrid_server",
     "telegram",
+    "opentweet",
     "agentic",
     "sync",
     "guardrails",

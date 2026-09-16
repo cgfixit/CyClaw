@@ -60,8 +60,8 @@ def test_telegram_does_not_import_request_path():
 
 
 def test_telegram_does_not_import_sibling_out_of_band():
-    # Defense in depth: do not couple telegram to agentic/sync/guardrails/harness.
-    forbidden = {"agentic", "sync", "guardrails", "harness"}
+    # Defense in depth: do not couple telegram to agentic/sync/guardrails/harness/opentweet.
+    forbidden = {"agentic", "sync", "guardrails", "harness", "opentweet"}
     for py in (REPO_ROOT / "telegram").rglob("*.py"):
         imported = _imports(py.read_text(encoding="utf-8"))
         leaked = forbidden & imported
