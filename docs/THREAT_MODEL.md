@@ -934,7 +934,7 @@ I6 isolation is locked by `tests/test_judge_eval.py`.
   script forces Hugging Face and Transformers offline before retrieval imports,
   so a missing embedding cache fails the run instead of adding another host.
 - **Only synthetic fixture data may cross the boundary.** The CLI builds a
-  dedicated embedded ChromaDB plus JSON BM25 index from the six fixed documents
+  dedicated embedded ChromaDB plus JSON BM25 index from the eight fixed documents
   under `tests/fixtures/groundedness/corpus/`. It accepts no corpus, index,
   endpoint, or report path overrides and rejects unexpected source IDs and
   symlink/path escapes. It never reads `data/corpus/` or production `index/`.
@@ -962,7 +962,7 @@ I6 isolation is locked by `tests/test_judge_eval.py`.
   `models.local_llm.model`. `ANTHROPIC_API_KEY` is then not required because
   no bytes leave the host; `CYCLAW_EVAL_LIVE=1` is still required, and the
   shipped default is `false`. `tests/judge_calibrate.py` (same gate, judge
-  only) scores a judge against thirty hand-labeled rows and writes a
+  only) scores a judge against thirty-six hand-labeled rows and writes a
   metadata-only report; neither script is on the request path or in any
   workflow, which `tests/test_judge_eval.py` pins for both files.
 

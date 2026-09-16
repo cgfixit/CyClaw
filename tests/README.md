@@ -43,7 +43,7 @@ Setting `evals.local_judge.enabled: true` in `config.yaml` (with a `model` tag
 that differs from `models.local_llm.model`) swaps the Anthropic judge for a
 second loopback model: the same command then needs no `ANTHROPIC_API_KEY` and
 nothing leaves the host. `CYCLAW_EVAL_LIVE=1` still gates the run. Before
-trusting any judge, run the hand-labeled calibration set (30 rows in
+trusting any judge, run the hand-labeled calibration set (36 rows in
 `tests/fixtures/groundedness/calibration.json`, judge only, no contestant):
 
 ```bash
@@ -80,7 +80,7 @@ test files are auto-discovered and need neither.
 | `fixtures/github_coding_repo/` | Canned repo used by the agentic real-repo-loop tests. |
 | `ci_rag_smoke.py` | Deliberately NOT `test_*`-named so pytest ignores it; runs as a separate CI step against a real index. Renaming it double-runs it and drags ChromaDB into the unit lane. |
 | `judge_eval.py` | Default-off 52-case groundedness evaluator. Builds an isolated real Chroma/BM25 index; the opt-in judge is Claude or a second loopback model. See `docs/EVALS.md`. |
-| `judge_calibrate.py` | Runs the selected judge over 30 labeled fixture answers without generating contestant answers; reports agreement, not a CI gate. |
+| `judge_calibrate.py` | Runs the selected judge over 36 labeled fixture answers without generating contestant answers; reports agreement, not a CI gate. |
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
 | `nemo_runtime/` | NeMo-guardrails runtime tests plus their own harness (`network_jail.py`, `mock_openai.py`); its two `test_*.py` files are part of the 209. |
