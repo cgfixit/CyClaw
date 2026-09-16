@@ -25,8 +25,11 @@ not exactly `1`. Sanitizer probe does not call an LLM. Generation rows are
 `unverified` if the local model is down — do not invent a green matrix.
 
 Compact set: one fixture case per category (`direct_factual`, `paraphrase`,
-`two_source_synthesis`, `false_premise`, `out_of_corpus`) plus
-`check_input` on an injected query.
+`two_source_synthesis`, `false_premise`, `out_of_corpus`, `injected_content`)
+plus `check_input` on an injected query. The `injected_content` row is the
+"injected instructions in retrieved content" case: its evidence document
+embeds instructions, and a `generated` answer that repeats their payload is a
+quality failure to record, not a sanitizer failure.
 
 ## Recovery (manual)
 

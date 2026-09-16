@@ -43,10 +43,13 @@ import yaml  # noqa: E402
 from retrieval.indexer import build_index  # noqa: E402
 from retrieval.hybrid_search import HybridRetriever  # noqa: E402
 from tests import judge_eval  # noqa: E402
+from utils.sanitizer import sanitize_chunk  # noqa: E402
 
 # K matches the live eval plane's evidence window. Floors are for this
-# synthetic 24-case fixture (20 scored; 4 out-of-corpus skipped). Tighten
-# from a measured origin/main run, do not copy faithfulness 0.80 here.
+# synthetic 52-case fixture (44 scored; 8 out-of-corpus skipped). Measured
+# 1.0 / 1.0 / 1.0 on the 24-case fixture (#1399) and again after growing it
+# to 52 (#1398 slice C). Tighten from a measured origin/main run, do not copy
+# faithfulness 0.80 here.
 K = judge_eval.MAX_EVIDENCE_HITS
 MIN_HIT_AT_K = 1.0
 MIN_RECALL_AT_K = 1.0
@@ -113,6 +116,32 @@ def groundedness_retrieval_metrics(retriever: HybridRetriever) -> tuple[int, flo
     return len(hits_out), _mean(hits_out), _mean(recalls), _mean(mrrs)
 
 
+def injected_evidence_failures(retriever: HybridRetriever, config_path: str) -> list[str]:
+    """Return one message per injected_content case whose evidence still carries a raw injection.
+
+    The fixture's injected documents embed an instruction the ingest sanitizer
+    catches (it must come back as ``[FILTERED]``) and one it deliberately lets
+    through for the judge plane. This gate covers only the first: the stored
+    chunk must be a sanitizer fixed point, so no banned pattern reaches the
+    prompt as retrieved context. No LLM is involved.
+    """
+    failures: list[str] = []
+    for case in judge_eval.load_cases():
+        if case.category != judge_eval.INJECTED_CATEGORY:
+            continue
+        expected = frozenset(case.expected_source_ids)
+        texts = [hit.text for hit in retriever.hybrid_search(case.query)[:K] if Path(hit.source).stem in expected]
+        if not texts:
+            failures.append(f"{case.case_id}: expected source not in the top-{K} evidence")
+            continue
+        for text in texts:
+            if "[FILTERED]" not in text:
+                failures.append(f"{case.case_id}: no [FILTERED] marker; ingest sanitization did not run")
+            if sanitize_chunk(text, config_path) != text:
+                failures.append(f"{case.case_id}: a raw banned pattern survived indexing")
+    return failures
+
+
 def _run_groundedness_retrieval_gate() -> int:
     print("\n=== Groundedness retrieval metrics (isolated fixture index, no LLM) ===")
     scored_expected = sum(1 for case in judge_eval.load_cases() if case.expected_source_ids)
@@ -124,6 +153,7 @@ def _run_groundedness_retrieval_gate() -> int:
         config_path, _, _ = judge_eval.build_eval_index(Path(tmp))
         retriever = HybridRetriever(str(config_path))
         n_scored, hit, recall, mrr = groundedness_retrieval_metrics(retriever)
+        injected = injected_evidence_failures(retriever, str(config_path))
         del retriever
     print(f"  scored_cases: {n_scored} (expected {scored_expected})")
     print(f"  hit@{K}:      {hit:.4f}  (floor {MIN_HIT_AT_K})")
@@ -142,9 +172,12 @@ def _run_groundedness_retrieval_gate() -> int:
     if mrr < MIN_MRR:
         print(f"FAIL: MRR {mrr:.4f} < {MIN_MRR}")
         failed = True
+    for message in injected:
+        print(f"FAIL: injected_content {message}")
+        failed = True
     if failed:
         return 1
-    print("  PASS: groundedness retrieval floors held")
+    print("  PASS: groundedness retrieval floors held; injected evidence sanitized")
     return 0
 
 

@@ -950,7 +950,7 @@ I6 isolation is locked by `tests/test_judge_eval.py`.
   excerpt, claim text, API key, or authorization header. Judge spend uses a
   dedicated `source=eval` ledger rather than contaminating production-query
   attribution.
-- **Spend and judge behavior are bounded.** The fixture is exactly 24 cases,
+- **Spend and judge behavior are bounded.** The fixture is exactly 52 cases,
   each client is capped at 512 output tokens, cloud retries are disabled, and
   malformed or free-form judge output fails the run. The judge is probabilistic
   measurement evidence, not formal proof. Residual risks are Anthropic retention,
