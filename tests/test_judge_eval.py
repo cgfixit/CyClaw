@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import json
 from pathlib import Path
 
@@ -288,8 +289,9 @@ def test_write_report_is_local_and_append_only(tmp_path: Path) -> None:
     assert "cases" not in json.loads(runs[0])
 
 
-def test_eval_script_is_isolated_from_core_and_required_ci() -> None:
-    source = (judge_eval.ROOT / "tests" / "judge_eval.py").read_text(encoding="utf-8")
+@pytest.mark.parametrize("script", ["judge_eval.py", "judge_calibrate.py"])
+def test_eval_script_is_isolated_from_core_and_required_ci(script: str) -> None:
+    source = (judge_eval.ROOT / "tests" / script).read_text(encoding="utf-8")
     imported_roots: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
@@ -298,13 +300,14 @@ def test_eval_script_is_isolated_from_core_and_required_ci() -> None:
             imported_roots.add(node.module.split(".")[0])
     assert imported_roots.isdisjoint({"gate", "graph", "mcp_hybrid_server", "harness"})
 
+    stem = script.removesuffix(".py")
     for core_name in ("gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py", "graph.py", "mcp_hybrid_server.py"):
-        assert "judge_eval" not in (judge_eval.ROOT / core_name).read_text(encoding="utf-8")
+        assert stem not in (judge_eval.ROOT / core_name).read_text(encoding="utf-8")
     workflows = "\n".join(
         path.read_text(encoding="utf-8") for path in (judge_eval.ROOT / ".github" / "workflows").glob("*.yml")
     )
     assert "CYCLAW_EVAL_LIVE" not in workflows
-    assert "judge_eval.py" not in workflows
+    assert script not in workflows
 
 
 def test_real_chroma_bm25_index_uses_only_eval_corpus(tmp_path: Path, monkeypatch) -> None:
@@ -340,3 +343,222 @@ def test_real_chroma_bm25_index_uses_only_eval_corpus(tmp_path: Path, monkeypatc
     assert Path(config["indexing"]["chroma_path"]).is_relative_to(tmp_path)
     assert Path(config["indexing"]["bm25_path"]).is_relative_to(tmp_path)
     assert "aurora_harbor" in {item.source_id for item in evidence}
+
+
+# --- local judge (config.yaml evals.local_judge) -----------------------------
+
+
+_ROOT_CFG = judge_eval._load_root_config()
+
+
+def _cfg_with_local_judge(enabled: bool, model: str) -> dict[str, object]:
+    # Built from a module-load snapshot so tests that monkeypatch
+    # _load_root_config to return this do not recurse into themselves.
+    cfg = copy.deepcopy(_ROOT_CFG)
+    cfg["evals"] = {"local_judge": {"enabled": enabled, "model": model}}
+    return cfg
+
+
+def test_local_judge_is_disabled_in_shipped_config() -> None:
+    cfg = judge_eval._load_root_config()
+    assert cfg["evals"]["local_judge"]["enabled"] is False  # type: ignore[index]
+    assert judge_eval._local_judge_config(cfg) is None
+
+
+@pytest.mark.parametrize("model", ["", "   "])
+def test_local_judge_requires_a_model_tag_when_enabled(model: str) -> None:
+    with pytest.raises(judge_eval.EvalError, match="non-empty model tag"):
+        judge_eval._local_judge_config(_cfg_with_local_judge(True, model))
+
+
+def test_local_judge_must_not_be_the_contestant() -> None:
+    cfg = judge_eval._load_root_config()
+    contestant = cfg["models"]["local_llm"]["model"]  # type: ignore[index]
+    with pytest.raises(judge_eval.EvalError, match="must differ"):
+        judge_eval._local_judge_config(_cfg_with_local_judge(True, f" {contestant} "))
+
+
+def test_local_judge_inherits_the_hardened_loopback_client_config() -> None:
+    judge_cfg = judge_eval._local_judge_config(_cfg_with_local_judge(True, "other-family:1b"))
+    assert judge_cfg is not None
+    judge = judge_cfg["models"]["local_llm"]  # type: ignore[index]
+    assert judge["model"] == "other-family:1b"
+    assert judge["base_url"] == judge_eval.validate_local_endpoint(judge["base_url"])
+    assert judge["temperature"] == 0.0
+    assert judge["max_tokens"] == 512
+    assert judge["retry"]["max_retries"] == 0
+    assert judge["fallback"]["enabled"] is False
+
+
+def test_live_gate_drops_the_anthropic_key_only_for_a_local_judge(monkeypatch) -> None:
+    monkeypatch.delenv(judge_eval.KEY_ENV, raising=False)
+    monkeypatch.setattr(judge_eval, "_load_root_config", lambda: _cfg_with_local_judge(True, "other-family:1b"))
+
+    monkeypatch.delenv(judge_eval.LIVE_ENV, raising=False)
+    with pytest.raises(judge_eval.EvalError, match=judge_eval.LIVE_ENV):
+        judge_eval._require_live_authorization()
+
+    monkeypatch.setenv(judge_eval.LIVE_ENV, "1")
+    assert judge_eval._local_judge_config(judge_eval._require_live_authorization()) is not None
+
+    monkeypatch.setattr(judge_eval, "_load_root_config", lambda: _cfg_with_local_judge(False, ""))
+    with pytest.raises(judge_eval.EvalError, match=judge_eval.KEY_ENV):
+        judge_eval._require_live_authorization()
+
+
+def test_new_judge_builds_a_local_client_from_the_judge_config(monkeypatch) -> None:
+    import llm.client
+
+    built: list[dict[str, object]] = []
+
+    class _FakeLocal:
+        def __init__(self, cfg: dict[str, object]) -> None:
+            built.append(cfg)
+            self.model = cfg["models"]["local_llm"]["model"]  # type: ignore[index]
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(llm.client, "LocalLLMClient", _FakeLocal)
+    monkeypatch.setattr(llm.client, "ClaudeClient", lambda **_: pytest.fail("Claude must not be built"))
+
+    judge, provider = judge_eval._new_judge(_cfg_with_local_judge(True, "other-family:1b"))
+
+    assert provider == "local"
+    assert judge.model == "other-family:1b"
+    assert built[0]["models"]["local_llm"]["model"] == "other-family:1b"  # type: ignore[index]
+
+
+def test_report_records_the_judge_provider() -> None:
+    manifest = judge_eval._corpus_manifest()
+    case = judge_eval.load_cases()[0]
+    result = judge_eval.score_case(case, "18,000 metric tons.", (), _judge_result())
+    report = judge_eval.build_report(
+        case_results=[result],
+        index_fingerprint="a" * 64,
+        manifest=manifest,
+        contestant_provider="ollama",
+        contestant_model="local-model",
+        judge_model="other-family:1b",
+        judge_provider="local",
+    )
+    assert report["models"]["judge"]["provider"] == "local"  # type: ignore[index]
+    assert report["models"]["judge"]["model"] == "other-family:1b"  # type: ignore[index]
+
+
+# --- judge calibration (tests/judge_calibrate.py) ----------------------------
+
+
+def test_calibration_rows_are_labeled_against_fixture_cases() -> None:
+    from tests import judge_calibrate
+
+    cases = {case.case_id: case for case in judge_eval.load_cases()}
+    rows = judge_calibrate.load_rows(cases=cases)
+
+    assert len(rows) >= judge_calibrate.MIN_ROWS
+    assert len({row.row_id for row in rows}) == len(rows)
+    assert {row.expected_pass for row in rows} == {True, False}
+    # Every rubric category the rows were labeled against must still exist in
+    # the fixture, and the five core categories must each have rows. A category
+    # added to the fixture later (e.g. injected_content) earns rows in its own
+    # change rather than silently loosening this check.
+    labeled = {cases[row.case_id].category for row in rows}
+    assert labeled <= {case.category for case in cases.values()}
+    assert {"direct_factual", "paraphrase", "two_source_synthesis", "false_premise", "out_of_corpus"} <= labeled
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda row: row.update(case_id="no_such_case"),
+        lambda row: row.update(expected_supported_claim_ids=["E99"]),
+        lambda row: row.update(expected_supported_claim_ids=["E1"], expected_contradicted_claim_ids=["E1"]),
+        lambda row: row.update({"expected_pass": "yes"}),
+        lambda row: row.update(answer="   "),
+        lambda row: row.pop("expected_forbidden_claim_ids"),
+    ],
+)
+def test_calibration_loader_fails_closed_on_bad_rows(tmp_path: Path, mutate) -> None:
+    from tests import judge_calibrate
+
+    rows = json.loads(judge_calibrate.CALIBRATION_PATH.read_text(encoding="utf-8"))
+    mutate(rows[0])
+    path = tmp_path / "calibration.json"
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    with pytest.raises(judge_eval.EvalError):
+        judge_calibrate.load_rows(path)
+
+
+def test_calibration_loader_requires_the_minimum_row_count(tmp_path: Path) -> None:
+    from tests import judge_calibrate
+
+    rows = json.loads(judge_calibrate.CALIBRATION_PATH.read_text(encoding="utf-8"))
+    path = tmp_path / "calibration.json"
+    path.write_text(json.dumps(rows[: judge_calibrate.MIN_ROWS - 1]), encoding="utf-8")
+    with pytest.raises(judge_eval.EvalError, match="at least"):
+        judge_calibrate.load_rows(path)
+
+
+def test_calibration_compare_and_summary_are_metadata_only(tmp_path: Path) -> None:
+    from tests import judge_calibrate
+
+    cases = {case.case_id: case for case in judge_eval.load_cases()}
+    rows = judge_calibrate.load_rows(cases=cases)
+    grounded = next(row for row in rows if row.row_id == "cal_direct_harbor_grounded")
+    contradicted = next(row for row in rows if row.row_id == "cal_direct_harbor_contradicted")
+    case = cases[grounded.case_id]
+    evidence = (judge_eval.Evidence("aurora_harbor", "maximum daily cargo capacity is 18,000 metric tons"),)
+
+    agree = judge_calibrate.compare(
+        grounded, judge_eval.score_case(case, grounded.answer, evidence, _judge_result()), _judge_result()
+    )
+    lenient = _judge_result()  # judge wrongly calls the 25,000 answer grounded
+    disagree = judge_calibrate.compare(
+        contradicted, judge_eval.score_case(case, contradicted.answer, evidence, lenient), lenient
+    )
+
+    assert agree["pass_match"] is True and agree["supported_match"] is True
+    assert disagree["pass_match"] is False and disagree["contradicted_match"] is False
+
+    report = judge_calibrate.summarize(
+        [agree, disagree], judge_provider="local", judge_model="other-family:1b", index_fingerprint="a" * 64
+    )
+    # The lenient judge missed the contradiction AND the forbidden 25,000 claim.
+    assert report["aggregate"] == {
+        "rows": 2,
+        "pass_agreement": 0.5,
+        "supported_agreement": 0.5,
+        "contradicted_agreement": 0.5,
+        "forbidden_agreement": 0.5,
+    }
+    serialized = json.dumps(report)
+    assert grounded.answer not in serialized and contradicted.answer not in serialized
+    assert case.query not in serialized
+    written = judge_calibrate.write_report(report, tmp_path)
+    assert json.loads(written.read_text(encoding="utf-8"))["judge"]["provider"] == "local"
+
+
+def test_calibrate_main_refuses_args_and_missing_live_gate(monkeypatch) -> None:
+    from tests import judge_calibrate
+
+    monkeypatch.setattr(judge_calibrate, "run_calibration", lambda: pytest.fail("live calibration must not start"))
+    monkeypatch.setenv(judge_eval.LIVE_ENV, "1")
+    monkeypatch.setenv(judge_eval.KEY_ENV, "key")
+    assert judge_calibrate.main(["--rows", "other.json"]) == 2
+    monkeypatch.delenv(judge_eval.LIVE_ENV, raising=False)
+    assert judge_calibrate.main([]) == 2
+
+
+def test_calibrate_main_redacts_unexpected_runtime_failure(monkeypatch, capsys) -> None:
+    from tests import judge_calibrate
+
+    monkeypatch.setenv(judge_eval.LIVE_ENV, "1")
+    monkeypatch.setenv(judge_eval.KEY_ENV, "key")
+
+    def fail() -> dict[str, object]:
+        raise RuntimeError("raw provider response must remain private")
+
+    monkeypatch.setattr(judge_calibrate, "run_calibration", fail)
+    assert judge_calibrate.main([]) == 2
+    stderr = capsys.readouterr().err
+    assert "RuntimeError" in stderr and "raw provider response" not in stderr

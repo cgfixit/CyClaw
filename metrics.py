@@ -97,6 +97,57 @@ def iter_spend(spend_file: str):
     yield from _iter_records(spend_file)
 
 
+def iter_eval_runs(runs_file: str):
+    """Yield tests/judge_eval.py run summaries (logs/evals/eval_runs.jsonl) one line at a time."""
+    yield from _iter_records(runs_file)
+
+
+EVAL_TREND_LIMIT = 10
+
+
+def compute_eval_trend(runs, *, limit: int = EVAL_TREND_LIMIT) -> dict:
+    """Newest ``limit`` groundedness runs plus pass/fail counts over every run seen.
+
+    The nightly local judge (#1398 slice D) appends one summary per run; this
+    is the trend an operator reads. Nothing on the request path or in CI reads
+    it, so a bad run here is information, not a gate.
+    """
+    rows: list[dict] = []
+    passed = failed = 0
+    for run in runs:
+        aggregate = run.get("aggregate") if isinstance(run.get("aggregate"), dict) else {}
+        models = run.get("models") if isinstance(run.get("models"), dict) else {}
+        judge = models.get("judge") if isinstance(models.get("judge"), dict) else {}
+        status = run.get("status")
+        if status == "pass":
+            passed += 1
+        elif status == "fail":
+            failed += 1
+        rows.append({
+            "timestamp": str(run.get("timestamp") or ""),
+            "status": str(status or "unknown"),
+            "case_pass_rate": aggregate.get("case_pass_rate"),
+            "passed_cases": aggregate.get("passed_cases"),
+            "case_count": aggregate.get("case_count"),
+            "judge": f"{judge.get('provider', '?')}:{judge.get('model', '?')}",
+        })
+    rows.sort(key=lambda row: row["timestamp"], reverse=True)
+    return {"runs": len(rows), "passed": passed, "failed": failed, "recent": rows[:limit]}
+
+
+def _print_eval_trend(trend: dict | None) -> None:
+    if trend is None or not trend["runs"]:
+        return
+    print(f"\nGroundedness eval runs: {trend['runs']} (pass {trend['passed']}, fail {trend['failed']})")
+    for row in trend["recent"]:
+        rate = row["case_pass_rate"]
+        rate_text = f"{rate:.3f}" if isinstance(rate, (int, float)) and not isinstance(rate, bool) else "n/a"
+        print(
+            f"  {row['timestamp'][:19] or 'unknown-time'} {row['status']} pass_rate={rate_text} "
+            f"cases={row['passed_cases']}/{row['case_count']} judge={row['judge']}"
+        )
+
+
 def _spend_event_date(event: dict) -> date | None:
     raw = event.get("timestamp")
     if not isinstance(raw, str) or not raw:
@@ -510,6 +561,12 @@ def print_metrics(config_path: str = "config.yaml"):
     if isinstance(spend_raw, str) and spend_raw:
         spend_events = list(iter_spend(str(_resolve_config_path(spend_raw))))
         spend_summary = compute_spend(spend_events)
+    # Same missing-key silence as spend_file: only configs that name the runs
+    # file grow a Groundedness section.
+    eval_raw = cfg["logging"].get("eval_runs_file")
+    eval_trend = None
+    if isinstance(eval_raw, str) and eval_raw:
+        eval_trend = compute_eval_trend(iter_eval_runs(str(_resolve_config_path(eval_raw))))
     # Lazy: gate.py imports summarize_audit from this module. Importing the
     # detector at module top-level would load it into the gate process for
     # GET /audit/summary, which is not a sequence policy point (#966).
@@ -524,6 +581,7 @@ def print_metrics(config_path: str = "config.yaml"):
                 if count:
                     print(f"  {name}: {count}")
         _print_spend(spend_summary)
+        _print_eval_trend(eval_trend)
         if seq_lines:
             print()
             for line in seq_lines:
@@ -552,6 +610,7 @@ def print_metrics(config_path: str = "config.yaml"):
                 print(f"  {model}: {count}")
         print(f"\nOnline escalations (external LLM): {summary['online_escalated']}")
     _print_spend(spend_summary)
+    _print_eval_trend(eval_trend)
     if seq_lines:
         print()
         for line in seq_lines:

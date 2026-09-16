@@ -524,6 +524,10 @@ logging:
   third_party_level: "INFO"
   audit_file: "logs/audit.jsonl"
   spend_file: "logs/spend.jsonl"
+  # Read by metrics.py only (the Groundedness eval runs trend). Written by
+  # tests/judge_eval.py, whose output path is fixed on purpose (it accepts no
+  # overrides), so this must stay equal to that script's RUNS_PATH.
+  eval_runs_file: "logs/evals/eval_runs.jsonl"
   # Only include_query_hash is read (utils/logger.py). The audit record's
   # other fields (top_score, retrieval_mode, online_escalated, model_used,
   # llm, llm_model) are always written; there are no per-field include toggles.
@@ -1079,3 +1083,20 @@ opentweet:
     base_url: "http://127.0.0.1:8787"  # DevSkim: ignore DS162092,DS137138 - loopback CyClaw only
     api_key_env: "CYCLAW_API_KEY"
     timeout_sec: 790             # api.graph_timeout_sec (780) + 10s margin — client must lose the race so the server's diagnosable 504 GRAPH_TIMEOUT arrives instead of a client abort (same pattern as static/terminal.js)
+
+# ===========================
+# Evaluation plane (out-of-band)  [judge: Anthropic by default; local opt-in]
+# ===========================
+# tests/judge_eval.py scores the local contestant (models.local_llm) on the
+# tracked groundedness fixture. Its judge is Anthropic unless local_judge is
+# enabled, in which case a second loopback model grades the contestant and no
+# cloud key or egress is involved (#1398 slice D). The judge reuses
+# models.local_llm.base_url and must not be the contestant's own tag: a model
+# grading its own answers inflates groundedness. Check a judge against the
+# hand-labeled set (tests/judge_calibrate.py) before trusting its nightly
+# trend. Never a graph node; never required CI; CYCLAW_EVAL_LIVE=1 still gates
+# every run.
+evals:
+  local_judge:
+    enabled: false
+    model: ""                    # REQUIRED non-empty when enabled; a different family, e.g. "gemma3:12b"

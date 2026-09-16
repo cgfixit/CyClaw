@@ -6,6 +6,11 @@ through offline unit tests and never executes the live path.
 
 Usage:
   CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py
+
+The judge is Anthropic (``ANTHROPIC_API_KEY`` required) unless config.yaml's
+``evals.local_judge.enabled`` is true, in which case a second loopback model
+grades the contestant and nothing leaves the host (#1398 slice D). Calibrate
+a judge with tests/judge_calibrate.py before trusting its trend.
 """
 
 from __future__ import annotations
@@ -400,21 +405,58 @@ def _client_configs(root_cfg: dict[str, object]) -> tuple[dict[str, object], dic
     return {"models": {"local_llm": local}}, {"models": {"claude": claude}}
 
 
-def _new_clients(root_cfg: dict[str, object]) -> tuple[GenerateClient, GenerateClient]:
+def _local_judge_config(root_cfg: dict[str, object]) -> dict[str, object] | None:
+    """Return a client config for the local judge, or None when it is disabled.
+
+    The judge reuses the contestant's hardened loopback config (endpoint pinned,
+    temperature 0, no retries, no fallback) with its own model tag. The tag must
+    differ from the contestant's: a model grading its own answers inflates
+    groundedness (#1398). Family is not verifiable from a tag, so the
+    calibration set (tests/judge_calibrate.py) is the operator's check.
+    """
+    evals = root_cfg.get("evals")
+    if not isinstance(evals, dict):
+        return None
+    judge = evals.get("local_judge")
+    if not isinstance(judge, dict) or judge.get("enabled") is not True:
+        return None
+    model = judge.get("model")
+    if not isinstance(model, str) or not model.strip():
+        raise EvalError("evals.local_judge.model must be a non-empty model tag when enabled")
+    local_cfg, _ = _client_configs(root_cfg)
+    local = _mapping(_mapping(local_cfg["models"], label="models").get("local_llm"), label="models.local_llm")
+    if model.strip() == str(local.get("model") or "").strip():
+        raise EvalError("evals.local_judge.model must differ from models.local_llm.model")
+    judge_cfg = copy.deepcopy(local)
+    judge_cfg["model"] = model.strip()
+    return {"models": {"local_llm": judge_cfg}}
+
+
+def _new_judge(root_cfg: dict[str, object]) -> tuple[GenerateClient, str]:
     from llm.client import ClaudeClient, LocalLLMClient
 
-    local_cfg, claude_cfg = _client_configs(root_cfg)
+    judge_cfg = _local_judge_config(root_cfg)
+    if judge_cfg is not None:
+        return LocalLLMClient(cfg=judge_cfg), "local"
+    _, claude_cfg = _client_configs(root_cfg)
+    judge = ClaudeClient(cfg=claude_cfg)
+    if not judge.is_available():
+        judge.close()
+        raise EvalError(f"{KEY_ENV} is not set")
+    return judge, "claude"
+
+
+def _new_clients(root_cfg: dict[str, object]) -> tuple[GenerateClient, GenerateClient, str]:
+    from llm.client import LocalLLMClient
+
+    local_cfg, _ = _client_configs(root_cfg)
     local = LocalLLMClient(cfg=local_cfg)
     try:
-        judge = ClaudeClient(cfg=claude_cfg)
+        judge, judge_provider = _new_judge(root_cfg)
     except Exception:
         local.close()
         raise
-    if not judge.is_available():
-        local.close()
-        judge.close()
-        raise EvalError(f"{KEY_ENV} is not set")
-    return local, judge
+    return local, judge, judge_provider
 
 
 def _new_retriever(config_path: Path) -> Retriever:
@@ -601,6 +643,7 @@ def build_report(
     contestant_provider: str,
     contestant_model: str,
     judge_model: str,
+    judge_provider: str = "claude",
 ) -> dict[str, object]:
     passed = sum(result["pass"] is True for result in case_results)
     pass_rate = passed / len(case_results)
@@ -640,7 +683,7 @@ def build_report(
         },
         "models": {
             "contestant": _model_record(contestant_provider, contestant_model),
-            "judge": _model_record("claude", judge_model),
+            "judge": _model_record(judge_provider, judge_model),
         },
         "aggregate": {
             "case_count": len(case_results),
@@ -669,23 +712,32 @@ def write_report(report: dict[str, object], eval_root: Path = EVAL_ROOT) -> None
         handle.write(json.dumps(summary, sort_keys=True) + "\n")
 
 
-def _require_live_authorization() -> None:
+def _require_live_authorization() -> dict[str, object]:
+    """Check the live gates and return the root config the decision was made from.
+
+    CYCLAW_EVAL_LIVE=1 is always required and is checked before anything is
+    read. The Anthropic key is required only when the judge is Anthropic; with
+    evals.local_judge enabled nothing leaves the host, so no key is demanded.
+    """
     if os.environ.get(LIVE_ENV) != "1":
         raise EvalError(f"set {LIVE_ENV}=1 to authorize live evaluation egress")
+    root_cfg = _load_root_config()
+    if _local_judge_config(root_cfg) is not None:
+        return root_cfg
     if not (os.environ.get(KEY_ENV) or "").strip():
         raise EvalError(f"{KEY_ENV} is not set")
+    return root_cfg
 
 
 def run_suite(eval_root: Path = EVAL_ROOT) -> dict[str, object]:
     # Keep the gate on the callable boundary as well as main(), so importing
     # this module cannot bypass the explicit live authorization.
-    _require_live_authorization()
+    root_cfg = _require_live_authorization()
     cases = load_cases()
     config_path, index_fingerprint, manifest = build_eval_index(eval_root)
-    root_cfg = _load_root_config()
     retriever = _new_retriever(config_path)
     try:
-        local, judge = _new_clients(root_cfg)
+        local, judge, judge_provider = _new_clients(root_cfg)
     except Exception:
         retriever.close()
         raise
@@ -715,6 +767,7 @@ def run_suite(eval_root: Path = EVAL_ROOT) -> dict[str, object]:
         contestant_provider=str(getattr(local, "provider", "local")),
         contestant_model=local.model,
         judge_model=judge.model,
+        judge_provider=judge_provider,
     )
     write_report(report, eval_root)
     return report

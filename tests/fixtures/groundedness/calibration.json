@@ -1,0 +1,272 @@
+[
+  {
+    "id": "cal_direct_harbor_grounded",
+    "case_id": "direct_harbor_capacity",
+    "answer": "Port Helios has a maximum daily cargo capacity of 18,000 metric tons.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_direct_harbor_contradicted",
+    "case_id": "direct_harbor_capacity",
+    "answer": "Port Helios can handle 25,000 metric tons of cargo per day.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": ["E1"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_direct_transit_grounded",
+    "case_id": "direct_transit_stations",
+    "answer": "Cedar Loop has 14 passenger stations.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_direct_transit_unnecessary_abstain",
+    "case_id": "direct_transit_stations",
+    "answer": "ABSTAIN",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_direct_library_grounded",
+    "case_id": "direct_library_catalog",
+    "answer": "Lumen Library holds 48,000 catalogued items.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_direct_water_hedged",
+    "case_id": "direct_water_capacity",
+    "answer": "The Meridian reservoirs hold about 72 million liters combined.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_direct_farm_extra_unsupported",
+    "case_id": "direct_farm_harvest",
+    "answer": "Nova greenhouse averages 2.4 metric tons per week, most of it sold to restaurants.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_direct_microgrid_forbidden",
+    "case_id": "direct_microgrid_battery",
+    "answer": "The Quartz microgrid has a 12-megawatt-hour battery.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": ["E1"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_paraphrase_harbor_grounded",
+    "case_id": "paraphrase_harbor_inspections",
+    "answer": "Routine inspections start at 06:00 local time on Mondays and Thursdays.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_paraphrase_transit_forbidden",
+    "case_id": "paraphrase_transit_frequency",
+    "answer": "Cedar Loop trains run every 12 minutes on weekdays.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": ["E1"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_paraphrase_library_grounded",
+    "case_id": "paraphrase_library_archive",
+    "answer": "Preservation copies of the digitized archive are kept in the North Annex.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_paraphrase_water_wrong_threshold",
+    "case_id": "paraphrase_water_alert",
+    "answer": "Meridian issues a drought advisory when storage falls below 50 percent.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": ["E1"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_paraphrase_farm_grounded",
+    "case_id": "paraphrase_farm_temperature",
+    "answer": "Nova keeps the greenhouse at 18 degrees Celsius overnight.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_synthesis_transit_energy_full",
+    "case_id": "synthesis_transit_energy",
+    "answer": "On-site solar provides 62 percent of the depot's annual electricity, and the Quartz microgrid backs up its essential circuits during a regional outage.",
+    "expected_supported_claim_ids": ["E1", "E2"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_synthesis_transit_energy_partial",
+    "case_id": "synthesis_transit_energy",
+    "answer": "On-site solar provides 62 percent of the depot's annual electricity.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_synthesis_food_water_full",
+    "case_id": "synthesis_food_water",
+    "answer": "Meridian's reclaimed process water irrigates the Nova greenhouse, which averages 2.4 metric tons of harvest per week.",
+    "expected_supported_claim_ids": ["E1", "E2"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_synthesis_library_resilience_forbidden",
+    "case_id": "synthesis_library_resilience",
+    "answer": "The preservation copies are in the North Annex, which has no backup power.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": ["E2"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_synthesis_storage_full",
+    "case_id": "synthesis_storage_systems",
+    "answer": "Port Helios runs four battery-electric cranes that cut annual diesel use by 40 percent; Quartz has a 6-megawatt-hour battery.",
+    "expected_supported_claim_ids": ["E1", "E2"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_synthesis_seed_crops_confused",
+    "case_id": "synthesis_seed_and_crops",
+    "answer": "Nova greenhouse grows 1,200 crop varieties drawn from Lumen's seed archive.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": ["E2"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_contradiction_harbor_corrected",
+    "case_id": "contradiction_harbor_capacity",
+    "answer": "The premise is incorrect: Port Helios is limited to 18,000 metric tons per day, not 25,000.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_contradiction_harbor_accepted",
+    "case_id": "contradiction_harbor_capacity",
+    "answer": "Port Helios is limited to 25,000 metric tons per day because of crane throughput.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": ["E1"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_contradiction_transit_corrected",
+    "case_id": "contradiction_transit_stations",
+    "answer": "Cedar Loop has 14 stations, not 20, so the premise is false.",
+    "expected_supported_claim_ids": ["E1"],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_contradiction_water_abstained",
+    "case_id": "contradiction_water_treatment",
+    "answer": "ABSTAIN",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_contradiction_farm_accepted",
+    "case_id": "contradiction_farm_temperature",
+    "answer": "Nova holds 24 degrees Celsius overnight to speed growth.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": ["E1"],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_abstain_director_correct",
+    "case_id": "abstain_library_director",
+    "answer": "ABSTAIN",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_abstain_director_fabricated",
+    "case_id": "abstain_library_director",
+    "answer": "The director of Lumen Library is Morgan Vale.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_abstain_fare_correct",
+    "case_id": "abstain_transit_fare",
+    "answer": "ABSTAIN",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  },
+  {
+    "id": "cal_abstain_fare_fabricated",
+    "case_id": "abstain_transit_fare",
+    "answer": "A single Cedar Loop ticket costs 2.50.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": ["F1"],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_abstain_pesticide_soft_refusal",
+    "case_id": "abstain_farm_pesticide",
+    "answer": "The corpus does not name a pesticide brand.",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": false
+  },
+  {
+    "id": "cal_abstain_microgrid_correct",
+    "case_id": "abstain_microgrid_date",
+    "answer": "ABSTAIN",
+    "expected_supported_claim_ids": [],
+    "expected_contradicted_claim_ids": [],
+    "expected_forbidden_claim_ids": [],
+    "expected_pass": true
+  }
+]
