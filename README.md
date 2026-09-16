@@ -31,6 +31,7 @@ call to a paid provider as an exception you approve per question.
 - [Full Setup Guide](setup-guide.md)
 - [Dropbox Corpus Sync](#dropbox-corpus-sync)
 - [Benchmarks and Evals](#benchmarks-and-evals)
+- [Spend Tracking](#spend-tracking)
 
 **Optional layers** (master switches ship disabled; see each layer's enablement gates)
 
@@ -184,7 +185,7 @@ on by default.
 | [Agentic layer](#agentic-layer) + [coding loop](#agentic-coding-loop-github) (`agentic/`) | read-only GitHub context via the `gh` CLI, a governed skills registry, and a real-repo clone → plan → patch → verify → **human decides** → commit pipeline whose push and draft-PR steps are two further separate decisions | off |
 | [Telegram](#telegram-channel) (`telegram/`) and [OpenTweet](#opentweet-channel) (`opentweet/`) channels | a phone remote and a weekly X poster; both reach the pipeline only through loopback `POST /query`, never a direct `graph.py` call | off |
 | Numbat forensic stream (`utils/numbat_emitter.py`) | a derived NDJSON projection of the audit trail at `logs/numbat-events.ndjsonl` that the pinned Numbat 0.2.0 CLI can score for patterns like `exfil.curl_post_file` ([design note](docs/security-philosophy/numbat_secondary_evaluator.md)). Projected after hashing and redaction, but it carries host/user metadata — a second sensitive local log, not a privacy upgrade | **on** |
-| Spend ledger (`utils/spend.py`) | token counts per billed Grok/Claude API-key call in `logs/spend.jsonl`, tagged `source: query` (`/query` fallback) or `source: agentic` (cloud planner). Grok stores xAI `cost_in_usd_ticks`; Claude is priced from Anthropic usage tokens. Dollars are derived at read time by `cyclaw-metrics`; match the xAI / Anthropic consoles — see [`docs/spend/README.md`](docs/spend/README.md) | **on** |
+| Spend ledger (`utils/spend.py`) | token counts per billed Grok/Claude API-key call in `logs/spend.jsonl`, tagged `source: query` (`/query` fallback) or `source: agentic` (cloud planner). Grok stores xAI `cost_in_usd_ticks`; Claude is priced from Anthropic usage tokens. Dollars are derived at read time by `cyclaw-metrics`; match the xAI / Anthropic consoles — see [Spend Tracking](#spend-tracking) | **on** |
 | [Fine-tune kit](#local-model-fine-tuning) (`tools/lora_finetune/`) | an offline QLoRA kit that teaches a local model this codebase. Not installed by any runtime install surface | operator toolkit |
 
 ---
@@ -392,7 +393,7 @@ A confirmed Grok or Claude call that actually bills appends one line to
 cloud planner). Keys never go in that file. `python -m metrics` prints the
 Spend section; the independent check is the xAI or Anthropic console for the
 same window. Full field list, live probes, and Darwin Keychain service names
-are in [`docs/spend/README.md`](docs/spend/README.md).
+are in [Spend Tracking](#spend-tracking) / [`spend/README.md`](spend/README.md).
 
 Load it before launching:
 
@@ -692,6 +693,7 @@ CyClaw/
 ├── gate_memory.py              # /memory/* + /query/export/html — optional, default-off memory admin surface
 ├── graph.py
 ├── metrics.py                  # audit.jsonl analyzer + spend.jsonl Spend section (cyclaw-metrics)
+├── spend/                      # spend/README.md — full token-ledger reference (see Spend Tracking)
 ├── config.yaml                 # single source of truth
 ├── README.md
 ├── mcp_hybrid_server.py        # retrieval-only MCP server
@@ -970,6 +972,69 @@ stop / restart / Ctrl-C / online-gate recovery steps
 judge-plane result has been published yet, so there is no groundedness number
 for the shipped model. The planes, their thresholds' owners, and the
 not-yet-measured list are in [`docs/EVALS.md`](docs/EVALS.md).
+
+---
+
+## Spend Tracking
+
+Every triple-gated Grok/Claude call that actually bills appends one line to
+`logs/spend.jsonl` via `utils/spend.py`. The rule is **tokens are the ground
+truth; dollars are derived at read time** — the ledger never stores a price, so
+correcting a stale rate re-prices the entire history instead of leaving wrong
+numbers baked into old lines. It never stores query text, prompt content, or
+API keys, and writes are best-effort: a full disk logs a warning and drops the
+row rather than turning a successful paid answer into a failed request.
+
+Two production call sites write to it, distinguished by `source`, plus a
+third for evals:
+
+| `source` | Writer | What it covers |
+|---|---|---|
+| `query` | `llm/client.py` | The `/query` online fallback — the triple-gated Grok/Claude escalation a human confirmed per request |
+| `agentic` | `agentic/deepagent_github/chat_client.py` | The out-of-band cloud planner's one-shot plan calls |
+| `eval` | `tests/judge_eval.py` / `judge_calibrate.py` | Opt-in Anthropic-judge evals; routed to a separate `logs/evals/spend.jsonl`, never the production ledger |
+
+**Reading it:**
+
+```bash
+python -m metrics          # or: cyclaw-metrics, once `pip install -e .`
+```
+
+The Spend section prints `today` and `last_7d` windows: total input/output
+tokens, a derived USD figure, per-provider and per-source row counts, and two
+data-quality counters — `usage_missing` (a billed call whose usage CyClaw
+couldn't parse) and `rate_unknown` (a model with no rate-table entry). When any
+row carried a vendor-reported cost, the same window also shows `table_usd`,
+`ticked_table_usd`, `vendor_usd`, and `delta_usd` side by side, so a drift
+between CyClaw's rate table and the vendor's own billing is visible rather than
+hidden behind one number.
+
+**Pricing rules that are exact, not approximated:** Grok's long-context band
+(above a 200k-token prompt, xAI bills the *entire* request at the long rate,
+not just the tokens past the threshold) and Claude's cache-write pricing split
+by TTL (5-minute vs. 1-hour, when the vendor reports the split). `PRICED_AS_OF`
+is computed from the dated rate table's own verification dates and flagged
+stale after 30 days, so a long-running deployment surfaces "these dollars are
+from an old rate card" instead of quietly reporting a confident, wrong total.
+
+**Verifying against the vendor:** `compare_vendor_cost()` prices a row both by
+rate table and by xAI's own ticks and reports the delta (`ticks_mismatch()`
+decides when it's worth acting on); Claude has no ticks, so its check is the
+Anthropic console total for the same window. `utils/sequence_detect.py` also
+joins the ledger to `logs/audit.jsonl` on the shared `query_hash` — printed as
+a Sequences section by `cyclaw-metrics` — to forensically correlate a blocked
+injection attempt with a later online escalation, restricted to `source ==
+"query"` rows so the agentic plane never mixes in.
+
+**Live probes** (they spend real money, opt-in only, never collected by
+pytest): `CYCLAW_SPEND_LIVE=1 python tests/spend_live_probe.py` writes to a
+**temp** ledger and deletes it — it never appends `logs/spend.jsonl` — and
+asserts no forbidden field (query, prompt, content, api_key, authorization)
+reached the row.
+
+Full field-by-field schema, the Darwin Keychain service names for
+`GROK_API_KEY`/`ANTHROPIC_API_KEY`, and the agentic-plane live-probe walkthrough
+are in [`spend/README.md`](spend/README.md).
 
 ---
 
@@ -1329,7 +1394,7 @@ is injection-scanned, redacted, hashed, and audited as egress before it leaves
 the process. A billed 2xx appends `source: "agentic"` to `logs/spend.jsonl`
 (Grok: xAI ticks; Claude: Anthropic token counts × the rate table). That is a
 different client than `/query`'s `GrokClient` / `ClaudeClient` — see
-[`docs/spend/README.md`](docs/spend/README.md).
+[Spend Tracking](#spend-tracking) / [`spend/README.md`](spend/README.md).
 
 Cloud SDKs are **opt-in extras, deliberately absent from the default install,
 `requirements.txt`, and the Docker image**:

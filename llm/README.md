@@ -24,7 +24,7 @@ Read that conditional against the shipped config before assuming it means
 **both external clients are constructed at boot** and two of the three gates
 are already open. The only remaining gate is the per-request
 `user_confirmed_online`, which cannot be pre-set in config. Billed calls are
-recorded to `logs/spend.jsonl` — see [`docs/spend/README.md`](../docs/spend/README.md).
+recorded to `logs/spend.jsonl` — see [`spend/README.md`](../spend/README.md).
 
 ## Shared behavior
 
