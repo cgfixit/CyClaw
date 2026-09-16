@@ -3,8 +3,11 @@ name: babysit-github-pr
 description: >
   Watch a GitHub PR end-to-end — rebase when behind, triage CI failures (flaky
   vs code), fix code issues, address review comments, drive to green or escalate
-  to human. Triggers on: babysit, watch my PR, keep this PR green, fix CI,
-  rebase and push, get this merged, why is CI failing, or any PR number + CI/checks/review.
+  to human. Not auto-invocable: it starts an extended watch loop against live
+  GitHub state and pushes commits, so it only runs on explicit request —
+  "babysit", "watch my PR", "keep this PR green", "fix CI", "rebase and push",
+  "get this merged", "why is CI failing", or a PR number + CI/checks/review.
+disable-model-invocation: true
 ---
 
 # Babysit GitHub PR

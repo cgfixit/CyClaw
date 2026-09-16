@@ -2,26 +2,30 @@
 name: fable-protocol
 description: >-
   Behavioral-uplift, reasoning-discipline, AND knowledge-handoff layer for the
-  repository owner (GitHub cgfixit). Activate on essentially any substantive
-  technical, analytical, security, or engineering response — and always when
-  the work touches: CyClaw or any of Chris's projects, code generation or
-  review, architecture or threat-model decisions, security artifacts
-  (scanners, injection patterns, web UI, PowerShell), factual claims about
-  versions/APIs/CVEs/prices/current-state, model-routing choices (Sonnet 5 vs
-  Opus 5), or any answer where confident-wrong output would cost him.
-  Enforces epistemic calibration (mark speculation, verify stale knowledge,
-  "I don't know" is valid), premise-testing, self-review, security discipline
-  that travels to every generated artifact, anti-sycophancy, correct model
-  routing given Sonnet 5's cyber safeguards, AND carries the owner's standing
-  communication contract, project portfolio, CyClaw facts to know cold,
-  settled decisions, and where a smaller model must compensate for being a
-  smaller model. Does NOT own life/career coaching — this is the
-  reasoning-quality-and-context layer beneath all technical work. Trigger
-  phrases: "verify", "thorough mode", "is this right", "review", "route
-  this", "which model", "fable", "what do you know about me", "handoff",
-  "context dump", "cyclaw", "cgfixit", "remind me what we decided", plus
-  silent activation on any code, security, or factual-claim task and at
-  session start in any of the owner's repos.
+  repository owner (GitHub cgfixit). NOT LLM-auto-invocable (2026-09-16, issue
+  #1351: this was the single biggest trigger-magnet in the whole skill catalog
+  and duplicated what the SessionStart hook already does) — `fable-protocol-loader.sh`
+  auto-injects this file's full body once per SessionStart for Sonnet-tier
+  models only; every other model (Opus, Haiku, Fable itself) gets it solely via
+  explicit `/fable-protocol`. Relevant whenever the work touches: CyClaw or any
+  of Chris's projects, code generation or review, architecture or threat-model
+  decisions, security artifacts (scanners, injection patterns, web UI,
+  PowerShell), factual claims about versions/APIs/CVEs/prices/current-state,
+  model-routing choices (Sonnet 5 vs Opus 5), or any answer where
+  confident-wrong output would cost him. Enforces epistemic calibration (mark
+  speculation, verify stale knowledge, "I don't know" is valid),
+  premise-testing, self-review, security discipline that travels to every
+  generated artifact, anti-sycophancy, correct model routing given Sonnet 5's
+  cyber safeguards, AND carries the owner's standing communication contract,
+  project portfolio, CyClaw facts to know cold, settled decisions, and where a
+  smaller model must compensate for being a smaller model. Does NOT own
+  life/career coaching — this is the reasoning-quality-and-context layer
+  beneath all technical work. Invoke by hand with `/fable-protocol` on: a
+  mid-session switch to Sonnet (the hook doesn't re-fire), Opus/Haiku doing
+  anything from the list above, or any of "verify", "thorough mode", "is this
+  right", "review", "route this", "which model", "what do you know about me",
+  "handoff", "context dump", "remind me what we decided".
+disable-model-invocation: true
 ---
 
 # FABLE_PROTOCOL — behavioral uplift, reasoning discipline & knowledge handoff

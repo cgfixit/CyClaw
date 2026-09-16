@@ -831,8 +831,8 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 
 | Skill | Type | Purpose |
 |---|---|---|
-| `/babysit-github-pr` | loop | Watch a GitHub PR end-to-end — rebase if behind, triage CI failures (flaky vs code), address review comments, drive to green or escalate to human |
-| `/CyClaw-Optimize` | task | Scan main for optimizations; open focused draft PRs |
+| `/babysit-github-pr` | loop, user-invoked only (`disable-model-invocation: true`) | Watch a GitHub PR end-to-end — rebase if behind, triage CI failures (flaky vs code), address review comments, drive to green or escalate to human. Gained the flag 2026-09-16 (issue #1351) — it starts an extended watch loop against live GitHub state and pushes commits, so it needs an explicit ask like the other loop skills |
+| `/CyClaw-Optimize` | task, user-invoked only (`disable-model-invocation: true`) | Scan main for optimizations; open focused draft PRs. Gained the flag 2026-09-16 (issue #1351) — it opens PRs against main on its own, so it should never auto-route |
 | `/CyClaw-Sandbox` | task, user-invoked only (`disable-model-invocation: true`) | Clone main, mock Ollama, full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR). Claude never auto-routes here — the full audit's cost (clone, venv, report, PR) is an explicit-ask action, not an inference from a technical prompt |
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
@@ -891,8 +891,13 @@ decisions as a knowledge base, but carry no independent authority — `CLAUDE.md
 and `config.yaml` remain the source of truth, and neither this skill's
 discipline layer nor its knowledge layer overrides the six invariants in §3.
 Read at session start in any of the owner's repos; in this repo the
-`fable-protocol-loader.sh` SessionStart hook does that automatically for every
-non-Fable model (§10). See the skill file for the
+`fable-protocol-loader.sh` SessionStart hook does that automatically for
+Sonnet-tier models only (§10). 2026-09-16 (issue #1351): the skill itself
+gained `disable-model-invocation: true` — it was the single largest
+always-on listing cost in the whole catalog, and the deterministic hook
+above already covers the one model tier that needs it unasked; every other
+model (Opus, Haiku, Fable) now reaches it only via explicit
+`/fable-protocol`. See the skill file for the
 full protocol (consolidated 2026-09-06 from a separate `fable-5.1-cc`
 companion skill, which no longer exists as its own file — its content is now
 this skill's §8 onward).
@@ -913,12 +918,16 @@ git config user.email cyclaw-agent@users.noreply.github.com
 git config user.name "CyClaw Agent"
 ```
 
-The second, `fable-protocol-loader.sh` (wired 2026-09-06), injects
-`/fable-protocol` as session context unless the session model is Fable-tier
-(`fable`/`mythos` in the model id). It reads the model from the SessionStart
-hook's stdin JSON, the only hook event that carries one; a mid-session `/model`
-switch fires no hook, so after switching to Sonnet or Opus mid-session run
-`/fable-protocol` by hand. Absent or unrecognised model strings inject.
+The second, `fable-protocol-loader.sh` (wired 2026-09-06; re-gated 2026-09-16,
+issue #1351), injects `/fable-protocol` as session context only when the
+session model is Sonnet-tier (`sonnet` in the model id) — switched from an
+opt-out blocklist (inject unless Fable-tier) to an opt-in allowlist, since
+Sonnet is the tier the protocol's discipline layer benefits most for the
+cost. Opus, Haiku, Fable, and any absent/unrecognised model string are all
+skipped now. It reads the model from the SessionStart hook's stdin JSON, the
+only hook event that carries one; a mid-session `/model` switch fires no
+hook, so after switching to Sonnet mid-session (or wanting it on Opus/Haiku
+at all) run `/fable-protocol` by hand.
 
 Single source of truth: `utils/agent_identity.py`. Committer defaults are
 **driver-agnostic** (not Claude/Anthropic) because the agentic loop is often a
