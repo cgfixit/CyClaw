@@ -17,11 +17,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -f .claude/skills/python-coding-agent/SKILL.md ] && jq -cn --rawfile ctx .claude/skills/python-coding-agent/SKILL.md '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:$ctx}}' 2>/dev/null || true",
-            "statusMessage": "Loading Python coding agent..."
-          },
-          {
-            "type": "command",
             "command": "bash .claude/hooks/session-start-sync-check.sh",
             "statusMessage": "Pinning git identity + checking local/remote sync..."
           },
