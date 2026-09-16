@@ -30,6 +30,7 @@ call to a paid provider as an exception you approve per question.
 - [Per-User Authentication](#per-user-authentication)
 - [Full Setup Guide](setup-guide.md)
 - [Dropbox Corpus Sync](#dropbox-corpus-sync)
+- [Benchmarks and Evals](#benchmarks-and-evals)
 
 **Optional layers** (all six ship disabled; enable one by editing `config.yaml`)
 
@@ -908,6 +909,33 @@ pip install -r tools/lora_finetune/requirements.txt # on the CUDA box only
 Dataset shape, category counts, the Unsloth pin caveat, and the
 `pip-audit`-on-the-GPU-box step are in
 [`tools/lora_finetune/README.md`](tools/lora_finetune/README.md).
+
+---
+
+## Benchmarks and Evals
+
+Quality is measured on four separate planes, and only the first one blocks a
+merge. All of them score the synthetic fixture under
+`tests/fixtures/groundedness/` (eight documents, 52 labeled cases in six
+categories including `injected_content`, where the evidence itself carries
+instructions); none of them is a graph node or a security control.
+
+| Plane | Command | Runs | Measures |
+|---|---|---|---|
+| Retrieval gate | `python -m tests.ci_rag_smoke` | every PR (`ci.yml`), no LLM | four `data/corpus` queries against the `retrieval.min_score` gate, then hit@5 / Recall@5 / MRR on the fixture against floors in `tests/ci_rag_smoke.py`, plus a check that each injected document's stored chunk was sanitized to `[FILTERED]` |
+| Local dogfood | `CYCLAW_EVAL_DOGFOOD=1 python scripts/cyclaw-eval-dogfood.py` | operator, opt-in | one case per category on the real loopback model, with latency and a sanitizer probe; rows are `generated` or `unverified`, never assumed |
+| Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` (+ `ANTHROPIC_API_KEY`) | operator, opt-in, spends money | groundedness, completeness and abstention per case, graded by Claude; metadata-only report under `logs/evals/` |
+| Local judge | same command with `evals.local_judge.enabled: true`; `tests/judge_calibrate.py` for the 30-row calibration set | operator, opt-in, fully local | the same rubric graded by a second loopback model of a different family; `python -m metrics` prints the run trend |
+
+Measured so far: the retrieval gate holds at hit@5 1.0 / Recall@5 1.0 / MRR 1.0
+on CI (20 scored cases, 2026-09-12) and locally after the fixture grew to 52
+(44 scored cases, 2026-09-16); the dogfood matrix produced five real
+`generated` rows on `qwen3.8:27b-mlx` on an M5 Pro 48 GB and walked the
+stop / restart / Ctrl-C / online-gate recovery steps
+([dated record](docs/audits/2026-09-12_Local_Qwen_Dogfood_Matrix.md)). No
+judge-plane result has been published yet, so there is no groundedness number
+for the shipped model. The planes, their thresholds' owners, and the
+not-yet-measured list are in [`docs/EVALS.md`](docs/EVALS.md).
 
 ---
 
