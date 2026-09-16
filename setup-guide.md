@@ -293,6 +293,11 @@ sw_vers -productVersion
 git clone https://github.com/CGFixIT/CyClaw.git && cd CyClaw
 python3.12 -m venv .venv
 source .venv/bin/activate
+# Every subsequent `python` and `pip` command in this guide must resolve inside
+# `.venv`. Do not fall back to the host-global Python: a mixed NumPy/SciPy
+# stack can fail at import time with an ABI error. If in doubt, run
+# `python -c 'import sys; print(sys.executable)'` and confirm it ends in
+# `.venv/bin/python` before indexing or starting the gateway.
 
 # 2. Torch FIRST, and PLAIN — no "+cpu" suffix, no --index-url override.
 #    Apple Silicon has no separate CPU/CUDA build to disambiguate, so PyPI
