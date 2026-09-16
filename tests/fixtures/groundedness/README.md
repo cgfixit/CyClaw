@@ -10,6 +10,13 @@ Each case declares expected claims, forbidden claims, and expected source IDs.
 Live reports store only case IDs, scores, reason codes, and source IDs; they do
 not persist queries, answers, evidence excerpts, or claim text.
 
+`calibration.json` holds 30 hand-labeled answers to these cases (each with the
+claim IDs a correct judge should mark supported, contradicted, or forbidden,
+and whether the case should pass). `tests/judge_calibrate.py` runs only the
+judge over them and reports agreement, so an operator can check a judge,
+especially a local one, before trusting its trend. The answers are synthetic
+and public-safe like the rest of this directory.
+
 `python -m tests.ci_rag_smoke` (required CI) also builds an **isolated** index
 from this corpus and fails if macro hit@5 / Recall@5 / MRR on the 20
 source-labeled cases drop below floors in `tests/ci_rag_smoke.py`. The four

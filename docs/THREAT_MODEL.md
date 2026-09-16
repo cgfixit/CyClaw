@@ -955,6 +955,16 @@ I6 isolation is locked by `tests/test_judge_eval.py`.
   malformed or free-form judge output fails the run. The judge is probabilistic
   measurement evidence, not formal proof. Residual risks are Anthropic retention,
   key theft, billed usage, model drift, and evaluator variance.
+- **Local judge addendum (2026-09-16, #1398 slice D).** When `config.yaml`'s
+  `evals.local_judge.enabled` is true, the judge is a second loopback model
+  built from the contestant's hardened client config (endpoint pinned to
+  loopback, no retries, no fallback) with its own tag, which must differ from
+  `models.local_llm.model`. `ANTHROPIC_API_KEY` is then not required because
+  no bytes leave the host; `CYCLAW_EVAL_LIVE=1` is still required, and the
+  shipped default is `false`. `tests/judge_calibrate.py` (same gate, judge
+  only) scores a judge against thirty hand-labeled rows and writes a
+  metadata-only report; neither script is on the request path or in any
+  workflow, which `tests/test_judge_eval.py` pins for both files.
 
 ---
 

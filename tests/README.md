@@ -39,6 +39,31 @@ under `logs/evals/`. Exit 0 means the approved rubric passed, exit 1 means a
 complete run missed a threshold, and exit 2 means the run was refused or could
 not complete.
 
+Setting `evals.local_judge.enabled: true` in `config.yaml` (with a `model` tag
+that differs from `models.local_llm.model`) swaps the Anthropic judge for a
+second loopback model: the same command then needs no `ANTHROPIC_API_KEY` and
+nothing leaves the host. `CYCLAW_EVAL_LIVE=1` still gates the run. Before
+trusting any judge, run the hand-labeled calibration set (30 rows in
+`tests/fixtures/groundedness/calibration.json`, judge only, no contestant):
+
+```bash
+CYCLAW_EVAL_LIVE=1 python tests/judge_calibrate.py
+```
+
+It prints pass / supported / contradicted / forbidden agreement rates and
+writes `logs/evals/calibration_report.json`; it is report-only, so set a floor
+from a measured run rather than inventing one. The nightly trend is an
+operator-box job, not GitHub Actions (required CI never runs the live script
+and there is no self-hosted runner), for example:
+
+```cron
+0 3 * * * cd /path/to/CyClaw && CYCLAW_EVAL_LIVE=1 .venv/bin/python tests/judge_eval.py >> logs/evals/nightly.log 2>&1
+```
+
+`python -m metrics` then prints the last ten runs from `logs/evals/eval_runs.jsonl`
+(`logging.eval_runs_file`). Nothing on the request path or in CI reads that
+trend, so it is non-blocking by construction.
+
 ## Coverage
 
 Bare `pytest` runs **no** coverage — the 80% gate (`fail_under` in

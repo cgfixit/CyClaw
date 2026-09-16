@@ -433,3 +433,48 @@ def test_jsonl_readers_preserve_streaming_and_integrity_contract(tmp_path, prese
     assert summary["audit_integrity"] == expected
     assert summary["total_events"] == (len(records) if present else 0)
     assert "synthetic" not in json.dumps(summary)
+
+
+class TestEvalTrend:
+    """``logging.eval_runs_file`` (written by tests/judge_eval.py) feeds a
+    Groundedness section: newest first, pass/fail counts, malformed rows skipped."""
+
+    def test_trend_is_newest_first_and_tolerates_partial_rows(self):
+        runs = [
+            {"timestamp": "2026-09-14T03:00:00+00:00", "status": "fail",
+             "aggregate": {"case_pass_rate": 0.8, "passed_cases": 19, "case_count": 24},
+             "models": {"judge": {"provider": "local", "model": "other:1b"}}},
+            {"timestamp": "2026-09-15T03:00:00+00:00", "status": "pass",
+             "aggregate": {"case_pass_rate": 1.0, "passed_cases": 24, "case_count": 24},
+             "models": {"judge": {"provider": "claude", "model": "claude-x"}}},
+            {"status": "weird", "aggregate": "not-a-dict"},
+        ]
+        trend = metrics.compute_eval_trend(runs, limit=2)
+        assert (trend["runs"], trend["passed"], trend["failed"]) == (3, 1, 1)
+        assert [row["status"] for row in trend["recent"]] == ["pass", "fail"]
+        assert trend["recent"][0]["judge"] == "claude:claude-x"
+
+    def test_print_metrics_shows_the_section_only_when_configured(self, tmp_path, monkeypatch, capsys):
+        audit_file = _write_audit(tmp_path, [{"event": "rag_query", "top_score": 0.5, "retrieval_mode": "hybrid"}])
+        runs_file = tmp_path / "eval_runs.jsonl"
+        runs_file.write_text(
+            "\n".join([
+                json.dumps({"timestamp": "2026-09-15T03:00:00+00:00", "status": "pass",
+                            "aggregate": {"case_pass_rate": 1.0, "passed_cases": 24, "case_count": 24},
+                            "models": {"judge": {"provider": "local", "model": "other:1b"}}}),
+                "not json",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(metrics, "_REPO_ROOT", tmp_path)
+        for configured in (False, True):
+            logging_cfg = {"audit_file": audit_file}
+            if configured:
+                logging_cfg["eval_runs_file"] = str(runs_file)
+            with open(tmp_path / "config.yaml", "w", encoding="utf-8") as f:
+                yaml.dump({"logging": logging_cfg}, f)
+            metrics.print_metrics(str(tmp_path / "config.yaml"))
+            out = capsys.readouterr().out
+            assert ("Groundedness eval runs: 1 (pass 1, fail 0)" in out) is configured
+            if configured:
+                assert "2026-09-15T03:00:00 pass pass_rate=1.000 cases=24/24 judge=local:other:1b" in out
