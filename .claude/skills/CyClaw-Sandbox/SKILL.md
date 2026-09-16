@@ -12,8 +12,8 @@ description: >
   manifest drift pin, and OS scheduler glue. Covers the terminal console
   fully: its REST surface (/soul, /ops/sync, /ops/agentic, /ops/fsconnect,
   /ops/sqlconnect, /index/*, /memory/*, /auth/*) and all four of its slash
-  commands. Not the Claude Code session-memory skill
-  (memory-orchestrator / docs/memories/).
+  commands. Not CyClaw's own session-memory docs (`docs/memories/`) — this
+  tests the product's `/memory/*` REST API, a different thing entirely.
 disable-model-invocation: true
 ---
 
@@ -49,8 +49,11 @@ Six ladders. They are complementary, not substitutable -- a green run of
 one is **not** evidence the others would also pass. Always invoke with
 `python3.12` (never bare `python3` -- see Gotchas).
 
-**Claude Code `/memory` is not this skill.** In a Claude Code session,
-`/memory` still means `memory-orchestrator` -> `docs/memories/`.
+**Claude Code's own `/memory` is not this skill either** -- this ladder tests
+CyClaw's `/memory/*` REST API. The project's own `memory-orchestrator` skill,
+which used to wire session memory to `docs/memories/` via `PreCompact`/
+`SessionEnd` hooks, was deleted 2026-09-16 (issue #1351); those hooks are now
+unwired in `.claude/settings.json` rather than pointing at a missing script.
 
 | Ladder | Command | Proves | Does **not** prove |
 |---|---|---|---|
