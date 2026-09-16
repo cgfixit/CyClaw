@@ -125,7 +125,7 @@ UNTRUSTED_NOTE = (
 CHARS_PER_TOKEN = 3
 
 # Default input estimate when retrieval.max_context_tokens is absent.
-_DEFAULT_MAX_CONTEXT_TOKENS = 8000
+_DEFAULT_MAX_CONTEXT_TOKENS = 16000
 
 # Reserve characters for each prompt's fixed framing before allocating context.
 # Keep these estimates aligned with the local and offline templates below.

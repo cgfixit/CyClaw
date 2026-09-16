@@ -3,7 +3,7 @@
 **Status (2026-08-27):** Operator doctrine for the CyClaw real-repo loop on the
 machine this repo is developed on: **MacBook Pro, Apple M5 Pro, 48 GB unified
 memory.** Local stack: Ollama `qwen3.8:27b-mlx`, `reasoning_effort: none`,
-`num_ctx` 16384. This is not a hardware upgrade guide and not an invariant.
+`num_ctx` 32768. This is not a hardware upgrade guide and not an invariant.
 
 This box is **not** an M5 Max and **not** a base M5. Do not copy Max tok/s
 benchmarks (70+ decode on 27B+DFlash, 128 GB residency) onto this SKU.
@@ -37,7 +37,7 @@ are shared by every unit of this configuration and are what a reader needs.
 | Neural Engine | 16-core (spec-sheet; not shown in System Information) |
 | Not this machine | Base **M5** (10/10, ~153 GB/s, max **32 GB**) |
 | Not this machine | **M5 Max** (18/32 or 18/40, ~460 or ~614 GB/s, max **128 GB**) |
-| Local coder | `qwen3.8:27b-mlx`, 4-bit, `reasoning_effort: none`, `num_ctx` 16384 |
+| Local coder | `qwen3.8:27b-mlx`, 4-bit, `reasoning_effort: none`, `num_ctx` 32768 |
 
 48 GB on an M5 Pro is a mid-high Pro config (Pro ceiling is 64 GB). It is also
 a valid Max *option* on the 40-core GPU SKU — that coincidence is why Max
@@ -57,8 +57,8 @@ cannot be configured with 48 GB. M5 Max can be configured with 48 GB on the
 
 What that means for CyClaw:
 
-- **Capacity** of the 27B job is the 48 GB and the 16k product caps, not the
-  Max GPU. Weights ~18 GB + 16k KV ~1 GB fit with headroom on Pro 48 GB.
+- **Capacity** of the 27B job is the 48 GB and the 32k product caps, not the
+  Max GPU. Weights ~18 GB + 32k KV ~2 GB fit with headroom on Pro 48 GB.
 - **Decode speed** on Pro 48 GB / 307 GB/s is lower than published M5 Max +
   DFlash2 / MTP screenshots. Do not treat those as this machine's baseline.
 - **Max 128 GB** is how you would resident a 70B / 8-bit second model. That is
@@ -69,25 +69,25 @@ What that means for CyClaw:
 ## Hardware vs the loop you actually run
 
 48 GB is enough RAM for 4-bit Qwen3.8-27B plus more context than the product
-gives it. KV on this model is on the order of ~64 KiB/token. 16k context is
-~1 GB of cache on top of ~18 GB weights. That is not a memory emergency on
+gives it. KV on this model is on the order of ~64 KiB/token. 32k context is
+~2 GB of cache on top of ~18 GB weights. That is not a memory emergency on
 M5 Pro 48 GB.
 
 What you ship and run is the constraint:
 
 | Knob | Shipped / recommended value | Why it exists |
 |---|---|---|
-| Ollama `num_ctx` | **16384** | Prompt + reserved `max_tokens` must fit or Ollama stalls at "0% processing" |
-| RAG budget | `max_context_tokens` 8000 + `max_tokens` 4096 + ~1500 headroom = 13,596 | The `/query`-path floor inside the 16k window (raised from 4000 on 2026-08-28; `num_ctx` — not this budget — bounds KV memory, so the bigger budget costs prefill time, not a new memory ceiling) |
+| Ollama `num_ctx` | **32768** | Prompt + reserved `max_tokens` must fit or Ollama stalls at "0% processing" |
+| RAG budget | `max_context_tokens` 16000 + `max_tokens` 4096 + ~1500 headroom = 21,596 | The `/query`-path floor inside the 32k window (raised from 4000 on 2026-08-28, then 8000 on the 16k window; `num_ctx` — not this budget — bounds KV memory, so the bigger budget costs prefill time, not a new memory ceiling) |
 | Query deadlines | **720s** local LLM timeout; **780s** graph timeout | The inner timeout must fire first so a stalled Ollama request reports its LLM failure before the outer request deadline; the 60-second margin covers retrieval, routing, audit work, and cold embedding startup |
-| Agentic local prompt | **~8,000 chars** GitHub context (`_MAX_LOOP_CONTEXT_CHARS`) — but a worst-case real-repo-run iteration (plan + read_paths + feedback + instruction) can reach **~39–40k chars ≈ 10k tokens**; see OLLAMA_SETUP.md "The agentic real-repo coding loop needs more headroom" (it sizes `num_ctx` 24576 for that pathway) | Not 200k. `max_handoff_chars: 200000` is the **cloud egress** cap |
+| Agentic local prompt | **~8,000 chars** GitHub context (`_MAX_LOOP_CONTEXT_CHARS`) — but a worst-case real-repo-run iteration (plan + read_paths + feedback + instruction) can reach **~39–40k chars ≈ 10k tokens**; see OLLAMA_SETUP.md "The agentic real-repo coding loop needs more headroom" (shipped 32768 already covers it; `num_ctx` 24576 remains a lower optional size for that pathway) | Not 200k. `max_handoff_chars: 200000` is the **cloud egress** cap |
 | Plan file | `_MAX_PLAN_CHARS` **6,000**; `planner_max_tokens` **3072** | A plan the size of a diff means the planner misbehaved |
-| Local model | `qwen3.8:27b-mlx`, `reasoning_effort: none` | Thinking-on burns the 16k window before a patch exists |
+| Local model | `qwen3.8:27b-mlx`, `reasoning_effort: none` | Thinking-on burns the 32k window before a patch exists |
 
-The machine can physically hold 64k–128k context. The product is tuned to 16k
-so Ollama does not sit at 0% processing. Raising `num_ctx` to 32k or 64k on
-this Mac is feasible. It makes TTFT worse and still leaves you with a 27B.
-That is "more than burst" on **volume**, not on **judgment**.
+The machine can physically hold 64k–128k context. The product ships 32k so
+Ollama does not sit at 0% processing on the RAG floor. Raising `num_ctx` to
+64k on this Mac is still feasible. It makes TTFT worse and still leaves you
+with a 27B. That is "more than burst" on **volume**, not on **judgment**.
 
 Project decision: local 27B is a **supervised executor**. Claude Code / Grok
 stays the architect for anything that touches invariants. Burst pattern stays
@@ -145,7 +145,7 @@ do not lose the plot write state **out of the prompt first**.
 
 | Kind | Lives where | Helps 27B? |
 |---|---|---|
-| In-prompt ReAct notes | Inside the 16k window | No. That is what fills the window. |
+| In-prompt ReAct notes | Inside the 32k window | No. That is what fills the window. |
 | On-disk working set written **before** compact | File the next turn can read a slice of | Yes for continuity. No for IQ. |
 
 On-disk before compact is the only version worth building. Compaction without
@@ -209,12 +209,12 @@ Red flags:
 
 - **Critical** — auto-apply 27B scratchpad text into memory facts or `soul.md`.
 - **High** — scratchpad stores raw user queries, tokens, or `.env`; or leaves the box on a VPS/cloud handoff with no confirm.
-- **Medium** — uncapped scratchpad stuffed back into the 16k window (recreates the stall `num_ctx` was tuned to avoid).
+- **Medium** — uncapped scratchpad stuffed back into the 32k window (recreates the stall `num_ctx` was tuned to avoid).
 - **Medium** — putting live coding state under `docs/memories/` instead of session notes / the run workspace.
 
 ## Bottom line
 
-M5 Pro 48 GB can run more than burst. You chose 16k and one-file jobs because
+M5 Pro 48 GB can run more than burst. You chose 32k and one-file jobs because
 a 27B at long context is slow, stall-prone, and bad at architecture. That was
 the correct product call on this SKU. An M5 Max would change decode speed and
 the ceiling for a second resident model. It would not change the 27B's job.

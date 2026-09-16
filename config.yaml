@@ -33,6 +33,11 @@ models:
     # worker, so llm/client.py caps each POST at the remaining graph budget and
     # refuses a retry whose backoff would overrun it (#1359).
     # Measure local throughput with scripts/measure_local_llm_throughput.py.
+    # Decode time is governed by max_tokens (4096, unchanged). num_ctx only
+    # adds prefill time when prompts fill it. Re-measure after this retune and
+    # revisit the 720/780 pair if real 48k-char prompts push total time near
+    # the deadline. Rough prefill estimate at ~170 tok/s: +24k tokens ≈ +140s
+    # worst case.
     timeout_sec: 720  # Boot margin: api.graph_timeout_sec >= timeout_sec + 30.
     retry:                  # bounded exp-backoff on transport/5xx/429; 4xx AND read-timeouts fail fast
       max_retries: 2        # extra attempts beyond the first (applies to transport/5xx/429 only)
@@ -117,28 +122,28 @@ retrieval:
   # within this many tokens. This bounds both the RAG (local_llm) and offline
   # best-effort paths. The no-stall guarantee:
   #   Ollama context length  >=  max_context_tokens + models.local_llm.max_tokens + ~1500
-  # 8000 + max_tokens 4096 + headroom = 13,596 -> fits the recommended Ollama
-  # context 16384 (macos/ollama-mlx.env). Raised from 4000 (2026-08-28): the 16k
-  # window was only ~59% provisioned at the old floor (9,596). num_ctx — not this
-  # budget — bounds KV memory, so the larger prompt costs additional prefill time
-  # only (measure it on the operator machine: scripts/measure_local_llm_throughput.py),
-  # no new memory ceiling.
+  # 16000 tokens = 48,000 chars at CHARS_PER_TOKEN=3. Worst-case symbol-dense
+  # 2 chars/token => 24,000 tokens + 4,096 max_tokens + ~1,500 headroom = 29,596
+  # <= 32,768 (macos/ollama-mlx.env). History: raised from 4000 (2026-08-28) when
+  # the then-16k window was ~59% provisioned; 32768 is now the shipped RAG window.
+  # num_ctx — not this budget — bounds KV memory, so the larger prompt costs
+  # additional prefill time only (measure it on the operator machine:
+  # scripts/measure_local_llm_throughput.py), no new memory ceiling.
   # This is a NOMINAL budget: graph.py converts it to a character budget at
   # CHARS_PER_TOKEN (3, a worst-case floor -- see that constant's comment), so
-  # 8000 here means 24,000 characters of assembled prompt input. That holds
-  # inside a 16,384 num_ctx even for symbol-dense corpus text that tokenizes
-  # near 2 chars/token (24,000/2 + 4,096 = 16,096). Do NOT raise past 8000
-  # without raising num_ctx, and do NOT raise CHARS_PER_TOKEN to reclaim
-  # characters -- that is the knob that reopens the "0% processing" stall.
+  # 16000 here means 48,000 characters of assembled prompt input. Do NOT raise
+  # CHARS_PER_TOKEN to reclaim characters -- that is the knob that reopens the
+  # "0% processing" stall.
   # KNOWN BOUND: 2 chars/token is where this sizing stops. A corpus that
   # tokenizes below it -- CJK is the realistic case, ~1-1.5 chars/token on a
   # byte-level BPE, since each character is 3 UTF-8 bytes -- overruns the
-  # window again (24,000/1.5 + 4,096 = 20,096). The shipped corpus is English
-  # technical documentation; an operator indexing CJK must lower this value or
-  # raise num_ctx, and will see the documented "0% processing" stall if neither.
+  # window again (48,000/1.5 + 4,096 = 36,096 > 32,768). The shipped corpus is
+  # English technical documentation; an operator indexing CJK must lower this
+  # value or raise num_ctx, and will see the documented "0% processing" stall
+  # if neither.
   # NOTE: the guarantee assumes policy.prompt_filter.enabled stays true (it caps
   # the query at max_input_chars); disabling it lets a huge query exceed the budget.
-  max_context_tokens: 8000
+  max_context_tokens: 16000
 
   # min_score: RRF fused-rank threshold used by route_by_score_node (graph.py).
   # Dual rank-0 with rrf_k=60 is 2/61 ≈ 0.0328 — that is the hybrid ceiling.
@@ -164,7 +169,7 @@ personality:
   # past the Ollama context budget (the in-memory soul is truncated to this
   # on load/apply, with a warning; soul.md on disk is left intact). Keep it well
   # below the derived char budget (retrieval.max_context_tokens * graph.py's
-  # CHARS_PER_TOKEN = 8000 * 3 = 24,000 chars) so query + context still fit. The
+  # CHARS_PER_TOKEN = 16000 * 3 = 48,000 chars) so query + context still fit. The
   # /soul/apply HTTP boundary (SoulEvolutionRequest) caps input at 8192.
   soul_max_chars: 8000
   interaction_ttl_days: 365

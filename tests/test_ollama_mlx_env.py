@@ -25,7 +25,7 @@ def test_env_file_exists_and_has_no_secrets() -> None:
 
 def test_shipped_knobs_match_docs() -> None:
     text = _env_text()
-    assert "OLLAMA_CONTEXT_LENGTH=16384" in text
+    assert "OLLAMA_CONTEXT_LENGTH=32768" in text
     assert "OLLAMA_KEEP_ALIVE=30m" in text
     assert "OLLAMA_MAX_LOADED_MODELS=1" in text
     assert "OLLAMA_NUM_PARALLEL=1" in text

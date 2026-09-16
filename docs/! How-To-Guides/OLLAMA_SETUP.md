@@ -282,7 +282,7 @@ If you hit the "0% processing" stall on large context queries, increase Ollama's
 Set the environment variable before `ollama serve` (recommended, persists for all models):
 
 ```bash
-export OLLAMA_CONTEXT_LENGTH=16384
+export OLLAMA_CONTEXT_LENGTH=32768
 ollama serve
 ```
 
@@ -290,22 +290,23 @@ Or per-session inside an interactive `ollama run` shell (there is no `--num_ctx`
 
 ```
 ollama run qwen3.8:27b-mlx
->>> /set parameter num_ctx 16384
+>>> /set parameter num_ctx 32768
 ```
 
-> Note: setting this explicitly is **not optional** with the default config. Older Ollama builds default the context window to 4096 tokens — below the ~13,600-token floor CyClaw's no-stall formula requires, producing the silent stall. Newer builds instead derive the default from available VRAM (per [docs.ollama.com/context-length](https://docs.ollama.com/context-length): 4k below 24 GiB, 32k from 24–48 GiB, 256k above), which on a 48 GB Mac over-provisions KV memory instead. An explicit `16384` is deterministic across Ollama versions and matches what the KV budget in `macos/ollama-mlx.env` was sized for.
+> Note: setting this explicitly is **not optional** with the default config. Older Ollama builds default the context window to 4096 tokens — below the ~25,600-token floor CyClaw's no-stall formula requires, producing the silent stall. Newer builds instead derive the default from available VRAM (per [docs.ollama.com/context-length](https://docs.ollama.com/context-length): 4k below 24 GiB, 32k from 24–48 GiB, 256k above), which on a 48 GB Mac over-provisions KV memory instead. An explicit `32768` is deterministic across Ollama versions and matches what the KV budget in `macos/ollama-mlx.env` was sized for.
 
 The config.yaml formula: `Ollama num_ctx >= max_context_tokens + max_tokens + ~1500 headroom`
-With defaults: `8000 + 4096 + 1500 = 13596`, so **16384** remains the recommended value (~2.8k tokens spare — deliberate, because the ~4-chars/token estimate under-counts Qwen3 BPE on technical text; see the `retrieval.max_context_tokens` comment in `config.yaml`).
+With defaults: `16000 + 4096 + 1500 = 21596`, so **32768** is the shipped RAG recommendation (~11.2k tokens spare — deliberate, because the ~4-chars/token estimate under-counts Qwen3 BPE on technical text; see the `retrieval.max_context_tokens` comment in `config.yaml`).
 
 ### The agentic real-repo coding loop needs more headroom than that
 
 The formula above is derived only from the `/query` RAG path's budget
-(`retrieval.max_context_tokens` + `models.local_llm.max_tokens`). It is **not**
-enough by itself if you also drive `agentic/real_repo_loop.py` (the
-`real-repo-run` / `real-repo-run-plan` CLI subcommands) against the same Ollama instance — that pathway's
-per-iteration prompt can legitimately be several times larger, and the
-"0% processing" stall applies to it identically.
+(`retrieval.max_context_tokens` + `models.local_llm.max_tokens`). Driving
+`agentic/real_repo_loop.py` (`real-repo-run` / `real-repo-run-plan`) against
+the same Ollama instance can build a per-iteration prompt several times
+larger than a typical `/query`. The shipped 32768 window already covers
+that worst case. The "0% processing" stall still applies if you lower
+`num_ctx` below the loop's real size.
 
 Summing the loop's own documented per-component caps (`agentic/real_repo_loop.py`):
 a declared plan folded into the prompt (`_MAX_PLAN_CHARS`, 6,000 chars), existing
@@ -317,9 +318,9 @@ and an instruction up to 8,192 chars
 — the worst case is roughly **39,000–40,000 characters of INPUT alone for one
 iteration**, before reserving any output budget. At this project's own
 ~4-chars/token convention (see the formula above), that is approximately
-**9,750–10,000 input tokens** — which by itself can already approach or exceed
-the 16384 window recommended above, a number sized only for the
-smaller RAG-path formula.
+**9,750–10,000 input tokens**. The shipped RAG window of **32768** already
+covers that load (and the older 24576 real-repo-run size). Do not retune
+agentic loop caps to fill the extra room.
 
 This is arithmetic over the loop's own stated caps, not a number CyClaw states
 anywhere as a recommendation — treat it as a floor to reason from, not a
@@ -329,11 +330,12 @@ several of these inputs together (e.g. a declared plan **and** several
 `read_paths` **and** a PR/issue's context on the same run).
 
 If you use `real-repo-run`/`real-repo-run-plan` with `read_paths`, a declared
-plan, or GitHub context, don't just clear the RAG-path minimum — size for the
-larger pathway instead:
+plan, or GitHub context, the shipped `OLLAMA_CONTEXT_LENGTH=32768` already
+covers that pathway. `24576` remains a valid *lower* optional size if you
+want a tighter KV cache after measuring real usage:
 
 ```bash
-export OLLAMA_CONTEXT_LENGTH=24576   # or higher; measure for your actual usage
+export OLLAMA_CONTEXT_LENGTH=24576   # lower optional; shipped default is 32768
 ollama serve
 ```
 
@@ -395,7 +397,7 @@ set +a
 ollama serve
 ```
 
-That file sets `OLLAMA_CONTEXT_LENGTH=16384`, `OLLAMA_KEEP_ALIVE=30m`,
+That file sets `OLLAMA_CONTEXT_LENGTH=32768`, `OLLAMA_KEEP_ALIVE=30m`,
 `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_NUM_PARALLEL=1`,
 `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`. Flash-attn and KV
 q8_0 are llama.cpp-runner knobs that Ollama applies when the backend
