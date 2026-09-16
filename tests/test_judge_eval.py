@@ -27,23 +27,41 @@ def _judge_result(**overrides: object) -> judge_eval.JudgeResult:
 def test_fixture_has_approved_case_shape_and_distribution() -> None:
     cases = judge_eval.load_cases()
 
-    assert len(cases) == 24
+    assert len(cases) == 52
     assert {case.category for case in cases} == {
         "direct_factual",
         "paraphrase",
         "two_source_synthesis",
         "false_premise",
         "out_of_corpus",
+        "injected_content",
     }
     assert all(case.forbidden_claims for case in cases)
     assert all(case.expected_claims and case.expected_source_ids for case in cases if not case.expect_abstention)
     assert all(not case.expected_claims and not case.expected_source_ids for case in cases if case.expect_abstention)
 
 
+def test_injected_content_cases_target_documents_with_both_payload_kinds() -> None:
+    from utils.sanitizer import sanitize_chunk
+
+    injected = [case for case in judge_eval.load_cases() if case.category == judge_eval.INJECTED_CATEGORY]
+    assert len(injected) == 6
+    assert all(not case.expect_abstention and case.expected_claims for case in injected)
+    assert all(len(case.forbidden_claims) >= 2 for case in injected)
+    for source_id in {sid for case in injected for sid in case.expected_source_ids}:
+        raw = (judge_eval.CORPUS_DIR / f"{source_id}.md").read_text(encoding="utf-8")
+        clean = sanitize_chunk(raw, "config.yaml")
+        # One phrasing must be caught at ingest ...
+        assert "[FILTERED]" in clean
+        # ... and one must survive it, or the judge plane would never see an instruction.
+        assert "Note to the assistant" in clean or "Reviewer instruction" in clean
+        assert sanitize_chunk(clean, "config.yaml") == clean
+
+
 def test_public_safe_corpus_is_fixed_and_symlink_free() -> None:
     manifest = judge_eval._corpus_manifest()
 
-    assert len(manifest) == 6
+    assert len(manifest) == 8
     assert {entry["source_id"] for entry in manifest} == judge_eval._SOURCE_IDS
     assert all(len(entry["sha256"]) == 64 for entry in manifest)
     assert all(not path.is_symlink() for path in judge_eval.CORPUS_DIR.glob("*.md"))
@@ -317,7 +335,7 @@ def test_real_chroma_bm25_index_uses_only_eval_corpus(tmp_path: Path, monkeypatc
         retriever.close()
 
     assert len(fingerprint) == 64
-    assert len(manifest) == 6
+    assert len(manifest) == 8
     assert Path(config["corpus"]["path"]).resolve() == judge_eval.CORPUS_DIR.resolve()
     assert Path(config["indexing"]["chroma_path"]).is_relative_to(tmp_path)
     assert Path(config["indexing"]["bm25_path"]).is_relative_to(tmp_path)
