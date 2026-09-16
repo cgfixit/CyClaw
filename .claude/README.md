@@ -5,7 +5,7 @@ Quick reference for Claude Code assistance patterns in CyClaw.
 ## Skills
 
 The skills directory holds many more skills than the handful below (operational,
-refactor-loop, memory, and agent skills). For the **authoritative, complete list**, see the
+refactor-loop, and agent skills). For the **authoritative, complete list**, see the
 **§9 "Skills"** section of the root [`CLAUDE.md`](../CLAUDE.md) — kept in
 sync there so a second list does not drift. A few common entry points:
 
@@ -22,7 +22,7 @@ terminal only produces "No such file or directory".
 /tests-refactor          # Start test coverage loop
 /logging-refactor        # Start logging audit loop
 /speed-refactor          # Start speed optimization loop
-/wrap-up                 # Run end-of-session checklist
+/doc-sync                # Detect and reconcile code<->doc drift
 /CyClaw-Optimize         # there are many more, verify folder each time
 ```
 
@@ -48,28 +48,26 @@ All `*-refactor` skills follow the same seven-step cycle:
 ```
 .claude/
 ├── README.md              ← this file
-├── settings.json          ← project permissions, hooks, and plugin marketplace
-├── ponytail-marketplace.json ← local plugin marketplace (see settings.json extraKnownMarketplaces)
+├── settings.json          ← project permissions and hooks
 ├── skills/                ← project-specific skills (see CLAUDE.md for the full list)
 │   ├── invariant-guard/   ← SKILL.md + check_invariants.py + verify.sh
 │   ├── architecture-refactor/
-│   ├── tests-refactor/
-│   ├── …                  ← many more (memory, agent, sandbox, optimize, …)
-│   └── wrap-up/
-├── patterns/              ← reusable behavioral patterns (01–09)
-├── utility-prompts/       ← coordinator / session-title / tool-summary / next-action
-├── commands/              ← reference command docs
-├── tools/                 ← tool-usage reference docs
-├── hooks/                 ← session-start-sync-check.sh (second SessionStart hook
-│                            since 2026-09-04) and fable-protocol-loader.sh (third,
-│                            since 2026-09-06; model-gated). The other live hooks
-│                            (SessionStart persona loader, PreCompact, SessionEnd)
-│                            are inline commands in settings.json pointing into
-│                            .claude/skills/*
-├── memory/                ← legacy memory location (live memory: docs/memories/)
+│   ├── doc-sync/
+│   └── …                  ← many more (agent, sandbox, optimize, …)
+├── commands/              ← thin /name wrappers pointing at skills/, plus five
+│                            standalone commands with no skill twin
+├── hooks/                 ← session-start-sync-check.sh and fable-protocol-loader.sh,
+│                            both wired as SessionStart hooks in settings.json
 └── rules/                 ← project-specific rules (PROJECT_RULES.md; plain
                               Markdown, no frontmatter, applies repo-wide)
 ```
+
+2026-09-16 (issue #1351): `patterns/` (9 behavioral-pattern docs), `utility-prompts/`
+(4 prompt scaffolds), `tools/` (4 tool-usage docs), `memory/` (legacy, superseded
+by `docs/memories/`), and `ponytail-marketplace.json` (the local plugin
+marketplace it registered, along with the `ponytail` plugin, is gone from
+`settings.json` too) were all deleted — see `CLAUDE.md` §9 for which skills went
+with them.
 
 ## Skill Caching Policy
 
@@ -134,7 +132,24 @@ already stale against its source — trimmed back to the thin-wrapper pattern
 this policy describes. The wrapper set
 still covers every remaining skill — verify with
 `comm -23 <(ls .claude/skills | sort) <(ls .claude/commands | sed 's/\.md$//' | sort)`,
-which must print nothing.
+which must print nothing (except a stray untracked `__pycache__` under a
+since-deleted skill dir, which is a build artifact, not a wrapper gap — `git
+clean -ndx .claude/skills` finds those; delete, don't wrap them).
+2026-09-16 (issue #1351): eleven more skill+command pairs deleted —
+`code-explorer`, `create-session-notes`, `memory-consolidation`,
+`memory-extraction`, `memory-orchestrator`, `next-action-suggestion`,
+`ponytail`, `python-coding-agent`, `session-title`, `tool-summary`, `wrap-up`
+— per the issue's delete-or-command-only list. `audit.md` and `run.md` were
+swept up in the same deletion pass by mistake: both are standalone commands
+with no skill twin (the five-standalone-commands rule above names them
+explicitly), so deleting them removed `/audit` and `/run` outright rather than
+trimming a wrapper. Restored from `main` unchanged. Deleting
+`memory-orchestrator` also orphaned the `PreCompact`/`SessionEnd` hooks in
+`settings.json` that invoked its `orchestrate.py` — unwired them (same call
+as the 2026-09-04 dangling-hook incident below: don't resurrect a deleted
+skill to satisfy a hook, remove the hook) rather than leaving them to error on
+every compact/session-end. `CLAUDE.md` §9's "Agent skills" section has the
+per-skill rationale.
 
 ## Environment Doctor — settings.json audit (2026-08-11)
 
@@ -154,20 +169,23 @@ a ~22KB skill into every prompt is cost the skill's own v1.2 preamble warns
 about (§7's [S5] row makes the same case on attack-surface grounds). **Lesson
 encoded:** the sync-check hook added the same day carries no `|| true`, because the
 script already always exits 0 and that tail is the thing that hid the last failure.
-The five registered hook *entries* now resolve to four distinct scripts:
-`memory-orchestrator/orchestrate.py` is referenced twice (`PreCompact` and
-`SessionEnd`). Otherwise:
-no personal data (no usernames, absolute machine paths, or emails — keep it
-that way, this file is shared with every collaborator); hooks anchor to
-repo-relative paths so they survive any checkout location. Observation, not
-changed: the `PreCompact`/`SessionEnd` memory hooks have no `|| true` guard
-while the `SessionStart` persona loader does — if `python3` is ever absent on
-an operator machine those two will surface hook errors; left as-is because
-hook edits are High tier (`CLAUDE.md` §7) and there is no recorded failure.
-The `SessionStart` sync-check added 2026-09-04 likewise has no `|| true` — that
+Otherwise: no personal data (no usernames, absolute machine paths, or
+emails — keep it that way, this file is shared with every collaborator);
+hooks anchor to repo-relative paths so they survive any checkout location.
+The `SessionStart` sync-check added 2026-09-04 has no `|| true` — that
 is deliberate, not an oversight (see the dangling-hook note above).
 
-**`fable-protocol-loader.sh` (third `SessionStart` hook, added 2026-09-06).**
+(2026-09-16 update, issue #1351: the paragraph above once described five hook
+entries resolving to four scripts, including `memory-orchestrator/orchestrate.py`
+referenced twice for `PreCompact`/`SessionEnd`, and a persona-loader
+`SessionStart` entry for `python-coding-agent`. All three were removed along
+with their target skills — `settings.json` now registers only the two
+`SessionStart` hooks below, and the observation that the memory hooks lacked
+a `|| true` guard is moot; they no longer exist to lack one.)
+
+**`fable-protocol-loader.sh` (second `SessionStart` hook as of 2026-09-16;
+was the third, added 2026-09-06, until the persona-loader hook ahead of it
+was deleted).**
 This is the replacement the 2026-09-04 note said was not being written, on a
 different trigger and with a gate. It injects `fable-protocol/SKILL.md` as
 `additionalContext` once per SessionStart (startup/resume/clear/compact), the

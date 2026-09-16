@@ -1,16 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "extraKnownMarketplaces": {
-    "ponytail": {
-      "source": {
-        "source": "file",
-        "path": ".claude/ponytail-marketplace.json"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "ponytail@ponytail": true
-  },
   "hooks": {
     "SessionStart": [
       {
@@ -25,20 +14,6 @@
             "command": "bash .claude/hooks/fable-protocol-loader.sh",
             "statusMessage": "Loading fable-protocol (skipped on Fable-tier models)..."
           }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          { "type": "command", "command": "python3 .claude/skills/memory-orchestrator/orchestrate.py hook" }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          { "type": "command", "command": "python3 .claude/skills/memory-orchestrator/orchestrate.py hook" }
         ]
       }
     ]

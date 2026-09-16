@@ -78,8 +78,10 @@ correct any claim the code contradicts:
   503 fail-soft, not a crash; `require_env` is decorative.
 - **AGENTS.md ↔ CLAUDE.md** — the two manuals must not contradict each other on
   invariants, install steps, or the current project mode.
-- **Two memory systems / two session-note locations** — `.claude/memory/` is
-  legacy; `docs/memories/` is live. Docs should point at the live one.
+- **Two session-note locations** — `docs/memories/` is live; `.claude/memory/`
+  was the legacy location and no longer exists on disk (deleted 2026-09-16,
+  issue #1351). Docs should point at the live one and never re-create the old
+  path.
 - **THREAT_MODEL.md control table** vs the code that implements each control
   (sanitizer at `/query`, TrustedHostMiddleware, triple-gate) — controls should
   not be described that the code no longer has, or vice versa.
@@ -109,9 +111,13 @@ honest. Skips cleanly if PyYAML is absent.
 
 ## Known drift baseline (this session, 2026-07)
 
-Seed list so the first run has context — reconcile these:
+Seed list so the first run has context — items 1-2 below are historical and
+already resolved (kept for the pattern, not as a live task); reconcile
+anything new the checker turns up the same way:
 
-1. **`ponytail` skill** on disk, absent from the CLAUDE.md skills table (D1).
+1. ~~**`ponytail` skill** on disk, absent from the CLAUDE.md skills table
+   (D1).~~ Moot as of 2026-09-16 (issue #1351): the skill itself was deleted,
+   along with several others — see `CLAUDE.md` §9 and `.claude/README.md`.
 2. **`/audit/summary`, the four `/ops/*`, and `/soul/*` sub-routes** exist in
    `gate.py` but were missing from the CLAUDE.md route map (D5).
 3. **"stop hook" claims** in CLAUDE.md/PROJECT_RULES reference a hook not wired

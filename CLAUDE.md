@@ -598,7 +598,8 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
 
 ### Docs
 - Dated audit/report docs go in `docs/audits/`. Live memory lives ONLY in
-  `docs/memories/` (`.claude/memory/` is legacy — do not add there).
+  `docs/memories/` (`.claude/memory/` was the legacy location; deleted
+  2026-09-16, issue #1351 — do not re-create it).
 - Every `##` section must be self-contained (no pronoun references to earlier
   sections) — the corpus is chunked and searched section-by-section.
 - Don't duplicate another doc's authority; link to it. `config.yaml` owns the
@@ -834,9 +835,6 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | `/CyClaw-Optimize` | task | Scan main for optimizations; open focused draft PRs |
 | `/CyClaw-Sandbox` | task, user-invoked only (`disable-model-invocation: true`) | Clone main, mock Ollama, full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR). Claude never auto-routes here — the full audit's cost (clone, venv, report, PR) is an explicit-ask action, not an inference from a technical prompt |
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
-| `/wrap-up` | task | End-of-session checklist (ship / remember / improve / publish) |
-| `/create-session-notes` | task | Maintain `SESSION_NOTES.md` |
-| `/ponytail` | mode | Lazy-senior-dev mode: YAGNI, stdlib-first, minimal abstraction |
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails: surgical diffs, surfaced assumptions, verifiable success criteria |
 | `/cyclaw-privacy` | mode, user-invoked only (`disable-model-invocation: true`) | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes; Claude never auto-routes here. Renamed from `cyclaw-advisor` 2026-09-11 (issue #1351) to resolve an in-repo name collision with `.codex/skills/cyclaw-advisor` (architecture advice — a different skill, same name) |
@@ -851,22 +849,27 @@ short inline procedures wired only as `.claude/commands/*.md`, with no
 
 ### Agent skills
 
-`/verification-specialist`, `/code-explorer`,
-`/documentation-guide`, `/next-action-suggestion`,
-`/session-title`, `/tool-summary`, and the memory
-skills (`/memory-extraction`, `/memory-consolidation`, `/memory-orchestrator`)
-are each a `.claude/skills/*/SKILL.md` entry. `/conversation-summary` plays the
-same session-continuation role but is wired as `.claude/commands/conversation-summary.md`
-(a slash command), not a SKILL.md-backed skill — listed here for discoverability, not
-because it is a skill directory.
-`/python-coding-agent` auto-loads via the SessionStart hook (the full `SKILL.md`
-body, per `.claude/settings.json`); its Planning Mode covers pre-implementation
-design (formerly a separate `solution-architect` skill, folded in since both
-need the same CyClaw-specific grounding). Trimmed 2026-09-11 (issue #1351) to
-cut what the hook injects on every session start and compact: the library
-table, the three code/corpus scaffolds, and the forward-looking notes now
-live in `references/stack-and-templates.md`, read on demand rather than
-always in context.
+`/verification-specialist` and `/documentation-guide` are each a
+`.claude/skills/*/SKILL.md` entry. `/conversation-summary` plays a similar
+session-continuation role but is one of the standalone commands above, not a
+SKILL.md-backed skill.
+
+2026-09-16 (issue #1351): `/code-explorer`, `/next-action-suggestion`,
+`/session-title`, `/tool-summary`, `/ponytail`, `/wrap-up`, and
+`/create-session-notes` were deleted as project skills — thin session-hygiene
+wrappers with no CyClaw-specific logic, per the issue's delete-or-command-only
+list. The memory-lifecycle trio (`/memory-extraction`, `/memory-consolidation`,
+`/memory-orchestrator`) was deleted the same pass; deleting
+`/memory-orchestrator` also retired the `PreCompact`/`SessionEnd` hooks in
+`.claude/settings.json` that invoked its `orchestrate.py` (now unwired rather
+than left dangling — see `.claude/README.md`), so nothing currently persists
+session memory to `docs/memories/` automatically. `/python-coding-agent` was
+deleted too, along with the SessionStart hook that injected its full
+`SKILL.md` body on every session start; the CyClaw-specific grounding it
+carried (library defaults, code scaffolds, planning-mode) no longer
+auto-loads anywhere. `/karpathy-guidelines`, named in the same issue breath as
+`/ponytail`, was kept — narrowing that further is a follow-up, not something
+this pass decided.
 
 `general-purpose` (the project skill, not the Agent tool's identically-named
 built-in subagent type) was removed 2026-09-11 (issue #1351) — it duplicated
@@ -898,18 +901,19 @@ this skill's §8 onward).
 
 ## 10. Session Protocol
 
-**Start.** Three SessionStart hooks run: one injects the Python-coding-agent
-persona; `session-start-sync-check.sh` (wired since 2026-09-04) pins the git
-identity and reports local↔remote divergence without ever mutating — it never
-resets, rebases, pushes or deletes, and always exits 0. If it did not run, set the
-identity yourself before any commit:
+**Start.** Two SessionStart hooks run (a third, injecting the
+Python-coding-agent persona, was removed 2026-09-16 with the skill itself —
+issue #1351). `session-start-sync-check.sh` (wired since 2026-09-04) pins the
+git identity and reports local↔remote divergence without ever mutating — it
+never resets, rebases, pushes or deletes, and always exits 0. If it did not
+run, set the identity yourself before any commit:
 
 ```bash
 git config user.email cyclaw-agent@users.noreply.github.com
 git config user.name "CyClaw Agent"
 ```
 
-The third, `fable-protocol-loader.sh` (wired 2026-09-06), injects
+The second, `fable-protocol-loader.sh` (wired 2026-09-06), injects
 `/fable-protocol` as session context unless the session model is Fable-tier
 (`fable`/`mythos` in the model id). It reads the model from the SessionStart
 hook's stdin JSON, the only hook event that carries one; a mid-session `/model`
@@ -953,24 +957,24 @@ allowlist and blocks `--force-with-lease` without explicit authorization.
 rationale), Open questions, Verification state. Prefer file-backed facts over
 inference. Expire stale assumptions when new evidence appears.
 
-**End.** Run `/wrap-up`. Durable project conventions → this file or
-`.claude/rules/`. Session-scoped discoveries → `docs/memories/` (live) via the
-memory skills. Reconcile this file against the current code state — run
-`/doc-sync` — before you consider the session done.
+**End.** Durable project conventions → this file or `.claude/rules/`.
+Session-scoped discoveries → `docs/memories/` (live) — write them by hand;
+the `/wrap-up` skill and the memory-orchestrator trio that used to automate
+this were deleted 2026-09-16 (issue #1351). Reconcile this file against the
+current code state — run `/doc-sync` — before you consider the session done.
 
 ---
 
 ## Reference
 
-- Behavioral patterns: `.claude/patterns/01`–`09` (reference explicitly; not
-  auto-loaded).
-- Utility prompts: `.claude/utility-prompts/` (coordinator, next-action,
-  session-title, tool-summary).
+- `.claude/patterns/` (behavioral patterns 01–09) and `.claude/utility-prompts/`
+  (coordinator, next-action, session-title, tool-summary) were deleted
+  2026-09-16 (issue #1351); the paragraph below is what survives of the
+  multi-agent pattern that used to live at `08-multi-agent-coordination.md`.
 - Multi-agent work: you (coordinator) own synthesis and final correctness;
   workers gather evidence and produce artifacts, they do not make architectural
   decisions. Dispatch read-only research in parallel; serialize write-heavy work
-  per file set; give each worker a fully self-contained prompt. Full protocol:
-  `.claude/patterns/08-multi-agent-coordination.md`.
+  per file set; give each worker a fully self-contained prompt.
 - Threat model & security scope: `docs/THREAT_MODEL.md`.
 - Agentic layer governance: `docs/agentic/AGENTIC_README.md`,
   `docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`.

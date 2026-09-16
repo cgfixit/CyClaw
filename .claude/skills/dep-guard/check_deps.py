@@ -287,7 +287,6 @@ _TORCH_DOC_FILES = (
     ".github/copilot-instructions.md",
     ".claude/rules/PROJECT_RULES.md",
     ".claude/skills/CyClaw-Sandbox/SKILL.md",
-    ".claude/skills/python-coding-agent/SKILL.md",
     ".claude/skills/cyclaw-privacy/SKILL.md",
     ".claude/skills/CyClaw-Optimize/SKILL.md",
     ".claude/skills/index-doctor/SKILL.md",
