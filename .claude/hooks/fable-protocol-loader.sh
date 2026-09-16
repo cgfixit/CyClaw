@@ -2,19 +2,23 @@
 # CyClaw SessionStart hook -- model-gated fable-protocol loader.
 #
 # Injects .claude/skills/fable-protocol/SKILL.md as additionalContext at every
-# SessionStart (startup / resume / clear / compact) UNLESS the session model is
-# Fable-tier. Rationale: the protocol exists to make a smaller model apply the
-# disciplines a stronger one applies by default; Fable is the model it was
-# written by and for, so it gets the skill on demand (/fable-protocol), not
-# injected.
+# SessionStart (startup / resume / clear / compact) ONLY when the session model
+# is Sonnet-tier (2026-09-16, issue #1351 follow-up: switched from an opt-out
+# blocklist -- inject unless Fable-tier -- to an opt-in allowlist -- inject only
+# for Sonnet). Rationale: the protocol exists to make a model apply the
+# disciplines a stronger one applies by default; Sonnet is the tier that
+# benefits most for the cost. Opus, Haiku, Fable, and any absent/unrecognized
+# model string are all skipped now -- Opus and Fable get the skill on demand
+# (/fable-protocol) rather than a ~1.5KB auto-inject on every session start.
 #
 # Why SessionStart and not per prompt: SessionStart is the ONLY hook event whose
 # stdin JSON carries the model (`model`, optional -- verified against the Claude
 # Code 2.1.261 hook schema: base {session_id, transcript_path, cwd,
 # permission_mode?} + SessionStart {source, agent_type?, model?}; UserPromptSubmit
 # carries only {prompt}). A mid-session `/model` switch fires no hook at all, so
-# this cannot re-gate on it -- see .claude/README.md. Per-prompt injection of
-# this file was also deliberately unwired on 2026-09-04 (cost + attack surface).
+# this cannot re-gate on it -- run /fable-protocol by hand after switching TO
+# Sonnet mid-session; see .claude/README.md. Per-prompt injection of this file
+# was also deliberately unwired on 2026-09-04 (cost + attack surface).
 #
 # Exit code is always 0: this hook advises, it must never block a session.
 # Diagnostics go to stderr; stdout carries only the hook JSON (or nothing).
@@ -31,13 +35,13 @@ model=$(printf '%s' "$input" | jq -r '.model // empty' 2>/dev/null || true)
 model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
 
 case "$model_lc" in
-  *fable*|*mythos*)
-    echo "[fable-loader] model '$model' is Fable-tier; fable-protocol not injected (available on demand via /fable-protocol)" >&2
+  *sonnet*)
+    echo "[fable-loader] model '$model' is Sonnet-tier: injecting fable-protocol (SessionStart only; a mid-session /model switch does not re-run this hook)" >&2
+    ;;
+  *)
+    echo "[fable-loader] model '${model:-unknown}' is not Sonnet-tier; fable-protocol not injected (available on demand via /fable-protocol)" >&2
     exit 0 ;;
 esac
 
-# Absent/unknown model falls through to inject: a cheap discipline layer applied
-# once too often beats one silently skipped on a model string we did not expect.
-echo "[fable-loader] model '${model:-unknown}': injecting fable-protocol (SessionStart only; a mid-session /model switch does not re-run this hook)" >&2
 jq -cn --rawfile ctx "$skill" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}'
 exit 0

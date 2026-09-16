@@ -1,6 +1,7 @@
 ---
 name: CyClaw-Optimize
-description: Methodically scan the CyClaw main branch for code, CI, security, financial-risk, and maintainability optimization opportunities, then open a small set of focused, reviewable pull requests only when each chunk earns its keep (not a fixed PR quota). Use when asked to optimize CyClaw, find competitive/trade-bot advantages, harden CI, audit for risk, propose improvements, or open optimization PRs against main.
+description: Methodically scan the CyClaw main branch for code, CI, security, financial-risk, and maintainability optimization opportunities, then open a small set of focused, reviewable pull requests only when each chunk earns its keep (not a fixed PR quota). Use when asked to optimize CyClaw, find competitive/trade-bot advantages, harden CI, audit for risk, propose improvements, or open optimization PRs against main. Not auto-invocable — it opens PRs against main, so it only runs when explicitly asked.
+disable-model-invocation: true
 ---
 
 # CyClaw-Optimize

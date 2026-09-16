@@ -150,6 +150,19 @@ as the 2026-09-04 dangling-hook incident below: don't resurrect a deleted
 skill to satisfy a hook, remove the hook) rather than leaving them to error on
 every compact/session-end. `CLAUDE.md` §9's "Agent skills" section has the
 per-skill rationale.
+2026-09-16 (issue #1351, second follow-up): three more auto-invocable skills
+gained `disable-model-invocation: true` — `fable-protocol` (the single
+biggest description in the catalog, and now redundant with the
+`fable-protocol-loader.sh` hook for the one model tier that needs it unasked;
+see that hook's section below), `CyClaw-Optimize` (opens PRs on its own),
+and `babysit-github-pr` (starts an extended watch loop against live GitHub
+state). Two more had their descriptions trimmed to the issue's ~600-char
+budget while staying auto-invocable: `otel-hardening` (1129 → 588 chars) and
+`verify-deps` (1288 → 539 chars) — both keep an explicit "use `dep-guard`/
+`invariant-guard`/`injection-redteam` instead" when-not clause. `dep-guard`
+vs `verify-deps` staying as two separate skills (the issue suggested picking
+one name) was deliberately left alone — that is an information-architecture
+merge, not a routing-cost fix, and deserves its own decision.
 
 ## Environment Doctor — settings.json audit (2026-08-11)
 
@@ -191,17 +204,23 @@ different trigger and with a gate. It injects `fable-protocol/SKILL.md` as
 `additionalContext` once per SessionStart (startup/resume/clear/compact), the
 same moment and mechanism as the persona loader, NOT per prompt — so the
 per-prompt cost that got the old `UserPromptSubmit` hook unwired does not
-return. It skips when the session model id contains `fable` or `mythos`: the
-protocol exists so a smaller model applies what Fable applies by default, and
-Fable gets it on demand via `/fable-protocol`. Why SessionStart and why a gate
-that can miss: verified against Claude Code 2.1.261's hook schema, SessionStart
-is the only event whose stdin JSON carries `model` (optional), and no event
-fires on a mid-session `/model` switch — so a switch to Sonnet/Opus after start
-is not re-gated; `CLAUDE.md` §10 tells the operator to run `/fable-protocol` by
-hand in that case. Absent/unknown model strings inject (fail-open on a cheap
-control). The script exits 0 unconditionally and keeps stdout JSON-only, with
-diagnostics on stderr; tested 2026-09-06 with sonnet/opus/fable/mythos/absent/
-malformed stdin.
+return. 2026-09-16 (issue #1351): re-gated from an opt-out blocklist (inject
+unless the model id contains `fable`/`mythos`) to an opt-in allowlist —
+injects only when the model id contains `sonnet`. Opus, Haiku, Fable, and any
+absent/unrecognized string are all skipped now, each reachable only via
+explicit `/fable-protocol`; the flip pairs with the skill itself gaining
+`disable-model-invocation: true` the same day (see the wrapper-policy note
+above), so the ~1.5KB body is no longer the catalog's biggest routing-cost
+line AND is no longer auto-injected outside the one tier it's tuned for. Why
+SessionStart and why a gate that can miss: verified against Claude Code
+2.1.261's hook schema, SessionStart is the only event whose stdin JSON
+carries `model` (optional), and no event fires on a mid-session `/model`
+switch — so switching to Sonnet mid-session (or wanting the protocol on
+Opus/Haiku at all) is not re-gated; `CLAUDE.md` §10 tells the operator to run
+`/fable-protocol` by hand in that case. The script exits 0 unconditionally
+and keeps stdout JSON-only, with diagnostics on stderr; re-tested 2026-09-16
+with sonnet/opus/haiku/fable/mythos/absent/malformed stdin against the new
+allowlist logic.
 
 **Remote-environment env-var misconfiguration (root cause of the stray
 `C:\Users\...` directory).** The Claude Code remote execution environment for

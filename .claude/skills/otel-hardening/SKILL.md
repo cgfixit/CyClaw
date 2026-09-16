@@ -1,22 +1,15 @@
 ---
 name: otel-hardening
 description: >
-  Re-verify that CyClaw's telemetry-kill contract still holds end to end — the
-  canonical env maps in utils/telemetry_kill.py (telemetry vs. update-check,
-  visibly separate), the scrubbed credential/declarative-config names, the real
-  ONNX Runtime suppression (ORT_DISABLE_TELEMETRY before import + the
-  disable_telemetry_events() API at the load seams), and the process-boundary
-  delivery surfaces (Docker ENV/compose, macOS/PowerShell launchers, generated
-  launchd plists / Windows tasks / cron lines, agentic verifier children, gh
-  children) — via a static checker with an INDEPENDENT name→value oracle and a
-  category-1-to-5 egress classification of every dependency, provider,
-  executable, connector, scheduled job, and launcher. Then a live vendor-doc
-  sweep for drift since each control's last review date. Use when asked to
-  audit/harden/re-verify telemetry, check for phone-home leaks, after bumping
-  any telemetry-capable vendor pin, when adding a dependency or process
-  launcher (strict mode fails on an unclassified one), or as a standing sweep —
-  CyClaw forbids unsolicited secondary telemetry, and this gap doesn't announce
-  itself.
+  Statically re-verify CyClaw's telemetry-kill contract: the canonical env
+  maps in utils/telemetry_kill.py, ONNX Runtime suppression, and
+  process-boundary delivery (Docker, launchers, scheduled jobs) via an
+  independent oracle and a category-1-5 egress classification of every
+  dependency/connector/launcher, then a vendor-doc drift sweep. Use when
+  asked to audit/harden telemetry, check for phone-home leaks, after
+  bumping a telemetry vendor pin, or adding a dependency/launcher. Not for
+  network policy, the sanitizer, or dependency pins -- see invariant-guard,
+  injection-redteam, dep-guard.
 ---
 
 # otel-hardening
