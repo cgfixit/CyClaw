@@ -278,7 +278,7 @@ EXTRA_QA: list[dict] = [
         {"role": "assistant", "content": (
             "_context_char_budget(cfg, soul_preamble, query, framing_chars) "
             "estimates context space after reserving soul, query, and framing:\n"
-            "  budget = retrieval.max_context_tokens (default 8000) * CHARS_PER_TOKEN (3)\n"
+            "  budget = retrieval.max_context_tokens (default 16000) * CHARS_PER_TOKEN (3)\n"
             "  reserved = len(soul) + len(query) + framing_chars\n"
             "  available = budget - reserved\n"
             "  return max(_MIN_CONTEXT_CHARS, available)  # floor 800\n\n"

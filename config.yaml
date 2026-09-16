@@ -50,6 +50,15 @@ models:
     # loopback server) is used for LocalLLMClient + /health. Not hybrid/cloud —
     # loopback only. fallback.model is REQUIRED when enabled (do not reuse the
     # Ollama tag; LM Studio ids usually differ).
+    # graph.py builds ONE prompt sized against retrieval.max_context_tokens +
+    # max_tokens (above) for whichever backend answers -- it does not query
+    # either backend's actual context window. LM Studio's window is set inside
+    # LM Studio itself (its own model-load UI/config), not here, so raising
+    # max_context_tokens does NOT raise it for you. An operator enabling this
+    # fallback must size LM Studio's own context length to at least the same
+    # floor documented on max_context_tokens above (currently
+    # 16000 + 4096 + ~1500 = 21,596) or failover can stall/error under the
+    # larger prompts this retune now allows.
     fallback:
       enabled: false
       provider: "lmstudio"                       # label only; same OpenAI-compat stack
@@ -143,6 +152,16 @@ retrieval:
   # if neither.
   # NOTE: the guarantee assumes policy.prompt_filter.enabled stays true (it caps
   # the query at max_input_chars); disabling it lets a huge query exceed the budget.
+  # HONEST CEILING: this is a max allowance, not a guarantee the local_llm/
+  # offline_best_effort paths will fill it. graph.py's _format_context_chunks
+  # is still called with limit=5 (docs[:5]) at both call sites, and
+  # indexing.chunk_size below caps each chunk at 512 words (~2,500-3,000
+  # chars). Five max-size chunks plus headers land well under this 48,000-char
+  # allowance for the shipped English corpus — the extra headroom mainly
+  # buys margin for larger individual chunks or a future top_k/limit retune,
+  # not more chunks per query today. Raising top_k_semantic/top_k_keyword or
+  # the graph.py limit= values is a separate, deliberately out-of-scope change
+  # (retrieval volume, not context-window sizing).
   max_context_tokens: 16000
 
   # min_score: RRF fused-rank threshold used by route_by_score_node (graph.py).
