@@ -241,7 +241,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `780` | `api.graph_timeout_sec` | must exceed `local_llm.timeout_sec` (720) |
 | `720` / `4096` | `local_llm.timeout_sec` / `max_tokens` | sized for dense ~27B MLX on M5 Pro class 307 GB/s (48 GB unified) — match the shipped default. Decode tok/s is **not** a config value; measure with `scripts/measure_local_llm_throughput.py` |
 | `8000` | `personality.soul_max_chars` | soul is capped |
-| `8000` | `retrieval.max_context_tokens` | prompt context budget; floor formula 8000+4096+~1500 = 13,596 ≤ Ollama num_ctx 16384 |
+| `16000` | `retrieval.max_context_tokens` | prompt context budget; floor formula 16000+4096+~1500 = 21,596 ≤ Ollama num_ctx 32768 |
 | `512` / `50` | `indexing.chunk_size` / `chunk_overlap` | overlap must stay `< chunk_size` |
 | `60` per `60`s | `api.rate_limit` | per-IP |
 | `40` | `banned_patterns` length | **documentary count**; the *phrases* are contractual (see §4) |

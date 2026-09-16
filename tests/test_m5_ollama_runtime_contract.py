@@ -5,7 +5,7 @@ Joins the four sources named by issue #1176: ``config.yaml``,
 ``docs/m5-48gb-coding-expectations.md``.
 
 No live Ollama, no Darwin, no tok/s claim. A retune that moves one source
-without the others, or that pushes the RAG floor past the shipped 16k
+without the others, or that pushes the RAG floor past the shipped 32k
 window, must fail CI here rather than in a skill script that CI does not run.
 """
 
@@ -30,8 +30,8 @@ _SHIPPED_REASONING_EFFORT = "none"
 _SHIPPED_MAX_TOKENS = 4096
 _SHIPPED_LLM_TIMEOUT_SEC = 720
 _SHIPPED_GRAPH_TIMEOUT_SEC = 780
-_SHIPPED_MAX_CONTEXT_TOKENS = 8000
-_SHIPPED_OLLAMA_CONTEXT_LENGTH = 16384
+_SHIPPED_MAX_CONTEXT_TOKENS = 16000
+_SHIPPED_OLLAMA_CONTEXT_LENGTH = 32768
 
 
 class M5RuntimeContract(NamedTuple):

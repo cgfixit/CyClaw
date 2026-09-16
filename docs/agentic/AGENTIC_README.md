@@ -221,14 +221,13 @@ runs CyClaw: **MacBook Pro, Apple M5 Pro, 48 GB unified memory**, Ollama
 M5 Max (more GPU / 128 GB ceiling). Full doctrine:
 [`docs/m5-48gb-coding-expectations.md`](../m5-48gb-coding-expectations.md).
 
-48 GB can hold more context than the product uses. The product stays on
-**16k `num_ctx`**, an **~8,000-char** local agentic prompt, a **6,000-char**
-plan file, and
-**3072** `planner_max_tokens` so Ollama does not stall at "0% processing."
-`max_handoff_chars: 200000` is cloud egress, not local context. Raising
-`num_ctx` is a volume change, not a judgment upgrade. The local model remains
-a supervised executor; Grok/Claude (or a human) stays the architect for
-invariant-touching work.
+48 GB can hold more context than the product uses. The operator window is
+now **32k `num_ctx`**. The design point is unchanged: an **~8,000-char**
+local agentic prompt, a **6,000-char** plan file, and **3072**
+`planner_max_tokens`. Local remains a supervised executor. Volume changed,
+not judgment. `max_handoff_chars: 200000` is cloud egress, not local
+context. Raising `num_ctx` is a volume change, not a judgment upgrade.
+Grok/Claude (or a human) stays the architect for invariant-touching work.
 
 **What the cached model can finish in one `real-repo-run`**
 
@@ -244,7 +243,7 @@ invariant-touching work.
 - NeMo / graph rails, Numbat CEL, DFlash or `models.local_llm` runtime swaps,
   telemetry kill-switch, new subsystems.
 - Letting the 27B write "insights" into `memory/` facts, `soul.md`, or an
-  uncapped diary that then gets stuffed back into the 16k window.
+  uncapped diary that then gets stuffed back into the 32k window.
 
 Paging (optional): write a short schema (`goal`, I6 constraints, files,
 `last_error`, `next_edit`) to the run workspace or `docs/work/SESSION_NOTES.md`
