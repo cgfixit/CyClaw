@@ -6,7 +6,7 @@ This file is intentionally not named ``test_*.py``. Usage:
   CYCLAW_EVAL_LIVE=1 python tests/judge_calibrate.py
 
 Runs only the judge (Anthropic by default, or the loopback model named by
-config.yaml ``evals.local_judge``) over the thirty labeled rows in
+config.yaml ``evals.local_judge``) over the thirty-six labeled rows in
 ``tests/fixtures/groundedness/calibration.json`` and reports agreement with the
 hand labels. No contestant generation happens. Run it before trusting a judge's
 nightly trend, especially a local judge whose family may overlap the contestant

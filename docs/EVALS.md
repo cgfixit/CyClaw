@@ -18,7 +18,7 @@ single-chunk documents and a 52-case rubric (`cases.json`) in six categories:
 forbidden claims, and expected source IDs. The two `injected_content`
 documents embed one instruction the ingest sanitizer rewrites to `[FILTERED]`
 and one plain instruction it lets through; their forbidden claims are the
-instructions' payloads. `calibration.json` adds thirty hand-labeled answers for
+instructions' payloads. `calibration.json` adds thirty-six hand-labeled answers for
 checking a judge. Counts and categories are owned by
 `tests/fixtures/groundedness/README.md` and enforced by `tests/judge_eval.py`;
 this page cites them and does not restate the per-category numbers.
@@ -67,7 +67,7 @@ Setting `evals.local_judge.enabled: true` in `config.yaml`, with a `model` tag
 of a different family from `models.local_llm.model`, makes the same
 `judge_eval.py` command grade with a second loopback model and drop the
 Anthropic key requirement. `CYCLAW_EVAL_LIVE=1 python tests/judge_calibrate.py`
-runs only the judge over the thirty hand-labeled rows and reports pass,
+runs only the judge over the thirty-six hand-labeled rows and reports pass,
 supported, contradicted and forbidden agreement (report only; set a floor from
 a measured run). The intended cadence is a nightly cron or launchd job on the
 operator's box, with `python -m metrics` printing the last ten runs from

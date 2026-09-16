@@ -22,7 +22,7 @@ as an unsupported claim rather than a forbidden one.
 Live reports store only case IDs, scores, reason codes, and source IDs; they do
 not persist queries, answers, evidence excerpts, or claim text.
 
-`calibration.json` holds 30 hand-labeled answers to these cases (each with the
+`calibration.json` holds 36 hand-labeled answers to these cases (each with the
 claim IDs a correct judge should mark supported, contradicted, or forbidden,
 and whether the case should pass). `tests/judge_calibrate.py` runs only the
 judge over them and reports agreement, so an operator can check a judge,

@@ -493,13 +493,9 @@ def test_calibration_rows_are_labeled_against_fixture_cases() -> None:
     assert len(rows) >= judge_calibrate.MIN_ROWS
     assert len({row.row_id for row in rows}) == len(rows)
     assert {row.expected_pass for row in rows} == {True, False}
-    # Every rubric category the rows were labeled against must still exist in
-    # the fixture, and the five core categories must each have rows. A category
-    # added to the fixture later (e.g. injected_content) earns rows in its own
-    # change rather than silently loosening this check.
-    labeled = {cases[row.case_id].category for row in rows}
-    assert labeled <= {case.category for case in cases.values()}
-    assert {"direct_factual", "paraphrase", "two_source_synthesis", "false_premise", "out_of_corpus"} <= labeled
+    # Every fixture category, injected_content included, has hand-labeled rows;
+    # a category added to the fixture later must bring its own rows.
+    assert {cases[row.case_id].category for row in rows} == {case.category for case in cases.values()}
 
 
 @pytest.mark.parametrize(
