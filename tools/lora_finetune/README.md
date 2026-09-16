@@ -7,10 +7,12 @@ curated CyClaw (github.com/CGFixIT/CyClaw) Q&A dataset. Grounded in the live
 CyClaw source read from `main` on 2026-09-07 (`graph.py`, `INVARIANTS.md`,
 `retrieval/indexer.py`, `llm/client.py`, `config.yaml`).
 
-This is an **offline operator toolkit**. The CyClaw runtime install
-(`requirements.txt`, `pyproject.toml` extras, Docker, conda) does **not**
-install Unsloth, Transformers, TRL, Datasets, or Accelerate. Train only on
-a CUDA box after `pip install -r tools/lora_finetune/requirements.txt`.
+This is a separate **operator training toolkit**. CyClaw's runtime profiles
+do not install this directory's training requirements. Transformers already
+arrives through the base sentence-transformers dependency; that does not
+provide or validate the Unsloth training stack. Train on a CUDA host using
+this kit's requirements. Model/tokenizer loading can fetch Hugging Face assets;
+seed their caches first if training must run without egress.
 
 The kit `requirements.txt` lists **direct** operator packages only (current
 patched pins as of 2026-09-11). It is **not** a lockfile of Unsloth's GPU
@@ -71,8 +73,8 @@ QLoRA on a 27B model needs **≥24 GB VRAM** (tight; 48 GB is the comfortable
 single-card zone) ([Unsloth Qwen3.8 docs](https://unsloth.ai/docs/models/qwen3.8/train),
 [YottaLabs](https://www.yottalabs.ai/post/how-to-fine-tune-qwen-3-8-27b-with-unsloth-2026),
 [van Riel](https://zenvanriel.com/ai-engineer-blog/fine-tune-qwen-3-27b-on-consumer-hardware/)).
-Chris's primary machine is an M5 Mac with **no GPU** — run this on a rented
-GPU pod (RunPod / Vast.ai / Lambda) or a 2×T4 Kaggle notebook.
+Apple Silicon has an integrated GPU, but this training script targets
+NVIDIA CUDA; the local Mac is not a compatible training host.
 
 ## Run
 

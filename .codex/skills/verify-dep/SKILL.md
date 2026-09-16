@@ -16,7 +16,8 @@ These are selected profiles, not three files that must contain identical text:
 | Surface | Contract |
 | --- | --- |
 | `pyproject.toml` + `constraints.txt` | PEP 621 base dependencies and selected optional extras; constraints caps their versions. |
-| `requirements.txt` + `constraints.txt` | Legacy, CI, and base container install: core runtime, test tools, CPU Torch, and load-bearing `websockets`; it intentionally excludes opt-in extras. |
+| `requirements.txt` + `constraints.txt` | Legacy and base container runtime: CPU Torch and core dependencies including load-bearing `websockets`; no test tools or opt-in extras. |
+| `requirements-test.txt` + `constraints.txt` | Test tools installed alongside the runtime profile for CI/development; excluded from the base Docker image. |
 | `Dockerfile` | Consumes the legacy constrained surface above; it is not an independent dependency manifest. |
 | `environment.yml` | Conda base/test/dev profile with documented Conda-only FastAPI and Starlette exceptions. |
 | Platform installers | Linux/Windows install `torch==...+cpu` from the PyTorch CPU index; macOS installs plain Torch then filters Linux-only Torch/index lines from copied manifests. |
@@ -50,11 +51,12 @@ The root `environment.yml` is the Conda profile. The same basename under
    AppArmor. Classify every difference as base, opt-in, platform-specific,
    transitive constraint, or documented exception.
 4. Validate only the install surface being changed. When network/tooling is
-   available, use dry-runs first:
+   available, dry-run the installer actually used by that surface (`pip` in
+   the maintained scripts and Dockerfile). For Linux/Windows:
 
    ```bash
-   uv pip install --dry-run -e . -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
-   uv pip install --dry-run -r requirements.txt -c constraints.txt
+   python -m pip install --dry-run --ignore-installed -e . -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
+   python -m pip install --dry-run --ignore-installed -r requirements.txt -c constraints.txt
    ```
 
    For Docker or Compose changes, also run:
@@ -69,7 +71,12 @@ The root `environment.yml` is the Conda profile. The same basename under
    runtime. Do not substitute a host-pip success for a container build.
 5. For macOS, validate the documented Apple-Silicon installer path separately.
    Plain macOS Torch is intentional; do not force the Linux/Windows `+cpu` pin
-   into that filtered install.
+   into that filtered install. Remove Torch/index lines from a requirements
+   copy, but retain the Torch constraint with only `+cpu` removed. Use that
+   macOS constraints copy for editable/extras dry-runs too; the exact recipe
+   lives in `setup-guide.md`. Report resolution separately from installation.
+   `full` and `all` are aggregates, not synonyms for every extra: inspect their
+   membership (currently `all` omits the standalone `mssql` extra).
 6. For a pin or dependency change, use the existing `pip-audit`, OSV, Trivy,
    Dependabot, and optional-extras CI paths. Verify releases and advisories from
    authoritative sources, preserve accepted-risk documentation, and never

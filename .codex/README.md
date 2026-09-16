@@ -36,13 +36,13 @@ in the same change.
 | `add-comment` | Add bounded WHY comments without changing executable behavior. |
 | `architecture-refactor` | Make one measured, behavior-preserving architecture cleanup. |
 | `dep-guard` | Run the maintained dependency-contract checkers before install changes. |
-| `doc-sync` | Reconcile code-derived facts and CyClaw documentation after structural changes. |
+| `doc-sync` | Reconcile code-derived facts, README links/paths, and guidance after structural changes. |
 | `invariant-guard` | Check CyClaw's six security invariants after sensitive changes. |
 | `injection-redteam` | Probe sanitizer regressions and adversarial bypasses. |
 | `verification-specialist` | Read-only verification with checks scoped to the supplied change and explicit limits. |
 | `cyclaw-project-guidance` | Load CyClaw invariants, architecture, and canonical references before substantial work. |
 | `cyclaw-advisor` | Read-only current-main architecture, operations, and PR advice. |
-| `verify-dep` | Reconcile dependency/install profiles, Docker, platform installers, and supply-chain checks. |
+| `verify-dep` | Reconcile runtime/test/optional profiles, Docker, platform installers, and supply-chain checks. |
 | `cyclaw-run-cyclaw` | Prepare, index, start, and verify the local RAG gateway. |
 | `cyclaw-sandbox-test` | Fresh-main sandbox and mocked API/terminal smoke coverage. |
 | `Cyclaw-Sandbox` (`$cyclaw-sandbox`, explicit-only) | Full baseline or exact-PR-head sandbox: RAG/gateway/terminal, optional CLIs, audit, installers, platforms, CI and browser evidence. |
@@ -79,6 +79,10 @@ All 22 skill entry points have UI metadata. The directory `Cyclaw-Sandbox`
 keeps its historical spelling; its skill/invocation name is `cyclaw-sandbox`.
 The optimization skill consistently uses `cyclaw-optimize`. Preserve existing
 invocation policy when updating metadata.
+
+The dependency workflow distinguishes `requirements.txt` (runtime) from
+`requirements-test.txt` (tests), uses the actual pip install commands for
+dry-runs, and preserves plain Torch constraints on macOS.
 
 Use the canonical `.claude/skills/doc-sync/` checker. The Codex Python/shell
 entry points are wrappers, not separate parser implementations. Historical

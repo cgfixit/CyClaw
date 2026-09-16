@@ -1,10 +1,10 @@
-# `deploy/` — container hardening profiles (all opt-in)
+# `deploy/` — container hardening profiles
 
 Linux-host containment and detection scaffolding for the Docker deployment.
-Nothing in this tree is enabled by default, and nothing here is imported by
-any Python module — these are host/daemon configs an operator applies
-deliberately. Each hardening subdirectory (`apparmor/`, `seccomp/`, `falco/`)
-carries its own README with status, scope, and apply/rollback steps; this file
+AppArmor and Falco are opt-in; the base Compose configuration already
+selects Docker's builtin seccomp policy. Nothing here is imported by a Python
+module — these are host/daemon configurations. Each hardening subdirectory
+(`apparmor/`, `seccomp/`, `falco/`) carries its own README with status, scope, and apply/rollback steps; this file
 is the index.
 
 | Subdirectory | What it is | Status |

@@ -20,9 +20,10 @@ Not in this directory but adjacent in spirit: the retrieval indices live in
 `index/` (regenerable — rebuild with `python -m retrieval.indexer`), the
 embedding model cache in `.emb_cache/` (regenerable —
 `python -m retrieval.clear_cache`), and the audit log at
-`logs/audit.jsonl` (append-only JSONL; query text stored only as SHA-256
-hashes). The per-user launcher state (venv, `.env`) is **not** here — it lives
-under `~/.CyClaw` / `%USERPROFILE%\.CyClaw`.
+`logs/audit.jsonl` (append-only JSONL; query text stored as SHA-256
+hashes by default; disabling `logging.audit_fields.include_query_hash` retains
+raw query text subject to redaction). The per-user launcher state (venv, `.env`)
+is **not** here — it lives under `~/.CyClaw` / `%USERPROFILE%\.CyClaw`.
 
 ## Related
 

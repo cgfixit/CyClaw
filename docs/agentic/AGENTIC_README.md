@@ -39,10 +39,10 @@ agentic:
   registry_path: "data/agentic/skills_registry.json"
   allowed_read_ops: [pr_view, pr_list, pr_diff, issue_view, issue_list, repo_view]
 ```
-While `enabled: false`, every CLI command except `status` is a clean no-op (exit 0) —
-both the GitHub `context` commands **and** the skills-registry `propose-skill` /
-`apply-skill` writes. The master switch fully turns the layer off; only `status`
-still runs so you can confirm the disabled state (and it never writes).
+While `enabled: false`, ordinary operations no-op (exit 0), while `status`
+and `test` still run. Invalid publish/decide escalation arguments can refuse
+with exit 4 before the master-switch check. See
+[`agentic/README.md`](../../agentic/README.md#how-to-enable) for the exact exceptions.
 
 ## 3. Commands
 ```bash
@@ -73,7 +73,7 @@ python -m agentic.cli real-repo-run --repo --instruction "..." --checks-file che
 
 python -m agentic.cli real-repo-run-status --run-id "<id>"
 python -m agentic.cli real-repo-run-decide --run-id "<id>" --decision approve   # or reject
-# Escalations past the local commit -- each its own decision, both disarmed by default:
+# Escalations past the local commit -- each its own decision, both held by default-off master/clone-write gates:
 python -m agentic.cli real-repo-run-push    --run-id "<id>"                       # needs allow_git_write_tools
 python -m agentic.cli real-repo-run-publish --run-id "<id>" --reason "..." --confirm  # needs EXECUTION_ENABLED
 
@@ -148,9 +148,10 @@ verifies it with `agentic/executor/`'s real `pytest`/`ruff`/invariant-guard
 subprocesses against that worktree -- an accepted candidate is a real git
 commit, gated behind a separate human decision
 (`real-repo-run-decide`). It never
-pushes or opens a GitHub PR on its own (`agentic/writer.py`, §5, is the only
-path that can, and remains disarmed). Reachable via `agentic.cli`'s
-`real-repo-run`/`real-repo-run-status`/`real-repo-run-decide` subcommands only:
+pushes or opens a GitHub PR on its own: explicit push uses
+`RepoWorkspaceTools.push_branch`; draft publication uses `agentic/writer.py`
+(§5), whose code gate is armed but whose master switch ships off. The
+`real-repo-run*` subcommands are CLI-only:
 `utils/ops_runner.py` allowlists them, but `OpsAgenticRequest.action`
 (`schemas/api.py`) does not, so `POST /ops/agentic` answers 422 for them.
 
@@ -158,7 +159,8 @@ path that can, and remains disarmed). Reachable via `agentic.cli`'s
 (`agentic/real_repo_loop.py`'s `generate_plan`) is a separate, one-shot
 subcommand: it asks a model for a short implementation plan (files to touch,
 one-line rationale each — never code) and prints or writes it, with **no
-clone, no iteration, no write of any kind**. The design rationale, stated in
+clone, no iteration, and no code edits or commits** (`--out` writes the plan
+file). The design rationale, stated in
 `generate_plan`'s own docstring: a capable (typically cloud) model reasons
 about the approach *once*; a human reads and approves the result; a cheaper
 local model then implements it across however many iterations that takes.
@@ -220,8 +222,8 @@ M5 Max (more GPU / 128 GB ceiling). Full doctrine:
 [`docs/m5-48gb-coding-expectations.md`](../m5-48gb-coding-expectations.md).
 
 48 GB can hold more context than the product uses. The product stays on
-**16k `num_ctx`**, **2048** harness completion tokens / **8** turns, an
-**~8,000-char** local agentic prompt, a **6,000-char** plan file, and
+**16k `num_ctx`**, an **~8,000-char** local agentic prompt, a **6,000-char**
+plan file, and
 **3072** `planner_max_tokens` so Ollama does not stall at "0% processing."
 `max_handoff_chars: 200000` is cloud egress, not local context. Raising
 `num_ctx` is a volume change, not a judgment upgrade. The local model remains
@@ -276,7 +278,8 @@ into the 27B coder. They already existed; the burst prompt does not relax them.
 **MCP integration strategy (this loop)**
 
 `real-repo-run` / `real-repo-run-plan` are **not** MCP clients. They are
-`python -m agentic.cli` subprocesses (`/ops/agentic` uses the same CLI shim).
+`python -m agentic.cli` commands. `/ops/agentic` uses the CLI shim for other
+actions, but its request schema excludes both real-repo commands.
 They must not import `mcp_hybrid_server.py`.
 
 | Surface | Role | This PR |

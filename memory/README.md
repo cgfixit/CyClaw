@@ -16,7 +16,7 @@ v1 — even if flipped, `run_consolidation` returns disabled.
 ## Isolation
 
 No top-level `import memory` in `gate.py`, `graph.py`, `mcp_hybrid_server.py`,
-`retrieval/hybrid_search.py`, or `gate_memory.py`
+`retrieval/hybrid_search.py`, `gate_memory.py`, or `gate_ops.py`
 (`tests/test_memory_isolation.py`). Routes live in `gate_memory.py` and
 lazy-import this package.
 
@@ -26,7 +26,7 @@ lazy-import this package.
 |---|---|
 | `store.py` | SQLite + FTS5, WAL, 0600, parameterized SQL |
 | `models.py` | `Fact`, `Episode`, `MemoryProposal` |
-| `policy.py` | Reason required, size/tag limits, injection scan |
+| `policy.py` | Reason required, size/tag limits, normalized injection scan; malformed regexes warn and are skipped |
 | `retrieval_adapter.py` | Optional FTS fusion into hybrid search |
 | `mirror.py` | `/memory/status` dict + `GET /query/export/html` builder |
 | `flags.py` | Resolves `memory.facts.retrieval_enabled`; honors the legacy `facts.enabled` name with a one-time warning |

@@ -292,11 +292,11 @@ passing a full command through `schtasks /TR`.
 > works on macOS/WSL/BSD too); `sync/scheduler.py` does not generate a systemd
 > unit.
 >
-> See `docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md` for the full rationale
-> behind the launchd backend, what was and wasn't tested (this repo's CI/dev
-> environments are Linux — no live `launchctl` load was exercised), and which
-> other macOS jobs (`fsconnect-trash`, `telegram-health`, `telegram-poll`)
-> remain on static plist templates rather than this generated mechanism.
+> See `docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md` for the launchd design
+> and historical validation limits. Current CI includes macOS, Windows, and
+> Linux; that does not prove a live `launchctl` load. The fsconnect and Telegram
+> CLIs also ship generate-only plist commands; see
+> [`macos/README.md`](../macos/README.md).
 
 ---
 

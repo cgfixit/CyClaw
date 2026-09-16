@@ -23,8 +23,11 @@ and self-test, preserving the existing Codex command paths.
    ```
 
    It validates skill inventory, console entry points, documented config
-   values, sanitizer-pattern counts, route coverage, hook claims, and graph
-   node-count claims. Exit 0 means no mechanical drift; it does not prove
+   values, sanitizer-pattern counts, route coverage, hook claims, graph
+   node-count claims, and README paths, relative links, anchors, and Python
+   module references. Its README discovery covers basenames starting with
+   `readme` (case-insensitive); include `docs/SYNC_README.md` and
+   `docs/agentic/AGENTIC_README.md` manually in a project-wide README pass. Exit 0 means no mechanical drift; it does not prove
    every prose assertion.
 3. Perform a bounded manual pass where the change reaches: command docs versus
    implementation, install docs versus manifests/workflows, `AGENTS.md` versus
