@@ -70,27 +70,46 @@ def test_invoke_cyclaw_fallback_requires_python_312() -> None:
     assert "no Python 3.12.x on PATH" in fallback
 
 
-def test_invoke_cyclaw_disables_uvicorn_proxy_headers() -> None:
-    """The Darwin launcher stays on uvicorn so --gate-port still works, but it
-    must pass --no-proxy-headers like gate._serve / the Dockerfile CMD.
+def test_invoke_cyclaw_starts_gate_through_main() -> None:
+    """Darwin invoke must run gate.py so main() applies bind/TLS/proxy_headers.
 
-    uvicorn's default trusts X-Forwarded-For on loopback and would otherwise
-    let any local process mint a fresh 60/min rate-limit bucket per spoofed IP.
+    A live `uvicorn gate:app` spawn would skip those. --gate-port still works
+    because the script exports CYCLAW_GATE_PORT and gate._listen_port reads it.
     """
     text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
     spawn = [
         line
         for line in text.splitlines()
+        if not line.lstrip().startswith("#") and "gate.py" in line and "VENV_PY" in line
+    ]
+    assert any(line.rstrip().endswith("gate.py &") for line in spawn), (
+        "invoke-cyclaw.sh must spawn gate.py (not uvicorn gate:app)"
+    )
+    live_uvicorn = [
+        line
+        for line in text.splitlines()
         if "uvicorn gate:app" in line and not line.lstrip().startswith("#")
     ]
-    assert spawn, "invoke-cyclaw.sh no longer spawns uvicorn gate:app"
-    assert all("--no-proxy-headers" in line for line in spawn), (
-        "macOS launcher must pass --no-proxy-headers so X-Forwarded-For cannot "
-        "rewrite the rate-limit client"
-    )
-    assert all("--port" in line for line in spawn), (
-        "--gate-port / CYCLAW_GATE_PORT must still reach uvicorn --port"
-    )
+    assert not live_uvicorn, "invoke-cyclaw.sh must not spawn uvicorn gate:app"
+    assert "export CYCLAW_GATE_PORT=" in text
+
+
+def test_invoke_cyclaw_console_url_follows_tls_scheme() -> None:
+    """gate.py honors api.tls; the launcher must not keep http:// after that spawn.
+
+    Port stays GATE_PORT. Probe failure keeps http, matching Invoke-CyClaw.ps1.
+    """
+    text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
+    probe_idx = text.index("yaml.safe_load")
+    assert 'tls.get("enabled") is True' in text
+    assert 'print("https" if tls.get("enabled") is True else "http")' in text
+    assert 'CONSOLE_URL="$SCHEME://127.0.0.1:$GATE_PORT"' in text
+    assert probe_idx < text.index("[cyclaw] terminal : $CONSOLE_URL")
+    assert probe_idx < text.index('open "$CONSOLE_URL"')
+    assert 'curl -sf --max-time 2 "$CONSOLE_URL/health"' in text
+    assert "curl -sfk" in text
+    assert 'open "http://127.0.0.1:$GATE_PORT"' not in text
+    assert 'xdg-open "http://127.0.0.1:$GATE_PORT"' not in text
 
 
 def test_invoke_cyclaw_probes_gateway_startup_and_watches_its_pid() -> None:
@@ -117,8 +136,8 @@ def test_invoke_cyclaw_propagates_a_post_start_child_failure(tmp_path: Path) -> 
     home = tmp_path / "home"
     fake_python = home / "venv" / "bin" / "python"
     fake_python.parent.mkdir(parents=True)
-    # The launcher probes `python -c "import uvicorn"` and the telemetry-kill
-    # export before spawning uvicorn; answer those two, then die as uvicorn.
+    # The launcher probes telemetry-kill (`python -S`) before spawning gate.py;
+    # answer -S, then die as the gateway.
     fake_python.write_text(
         "#!/bin/sh\ncase \"$1\" in -c) exit 0 ;; -S) exit 1 ;; esac\nsleep 4\nexit 37\n",
         encoding="utf-8",
@@ -165,8 +184,8 @@ def test_invoke_cyclaw_loads_persisted_api_key_from_dotenv() -> None:
     assert '/usr/bin/stat -f %Lp' in text
     assert 'stat -c %a' in text
     load_idx = text.index("$HOME_DIR/.env")
-    uvicorn_idx = text.index("uvicorn gate:app")
-    assert load_idx < uvicorn_idx, "dotenv load must run before uvicorn is spawned"
+    spawn_idx = text.index('"$VENV_PY" gate.py &')
+    assert load_idx < spawn_idx, "dotenv load must run before gate.py is spawned"
     window = text[text.index("_source_dotenv() {") : load_idx]
     assert "set -a" in window, "sourced .env assignments must be exported (set -a)"
     warn = "Typing the key in the browser cannot configure the server"

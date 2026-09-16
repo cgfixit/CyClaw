@@ -395,8 +395,8 @@ def test_macos_launcher_exports_canonical_block():
     assert "-S -E -m utils.telemetry_kill --export shell" in text
     # Overwrite semantics: the eval must come AFTER the dotenv sourcing.
     assert text.index("_source_dotenv") < text.index("--export shell")
-    # And BEFORE the servers start.
-    assert text.index("--export shell") < text.index('-m uvicorn gate:app --host 127.0.0.1')
+    # And BEFORE the servers start. Darwin invoke now runs gate.py (not uvicorn).
+    assert text.index("--export shell") < text.index('"$VENV_PY" gate.py &')
 
 
 def test_powershell_launcher_exports_canonical_block():
