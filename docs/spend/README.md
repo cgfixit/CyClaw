@@ -3,13 +3,20 @@
 CyClaw answers from the local vault by default. When a human explicitly confirms
 an online send, the call reaches Grok (xAI) or Claude (Anthropic) and costs real
 money. `utils/spend.py` records what each of those calls consumed, so an
-operator can answer "what did this month cost?" without trusting a vendor
-dashboard or re-reading the audit trail.
+operator can answer "what did this month cost?" and check that figure against
+the vendor console.
 
 The ledger's core rule: **tokens are the ground truth; dollars are derived at
 read time.** The file on disk never stores a price. `metrics.py` applies a dated
 rate table when it prints, which means correcting a stale rate re-prices the
 entire history rather than leaving wrong numbers baked into old lines.
+
+Grok and Claude are not priced the same way. xAI returns `cost_in_usd_ticks` on
+the usage object; that integer is stored and converted as
+`ticks / 10_000_000_000`. Anthropic does not return a dollar field; Claude rows
+are priced from billed `input_tokens` / `output_tokens` (and cache fields)
+times the `claude-sonnet-5` row in `_RATES`. Do not estimate Claude cost with
+OpenAI's `tiktoken` — Anthropic's billed `input_tokens` is the count to trust.
 
 ## What the ledger is not
 
@@ -58,6 +65,36 @@ is a content address, not a request identity, and it is the only field that can
 be joined back to an audit record. The `route_path` and `query_hash` fields are
 both validated against strict patterns before being written, so a malformed or
 oversized value is dropped rather than stored.
+
+## API keys
+
+The ledger records billed usage. It does not hold credentials. Keys live in the
+environment (or, on Darwin, in Keychain items that a wrapper exports into the
+environment). `config.yaml` names the provider and model; it never contains the
+secret.
+
+| Provider | Env var `llm/client.py` and `agentic/` actually read | Dummy / missing |
+|---|---|---|
+| Grok (xAI) | `GROK_API_KEY` | Client reports unavailable; no spend row |
+| Claude (Anthropic) | `ANTHROPIC_API_KEY` (not `CLAUDE_API_KEY`) | Same: unavailable, no spend row |
+
+Do not paste a live key into chat, a PR, or `config.yaml`. On Darwin the
+documented store is `macos/cyclaw-keychain-set.sh` plus
+`macos/cyclaw-keychain-env.sh <service> <ENV_VAR> -- <command>`:
+
+| Env var | Keychain service |
+|---|---|
+| `GROK_API_KEY` | `com.cgfixit.cyclaw.grok-api-key` |
+| `ANTHROPIC_API_KEY` | `com.cgfixit.cyclaw.anthropic-api-key` |
+
+The Keychain account must match `id -un` (typically the login user). An item
+stored under another account (`root` from a sudo run) is invisible to the
+wrapper and will 401 if you force-read the wrong secret.
+
+A billed call still needs the same confirmation gates as the rest of CyClaw.
+`/query` is I3 (hybrid mode, provider enabled, `user_confirmed_online`). The
+agentic cloud planner is the six-condition chain plus `--confirm-online`. The
+ledger cannot grant a call those gates refused.
 
 ## Where the ledger lives
 
@@ -176,16 +213,64 @@ acting on: sub-tick dust is ignored, a relative disagreement beyond 5% of a
 nonzero vendor figure trips, and a large absolute delta trips regardless. This
 is how a silently wrong rate entry gets caught instead of accumulating.
 
-An opt-in live probe exercises the real vendor APIs end to end:
+Claude rows have no ticks. For those, `usd_source` is `rate_table` (or
+`incomplete` / `rate_unknown`). The operator check is the Anthropic console
+total for the same window, not a tick delta.
+
+### Matching a vendor console
+
+`cyclaw-metrics` is the local reader. The vendor console is the independent
+check. Compare the same window:
+
+1. Sum CyClaw dollars for that provider (`python -m metrics`, Spend section).
+2. Open the xAI console (Grok) or Anthropic "Spend this month" (Claude).
+3. Ignore Grok Build / Claude Code / this coding-agent session's own token
+   counter — those are different bills.
+4. Cent rounding on the vendor UI is expected. A two-cent gap on a five-dollar
+   Grok window, or a sub-cent gap on a six-dollar Claude window, is a match.
+   A mid-run screenshot that is missing the last rows is not a rate-table bug;
+   refresh after the process exits.
+
+Grok long-context: once the prompt crosses 200k tokens, xAI bills the **whole
+request** on the long band (`$4` / `$12` for `grok-4.5`, not `$2` / `$6`). The
+rate table implements that switch. A large agentic plan can therefore cost
+about twice the short-band estimate.
+
+### Live probes (they spend real money)
+
+Two disjoint stacks. A green `/query` probe does not prove the agentic hook
+still captures ticks.
+
+**`/query` plane** (`llm/client.py`, `source: "query"`). Opt-in, not collected
+by pytest, fails closed unless the live flag is set:
 
 ```bash
+# Grok only when GROK_API_KEY is set; omit ANTHROPIC_API_KEY to skip Claude.
 CYCLAW_SPEND_LIVE=1 python tests/spend_live_probe.py
 ```
 
-That script is deliberately not named `test_*.py`, so pytest never collects it
-and CI never spends money. It fails closed unless `CYCLAW_SPEND_LIVE=1` is set,
-and it asserts that no forbidden field (query, prompt, content, messages,
-api_key, authorization) reached the ledger.
+The probe writes a **temp** ledger and deletes it — it does not append
+`logs/spend.jsonl`. Capture stdout (`model`, `ticks`, `table_usd`,
+`vendor_usd`, `delta_usd`). It asserts that no forbidden field (query, prompt,
+content, messages, api_key, authorization) reached the ledger.
+
+**Agentic plane** (`agentic/deepagent_github/chat_client.py`,
+`source: "agentic"`). One-shot plan, no clone, no commit. Needs the optional
+cloud extra (`langchain-xai` for Grok, `langchain-anthropic` for Claude),
+`agentic.enabled` and `deepagent_github.enabled` on (use a temp `--config`
+overlay; do not flip the shipped `config.yaml`), the matching API key, and
+`--confirm-online`:
+
+```bash
+python -m agentic.cli --config /path/to/overlay.yaml real-repo-run-plan \
+    --repo --instruction "..." --provider grok --confirm-online --out plan.md
+python -m agentic.cli --config /path/to/overlay.yaml real-repo-run-plan \
+    --repo --instruction "..." --provider claude --confirm-online --out plan.md
+```
+
+That path **does** append `logging.spend_file`. Do not pass `--provider` through
+to a following `real-repo-run` if the intent was "cloud plans, local
+implements" — see `docs/agentic/AGENTIC_README.md`.
 
 ## Joining spend to the audit trail
 

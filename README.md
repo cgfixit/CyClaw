@@ -184,7 +184,7 @@ on by default.
 | [Agentic layer](#agentic-layer) + [coding loop](#agentic-coding-loop-github) (`agentic/`) | read-only GitHub context via the `gh` CLI, a governed skills registry, and a real-repo clone → plan → patch → verify → **human decides** → commit pipeline whose push and draft-PR steps are two further separate decisions | off |
 | [Telegram](#telegram-channel) (`telegram/`) and [OpenTweet](#opentweet-channel) (`opentweet/`) channels | a phone remote and a weekly X poster; both reach the pipeline only through loopback `POST /query`, never a direct `graph.py` call | off |
 | Numbat forensic stream (`utils/numbat_emitter.py`) | a derived NDJSON projection of the audit trail at `logs/numbat-events.ndjsonl` that the pinned Numbat 0.2.0 CLI can score for patterns like `exfil.curl_post_file` ([design note](docs/security-philosophy/numbat_secondary_evaluator.md)). Projected after hashing and redaction, but it carries host/user metadata — a second sensitive local log, not a privacy upgrade | **on** |
-| Spend ledger (`utils/spend.py`) | token counts per billed Grok/Claude call in `logs/spend.jsonl`, tagged by plane. Tokens are ground truth; dollars are derived at read time by `cyclaw-metrics`, which also flags a stale rate table ([`docs/spend/README.md`](docs/spend/README.md)) | **on** |
+| Spend ledger (`utils/spend.py`) | token counts per billed Grok/Claude API-key call in `logs/spend.jsonl`, tagged `source: query` (`/query` fallback) or `source: agentic` (cloud planner). Grok stores xAI `cost_in_usd_ticks`; Claude is priced from Anthropic usage tokens. Dollars are derived at read time by `cyclaw-metrics`; match the xAI / Anthropic consoles — see [`docs/spend/README.md`](docs/spend/README.md) | **on** |
 | [Fine-tune kit](#local-model-fine-tuning) (`tools/lora_finetune/`) | an offline QLoRA kit that teaches a local model this codebase. Not installed by any runtime install surface | operator toolkit |
 
 ---
@@ -386,6 +386,13 @@ The Claude variable is **`ANTHROPIC_API_KEY`**, not `CLAUDE_API_KEY` —
 `llm/client.py` and `agentic/config.py` both read the former, and nothing in
 the codebase reads the latter. Setting the wrong name is silent: Claude simply
 reports unavailable and the query falls back to a local answer.
+
+A confirmed Grok or Claude call that actually bills appends one line to
+`logs/spend.jsonl` (`source: "query"` on `/query`, `source: "agentic"` on the
+cloud planner). Keys never go in that file. `python -m metrics` prints the
+Spend section; the independent check is the xAI or Anthropic console for the
+same window. Full field list, live probes, and Darwin Keychain service names
+are in [`docs/spend/README.md`](docs/spend/README.md).
 
 Load it before launching:
 
@@ -1319,7 +1326,10 @@ behind a **six-condition chain**: `agentic.enabled` →
 → the provider's API-key env var (`GROK_API_KEY` / `ANTHROPIC_API_KEY`, presence
 only, never a network probe) → per-run `--confirm-online`. Every outbound prompt
 is injection-scanned, redacted, hashed, and audited as egress before it leaves
-the process.
+the process. A billed 2xx appends `source: "agentic"` to `logs/spend.jsonl`
+(Grok: xAI ticks; Claude: Anthropic token counts × the rate table). That is a
+different client than `/query`'s `GrokClient` / `ClaudeClient` — see
+[`docs/spend/README.md`](docs/spend/README.md).
 
 Cloud SDKs are **opt-in extras, deliberately absent from the default install,
 `requirements.txt`, and the Docker image**:
