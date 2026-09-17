@@ -33,6 +33,164 @@ Unsloth 2026.9.4 still publishes `transformers<=5.5.0` / `trl<=0.24.0` /
 `datasets<4.4`. If `pip install -r requirements.txt` refuses the patched
 HF pins, install Unsloth alone and let it resolve that stack:
 
+<hr>
+
+
+Deep dive for later maybe: 
+
+CyClaw-specific revision for your Apple Silicon MLX → Ollama LoRA workflow.
+
+## CyClaw LoRA → Ollama
+
+For your CyClaw setup, think of the LoRA as a small behavioral upgrade trained against your local MLX base model. It can teach the model your agent conventions, RAG behavior, output style, or domain-specific patterns—but Ollama cannot generally load that **MLX adapter** alongside its base model at runtime.
+
+You must first fuse the adapter into the exact MLX base checkpoint that trained it. After that, you have a standalone fine-tuned model that can either stay in MLX or be deployed through Ollama.[1]
+
+```text
+MLX base + MLX LoRA adapter
+          │
+          ├─ Dynamic adapter inference in MLX
+          │    Best reference/testing path
+          │
+          └─ mlx_lm.fuse
+                │
+                ├─ Direct Ollama Safetensors import, if compatible
+                └─ Or convert to GGUF for Ollama/llama.cpp deployment
+```
+
+For your MacBook Pro M5 with 48 GB unified memory, the sensible approach is:
+
+- Keep the adapter and fused MLX model as your **source-of-truth artifacts**.
+- Validate the fused model in MLX before introducing Ollama or GGUF.
+- Prefer direct Ollama import of the fused model directory if Ollama accepts it.
+- Use GGUF when you need a known llama.cpp/Ollama deployment format or want a smaller quantized artifact.
+- Start evaluation at F16, Q8, Q6_K, or Q5_K_M; use Q4_K_M only after testing that CyClaw’s tool calls, JSON, and agent behavior remain reliable.
+
+## Fuse it
+
+Always use the **identical MLX base** used during LoRA training—not an Ollama pull, not a similar Qwen release, and not a different quantization.
+
+```bash
+mlx_lm.fuse \
+  --model /path/to/exact-mlx-training-base \
+  --adapter-path /path/to/cyclaw-adapter \
+  --save-path ./cyclaw-fused \
+  --dequantize
+```
+
+`--dequantize` matters when your training base is MLX 4-bit/QLoRA. It materializes the quantized base weights before applying the LoRA delta, producing a more portable fused checkpoint.[1]
+
+Before doing anything else, compare the dynamic-adapter and fused outputs with the same CyClaw-style prompt:
+
+```bash
+# Dynamic MLX adapter: reference behavior
+mlx_lm.generate \
+  --model /path/to/exact-mlx-training-base \
+  --adapter-path /path/to/cyclaw-adapter \
+  --prompt "Return a valid CyClaw tool-routing response for..." \
+  --temp 0
+
+# Fused MLX model: verifies fusion
+mlx_lm.generate \
+  --model ./cyclaw-fused \
+  --prompt "Return a valid CyClaw tool-routing response for..." \
+  --temp 0
+```
+
+If fused MLX is materially worse than adapter-loaded MLX, stop. That is a fuse/base/adapter compatibility problem—not an Ollama problem.
+
+## Deploy with Ollama
+
+First, try direct import of the fused directory. Current Ollama can import supported Safetensors model directories, so GGUF may be optional.
+
+```text
+# Modelfile
+FROM /absolute/path/to/cyclaw-fused
+
+PARAMETER temperature 0
+PARAMETER num_ctx 16384
+```
+
+```bash
+ollama create cyclaw-fused:fp -f Modelfile
+ollama run cyclaw-fused:fp "Run a representative CyClaw prompt."
+```
+
+If Ollama rejects the fused directory, convert it to GGUF:
+
+```bash
+python3 convert_hf_to_gguf.py ./cyclaw-fused \
+  --outfile ./cyclaw-fused-f16.gguf \
+  --outtype f16
+```
+
+Test that F16 GGUF first:
+
+```text
+# Modelfile
+FROM ./cyclaw-fused-f16.gguf
+
+PARAMETER temperature 0
+PARAMETER num_ctx 16384
+```
+
+Then, only if memory or throughput calls for it, quantize:
+
+```bash
+llama-quantize \
+  ./cyclaw-fused-f16.gguf \
+  ./cyclaw-fused-q5_k_m.gguf \
+  Q5_K_M
+```
+
+```text
+# Modelfile
+FROM ./cyclaw-fused-q5_k_m.gguf
+
+PARAMETER temperature 0
+PARAMETER num_ctx 16384
+```
+
+## What to test
+
+Do not judge this by generic chat quality. For CyClaw, test the things that actually break an agent:
+
+- Correct tool-selection decisions.
+- Valid JSON or structured output.
+- Required fields, enums, and schemas.
+- RAG grounding behavior.
+- Refusal/safety behavior, if that is part of the LoRA.
+- Multi-step task completion and instruction retention.
+
+Run the same fixed evaluation prompts through:
+
+1. MLX base + dynamic adapter.
+2. Fused MLX model.
+3. Ollama F16/Safetensors import.
+4. Ollama Q5/Q4 GGUF.
+
+Use `temperature 0`, identical prompts, and ideally a schema validator or automated eval harness. A quantized model may look “basically fine” in chat while quietly producing malformed tool arguments or choosing the wrong action.
+
+## Bottom line
+
+For CyClaw, **MLX dynamic-adapter inference is the clean reference path**. Fused MLX is the first deployment artifact to validate. Ollama is a deployment choice—not a required step—and GGUF is only needed when direct Safetensors import does not work or when you deliberately want a llama.cpp-compatible, quantized model.
+
+The safe pipeline is:
+
+```text
+Train LoRA in MLX
+→ verify dynamic adapter
+→ fuse into the exact MLX base
+→ verify fused MLX
+→ try direct Ollama import
+→ convert to F16 GGUF only if needed
+→ quantize only after F16 passes CyClaw evaluation
+```
+
+That preserves a debuggable, high-fidelity baseline while still giving you an Ollama-native artifact for the CyClaw runtime.
+
+<hr>
+
 ```bash
 pip install --upgrade --force-reinstall --no-cache-dir unsloth==2026.9.4
 ```
