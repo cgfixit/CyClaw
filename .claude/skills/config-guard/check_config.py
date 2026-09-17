@@ -211,23 +211,23 @@ def run_checks(cfg: dict[str, Any], ollama_context_length: int | None = None) ->
     else:
         fail("C8", f"rrf_k must be a positive integer, got {rrf_k!r}")
 
-    # ── C9 shipped default posture is safe/offline ──────────────────────────
-    print("C9 shipped default posture (offline; external fallbacks off)")
+    # ── C9 shipped provider posture matches the current contract ─────────────
+    print("C9 shipped provider posture (hybrid; external providers enabled)")
     mode = _dig(cfg, "app", "mode")
-    grok_on = bool(_dig(cfg, "models", "grok", "enabled"))
-    claude_on = bool(_dig(cfg, "models", "claude", "enabled"))
+    grok_on = _dig(cfg, "models", "grok", "enabled") is True
+    claude_on = _dig(cfg, "models", "claude", "enabled") is True
     posture = []
-    if mode != "offline":
-        posture.append(f"app.mode={mode!r} (shipped default is 'offline')")
-    if grok_on:
-        posture.append("models.grok.enabled=true")
-    if claude_on:
-        posture.append("models.claude.enabled=true")
+    if mode != "hybrid":
+        posture.append(f"app.mode={mode!r} (shipped default is 'hybrid')")
+    if not grok_on:
+        posture.append("models.grok.enabled is not literal true")
+    if not claude_on:
+        posture.append("models.claude.enabled is not literal true")
     if posture:
-        warn("C9", "committed config ships with external/online posture: "
-                   + "; ".join(posture) + " — fine for a live operator, surprising for a portfolio default")
+        warn("C9", "committed config differs from the documented shipped provider posture: "
+                   + "; ".join(posture))
     else:
-        ok("C9", "mode=offline, grok & claude disabled (safe shipped default)")
+        ok("C9", "mode=hybrid with grok & claude enabled; each external answer still requires confirmation")
 
     # ── C10 local context is not forwarded off-box by default ───────────────
     print("C10 policy.fallback does not leak local context off-box")

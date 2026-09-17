@@ -7,7 +7,8 @@ Quick reference for Claude Code assistance patterns in CyClaw.
 The skills directory holds many more skills than the handful below (operational,
 refactor-loop, and agent skills). For the **authoritative, complete list**, see the
 **§9 "Skills"** section of the root [`CLAUDE.md`](../CLAUDE.md) — kept in
-sync there so a second list does not drift. A few common entry points:
+sync there so a second list does not drift. The current tree has **22 project
+skills and 27 slash commands**, including five standalone commands. A few common entry points:
 
 These are Claude Code slash commands typed into the session, not shell
 commands — the fence below is `text` on purpose, because pasting these into a
@@ -23,6 +24,8 @@ terminal only produces "No such file or directory".
 /logging-refactor        # Start logging audit loop
 /speed-refactor          # Start speed optimization loop
 /doc-sync                # Detect and reconcile code<->doc drift
+/CyClaw-Sandbox          # Full clone/current-checkout verification ladders
+/babysit-github-pr       # Explicitly authorized PR watch/CI loop
 /CyClaw-Optimize         # there are many more, verify folder each time
 ```
 

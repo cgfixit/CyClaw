@@ -17,7 +17,9 @@ report a healthy server as broken.
 
 **Why it matters:** the repo carries two agent manuals (`CLAUDE.md`,
 `AGENTS.md`), a README, config comments, command docs, and a skills table — six
-places one fact can rot. Nothing checks them against the code.
+places one fact can rot. The deterministic checker covers mechanical claims;
+the manual pass owns prose
+semantics and directory-only project trees.
 
 ---
 
@@ -82,6 +84,9 @@ correct any claim the code contradicts:
   was the legacy location and no longer exists on disk (deleted 2026-09-16,
   issue #1351). Docs should point at the live one and never re-create the old
   path.
+- **Directory-only project trees** — compare README tree entries against the
+  real directories. D9 checks cited file paths with extensions; it deliberately
+  does not infer nesting from box-drawing trees.
 - **THREAT_MODEL.md control table** vs the code that implements each control
   (sanitizer at `/query`, TrustedHostMiddleware, triple-gate) — controls should
   not be described that the code no longer has, or vice versa.
@@ -109,30 +114,11 @@ honest. Skips cleanly if PyYAML is absent.
 
 ---
 
-## Known drift baseline (this session, 2026-07)
+## Current baseline (2026-09-16)
 
-Seed list so the first run has context — items 1-2 below are historical and
-already resolved (kept for the pattern, not as a live task); reconcile
-anything new the checker turns up the same way:
-
-1. ~~**`ponytail` skill** on disk, absent from the CLAUDE.md skills table
-   (D1).~~ Moot as of 2026-09-16 (issue #1351): the skill itself was deleted,
-   along with several others — see `CLAUDE.md` §9 and `.claude/README.md`.
-2. **`/audit/summary`, the four `/ops/*`, and `/soul/*` sub-routes** exist in
-   `gate.py` but were missing from the CLAUDE.md route map (D5).
-3. **"stop hook" claims** in CLAUDE.md/PROJECT_RULES reference a hook not wired
-   in `.claude/settings.json`; the committer-email + force-push enforcement is
-   applied by the session runtime — say so, or wire it (D6).
-4. **`check-soul.md`** (fixed this session) claimed soul.md is required to boot
-   and referenced a nonexistent `soul_hash` constant.
-5. **`session-start-sync-check.sh`** was wired as a second `SessionStart` hook on
-   2026-09-04; docs still saying "if wired" or "not registered" are now the stale
-   side. The same change unwired a `UserPromptSubmit` hook pointing at a deleted
-   script — a hook path that does not resolve is a drift class worth checking.
-6. **The session-notes pointer moved.** The live path is
-   `docs/work/SESSION_NOTES.md` (still an empty scaffold, but it is the
-   sanctioned destination per `CLAUDE.md` §7/§10). Neither `docs/SESSION_NOTES.md`
-   nor `.claude/session-notes/` exists — align any doc still naming either.
+The checker is clean at `571388a0`. The same manual pass found the root README's
+`.claude/` tree still naming directories deleted by issue #1351; that is now the
+canonical example of drift D9 cannot see because it is a directory-only tree.
 
 ## Guardrails
 
@@ -151,7 +137,10 @@ anything new the checker turns up the same way:
 - **D3 only flags a WRONG cited number, not an undocumented one.** Not every
   tunable must be in CLAUDE.md; the check fires only when the doc discusses a key
   but shows a value that no longer matches config.
-- **D9/D10/D11 are regression guards, not bug-finders.** On the tree they were written against (the 2026-09-11 README sweep) all three found *zero* true positives. The real drift that sweep caught was prose-level — a security control described backwards, an over-broad "retired" banner, a module missing from the module map — and no path resolver can see any of that. Step 3's manual pass is still where the findings come from; these three only stop a rename from rotting a reference unnoticed. Resist "improving" them into noisy checks: the hand-run versions produced 13 false positives before the scoping rules above were added, and a checker that fires on a healthy tree gets ignored within a week.
+- **D9/D10/D11 are scoped regression guards, not complete doc review.** D9
+  resolves cited file paths, not directory-only project trees. Step 3 remains
+  responsible for prose and topology claims; broadening the parser previously
+  produced 13 false positives and made the signal worse.
 - **D7 is citation presence, not arithmetic.** It does not prove
   `max_context_tokens + max_tokens + 1500 <= OLLAMA_CONTEXT_LENGTH`. That
   relationship is C12 (FAILs when `OLLAMA_CONTEXT_LENGTH` is below the RAG

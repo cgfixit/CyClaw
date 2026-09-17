@@ -30,7 +30,7 @@ fi
 #    DISABLED. Every 'expect: blocked' anchor should then get through as a NEW
 #    (unflagged) bypass, so the runner must exit 2. Proves the harness actually
 #    detects a broken sanitizer rather than rubber-stamping.
-tmp_cfg="$(mktemp --suffix=.yaml)"
+tmp_cfg="$(mktemp "${TMPDIR:-/tmp}/cyclaw-redteam.XXXXXX")" || exit 1
 trap 'rm -f "$tmp_cfg"' EXIT
 python3 - "$repo_root/config.yaml" "$tmp_cfg" <<'PY'
 import sys, yaml
@@ -40,8 +40,10 @@ cfg["policy"]["prompt_filter"]["enabled"] = False
 yaml.safe_dump(cfg, open(dst, "w"))
 PY
 
-if python3 "$runner" --config "$tmp_cfg" >/dev/null 2>&1; then
-  echo "regression test: FAIL — disabled filter should surface new bypasses (exit 2)" >&2
+python3 "$runner" --config "$tmp_cfg" >/dev/null 2>&1
+rc=$?
+if [ "$rc" -ne 2 ]; then
+  echo "regression test: FAIL — disabled filter should exit 2, got $rc" >&2
   exit 1
 fi
 echo "regression test: PASS (disabled filter detected as new bypasses, exit 2)"

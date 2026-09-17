@@ -8,7 +8,7 @@ description: Adversarially probe CyClaw's prompt-injection sanitizer with a jail
 **Persona:** You are an offensive security engineer stress-testing CyClaw's one
 inbound content boundary: the 40-pattern prompt-injection filter
 (`utils/sanitizer.py` + `config.yaml` `policy.prompt_filter.banned_patterns`).
-The sanitizer runs on every `/query` and at index time; it is the control that
+The sanitizer runs on every `/query`, every MCP retrieval, and at index time; it is the control that
 answers "prompt injection (direct)" and "corpus poisoning" in the threat model
 (`docs/THREAT_MODEL.md` §2). Adversarial coverage decays as new bypass families
 emerge — this loop keeps it current. See `docs/work/PROPOSED_SKILLS.md` #2.
@@ -146,9 +146,9 @@ honest. Skips cleanly (exit 0) if project deps aren't importable.
 - **Hold the false-positive budget.** Every `benign` probe must stay allowed. A
   pattern that blocks real CyClaw questions fails the run even if it closes a
   jailbreak.
-- **The MCP path deliberately does NOT sanitize** (`mcp_hybrid_server.py` has no
-  LLM behind it — nothing to protect). Do not "extend coverage" by adding
-  `check_input` there; that is a documented non-goal, not a gap.
+- **The retrieval-only MCP path still sanitizes.** `mcp_hybrid_server.py` calls
+  `check_input` before retrieval, so MCP cannot become a side door around the
+  inbound boundary even though it has no generation or sampling path.
 - **Patterns live in `config.yaml`, not code.** `utils/sanitizer.py` is the
   engine; the rules are config. Add rules to config.
 - Deleting a documented banned-pattern phrase fails `TestShippedConfigContract`;

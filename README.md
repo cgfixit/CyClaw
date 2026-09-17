@@ -1,4 +1,4 @@
-# Local (portable) AI you can Trust. And track $$$.
+# Local (portable) AI you can Trust. And Track $$$.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.139-blue.svg)](https://fastapi.tiangolo.com/)
@@ -297,8 +297,6 @@ indexer apply the same block.
 CyClaw's soul mutation endpoints (`/soul/propose`, `/soul/apply`, `/soul/reload`, `/soul/restore`) require a **Bearer API key**. Without it they return `HTTP 401` immediately — intentional fail-closed behavior.
 
 > **All `/soul/*` endpoints — including `GET /soul` — require a valid `Authorization: Bearer <key>` token.** Only `/health`, `/query`, `GET /index/status`, `GET /auth/setup-status`, `POST /auth/login` (issues the session itself; 503 when `auth.enabled` is false), and the console pages (`GET /`, `/static/*`) are unauthenticated. `POST /index/build` and `POST /auth/bootstrap-password` carry no credential either, but neither is open: each is gated on a loopback socket peer plus a same-origin check and returns 403 off-box — `/index/build` 409 while a build is already running, `/auth/bootstrap-password` 409 once the first admin password is set. `POST /query`, though credential-free by default, additionally carries an **unconditional same-origin check** — a cross-site browser request is rejected 403 `CROSS_SITE_BLOCKED` regardless of `auth.enabled`; requests carrying neither `Origin` nor `Sec-Fetch-Site` (curl, PowerShell, schedulers) are unaffected.
-
-> **Opting out entirely:** `config.yaml`'s `security.api_key_optional` (default `false`) removes the `CYCLAW_API_KEY` requirement from every route above — but **only for requests arriving from this machine**. The bypass is granted on the socket peer, so a remote caller still needs the real key no matter how the process was launched. Entries in `security.allowed_hosts` do not change that: that list filters request `Host` headers and opens no listening socket. What *would* matter is the bind itself — `gate.py` refuses to start with a non-loopback `api.host` while the flag is `true`, and `config-guard`'s C13 warns on that pair. Note it also does nothing under Docker: NAT rewrites the source address, so the container sees the bridge gateway rather than loopback and the routes stay key-gated (set `CYCLAW_API_KEY` in the container instead).
 
 ### macOS / Linux — zsh or bash
 
@@ -775,12 +773,8 @@ CyClaw/
 ├── .claude/                    # local operator workflows and prompts
 │   ├── commands/
 │   ├── hooks/
-│   ├── memory/
-│   ├── patterns/
 │   ├── rules/
-│   ├── skills/
-│   ├── tools/
-│   └── utility-prompts/
+│   └── skills/              # 22 project skills; see .claude/README.md
 ├── retrieval/
 │   ├── indexer.py
 │   ├── hybrid_search.py

@@ -23,7 +23,7 @@ disable-model-invocation: true
 Each iteration:
 
 1. **Sync state** → Fetch PR metadata, check status, count unresolved comments
-2. **Rebase if behind** → `git fetch && git rebase origin/<base>`; handle conflicts (stop if auto-resolution fails)
+2. **Rebase if behind** → with explicit force-with-lease authorization, `git fetch && git rebase origin/<base>`; stop on any conflict
 3. **Wait for checks** → Poll until all checks are terminal or timeout (non-blocking script)
 4. **Triage failures** → For each red check, classify as flaky (retry) / code (fix) / unknown (report)
 5. **Address comments** → Process unresolved review comments; fix mechanical requests, defer architectural ones
@@ -54,15 +54,16 @@ git rebase origin/<base>
 ```
 
 **On conflict:**
-- Try simple auto-resolution: for each file, if both sides added non-overlapping lines, merge them
-- If auto-resolution fails (overlapping edits to same region), **stop and report conflict as blocker**
+- Abort the rebase and **stop with the conflicting file list**. Choosing a side
+  automatically can discard concurrent work.
 - User resolves manually, re-invokes skill
 
 **Before pushing:**
 - Check that no commits are from a different author (`git log --format=%aE` against your email)
 - If mixed authors → **stop and report, don't rewrite history**
 
-**On success:** Commit with message `ci: rebase onto origin/<base>` and push with `--force-with-lease` (never plain `--force`).
+**On success:** Push with `--force-with-lease` (never plain `--force`) only when
+the user explicitly authorized it and `ALLOW_FORCE_WITH_LEASE=true` was set.
 
 ### 3. Wait for Checks
 
@@ -125,7 +126,7 @@ Stop the loop (and print final report) when ANY is true:
 ❌ **Give up:**
 - Same check failed `MAX_FIX_ATTEMPTS=3` times after a code fix
 - Iteration count reached `MAX_ITERATIONS=8`
-- Merge conflict auto-resolution failed (user must resolve)
+- Merge conflict detected (user must resolve)
 - Rebase would touch commits from another author
 - Fix would edit >5 files outside the original PR diff (blast radius exceeded)
 
@@ -144,6 +145,7 @@ All knobs are set via environment variables or `.git/babysit-state.json`. Defaul
 | `MAX_ITERATIONS` | `8` | Bounded loop; stop after this many full iterations |
 | `BLAST_RADIUS_FILES` | `5` | Max additional files to modify outside original diff |
 | `AUTO_MERGE` | `false` | Auto-merge when green + approved (else just report) |
+| `ALLOW_FORCE_WITH_LEASE` | `false` | Permit a behind-branch rebase and force-with-lease push after explicit user authorization |
 | `TIMEOUT_MINUTES` | `45` | Max time to wait for checks to settle |
 
 ---
@@ -205,7 +207,7 @@ The six invariants from `CLAUDE.md` §3 stay locked:
 **This skill's guardrails:**
 - Never skip a failing test; fixing a real failure is the core job
 - Never assume a timeout is flaky without external confirmation (check test history)
-- Never rebase or force-push without confirming it won't touch co-authored commits
+- Never rebase or force-push without explicit user authorization and confirmation it won't touch co-authored commits
 - Never auto-merge if human review is required (only if `AUTO_MERGE=true` AND approved)
 
 ---
@@ -214,7 +216,8 @@ The six invariants from `CLAUDE.md` §3 stay locked:
 
 1. **Comment ID gaps** — If the skill crashes or is interrupted, re-run it immediately. The persisted `last_comment_id` in `.git/babysit-state.json` ensures idempotency. If you manually delete the state file, the skill will re-process all comments.
 
-2. **Merge conflict resolution** — The skill attempts auto-resolution but stops if it fails. Do not expect it to resolve overlapping edits in the same file. Resolve manually and re-invoke.
+2. **Merge conflict resolution** — The skill aborts and stops on every conflict.
+   Resolve manually and re-invoke; it never chooses `ours` or `theirs` for you.
 
 3. **Author detection** — The skill checks `git log --format=%aE` against your configured `user.email`. If your email is misconfigured, the skill may skip a rebase thinking it's co-authored. Set git config before invoking.
 
@@ -230,7 +233,7 @@ The six invariants from `CLAUDE.md` §3 stay locked:
 
 ## Success Criteria
 
-- ✅ PR rebase succeeds (no conflicts, or conflicts are auto-resolved)
+- ✅ PR rebase succeeds without conflicts when explicitly authorized
 - ✅ CI passes (all checks terminal and success)
 - ✅ All review comments addressed (mechanical ones fixed, architectural ones deferred)
 - ✅ Authorship respected (no commits from different authors rewritten)

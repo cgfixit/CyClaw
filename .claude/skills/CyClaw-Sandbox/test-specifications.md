@@ -68,10 +68,10 @@ node, metrics, due-diligence invariants), and all terminal console endpoints.
 Query -> retrieve_node (N1) -> route_by_score_node (N2)
   score < threshold -> user_gate_node (N3b)
     user_confirmed_online=None -> needs_confirm=True (UI shows buttons)
-    user_confirmed_online=True + online_provider="grok" -> grok_fallback_node
-      = _external_fallback_node(..., provider="grok", label="Grok")
-    user_confirmed_online=True + online_provider="claude" -> claude_fallback_node
-      = _external_fallback_node(..., provider="claude", label="Claude")
+    user_confirmed_online=True + online_provider="grok" -> pre_action_hook_grok
+      -> grok_fallback_node = _external_fallback_node(..., provider="grok", label="Grok")
+    user_confirmed_online=True + online_provider="claude" -> pre_action_hook_claude
+      -> claude_fallback_node = _external_fallback_node(..., provider="claude", label="Claude")
     user_confirmed_online=False -> offline_best_effort_node
   score >= threshold -> local_llm_node (N3a)
 ALL paths -> audit_logger_node (N4) -> END
@@ -85,8 +85,11 @@ ALL paths -> audit_logger_node (N4) -> END
 - **IMPORTANT**: `policy.fallback.require_user_confirm` is UNWIRED. Setting it
   false has NO effect. The pause is hardcoded in `user_gate_router`.
 
-### Gate 3: Availability Gate
+### Gate 3: Availability + Pre-Action Hook Gate
 - `user_gate_router(state, grok, claude)`: checks `online_provider` + `client.is_available()`
+- confirmed available providers route through their provider-specific pre-action
+  hook before generation; deny/timeout/error converges on audit without calling
+  the external provider
 
 ### _external_fallback_node Shared Implementation
 

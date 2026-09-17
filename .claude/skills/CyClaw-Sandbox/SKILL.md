@@ -39,7 +39,7 @@ drift (cite the enforcer, don't just trust this document); `(derive)` means
 read it from the running code/tree at verification time, never copy it from
 here. **Code, `config.yaml`, and the tests currently on disk always win over
 this document.** Surface inventory below was last reconciled against main
-@ `de10c71` (2026-09-02) -- if it disagrees with what you see on
+@ `571388a0` (2026-09-16) -- if it disagrees with what you see on
 a fresh checkout, trust the checkout and treat the disagreement as this
 document's own next drift-fix.
 
@@ -57,7 +57,7 @@ unwired in `.claude/settings.json` rather than pointing at a missing script.
 
 | Ladder | Command | Proves | Does **not** prove |
 |---|---|---|---|
-| **B. In-process swarm** | `python3.12 .claude/skills/CyClaw-Sandbox/run_full_verification.py` | 9 phases (config invariants, telemetry maps, mock RAG index + 5 queries, triple-gate, redaction, due-diligence, terminal REST + slash commands, terminal HTML contract) -- prints its own totals, never hand-count them | Live HTTP servers, browser JS, Windows installer, real chromadb (stub mode) |
+| **B. In-process swarm** | `python3.12 .claude/skills/CyClaw-Sandbox/run_full_verification.py` | 9 phases through the real LangGraph runtime with deterministic Chroma/embedding doubles -- prints its own totals, never hand-count them | Live HTTP servers, browser JS, Windows installer, real Chroma persistence |
 | **C. CI lifecycle** | `bash .claude/skills/CyClaw-Sandbox/verify.sh` | 3.12 venv, full pytest, RAG smoke, live `gate.py`, terminal emulation | Browser `/loop auto`, real 27b-class model, Auth beyond the shipped default, live NeMo rail |
 | **D. Surface smoke** | `bash .claude/skills/CyClaw-Sandbox/smoke.sh` (a.k.a. `/run`, Quick Mode) | Sections A-G against a live server it starts itself -- prints its own PASS/FAIL totals to `.claude/sandbox-test.txt`, never a fixed count | Due-diligence classes, the full Ladder F sweep below |
 | **E. Live API bomb** | `windows-smoke.ps1` / `macos-smoke.sh` | Matching live-HTTP checks against an already-running gate -- see the scripts' own numbered comments for the current count | Broader fsconnect/sqlconnect/guardrails/Postgres (that's ladder D); `/ops/sync`, `/ops/agentic`, `/ops/sqlconnect` (documented gap in both scripts' headers) |
@@ -106,7 +106,7 @@ regression on its own, independent of this skill.
 
 ## Steps -- the full audit (Ladder F)
 
-The single procedure absorbing the in-process swarm's 11 phases and every
+The single procedure absorbing the in-process swarm's 9 phases and every
 live/out-of-band surface into one ordered run. Record PASS / FAIL / SKIP
 per numbered item; an opt-in item you didn't exercise is SKIP, never a
 silent pass.
@@ -134,8 +134,8 @@ but unwired (hardcoded in `user_gate_router`), `policy.fallback.
 includes an `sk-ant-*` pattern, `policy.fallback.pre_action_hook.enabled`
 (shipped false), `security.api_key_optional` (shipped false).
 
-Verify module isolation (I6): `agentic/`, `sync/`, `guardrails/`,
-`telegram/`, `opentweet/`, `netconnect/` are never imported by
+Verify module isolation (I6): `agentic/` (including `agentic/netconnect/`),
+`sync/`, `guardrails/`, `telegram/`, and `opentweet/` are never imported by
 `gate.py`, `graph.py`, or `mcp_hybrid_server.py`, and vice versa; the
 `agentic.*.cli` modules run only via subprocess from `utils/ops_runner.py`.
 
@@ -178,12 +178,10 @@ always invoked as `/root/.venv-cyclaw-312/bin/python`, never bare `python3`.
 **Full dependency install** (preferred when network access allows):
 `pip install -e ".[test,full]"`.
 
-**Sandbox/stub fallback**: `run_full_verification.py` builds its own
-in-memory stubs for chromadb/sentence-transformers/langgraph/langsmith --
-see that file for the exact stub set. Note: those stubs assume a genuinely
-bare interpreter with nothing installed; running the script in a venv that
-already has real chromadb installed can produce one spurious import-order
-failure unrelated to CyClaw itself (see Gotchas).
+**In-process swarm dependencies**: `run_full_verification.py` uses the real
+installed LangGraph runtime and deterministic in-memory doubles for ChromaDB
+and the embedding model. Run it from the CyClaw venv; `verify.sh` owns clean
+dependency installation and the full lifecycle lane.
 
 Generate a session key rather than a hand-picked one for any live-gate
 work in this Steps section: `python3 -c 'import secrets;
@@ -307,8 +305,8 @@ verify the gate refuses cleanly (exit 2) rather than silently skipping.
 ### 10. Report
 
 End with a sign-off naming: the repo sha/date and Python/pyproject
-versions actually used; which local-LLM realism tier was live (0 = pytest
-stub, 1 = `mock_ollama.py`, 2 = real Ollama daemon -- **both**
+versions actually used; which local-LLM realism tier was live (0 = no responding
+HTTP backend, 1 = `mock_ollama.py`, 2 = real Ollama daemon -- **both**
 `run_full_verification.py` and `verify.sh` auto-detect and report this,
 don't hand-guess it); per-item PASS/FAIL/SKIP for every numbered item
 above; the due-diligence and Guardrails pass counts (report the actual
@@ -335,8 +333,10 @@ subdirectory -- invoke them by that path.
 - **`run_full_verification.py`** -- the in-process swarm (Ladder B, 9
   phases). Env: `CYCLAW_REPO=/path` to use an existing checkout instead of
   cloning fresh (warns before writing mock corpus/index/report files into
-  it); `FULL_DEPS=1` to attempt a full dependency install first. Both this
-  script and `verify.sh` auto-detect the live Ollama realism tier.
+  it). Unset `CYCLAW_REPO` clones into a unique temp directory, copies
+  `verification_report.json` and `query_results.json` to the invoking cwd,
+  then deletes that temp directory. Both this script and `verify.sh`
+  auto-detect the live Ollama realism tier.
 - **`gate_runtime_check.py`** -- independent, import-time-only checks: app
   builds, telemetry-kill maps are active, the expected route subset
   registers, auto-docs stay disabled, entry points are callable.
@@ -411,7 +411,7 @@ for the six canonical ones plus supporting guards this table extends).
 | 10 | FsConnect Op Whitelist | Capability list is closed (derive the current set from `config.yaml`'s `fsconnect.allowed_fs_ops` -- it grows over time, e.g. `fs_largest`) |
 | 11 | SQL Read-Only Default | `sqlconnect.read_only=true`, `allow_write=false` |
 | 12 | SQL Query Guard | Only SELECT/WITH; comments and `;` rejected |
-| 13 | Module Isolation (I6) | `agentic/sync/guardrails/telegram/opentweet/netconnect` never imported by `gate.py`/`graph.py`/`mcp_hybrid_server.py`, and vice versa |
+| 13 | Module Isolation (I6) | `agentic` (including `agentic/netconnect`), `sync`, `guardrails`, `telegram`, and `opentweet` never imported by `gate.py`/`graph.py`/`mcp_hybrid_server.py`, and vice versa |
 | 14 | Soul Privacy | Soul preamble never forwarded to Grok/Claude (off-box) |
 | 15 | API Key Gate | All mutating gate.py routes require `CYCLAW_API_KEY`, fail-closed on an unset key |
 | 16 | Rate Limit | Every route shares the per-IP `RateLimiter` |
@@ -430,26 +430,17 @@ for the six canonical ones plus supporting guards this table extends).
 - **Quick Mode and the full audit test different things.** See the
   Operator map's Ladder D row -- treat them as complementary, never
   substitutable in either direction.
-- **Three local-LLM realism tiers, not one.** Tier 0 = in-process pytest
-  stub, Tier 1 = `mock_ollama.py`, Tier 2 = a real daemon. Both
+- **Three local-LLM realism tiers, not one.** In the in-process swarm, Tier 0
+  means no responding HTTP backend; Tier 1 = `mock_ollama.py`; Tier 2 = a real daemon. Both
   `run_full_verification.py` and `verify.sh` auto-detect which one is
   live and report it -- still state the tier honestly in your own sign-off
   rather than assuming Tier 2 realism from a Tier 0/1 run.
 - **`run_full_verification.py` writes into whatever `CYCLAW_REPO` points
   at** from Phase 3 onward (mock corpus, BM25 index, two JSON report
   files). Point it at a scratch clone, not a working tree, unless those
-  writes are what you want -- the script warns loudly either way.
-- **A venv with real chromadb installed can produce one spurious failure**
-  in `run_full_verification.py`'s Phase 6 (`anthropic_key_sanitized`):
-  `_install_stubs()` assumes a bare interpreter and unconditionally
-  replaces `sys.modules["chromadb"]`/`chromadb.config` with empty stubs;
-  if real chromadb is already installed in the venv, a later
-  `from chromadb.config import Settings` inside `gate.py`'s import chain
-  can hit the stub instead of the real module, depending on import order.
-  This is an environment artifact of a partially-real-deps venv, not a
-  CyClaw regression -- confirm by reproducing it with only `_install_stubs()`
-  plus a bare `from gate import _sanitize_error`, independent of anything
-  else in this skill, before treating it as a finding.
+  writes are what you want -- the script warns loudly either way. A default
+  run (no `CYCLAW_REPO`) owns its temp clone and removes it at process end;
+  look for the reports in the directory you launched from, not under `/tmp`.
 - **`pkill -f` can match your own invoking command line.** Use a distinct
   marker or kill by PID rather than a broad process-name pattern,
   especially when a prior command in the same session already started a
@@ -458,11 +449,12 @@ for the six canonical ones plus supporting guards this table extends).
 ## Mock Embedding Implementation
 
 `MockSentenceTransformer` creates sparse keyword-based 384-dim vectors:
-- Each word hashes to 3 dimension slots via MD5
+- Each word hashes to 3 dimension slots via SHA-256
 - Slot values accumulate per word occurrence
 - Final vector L2-normalized
 
 `MockChromaClient` / `MockCollection` implement:
 - `add(embeddings, documents, metadatas, ids)` -- append documents
 - `query(query_embeddings, n_results)` -- cosine similarity search
-- `get_or_create_collection(name)` -- singleton collection registry
+- `get_or_create_collection(name)` / `get_collection(name)` -- singleton
+  collection registry with the current fingerprint metadata contract
