@@ -13,13 +13,17 @@ checker="$here/check_config.py"
 
 echo "== config-guard verify =="
 
-if ! python3 -c "import yaml" 2>/dev/null; then
+if python3 -c "import yaml" 2>/dev/null; then
+  PY=python3
+elif python -c "import yaml" 2>/dev/null; then
+  PY=python
+else
   echo "SKIP: PyYAML not importable; install project deps first." >&2
   exit 0
 fi
 
 # 1. Clean tree must pass (exit 0).
-if python3 "$checker" --repo-root "$repo_root" >/tmp/cfgguard_live.txt 2>&1; then
+if "$PY" "$checker" --repo-root "$repo_root" >/tmp/cfgguard_live.txt 2>&1; then
   echo "clean tree: PASS (exit 0)"
 else
   echo "clean tree: FAIL — the shipped config.yaml violates the contract" >&2
@@ -48,7 +52,7 @@ grep -qE "graph_timeout_sec: 1([^0-9]|$)" "$tmp/config.yaml" || {
   exit 1
 }
 
-out="$(python3 "$checker" --repo-root "$tmp" 2>&1)"; rc=$?
+out="$("$PY" "$checker" --repo-root "$tmp" 2>&1)"; rc=$?
 if [ "$rc" -ne 2 ]; then
   echo "mutation A (C2): FAIL — expected exit 2 on graph_timeout < llm_timeout, got $rc" >&2
   echo "$out" >&2
@@ -64,13 +68,13 @@ trap 'rm -rf "$tmp" "$tmp2"' EXIT
 _copy_guard_inputs "$tmp2"
 sed -i.bak 's/min_score: 0.028/min_score: 0.5/' "$tmp2/config.yaml"
 
-if ! python3 "$checker" --repo-root "$tmp2" >/tmp/cfgguard_warn.txt 2>&1; then
+if ! "$PY" "$checker" --repo-root "$tmp2" >/tmp/cfgguard_warn.txt 2>&1; then
   echo "mutation B (C7): FAIL — a WARN alone must not fail (expected exit 0)" >&2
   cat /tmp/cfgguard_warn.txt >&2
   exit 1
 fi
 grep -q "WARN  \[C7\]" /tmp/cfgguard_warn.txt || { echo "mutation B: C7 warning not reported" >&2; exit 1; }
-out="$(python3 "$checker" --repo-root "$tmp2" --strict 2>&1)"; rc=$?
+out="$("$PY" "$checker" --repo-root "$tmp2" --strict 2>&1)"; rc=$?
 if [ "$rc" -ne 2 ]; then
   echo "mutation B (C7 --strict): FAIL — expected exit 2 under --strict, got $rc" >&2
   echo "$out" >&2
@@ -87,7 +91,7 @@ grep -qE "^OLLAMA_CONTEXT_LENGTH=1([^0-9]|$)" "$tmp3/macos/ollama-mlx.env" || {
   echo "mutation C: setup FAILED — OLLAMA_CONTEXT_LENGTH was not rewritten; check the sed pattern" >&2
   exit 1
 }
-out="$(python3 "$checker" --repo-root "$tmp3" 2>&1)"; rc=$?
+out="$("$PY" "$checker" --repo-root "$tmp3" 2>&1)"; rc=$?
 if [ "$rc" -ne 2 ]; then
   echo "mutation C (C12): FAIL — expected exit 2 on OLLAMA_CONTEXT_LENGTH < RAG floor, got $rc" >&2
   echo "$out" >&2
@@ -95,5 +99,25 @@ if [ "$rc" -ne 2 ]; then
 fi
 echo "$out" | grep -q "FAIL  \[C12\]" || { echo "mutation C: C12 violation not reported" >&2; exit 1; }
 echo "mutation C (C12 Ollama context floor): PASS (exit 2, C12 reported)"
+
+# 2d. WARN semantics: drift from the documented shipped provider posture is
+#     visible by default and blocking under --strict (C9).
+tmp4="$(mktemp -d)"
+trap 'rm -rf "$tmp" "$tmp2" "$tmp3" "$tmp4"' EXIT
+_copy_guard_inputs "$tmp4"
+sed -i.bak 's/^\( *mode:\) *"hybrid"/\1 "offline"/' "$tmp4/config.yaml"
+if ! "$PY" "$checker" --repo-root "$tmp4" >/tmp/cfgguard_posture.txt 2>&1; then
+  echo "mutation D (C9): FAIL — a WARN alone must not fail (expected exit 0)" >&2
+  cat /tmp/cfgguard_posture.txt >&2
+  exit 1
+fi
+grep -q "WARN  \[C9\]" /tmp/cfgguard_posture.txt || { echo "mutation D: C9 warning not reported" >&2; exit 1; }
+out="$("$PY" "$checker" --repo-root "$tmp4" --strict 2>&1)"; rc=$?
+if [ "$rc" -ne 2 ]; then
+  echo "mutation D (C9 --strict): FAIL — expected exit 2 under --strict, got $rc" >&2
+  echo "$out" >&2
+  exit 1
+fi
+echo "mutation D (C9 shipped provider posture): PASS (WARN=exit 0, --strict=exit 2)"
 
 echo "== config-guard verify: OK =="

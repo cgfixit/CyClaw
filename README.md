@@ -775,12 +775,8 @@ CyClaw/
 ├── .claude/                    # local operator workflows and prompts
 │   ├── commands/
 │   ├── hooks/
-│   ├── memory/
-│   ├── patterns/
 │   ├── rules/
-│   ├── skills/
-│   ├── tools/
-│   └── utility-prompts/
+│   └── skills/              # 22 project skills; see .claude/README.md
 ├── retrieval/
 │   ├── indexer.py
 │   ├── hybrid_search.py

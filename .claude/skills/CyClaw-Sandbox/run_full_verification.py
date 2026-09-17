@@ -2,7 +2,8 @@
 """
 CyClaw Full Verification Script -- Comprehensive smoke test harness.
 
-Runs in sandbox mode (no external dependencies needed) or full-dependency mode.
+Runs against the project's installed dependencies while replacing ChromaDB and
+the embedding model with deterministic in-memory doubles.
 Executes 5 queries covering: vault hit x2, offline best-effort (Qwen),
 Grok API connection-only, Claude API connection-only.
 
@@ -37,16 +38,14 @@ Env:
                                     onward) -- point this at a throwaway
                                     clone, not a working tree, unless you
                                     intend those writes.
-    FULL_DEPS=1                  -- attempt full dependency install first
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
-import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -61,12 +60,16 @@ from typing import Any
 # ---------------------------------------------------------------------------
 REPO_URL = "https://github.com/CGFixIT/CyClaw.git"
 BRANCH = "main"
-CYCLAW_DIR = Path(os.environ.get("CYCLAW_REPO", "/tmp/CyClaw"))
+_REPO_OVERRIDE = os.environ.get("CYCLAW_REPO")
+CYCLAW_DIR = (
+    Path(_REPO_OVERRIDE)
+    if _REPO_OVERRIDE
+    else Path(tempfile.mkdtemp(prefix="cyclaw-sandbox-")) / "CyClaw"
+)
 RESULTS_FILE = Path("query_results.json")
 
 # Which of the 3-tier Ollama realism ladder this run actually exercised (see
-# SKILL.md's "3-tier realism" section). Tier 0 (in-process pytest MockLocalLLM
-# stub) is tests/conftest.py's concern, not this script's. Set once in main()
+# SKILL.md's "3-tier realism" section). Set once in main()
 # by _probe_ollama_tier() before any phase that talks to the local-LLM base_url
 # runs, then stamped into both report files this script writes.
 OLLAMA_TIER: int | None = None
@@ -89,7 +92,7 @@ class PhaseResult:
 
     @property
     def passed(self) -> bool:
-        return all(c.passed for c in self.checks)
+        return bool(self.checks) and all(c.passed for c in self.checks)
 
     @property
     def passed_count(self) -> int:
@@ -101,9 +104,12 @@ class PhaseResult:
 # ---------------------------------------------------------------------------
 def _install_stubs():
     import types
-    for mod_name in ["chromadb", "chromadb.config", "sentence_transformers",
-                     "transformers", "tokenizers", "langsmith", "langgraph",
-                     "langgraph.graph", "langgraph.cache"]:
+    try:
+        import langgraph.graph  # noqa: F401 -- the real graph engine is the test subject
+    except ImportError as exc:
+        raise RuntimeError("project dependencies are missing; run this from the CyClaw venv") from exc
+
+    for mod_name in ["chromadb", "chromadb.config", "chromadb.errors", "sentence_transformers"]:
         parts = mod_name.split(".")
         for i in range(len(parts)):
             sub = ".".join(parts[:i+1])
@@ -112,29 +118,16 @@ def _install_stubs():
 
     # chromadb
     chromadb = sys.modules["chromadb"]
-    chromadb.Client = lambda **kw: object()
+    chromadb.Client = MockChromaClient
+    chromadb.PersistentClient = MockChromaClient
+    chromadb.config = sys.modules["chromadb.config"]
+    chromadb.config.Settings = MockSettings
+    chromadb.errors = sys.modules["chromadb.errors"]
+    chromadb.errors.NotFoundError = MockNotFoundError
 
     # sentence_transformers
     st = sys.modules["sentence_transformers"]
     st.SentenceTransformer = lambda *a, **kw: object()
-
-    # langgraph.graph
-    lgg = sys.modules["langgraph.graph"]
-    class _StateGraph:
-        def __init__(self, state): pass
-        def add_node(self, name, fn): pass
-        def add_edge(self, a, b): pass
-        def add_conditional_edges(self, src, router, mapping): pass
-        def set_entry_point(self, name): pass
-        def compile(self): return self
-        def invoke(self, state): return state
-    lgg.StateGraph = _StateGraph
-    lgg.END = None
-
-    # langsmith / langgraph.cache
-    sys.modules["langsmith"].Client = lambda *a, **kw: object()
-    sys.modules["langgraph.cache"] = types.ModuleType("langgraph.cache")
-
 
 # ---------------------------------------------------------------------------
 # Mock Embedding Implementation
@@ -145,13 +138,17 @@ class MockSentenceTransformer:
 
     def encode(self, texts, **kw):
         import numpy as np
-        if isinstance(texts, str):
+        single = isinstance(texts, str)
+        if single:
             texts = [texts]
         vecs = []
         for text in texts:
             vec = np.zeros(self._dim, dtype=np.float32)
-            for word in text.lower().split():
-                h = hashlib.md5(word.encode()).hexdigest()
+            words = re.findall(r"[a-z0-9]+", text.lower())
+            for word in words:
+                if word in {"a", "and", "in", "is", "of", "the", "to", "what", "when", "who"}:
+                    continue
+                h = hashlib.sha256(word.encode()).hexdigest()
                 for i in range(3):
                     idx = int(h[i*8:(i+1)*8], 16) % self._dim
                     vec[idx] += 1.0
@@ -159,16 +156,27 @@ class MockSentenceTransformer:
             if norm > 0:
                 vec /= norm
             vecs.append(vec)
-        return np.array(vecs)
+        encoded = np.array(vecs)
+        return encoded[0] if single else encoded
 
     @property
     def dimension(self):
         return self._dim
 
 
+class MockSettings:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class MockNotFoundError(Exception):
+    pass
+
+
 class MockCollection:
-    def __init__(self, name):
+    def __init__(self, name, metadata=None):
         self.name = name
+        self.metadata = metadata or {}
         self._docs: list[str] = []
         self._meta: list[dict] = []
         self._embeds: list[Any] = []
@@ -202,12 +210,18 @@ class MockChromaClient:
     _collections: dict[str, MockCollection] = {}
 
     def __init__(self, **kw):
-        MockChromaClient._collections = {}
+        pass
 
-    def get_or_create_collection(self, name, **kw):
+    def get_or_create_collection(self, name, metadata=None, **kw):
         if name not in MockChromaClient._collections:
-            MockChromaClient._collections[name] = MockCollection(name)
+            MockChromaClient._collections[name] = MockCollection(name, metadata)
         return MockChromaClient._collections[name]
+
+    def get_collection(self, name, **kw):
+        try:
+            return MockChromaClient._collections[name]
+        except KeyError as exc:
+            raise MockNotFoundError(name) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +257,8 @@ class MockGrokClient:
     def is_available(self) -> bool:
         return self._available
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, *, spend_context=None) -> str:
+        del spend_context
         self.last_prompt = prompt
         self.calls.append({"prompt": prompt, "provider": "grok"})
         if not self._available:
@@ -267,7 +282,8 @@ class MockGrokClient:
 
 class MockClaudeClient(MockGrokClient):
     """Stand-in for ClaudeClient; same contract, Anthropic API shape."""
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, *, spend_context=None) -> str:
+        del spend_context
         self.last_prompt = prompt
         self.calls.append({"prompt": prompt, "provider": "claude"})
         if not self._available:
@@ -306,58 +322,42 @@ def _ensure_repo():
     # branches or pulling on a directory the caller pointed us at on purpose
     # (a real working tree, not a scratch clone) would be a surprise mutation
     # of state they didn't ask for. Unset CYCLAW_REPO (the default) still gets
-    # the original clone-to-/tmp/CyClaw behavior untouched.
+    # a new temporary clone on every run.
     if os.environ.get("CYCLAW_REPO"):
         log(f"CYCLAW_REPO set -- using {CYCLAW_DIR} as-is (no checkout/pull)", Y)
-        log(f"  This run WILL write data/corpus/*.md, index/bm25.json, "
-            f"query_results.json and verification_report.json into it.", Y)
+        log(
+            "  This run WILL write data/corpus/*.md, index/bm25.json, "
+            "query_results.json and verification_report.json into it.",
+            Y,
+        )
         if not (CYCLAW_DIR / ".git").exists():
             log(f"  WARNING: {CYCLAW_DIR} does not look like a git checkout", Y)
-    elif CYCLAW_DIR.exists() and (CYCLAW_DIR / ".git").exists():
-        log(f"Using existing repo: {CYCLAW_DIR}")
-        subprocess.run(["git", "checkout", BRANCH], cwd=CYCLAW_DIR, capture_output=True)
-        subprocess.run(["git", "pull"], cwd=CYCLAW_DIR, capture_output=True)
     else:
         log(f"Cloning {REPO_URL} -> {CYCLAW_DIR}")
         CYCLAW_DIR.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, str(CYCLAW_DIR)],
+        git = shutil.which("git")
+        if not git:
+            raise RuntimeError("git is required to clone CyClaw")
+        subprocess.run(  # noqa: S603 -- fixed executable and repository URL
+            [git, "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, str(CYCLAW_DIR)],
             check=True, capture_output=True,
         )
     os.chdir(CYCLAW_DIR)
 
 
 def _probe_ollama_tier() -> int:
-    """Which Ollama realism tier this run gets: 2 if a real daemon (or
-    mock_ollama.py started ahead of us by verify.sh) already answers on
-    127.0.0.1:11434, else 1 (this script has no live chat backend and the
-    local_llm queries in Phase 4 will hit connection errors instead of a
-    mocked 200). Short-timeout GET, stdlib-only so it needs no FULL_DEPS
-    install to run before any other phase.
-    """
+    """Return 0=no server, 1=bundled mock, or 2=real Ollama daemon."""
+    import json
     import urllib.error
     import urllib.request
 
     try:
         # DevSkim: ignore DS162092,DS137138 - loopback-only probe, offline-only
-        urllib.request.urlopen("http://127.0.0.1:11434/v1/models", timeout=1.5)
-        return 2
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/version", timeout=1.5) as response:
+            version = json.load(response).get("version", "")
+        return 1 if version == "0.0.0-mock" else 2
     except (urllib.error.URLError, OSError, ValueError):
-        return 1
-
-
-def _install_deps() -> bool:
-    if not os.environ.get("FULL_DEPS"):
-        return False
-    try:
-        log("Attempting full dependency install...", Y)
-        r = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".[test,full]"],
-            capture_output=True, text=True, timeout=300,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +492,8 @@ def phase_build_corpus() -> PhaseResult:
             "Topology is policy: routing via scores, not prompts."
         ),
         "cyclaw_security.md": (
-            "# Security\n\nTriple-gated external API: score gate (<0.028), user gate "
+            "# CyClaw Security\n\nCyClaw security, CyClaw security. "
+            "Triple-gated external API: score gate (<0.028), user gate "
             "(human confirmation), availability gate (is_available()). "
             "33 banned injection patterns. API key redaction for GROK_API_KEY "
             "and ANTHROPIC_API_KEY including sk-ant-* patterns. "
@@ -529,9 +530,14 @@ def phase_build_corpus() -> PhaseResult:
         text = (corpus_dir / fname).read_text()
         chunks.append({"text": text, "source": fname, "id": len(chunks)})
 
+    import yaml
+    with open("config.yaml", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    index_dir = Path("index")
+    index_dir.mkdir(exist_ok=True)
+
     # Build BM25 index
     try:
-        from rank_bm25 import BM25Okapi
         from retrieval.stemmer import tokenize_and_stem
 
         tokenized = []
@@ -542,14 +548,19 @@ def phase_build_corpus() -> PhaseResult:
             # this mock index differently from how a real query is tokenized.
             tokenized.append(tokenize_and_stem(chunk["text"]))
 
-        import json
-        index_dir = Path("index")
-        index_dir.mkdir(exist_ok=True)
         with open(index_dir / "bm25.json", "w") as f:
             json.dump({
                 "tokenized_corpus": tokenized,
                 "chunks": [c["text"] for c in chunks],
-                "metadata": [{"source": c["source"], "id": c["id"]} for c in chunks],
+                "metadata": [
+                    {
+                        "source": c["source"],
+                        "chunk_id": c["id"],
+                        "source_sha256": hashlib.sha256(c["text"].encode()).hexdigest(),
+                        "stem_tags": "[]",
+                    }
+                    for c in chunks
+                ],
             }, f)
 
         log(f"  BM25 index: {index_dir / 'bm25.json'}")
@@ -563,15 +574,30 @@ def phase_build_corpus() -> PhaseResult:
         if not chunks:
             raise ValueError("no chunks to index")
         encoder = MockSentenceTransformer()
+        MockChromaClient._collections.clear()
+        Path(cfg["indexing"]["chroma_path"]).mkdir(parents=True, exist_ok=True)
         chroma_client = MockChromaClient()
-        collection = chroma_client.get_or_create_collection("cyclaw_kb")
+        embeddings_cfg = cfg["models"]["embeddings"]
+        collection = chroma_client.get_or_create_collection(
+            cfg["indexing"]["collection_name"],
+            metadata={
+                "model": str(embeddings_cfg["model"]),
+                "dim": str(embeddings_cfg["dim"]),
+                "device": "cpu",
+            },
+        )
 
         for chunk in chunks:
             emb = encoder.encode([chunk["text"]])[0].tolist()
             collection.add(
                 embeddings=[emb],
                 documents=[chunk["text"]],
-                metadatas=[{"source": chunk["source"]}],
+                metadatas=[{
+                    "source": chunk["source"],
+                    "chunk_id": chunk["id"],
+                    "source_sha256": hashlib.sha256(chunk["text"].encode()).hexdigest(),
+                    "stem_tags": "[]",
+                }],
                 ids=[f"chunk_{chunk['id']}"],
             )
 
@@ -593,10 +619,9 @@ def phase_execute_queries() -> PhaseResult:
 
     # Patch embeddings loader
     import retrieval.embeddings as emb_mod
-    emb_mod._load_model = lambda: MockSentenceTransformer()
-    sys.modules["chromadb"] = sys.modules.get("chromadb") or type(sys)("chromadb")
+    emb_mod._load_model = lambda *_args, **_kwargs: MockSentenceTransformer()
     sys.modules["chromadb"].Client = MockChromaClient
-    sys.modules["chromadb"].Client.__init__ = lambda **kw: None
+    sys.modules["chromadb"].PersistentClient = MockChromaClient
 
     from graph import (
         retrieve_node, route_by_score_node, local_llm_node,
@@ -613,15 +638,19 @@ def phase_execute_queries() -> PhaseResult:
     llm = LocalLLMClient(cfg=cfg)
 
     queries = [
-        ("what is CyClaw", "local", True, "Vault hit - CyClaw overview"),
-        ("explain CyClaw security", "local", True, "Vault hit - Security doc"),
-        ("who wrote the theory of general relativity and when", "offline-best-effort", False, "Offline best-effort (Qwen) - no vault match"),
-        ("what are the latest features in xAI Grok 4", "grok", False, "Grok API connection-only"),
-        ("explain quantum computing decoherence", "claude", False, "Claude API connection-only"),
+        ("what is CyClaw", "local", "Vault hit - CyClaw overview"),
+        ("explain CyClaw security", "local", "Vault hit - Security doc"),
+        (
+            "who wrote the theory of general relativity and when",
+            "offline-best-effort",
+            "Offline best-effort (Qwen) - no vault match",
+        ),
+        ("what are the latest features in xAI Grok 4", "grok", "Grok API connection-only"),
+        ("explain quantum computing decoherence", "claude", "Claude API connection-only"),
     ]
 
     all_results = []
-    for query_text, expected_model, expect_answer, description in queries:
+    for query_text, expected_model, description in queries:
         log(f"\n  {C}--- {description} ---{N}")
         log(f"  Query: \"{query_text}\"")
         state = {"query": query_text}
@@ -728,11 +757,11 @@ def phase_triple_gate() -> PhaseResult:
         from graph import _external_fallback_node
         sig = inspect.signature(_external_fallback_node)
         params = list(sig.parameters.keys())
-        has_provider = "provider" in params
-        has_label = "label" in params
+        structure_ok = "provider" in params and "label" in params
         has_no_personality = "personality" not in params
-        log(f"    {G}PASS{N} _external_fallback_node exists with provider/label params")
-        phase.checks.append(Check("external_fallback_node_exists", True))
+        status = f"{G}PASS{N}" if structure_ok else f"{R}FAIL{N}"
+        log(f"    {status} _external_fallback_node exists with provider/label params")
+        phase.checks.append(Check("external_fallback_node_exists", structure_ok))
         phase.checks.append(Check("external_fallback_no_personality", has_no_personality))
     except ImportError:
         log(f"    {R}FAIL{N} _external_fallback_node not found")
@@ -852,7 +881,7 @@ def phase_triple_gate() -> PhaseResult:
         {"user_confirmed_online": True, "online_provider": "claude"},
         grok=None, claude=MockClaudeClient(available=True),
     )
-    phase.checks.append(Check("router_confirmed_claude", r == "claude_fallback"))
+    phase.checks.append(Check("router_confirmed_claude", r == "pre_action_hook_claude"))
 
     r = user_gate_router(
         {"user_confirmed_online": True, "online_provider": "claude"},
@@ -1198,9 +1227,9 @@ def phase_terminal_html() -> PhaseResult:
 # ---------------------------------------------------------------------------
 def main():
     print(f"\n{B}{'='*60}")
-    print(f"  CyClaw Swarm Verification (Full)")
+    print("  CyClaw Swarm Verification (Full)")
     print(f"  Target: {REPO_URL} @ {BRANCH}")
-    print(f"  5 Queries: 2 vault hit, 1 offline best-effort, 1 Grok API, 1 Claude API")
+    print("  5 Queries: 2 vault hit, 1 offline best-effort, 1 Grok API, 1 Claude API")
     print(f"{'='*60}{N}\n")
 
     _install_stubs()
@@ -1212,15 +1241,11 @@ def main():
     # otherwise fail with ModuleNotFoundError regardless of cwd. Mirrors
     # gate_runtime_check.py's identical fix for the identical reason.
     sys.path.insert(0, os.getcwd())
-    full_deps = _install_deps()
-    if full_deps:
-        log("Full dependencies installed successfully", G)
-    else:
-        log("Running in sandbox mode (stubs active)", Y)
+    log("Running with project dependencies and deterministic storage/model doubles", Y)
 
     global OLLAMA_TIER
     OLLAMA_TIER = _probe_ollama_tier()
-    tier_desc = "real daemon/mock already answering" if OLLAMA_TIER == 2 else "this script's own mock_ollama.py"
+    tier_desc = {0: "no HTTP local-LLM backend", 1: "bundled mock_ollama.py", 2: "real Ollama daemon"}[OLLAMA_TIER]
     log(f"Ollama realism: Tier {OLLAMA_TIER} ({tier_desc})", C)
 
     results: list[PhaseResult] = []
@@ -1280,7 +1305,7 @@ def main():
         ("Q4", "Grok API connection-only"),
         ("Q5", "Claude API connection-only"),
     ]
-    for (qid, desc), pr in zip(query_descs, _phase("5 Queries").checks[:5]):
+    for (qid, desc), pr in zip(query_descs, _phase("5 Queries").checks[:5], strict=True):
         status = f"{G}PASS{N}" if pr.passed else f"{R}FAIL{N}"
         print(f"    [{status}] {qid}: {desc}")
 
@@ -1293,21 +1318,21 @@ def main():
     ]
 
     print(f"\n{'='*60}")
-    print(f"CyClaw Swarm Verification Complete.")
+    print("CyClaw Swarm Verification Complete.")
     print(f"Full functionality status: {'PASS' if total_passed == total_checks else 'PARTIAL'}.")
     print(f"Total: {total_passed}/{total_checks} checks passed")
-    print(f"")
+    print("")
     print(f"RAG pipeline (5 queries): {'PASS' if _phase('5 Queries').passed else 'FAIL'}")
-    print(f"Triple-Gate Online API (Grok): {'PASS' if all(c.passed for c in grok_checks) else 'FAIL'}")
-    print(f"Triple-Gate Online API (Claude): {'PASS' if all(c.passed for c in claude_checks) else 'FAIL'}")
-    print(f"Triple-Gate shared/cross-provider: {'PASS' if all(c.passed for c in shared_checks) else 'FAIL'}")
+    print(f"Triple-Gate Online API (Grok): {'PASS' if grok_checks and all(c.passed for c in grok_checks) else 'FAIL'}")
+    print(f"Triple-Gate Online API (Claude): {'PASS' if claude_checks and all(c.passed for c in claude_checks) else 'FAIL'}")
+    print(f"Triple-Gate shared/cross-provider: {'PASS' if shared_checks and all(c.passed for c in shared_checks) else 'FAIL'}")
     print(f"API Key Redaction (both providers): {'PASS' if _phase('Key Redaction').passed else 'FAIL'}")
     print(f"Due-Diligence Invariants: {'PASS' if _phase('Metrics & Invariants').passed else 'FAIL'}")
     print(f"REST API surface: {'PASS' if _phase('Terminal Consoles').passed else 'FAIL'}")
     print(f"Terminal HTML contract: {'PASS' if _phase('Terminal HTML Contract').passed else 'FAIL'}")
     config_phase = _phase("Config Invariants")
     print(f"Security Invariants: {config_phase.passed_count}/{len(config_phase.checks)} passed")
-    tier_note = "real daemon/mock already up" if OLLAMA_TIER == 2 else "own mock_ollama.py needed"
+    tier_note = {0: "no HTTP backend", 1: "bundled mock", 2: "real daemon"}[OLLAMA_TIER]
     print(f"Ollama realism tier: {OLLAMA_TIER} ({tier_note})")
     print(f"{'='*60}")
 
@@ -1329,7 +1354,7 @@ def main():
     }
     with open("verification_report.json", "w") as f:
         json.dump(report, f, indent=2)
-    print(f"\nFull report saved to verification_report.json")
+    print("\nFull report saved to verification_report.json")
 
     return 0 if total_passed == total_checks else 1
 

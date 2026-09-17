@@ -1,6 +1,6 @@
 ---
 name: config-guard
-description: Statically validate CyClaw's config.yaml contract — the relational, value-safety, and threat-model invariants that boot-time validation and invariant-guard do not cover (graph_timeout > llm_timeout, chunk_overlap < chunk_size, the soul/context budget, loopback-only host, RRF-scale min_score, safe shipped posture). Use before merging any change to config.yaml, when asked to "check config" or "validate config", and as a cheap pre-boot gate in CI or a fresh clone.
+description: Statically validate CyClaw's config.yaml contract — the relational, value-safety, and threat-model invariants that boot-time validation and invariant-guard do not cover (graph_timeout > llm_timeout, chunk_overlap < chunk_size, the soul/context budget, loopback-only host, RRF-scale min_score, current shipped provider posture). Use before merging any change to config.yaml, when asked to "check config" or "validate config", and as a cheap pre-boot gate in CI or a fresh clone.
 ---
 
 # Config Guard
@@ -41,13 +41,9 @@ Add `--strict` to escalate every `WARN` to a failure:
 python3 .claude/skills/config-guard/check_config.py --strict
 ```
 
-> ⚠️ `--strict` **cannot pass on the committed `config.yaml` as shipped** — C9
-> warns on the deliberately-armed posture (`app.mode: hybrid`, grok/claude
-> enabled; see `docs/THREAT_MODEL.md`'s eighth amendment), so the run exits 2.
-> That is the flag working as designed, not a config defect. Wire `--strict`
-> into CI only for a deployment that has re-disarmed those knobs; for the
-> shipped repo the merge gate is the default (non-strict) invocation, which
-> exits 0 with C9 as a WARN.
+`--strict` passes on the committed config. C9 now treats the documented shipped
+posture (`app.mode: hybrid`, Grok/Claude enabled, per-request confirmation still
+required) as its baseline and warns when a committed config drifts from it.
 
 It checks (severity in brackets):
 
@@ -61,7 +57,7 @@ It checks (severity in brackets):
 | C6 | FAIL | `api.rate_limit.max_requests` / `window_seconds` are positive integers |
 | C7 | WARN | `retrieval.min_score` stays on the RRF scale (≤ 0.1) — **the acknowledged trap**; a stricter gate belongs in 0.05–0.08, never the cosine-scale 0.5 |
 | C8 | WARN | `retrieval.rrf_k == 60` (the documented authoritative fusion constant) |
-| C9 | WARN | shipped posture is safe: `app.mode == offline`, `grok`/`claude` disabled |
+| C9 | WARN | committed provider posture matches the documented default: `app.mode == hybrid`, `grok`/`claude` literal `true` (per-request confirmation remains a separate runtime gate) |
 | C10 | WARN | `policy.fallback.send_local_context_to_{grok,claude}` stays `false` (no off-box context leak by default) |
 | C11 | WARN | `guardrails.model`/`base_url` track the local LLM (config.yaml says keep in sync) |
 | C12 | FAIL | `macos/ollama-mlx.env` `OLLAMA_CONTEXT_LENGTH` ≥ `max_context_tokens + max_tokens + 1500` (on-disk env file, not a live `ollama ps`). Symbol-dense tokenizer estimate stays INFO. |
@@ -118,7 +114,8 @@ Runs the checker on the clean tree (must exit 0), then a mutation self-test:
 mutation A drops `graph_timeout_sec` below `timeout_sec` and asserts a C2 FAIL
 (exit 2); mutation B raises `min_score` to 0.5 and asserts it is a C7 WARN
 (exit 0) by default but a failure under `--strict` (exit 2); mutation C sets
-`OLLAMA_CONTEXT_LENGTH=1` and asserts a C12 FAIL (exit 2). The test SKIPs
+`OLLAMA_CONTEXT_LENGTH=1` and asserts a C12 FAIL (exit 2); mutation D changes
+the shipped provider posture and asserts C9 WARN/default and strict semantics. The test SKIPs
 cleanly (exit 0) when PyYAML is absent so a fresh pre-install container does not
 fail CI. Temp trees copy `macos/ollama-mlx.env` because C12 reads it.
 
@@ -143,7 +140,7 @@ fail CI. Temp trees copy `macos/ollama-mlx.env` because C12 reads it.
   not that a re-tune *improved* retrieval — Step 3's `/index-doctor` pass is not
   optional when you move a retrieval knob.
 - **WARN is intentional friction, not a bug.** `min_score` in 0.05–0.08, a
-  changed `rrf_k`, or an operator running `mode: hybrid` are legitimate — the
+  changed `rrf_k`, or an operator changing the shipped provider posture are legitimate — the
   WARN exists so the change is conscious and documented, not silent. Use
   `--strict` only where you want the shipped defaults locked.
 - **C5 uses a worst-case 3 chars/token.** `soul_max_chars <

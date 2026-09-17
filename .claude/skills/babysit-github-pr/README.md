@@ -78,6 +78,7 @@ TIMEOUT_MINUTES=60 AUTO_MERGE=true /babysit-github-pr 123
 | `MAX_ITERATIONS` | `8` | int | Bounded loop; stop after N full iterations |
 | `BLAST_RADIUS_FILES` | `5` | int | Max additional files to modify (beyond original PR diff) |
 | `AUTO_MERGE` | `false` | bool | Merge automatically when green + approved |
+| `ALLOW_FORCE_WITH_LEASE` | `false` | bool | Permit a behind-branch rebase and force-with-lease push after explicit user authorization |
 | `TIMEOUT_MINUTES` | `45` | int | Max time waiting for checks to settle |
 
 ### State File (`.git/babysit-state.json`)
@@ -102,7 +103,7 @@ The skill persists state per-repo in `.git/babysit-state.json` (not committed). 
 
 ## What It Will NEVER Do
 
-1. **Force-push carelessly** — always uses `--force-with-lease`, never plain `--force`
+1. **Force-push without authorization** — rebasing stops unless `ALLOW_FORCE_WITH_LEASE=true`; the push always uses `--force-with-lease`, never plain `--force`
 2. **Rewrite history with co-authors** — stops if commits are from another author
 3. **Edit tests to make them pass** — tests are oracles; failures are real
 4. **Suppress lint or add `# noqa`** — ignores the linter instead of fixing
@@ -169,11 +170,9 @@ gh auth login
 ### Skill can't detect test command
 The skill will ask you once. Provide the exact command used to run tests in your project (e.g., `pytest tests/ -v` or `npm test`).
 
-### Merge conflict not auto-resolved
-The skill only auto-resolves simple conflicts (non-overlapping additions). For overlapping edits:
+### Merge conflict detected
+The skill aborts on every conflict rather than choosing a side. Resolve it manually:
 ```bash
-# Resolve manually
-git merge --abort
 git rebase origin/main  # or your base branch
 # Fix conflicts in your editor
 git add .
@@ -209,4 +208,3 @@ No configuration in the repo itself is needed — the skill auto-detects everyth
 - `.github/PULL_REQUEST_TEMPLATE.md` — PR body template (if present)
 - `verify.sh` — stdlib self-check; run in CI by the per-skill verify matrix in `.github/workflows/ci.yml`
 - `scripts/` — `classify-failure.py`, `detect-test-command.py`, and the shell helpers the loop shells out to (`scripts/tests/` covers the two Python ones)
-

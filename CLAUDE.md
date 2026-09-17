@@ -819,7 +819,7 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | Skill | Type | Purpose | Runs pre-install? |
 |---|---|---|---|
 | `/invariant-guard` | check | Static-assert the six invariants + guards against a diff | Yes (stdlib) |
-| `/config-guard` | check | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, safe posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
+| `/config-guard` | check | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, current shipped provider posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
 | `/dep-guard` | check | Static-validate dependency-pin invariants across pyproject + constraints + environment.yml (pydantic lock-step, numpy<2, torch +cpu, uvicorn no-extras, cross-file agreement) | Yes (stdlib) |
 | `/verify-deps` | check | Extends dep-guard: adds the requirements.txt cross-check dep-guard skips, the non-manifest drift checks E1–E7 (workflow tool pins, Python version, undeclared imports, install-surface scope, the Dockerfile install contract incl. its torch pin vs constraints.txt, docker-compose.yml/.dockerignore/publish-ghcr.yml coherence with the Dockerfile, and runtime pins no first-party module imports), a dry-run of each install surface's actual command, and a PyPI currency + CVE sweep. Reports only — never auto-bumps a runtime pin | extract_pins.py + check_env_drift.py yes (stdlib); currency sweep needs network |
 | `/injection-redteam` | loop | Adversarial probe corpus vs the sanitizer; close bypasses | Needs venv |
@@ -831,9 +831,9 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 
 | Skill | Type | Purpose |
 |---|---|---|
-| `/babysit-github-pr` | loop, user-invoked only (`disable-model-invocation: true`) | Watch a GitHub PR end-to-end — rebase if behind, triage CI failures (flaky vs code), address review comments, drive to green or escalate to human. Gained the flag 2026-09-16 (issue #1351) — it starts an extended watch loop against live GitHub state and pushes commits, so it needs an explicit ask like the other loop skills |
+| `/babysit-github-pr` | loop, user-invoked only (`disable-model-invocation: true`) | Watch a GitHub PR end-to-end — triage CI/review, stop on rebase conflicts, and require explicit `ALLOW_FORCE_WITH_LEASE=true` authorization before rewriting a behind branch. It starts an extended loop against live GitHub state and pushes commits, so it needs an explicit ask |
 | `/CyClaw-Optimize` | task, user-invoked only (`disable-model-invocation: true`) | Scan main for optimizations; open focused draft PRs. Gained the flag 2026-09-16 (issue #1351) — it opens PRs against main on its own, so it should never auto-route |
-| `/CyClaw-Sandbox` | task, user-invoked only (`disable-model-invocation: true`) | Clone main, mock Ollama, full audit incl. Python 3.12 runtime gate, dated report + PR. `/run` = its Quick Mode (no clone/report/PR). Claude never auto-routes here — the full audit's cost (clone, venv, report, PR) is an explicit-ask action, not an inference from a technical prompt |
+| `/CyClaw-Sandbox` | task, user-invoked only (`disable-model-invocation: true`) | Clone/current-checkout audit with six verification ladders, deterministic in-process RAG checks, live gate/platform probes, and JSON/tmp reports. It does not publish or open a PR by itself. `/run` = Quick Mode. Claude never auto-routes here because the full audit's clone/venv/runtime cost requires an explicit ask |
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails: surgical diffs, surfaced assumptions, verifiable success criteria |

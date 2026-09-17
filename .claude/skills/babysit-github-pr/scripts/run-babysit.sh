@@ -15,10 +15,12 @@ MAX_FIX_ATTEMPTS="${MAX_FIX_ATTEMPTS:-3}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-8}"
 BLAST_RADIUS_FILES="${BLAST_RADIUS_FILES:-5}"
 AUTO_MERGE="${AUTO_MERGE:-false}"
+ALLOW_FORCE_WITH_LEASE="${ALLOW_FORCE_WITH_LEASE:-false}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-45}"
 
-# State tracking
-declare -A RETRY_COUNTS
+# State tracking (JSON keeps this compatible with macOS's system Bash 3.2,
+# which has no associative arrays).
+RETRY_COUNTS='{}'
 ITERATION=0
 LAST_COMMENT_ID=0
 STOP_REASON=""
@@ -52,31 +54,15 @@ load_state() {
         ITERATION=0
     fi
 
-    # Load retry counts
-    if RETRY_JSON=$(jq -r '.retry_counts // {}' "$STATE_FILE" 2>/dev/null); then
-        while IFS= read -r key value; do
-            RETRY_COUNTS["$key"]="$value"
-        done < <(echo "$RETRY_JSON" | jq -r 'to_entries[] | "\(.key) \(.value)"')
-    fi
+    RETRY_COUNTS=$(jq -c '.retry_counts // {}' "$STATE_FILE" 2>/dev/null) || RETRY_COUNTS='{}'
 }
 
 # Save state to .git/babysit-state.json
 save_state() {
-    local retry_json="{"
-    local first=true
-    for check_name in "${!RETRY_COUNTS[@]}"; do
-        if [[ "$first" == false ]]; then
-            retry_json+=","
-        fi
-        retry_json+="\"$check_name\": ${RETRY_COUNTS[$check_name]}"
-        first=false
-    done
-    retry_json+="}"
-
     jq -n \
         --arg last_id "$LAST_COMMENT_ID" \
         --arg iter "$ITERATION" \
-        --argjson retries "$retry_json" \
+        --argjson retries "$RETRY_COUNTS" \
         --arg test_cmd "${DETECTED_TEST_CMD:-}" \
         --arg lint_cmd "${DETECTED_LINT_CMD:-}" \
         '{
@@ -172,6 +158,11 @@ rebase_if_behind() {
     log_info "Step 2: Checking rebase status..."
 
     if [[ "$MERGE_STATE" == "BEHIND" ]] || [[ "$MERGE_STATE" == "DIRTY" ]]; then
+        if [[ "$ALLOW_FORCE_WITH_LEASE" != "true" ]]; then
+            STOP_REASON="Rebase needs explicit force-with-lease authorization (set ALLOW_FORCE_WITH_LEASE=true)"
+            log_error "  $STOP_REASON"
+            return 1
+        fi
         log_info "  Rebasing onto origin/$BASE_REF..."
 
         git fetch origin
@@ -188,36 +179,12 @@ rebase_if_behind() {
 
         # Attempt rebase
         if ! git rebase "origin/$BASE_REF" 2>/dev/null; then
-            log_info "  Rebase conflict detected. Attempting auto-resolution..."
-
-            # Simple auto-resolution: for each conflict, try to keep both sides
-            # This is a best-effort; complex conflicts will still fail
-            local resolved=0
-            local unresolved_files=""
-
-            while read -r conflicted_file; do
-                log_info "    Resolving: $conflicted_file"
-                if git checkout --theirs "$conflicted_file" 2>/dev/null; then
-                    git add "$conflicted_file"
-                    resolved=$((resolved + 1))
-                else
-                    unresolved_files="$unresolved_files\n      - $conflicted_file"
-                fi
-            done < <(git diff --name-only --diff-filter=U)
-
-            if [[ -z "$unresolved_files" ]]; then
-                git rebase --continue || {
-                    STOP_REASON="Auto-resolution failed during rebase continuation"
-                    git rebase --abort
-                    return 1
-                }
-                log_info "  Auto-resolved $resolved files. Continuing rebase..."
-            else
-                STOP_REASON="Merge conflict auto-resolution failed (overlapping edits):$unresolved_files"
-                git rebase --abort
-                log_error "  $STOP_REASON"
-                return 1
-            fi
+            local conflicted_files
+            conflicted_files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+            git rebase --abort
+            STOP_REASON="Rebase conflict; manual resolution required: ${conflicted_files:-unknown files}"
+            log_error "  $STOP_REASON"
+            return 1
         fi
 
         log_info "  Rebase successful. Running checks before push..."
@@ -282,7 +249,8 @@ triage_failures() {
         fi
 
         # Get current retry count
-        local current_retries=${RETRY_COUNTS[$check_name]:-0}
+        local current_retries
+        current_retries=$(printf '%s' "$RETRY_COUNTS" | jq -r --arg key "$check_name" '.[$key] // 0')
 
         # Fetch logs and classify
         local classification=$(gh run view "$run_id" --log-failed 2>/dev/null | \
@@ -297,7 +265,8 @@ triage_failures() {
             if [[ $current_retries -lt $FLAKY_RETRIES ]]; then
                 log_info "    Retrying flaky check ($((current_retries + 1))/$FLAKY_RETRIES)..."
                 gh run rerun "$run_id" --failed 2>/dev/null || log_error "    Failed to rerun"
-                RETRY_COUNTS[$check_name]=$((current_retries + 1))
+                RETRY_COUNTS=$(printf '%s' "$RETRY_COUNTS" | jq -c \
+                    --arg key "$check_name" --argjson count "$((current_retries + 1))" '.[$key] = $count')
             else
                 log_error "    Flaky check exceeded retries ($FLAKY_RETRIES)"
             fi
@@ -307,7 +276,8 @@ triage_failures() {
                 log_info "    Run: $DETECTED_TEST_CMD"
                 # Note: User would need to fix locally; skill would need to be interactive
                 # For now, log and increment
-                RETRY_COUNTS[$check_name]=$((current_retries + 1))
+                RETRY_COUNTS=$(printf '%s' "$RETRY_COUNTS" | jq -c \
+                    --arg key "$check_name" --argjson count "$((current_retries + 1))" '.[$key] = $count')
             else
                 log_error "    Code check exceeded fix attempts ($MAX_FIX_ATTEMPTS)"
             fi
@@ -410,6 +380,7 @@ Environment:
   MAX_ITERATIONS=8
   BLAST_RADIUS_FILES=5
   AUTO_MERGE=true|false
+  ALLOW_FORCE_WITH_LEASE=true|false
   TIMEOUT_MINUTES=45
 EOF
         exit 1
