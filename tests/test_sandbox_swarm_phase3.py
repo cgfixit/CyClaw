@@ -100,3 +100,57 @@ def test_claude_swarm_default_clone_uses_fixed_destination(tmp_path, monkeypatch
             {"cwd": clone, "check": True, "capture_output": True},
         )
     ]
+
+
+def test_claude_swarm_import_does_not_create_temp_clone(monkeypatch) -> None:
+    import tempfile
+
+    monkeypatch.delenv("CYCLAW_REPO", raising=False)
+    before = set(Path(tempfile.gettempdir()).glob("cyclaw-sandbox-*"))
+    module = _load_claude_verifier()
+    after = set(Path(tempfile.gettempdir()).glob("cyclaw-sandbox-*"))
+    assert after == before
+    assert module.CYCLAW_DIR is None
+    assert module._OWNED_TEMP_ROOT is None
+
+
+def test_claude_swarm_removes_owned_temp_clone(tmp_path, monkeypatch) -> None:
+    module = _load_claude_verifier()
+    owned = tmp_path / "owned"
+    clone = owned / "CyClaw"
+    clone.mkdir(parents=True)
+    (clone / "query_results.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CYCLAW_REPO", raising=False)
+    monkeypatch.setattr(module, "CYCLAW_DIR", clone)
+    monkeypatch.setattr(module, "_OWNED_TEMP_ROOT", owned)
+    monkeypatch.setattr(module, "_install_stubs", lambda: None)
+    monkeypatch.setattr(module, "_ensure_repo", lambda: None)
+    monkeypatch.setattr(module, "_probe_ollama_tier", lambda: 0)
+
+    def query_failure():
+        raise RuntimeError("query phase failed")
+
+    monkeypatch.setattr(module, "phase_execute_queries", query_failure)
+    for name, phase_name in (
+        ("phase_config_invariants", "Config Invariants"),
+        ("phase_telemetry_kill", "Telemetry Kill"),
+        ("phase_build_corpus", "Corpus & Index"),
+        ("phase_triple_gate", "Triple-Gate Online API"),
+        ("phase_key_redaction", "Key Redaction"),
+        ("phase_metrics_and_invariants", "Metrics & Invariants"),
+        ("phase_terminal_consoles", "Terminal Consoles"),
+        ("phase_terminal_html", "Terminal HTML Contract"),
+    ):
+        monkeypatch.setattr(
+            module,
+            name,
+            lambda phase_name=phase_name: module.PhaseResult(phase_name, [module.Check("ok", True)]),
+        )
+
+    assert module.main() == 1
+    assert not owned.exists()
+    report = json.loads((tmp_path / "verification_report.json").read_text(encoding="utf-8"))
+    assert report["total_checks"] >= 1
+    assert (tmp_path / "query_results.json").is_file()

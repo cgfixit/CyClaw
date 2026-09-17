@@ -37,7 +37,10 @@ Env:
                                     verification_report.json into it (Phase 3
                                     onward) -- point this at a throwaway
                                     clone, not a working tree, unless you
-                                    intend those writes.
+                                    intend those writes. Unset CYCLAW_REPO
+                                    clones into a unique temp directory and
+                                    deletes that directory when the run ends;
+                                    reports are copied to the invoking cwd.
 """
 from __future__ import annotations
 
@@ -60,13 +63,10 @@ from typing import Any
 # ---------------------------------------------------------------------------
 REPO_URL = "https://github.com/CGFixIT/CyClaw.git"
 BRANCH = "main"
-_REPO_OVERRIDE = os.environ.get("CYCLAW_REPO")
-CYCLAW_DIR = (
-    Path(_REPO_OVERRIDE)
-    if _REPO_OVERRIDE
-    else Path(tempfile.mkdtemp(prefix="cyclaw-sandbox-")) / "CyClaw"
-)
+CYCLAW_DIR: Path | None = None
+_OWNED_TEMP_ROOT: Path | None = None
 RESULTS_FILE = Path("query_results.json")
+_REPORT_NAMES = ("verification_report.json", "query_results.json")
 
 # Which of the 3-tier Ollama realism ladder this run actually exercised (see
 # SKILL.md's "3-tier realism" section). Set once in main()
@@ -315,6 +315,54 @@ def banner(msg: str):
     print(f"{B}{'='*60}{N}")
 
 
+def _resolve_cyclaw_dir() -> Path:
+    """Return the checkout path, creating an owned temp clone only when needed.
+
+    Import must not allocate a temp directory. Tests may assign CYCLAW_DIR
+    before this runs; that assignment is used as-is and is not owned for
+    cleanup. A CYCLAW_REPO env value always wins over a prior assignment.
+    """
+    global CYCLAW_DIR, _OWNED_TEMP_ROOT
+    override = os.environ.get("CYCLAW_REPO")
+    if override:
+        CYCLAW_DIR = Path(override)
+        _OWNED_TEMP_ROOT = None
+        return CYCLAW_DIR
+    if CYCLAW_DIR is not None:
+        return CYCLAW_DIR
+    _OWNED_TEMP_ROOT = Path(tempfile.mkdtemp(prefix="cyclaw-sandbox-"))
+    CYCLAW_DIR = _OWNED_TEMP_ROOT / "CyClaw"
+    return CYCLAW_DIR
+
+
+def _persist_reports(start_cwd: Path) -> None:
+    if _OWNED_TEMP_ROOT is None or CYCLAW_DIR is None:
+        return
+    for name in _REPORT_NAMES:
+        src = Path(name)
+        if not src.is_file():
+            src = CYCLAW_DIR / name
+        if not src.is_file():
+            continue
+        target = start_cwd / name
+        if src.resolve() == target.resolve():
+            continue
+        shutil.copy2(src, target)
+        log(f"Copied {name} to {target}")
+
+
+def _cleanup_owned_clone(start_cwd: Path) -> None:
+    global _OWNED_TEMP_ROOT
+    try:
+        os.chdir(start_cwd)
+    except OSError:
+        pass
+    if _OWNED_TEMP_ROOT is None:
+        return
+    shutil.rmtree(_OWNED_TEMP_ROOT, ignore_errors=True)
+    _OWNED_TEMP_ROOT = None
+
+
 def _ensure_repo():
     # An operator-supplied CYCLAW_REPO is used AS-IS -- no checkout/pull. This
     # script writes into CYCLAW_DIR from Phase 3 onward (mock corpus, BM25
@@ -322,29 +370,30 @@ def _ensure_repo():
     # branches or pulling on a directory the caller pointed us at on purpose
     # (a real working tree, not a scratch clone) would be a surprise mutation
     # of state they didn't ask for. Unset CYCLAW_REPO (the default) still gets
-    # a new temporary clone on every run.
+    # a new temporary clone on every run, then that clone is deleted.
+    dest = _resolve_cyclaw_dir()
     if os.environ.get("CYCLAW_REPO"):
-        log(f"CYCLAW_REPO set -- using {CYCLAW_DIR} as-is (no checkout/pull)", Y)
+        log(f"CYCLAW_REPO set -- using {dest} as-is (no checkout/pull)", Y)
         log(
             "  This run WILL write data/corpus/*.md, index/bm25.json, "
             "query_results.json and verification_report.json into it.",
             Y,
         )
-        if not (CYCLAW_DIR / ".git").exists():
-            log(f"  WARNING: {CYCLAW_DIR} does not look like a git checkout", Y)
+        if not (dest / ".git").exists():
+            log(f"  WARNING: {dest} does not look like a git checkout", Y)
     else:
-        log(f"Cloning {REPO_URL} -> {CYCLAW_DIR}")
-        CYCLAW_DIR.mkdir(parents=True)
+        log(f"Cloning {REPO_URL} -> {dest}")
+        dest.mkdir(parents=True)
         git = shutil.which("git")
         if not git:
             raise RuntimeError("git is required to clone CyClaw")
         subprocess.run(  # noqa: S603 -- fixed executable and repository URL
             [git, "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, "."],
-            cwd=CYCLAW_DIR,
+            cwd=dest,
             check=True,
             capture_output=True,
         )
-    os.chdir(CYCLAW_DIR)
+    os.chdir(dest)
 
 
 def _probe_ollama_tier() -> int:
@@ -1233,6 +1282,15 @@ def main():
     print("  5 Queries: 2 vault hit, 1 offline best-effort, 1 Grok API, 1 Claude API")
     print(f"{'='*60}{N}\n")
 
+    start_cwd = Path.cwd().resolve()
+    try:
+        return _run_verification()
+    finally:
+        _cleanup_owned_clone(start_cwd)
+
+
+def _run_verification() -> int:
+    start_cwd = Path.cwd().resolve()
     _install_stubs()
     _ensure_repo()
     # _ensure_repo() chdirs into the target checkout, but launching this
@@ -1358,6 +1416,7 @@ def main():
     with open("verification_report.json", "w") as f:
         json.dump(report, f, indent=2)
     print("\nFull report saved to verification_report.json")
+    _persist_reports(start_cwd)
 
     return 0 if total_passed == total_checks else 1
 

@@ -333,7 +333,10 @@ subdirectory -- invoke them by that path.
 - **`run_full_verification.py`** -- the in-process swarm (Ladder B, 9
   phases). Env: `CYCLAW_REPO=/path` to use an existing checkout instead of
   cloning fresh (warns before writing mock corpus/index/report files into
-  it). Both this script and `verify.sh` auto-detect the live Ollama realism tier.
+  it). Unset `CYCLAW_REPO` clones into a unique temp directory, copies
+  `verification_report.json` and `query_results.json` to the invoking cwd,
+  then deletes that temp directory. Both this script and `verify.sh`
+  auto-detect the live Ollama realism tier.
 - **`gate_runtime_check.py`** -- independent, import-time-only checks: app
   builds, telemetry-kill maps are active, the expected route subset
   registers, auto-docs stay disabled, entry points are callable.
@@ -435,7 +438,9 @@ for the six canonical ones plus supporting guards this table extends).
 - **`run_full_verification.py` writes into whatever `CYCLAW_REPO` points
   at** from Phase 3 onward (mock corpus, BM25 index, two JSON report
   files). Point it at a scratch clone, not a working tree, unless those
-  writes are what you want -- the script warns loudly either way.
+  writes are what you want -- the script warns loudly either way. A default
+  run (no `CYCLAW_REPO`) owns its temp clone and removes it at process end;
+  look for the reports in the directory you launched from, not under `/tmp`.
 - **`pkill -f` can match your own invoking command line.** Use a distinct
   marker or kill by PID rather than a broad process-name pattern,
   especially when a prior command in the same session already started a
@@ -444,7 +449,7 @@ for the six canonical ones plus supporting guards this table extends).
 ## Mock Embedding Implementation
 
 `MockSentenceTransformer` creates sparse keyword-based 384-dim vectors:
-- Each word hashes to 3 dimension slots via MD5
+- Each word hashes to 3 dimension slots via SHA-256
 - Slot values accumulate per word occurrence
 - Final vector L2-normalized
 
