@@ -2,6 +2,12 @@
 
 > Interesting to learn more about but not compatible with current GPU
 
+ELI5: Ollama is like a CD player that only plays finished albums. A LoRA adapter is like a remix you’d layer over a song — but Ollama can’t apply the remix live while the song plays. You have to bake the remix into a brand-new album first (that’s “fusing”), then Ollama plays that.
+Tech101: A LoRA adapter is a set of low-rank delta weights applied on top of a quantized base model. Ollama’s runtime loads GGUF models and has no path to apply an external MLX-format adapter at inference — the on-disk formats and the loaders are incompatible, not just unsupported. Fusing merges the adapter deltas into the base to produce one standalone model Ollama can load directly. There is no shortcut: skip the fuse and Ollama simply has no way to use your training.
+
+<hr>
+
+
 Fine-tune **Qwen3.8-27B** with QLoRA via [Unsloth](https://unsloth.ai) on a
 curated CyClaw (github.com/CGFixIT/CyClaw) Q&A dataset. Grounded in the live
 CyClaw source read from `main` on 2026-09-07 (`graph.py`, `INVARIANTS.md`,
