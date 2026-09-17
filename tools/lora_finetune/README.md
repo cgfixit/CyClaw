@@ -2,6 +2,125 @@
 
 > Interesting to learn more about but not compatible with current GPU
 
+^ ha that's not even true!:
+LoRA is compatible (just gotta not be an idiot mindlessly letting ai tell me things) with Apple Silicon through MLX-LM, and `mlx_lm.lora` supports **QLoRA automatically** when you point it at a quantized MLX model. Your Mac is not incompatible with LoRA; it is incompatible with the specific **CUDA/Unsloth** kit currently in CyClaw.
+
+That distinction is the entire issue.
+
+## The direct answer
+
+```text
+Apple Silicon + MLX-LM             → LoRA: yes
+Apple Silicon + MLX-LM quantized base → QLoRA: yes
+Apple Silicon + Unsloth CUDA kit   → no
+Ollama + external MLX LoRA adapter → no
+MLX-fused model → Ollama deployment → possible, via compatible import/GGUF path
+```
+
+MLX-LM’s own LoRA documentation says exactly:
+
+> If `--model` points to a quantized model, training uses **QLoRA**; otherwise it uses regular LoRA.
+
+It also exposes `mlx_lm.lora` as an official installed command-line entry point.[1]
+
+## What that means for your Mac
+
+On your M5 MacBook Pro with 48 GB unified memory, you can plausibly run a **Mac-native MLX QLoRA experiment** against an MLX 4-bit model, assuming the particular Qwen architecture is supported and the sequence length, batch size, and adapter targets fit into available unified memory.
+
+The key relationship is:
+
+```text
+Non-quantized MLX model
+→ mlx_lm.lora
+→ normal LoRA
+
+Quantized MLX model, e.g. 4-bit
+→ mlx_lm.lora
+→ QLoRA
+```
+
+You do not need NVIDIA CUDA, BitsAndBytes, or Unsloth for that path. MLX uses Apple Silicon’s GPU through the MLX runtime, with CPU/GPU sharing unified memory.
+
+## The commands
+
+A minimal MLX QLoRA setup looks like this:
+
+```bash
+python -m pip install -U mlx-lm
+
+mlx_lm.lora \
+  --model /path/to/qwen-mlx-4bit \
+  --train \
+  --data /path/to/training-data \
+  --adapter-path ./cyclaw-mlx-adapter \
+  --iters 100 \
+  --batch-size 1 \
+  --num-layers 16
+```
+
+The exact data layout and flags depend on the installed MLX-LM release, so treat this as the shape of the command, then use:
+
+```bash
+mlx_lm.lora --help
+```
+
+The authoritative behavior is: a quantized `--model` selects QLoRA; an unquantized model selects regular LoRA.[1]
+
+## Why the README was confusing
+
+The CyClaw README describes a **different stack**:
+
+```text
+CUDA GPU
+→ Unsloth
+→ BitsAndBytes 4-bit base
+→ QLoRA
+→ Unsloth merged Q4_K_M GGUF export
+→ Ollama
+```
+
+That is why it says Apple Silicon is unsupported: *that script* targets Unsloth/NVIDIA CUDA.
+
+Your possible MLX path is instead:
+
+```text
+Apple Silicon
+→ MLX-LM
+→ MLX 4-bit base
+→ mlx_lm.lora QLoRA
+→ MLX adapter
+→ validate with MLX dynamic adapter inference
+→ mlx_lm.fuse --dequantize
+→ compatible Ollama import or GGUF conversion
+→ Ollama
+```
+
+Both are QLoRA workflows. They are just different runtimes, model formats, quantization implementations, adapter formats, and export paths.
+
+## The caveat that matters
+
+Do **not** expect artifacts to cross these stacks freely:
+
+| Artifact | Usable by |
+|---|---|
+| Unsloth/BitsAndBytes LoRA adapter | Unsloth/Hugging Face setup built around its exact base |
+| MLX LoRA adapter | MLX-LM built around its exact MLX base |
+| Ollama GGUF | Ollama / llama.cpp |
+| MLX fused output | MLX directly; potentially Ollama after supported Safetensors import or GGUF conversion |
+
+The correct rule is:
+
+> Train, dynamically validate, and fuse within the same runtime/base-model lineage. Export only the fused final model to a different runtime.
+
+MLX-LM has explicit support for quantized-model LoRA training and a separate `mlx_lm.fuse` command with a `--dequantize` option for producing a dequantized fused model.[1][2]
+
+## Bottom line
+
+Your Mac **can train LoRA and QLoRA** using `mlx_lm.lora`. The CyClaw Unsloth script cannot, because Unsloth’s workflow is CUDA-specific. So the future MLX section is not merely theoretical—it describes a legitimate alternative local training path for you.
+
+^standby for something in birh this and cg-agent soon... if i can get something to work haha
+--
+
 ELI5: Ollama is like a CD player that only plays finished albums. A LoRA adapter is like a remix you’d layer over a song — but Ollama can’t apply the remix live while the song plays. You have to bake the remix into a brand-new album first (that’s “fusing”), then Ollama plays that.
 Tech101: A LoRA adapter is a set of low-rank delta weights applied on top of a quantized base model. Ollama’s runtime loads GGUF models and has no path to apply an external MLX-format adapter at inference — the on-disk formats and the loaders are incompatible, not just unsupported. Fusing merges the adapter deltas into the base to produce one standalone model Ollama can load directly. There is no shortcut: skip the fuse and Ollama simply has no way to use your training.
 
