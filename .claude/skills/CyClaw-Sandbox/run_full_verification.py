@@ -334,20 +334,21 @@ def _ensure_repo():
             log(f"  WARNING: {CYCLAW_DIR} does not look like a git checkout", Y)
     else:
         log(f"Cloning {REPO_URL} -> {CYCLAW_DIR}")
-        CYCLAW_DIR.parent.mkdir(parents=True, exist_ok=True)
+        CYCLAW_DIR.mkdir(parents=True)
         git = shutil.which("git")
         if not git:
             raise RuntimeError("git is required to clone CyClaw")
         subprocess.run(  # noqa: S603 -- fixed executable and repository URL
-            [git, "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, str(CYCLAW_DIR)],
-            check=True, capture_output=True,
+            [git, "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, "."],
+            cwd=CYCLAW_DIR,
+            check=True,
+            capture_output=True,
         )
     os.chdir(CYCLAW_DIR)
 
 
 def _probe_ollama_tier() -> int:
     """Return 0=no server, 1=bundled mock, or 2=real Ollama daemon."""
-    import json
     import urllib.error
     import urllib.request
 
@@ -1305,8 +1306,10 @@ def main():
         ("Q4", "Grok API connection-only"),
         ("Q5", "Claude API connection-only"),
     ]
-    for (qid, desc), pr in zip(query_descs, _phase("5 Queries").checks[:5], strict=True):
-        status = f"{G}PASS{N}" if pr.passed else f"{R}FAIL{N}"
+    query_checks = _phase("5 Queries").checks[:5]
+    for index, (qid, desc) in enumerate(query_descs):
+        passed = index < len(query_checks) and query_checks[index].passed
+        status = f"{G}PASS{N}" if passed else f"{R}FAIL{N}"
         print(f"    [{status}] {qid}: {desc}")
 
     triple_gate_checks = _phase("Triple-Gate Online API").checks
