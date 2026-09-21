@@ -16,7 +16,7 @@ def gateway_url(cfg: dict[str, Any], port_override: str | None = None) -> str:
     scheme = "https" if tls.get("enabled") is True else "http"
     host = api.get("host", "127.0.0.1")
     # Wildcard bind addresses are not browser destinations.
-    host = {"": "127.0.0.1", "0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # noqa: S104 - URL only; no bind
+    host = {"": "127.0.0.1", "0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # nosec B104 # noqa: S104 - URL only; no bind
     if ":" in host:
         host = f"[{host}]"
 
