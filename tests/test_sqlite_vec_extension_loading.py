@@ -22,7 +22,14 @@ import struct
 
 import pytest
 
-sqlite_vec = pytest.importorskip("sqlite_vec")
+# sqlite-vec is a hard pin in requirements-test.txt, not an optional extra --
+# importorskip() would silently skip this whole module (and the wheel-coverage
+# proof this spike exists to produce, see the module docstring's item 4) on a
+# platform where the wheel installs but fails to import (a native library that
+# doesn't load, e.g.). A plain import instead makes that failure a real
+# collection error, which is what "CI green" must mean for this file to be
+# the wheel-coverage proof the audit doc treats it as.
+import sqlite_vec
 
 
 def _serialize(vec: list[float]) -> bytes:

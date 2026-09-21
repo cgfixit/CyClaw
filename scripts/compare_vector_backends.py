@@ -40,9 +40,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import yaml  # noqa: E402
+
 from retrieval.embeddings import embedding_fingerprint, get_embedding, get_embeddings_batch  # noqa: E402
-from retrieval.indexer import chunk_document, load_config, load_corpus  # noqa: E402
+from retrieval.indexer import (  # noqa: E402
+    _anchor_index_paths,
+    _resolve_config_path,
+    chunk_document,
+    load_config,
+    load_corpus,
+)
 from retrieval.vector_store import get_vector_writer  # noqa: E402
+from utils.errors import RAGError  # noqa: E402
 from utils.sanitizer import sanitize_chunk  # noqa: E402
 
 # Mirrors .claude/skills/index-doctor/doctor.py's PROBES -- same corpus-answerable
@@ -141,23 +150,46 @@ def main(argv: list[str] | None = None) -> int:
         print("sqlite-vec not installed -- pip install -c constraints.txt sqlite-vec", file=sys.stderr)
         return 2
 
-    cfg = load_config(args.config)
-    cfg["_config_path_str"] = args.config
-    dim = int(cfg.get("models", {}).get("embeddings", {}).get("dim", 384))
-
-    chunks, metadata = _build_chunks(cfg)
+    try:
+        # Same anchoring as retrieval/indexer.py::build_index and
+        # retrieval/hybrid_search.py -- a --config pointing at another
+        # directory must resolve corpus.path/indexing.*_path relative to
+        # that config's own directory, not the process cwd.
+        resolved_config_path = _resolve_config_path(args.config)
+        config_path_str = str(resolved_config_path)
+        cfg = _anchor_index_paths(load_config(config_path_str), resolved_config_path)
+        cfg["_config_path_str"] = config_path_str
+        dim = int(cfg.get("models", {}).get("embeddings", {}).get("dim", 384))
+        chunks, metadata = _build_chunks(cfg)
+    except (OSError, ValueError, yaml.YAMLError, RAGError) as exc:
+        print(f"Environment/config error: {exc}", file=sys.stderr)
+        return 3
     if not chunks:
         print("No corpus chunks found -- check config.yaml's corpus.path", file=sys.stderr)
         return 3
-    print(f"Corpus: {len(chunks)} chunks")
+    print(f"Corpus: {len(chunks)} chunks", file=sys.stderr)
 
-    embeddings = get_embeddings_batch(chunks, args.config)
+    try:
+        embeddings = get_embeddings_batch(chunks, config_path_str)
+    except RAGError as exc:
+        print(f"Environment/config error: {exc}", file=sys.stderr)
+        return 3
     ids = [f"chunk_{i}" for i in range(len(chunks))]
 
     # --- Chroma (real production writer) ---
     with tempfile.TemporaryDirectory() as tmp:
         chroma_cfg = dict(cfg)
-        chroma_cfg["indexing"] = {**cfg["indexing"], "chroma_path": tmp, "collection_name": "compare"}
+        # Force chroma explicitly -- if the operator's real config.yaml sets
+        # indexing.vector_backend: pgvector, leaving that key inherited from
+        # cfg would make get_vector_writer() below return _PgVectorWriter,
+        # whose reset() truncates the REAL configured kb_chunks table. This
+        # "Chroma leg" must never touch anything but the throwaway tempdir.
+        chroma_cfg["indexing"] = {
+            **cfg["indexing"],
+            "vector_backend": "chroma",
+            "chroma_path": tmp,
+            "collection_name": "compare",
+        }
         t0 = time.monotonic()
         writer = get_vector_writer(chroma_cfg)
         writer.reset(embedding_fingerprint(cfg.get("models", {}).get("embeddings", {})))
@@ -172,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         chroma_results = {}
         chroma_query_times = []
         for probe in PROBES:
-            q_emb = get_embedding(probe, args.config)
+            q_emb = get_embedding(probe, config_path_str)
             t0 = time.monotonic()
             hits = chroma_reader.query(q_emb, args.k)
             chroma_query_times.append(time.monotonic() - t0)
@@ -191,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         sqlite_vec_results = {}
         sqlite_vec_query_times = []
         for probe in PROBES:
-            q_emb = get_embedding(probe, args.config)
+            q_emb = get_embedding(probe, config_path_str)
             t0 = time.monotonic()
             hits = svwriter.query(q_emb, args.k)
             sqlite_vec_query_times.append(time.monotonic() - t0)
