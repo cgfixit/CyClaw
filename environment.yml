@@ -11,7 +11,7 @@ channels:
 
 dependencies:
   - python=3.12
-  # pip is pinned (26.1.2, matches ci.yml's install-surface pin and the conda
+  # pip is pinned (26.2.1, matches ci.yml's install-surface pin and the conda
   # lane's "Pin pip" step) instead of floating. A bare `pip` here lets the fresh
   # mamba env track conda-forge's newest pip while the actions/cache entry in
   # python-package-conda.yml restores an older env tree over it; the overlay can
@@ -20,8 +20,11 @@ dependencies:
   # 2026-07-30; same failure signature reds the lane again when the two sides
   # drift). Pinning keeps the fresh env and any cached env byte-coherent, and
   # the cache key hashes this file, so bumping the pin also busts stale caches.
-  # pip 26.1.2 confirmed on conda-forge (noarch, published 2026-05-31).
-  - pip=26.1.2
+  # pip 26.2.1 confirmed on conda-forge (noarch) -- carries the fix for
+  # PYSEC-2026-3721 (pip), matching the repo-wide pip-pin bump on the pip
+  # install surfaces (ci.yml, pip-audit.yml, copilot-setup-steps.yml,
+  # nemo-guardrails.yml, python-package-conda.yml, python-publish.yml).
+  - pip=26.2.1
   # Core runtime — pinned to match pyproject.toml / constraints.txt exactly
   # (each version verified present on conda-forge, 2026-07). Keep these pins in
   # sync with pyproject.toml [project.dependencies] and constraints.txt; a bare
@@ -88,6 +91,12 @@ dependencies:
   # the torch manifest pin (package name differs) -- bump it by hand whenever
   # constraints.txt's torch pin moves.
   - pytorch=2.13.0=cpu*
+  # Transitive of pytorch on the pip path (requires_dist setuptools>=77.0.3;
+  # see constraints.txt's setuptools==84.0.0 comment) -- PYSEC-2026-3447's
+  # advisory floor is 83.0.0. Not mirrored on the pip path via a first-party
+  # import; pinned explicitly here so this install surface isn't the one left
+  # depending on whatever conda-forge's solver floats unconstrained.
+  - setuptools=84.0.0
   # huggingface_hub is imported directly by retrieval/embeddings.py (not just an
   # implicit sentence-transformers transitive) and is now pinned explicitly on
   # the pip path too (pyproject.toml/constraints.txt). Safe to mirror here
@@ -116,6 +125,12 @@ dependencies:
   - python-tzdata=2026.2
   # Test & Dev tooling — pinned to match pyproject.toml's test/dev extras
   - pytest=9.1.1
+  # pytest>=8.2 requires pygments>=2.7.2 (same rationale as
+  # requirements-test.txt / pyproject.toml's pygments==2.21.0 pin): an
+  # unconstrained resolve can float the loose range down to a vulnerable
+  # 2.9.0 (PYSEC-2023-117 / PYSEC-2026-2987). This conda lane pulled pytest
+  # with no matching pygments pin of its own until now.
+  - pygments=2.21.0
   - pytest-asyncio=1.4.0
   - ruff=0.16.1
   - mypy=2.3.0

@@ -36,7 +36,7 @@ jobs:
       uses: conda-incubator/setup-miniconda@8ee1f361103df19b6f8c8655fd3967a8ecb162d5  # v4.0.1
       with:
         # Pin the installer base (not "latest") so Miniforge itself is reproducible.
-        # Matches the install-surface pin policy in ci.yml (pip==26.1.2).
+        # Matches the install-surface pin policy in ci.yml (pip==26.2.1).
         miniforge-version: "25.3.0-3"
         python-version: ${{ matrix.python-version }}
         channels: conda-forge
@@ -65,7 +65,7 @@ jobs:
         # always the coherent one mamba just installed, so the former
         # wipe-site-packages + ensurepip bootstrap -- which existed solely to
         # heal a cache-restored, half-upgraded pip -- has nothing left to heal.
-        python -m pip install --upgrade "pip==26.1.2"
+        python -m pip install --upgrade "pip==26.2.1"
         python -m pip --version
 
     - name: Install CyClaw in editable mode + test extras

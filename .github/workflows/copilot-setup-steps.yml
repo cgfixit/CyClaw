@@ -50,8 +50,8 @@ jobs:
             pyproject.toml
 
       - name: Upgrade pip
-        # Exact pin per ci.yml header policy (==26.1.2, not floating >=).
-        run: python -m pip install --upgrade "pip==26.1.2"
+        # Exact pin per ci.yml header policy (==26.2.1, not floating >=).
+        run: python -m pip install --upgrade "pip==26.2.1"
 
       - name: Install torch CPU (must precede requirements.txt to avoid CUDA wheel)
         # This pin is duplicated in ci.yml, pip-audit.yml, and
