@@ -1,8 +1,8 @@
 # CyClaw — local AI you can trust, and track $pend
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.139-blue.svg)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.9-blue.svg)](https://github.com/langchain-ai/langgraph)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-blue.svg)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.11-blue.svg)](https://github.com/langchain-ai/langgraph)
 [![CyClaw CI/CD testing](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml)
 
 [![Screenshots: local AI](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/grok-a5efec11-9333-4583-8f97-5fa78803f703.jpg)](https://github.com/CGFixIT/CyClaw/tree/main/docs/screenshots)
@@ -403,7 +403,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 # 1) CPU-only torch first (CVE-2025-32434 fixed in 2.6.0; 2.13.0 is within the patched range)
 pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-# 2) The rest, pinned to the verified transitive tree. --ignore-installed PyYAML
+# 2) The rest, using the shared dependency constraints. --ignore-installed PyYAML
 #    avoids a resolver conflict with a system PyYAML some platforms preinstall.
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 ```
@@ -629,17 +629,19 @@ python gate.py
 
 ### Choosing an API key value
 
-CyClaw is loopback-only (`127.0.0.1:8787`) — the key never crosses a network.
-Still:
+With the default loopback bind (`127.0.0.1:8787`), the key stays on the host.
+For an explicitly configured non-loopback bind, use TLS and the auth gates
+described below. In either case:
 
 - Use at least **20 random characters**: `openssl rand -hex 20` (Linux/macOS)
   or `[System.Web.Security.Membership]::GeneratePassword(24,4)` (PowerShell).
 - Do **not** reuse a password from elsewhere.
 - Do **not** commit the key to Git (`.env` is already in `.gitignore`).
-- The browser console reads the key from the server's environment. If the
-  variable is not exported in the shell (macOS/Linux) or set as an env var
-  (Windows) *before* `python gate.py` starts, the Soul and operator consoles
-  will 401.
+- The gateway reads the key from its environment; export it (macOS/Linux) or
+  set it as an env var (Windows) *before* `python gate.py` starts. Paste the
+  same value into the browser console's API-key field (or use the macOS
+  bootstrap's restricted autofill). The browser does not read the server's
+  environment; a missing or mismatched key returns 401 with the default policy.
 
 ## Per-User Authentication
 
@@ -918,8 +920,9 @@ source — `graph.py`, `INVARIANTS.md`, `retrieval/indexer.py`, `llm/client.py`,
 `config.yaml` — with each example carrying `source_refs` back to the file it
 came from.
 
-**It is an operator toolkit outside the runtime install profiles.** The kit's
-training requirements are installed separately on a CUDA host. The base RAG
+**It is an operator toolkit outside the runtime install profiles.** Its CUDA
+training install is currently blocked: Unsloth's dependency ranges conflict
+with the kit's patched Hugging Face pins. Do not bypass those pins. The base RAG
 stack already pulls Transformers through sentence-transformers; that does not
 install or validate the Unsloth training stack. The kit's own requirements are
 excluded from this repo's OSV walk; audit the actual training environment
@@ -935,10 +938,9 @@ independent of the CyClaw server and its config, not free of network.
 ```bash
 python tools/lora_finetune/build_cyclaw_corpus.py   # rebuild the dataset from source
 python tools/lora_finetune/dryrun_finetune.py       # full control flow, mocked, no GPU
-pip install -r tools/lora_finetune/requirements.txt # on the CUDA box only
 ```
 
-Dataset shape, category counts, the Unsloth pin caveat, and the
+Dataset shape, category counts, the confirmed training-install blocker, and the
 `pip-audit`-on-the-GPU-box step are in
 [`tools/lora_finetune/README.md`](tools/lora_finetune/README.md).
 
@@ -1042,7 +1044,7 @@ dependency is imported. The phase ledger is in
    checks, and **stops before committing** (`status: pending_decision`; a run
    that never passes reports `exhausted`).
 2. **`real-repo-run-decide --decision approve`** commits locally; `reject`
-   discards. Neither pushes.
+   discards. Neither pushes unless `approve` also receives `--push`.
 3. **`real-repo-run-push`** puts the approved feature branch on origin
    (allowed prefixes come from `utils/agent_identity.py`).
 4. **`real-repo-run-publish`** opens a **draft** PR (`gh pr create --draft`).
@@ -1050,8 +1052,9 @@ dependency is imported. The phase ledger is in
    (`reject` and `exhausted` free theirs immediately; only an approved run keeps
    its clone, since push and publish still need it).
 
-Each escalation is its own command and its own decision, deliberately not
-folded into `approve`.
+Push and publish can be separate commands, as above. `approve --push` combines
+commit and push; adding `--publish` also opens a draft PR and requires
+`--reason` plus `--confirm-publish`. The same write gates apply to both paths.
 
 ### Security posture
 
@@ -1171,7 +1174,7 @@ pip install -e ".[agentic-deepagents-cloud]"                    -c constraints.t
 pip install -e ".[agentic-deepagents,agentic-deepagents-cloud]" -c constraints.txt   # both
 ```
 
-`full` (what CI and dev boxes get) pulls `agentic-deepagents` but deliberately
+`full` pulls `agentic-deepagents` but deliberately
 not `agentic-deepagents-cloud`, so a machine that never touches Grok never
 carries `langchain-xai`; `[all]` is the only extra that installs both. The
 published Docker image installs `requirements.txt` only, so running this

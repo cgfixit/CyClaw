@@ -20,7 +20,8 @@ precedes it.
 ## Numbers that trip people
 
 - `retrieval.min_score` (shipped **0.028**) is on the **RRF scale**, not
-  cosine. Dual rank-0 with `rrf_k=60` is `2/61 ≈ 0.0328` (the hybrid ceiling).
+  cosine. Ranks are zero-based: dual rank-0 with `rrf_k=60` is
+  `2/60 ≈ 0.0333` (the two-leg hybrid ceiling).
   "Fixing" `min_score` toward 0.5, or above ~0.033, routes every hybrid
   query to the user gate. Topical strictness is `retrieval.min_semantic_score`
   (shipped **0.30**, cosine on the top hit when present).

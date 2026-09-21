@@ -1,5 +1,12 @@
 # CyClaw Qwen3.8-27B LoRA Fine-Tune Kit
 
+**CUDA training install blocked (verified 2026-09-21).** The pinned Unsloth
+dependency ranges conflict with the patched Transformers/TRL/Datasets pins
+in this kit's `requirements.txt`; pip reports `ResolutionImpossible`.
+Keep those pins and do not bypass resolution with `--no-deps` or an
+Unsloth-only install. Dataset generation and mocked tests remain usable;
+CyClaw's core runtime does not install this training profile.
+
 > Interesting to learn more about but not compatible with current GPU
 
 ^ ha that's not even true!:
@@ -135,8 +142,9 @@ CyClaw source read from `main` on 2026-09-07 (`graph.py`, `INVARIANTS.md`,
 This is a separate **operator training toolkit**. CyClaw's runtime profiles
 do not install this directory's training requirements. Transformers already
 arrives through the base sentence-transformers dependency; that does not
-provide or validate the Unsloth training stack. Train on a CUDA host using
-this kit's requirements. Model/tokenizer loading can fetch Hugging Face assets;
+provide or validate the Unsloth training stack. Training needs a compatible
+CUDA dependency profile; the current requirements are blocked as described
+below. Model/tokenizer loading can fetch Hugging Face assets;
 seed their caches first if training must run without egress.
 
 The kit `requirements.txt` lists **direct** operator packages only (current
@@ -148,9 +156,14 @@ still expands to known-vulnerable wheels (pillow 9.5, aiohttp 3.9.5,
 torch 2.9.1) that this repo never installs. After you install on the GPU
 box, run `pip-audit -r tools/lora_finetune/requirements.txt` there.
 
-Unsloth 2026.9.4 still publishes `transformers<=5.5.0` / `trl<=0.24.0` /
-`datasets<4.4`. If `pip install -r requirements.txt` refuses the patched
-HF pins, install Unsloth alone and let it resolve that stack:
+[Unsloth 2026.9.4](https://pypi.org/pypi/unsloth/2026.9.4/json) and
+[2026.9.7](https://pypi.org/pypi/unsloth/2026.9.7/json) both require
+`transformers<=5.5.0` / `trl<=0.24.0` / `datasets<4.4`, incompatible with this
+kit's `transformers==5.17.0` / `trl==1.13.0` / `datasets==5.0.1`.
+This is a confirmed resolver failure, not a platform-specific warning.
+Installing Unsloth alone abandons the patched pins and is not a supported
+workaround. `finetune_qwen38.py` requires Unsloth's `FastModel` and GGUF APIs;
+there is no separate Transformers-only training path in this kit.
 
 <hr>
 
@@ -310,10 +323,6 @@ That preserves a debuggable, high-fidelity baseline while still giving you an Ol
 
 <hr>
 
-```bash
-pip install --upgrade --force-reinstall --no-cache-dir unsloth==2026.9.4
-```
-
 ## Files
 
 | File | Purpose |
@@ -325,7 +334,7 @@ pip install --upgrade --force-reinstall --no-cache-dir unsloth==2026.9.4
 | `curated_qa_extra.py` | **22 expansion pairs** (extra-001 … extra-022), grounded in `utils/personality.py`, `utils/telemetry_kill.py`, `utils/errors.py`, `utils/sanitizer.py`, `graph.py`. |
 | `build_cyclaw_corpus.py` | Builds `cyclaw_training.json` + `.jsonl` from all three sources. |
 | `finetune_qwen38.py` | Unsloth QLoRA training script (verified API). |
-| `requirements.txt` | Optional operator pins — direct packages only (`unsloth`/`transformers`/`trl`/`datasets`/`accelerate`). Not part of the CyClaw runtime install; not an OSV lockfile. |
+| `requirements.txt` | Optional operator pins — direct packages only (`unsloth`/`transformers`/`trl`/`datasets`/`accelerate`). Currently blocked by incompatible upstream ranges. Not part of the CyClaw runtime install; not an OSV lockfile. |
 | `dryrun_finetune.py` | Dry-run harness: mocks `unsloth`/`trl`/`datasets` and runs `finetune_qwen38.py` end-to-end without a GPU. |
 | `tests/test_build_corpus.py` | Unit tests: dataset structure, provenance, rendering, JSON round-trip (19 tests). |
 | `tests/test_finetune_integration.py` | Integration tests: mocked control-flow for `finetune_qwen38.py` (8 tests). |
@@ -373,8 +382,14 @@ python dryrun_finetune.py            # end-to-end control-flow check
 # root-level `pytest tests/` does NOT collect them -- it runs the main suite
 # instead. CI covers this kit in .github/workflows/lora-finetune.yml.
 
-# 1. fine-tune (on a CUDA box with >=24 GB VRAM)
-pip install -r requirements.txt
+# STOP: the current training requirements do not resolve.
+# Continue only after a compatible CUDA profile is verified.
+```
+
+Once that blocker is resolved and the training dependencies are installed on
+a CUDA host with >=24 GB VRAM, the script/deployment sequence is:
+
+```bash
 python finetune_qwen38.py --json cyclaw_training.json
 
 # 2. load in Ollama (the script writes outputs_qwen38/gguf/Modelfile.cyclaw)
@@ -437,7 +452,8 @@ that. For deeper internalization you'd need ~3–5M tokens of curated pairs.
    for GPU time.
 2. Run `python dryrun_finetune.py` — confirms the script's control flow,
    chat-template rendering, and save-path logic without Unsloth installed.
-3. Only then spin up the GPU pod and run `finetune_qwen38.py` for real.
+3. Resolve the blocked training dependency profile before provisioning a GPU
+   pod or running `finetune_qwen38.py` for real.
 
 **Overfitting guardrails (this dataset is small):**
 

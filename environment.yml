@@ -179,4 +179,5 @@ dependencies:
 
 # After creation:
 # conda activate cyclaw
-# pip install -e ".[full]" --no-deps  # if wanting postgres/pgvector extras
+# pip install -e ".[test,dev]" --no-deps  # register CyClaw with the dependencies installed above
+# Additional extras need their dependencies installed; see setup-guide.md.
