@@ -88,7 +88,20 @@ if [ -z "${SKIP_INSTALL:-}" ]; then
   if "$VPY" -m pip install --quiet --upgrade "pip==26.2.1" \
      && "$VPY" -m pip install --quiet torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu \
      && "$VPY" -m pip install --quiet -r requirements.txt -c constraints.txt --ignore-installed PyYAML \
-     && "$VPY" -m pip install --quiet pytest pytest-asyncio pytest-cov pyyaml; then
+     && "$VPY" -m pip install --quiet -c constraints.txt pytest pytest-asyncio pytest-cov pyyaml sqlite-vec; then
+    # sqlite-vec: tests/test_sqlite_vec_extension_loading.py (issue #1255
+    # Phase C) hard-imports it at collection time -- plain `import
+    # sqlite_vec`, not pytest.importorskip(), so a real wheel/native-load
+    # failure fails the job rather than silently skipping (a prior Codex
+    # review finding on that same test file). Stage 2 below runs the full
+    # tests/ tree same as ci.yml's `test` jobs, so it needs the same
+    # collectability. `-c constraints.txt` pins this line to the exact
+    # versions requirements-test.txt/constraints.txt already declare
+    # (sqlite-vec==0.1.9, pytest==9.1.1, etc.) -- without it, a newer
+    # sqlite-vec release breaks this test's hardcoded
+    # `vec_version() == "v0.1.9"` assertion the moment it publishes, with
+    # no repository change needed to turn the sandbox red (a Codex review
+    # finding on this exact line).
     pass "3.12 dependency install" "clean install, no version conflicts"
   else
     fail "3.12 dependency install" "pip install failed — see output above"

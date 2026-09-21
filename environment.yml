@@ -168,6 +168,11 @@ dependencies:
       # Telemetry-control floor from the pip path (pyproject.toml/constraints.txt).
       # conda-forge chromadb=1.5.9 only declares onnxruntime>=1.14.1.
       - onnxruntime==1.30.0
+      # sqlite-vec (#1255 Phase C spike, test-only): no conda-forge package
+      # exists (checked 2026-09-21 -- zero matches on noarch/linux-64
+      # repodata), so it can only ride the pip: sublist here, same as the
+      # three packages above it.
+      - sqlite-vec==0.1.9
 
 # Optional: Create with mamba for speed
 # mamba env create -f environment.yml

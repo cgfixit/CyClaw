@@ -94,6 +94,10 @@ test = [
     # datetime.astimezone(), which reads the host's local offset and needs no
     # IANA tzdb. Must match the requirements-test.txt / constraints.txt pin.
     "tzdata==2026.2",
+    # sqlite-vec (#1255 Phase C spike): test-only, not wired into
+    # retrieval/vector_store.py yet. Must match the requirements-test.txt /
+    # constraints.txt pin. See tests/test_sqlite_vec_extension_loading.py.
+    "sqlite-vec==0.1.9",
 ]
 dev = [
     "ruff==0.16.8",
