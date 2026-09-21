@@ -123,8 +123,34 @@ def resolve_cache_dir(config_path: str, cache_dir: str | None) -> str:
     return str((Path(config_path).expanduser().resolve().parent / path).resolve())
 
 
+def _index_or_bm25_present(config_path: str) -> bool:
+    """True if a retrieval index (Chroma dir or BM25 json) already exists on disk.
+
+    Backs the ``offline_after_index`` config flag (#1255 Phase B): an existing
+    index means the embedding model was already used once to build it, so on a
+    cache-probe miss it is still safe to refuse a fresh HF fetch rather than
+    guess -- unlike a genuinely fresh machine, which must be allowed to
+    bootstrap normally. Reads ``indexing.chroma_path``/``indexing.bm25_path``
+    straight from the raw config rather than threading them through
+    ``_embeddings_cfg`` (which only ever parsed ``models.embeddings``).
+
+    Any ambiguity -- unreadable/unparseable config, missing keys -- resolves to
+    False, the same fail-safe direction ``_model_offline_eligible`` takes: when
+    unsure, do not force offline mode.
+    """
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        indexing_cfg = cfg["indexing"]
+        chroma_path = resolve_cache_dir(config_path, indexing_cfg.get("chroma_path", ""))
+        bm25_path = resolve_cache_dir(config_path, indexing_cfg.get("bm25_path", ""))
+    except Exception:  # noqa: BLE001 -- a config-read failure must never force offline mode
+        return False
+    return (bool(chroma_path) and Path(chroma_path).is_dir()) or (bool(bm25_path) and Path(bm25_path).is_file())
+
+
 @lru_cache(maxsize=1)
-def _load_model(model_name: str, cache_dir: str) -> "SentenceTransformer":
+def _load_model(model_name: str, cache_dir: str, offline_after_index: bool, config_path: str) -> "SentenceTransformer":
     """Load SentenceTransformer with security-conscious defaults.
 
     Note: sentence-transformers will use safetensors when available.
@@ -138,8 +164,11 @@ def _load_model(model_name: str, cache_dir: str) -> "SentenceTransformer":
     normally and the next call retries from scratch.
 
     Sets HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE when _model_offline_eligible finds
-    this model already on disk -- see that function for why this is
-    conditional rather than unconditional. Deliberately only ever SETS these to
+    this model already on disk, OR when ``offline_after_index`` is true and a
+    retrieval index already exists (see ``_index_or_bm25_present`` -- #1255
+    Phase B; off by default in config.yaml) -- see that function for why the
+    base case is conditional rather than unconditional. Deliberately only
+    ever SETS these to
     "1" here; it never clears or overrides them when the model is not yet
     cached, so an operator who has already opted into full lockdown by
     sourcing docs/security-philosophy/cyclaw_telemetry_kill.env by hand keeps
@@ -162,7 +191,9 @@ def _load_model(model_name: str, cache_dir: str) -> "SentenceTransformer":
     sentence-transformers to huggingface_hub's download path, which gates
     independently of the (broken-for-this-purpose) is_offline_mode() global.
     """
-    eligible = _model_offline_eligible(model_name, cache_dir)
+    eligible = _model_offline_eligible(model_name, cache_dir) or (
+        offline_after_index and _index_or_bm25_present(config_path)
+    )
     if eligible:
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
@@ -196,13 +227,17 @@ def _load_model(model_name: str, cache_dir: str) -> "SentenceTransformer":
 def _embeddings_cfg(config_path: str) -> tuple:
     """Read models.embeddings from config once per path (cached).
 
-    Returns (model_name, cache_dir). Uses a context manager so the config file
-    handle is always closed -- the previous ``yaml.safe_load(open(path))`` form
-    leaked a descriptor on every call.
+    Returns (model_name, cache_dir, offline_after_index). Uses a context
+    manager so the config file handle is always closed -- the previous
+    ``yaml.safe_load(open(path))`` form leaked a descriptor on every call.
     """
     with open(config_path, encoding="utf-8") as f:
         emb_cfg = yaml.safe_load(f)["models"]["embeddings"]
-    return emb_cfg["model"], resolve_cache_dir(config_path, emb_cfg.get("cache_dir", ""))
+    return (
+        emb_cfg["model"],
+        resolve_cache_dir(config_path, emb_cfg.get("cache_dir", "")),
+        bool(emb_cfg.get("offline_after_index", False)),
+    )
 
 
 def embedding_fingerprint(embeddings_cfg: dict) -> dict[str, str]:
@@ -263,8 +298,8 @@ def _cached_embedding(text: str, config_path: str) -> tuple:
     on the next call rather than poisoning the cache.
     """
     try:
-        model_name, cache_dir = _embeddings_cfg(config_path)
-        model = _load_model(model_name, cache_dir)
+        model_name, cache_dir, offline_after_index = _embeddings_cfg(config_path)
+        model = _load_model(model_name, cache_dir, offline_after_index, config_path)
         return tuple(model.encode(text, normalize_embeddings=True).tolist())
     except EmbeddingServiceError:
         raise
@@ -300,6 +335,6 @@ def get_embeddings_batch(texts: list[str], config_path: str = "config.yaml") -> 
     # path (cyclaw-index), where a model failure must abort the build loudly --
     # degrading here would silently produce a semantic index with missing
     # vectors. Only the query path (_cached_embedding) soft-degrades.
-    model_name, cache_dir = _embeddings_cfg(config_path)
-    model = _load_model(model_name, cache_dir)
+    model_name, cache_dir, offline_after_index = _embeddings_cfg(config_path)
+    model = _load_model(model_name, cache_dir, offline_after_index, config_path)
     return model.encode(texts, normalize_embeddings=True, show_progress_bar=True).tolist()

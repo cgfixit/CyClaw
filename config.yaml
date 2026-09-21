@@ -72,6 +72,16 @@ models:
     cache_dir: ".emb_cache"
     # retrieval/embeddings.py fixes the query-cache size at import time:
     # CYCLAW_EMBED_CACHE_SIZE overrides its 2048-entry default.
+    # Off by default (#1255 Phase B). When true AND a retrieval index (Chroma
+    # dir or BM25 json -- indexing.chroma_path / indexing.bm25_path) already
+    # exists on disk, retrieval/embeddings.py forces local_files_only=True
+    # unconditionally, even on an HF-cache-probe miss: an existing index means
+    # the model was already used once to build it, so refusing a fresh HF
+    # fetch is safe rather than a guess. A fresh machine with neither an
+    # index nor a cached model still bootstraps normally regardless of this
+    # flag. Does NOT set HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE in
+    # utils/telemetry_kill.py -- that remains intentionally excluded there.
+    offline_after_index: false
   grok:
     # gate.py constructs this client only in hybrid mode with enabled: true;
     # graph.py also requires per-request consent and a selected, available client.
