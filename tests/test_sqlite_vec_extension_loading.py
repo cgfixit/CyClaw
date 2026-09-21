@@ -32,6 +32,28 @@ def _serialize(vec: list[float]) -> bytes:
 @pytest.fixture
 def vec_conn():
     conn = sqlite3.connect(":memory:")
+    # Confirmed 2026-09-21 on this PR's own macos-latest CI run: the
+    # python.org/actions-setup-python arm64 3.12 build's _sqlite3 extension
+    # module is compiled WITHOUT --enable-loadable-sqlite-extensions, so
+    # enable_load_extension is not merely a no-op or a runtime OperationalError
+    # -- the Connection object never gets the method at all
+    # (AttributeError: 'sqlite3.Connection' object has no attribute
+    # 'enable_load_extension'). This is exactly the risk this module's own
+    # docstring named before CI ran; it is now an empirically confirmed
+    # platform gap, not a hypothetical. Skip (not fail/error) here because
+    # this is a capability the CURRENT stdlib sqlite3 build lacks, not a bug
+    # in sqlite-vec or in this test -- see
+    # docs/audits/2026-09-21-sqlite-vec-phase-c-spike.md's Disposition for
+    # what this means for Phase D (a stdlib-sqlite3-only backend cannot ship
+    # macOS support as-is; a different sqlite3 binding, e.g. pysqlite3-binary
+    # or apsw, would need its own wheel-coverage/dependency-pin evaluation).
+    if not hasattr(conn, "enable_load_extension"):
+        conn.close()
+        pytest.skip(
+            "sqlite3 built without loadable-extension support on this platform "
+            "(confirmed on GitHub Actions macos-latest, 2026-09-21) -- see "
+            "docs/audits/2026-09-21-sqlite-vec-phase-c-spike.md"
+        )
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)

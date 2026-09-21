@@ -7,18 +7,56 @@ gate, plus one honest scope note on what this sandbox could not measure.
 ## 1. `enable_load_extension` + `sqlite_vec.load()` across the CI matrix
 
 **Linux: confirmed working**, verified directly in this sandbox (not
-assumed): `sqlite3.Connection.enable_load_extension(True)` succeeds,
+assumed) and again on `ubuntu-latest` in this PR's own CI run:
+`sqlite3.Connection.enable_load_extension(True)` succeeds,
 `sqlite_vec.load(conn)` succeeds, `SELECT vec_version()` returns `v0.1.9`.
 
-**macOS / Windows: not yet confirmed from this sandbox** (no such runners
-here). `tests/test_sqlite_vec_extension_loading.py` (added by this PR) proves
-exactly this capability and runs on all three CI-matrix OSes for free —
-`sqlite-vec==0.1.9` is a `requirements-test.txt` entry, so it installs
-wherever `pip install -r requirements.txt -r requirements-test.txt -c
-constraints.txt` already runs, no new CI job needed. **The real answer to
-the macOS question is this PR's own CI run** — check that before treating
-Phase D as viable. If `macos-latest` fails here, that is the kill signal the
-issue's deep-dive comment flagged as possible.
+**Windows: confirmed working.** `windows-latest` passed all three tests in
+this PR's own CI run (2026-09-21).
+
+**macOS: CONFIRMED BROKEN — this is the kill signal.** `macos-latest` failed
+this PR's own CI run (2026-09-21, run
+[35595936487](https://github.com/cgfixit/CyClaw/actions/runs/35595936487),
+job `macos-latest`) with:
+
+```
+AttributeError: 'sqlite3.Connection' object has no attribute 'enable_load_extension'
+```
+
+on all three tests, at `conn.enable_load_extension(True)` in the fixture. This
+is *not* the softer failure mode the issue's deep-dive comment considered
+(extension loading permitted but the specific `.dylib` rejected, or a
+runtime `OperationalError`) — the arm64 macOS Python 3.12.10 build GitHub
+Actions provisions (via `actions/setup-python`, a python.org framework
+build) compiles its `_sqlite3` extension module *without*
+`--enable-loadable-sqlite-extensions` at all, so `enable_load_extension`
+never exists as a method on `sqlite3.Connection` in the first place. This
+confirms, empirically rather than by inference, the exact risk this
+repository's own `memory/store.py` comment already hinted at (FTS5 is
+compiled into stdlib SQLite there specifically because it never needs
+runtime extension loading).
+
+**What this means for Phase D as originally scoped:** a `_SqliteVecWriter`/
+`_SqliteVecReader` built on stdlib `sqlite3` cannot support macOS on the
+CI-provisioned Python build, and macOS is one of CyClaw's three CI-matrix
+release-gate legs (`CLAUDE.md` §8: "all three `test` legs are release
+gates"). Phase D cannot ship as a straightforward stdlib-`sqlite3` backend
+without either (a) accepting a macOS gap in a feature meant to be a
+platform-parity default-backend candidate — a regression from ChromaDB's own
+current macOS support — or (b) swapping the underlying sqlite3 binding for
+one that carries its own loadable-extension-capable SQLite build, most
+plausibly `pysqlite3-binary` (a drop-in `sqlite3`-API package that bundles a
+statically-linked, extension-loading-enabled SQLite) or `apsw`. Either
+option is a **new runtime dependency with its own wheel-coverage and
+four-surface pin evaluation** (`CLAUDE.md` §4's dependency-pin discipline) —
+out of scope for this spike, and a real added-scope item for whoever picks
+up Phase D, not a detail to gloss over.
+
+The fixture in `tests/test_sqlite_vec_extension_loading.py` now skips
+(rather than errors) when `enable_load_extension` is absent, so this
+platform gap is visible in the CI summary (a `SKIPPED` with this doc cited)
+without failing the release-gate `test` leg on a capability the test itself
+exists to characterize, not to require unconditionally.
 
 ## 2. Pin `sqlite-vec==0.1.9` (latest stable, not the 0.1.10 alpha)
 
@@ -89,13 +127,23 @@ this repo's actual runners is proven, not assumed.
 
 ## Disposition
 
-Three of four Phase C checklist items are answered from this sandbox alone
-(pin, score-contract math, build mechanics); the fourth (macOS extension
-loading + wheel coverage) is answered by this PR's own CI run, which is the
-whole point of putting the proof in `requirements-test.txt` rather than a
-written claim. **Do not treat Phase D as clear to start until this PR's
-`macos-latest` and `windows-latest` legs are confirmed green** — that is
-the actual gate, not this document.
+All four Phase C checklist items are now answered, three from this sandbox
+(pin, score-contract math, build mechanics) and the fourth — macOS extension
+loading — from this PR's own CI run, which is the whole point of putting the
+proof in `requirements-test.txt` rather than a written claim.
+
+**Phase D (implement a production `_SqliteVecWriter`/`_SqliteVecReader`) is
+NOT clear to start as originally scoped.** The empirical result is a hard
+no on macOS via stdlib `sqlite3` on CyClaw's actual CI-provisioned Python
+build — see §1 above. This is the kill signal the issue's own deep-dive
+comment flagged as possible before this PR's CI ran; it did happen. Phase D
+either needs an explicit, user-approved decision to ship without macOS
+parity (a regression from ChromaDB's current three-OS support), or a
+follow-up spike evaluating `pysqlite3-binary`/`apsw` as the sqlite3 binding
+— itself a new-dependency decision requiring the same pin/wheel-coverage
+diligence this spike applied to `sqlite-vec` itself, not a small addendum.
+Linux and Windows both work today via stdlib `sqlite3`; only macOS is
+blocked.
 
 Nothing here changes `retrieval/vector_store.py`, `config.yaml`, or any
 production code path. `sqlite-vec` is test-only; the default backend is
