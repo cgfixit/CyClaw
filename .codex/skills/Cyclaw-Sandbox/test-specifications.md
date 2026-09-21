@@ -94,7 +94,7 @@ config/layout, synthetic index creation and the same gateway checks.
 | Startup or OS lane | What must be established |
 |---|---|
 | `python gate.py` / `python -m gate` / `cyclaw-server` | Calls `gate.main()`; validate configured binding and optional auth/TLS before serving. Console scripts require installing the project, not only requirements. |
-| `macos/invoke-cyclaw.sh` | Runs uvicorn directly on loopback with its selected gate port and `--no-proxy-headers`; it does not apply `gate.main()` TLS options. Test its actual command. |
+| `macos/invoke-cyclaw.sh` | Runs `gate.py` through the selected venv (not `uvicorn gate:app`) so `main()` applies the loopback bind guard, TLS options, and `proxy_headers=False`. `--gate-port` still works. Test its actual command. |
 | `powershell/Invoke-CyClaw.ps1` | Runs `gate.py`; validate launcher env/home and resulting main/TLS behavior on native Windows. Installer PowerShell 5.1 syntax and the bundled smoke helper's PowerShell 7 requirement are separate. |
 | Docker/Compose | Docker listens on `0.0.0.0` inside the container; Compose publishes loopback. Inspect mounts, non-root, readonly rootfs, resource limits, capabilities/seccomp and direct-uvicorn TLS behavior. No general egress firewall is implied. |
 | Storage | Resolve each consumer, not just `CYCLAW_HOME`: default corpus/index/soul/auth/log paths anchor to the repo. Memory's relative DB path is CWD-relative (`memory/store.py`); use an explicit absolute temporary path in fixtures. Docker mounts determine host locations. |
