@@ -816,8 +816,18 @@ _restart_servers() {
 }
 
 _open_consoles() {
-  local gate
+  local gate probe py
   gate="http://127.0.0.1:${GATE_PORT}"
+  # Key setup also works before Python or a checkout exists; keep that fallback.
+  if [ -n "$REPO_DIR" ]; then
+    for py in "$HOME_DIR/venv/bin/python" python3.12 python3 python; do
+      if probe="$("$py" "$REPO_DIR/utils/gateway_url.py" \
+        "$REPO_DIR/config.yaml" --port "$GATE_PORT" 2>/dev/null)" && [ -n "$probe" ]; then
+        gate="$probe"
+        break
+      fi
+    done
+  fi
   if ! command -v open >/dev/null 2>&1; then
     warn "open(1) not found — open $gate yourself"
     return 0

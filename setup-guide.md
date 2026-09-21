@@ -2,7 +2,7 @@
 
 **v1.9.0 | Offline-First | Ollama | ~15 min**
 Install execution verified 2026-07-29 against `main` (macOS path 2026-08-02);
-documentation reconciled with code 2026-09-12.
+documentation reconciled with code 2026-09-21.
 
 This is the canonical setup guide (`docs/work/SETUP.md` and `docs/! How-To-Guides/setup-guide.md` redirect here). For the
 full architecture tour — agentic layer, filesystem/SQL connectors, NeMo
@@ -45,7 +45,7 @@ python -m venv .venv
 #    CUDA build, and stays on the patched side of CVE-2025-32434)
 pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
-# 3. Runtime + test toolchain, pinned to the verified transitive tree
+# 3. Runtime + test toolchain, using the shared dependency constraints
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 
 # 4. Required env (any non-empty value works — see "GROK_API_KEY" below)
@@ -94,8 +94,8 @@ useful for eyeballing a response shape, not a pass/fail test.
 home layout under `%USERPROFILE%\.CyClaw`, venv, and a `cyclaw` shim. It does
 **not** install Ollama, build the retrieval index, or write `CYCLAW_API_KEY`.
 Set the key in the session that will start the server (step 4b above), then
-build the index and launch (`powershell/Invoke-CyClaw.ps1` or the uvicorn
-line). Persist: [README API Key Setup (Windows)](README.md#windows--powershell--cmdexe).
+build the index and launch (`powershell/Invoke-CyClaw.ps1` or `python gate.py`).
+Persist: [README API Key Setup (Windows)](README.md#windows--powershell--cmdexe).
 Flags (`-RepoPath`, `-ReplaceRepo`, `-SkipPythonDeps`, `-NoProfileEdit`,
 `-NoPathEdit`) and Credential Manager notes:
 [`powershell/README.md`](powershell/README.md).
@@ -122,13 +122,13 @@ source .venv/bin/activate
 # 2. Torch CPU first — order matters (see the Windows step 2 note above)
 pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
-# 3. Runtime + test toolchain, pinned to the verified transitive tree
+# 3. Runtime + test toolchain, using the shared dependency constraints
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 
 # 4. Required env (any non-empty value works — see "GROK_API_KEY" below)
 export GROK_API_KEY=dummy
 
-# 4b. API key for /soul/* and /ops/* (set before uvicorn; the smoke test
+# 4b. API key for /soul/* and /ops/* (set before gate.py; the smoke test
 #     below reuses it). See "CYCLAW_API_KEY" later for what it gates.
 export CYCLAW_API_KEY="$(openssl rand -hex 20)"
 echo "$CYCLAW_API_KEY"
@@ -397,12 +397,17 @@ Use `python gate.py` (or `cyclaw-server`) for normal startup: `gate.main()`
 applies the bind guard, TLS configuration, port override, and
 `proxy_headers=False`. Direct `uvicorn gate:app` skips that startup path.
 The macOS launcher also uses `gate.py`; `--gate-port` / `CYCLAW_GATE_PORT`
-override `api.port`, and its console URL follows `api.tls.enabled`.
+select the port (default 8787, overriding `api.port`). The Windows launcher
+honors `CYCLAW_GATE_PORT`, otherwise `api.port`. Both resolve the browser URL
+through `utils/gateway_url.py` using `api.host`, `api.tls.enabled`, and the
+effective port; wildcard binds become loopback browser destinations.
+macOS key autofill still accepts only matching-port HTTP URLs at literal
+`127.0.0.1` or `[::1]`; paste the key manually for HTTPS or hostname URLs.
 
 ### Ollama on macOS
 
 Same prerequisite as every platform, installed differently. Do this **before**
-step 6 above — `uvicorn` will start without it, but `/query` needs a model
+step 6 above — the gateway will start without it, but `/query` needs a model
 behind it.
 
 Preferred: download the signed `.app` from
@@ -435,8 +440,8 @@ not a problem to fix.
 
 Darwin twin of `windows-smoke.ps1`. The same 7 checks against the gateway,
 same non-zero exit on any failure, bash 3.2 / BSD userland, no jq and no
-Homebrew. The server must already be running (`invoke-cyclaw.sh` or the
-uvicorn line above):
+Homebrew. The server must already be running (`invoke-cyclaw.sh` or
+`python gate.py`):
 
 ```bash
 export CYCLAW_API_KEY="the-value-you-generated"
@@ -588,8 +593,9 @@ cyclaw-gen-cert
 Leave `enabled: false` until those files exist. The Docker `CMD` does not
 go through `_serve` and is not covered by this wiring. The console CSP
 `connect-src` stays `'self'` (same-origin HTTPS is already `'self'`).
-`security.allowed_origins` includes `https://` twins of the loopback/LAN
-http entries.
+`security.allowed_origins` shows commented HTTPS examples. Enable only the
+explicit origins needed for cross-origin clients; the same-origin console
+does not require an additional CORS origin.
 
 ```bash
 # Log in — save the cookie jar and read the csrf_token out of the response.
@@ -612,9 +618,9 @@ curl -s -X POST http://127.0.0.1:8787/query \
   -H "Authorization: Bearer $DEVICE_TOKEN" \
   -d '{"query":"What is RRF fusion?"}' | python3 -m json.tool
 
-# Log out — the CSRF token from the login response is required here.
+# Log out — use the latest CSRF token; /auth/whoami above rotated the login token.
 curl -s -b cookies.txt -X POST http://127.0.0.1:8787/auth/logout \
-  -H "X-CyClaw-CSRF: the-csrf-token-from-login" | python3 -m json.tool
+  -H "X-CyClaw-CSRF: the-csrf-token-from-whoami" | python3 -m json.tool
 ```
 
 ### Authenticated routes (Bearer `CYCLAW_API_KEY`)
@@ -674,17 +680,21 @@ curl -s -X POST http://127.0.0.1:8787/ops/sqlconnect \
   -H "$AUTH" -H 'Content-Type: application/json' -d '{"action":"status"}'
 ```
 
-**Four of these mutate state. Do not treat any of them as a probe.**
+**These shared-key operator actions mutate state. Do not treat them as probes.**
 
 | Route | What it changes |
 |---|---|
 | `POST /soul/apply` | rewrites `soul.md`, rotates the old copy to `.bak`, records a version row. Requires a non-empty `reason` — an architectural invariant, not a validation nicety, so there is no flag to skip it |
 | `POST /soul/restore` | **also rewrites `soul.md`**, from the `.bak`. It reaches the same atomic write path with a hardcoded reason and `scan=False`, so it skips the injection scan `/soul/apply` enforces. Firing it "just to see" silently replaces your live soul with stale backup content |
+| `POST /soul/reload` | adopts on-disk soul content without scanning; may record drift recovery or initialize a missing soul |
 | `POST /ops/sync` | with `action: "sync"` this is a **real rclone corpus transfer**. Only `"dry_run": true` makes it read-only; `action: "status"` is the safe probe |
+| `POST /ops/sync` with `action: "schedule"` / `"unschedule"` | installs or removes the sync schedule |
 | `POST /ops/agentic` | with `action: "apply-skill"` this writes a skill file. `action: "status"` is the safe probe |
+| `POST /memory/propose`, `/memory/apply`, `/memory/reject` | stage, apply, or reject a stored proposal when the corresponding memory gates are enabled |
 
-Every other route above, and the `"status"` action on all four `/ops/*`
-endpoints, is read-only.
+Use the `"status"` action on each `/ops/*` endpoint to inspect subsystem state.
+The earlier index-build and authentication examples also write state; even
+cookie-authenticated `GET /auth/whoami` rotates the CSRF token.
 
 ### Reading the status codes
 
@@ -900,11 +910,12 @@ placeholder — there are no known-failing tests on a clean install.
 
 ### constraints.txt
 
-The `-c constraints.txt` flag pins the full transitive dependency tree for a
-reproducible install; it's a normal, permanent, actively-maintained part of
-the repo (not a recovery step). If it's ever missing, `git pull` restores it;
-`pip install -r requirements.txt` alone still works without it, just without
-the transitive-pin guarantee.
+The `-c constraints.txt` flag applies shared runtime and selected transitive
+pins; it is an actively maintained install input, not a full lockfile.
+Dependencies absent from it can still resolve to newer compatible releases.
+Use it with the selected install profile (and the documented macOS filter)
+to retain those pins. If the tracked file is missing, restore it before
+installing; omitting it drops the constraints on transitive dependencies.
 
 ---
 
@@ -1034,5 +1045,5 @@ results are hints, not a complete or live reachability map.
 
 *Built by [Chris Grady](https://cgfixit.com) · Repo: [github.com/CGFixIT/CyClaw](https://github.com/CGFixIT/CyClaw)*
 *v1.9.0 package train, Python 3.12 — documentation reconciled with code,
-config, manifests, and workflows on 2026-09-12; install execution last verified
+config, manifests, and workflows on 2026-09-21; install execution last verified
 2026-07-29 / macOS 2026-08-02.*

@@ -16,7 +16,7 @@ state lives under `~/.CyClaw`.
 | `setup-from-clone.sh` | **One-shot after `git clone`** on Apple Silicon. Chains `install-cyclaw.sh` + `setup-cyclaw-keys.sh` (prompts for Telegram / Claude / Grok / GitHub), checks Ollama, builds the retrieval index, then starts the gateway. `--dry-run`, `--skip-prompts`, `--no-start`, `--small-model`, `--ollama-model TAG`. Note `--skip-prompts` implies no server start; pass `--start` to launch anyway. The script accepts a wider flag set than the common ones listed here — including `--skip-install`, `--skip-python-deps`, `--skip-keys`, `--skip-ollama`, `--skip-index`, `--skip-privacy`, `--no-browser`, `--no-fsconnect`, `--no-profile-edit`, `--no-path-edit`, `--grok-dummy`, `--rotate-key`, `--ollama-install-script`, and `--yes`; run it with `--help` for the authoritative list. Called directly, it is the multi-question path `setup-cyclaw.sh` exists to front. |
 | `install-cyclaw.sh` | Home layout, venv, `cyclaw` shim, optional PATH / rc function. `--repo-path`, `--replace-repo`, `--skip-python-deps`, `--no-profile-edit`, `--no-path-edit`, `--no-fsconnect`. `--replace-repo` is intentionally destructive only for an unusable directory at the default `~/.CyClaw/repo` clone target; it does not apply with `--repo-path`. |
 | `uninstall-cyclaw.sh` | Removes the rc function, PATH entry, and the `cyclaw keys` source block. Keeps `~/.CyClaw` unless `--remove-home`. Optional `--remove-fsconnect`. Optional `--remove-keychain` (prompted y/N; Darwin-only) deletes the five documented `com.cgfixit.cyclaw.*` Keychain services for `id -un` — never a wildcard. `--yes` / `--assume-yes` confirms already-requested destructive flags only. Best-effort unschedules Dropbox sync, `launchctl bootout`s CyClaw LaunchAgent labels (telegram-poll/health, fsconnect-trash, gate, keys-rotate, opentweet, sync, plus the retired console's `harness` label), then frees a leftover loopback listener on `CYCLAW_GATE_PORT` (default 8787). |
-| `invoke-cyclaw.sh` | Starts `python gate.py` from `~/.CyClaw/venv`, preserving the bind guard, `api.tls`, and `proxy_headers=False`. `--gate-port` / `CYCLAW_GATE_PORT` select the port (default 8787); the console URL follows `api.tls.enabled`. `--no-browser` / `--repo` select browser behavior and checkout. |
+| `invoke-cyclaw.sh` | Starts `python gate.py` from `~/.CyClaw/venv`, preserving the bind guard, `api.tls`, and `proxy_headers=False`. `--gate-port` / `CYCLAW_GATE_PORT` select the port (default 8787, overriding `api.port`); the console URL follows `api.host`, `api.tls.enabled`, and that effective port via `utils/gateway_url.py`. `--no-browser` / `--repo` select browser behavior and checkout. |
 | `setup-cyclaw-keys.sh` | Apple Silicon key bootstrap. Autogenerates `CYCLAW_API_KEY`; prompts for Telegram / Claude (`ANTHROPIC_API_KEY`) / Grok / GitHub (skip allowed). Persists to Keychain + `~/.CyClaw/.env` (chmod 600), failing before dotenv writes if a requested Keychain write fails. `--rotate`, `--no-env-file`, `--fill-browser` (loopback `#apiKeyInput` only — never localStorage), `--schedule-rotate monthly\|weekly\|never` (writes, never loads, a LaunchAgent), `--unschedule-rotate` (removes that LaunchAgent again), `--restart-servers` (best-effort free the configured gate loopback port after a write; does not start the server). Further flags exist — `--no-keychain`, `--no-repo-env`, `--print-key`/`--no-print-key`, `--copy-key`/`--no-copy-key`, `--clipboard-ttl N`, `--open-consoles`, `--gate-port`, `--repo-path`, `--skip-prompts`, `--grok-dummy`; run it with `--help` for the authoritative list. |
 | `setup-fsconnect.sh` | Creates confined `~/CyClaw-FS` (`chmod 700`). Unless `--prepare-only`, enables list/stat/read via `_enable_fsconnect_readlist.py`. |
 | `_enable_fsconnect_readlist.py` | Writes the confined read/list `fsconnect:` profile into `config.yaml` (writes stay off). |
@@ -44,6 +44,11 @@ standalone: download `macos/setup-cyclaw.sh` by itself and run
 piped stdin — pass `--skip-prompts` for a non-interactive run instead). It
 delegates to `setup-from-clone.sh` for the actual install/keys/index work
 below — it adds no second secret store or installer of its own.
+
+Onboarding, the launcher, and key setup use the same console URL resolver
+when the checkout and Python dependencies are available. Wildcard bind
+addresses become loopback browser destinations. Standalone key setup still
+works without a checkout, using its default `http://127.0.0.1:<port>` URL.
 
 ## One-shot after clone (Apple Silicon)
 
@@ -85,8 +90,10 @@ not read `.env`, and this script never writes a token into a plist or the
 
 The terminal console (`#apiKeyInput`) holds the
 operator key **in the input element only** — never `localStorage`, never a
-cookie. `--fill-browser` injects that field on `127.0.0.1` tabs after
-opening the console. A scheduled rotate updates Keychain + `.env`; it exits
+cookie. `--fill-browser` injects that field only on matching-port HTTP tabs
+at literal `127.0.0.1` or `[::1]`. HTTPS and hostname URLs (including
+`localhost`) require pasting the key manually; resolving the console URL does
+not widen autofill eligibility. A scheduled rotate updates Keychain + `.env`; it exits
 nonzero before changing `.env` if the Keychain write fails. Neither a manual
 nor scheduled rotate changes an already-running server environment: restart
 `gate.py`, then paste once or re-run `--fill-browser`.

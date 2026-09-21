@@ -118,18 +118,9 @@ if (-not $env:CYCLAW_API_KEY) {
     }
 }
 
-# config.yaml owns api.port and api.tls; the launcher only needs them for the
-# printed URL and the browser, so a probe failure falls back to the shipped
-# default rather than blocking the start (gate.main() reads the real values).
-$UrlProbe = @'
-import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
-api = cfg.get("api") if isinstance(cfg.get("api"), dict) else {}
-tls = api.get("tls") if isinstance(api.get("tls"), dict) else {}
-scheme = "https" if tls.get("enabled") is True else "http"
-print(f"{scheme}://127.0.0.1:{api.get('port', 8787)}")
-'@
-$Url = & $VenvPy -c $UrlProbe (Join-Path $Repo "config.yaml") 2>$null
+# Follow api.host/api.tls and gate.main()'s CYCLAW_GATE_PORT override. A probe
+# failure keeps the shipped default rather than blocking gateway startup.
+$Url = & $VenvPy (Join-Path $Repo "utils\gateway_url.py") (Join-Path $Repo "config.yaml") 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $Url) { $Url = "http://127.0.0.1:8787" }
 $Url = "$Url".Trim()
 
