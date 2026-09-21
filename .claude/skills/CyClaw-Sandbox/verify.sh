@@ -88,7 +88,16 @@ if [ -z "${SKIP_INSTALL:-}" ]; then
   if "$VPY" -m pip install --quiet --upgrade "pip==26.2.1" \
      && "$VPY" -m pip install --quiet torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu \
      && "$VPY" -m pip install --quiet -r requirements.txt -c constraints.txt --ignore-installed PyYAML \
-     && "$VPY" -m pip install --quiet pytest pytest-asyncio pytest-cov pyyaml; then
+     && "$VPY" -m pip install --quiet pytest pytest-asyncio pytest-cov pyyaml sqlite-vec; then
+    # sqlite-vec: tests/test_sqlite_vec_extension_loading.py (issue #1255
+    # Phase C) hard-imports it at collection time -- plain `import
+    # sqlite_vec`, not pytest.importorskip(), so a real wheel/native-load
+    # failure fails the job rather than silently skipping (a prior Codex
+    # review finding on that same test file). Stage 2 below runs the full
+    # tests/ tree same as ci.yml's `test` jobs, so it needs the same
+    # collectability; requirements-test.txt is the pinned source (0.1.9),
+    # this line intentionally stays unpinned to match its pytest/pyyaml
+    # neighbors above.
     pass "3.12 dependency install" "clean install, no version conflicts"
   else
     fail "3.12 dependency install" "pip install failed — see output above"
