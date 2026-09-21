@@ -23,6 +23,7 @@ import json
 import os
 import subprocess  # noqa: S404 -- argv-list reindex trigger only; never shell=True
 import sys
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
@@ -173,14 +174,16 @@ class FsIndexer:
         files = data.get("files") if isinstance(data, dict) else None
         return files if isinstance(files, dict) else {}
 
-    def _save_cache(self, staging: Path, manifest: list[dict]) -> None:
+    def _save_cache(self, staging: Path, manifest: list[dict], *, prior: dict | None = None) -> None:
         """Persist the skip-cache from this run's manifest (atomic tmp + os.replace).
 
         Only successfully-read/unchanged entries (those carrying a content hash and
         a modtime) are kept; too_large / read_error rows and files that vanished from
-        the share are dropped, so the cache self-prunes each run.
+        the share are dropped, so the cache self-prunes each successful run.
+        On prune failure, merge with prior ownership so old and newly staged
+        files can both be pruned on retry.
         """
-        files: dict[str, dict] = {}
+        files: dict[str, dict] = dict(prior or {})
         for m in manifest:
             if "sha256" not in m:
                 continue
@@ -265,9 +268,13 @@ class FsIndexer:
         # share. A transient read_error self-heals on the next successful run.
         # Pruning itself is ownership-bounded by the prior cache (see
         # _prune_staging), so only files CyClaw staged can ever be removed.
-        pruned = self._prune_staging(
-            staging, {m["path"] for m in manifest if "skipped" not in m}, cache
-        )
+        try:
+            pruned = self._prune_staging(
+                staging, {m["path"] for m in manifest if "skipped" not in m}, cache
+            )
+        except FsConnectRuntimeError:
+            self._save_cache(staging, manifest, prior=cache)
+            raise
 
         unchanged = sum(1 for m in manifest if m.get("unchanged"))
         # ALWAYS save the cache: it is next run's ownership record for pruning
@@ -303,7 +310,8 @@ class FsIndexer:
         Comparison keys are ``os.path.normcase``-normalized (review P1): on
         Windows a case-only rename (Notes.md -> notes.md) must not classify
         the current staged file as stale and delete it. normcase is the
-        identity on POSIX, so behavior there is unchanged.
+        identity on POSIX. For case/Unicode spelling changes, also compare
+        filesystem identity: macOS volumes can be case-insensitive too.
 
         Only files are removed -- empty directories are harmless (the
         retrieval indexer ingests files, not directories) and pruning them
@@ -314,18 +322,25 @@ class FsIndexer:
         if not staging.is_dir() or not prior:
             return pruned
         current_keys = {os.path.normcase(p) for p in current}
+        current_paths: dict[str, list[Path]] = {}
+        for rel in current:
+            key = unicodedata.normalize("NFD", rel).casefold()
+            current_paths.setdefault(key, []).append(staging.joinpath(*split_components(rel)))
         for rel in sorted(prior):
             if os.path.normcase(rel) in current_keys:
                 continue
             target = staging.joinpath(*split_components(rel))
             try:
                 if target.is_file():
+                    key = unicodedata.normalize("NFD", rel).casefold()
+                    if any(target.samefile(path) for path in current_paths.get(key, [])):
+                        continue
                     target.unlink()
                     pruned.append(rel)
-            except OSError:
-                # A file that cannot be removed must not abort the run; it is
-                # left staged and retried on the next apply.
-                continue
+            except OSError as exc:
+                # Do not reindex stale content or discard the ownership needed to retry.
+                raise FsConnectRuntimeError("staged file pruning failed",
+                                            details={"error_type": type(exc).__name__}) from exc
         return pruned
 
     def _run_reindex(self) -> bool:
