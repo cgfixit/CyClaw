@@ -173,6 +173,6 @@ pygments==2.21.0
 # carries no gate risk. Both versions verified present on conda-forge too, since
 # environment.yml carries the same pins and a conda-only version would break that
 # lane's solve. bandit is already at its latest release (1.9.4) — left alone.
-ruff==0.16.1
+ruff==0.16.8
 mypy==2.3.0
 bandit==1.9.4
