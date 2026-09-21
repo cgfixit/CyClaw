@@ -136,6 +136,16 @@ class TestEmbeddingsCfg:
         cfg_path = _write_cfg(tmp_path, model="my-model", offline_after_index=True)
         assert embeddings._embeddings_cfg(cfg_path) == ("my-model", "", True)
 
+    def test_quoted_string_false_does_not_enable_flag(self, tmp_path):
+        # A quoted "false" is an easy typo and parses to the Python string
+        # "false" -- bool("false") is True, which would enable the opt-in
+        # exactly backwards (caught in review). Only the literal boolean
+        # true may enable it.
+        p = tmp_path / "config.yaml"
+        with open(p, "w", encoding="utf-8") as f:
+            f.write('models:\n  embeddings:\n    model: my-model\n    offline_after_index: "false"\n')
+        assert embeddings._embeddings_cfg(str(p)) == ("my-model", "", False)
+
     def test_cfg_cached_per_path(self, tmp_path):
         cfg_path = _write_cfg(tmp_path)
         first = embeddings._embeddings_cfg(cfg_path)
@@ -368,18 +378,36 @@ class TestOfflineEligibility:
 
 
 class TestIndexOrBm25Present:
-    """_index_or_bm25_present -- backs offline_after_index (#1255 Phase B)."""
+    """_index_or_bm25_present -- backs offline_after_index (#1255 Phase B).
+
+    Checks the BM25 sidecar file only, not the Chroma directory -- see the
+    function's own docstring for why a bare Chroma directory is NOT a valid
+    "index present" signal (retrieval.indexer.build_index()'s
+    _ChromaWriter.reset() mkdir()s it before any embedding is ever fetched,
+    which was a real bug: an empty, just-created directory used to read as
+    "present").
+    """
 
     def test_false_when_neither_present(self, tmp_path):
         cfg_path = _write_cfg(tmp_path)
         assert embeddings._index_or_bm25_present(cfg_path) is False
 
-    def test_true_when_chroma_dir_present(self, tmp_path):
+    def test_false_when_only_chroma_dir_present(self, tmp_path):
+        # Reproduces the exact ordering bug (caught in review): build_index()
+        # calls writer.reset() -- which mkdir()s chroma_path -- BEFORE the
+        # batch loop that fetches any embedding. A bare, empty chroma_db
+        # directory must NOT read as "an index already exists," or a
+        # machine's first-ever build would be wrongly forced offline the
+        # moment reset() ran, before the embedding model was ever cached.
         cfg_path = _write_cfg(tmp_path)
         (tmp_path / "index" / "chroma_db").mkdir(parents=True)
-        assert embeddings._index_or_bm25_present(cfg_path) is True
+        assert embeddings._index_or_bm25_present(cfg_path) is False
 
     def test_true_when_bm25_file_present(self, tmp_path):
+        # The BM25 file is written LAST in build_index() (atomic os.replace,
+        # after every embedding batch has already been fetched/generated),
+        # so its presence is the one artifact that reliably means "a full
+        # index build already completed."
         cfg_path = _write_cfg(tmp_path)
         (tmp_path / "index").mkdir()
         (tmp_path / "index" / "bm25.json").write_text("{}", encoding="utf-8")
@@ -402,8 +430,12 @@ class TestOfflineAfterIndex:
 
     - a fresh machine with neither an index nor a cached model still
       bootstraps normally (local_files_only=False) regardless of the flag
-    - with an existing index AND the flag on, a cold HF-cache probe still
-      forces local_files_only=True (no HF egress)
+    - with an existing (COMPLETED) index AND the flag on, a cold HF-cache
+      probe still forces local_files_only=True (no HF egress)
+    - a build in progress -- writer.reset() has run (mkdir'd chroma_path)
+      but no embedding batch has completed yet -- must NOT be mistaken for
+      a completed index (the ordering bug caught in review; see
+      test_index_build_in_progress_does_not_force_offline below)
     """
 
     @pytest.fixture(autouse=True)
@@ -411,6 +443,17 @@ class TestOfflineAfterIndex:
         embeddings._load_model.cache_clear()
         yield
         embeddings._load_model.cache_clear()
+
+    @pytest.fixture(autouse=True)
+    def _clean_offline_env(self, monkeypatch):
+        # _load_model sets these directly via os.environ[...] = "1" (not via
+        # monkeypatch), so without this, a real assignment during one test
+        # leaks into every later test/subprocess in the same session (caught
+        # in review) -- mirrors TestOfflineEligibility's identical fixture.
+        # monkeypatch.delenv restores both back to their pre-test state
+        # (unset) at teardown regardless of what _load_model set them to.
+        monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+        monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
 
     def _install_fake_sentence_transformers(self, monkeypatch):
         captured = {}
@@ -424,6 +467,12 @@ class TestOfflineAfterIndex:
             type("_Mod", (), {"SentenceTransformer": _fake_ctor})(),
         )
         return captured
+
+    def _write_completed_index(self, tmp_path):
+        # The one filesystem state that actually means "a full index build
+        # already completed" -- see _index_or_bm25_present's docstring.
+        (tmp_path / "index").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "index" / "bm25.json").write_text("{}", encoding="utf-8")
 
     def test_fresh_machine_no_index_flag_off_still_bootstraps(self, monkeypatch, tmp_path):
         cfg_path = _write_cfg(tmp_path, offline_after_index=False)
@@ -441,9 +490,25 @@ class TestOfflineAfterIndex:
         embeddings._load_model("some-model", "", True, cfg_path)
         assert captured.get("local_files_only") is False
 
+    def test_index_build_in_progress_does_not_force_offline(self, monkeypatch, tmp_path):
+        # Reproduces the exact ordering bug (caught in review):
+        # retrieval.indexer.build_index() calls _ChromaWriter.reset() -- which
+        # mkdir()s chroma_path -- BEFORE the batch loop that calls
+        # get_embeddings_batch() (and therefore _load_model) even once. A
+        # bare, freshly-created chroma_db directory with no bm25.json yet
+        # must NOT read as "an index exists," or a machine's first-ever
+        # build would be wrongly forced offline mid-build, before the
+        # embedding model was ever cached.
+        cfg_path = _write_cfg(tmp_path, offline_after_index=True)
+        (tmp_path / "index" / "chroma_db").mkdir(parents=True)  # writer.reset()'s side effect
+        monkeypatch.setattr(embeddings, "_model_offline_eligible", lambda name, cache: False)
+        captured = self._install_fake_sentence_transformers(monkeypatch)
+        embeddings._load_model("some-model", "", True, cfg_path)
+        assert captured.get("local_files_only") is False
+
     def test_index_present_flag_on_cold_probe_forces_offline(self, monkeypatch, tmp_path):
         cfg_path = _write_cfg(tmp_path, offline_after_index=True)
-        (tmp_path / "index" / "chroma_db").mkdir(parents=True)
+        self._write_completed_index(tmp_path)
         # Cold HF-cache probe (model not yet fetched) must still be overridden
         # by the on-disk index -- this is the whole point of the flag.
         monkeypatch.setattr(embeddings, "_model_offline_eligible", lambda name, cache: False)
@@ -455,7 +520,7 @@ class TestOfflineAfterIndex:
         # The flag itself is opt-in (ships false) -- an index on disk must not
         # silently change behavior when the operator never enabled it.
         cfg_path = _write_cfg(tmp_path, offline_after_index=False)
-        (tmp_path / "index" / "chroma_db").mkdir(parents=True)
+        self._write_completed_index(tmp_path)
         monkeypatch.setattr(embeddings, "_model_offline_eligible", lambda name, cache: False)
         captured = self._install_fake_sentence_transformers(monkeypatch)
         embeddings._load_model("some-model", "", False, cfg_path)

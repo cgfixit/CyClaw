@@ -124,15 +124,32 @@ def resolve_cache_dir(config_path: str, cache_dir: str | None) -> str:
 
 
 def _index_or_bm25_present(config_path: str) -> bool:
-    """True if a retrieval index (Chroma dir or BM25 json) already exists on disk.
+    """True if a COMPLETED retrieval index (BM25 json) already exists on disk.
 
     Backs the ``offline_after_index`` config flag (#1255 Phase B): an existing
     index means the embedding model was already used once to build it, so on a
     cache-probe miss it is still safe to refuse a fresh HF fetch rather than
     guess -- unlike a genuinely fresh machine, which must be allowed to
-    bootstrap normally. Reads ``indexing.chroma_path``/``indexing.bm25_path``
-    straight from the raw config rather than threading them through
-    ``_embeddings_cfg`` (which only ever parsed ``models.embeddings``).
+    bootstrap normally. Reads ``indexing.bm25_path`` straight from the raw
+    config rather than threading it through ``_embeddings_cfg`` (which only
+    ever parsed ``models.embeddings``).
+
+    Deliberately checks ONLY the BM25 sidecar, not ``indexing.chroma_path`` --
+    a prior version of this function also treated an existing Chroma
+    directory as "present," which was a real bug (caught in review):
+    ``retrieval.indexer.build_index()`` calls ``_ChromaWriter.reset()``,
+    which unconditionally ``mkdir()``s ``chroma_path`` as its very first
+    action, BEFORE the batch loop that calls ``get_embeddings_batch()`` (and
+    therefore this function, via ``_load_model()``) even once. On a
+    machine's first-ever build, a directory-existence check would see
+    "present" the moment ``reset()`` ran and force
+    ``local_files_only=True`` before the embedding model has ever been
+    cached -- breaking the exact fresh-bootstrap case this flag's own
+    design promises never to break. The BM25 file, by contrast, is written
+    LAST in ``build_index()``, via an atomic ``os.replace()`` strictly after
+    every embedding batch has already been fetched/generated -- its
+    presence is the one filesystem artifact that reliably means "a full
+    index build already completed," which is what this flag needs to know.
 
     Any ambiguity -- unreadable/unparseable config, missing keys -- resolves to
     False, the same fail-safe direction ``_model_offline_eligible`` takes: when
@@ -142,11 +159,10 @@ def _index_or_bm25_present(config_path: str) -> bool:
         with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         indexing_cfg = cfg["indexing"]
-        chroma_path = resolve_cache_dir(config_path, indexing_cfg.get("chroma_path", ""))
         bm25_path = resolve_cache_dir(config_path, indexing_cfg.get("bm25_path", ""))
     except Exception:  # noqa: BLE001 -- a config-read failure must never force offline mode
         return False
-    return (bool(chroma_path) and Path(chroma_path).is_dir()) or (bool(bm25_path) and Path(bm25_path).is_file())
+    return bool(bm25_path) and Path(bm25_path).is_file()
 
 
 @lru_cache(maxsize=1)
@@ -230,13 +246,21 @@ def _embeddings_cfg(config_path: str) -> tuple:
     Returns (model_name, cache_dir, offline_after_index). Uses a context
     manager so the config file handle is always closed -- the previous
     ``yaml.safe_load(open(path))`` form leaked a descriptor on every call.
+
+    ``offline_after_index`` is compared against the literal ``True``, not
+    coerced with ``bool()`` -- ``bool()`` makes every non-empty YAML scalar
+    truthy, so a quoted ``offline_after_index: "false"`` (an easy typo) would
+    parse to the Python string ``"false"`` and enable the opt-in exactly
+    backwards (caught in review). Anything other than the literal boolean
+    ``true`` -- a stray string, 1, etc. -- resolves to disabled, the same
+    fail-safe direction the rest of this opt-in already takes.
     """
     with open(config_path, encoding="utf-8") as f:
         emb_cfg = yaml.safe_load(f)["models"]["embeddings"]
     return (
         emb_cfg["model"],
         resolve_cache_dir(config_path, emb_cfg.get("cache_dir", "")),
-        bool(emb_cfg.get("offline_after_index", False)),
+        emb_cfg.get("offline_after_index", False) is True,
     )
 
 

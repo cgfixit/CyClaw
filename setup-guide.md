@@ -852,8 +852,10 @@ network kill switch: CyClaw's intentional egress (cloud fallbacks, channels,
 sync) is governed by its own gates, classified in SECURITY.md.
 `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` are the one deliberate exception:
 CyClaw sets those two itself, but only once it has confirmed the embedding
-model is already cached on disk, so a brand-new install can still complete
-its one-time model download. See
+model is already cached on disk (or, with the opt-in
+`models.embeddings.offline_after_index` flag enabled, once a retrieval index
+has already been built — #1255 Phase B, default `false`), so a brand-new
+install can still complete its one-time model download. See
 `docs/security-philosophy/cyclaw_telemetry_kill.env` for the full reference
 list if you want to source it by hand for a locked-down deployment (it uses
 `export` lines, so children of your shell really inherit it).
