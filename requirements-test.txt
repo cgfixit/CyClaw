@@ -20,3 +20,13 @@ pygments==2.21.0
 # offset and needs no IANA tzdb -- so the wheel and the Docker image should not
 # carry it. constraints.txt still pins it as a version ceiling.
 tzdata==2026.2
+
+# sqlite-vec (issue #1255 Phase C spike): test-only, NOT wired into
+# retrieval/vector_store.py yet (that is Phase D, gated on this spike's
+# findings). Lives here rather than requirements.txt for the same reason as
+# tzdata above -- no production module imports it, so the wheel/Docker image
+# should not carry it. Its one job right now is to let
+# tests/test_sqlite_vec_extension_loading.py prove enable_load_extension +
+# sqlite_vec.load() work on all 3 CI-matrix OSes (the macOS gap the issue
+# flagged) via the existing install step -- no new CI job needed.
+sqlite-vec==0.1.9

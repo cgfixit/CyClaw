@@ -520,6 +520,18 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "reaches (see LAST_VERIFIED_VENDOR_PINS comment) -- hub traffic shape unchanged",
     },
     {
+        "name": "sqlite-vec", "category": 5, "controls": {},
+        "url": "https://github.com/asg017/sqlite-vec",
+        "versions": "==0.1.9 (requirements-test.txt / constraints.txt / pyproject.toml test extra; "
+                    "test-only -- #1255 Phase C spike, tests/test_sqlite_vec_extension_loading.py)",
+        "enforcement": "no telemetry/update-check mechanism found; a pure computational SQLite loadable "
+                       "extension (vec0 virtual tables) with no network imports in its published wheel -- "
+                       "no control to invent",
+        "scope": "test-only; not imported by any of the core six or a production code path",
+        "reviewed": "2026-09-21",
+        "evidence": "negative finding; source is a single compiled extension binary, no HTTP client linked in",
+    },
+    {
         "name": "core web/runtime libs", "category": 5, "controls": {},
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic/numpy/nltk/pyyaml/rank-bm25/pygments/"
@@ -571,6 +583,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "openssl": "core web/runtime libs",
     "cel-python": "numbat projection (+ cel-python)",
     "netconnect": "netconnect passive LAN inventory",
+    "sqlite-vec": "sqlite-vec",
     # bulk category-5 members
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
     "uvicorn": "core web/runtime libs", "httpx": "core web/runtime libs",

@@ -112,6 +112,14 @@ psycopg-binary==3.3.6
 pgvector==0.5.0
 pyodbc==5.3.0
 
+# sqlite-vec (#1255 Phase C spike): test-only for now -- proves
+# enable_load_extension + sqlite_vec.load() work across the 3-OS CI matrix
+# (the real open question, per the issue's macOS gap) before any production
+# wiring. Latest STABLE release, not the in-flight 0.1.10 DiskANN alpha.
+# See tests/test_sqlite_vec_extension_loading.py and
+# scripts/compare_vector_backends.py.
+sqlite-vec==0.1.9
+
 # Optional NeMo Guardrails layer (pyproject extra: guardrails). This is not
 # installed by the default offline runtime; the constraint keeps the opt-in
 # resolve aligned with pyproject.toml.
