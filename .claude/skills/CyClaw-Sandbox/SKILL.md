@@ -211,8 +211,8 @@ warns loudly when you do this on purpose.
 ### 5. Live gate (:8787)
 
 ```bash
-CYCLAW_API_KEY=$CYCLAW_API_KEY GROK_API_KEY=dummy nohup python3.12 -m uvicorn gate:app \
-  --host 127.0.0.1 --port 8787 >/tmp/gate.log 2>&1 &
+CYCLAW_API_KEY=$CYCLAW_API_KEY GROK_API_KEY=dummy nohup python3.12 -m uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers \
+  >/tmp/gate.log 2>&1 &
 for i in $(seq 1 40); do curl -sf 127.0.0.1:8787/health >/dev/null && break; sleep 0.5; done
 python3.12 .claude/skills/CyClaw-Sandbox/gate_runtime_check.py
 python3.12 .claude/skills/CyClaw-Sandbox/terminal_emulation.py http://127.0.0.1:8787

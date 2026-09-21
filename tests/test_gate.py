@@ -1655,6 +1655,31 @@ class TestProxyHeaderTrust:
         assert "--no-proxy-headers" in runner
         assert '"-m", "uvicorn", "gate:app"' in runner
 
+        # Copy-paste recipes (skill docs, smoke prereqs, how-tos) are not
+        # live spawners, but operators follow them. A line that names both
+        # `uvicorn gate:app` and `--host` is a start command; require the
+        # same flag. Mentions without `--host` (known-limitation notes) stay
+        # out of this contract.
+        recipe_docs = (
+            root / ".claude" / "skills" / "CyClaw-Sandbox" / "SKILL.md",
+            root / ".claude" / "skills" / "speed-refactor" / "SKILL.md",
+            root / ".claude" / "skills" / "CyClaw-Sandbox" / "macos-smoke.sh",
+            root / ".claude" / "skills" / "CyClaw-Sandbox" / "windows-smoke.ps1",
+            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "macos-smoke.sh",
+            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "windows-smoke.ps1",
+            root / "docs" / "! How-To-Guides" / "OLLAMA_SETUP.md",
+        )
+        for path in recipe_docs:
+            spawn = [
+                line
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if "uvicorn gate:app" in line and "--host" in line
+            ]
+            assert spawn, f"{path} no longer documents a uvicorn gate:app --host recipe"
+            assert all("--no-proxy-headers" in line for line in spawn), (
+                f"{path} uvicorn recipe must pass --no-proxy-headers to match gate._serve"
+            )
+
 
 class TestListenPort:
     """macos/invoke-cyclaw.sh exports CYCLAW_GATE_PORT; main() must honor it
