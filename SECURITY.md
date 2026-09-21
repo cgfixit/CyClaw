@@ -90,8 +90,10 @@ or launcher lands unclassified:
    set), rclone/Dropbox corpus sync, operator-configured SQL endpoints, the
    and the one-time embedding-model
    bootstrap fetch (`HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` stay conditional
-   on the model being cached). Never mislabeled as telemetry, never blocked
-   by the kill maps.
+   on the model being cached, or on the opt-in
+   `models.embeddings.offline_after_index` flag plus a completed retrieval
+   index already on disk — #1255 Phase B, default `false`). Never mislabeled
+   as telemetry, never blocked by the kill maps.
 4. **Local-only observability/storage** — `audit.jsonl`, `spend.jsonl`, and
    the Numbat projection (`logs/numbat-events.ndjsonl`): a **second sensitive
    local log**, not telemetry — every event carries hostname/username/uid

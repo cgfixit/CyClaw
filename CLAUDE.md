@@ -402,7 +402,12 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   guaranteed failure on any machine that has never run CyClaw before.
   `_load_model` sets both, but only after `_model_offline_eligible` confirms
   the model is already on disk via `huggingface_hub.try_to_load_from_cache`
-  (network-free) — never unconditionally, and never by clearing an operator's
+  (network-free), **or** the opt-in `models.embeddings.offline_after_index`
+  flag (#1255 Phase B, default `false`) is `true` **and** a completed
+  retrieval index already exists on disk (`_index_or_bm25_present` — the
+  BM25 sidecar file specifically, not the Chroma directory, since
+  `_ChromaWriter.reset()` creates that directory before any embedding is
+  ever fetched) — never unconditionally, and never by clearing an operator's
   own stricter choice if they sourced the `.env` file by hand. The env vars
   alone do NOT enforce this in-process (the probe's own `huggingface_hub`
   import latches the offline constant before the vars are set) — the actual
