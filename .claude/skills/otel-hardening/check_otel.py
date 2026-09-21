@@ -126,9 +126,18 @@ SHELL_ONLY_ENV_KEYS: frozenset[str] = frozenset({"HOMEBREW_NO_ANALYTICS", "HF_HU
 # WARNs: not a proven leak, but the prompt to re-run the live-search half.
 LAST_VERIFIED_VENDOR_PINS = {
     "chromadb": "1.5.9",
-    "langchain": "1.3.14",
-    "langchain-core": "1.5.0",
-    "langgraph": "1.2.9",
+    # 1.3.14 -> 1.4.2 / langchain-core 1.5.0 -> 1.6.3 / langgraph 1.2.9 -> 1.2.11
+    # re-verified 2026-09-21 against the installed sources, not just docs: a
+    # recursive grep of langchain/, langchain_core/, and langgraph/ for
+    # telemetry|analytics|usage_stat|posthog|segment.io|mixpanel turns up
+    # zero real hits (the one langchain match is a docstring table row in
+    # agents/middleware/pii.py labeling a PII-redaction *output mode* as
+    # useful "for Analytics, debugging" -- not a telemetry call). langgraph's
+    # own package carries no telemetry mechanism, matching the pre-existing
+    # "langgraph-cli analytics" inventory row's own note.
+    "langchain": "1.4.2",
+    "langchain-core": "1.6.3",
+    "langgraph": "1.2.11",
     # 0.23.0 -> 0.24.0 re-verified 2026-08-27 against the installed 0.24.0
     # source: nemoguardrails/telemetry.py:372-374 still honors
     # NEMO_GUARDRAILS_NO_USAGE_STATS and DO_NOT_TRACK (1/true); the usage
@@ -148,8 +157,21 @@ LAST_VERIFIED_VENDOR_PINS = {
     # Not a pyproject direct pin -- lives in constraints.txt (deepagents
     # transitive). Tracked here because the whole 4-name LANGSMITH_/LANGCHAIN_
     # tracing block defends against exactly this package; verified 2026-08-15
-    # (precedence in utils.py:141/get_env_var) and re-confirmed 2026-08-27.
-    "langsmith": "0.10.15",
+    # (precedence in utils.py:141/get_env_var), re-confirmed 2026-08-27, and
+    # re-verified again 0.10.15 -> 0.13.0 (2026-09-21) against the installed
+    # 0.13.0 source: the flat env-var check moved into a generic
+    # get_env_var(name, namespaces=("LANGSMITH","LANGCHAIN")) helper
+    # (utils.py, now a functools.lru_cache'd function rather than an inline
+    # check), but tracing_is_enabled() still resolves the exact same
+    # LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING >
+    # LANGCHAIN_TRACING precedence CyClaw's kill map forces to "false". 0.13.0
+    # also adds a new LANGSMITH_TRACING_MODE env var (client.py
+    # _resolve_tracing_mode) that only chooses between the langsmith-native
+    # and OTEL *backends* for a trace -- CyClaw never sets it, so it falls
+    # through to the legacy LANGSMITH_OTEL_ENABLED check (still honored via
+    # the same get_env_var helper), and moot either way since tracing itself
+    # stays off. All 5 scrubbed credential/destination names are untouched.
+    "langsmith": "0.13.0",
 }
 
 # Transitive-only vendors (no direct pyproject pin). Best-effort INFO context
@@ -208,19 +230,22 @@ INVENTORY: tuple[dict[str, object], ...] = (
                      "LANGSMITH_TRACING": "false", "LANGCHAIN_TRACING": "false",
                      "LANGSMITH_OTEL_ENABLED": "false"},
         "url": "https://docs.smith.langchain.com/observability/how_to_guides/trace_with_langchain",
-        "versions": "langchain==1.3.14, langchain-core==1.5.0, langgraph==1.2.9, langsmith==0.10.15",
+        "versions": "langchain==1.4.2, langchain-core==1.6.3, langgraph==1.2.11, langsmith==0.13.0",
         "enforcement": "env before import (get_env_var lru_cache latches); 5 credential/destination "
                        "names popped; upload attempted even with no API key, so the pop alone is not enough",
         "scope": "every graph invocation",
-        "reviewed": "2026-08-27",
+        "reviewed": "2026-09-21",
         "evidence": "precedence LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING > "
-                    "LANGCHAIN_TRACING confirmed in installed langsmith 0.10.15 utils.py:141",
+                    "LANGCHAIN_TRACING re-confirmed in installed langsmith 0.13.0 (tracing_is_enabled() "
+                    "-> get_env_var(\"TRACING_V2\", default=get_env_var(\"TRACING\")) in utils.py, refactored "
+                    "from the old flat check but identical env-var precedence); langchain/langchain-core/"
+                    "langgraph carry no telemetry of their own (see LAST_VERIFIED_VENDOR_PINS comment)",
     },
     {
         "name": "langgraph-cli analytics", "category": 1,
         "controls": {"LANGGRAPH_CLI_NO_ANALYTICS": "1"},
         "url": "https://github.com/langchain-ai/langgraph/tree/main/libs/cli",
-        "versions": "langgraph==1.2.9 family", "enforcement": "env before any CLI use",
+        "versions": "langgraph==1.2.11 family", "enforcement": "env before any CLI use",
         "scope": "dev tooling only (no runtime path invokes the CLI)",
         "reviewed": "2026-08-15", "evidence": "belt-and-suspenders; runtime langgraph carries no own telemetry",
     },
