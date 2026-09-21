@@ -95,8 +95,16 @@ class _SqliteVecPrototype:
         )
 
     def add(self, ids: list[str], documents: list[str], embeddings: list, metadatas: list[dict]) -> None:
+        # Monotonic rowid, not hash(ids[i]) -- Python's str hash is
+        # PYTHONHASHSEED-randomized per process and truncating it to 31 bits
+        # has a real collision chance at corpus scale (~19% around 30k
+        # chunks per the birthday bound), which would make the second
+        # INSERT fail nondeterministically on the rowid primary key (a
+        # Codex review finding). ids[i] is already unique by construction
+        # (main()'s f"chunk_{i}"), so the loop index is a simpler, always-
+        # collision-free stand-in.
         for i, (doc, emb, meta) in enumerate(zip(documents, embeddings, metadatas, strict=True)):
-            rowid = len(documents) * 0 + hash(ids[i]) & 0x7FFFFFFF  # noqa: S324 -- unique int, not security-relevant
+            rowid = i
             self._conn.execute(
                 "INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)", [rowid, _serialize(emb)]
             )
@@ -171,7 +179,16 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         embeddings = get_embeddings_batch(chunks, config_path_str)
-    except RAGError as exc:
+    except (RAGError, ImportError, OSError, RuntimeError, ValueError) as exc:
+        # get_embeddings_batch() deliberately does NOT wrap _load_model()
+        # failures in RAGError (retrieval/embeddings.py's own docstring: the
+        # index-build path must abort loudly, unlike the query path's
+        # _cached_embedding, which does wrap for soft-degrade). A missing
+        # sentence-transformers package, corrupt cache, or model-load
+        # RuntimeError would otherwise escape this except block as an
+        # unhandled traceback exiting 1 instead of this script's documented
+        # exit 3 (a Codex review finding) -- catch the same raw exception
+        # types _cached_embedding itself catches internally.
         print(f"Environment/config error: {exc}", file=sys.stderr)
         return 3
     ids = [f"chunk_{i}" for i in range(len(chunks))]
@@ -243,7 +260,13 @@ def main(argv: list[str] | None = None) -> int:
         top1_agree += int(agree)
         c_set = {(h["source"], h["text"][:40]) for h in c_hits}
         s_set = {(h["source"], h["text"][:40]) for h in s_hits}
-        overlap = len(c_set & s_set) / max(len(c_set | s_set), 1)
+        # overlap@k = |intersection| / k, not Jaccard (|intersection| /
+        # |union|) -- dividing by the union understates agreement whenever
+        # the two top-k lists aren't identical (e.g. 4 shared hits out of
+        # two 5-result lists is 4/5 = 0.8 overlap@5, not 4/6 = 0.667 Jaccard,
+        # a Codex review finding that would otherwise distort the Phase D
+        # agreement read).
+        overlap = len(c_set & s_set) / max(args.k, 1)
         overlap_sum += overlap
         per_query.append({
             "probe": probe, "top1_agree": agree,
