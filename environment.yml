@@ -146,7 +146,18 @@ dependencies:
   # with no matching pygments pin of its own until now.
   - pygments=2.21.0
   - pytest-asyncio=1.4.0
-  - ruff=0.16.8
+  # NOT 0.16.8 to match the pip path (pyproject.toml/constraints.txt/
+  # requirements.txt): conda-forge's ruff-feedstock has not published a
+  # 0.16.8 build as of this pin (checked 2026-09-21 -- confirmed live as a
+  # mamba solve failure in this exact CI lane, "ruff =0.16.8 * does not
+  # exist"; conda-forge's own listing currently tops out at 0.16.7). Fifth
+  # deliberate pip/conda divergence, same shape as the fastapi one below: an
+  # upstream-availability gap, not a design choice -- bump this line back in
+  # step the next time conda-forge's feedstock catches up. Unlike the
+  # sentence-transformers gap, conda-forge is only one patch release behind
+  # here, so this still moves the conda lane forward from 0.16.1 -> 0.16.7
+  # rather than leaving it pinned to the old pip-path version.
+  - ruff=0.16.7
   - mypy=2.3.0
   - bandit=1.9.4
   - pytest-cov=7.1.0

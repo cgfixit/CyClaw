@@ -382,9 +382,14 @@ _ENV_SKIP = {"python", "pip"}
 #   (confirmed 2026-09-21 as a live mamba solve failure in the conda CI lane
 #   the moment the pip pin moved to 6.1.0). Drop this entry once conda-forge
 #   catches up and environment.yml's pin is bumped back in step.
+# - ruff: an upstream-availability gap, not a design choice -- conda-forge's
+#   feedstock has not published a build past 0.16.7 yet (confirmed 2026-09-21
+#   as a live mamba solve failure in this exact CI lane the moment the pip
+#   pin moved to 0.16.8). Drop this entry once conda-forge catches up.
 _ENV_DOCUMENTED_DIVERGENCE = {
     "fastapi": "conda-forge chromadb build pins it",
     "sentence-transformers": "conda-forge feedstock has no build past 6.0.1 yet",
+    "ruff": "conda-forge feedstock has no build past 0.16.7 yet",
 }
 # Two pin forms in the file: conda deps ("  - name=1.2.3", single '=') and the
 # pip: sublist ("      - name==1.2.3"). The conda pattern anchors the version
