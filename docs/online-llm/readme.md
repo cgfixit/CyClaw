@@ -12,13 +12,15 @@ CyClaw now has two optional online choices after a vault miss:
 - **Send to Claude** uses the Anthropic Claude API.
 
 Both providers ship **enabled** in `config.yaml`, and `app.mode` ships
-`"hybrid"` (armed since 2026-08-07). The triple gate still applies per query:
-a provider only runs when CyClaw is in hybrid mode, that provider is enabled
-in `config.yaml`, the matching API key exists in the environment, and the
-user explicitly confirms the online send — no online **fallback/generation**
-call happens without that confirmation. (The one other online-touching path
-is the opt-in `/health` provider probe, `api.health_probe_external_providers`,
-which ships `false` — see "Quick Local Check" below.)
+`"hybrid"` (armed since 2026-08-07). The triple gate is still three
+conditions: `app.mode` is `hybrid`, that provider's `enabled` flag is true,
+and the request carries `user_confirmed_online: true`. A missing API key is
+a separate check — the client can be constructed and still report
+`is_available()` false, and the router then stays on the local answer. No
+online **fallback/generation** call happens without that confirmation. (The
+one other online-touching path is the opt-in `/health` provider probe,
+`api.health_probe_external_providers`, which ships `false` — see "Quick
+Local Check" below.)
 
 ## API Keys
 

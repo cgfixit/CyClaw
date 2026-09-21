@@ -21,7 +21,7 @@ that document is the authority; this file is the in-tree map.
 | `runner.py` | `send_notify` (T1) and `poll_forever` (T2) orchestration, allowlist enforcement. |
 | `ratelimit.py` | Channel-side op budget, separate from the gate's per-IP limiter. |
 | `media.py` | T4 media staging (default off); writes only through the existing `agentic/fsconnect` write path. |
-| `state.py` | Long-poll offset persistence. |
+| `state.py` | Long-poll offset persistence and per-chat T3 hybrid-confirm session state (default off). Never stores bot tokens or message text. |
 | `selftest.py` | Pre-flight checks behind `telegram test`. |
 
 ## Consent boundaries that matter

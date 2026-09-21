@@ -1207,7 +1207,7 @@ name-reopen junction swaps.
 - **Reads** (`fs_list` / `fs_stat` / `fs_read` / `fs_grep` / `fs_glob` /
   `fs_largest`) are confined to `allowed_roots`, audited, capped at 5 MiB, and
   content-scanned (OWASP ∪ `banned_patterns`, advisory).
-- **Writes** (`fs_write` / `fs_append` / `fs_mkdir` / `fs_move`) ship
+- **Writes** (`fs_write` / `fs_append` / `fs_mkdir` / `fs_move` / `fs_delete`) ship
   **`writes_enabled: false`**; confined to a **separate** `writable_roots` list;
   gated by a human `reason` (+ `--confirm` for destructive ops); atomic
   (`tmp` + `os.replace`); content-agnostic (never calls the LLM). A code-level
@@ -1463,10 +1463,10 @@ CyClaw/
 ├── mcp_hybrid_server.py        # retrieval-only MCP server
 ├── memory/                     # optional facts + episodes store (default-off)
 │   ├── README.md               # package pointer (not docs/memories/)
-│   ├── store.py                # SQLite + FTS5 backend for facts/episodes
+│   ├── store.py                # SQLite + FTS5; non-fatal episode staging (stage_episode)
 │   ├── policy.py               # propose/apply governance (reason required, injection scan)
 │   ├── retrieval_adapter.py    # optional fusion hook into hybrid retrieval
-│   ├── mirror.py               # episode staging (lazy, non-fatal)
+│   ├── mirror.py               # /memory/status dict + GET /query/export/html
 │   ├── consolidation.py        # stub — stay false in v1
 │   └── models.py               # typed request/response shapes
 ├── agentic/                    # out-of-band GitHub context + governed registry (see README.md)
@@ -1481,7 +1481,7 @@ CyClaw/
 │   ├── executor/               # sandboxed argv-list check runner; required fail-closed hard sandbox (hard_sandbox.py)
 │   ├── fsconnect/              # local/SMB filesystem connector
 │   │   ├── cli.py
-│   │   ├── client.py           # scoped reads (fs_list/stat/read/grep)
+│   │   ├── client.py           # scoped reads (fs_list/stat/read/grep/glob/largest)
 │   │   ├── pathsafe.py         # held-handle containment core (POSIX + Windows reads)
 │   │   ├── writer.py           # gated, atomic writes (default-disabled)
 │   │   └── indexer.py          # toggleable RAG-corpus indexing of the share
@@ -1513,7 +1513,7 @@ CyClaw/
 │   ├── client.py               # Bot API client — outbound notify + long-poll inbound chat
 │   ├── config.py               # loads config.yaml's `telegram:` block
 │   ├── runner.py               # long-poll loop; answers via loopback POST /query only
-│   ├── state.py                # T3 hybrid-confirm consent state (default off)
+│   ├── state.py                # long-poll offset + per-chat T3 hybrid-confirm session (default off)
 │   ├── media.py                # T4 attachment staging via agentic/fsconnect (default off)
 │   └── ratelimit.py
 ├── opentweet/                  # optional X channel (out-of-band), shipped enabled: false
