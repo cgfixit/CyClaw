@@ -667,3 +667,41 @@ class TestBM25ScoreCache:
         second = r.hybrid_search("retrieval augmented generation")
         assert [h.rrf_score for h in first] == [h.rrf_score for h in second]
         assert [h.score for h in first] == [h.score for h in second]
+
+
+@pytest.mark.parametrize("include_keyword_docs", [False, True])
+def test_tokenless_corpus_keeps_semantic_retrieval(test_config, tmp_path, include_keyword_docs):
+    from pathlib import Path
+    from retrieval.indexer import build_index
+
+    cfg, config_path = test_config
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    texts = ["Привет мир это тест поиска", "你好 世界", "12345 !!!"]
+    if include_keyword_docs:
+        texts += ["alpha retrieval", "beta storage", "gamma testing"]
+    for i, text in enumerate(texts):
+        (corpus / f"doc{i}.md").write_text(text, encoding="utf-8")
+    cfg["corpus"]["path"] = str(corpus)
+    Path(config_path).write_text(json.dumps(cfg), encoding="utf-8")
+
+    with (
+        patch("retrieval.indexer.get_embeddings_batch", return_value=[[0.1]] * len(texts)),
+        patch("retrieval.indexer.get_vector_writer") as get_writer,
+    ):
+        build_index(config_path)
+    _, chunks, _, metadata = get_writer.return_value.add.call_args.args
+    raw = [{"text": chunk, "score": 0.9, **meta} for chunk, meta in zip(chunks, metadata, strict=True)]
+    reader = SimpleNamespace(query=lambda emb, k: raw[:k], close=lambda: None)
+    with (
+        patch("retrieval.hybrid_search.get_vector_reader", return_value=reader),
+        patch("retrieval.hybrid_search.get_embedding", return_value=[0.1]),
+    ):
+        retriever = HybridRetriever(config_path)
+        assert retriever.keyword_search("你好") == []
+        hits = retriever.hybrid_search("你好")
+        assert [hit.text for hit in hits] == chunks[:cfg["retrieval"]["top_k_semantic"]]
+        assert all(hit.retrieval_mode == "semantic" and hit.score == 0.9 for hit in hits)
+        keyword_hits = retriever.keyword_search("alpha")
+        assert [hit.text for hit in keyword_hits] == (["alpha retrieval"] if include_keyword_docs else [])
+        retriever.close()
