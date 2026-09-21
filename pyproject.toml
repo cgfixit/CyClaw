@@ -64,11 +64,11 @@ guardrails = [
     "nemoguardrails==0.24.0",
 ]
 postgres = [
-    "psycopg==3.2.13",
-    "psycopg-binary==3.2.13",
+    "psycopg==3.3.6",
+    "psycopg-binary==3.3.6",
 ]
 pgvector = [
-    "pgvector==0.4.2",
+    "pgvector==0.5.0",
 ]
 mssql = [
     "pyodbc==5.3.0",
