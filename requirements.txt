@@ -36,8 +36,8 @@ websockets==15.0.1
 langgraph==1.2.9
 langchain-core==1.5.0
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
-sentence-transformers==6.0.1
-huggingface-hub==1.26.0
+sentence-transformers==6.1.0
+huggingface-hub==1.32.0
 starlette==1.6.0
 # Transitive of chromadb, pinned explicitly so this surface carries the same
 # onnxruntime floor pyproject.toml/constraints.txt do (ORT_DISABLE_TELEMETRY
