@@ -40,7 +40,7 @@ fastapi==0.141.1
 # Constraints pin versions only; the `[standard]` extra stays in requirements.txt.
 # pip >= 26.1.2 rejects extras in a -c constraints file ("Constraints cannot have
 # extras"), which broke the verify-install gate. See pypa/pip#8210.
-uvicorn==0.51.0
+uvicorn==0.53.0
 pyyaml==6.0.3
 httpx==0.28.1
 # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
