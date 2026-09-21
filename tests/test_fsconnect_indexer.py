@@ -487,3 +487,58 @@ def test_share_root_cache_name_file_is_never_staged(env):
     assert rows[".fsindex_cache.json"]["skipped"] == "reserved_name"
     cache_text = (staging / ".fsindex_cache.json").read_text(encoding="utf-8")
     assert "evil" not in cache_text  # cache written by CyClaw, not clobbered
+
+
+@pytest.mark.parametrize("old_name,new_name", [("Notes.md", "notes.md"), ("Caf\u00e9.md", "CAFE\u0301.md")])
+def test_apply_case_rename_preserves_current_file(env, old_name, new_name):
+    cfg, fs_cfg, cp, source, tmp = env
+    staging = tmp / "staging_rename"
+    (source / old_name).write_text("rename fixture", encoding="utf-8")
+    indexer = FsIndexer(cfg, fs_cfg, config_path=cp)
+    indexer.apply(staging_dir=str(staging))
+    aliases = (staging / new_name).exists() and (staging / old_name).samefile(staging / new_name)
+    (source / old_name).rename(source / new_name)
+
+    result = indexer.apply(staging_dir=str(staging))
+
+    assert (staging / new_name).read_text(encoding="utf-8") == "rename fixture"
+    assert result["pruned"] == (0 if aliases else 1)
+    assert (staging / "a.md").exists()
+
+
+@pytest.mark.parametrize("incremental", [False, True])
+def test_prune_failure_retains_ownership_and_prevents_reindex(env, monkeypatch, incremental):
+    from pathlib import Path
+    from utils.errors import FsConnectRuntimeError
+
+    cfg, fs_cfg, cp, source, tmp = env
+    fs_cfg.index_incremental = incremental
+    staging = tmp / "staging_retry"
+    indexer = FsIndexer(cfg, fs_cfg, config_path=cp)
+    indexer.apply(staging_dir=str(staging))
+    stale = staging / "a.md"
+    (source / "a.md").unlink()
+    (source / "new.md").write_text("new fixture", encoding="utf-8")
+    (staging / "unowned.md").write_text("operator fixture", encoding="utf-8")
+    reindexes = []
+    monkeypatch.setattr(indexer, "_run_reindex", lambda: reindexes.append(True))
+    unlink = Path.unlink
+
+    def denied(path, *args, **kwargs):
+        if path == stale:
+            raise PermissionError("fixture deletion denied")
+        return unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as failure:
+        failure.setattr(Path, "unlink", denied)
+        with pytest.raises(FsConnectRuntimeError, match="prun"):
+            indexer.apply(staging_dir=str(staging), reindex=True)
+    assert reindexes == []
+    assert {"a.md", "new.md"} <= indexer._load_cache(staging).keys()
+    assert stale.exists()
+    # Files staged before the prune failure must remain owned too.
+    (source / "new.md").unlink()
+    result = indexer.apply(staging_dir=str(staging))
+    assert result["pruned"] == 2
+    assert not stale.exists() and not (staging / "new.md").exists()
+    assert (staging / "unowned.md").read_text(encoding="utf-8") == "operator fixture"
