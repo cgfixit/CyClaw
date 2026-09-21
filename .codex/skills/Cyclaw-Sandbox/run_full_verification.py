@@ -56,12 +56,9 @@ BRANCH = "main"
 CYCLAW_DIR: Path | None = None
 _OWNED_TEMP_ROOT: Path | None = None
 _REPORT_NAMES = ("verification_report.json", "query_results.json")
-RESULTS_FILE = Path(
-    os.environ.get(
-        "CYCLAW_RESULTS_FILE",
-        str(Path(tempfile.gettempdir()) / "cyclaw-sandbox-query-results.json"),
-    )
-)
+# Relative default matches the Claude twin: write next to the verification
+# report in the checkout cwd. CYCLAW_RESULTS_FILE still overrides when set.
+RESULTS_FILE = Path(os.environ.get("CYCLAW_RESULTS_FILE", "query_results.json"))
 
 # Both query phases use MockLocalLLMClient. An unrelated listener cannot raise
 # this runner's fidelity to a socket mock or a real model inference.
@@ -405,15 +402,12 @@ def _resolve_cyclaw_dir() -> Path:
 def _persist_reports(start_cwd: Path) -> None:
     if _OWNED_TEMP_ROOT is None or CYCLAW_DIR is None:
         return
-    names = list(_REPORT_NAMES)
-    if RESULTS_FILE.name not in names:
-        names.append(RESULTS_FILE.name)
-    for name in names:
+    # Only the per-run report names from cwd or CYCLAW_DIR. Never fall back
+    # to a process-wide RESULTS_FILE (a shared /tmp artifact from another run).
+    for name in _REPORT_NAMES:
         src = Path(name)
         if not src.is_file():
             src = CYCLAW_DIR / name
-        if not src.is_file() and name == RESULTS_FILE.name and RESULTS_FILE.is_file():
-            src = RESULTS_FILE
         if not src.is_file():
             continue
         target = start_cwd / name
@@ -424,15 +418,17 @@ def _persist_reports(start_cwd: Path) -> None:
 
 
 def _cleanup_owned_clone(start_cwd: Path) -> None:
-    global _OWNED_TEMP_ROOT
+    global CYCLAW_DIR, _OWNED_TEMP_ROOT
     try:
         os.chdir(start_cwd)
     except OSError:
+        # cwd restore may fail if start_cwd vanished (deleted checkout / expired temp).
         pass
     if _OWNED_TEMP_ROOT is None:
         return
     shutil.rmtree(_OWNED_TEMP_ROOT, ignore_errors=True)
     _OWNED_TEMP_ROOT = None
+    CYCLAW_DIR = None
 
 
 def _ensure_repo():
@@ -790,9 +786,16 @@ def phase_execute_queries() -> PhaseResult:
         })
 
     RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"query_results": all_results, "ollama_tier": OLLAMA_TIER}
     with open(RESULTS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"query_results": all_results, "ollama_tier": OLLAMA_TIER}, f, indent=2)
+        json.dump(payload, f, indent=2)
     log(f"\n  Results saved to {RESULTS_FILE}")
+    # When CYCLAW_RESULTS_FILE points elsewhere, also write the persistable
+    # checkout-relative name so _persist_reports never needs a /tmp fallback.
+    report_copy = Path("query_results.json")
+    if RESULTS_FILE.resolve() != report_copy.resolve():
+        with open(report_copy, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
 
     return phase
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -33,6 +34,26 @@ def _load_codex_verifier():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _stub_codex_phases_except_queries(module, monkeypatch, query_fn) -> None:
+    monkeypatch.setattr(module, "phase_execute_queries", query_fn)
+    for name, phase_name in (
+        ("phase_config_invariants", "Config Invariants"),
+        ("phase_telemetry_kill", "Telemetry Kill"),
+        ("phase_build_corpus", "Corpus & Index"),
+        ("phase_triple_gate", "Triple-Gate Online API"),
+        ("phase_audit_integrity", "Audit Integrity"),
+        ("phase_key_redaction", "Key Redaction"),
+        ("phase_metrics_and_invariants", "Metrics & Invariants"),
+        ("phase_terminal_consoles", "Terminal Consoles"),
+        ("phase_terminal_html", "Terminal HTML Contract"),
+    ):
+        monkeypatch.setattr(
+            module,
+            name,
+            lambda phase_name=phase_name: module.PhaseResult(phase_name, [module.Check("ok", True)]),
+        )
 
 
 def _phase3(text: str) -> str:
@@ -219,26 +240,59 @@ def test_codex_swarm_removes_owned_temp_clone(tmp_path, monkeypatch) -> None:
     def query_failure():
         raise RuntimeError("query phase failed")
 
-    monkeypatch.setattr(module, "phase_execute_queries", query_failure)
-    for name, phase_name in (
-        ("phase_config_invariants", "Config Invariants"),
-        ("phase_telemetry_kill", "Telemetry Kill"),
-        ("phase_build_corpus", "Corpus & Index"),
-        ("phase_triple_gate", "Triple-Gate Online API"),
-        ("phase_audit_integrity", "Audit Integrity"),
-        ("phase_key_redaction", "Key Redaction"),
-        ("phase_metrics_and_invariants", "Metrics & Invariants"),
-        ("phase_terminal_consoles", "Terminal Consoles"),
-        ("phase_terminal_html", "Terminal HTML Contract"),
-    ):
-        monkeypatch.setattr(
-            module,
-            name,
-            lambda phase_name=phase_name: module.PhaseResult(phase_name, [module.Check("ok", True)]),
-        )
+    _stub_codex_phases_except_queries(module, monkeypatch, query_failure)
 
     assert module.main() == 1
     assert not owned.exists()
     report = json.loads((tmp_path / "verification_report.json").read_text(encoding="utf-8"))
     assert report["total_checks"] >= 1
     assert (tmp_path / "query_results.json").is_file()
+    assert not (tmp_path / "cyclaw-sandbox-query-results.json").exists()
+    assert module.CYCLAW_DIR is None
+    assert module._OWNED_TEMP_ROOT is None
+    new_dir = module._resolve_cyclaw_dir()
+    try:
+        assert new_dir != clone
+        assert module._OWNED_TEMP_ROOT is not None
+        assert new_dir.parent == module._OWNED_TEMP_ROOT
+        assert module._OWNED_TEMP_ROOT.exists()
+        assert not clone.exists()
+    finally:
+        if module._OWNED_TEMP_ROOT is not None:
+            shutil.rmtree(module._OWNED_TEMP_ROOT, ignore_errors=True)
+            module._OWNED_TEMP_ROOT = None
+            module.CYCLAW_DIR = None
+
+
+def test_codex_swarm_does_not_persist_stale_shared_results_file(tmp_path, monkeypatch) -> None:
+    module = _load_codex_verifier()
+    owned = tmp_path / "owned"
+    clone = owned / "CyClaw"
+    clone.mkdir(parents=True)
+    start_cwd = tmp_path / "invoke"
+    start_cwd.mkdir()
+
+    stale = tmp_path / "shared" / "cyclaw-sandbox-query-results.json"
+    stale.parent.mkdir()
+    stale.write_text('{"stale": true}', encoding="utf-8")
+
+    monkeypatch.chdir(start_cwd)
+    monkeypatch.delenv("CYCLAW_REPO", raising=False)
+    monkeypatch.delenv("CYCLAW_SKIP_ENSURE", raising=False)
+    monkeypatch.setattr(module, "CYCLAW_DIR", clone)
+    monkeypatch.setattr(module, "_OWNED_TEMP_ROOT", owned)
+    monkeypatch.setattr(module, "RESULTS_FILE", stale)
+    monkeypatch.setattr(module, "_install_stubs", lambda: None)
+    monkeypatch.setattr(module, "_ensure_repo", lambda: None)
+    monkeypatch.setattr(module, "_install_deps", lambda: False)
+
+    def query_failure():
+        raise RuntimeError("query phase failed")
+
+    _stub_codex_phases_except_queries(module, monkeypatch, query_failure)
+
+    assert module.main() == 1
+    assert not owned.exists()
+    assert not (start_cwd / "cyclaw-sandbox-query-results.json").exists()
+    assert not (start_cwd / stale.name).exists()
+    assert not (start_cwd / "query_results.json").exists()
