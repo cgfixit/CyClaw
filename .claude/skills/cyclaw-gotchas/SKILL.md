@@ -120,8 +120,13 @@ bash .claude/skills/cyclaw-gotchas/driver.sh checks
 
 Runs the five stdlib guards (`invariant-guard`, `doc-sync`, `config-guard`,
 `dep-guard`, verify-deps `check_env_drift.py --strict`) and prints one line
-each. `config-guard` reports `1 warning` on a clean tree: that is the known
-C9 hybrid-posture warning, not new drift.
+each. `config-guard` reports **0 warnings** on a clean tree since C9 was
+flipped (commit 993f439) from "warn if hybrid+enabled" to "warn if the
+committed config diverges from the documented shipped provider posture" —
+the shipped posture is now hybrid with grok/claude enabled (CLAUDE.md's
+2026-08-07 provider armament), so a clean tree reports C9 `ok`, not a
+warning. A `1 warning` result today means the config no longer matches that
+documented posture — treat it as drift to investigate, not the old baseline.
 
 ## Run (human path)
 
