@@ -74,7 +74,15 @@ dependencies:
   # solve, while a modern exporter ships regenerated protos that work with it.
   # conda-forge currently carries 1.42.1 and 1.43.0 (checked 2026-07-29).
   - opentelemetry-exporter-otlp-proto-grpc>=1.42
-  - sentence-transformers=6.1.0
+  # NOT bumped to 6.1.0 to match the pip path (pyproject.toml/constraints.txt/
+  # requirements.txt): conda-forge's sentence-transformers-feedstock has not
+  # published a 6.1.0 build as of this pin (checked 2026-09-21 -- confirmed
+  # live as a mamba solve failure in this exact CI lane, "sentence-transformers
+  # =6.1.0 * does not exist"; conda-forge's own listing tops out at 6.0.1).
+  # Fourth deliberate pip/conda divergence, same shape as the fastapi one
+  # below: an upstream-availability gap, not a design choice -- bump this line
+  # back in step the next time conda-forge's feedstock catches up.
+  - sentence-transformers=6.0.1
   # pytorch is sentence-transformers' hard transitive and is pinned explicitly
   # here for the same reason constraints.txt pins torch==2.13.0+cpu: post-
   # CVE-2025-32434 safety plus keeping the conda lane testing the same 2.13
@@ -101,11 +109,15 @@ dependencies:
   # to float here, same as before this file started tracking the pip-path gap.
   # huggingface_hub is imported directly by retrieval/embeddings.py (not just an
   # implicit sentence-transformers transitive) and is now pinned explicitly on
-  # the pip path too (pyproject.toml/constraints.txt). Safe to mirror here
-  # unconditionally, unlike the fastapi/starlette pair below: sentence-transformers
-  # is pinned identically (5.6.0) on both the conda and pip paths, so its
-  # huggingface_hub floor doesn't diverge the way chromadb's conda build forces
-  # fastapi to. Confirmed present on conda-forge at this exact version, 2026-08-02.
+  # the pip path too (pyproject.toml/constraints.txt). Safe to mirror at the
+  # same version here even though sentence-transformers itself now diverges
+  # (6.0.1 above vs 6.1.0 on pip, per that pin's own comment): sentence-
+  # transformers' own huggingface_hub floor (>=1.3.0,<2.0.0, unchanged between
+  # 6.0.1 and 6.1.0) comfortably admits 1.32.0 either way, so pinning this one
+  # explicitly doesn't fight the solve. Confirmed present on conda-forge at
+  # this exact version, 2026-09-21 (merged into the feedstock 2026-09-20; the
+  # same conda CI run that rejected sentence-transformers=6.1.0 above raised
+  # no complaint about this line).
   - huggingface_hub=1.32.0
   # starlette is gate.py's other direct-import pin (see the
   # same file above) and is pinned starlette==1.3.1 on the pip path -- but

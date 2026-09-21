@@ -371,10 +371,21 @@ def run_ci_pin_checks(root: Path, torch_pin: str | None) -> None:
 _ENV_YML_FILE = "environment.yml"
 # Not pip packages -- the manifests have nothing to compare them against.
 _ENV_SKIP = {"python", "pip"}
-# fastapi diverges on purpose: conda-forge's chromadb=1.5.9 build hard-pins
-# fastapi==0.115.9 (a packaging constraint documented in environment.yml
-# itself, not a CyClaw choice) -- advisory, never a failure.
-_ENV_DOCUMENTED_DIVERGENCE = {"fastapi"}
+# Documented, deliberate environment.yml/pip divergences -- advisory, never a
+# failure. Each has its own reason, so this maps name -> that reason rather
+# than reusing one message for all of them:
+# - fastapi: conda-forge's chromadb=1.5.9 build hard-pins fastapi==0.115.9 (a
+#   packaging constraint documented in environment.yml itself, not a CyClaw
+#   choice).
+# - sentence-transformers: an upstream-availability gap, not a design choice
+#   -- conda-forge's feedstock has not published a build past 6.0.1 yet
+#   (confirmed 2026-09-21 as a live mamba solve failure in the conda CI lane
+#   the moment the pip pin moved to 6.1.0). Drop this entry once conda-forge
+#   catches up and environment.yml's pin is bumped back in step.
+_ENV_DOCUMENTED_DIVERGENCE = {
+    "fastapi": "conda-forge chromadb build pins it",
+    "sentence-transformers": "conda-forge feedstock has no build past 6.0.1 yet",
+}
 # Two pin forms in the file: conda deps ("  - name=1.2.3", single '=') and the
 # pip: sublist ("      - name==1.2.3"). The conda pattern anchors the version
 # on a leading digit so it cannot half-match a pip '==' line.
@@ -406,8 +417,8 @@ def run_environment_pin_check(root: Path, py_reqs: list[Req], con_reqs: list[Req
         if name in _ENV_SKIP:
             continue
         if name in _ENV_DOCUMENTED_DIVERGENCE:
-            info("D9", f"{name}={env_version} diverges on purpose (conda-forge chromadb "
-                       f"build pins it; documented in {_ENV_YML_FILE})")
+            info("D9", f"{name}={env_version} diverges on purpose "
+                       f"({_ENV_DOCUMENTED_DIVERGENCE[name]}; documented in {_ENV_YML_FILE})")
             continue
         manifest_version = manifest_pin.get(name)
         if manifest_version is None:
