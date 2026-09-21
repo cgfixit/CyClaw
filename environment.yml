@@ -39,7 +39,7 @@ dependencies:
   # fastapi==0.139.2 (pyproject.toml/constraints.txt) since PyPI's chromadb
   # 1.5.9 carries no such pin. Re-check this pin if chromadb is ever bumped here.
   - fastapi=0.115.9
-  - uvicorn=0.51.0
+  - uvicorn=0.53.0
   - pydantic=2.13.5
   - pyyaml=6.0.3
   - httpx=0.28.1

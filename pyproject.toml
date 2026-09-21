@@ -9,7 +9,7 @@ description = "Offline-first RAG server with graph-enforced security routing"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi==0.141.1",
-    "uvicorn[standard]==0.51.0",
+    "uvicorn[standard]==0.53.0",
     "pydantic==2.13.5",
     # pydantic-core is intentionally not pinned here: pydantic==2.13.5 hard-pins its
     # exact pydantic-core (2.46.5), and constraints.txt locks that same version. The

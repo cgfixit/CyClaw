@@ -48,8 +48,13 @@ fi
 echo "mutation A (D2 numpy<2): PASS (exit 2, D2 reported)"
 
 # 2b. D4 FAIL: give constraints.txt uvicorn a [standard] extra.
+# Captures WHATEVER version is currently pinned, not a literal current one: a
+# hardcoded 's/^uvicorn==0.51.0/.../' matched nothing the moment the pin moved
+# (caught on the 0.51.0 -> 0.53.0 bump, 2026-09-21), so no extra was injected
+# and the missing FAIL read as a checker regression instead of a stale fixture.
+# Same pattern as mutation C's D1 fix above.
 b="$(_mktree)"
-sed -i.bak 's/^uvicorn==0.51.0/uvicorn[standard]==0.51.0/' "$b/constraints.txt"
+sed -i.bak -E 's/^uvicorn==([0-9.]+)$/uvicorn[standard]==\1/' "$b/constraints.txt"
 out="$(python3 "$checker" --repo-root "$b" 2>&1)"; rc=$?
 rm -rf "$b"
 if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[D4\]"; then
