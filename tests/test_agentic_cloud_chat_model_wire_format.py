@@ -39,6 +39,34 @@ from langchain_xai import ChatXAI  # noqa: E402
 from agentic.deepagent_github.chat_client import _coerce_text_content  # noqa: E402
 
 
+class _FakeParsedResponse:
+    """Stand-in for the anthropic SDK's raw-response wrapper.
+
+    langchain_anthropic._create (since 1.5.x) calls
+    ``self._client.messages.with_raw_response.create(**payload)`` instead of
+    ``self._client.messages.create(**payload)`` directly, then calls
+    ``.parse()`` on the result to get the actual Message.
+    """
+
+    def __init__(self, parsed):
+        self._parsed = parsed
+
+    def parse(self):
+        return self._parsed
+
+
+class _FakeWithRawResponse:
+    """Stand-in for ``messages.with_raw_response`` -- wraps a fake
+    ``Messages.create`` so the two tests below still intercept the payload
+    one layer below the real HTTP call."""
+
+    def __init__(self, create_fn):
+        self._create_fn = create_fn
+
+    def create(self, **payload):
+        return _FakeParsedResponse(self._create_fn(**payload))
+
+
 def test_grok_invoke_kwargs_reach_the_real_request_body():
     """max_tokens/temperature passed to .invoke() must land in the JSON body.
 
@@ -116,6 +144,10 @@ def test_claude_invoke_kwargs_reach_the_real_request_payload():
             captured["payload"] = payload
             raise RuntimeError("stop here -- payload already captured")
 
+        @property
+        def with_raw_response(self):
+            return _FakeWithRawResponse(self.create)
+
     class _FakeClient:
         def __init__(self):
             self.messages = _FakeMessages()
@@ -127,7 +159,16 @@ def test_claude_invoke_kwargs_reach_the_real_request_payload():
         model.invoke([SystemMessage(content="sys"), HumanMessage(content="hi")], max_tokens=777, temperature=0.33)
 
     assert captured["payload"]["max_tokens"] == 777
-    assert captured["payload"]["temperature"] == 0.33
+    # anthropic>=1 (langchain-anthropic's own installed-SDK check, not a
+    # version pin here) dropped temperature/top_p/top_k as named create()
+    # kwargs; langchain_anthropic._sdk_compat.route_unsupported_sampling_params
+    # relocates them into extra_body instead -- same wire payload, different
+    # key. Accept either shape so this keeps passing across anthropic SDK
+    # majors, matching that module's own "wire payload is identical" claim.
+    temperature = captured["payload"].get("temperature")
+    if temperature is None:
+        temperature = captured["payload"].get("extra_body", {}).get("temperature")
+    assert temperature == 0.33
 
 
 def test_claude_multi_block_content_is_coerced_to_plain_text():
@@ -156,6 +197,10 @@ def test_claude_multi_block_content_is_coerced_to_plain_text():
                 stop_sequence=None,
                 usage=Usage(input_tokens=1, output_tokens=1),
             )
+
+        @property
+        def with_raw_response(self):
+            return _FakeWithRawResponse(self.create)
 
     class _FakeClient:
         def __init__(self):
