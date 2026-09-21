@@ -371,10 +371,35 @@ def run_ci_pin_checks(root: Path, torch_pin: str | None) -> None:
 _ENV_YML_FILE = "environment.yml"
 # Not pip packages -- the manifests have nothing to compare them against.
 _ENV_SKIP = {"python", "pip"}
-# fastapi diverges on purpose: conda-forge's chromadb=1.5.9 build hard-pins
-# fastapi==0.115.9 (a packaging constraint documented in environment.yml
-# itself, not a CyClaw choice) -- advisory, never a failure.
-_ENV_DOCUMENTED_DIVERGENCE = {"fastapi"}
+# Documented, deliberate environment.yml/pip divergences -- advisory, never a
+# failure, but ONLY for the exact (env_version, manifest_version) pair named
+# here. A name-only exception would keep matching after an unrelated future
+# edit -- e.g. a further pip-side bump, or a conda pin accidentally
+# downgraded -- silently reporting "intentional" for a pair nobody signed off
+# on. Each entry is (env_version, manifest_version, reason); any other pair
+# for that name falls through to the normal mismatch check below.
+# - fastapi: conda-forge's chromadb=1.5.9 build hard-pins fastapi==0.115.9 (a
+#   packaging constraint documented in environment.yml itself, not a CyClaw
+#   choice).
+# - sentence-transformers: an upstream-availability gap, not a design choice
+#   -- conda-forge's feedstock has not published a build past 6.0.1 yet
+#   (confirmed 2026-09-21 as a live mamba solve failure in the conda CI lane
+#   the moment the pip pin moved to 6.1.0). Drop this entry once conda-forge
+#   catches up and environment.yml's pin is bumped back in step.
+# - ruff: an upstream-availability gap, not a design choice -- conda-forge's
+#   feedstock has not published a build past 0.16.7 yet (confirmed 2026-09-21
+#   as a live mamba solve failure in this exact CI lane the moment the pip
+#   pin moved to 0.16.8). Drop this entry once conda-forge catches up.
+_ENV_DOCUMENTED_DIVERGENCE = {
+    # NOTE: the pip-side fastapi pin here (0.141.1) has already moved past the
+    # 0.139.2 environment.yml's own comment still names -- a drift the old
+    # name-only exception was silently swallowing. Re-verify conda-forge's
+    # chromadb=1.5.9 build still hard-pins fastapi==0.115.9 (this PR did not
+    # re-check that) before trusting this pair long-term.
+    "fastapi": ("0.115.9", "0.141.1", "conda-forge chromadb build pins it"),
+    "sentence-transformers": ("6.0.1", "6.1.0", "conda-forge feedstock has no build past 6.0.1 yet"),
+    "ruff": ("0.16.7", "0.16.8", "conda-forge feedstock has no build past 0.16.7 yet"),
+}
 # Two pin forms in the file: conda deps ("  - name=1.2.3", single '=') and the
 # pip: sublist ("      - name==1.2.3"). The conda pattern anchors the version
 # on a leading digit so it cannot half-match a pip '==' line.
@@ -405,13 +430,18 @@ def run_environment_pin_check(root: Path, py_reqs: list[Req], con_reqs: list[Req
         name, env_version = _normalize(m.group(1)), m.group(2)
         if name in _ENV_SKIP:
             continue
-        if name in _ENV_DOCUMENTED_DIVERGENCE:
-            info("D9", f"{name}={env_version} diverges on purpose (conda-forge chromadb "
-                       f"build pins it; documented in {_ENV_YML_FILE})")
-            continue
         manifest_version = manifest_pin.get(name)
         if manifest_version is None:
             continue
+        divergence = _ENV_DOCUMENTED_DIVERGENCE.get(name)
+        if divergence is not None:
+            documented_env, documented_manifest, reason = divergence
+            if env_version == documented_env and manifest_version == documented_manifest:
+                info("D9", f"{name}={env_version} diverges on purpose "
+                           f"({reason}; documented in {_ENV_YML_FILE})")
+                continue
+            # Same name, but the versions moved past what was signed off on --
+            # treat as an ordinary mismatch instead of silently re-approving it.
         compared += 1
         if env_version != manifest_version:
             mismatches.append(f"{name}: environment.yml={env_version} "

@@ -143,17 +143,23 @@ LAST_VERIFIED_VENDOR_PINS = {
     # NEMO_GUARDRAILS_NO_USAGE_STATS and DO_NOT_TRACK (1/true); the usage
     # stats sink is https://events.telemetry.data.nvidia.com/v1.1/events/json.
     "nemoguardrails": "0.24.0",
-    # 5.6.0 -> 6.0.1 re-verified 2026-09-11 against the installed 6.0.1
+    # 6.0.1 -> 6.1.0 re-verified 2026-09-21 against the installed 6.1.0
     # source, not just the docs: zero matches for telemetry/analytics/
     # usage_stats/posthog/segment/mixpanel, and every hardcoded non-hub URL
-    # is an academic citation in a docstring. It reads exactly two env vars,
-    # LOCAL_RANK and CODECARBON_LOG_LEVEL -- the latter only inside an
-    # `importlib.util.find_spec("codecarbon")` guard (__init__.py:51-52) and
-    # only to set a log LEVEL, so it is inert: codecarbon is not installed,
-    # not a 6.0.1 requires-dist entry, and named in no CyClaw manifest.
+    # is still an academic citation in a docstring (loss-function papers) or
+    # https://hf.co/ (the hub's own short domain, already covered below).
+    # The one new thing since 6.0.1: base/trainer.py:298-303 gained a
+    # `os.environ.setdefault("TRACKIO_PROJECT", ...)` alongside the
+    # pre-existing WANDB_PROJECT default, but both sit behind
+    # `any(isinstance(callback, {Wandb,Trackio}Callback) ...)` guards on the
+    # HF Trainer's own callback list -- same inert shape as the codecarbon
+    # finding below: CyClaw never imports SentenceTransformerTrainer (only
+    # SentenceTransformer(...).encode() for inference), and neither wandb nor
+    # trackio is a CyClaw dependency, so the isinstance check can never match.
+    # LOCAL_RANK and the CODECARBON_LOG_LEVEL guard are otherwise unchanged.
     # Category 5 therefore still holds -- all hub traffic flows through
     # huggingface-hub, which carries its own category-1 and category-3 rows.
-    "sentence-transformers": "6.0.1",
+    "sentence-transformers": "6.1.0",
     # Not a pyproject direct pin -- lives in constraints.txt (deepagents
     # transitive). Tracked here because the whole 4-name LANGSMITH_/LANGCHAIN_
     # tracing block defends against exactly this package; verified 2026-08-15
@@ -418,11 +424,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "hf model bootstrap fetch", "category": 3, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "sentence-transformers==6.0.1 / huggingface-hub==1.26.0",
+        "versions": "sentence-transformers==6.1.0 / huggingface-hub==1.32.0",
         "enforcement": "one-time cache-miss download; HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE stay CONDITIONAL "
                        "(set only once the model is confirmed cached -- retrieval/embeddings.py; the real "
                        "in-process gate is local_files_only). Never made unconditional",
-        "scope": "first run only", "reviewed": "2026-08-27",
+        "scope": "first run only", "reviewed": "2026-09-21",
         "evidence": "functional egress, not telemetry; the telemetry ping is the separate category-1 row",
     },
     {
@@ -503,14 +509,15 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "sentence-transformers/transformers/torch stack", "category": 5, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "sentence-transformers==6.0.1; torch==2.13.0+cpu; transformers unbounded transitive",
+        "versions": "sentence-transformers==6.1.0; torch==2.13.0+cpu; transformers unbounded transitive",
         "enforcement": "no own telemetry mechanism; all hub traffic flows through huggingface-hub (its "
                        "category-1 ping row + category-3 bootstrap row)", "scope": "embeddings",
-        "reviewed": "2026-09-11",
+        "reviewed": "2026-09-21",
         "evidence": "negative finding; torch OSS wheels carry no telemetry. Re-checked on the "
-                    "sentence-transformers 5.6.0 -> 6.0.1 bump: no new egress mechanism, and the hub "
-                    "traffic shape is unchanged -- the only model-cache delta was an empty .no_exist "
-                    "marker for a config 6.0.1 probes for and 5.6.0 does not",
+                    "sentence-transformers 6.0.1 -> 6.1.0 bump: the only new surface is a "
+                    "TRACKIO_PROJECT env default alongside the existing WANDB_PROJECT one, both gated "
+                    "behind HF Trainer callback-instance checks CyClaw's inference-only usage never "
+                    "reaches (see LAST_VERIFIED_VENDOR_PINS comment) -- hub traffic shape unchanged",
     },
     {
         "name": "core web/runtime libs", "category": 5, "controls": {},
