@@ -146,7 +146,7 @@ dependencies:
   # with no matching pygments pin of its own until now.
   - pygments=2.21.0
   - pytest-asyncio=1.4.0
-  - ruff=0.16.1
+  - ruff=0.16.8
   - mypy=2.3.0
   - bandit=1.9.4
   - pytest-cov=7.1.0

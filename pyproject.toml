@@ -96,7 +96,7 @@ test = [
     "tzdata==2026.2",
 ]
 dev = [
-    "ruff==0.16.1",
+    "ruff==0.16.8",
     "mypy==2.3.0",
     "bandit==1.9.4",
     "pytest-cov==7.1.0",
