@@ -67,8 +67,9 @@ the RAG graph. Mutations are `propose-skill` / `apply-skill` only (master
 switch + non-empty `reason` + `--confirm` + injection scan + atomic write +
 sha256 history). Design: [`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`](../docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md).
 
-The terminal console reaches this store only through `POST /ops/agentic`
-(`propose-skill` / `apply-skill`), never by reading the file directly.
+The terminal console reaches this store only through `POST /ops/agentic`:
+`status` reads `registry_version` + `skills`, and `propose-skill` /
+`apply-skill` are the mutations. It never reads the file directly.
 
 ---
 
