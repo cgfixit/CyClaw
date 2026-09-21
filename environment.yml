@@ -43,7 +43,7 @@ dependencies:
   - pydantic=2.13.5
   - pyyaml=6.0.3
   - httpx=0.28.1
-  - langchain-core=1.5.0
+  - langchain-core=1.6.3
   - chromadb=1.5.9  # Note: Use embedded/PersistentClient only. See SECURITY.md
   #
   # Second deliberate exception, same shape as fastapi above: a conda-forge
@@ -162,7 +162,7 @@ dependencies:
   - bandit=1.9.4
   - pytest-cov=7.1.0
   - pip:
-      - langgraph==1.2.9
+      - langgraph==1.2.11
       - rank-bm25==0.2.2
       - websockets==15.0.1
       # Telemetry-control floor from the pip path (pyproject.toml/constraints.txt).
