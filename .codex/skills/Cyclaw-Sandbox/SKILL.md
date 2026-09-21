@@ -171,9 +171,11 @@ report for `57e052ed`; none of its PASS counts describe today's checkout.
 
 ## Gotchas in bundled runners
 
-- `run_full_verification.py` defaults to a shared temp clone and checkout/pull
-  unless `CYCLAW_REPO` and `CYCLAW_SKIP_ENSURE=1` are supplied. Its dependency
-  stubs and heuristic corpus do not prove real package or embedding parity.
+- `run_full_verification.py` clones into a unique temp directory and deletes
+  that directory when the run ends unless `CYCLAW_REPO` is supplied. Set
+  `CYCLAW_SKIP_ENSURE=1` to inspect a prepared checkout without clone or
+  pull. Its dependency stubs and heuristic corpus do not prove real package
+  or embedding parity.
 - `verify.sh` is a legacy Linux lifecycle helper: it removes `VENV_DIR` during
   provisioning, uses fixed report paths, downloads NLTK data and temporarily
   rewrites the sandbox soul. `smoke.sh` also builds/writes data. Read their
