@@ -116,12 +116,16 @@ class _SqliteVecPrototype:
 
     def query(self, embedding: list[float], k: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT vec_items.rowid, 1 - vec_items.distance AS score, meta.source, meta.text "
+            "SELECT vec_items.rowid, 1 - vec_items.distance AS score, "
+            "meta.source, meta.chunk_id, meta.text "
             "FROM vec_items JOIN meta ON meta.rowid = vec_items.rowid "
             "WHERE embedding MATCH ? AND k = ? ORDER BY distance LIMIT ?",
             [_serialize(embedding), k, k],
         ).fetchall()
-        return [{"score": score, "source": source, "text": text} for _, score, source, text in rows]
+        return [
+            {"score": score, "source": source, "chunk_id": chunk_id, "text": text}
+            for _, score, source, chunk_id, text in rows
+        ]
 
     def close(self) -> None:
         self._conn.close()
@@ -210,7 +214,18 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         writer = get_vector_writer(chroma_cfg)
         writer.reset(embedding_fingerprint(cfg.get("models", {}).get("embeddings", {})))
-        writer.add(ids, chunks, embeddings, metadata)
+        # Slice writes by indexing.batch_size, mirroring retrieval/indexer.py's
+        # own build_index() loop -- a single unbatched writer.add() call would
+        # reject any corpus larger than chromadb's per-call cap (5,461 records
+        # on the pinned 1.5.9 build) before ever reaching the sqlite-vec
+        # comparison, rejecting corpora the real indexer supports fine.
+        batch_size = cfg["indexing"]["batch_size"]
+        for batch_start in range(0, len(chunks), batch_size):
+            batch_end = min(batch_start + batch_size, len(chunks))
+            writer.add(
+                ids[batch_start:batch_end], chunks[batch_start:batch_end],
+                embeddings[batch_start:batch_end], metadata[batch_start:batch_end],
+            )
         writer.finalize()
         chroma_build_s = time.monotonic() - t0
 
@@ -258,8 +273,13 @@ def main(argv: list[str] | None = None) -> int:
         s_sources_top1 = s_hits[0]["source"] if s_hits else None
         agree = c_sources_top1 == s_sources_top1
         top1_agree += int(agree)
-        c_set = {(h["source"], h["text"][:40]) for h in c_hits}
-        s_set = {(h["source"], h["text"][:40]) for h in s_hits}
+        # (source, chunk_id) -- the same unique identifiers both readers
+        # already return -- not (source, text[:40]): two distinct chunks
+        # from the same source sharing a 40-char prefix (a common boilerplate
+        # header) would otherwise collapse into one set entry and falsely
+        # inflate the reported overlap.
+        c_set = {(h["source"], h["chunk_id"]) for h in c_hits}
+        s_set = {(h["source"], h["chunk_id"]) for h in s_hits}
         # overlap@k = |intersection| / k, not Jaccard (|intersection| /
         # |union|) -- dividing by the union understates agreement whenever
         # the two top-k lists aren't identical (e.g. 4 shared hits out of
