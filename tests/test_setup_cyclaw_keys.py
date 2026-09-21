@@ -34,6 +34,43 @@ _BASH = shutil.which("bash") or "bash"
 _API_KEY_RE = re.compile(r"export CYCLAW_API_KEY='([0-9a-f]{40})'")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell and venv layout")
+@pytest.mark.parametrize("runtime,checkout", [(True, True), (False, True), (False, False)])
+def test_open_consoles_resolves_config_when_runtime_exists(tmp_path: Path, runtime: bool, checkout: bool) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "checkout with spaces"
+    helper = repo / "utils" / "gateway_url.py"
+    helper.parent.mkdir(parents=True)
+    shutil.copyfile(_REPO_ROOT / "utils" / "gateway_url.py", helper)
+    (repo / "config.yaml").write_text(
+        'api:\n  host: 127.0.0.2\n  port: 9876\n  tls:\n    enabled: true\n', encoding="utf-8",
+    )
+    if runtime:
+        python = home / "venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.symlink_to(sys.executable)
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    opener = commands / "open"
+    opener.write_text('#!/bin/sh\nprintf "%s\\n" "$1" > "$CYCLAW_TEST_OPEN_URL"\n', encoding="utf-8")
+    opener.chmod(0o755)
+    opened = tmp_path / "opened-url"
+    source = _SCRIPT.read_text(encoding="utf-8")
+    function = source.split("_open_consoles() {", 1)[1].split("\n}", 1)[0]
+    result = subprocess.run(
+        [_BASH, "-c", "step() { :; }; warn() { :; };\n_open_consoles() {" + function + "\n}\n_open_consoles\n"],
+        cwd=tmp_path, capture_output=True, text=True, check=False,
+        env={**os.environ, "HOME_DIR": str(home), "REPO_DIR": str(repo) if checkout else "",
+             "GATE_PORT": "8999", "PATH": str(commands), "CYCLAW_TEST_OPEN_URL": str(opened)},
+    )
+    assert result.returncode == 0, result.stderr
+    expected = "https://127.0.0.2:8999" if runtime else "http://127.0.0.1:8999"
+    assert opened.read_text(encoding="utf-8").strip() == expected
+    applescript = source.split("<<'APPLESCRIPT'", 1)[1].split("\nAPPLESCRIPT", 1)[0]
+    assert '"http://127.0.0.1:" & gatePort' in applescript
+    assert '"http://[::1]:" & gatePort' in applescript
+
+
 def _unused_listen_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))

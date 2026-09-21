@@ -96,20 +96,15 @@ fi
 
 export CYCLAW_HOME="$HOME_DIR"
 export CYCLAW_REPO="$REPO_DIR"
-export CYCLAW_GATE_PORT="$GATE_PORT"
 
-# Scheme from api.tls.enabled (same probe as Invoke-CyClaw.ps1). Port stays
-# GATE_PORT / CYCLAW_GATE_PORT, not api.port. Probe failure keeps http.
-SCHEME="http"
-if SCHEME_PROBE="$("$VENV_PY" -c 'import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
-api = cfg.get("api") if isinstance(cfg.get("api"), dict) else {}
-tls = api.get("tls") if isinstance(api.get("tls"), dict) else {}
-print("https" if tls.get("enabled") is True else "http")
-' "$REPO_DIR/config.yaml" 2>/dev/null)" && [ -n "$SCHEME_PROBE" ]; then
-  SCHEME="$SCHEME_PROBE"
+# Port stays GATE_PORT / CYCLAW_GATE_PORT, not api.port. A missing runtime
+# helper or unreadable config keeps the default URL; gate.py reports startup errors.
+CONSOLE_URL="http://127.0.0.1:$GATE_PORT"
+if CONSOLE_PROBE="$("$VENV_PY" "$REPO_DIR/utils/gateway_url.py" \
+  "$REPO_DIR/config.yaml" --port "$GATE_PORT" 2>/dev/null)" && [ -n "$CONSOLE_PROBE" ]; then
+  CONSOLE_URL="$CONSOLE_PROBE"
 fi
-CONSOLE_URL="$SCHEME://127.0.0.1:$GATE_PORT"
+SCHEME="${CONSOLE_URL%%:*}"
 
 echo "[cyclaw] repo     : $REPO_DIR"
 echo "[cyclaw] home     : $HOME_DIR"
@@ -168,6 +163,10 @@ if [ -z "${CYCLAW_API_KEY:-}" ]; then
   # Chained on the result, not `-f`: a refused HOME file must not shadow the repo copy.
   _source_dotenv "$HOME_DIR/.env" || _source_dotenv "$REPO_DIR/.env" || true
 fi
+
+# The selected flag/env port also owns the printed URL; dotenv must not move
+# only the child listener to a different port after that URL was resolved.
+export CYCLAW_GATE_PORT="$GATE_PORT"
 
 if [ -z "${CYCLAW_API_KEY:-}" ]; then
   echo "[cyclaw] warn : CYCLAW_API_KEY not set — Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server; source ~/.CyClaw/.env or set the env var, then restart." >&2

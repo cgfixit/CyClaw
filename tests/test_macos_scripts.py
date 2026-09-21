@@ -16,6 +16,7 @@ import plistlib
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -100,16 +101,61 @@ def test_invoke_cyclaw_console_url_follows_tls_scheme() -> None:
     Port stays GATE_PORT. Probe failure keeps http, matching Invoke-CyClaw.ps1.
     """
     text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
-    probe_idx = text.index("yaml.safe_load")
-    assert 'tls.get("enabled") is True' in text
-    assert 'print("https" if tls.get("enabled") is True else "http")' in text
-    assert 'CONSOLE_URL="$SCHEME://127.0.0.1:$GATE_PORT"' in text
+    probe_idx = text.index('"$REPO_DIR/utils/gateway_url.py"')
+    assert '--port "$GATE_PORT"' in text
+    assert 'SCHEME="${CONSOLE_URL%%:*}"' in text
     assert probe_idx < text.index("[cyclaw] terminal : $CONSOLE_URL")
     assert probe_idx < text.index('open "$CONSOLE_URL"')
     assert 'curl -sf --max-time 2 "$CONSOLE_URL/health"' in text
     assert "curl -sfk" in text
     assert 'open "http://127.0.0.1:$GATE_PORT"' not in text
     assert 'xdg-open "http://127.0.0.1:$GATE_PORT"' not in text
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX venv layout and symlinks")
+@pytest.mark.parametrize("script", ["invoke-cyclaw.sh", "setup-cyclaw.sh", "setup-from-clone.sh"])
+@pytest.mark.parametrize("readable_config", [True, False])
+def test_macos_console_probes_execute_shared_url_helper(tmp_path: Path, script: str, readable_config: bool) -> None:
+    """Run each caller's real probe from another cwd, including its fallback."""
+    repo = tmp_path / "checkout with spaces"
+    helper = repo / "utils" / "gateway_url.py"
+    helper.parent.mkdir(parents=True)
+    shutil.copyfile(_REPO_ROOT / "utils" / "gateway_url.py", helper)
+    if readable_config:
+        (repo / "config.yaml").write_text(
+            'api:\n  host: 127.0.0.2\n  port: 9876\n  tls:\n    enabled: true\n', encoding="utf-8",
+        )
+    home = tmp_path / "home"
+    python = home / "venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    source = (_REPO_ROOT / "macos" / script).read_text(encoding="utf-8")
+    start = source.index('CONSOLE_URL="http://127.0.0.1:')
+    end_marker = "\ndone" if script == "setup-cyclaw.sh" else "\nfi"
+    end = source.index(end_marker, start) + len(end_marker)
+    probe = source[start:end] + '\nprintf "%s\\n" "$CONSOLE_URL"\n'
+    result = subprocess.run(
+        [_BASH, "-c", probe], cwd=tmp_path, capture_output=True, text=True, check=False,
+        env={**os.environ, "VENV_PY": sys.executable, "REPO_DIR": str(repo), "HOME_DIR": str(home),
+             "GATE_PORT": "8999", "CYCLAW_GATE_PORT": "8999"},
+    )
+    assert result.returncode == 0, result.stderr
+    expected = "https://127.0.0.2:8999" if readable_config else "http://127.0.0.1:8999"
+    assert result.stdout.strip() == expected
+
+
+def test_onboarding_uses_resolved_url_without_widening_key_autofill() -> None:
+    source = (_REPO_ROOT / "macos" / "setup-cyclaw.sh").read_text(encoding="utf-8")
+    assert 'wait_for_url "gateway" "$CONSOLE_URL/health"' in source
+    assert 'open "$CONSOLE_URL"' in source
+    assert 'step "terminal : $CONSOLE_URL"' in source
+    assert 'case "$url" in https://*) curl_args+=(-k)' in source
+    # Configured browser destinations must not become credential-injection destinations.
+    applescript = source.split("<<'APPLESCRIPT'", 1)[1].split("\nAPPLESCRIPT", 1)[0]
+    assert '"http://127.0.0.1:" & gatePort' in applescript
+    assert '"http://[::1]:" & gatePort' in applescript
+    assert "CONSOLE_URL" not in applescript
 
 
 def test_invoke_cyclaw_probes_gateway_startup_and_watches_its_pid() -> None:
@@ -139,7 +185,7 @@ def test_invoke_cyclaw_propagates_a_post_start_child_failure(tmp_path: Path) -> 
     # The launcher probes telemetry-kill (`python -S`) before spawning gate.py;
     # answer -S, then die as the gateway.
     fake_python.write_text(
-        "#!/bin/sh\ncase \"$1\" in -c) exit 0 ;; -S) exit 1 ;; esac\nsleep 4\nexit 37\n",
+        "#!/bin/sh\ncase \"$1\" in -c) exit 0 ;; -S|*/gateway_url.py) exit 1 ;; esac\nsleep 4\nexit 37\n",
         encoding="utf-8",
     )
     fake_python.chmod(0o755)
@@ -203,17 +249,18 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     # Record presence/match only. Never echo the secret.
     fake_python.write_text(
         "#!/bin/sh\n"
-        'case "$1" in -c) exit 0 ;; -S) exit 1 ;; esac\n'
+        'case "$1" in -c) exit 0 ;; -S|*/gateway_url.py) exit 1 ;; esac\n'
         f'status="{status_file.as_posix()}"\n'
         'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "set\\n" > "$status"; else printf "unset\\n" > "$status"; fi\n'
         'if [ "${CYCLAW_API_KEY:-}" = "from-dotenv" ]; then printf "match\\n" >> "$status"; fi\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT" >> "$status"\n'
         "sleep 4\n"
         "exit 0\n",
         encoding="utf-8",
     )
     fake_python.chmod(0o755)
     dotenv = home / ".env"
-    dotenv.write_text("CYCLAW_API_KEY=from-dotenv\n", encoding="utf-8")
+    dotenv.write_text("CYCLAW_API_KEY=from-dotenv\nCYCLAW_GATE_PORT=9001\n", encoding="utf-8")
     dotenv.chmod(0o600)
 
     repo = tmp_path / "repo"
@@ -230,6 +277,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
             "--repo",
             str(repo),
             "--no-browser",
+            "--gate-port",
+            "8999",
         ],
         cwd=_REPO_ROOT,
         env=env,
@@ -242,7 +291,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     output = result.stdout + result.stderr
     assert "from-dotenv" not in output
     assert "Typing the key in the browser cannot configure the server" not in result.stderr
-    assert status_file.read_text(encoding="utf-8") == "set\nmatch\n"
+    assert "http://127.0.0.1:8999" in result.stdout
+    assert status_file.read_text(encoding="utf-8") == "set\nmatch\nport:8999\n"
 
 
 def test_installer_preserves_patched_config_across_updates() -> None:
@@ -658,7 +708,7 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
     status_file = home / "key_status"
     fake_python.write_text(
         "#!/bin/sh\n"
-        'case "$1" in -c) exit 0 ;; -S) exit 1 ;; esac\n'
+        'case "$1" in -c) exit 0 ;; -S|*/gateway_url.py) exit 1 ;; esac\n'
         f'status="{status_file.as_posix()}"\n'
         'if [ "${CYCLAW_API_KEY:-}" = "from-repo" ]; then printf "repo\\n" > "$status";'
         ' else printf "other:${CYCLAW_API_KEY:-unset}\\n" > "$status"; fi\n'

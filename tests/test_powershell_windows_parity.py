@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -157,11 +159,39 @@ def test_invoke_starts_gate_through_main_not_bare_uvicorn() -> None:
     assert "& $VenvPy gate.py" in text
     assert "-m uvicorn" not in text
     assert "$Port" not in text
-    probe_idx = text.index("yaml.safe_load")
-    assert 'api.get("tls")' in text
+    probe_idx = text.index('"utils\\gateway_url.py"')
     assert "http://127.0.0.1:8787" in text  # fallback only
     assert probe_idx < text.index("[cyclaw] console : $Url")
     assert probe_idx < text.index("-ArgumentList $Url")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell")
+def test_invoke_url_probe_honors_host_tls_and_environment_port(tmp_path: Path) -> None:
+    powershell = shutil.which("powershell")
+    if not powershell:
+        pytest.skip("Windows PowerShell is unavailable")
+    repo = tmp_path / "checkout with spaces"
+    helper = repo / "utils" / "gateway_url.py"
+    helper.parent.mkdir(parents=True)
+    shutil.copyfile(_REPO_ROOT / "utils" / "gateway_url.py", helper)
+    (repo / "config.yaml").write_text(
+        'api:\n  host: 127.0.0.2\n  port: 9876\n  tls:\n    enabled: true\n', encoding="utf-8",
+    )
+    source = (_PS / "Invoke-CyClaw.ps1").read_text(encoding="utf-8")
+    probe = source.split('$Url = & $VenvPy', 1)[1].split('$Url = "$Url".Trim()', 1)[0]
+    script = tmp_path / "probe.ps1"
+    script.write_text(
+        'param([string]$Repo, [string]$VenvPy)\n$Url = & $VenvPy' + probe + '\nWrite-Output $Url\n',
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+         "-Repo", str(repo), "-VenvPy", sys.executable],
+        cwd=tmp_path, env={**os.environ, "CYCLAW_GATE_PORT": "8999"},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "https://127.0.0.2:8999"
 
 
 def test_installer_requires_explicit_flag_to_replace_existing_repo() -> None:

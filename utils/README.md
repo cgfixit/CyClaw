@@ -46,6 +46,7 @@ modules"; this file groups them by concern.
 | `ratelimit.py` | Per-IP rate limiting; in-memory / SQLite / Postgres backends. |
 | `health.py` | `check_all()` behind `/health`. `degraded` without Ollama is normal. External-provider probes are opt-in (`api.health_probe_external_providers`, ships false). |
 | `config_validation.py` | Boot-time config validation; fails fast on a broken `config.yaml`. |
+| `gateway_url.py` | Shared launcher console URL resolver: configured host/TLS plus the effective port; wildcard binds map to loopback browser destinations. Reads YAML without importing or starting the gateway. |
 | `ops_runner.py` | `subprocess.run([...])` shim behind the four `/ops/*` endpoints — core never imports `sync`/`agentic` (I6). |
 | `launchd_plist.py` | Stdlib-only plist builder shared by the `macos/` + `telegram`/`opentweet`/`fsconnect` launchd generators. Deliberately NOT used by `sync/scheduler.py`'s `LaunchdScheduler`, which writes its own plist with `plistlib` (see this module's docstring for why the two stay separate). |
 | `win_schtasks.py` | Stdlib-only Windows Task Scheduler XML helper shared by `agentic.fsconnect`/`telegram`/`opentweet`/`windows/generate_service_task.py`; never calls `schtasks /Create` itself — returns the command an operator runs by hand. (`sync/scheduler.py`'s `WindowsTaskScheduler` is separate and drives `schtasks.exe` directly.) |

@@ -444,6 +444,15 @@ require_port() {
 
 require_port "CYCLAW_GATE_PORT" "$GATE_PORT"
 
+CONSOLE_URL="http://127.0.0.1:$GATE_PORT"
+for URL_PY in "$HOME_DIR/venv/bin/python" python3.12 python3 python; do
+  if CONSOLE_PROBE="$("$URL_PY" "$REPO_DIR/utils/gateway_url.py" \
+    "$REPO_DIR/config.yaml" --port "$GATE_PORT" 2>/dev/null)" && [ -n "$CONSOLE_PROBE" ]; then
+    CONSOLE_URL="$CONSOLE_PROBE"
+    break
+  fi
+done
+
 RUNNER_PID=""
 # Set only while fill_browser_key's secret-bearing temp dir exists, so an
 # interrupt mid-autofill (Ctrl+C between mktemp and the closing rm -rf) still
@@ -487,6 +496,9 @@ wait_for_url() {
   local attempts="${3:-60}"
   local i=1
   local rc=0
+  local curl_args=(-sf)
+  # Match invoke-cyclaw.sh's readiness probe for a local self-signed certificate.
+  case "$url" in https://*) curl_args+=(-k) ;; esac
 
   while [ "$i" -le "$attempts" ]; do
     if ! kill -0 "$RUNNER_PID" 2>/dev/null; then
@@ -494,7 +506,7 @@ wait_for_url() {
       RUNNER_PID=""
       die "$label process exited before becoming ready (exit $rc)"
     fi
-    if curl -sf --max-time 2 "$url" >/dev/null 2>&1; then
+    if curl "${curl_args[@]}" --max-time 2 "$url" >/dev/null 2>&1; then
       step "$label ready: $url"
       return 0
     fi
@@ -506,15 +518,15 @@ wait_for_url() {
   return 1
 }
 
-wait_for_url "gateway" "http://127.0.0.1:$GATE_PORT/health" 80 || true
+wait_for_url "gateway" "$CONSOLE_URL/health" 80 || true
 
 open_consoles() {
   if ! command -v open >/dev/null 2>&1; then
     warn "open(1) is unavailable; browse to the URLs manually"
     return 1
   fi
-  open "http://127.0.0.1:$GATE_PORT" >/dev/null 2>&1 || true
-  step "opened the loopback console"
+  open "$CONSOLE_URL" >/dev/null 2>&1 || true
+  step "opened the console"
   return 0
 }
 
@@ -692,7 +704,7 @@ fi
 
 echo ""
 step "CyClaw is running"
-step "terminal : http://127.0.0.1:$GATE_PORT"
+step "terminal : $CONSOLE_URL"
 step "Ctrl+C in this Terminal stops the server"
 echo ""
 

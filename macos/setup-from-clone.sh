@@ -250,7 +250,7 @@ step "CyClaw Apple Silicon setup-from-clone"
 step "repo     : $REPO_DIR"
 step "home     : $HOME_DIR"
 step "model    : $OLLAMA_MODEL"
-step "terminal : http://127.0.0.1:8787  (RAG gateway / static/terminal.html)"
+step "terminal : resolved from gateway configuration after setup"
 echo ""
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -600,7 +600,12 @@ fi
 
 echo ""
 step "setup complete."
-step "  terminal UI : http://127.0.0.1:8787"
+CONSOLE_URL="http://127.0.0.1:${CYCLAW_GATE_PORT:-8787}"
+if CONSOLE_PROBE="$("$VENV_PY" "$REPO_DIR/utils/gateway_url.py" \
+  "$REPO_DIR/config.yaml" --port "${CYCLAW_GATE_PORT:-8787}" 2>/dev/null)" && [ -n "$CONSOLE_PROBE" ]; then
+  CONSOLE_URL="$CONSOLE_PROBE"
+fi
+step "  terminal UI : $CONSOLE_URL"
 step "  this tab    : source $HOME_DIR/.env   (if you open a new one, rc already sources it)"
 step "  later       : cyclaw     (or: bash macos/invoke-cyclaw.sh)"
 step "  stop        : Ctrl+C in the tab that is running the server"
