@@ -46,7 +46,7 @@ All measurements must be taken under the same repeatable conditions every iterat
 pkill -f "uvicorn gate" 2>/dev/null; sleep 1
 
 # Start fresh
-GROK_API_KEY=dummy uvicorn gate:app --host 127.0.0.1 --port 8787 &
+GROK_API_KEY=dummy uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers &
 SERVER_PID=$!
 sleep 2   # fixed warm-up window — do not vary
 ```

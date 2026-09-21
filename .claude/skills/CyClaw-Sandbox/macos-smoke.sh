@@ -11,7 +11,7 @@
 # Prereq: gate.py running on PORT, e.g.
 #   export GROK_API_KEY=dummy
 #   export CYCLAW_API_KEY=verify-soul-key-ci   # /soul is API-key gated (PR #249)
-#   python3.12 -m uvicorn gate:app --host 127.0.0.1 --port 8787
+#   python3.12 -m uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers
 # Then, from the repo root:
 #   bash .claude/skills/CyClaw-Sandbox/macos-smoke.sh
 #

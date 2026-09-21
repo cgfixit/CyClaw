@@ -172,7 +172,7 @@ python -m retrieval.indexer
 # ollama serve
 
 # Start CyClaw
-uvicorn gate:app --reload --host 127.0.0.1 --port 8787
+uvicorn gate:app --reload --host 127.0.0.1 --port 8787 --no-proxy-headers
 ```
 
 Open `http://127.0.0.1:8787` in your browser. The Soul Console terminal loads automatically.
