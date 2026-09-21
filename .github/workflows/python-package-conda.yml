@@ -124,6 +124,7 @@ jobs:
           --cov=utils.telemetry_kill \
           --cov=utils.onnx_telemetry \
           --cov=utils.config_validation \
+          --cov=utils.gateway_url \
           --cov=utils.errors \
           --cov=utils.logger \
           --cov=utils.numbat_emitter \
