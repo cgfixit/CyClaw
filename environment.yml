@@ -91,12 +91,14 @@ dependencies:
   # the torch manifest pin (package name differs) -- bump it by hand whenever
   # constraints.txt's torch pin moves.
   - pytorch=2.13.0=cpu*
-  # Transitive of pytorch on the pip path (requires_dist setuptools>=77.0.3;
-  # see constraints.txt's setuptools==84.0.0 comment) -- PYSEC-2026-3447's
-  # advisory floor is 83.0.0. Not mirrored on the pip path via a first-party
-  # import; pinned explicitly here so this install surface isn't the one left
-  # depending on whatever conda-forge's solver floats unconstrained.
-  - setuptools=84.0.0
+  # NOT pinning setuptools here, unlike constraints.txt's setuptools==84.0.0
+  # (PYSEC-2026-3447 floor 83.0.0): every conda-forge pytorch=2.13.0 cpu build
+  # hard-requires `setuptools <82` (confirmed via the conda-forge repodata,
+  # 2026-09-21; reproduced live as a mamba solve failure -- "pytorch 2.13.0
+  # would require setuptools <82" vs "setuptools =84.0.0 is not installable" --
+  # in this CI lane when 84.0.0 was tried here). Pinning >=83 on this lane is
+  # unsatisfiable without moving the pytorch pin, which is out of scope; left
+  # to float here, same as before this file started tracking the pip-path gap.
   # huggingface_hub is imported directly by retrieval/embeddings.py (not just an
   # implicit sentence-transformers transitive) and is now pinned explicitly on
   # the pip path too (pyproject.toml/constraints.txt). Safe to mirror here
