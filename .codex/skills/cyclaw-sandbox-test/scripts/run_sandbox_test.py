@@ -253,7 +253,7 @@ def _prepare_repo(repo: Path, args: argparse.Namespace, results: list[Result], e
         _require(
             _run(
                 "upgrade pip",
-                [str(py), "-m", "pip", "install", "--upgrade", "pip==26.1.2"],
+                [str(py), "-m", "pip", "install", "--upgrade", "pip==26.2.1"],
                 repo,
                 env,
                 180,
