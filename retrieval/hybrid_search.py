@@ -87,7 +87,9 @@ class HybridRetriever:
                     f"(tokenized={n_tok}, chunks={n_chunks}, metadata={n_meta}). "
                     f"Run: python -m retrieval.indexer"
                 )
-            self.bm25 = BM25Okapi(tokenized)
+            # Non-Latin/symbol-only corpora can have chunks but no keyword vocabulary.
+            # BM25Okapi divides by zero there; keep the semantic leg usable.
+            self.bm25 = BM25Okapi(tokenized) if any(tokenized) else None
             self.bm25_chunks = chunks
             self.bm25_metadata = metadata
 
@@ -111,7 +113,7 @@ class HybridRetriever:
         # place (hit.score / hit.rrf_score in _normalize_single_path and
         # hybrid_search) and returning shared instances across calls would
         # leak one query's fusion state into the next identical query.
-        self._bm25_scores = lru_cache(maxsize=256)(self.bm25.get_scores)
+        self._bm25_scores = lru_cache(maxsize=256)(self.bm25.get_scores) if self.bm25 is not None else None
 
     def _check_embedding_fingerprint(self) -> None:
         """Guard against serving a semantic index built on a different
@@ -237,6 +239,8 @@ class HybridRetriever:
         keyword leg leaves empty; RRF (hybrid_search) tolerates asymmetric leg
         sizes by design.
         """
+        if self._bm25_scores is None:
+            return []
         if k is None:
             k = self.top_k_keyword
         query_tokens = tokenize_and_stem(query)
