@@ -41,7 +41,7 @@ jobs:
 
       - name: Build release distributions
         run: |
-          python -m pip install --upgrade "pip==26.1.2"
+          python -m pip install --upgrade "pip==26.2.1"
           # Exact pin, same policy as the pip pin above (current stable 1.6.0;
           # ci.yml's "Build the wheel" step mirrors this -- keep them in step).
           python -m pip install "build==1.6.0"

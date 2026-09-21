@@ -46,7 +46,7 @@ COPY pyproject.toml constraints.txt requirements.txt ./
 # Keep the two in lock-step on any bump.
 # No stderr redirect and no `||` on this RUN: a dependency install that fails
 # must fail the build loudly rather than silently take another path.
-RUN pip install --no-cache-dir --upgrade "pip==26.1.2" && \
+RUN pip install --no-cache-dir --upgrade "pip==26.2.1" && \
     pip install --no-cache-dir torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
