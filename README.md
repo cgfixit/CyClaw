@@ -103,7 +103,8 @@ python gate.py                                   # → http://127.0.0.1:8787
 
 **Windows** uses the same dependency pins with PowerShell activation
 (`py -3.12 -m venv .venv`, `.\.venv\Scripts\Activate.ps1`); see
-[Install — Windows / Linux](#install--windows--linux-fallback).
+[Windows](setup-guide.md#windows-powershell) and
+[Linux](setup-guide.md#linux-bash) in the setup guide.
 
 Confirm it's alive: `curl http://127.0.0.1:8787/health`, then open
 `http://127.0.0.1:8787/` for the browser console.
@@ -111,7 +112,7 @@ Confirm it's alive: `curl http://127.0.0.1:8787/health`, then open
 > **Manual macOS install differs in one step.** The `+cpu` torch wheel does not
 > exist for macOS, so torch is installed plain (`torch==2.13.0`) from stripped
 > copies of `requirements.txt` and `constraints.txt`. Exact commands:
-> [Install — macOS](#install--macos-apple-silicon).
+> [macOS (Apple Silicon)](setup-guide.md#macos-apple-silicon).
 
 ---
 
@@ -335,414 +336,63 @@ indexer apply the same block.
 
 ## Installation
 
-### Prerequisites
-
-| Requirement | Version | Notes |
-|---|---|---|
-| Python | 3.12 | Primary supported runtime (3.13 is not supported) |
-| [Ollama](https://ollama.com/) | Any | Must be running on `localhost:11434` |
-| Model pulled in Ollama | — | `qwen3.8:27b-mlx` (default), `mistral:7b`, or any chat model |
-| **macOS** (primary) | 14 Sonoma+ | **Apple Silicon only.** An Intel Mac cannot install this repo's pinned torch at all — no `x86_64` wheel is published at that pin |
-| Windows / Linux (fallback) | — | Both fully supported and CI-covered; they share the `+cpu` torch path below |
-
-**Optional local-backend failover.** Ollama is the primary local backend;
-CyClaw can also fail over to LM Studio (or any OpenAI-compatible loopback
-server) when Ollama isn't reachable. Off by default — set
-`models.local_llm.fallback.enabled: true` and fill in `fallback.model` with
-the LM Studio id (no Ollama-style `name:tag` colon). A short probe
-(`fallback.probe_timeout_sec`, default 1.5s) tries Ollama first and LM Studio
-second, `LocalLLMClient` and `/health` share the choice, and it re-probes if
-neither answered the first time (`llm/client.py`'s `resolve_local_backend`).
-
-### Install — macOS (Apple Silicon)
-
-macOS is the primary platform and needs a **different torch step** than
-Windows/Linux: the `+cpu` local-version wheel does not exist for macOS, and
-both manifests hardcode that pin, so the generic block fails twice on a Mac.
-
-```bash
-git clone https://github.com/CGFixIT/CyClaw
-cd CyClaw
-python3.12 -m venv .venv
-source .venv/bin/activate
-# 1) torch FIRST, and PLAIN — no +cpu suffix, no --index-url override.
-#    Apple Silicon has one arm64 wheel; there is no CPU/CUDA build to pick between.
-pip install "torch==2.13.0"
-# 2) Everything else, from a requirements.txt copy with the torch and
-#    PyTorch-index lines stripped out, and a constraints.txt copy that keeps
-#    torch pinned minus the +cpu suffix (--ignore-installed reinstalls torch
-#    too, so an unconstrained copy floats it) — the same thing CI's
-#    macos-latest leg runs.
-grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' \
-    requirements.txt > /tmp/requirements-macos.txt
-sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
-pip install -r /tmp/requirements-macos.txt -c /tmp/constraints-macos.txt \
-    --ignore-installed PyYAML
-```
-
-Prefer a script? `bash ./macos/setup-cyclaw.sh` is the single operator-facing
-entry point (offers to clone, asks its few choices once, then runs
-`macos/setup-from-clone.sh`: installer + Keychain keys + Ollama check +
-retrieval index + a running server). `bash ./macos/install-cyclaw.sh` is the
-installer alone — it handles the torch difference but skips the Ollama / index /
-API-key steps, so the gateway stays degraded (503 on `/query`) until you do
-them. Flags, privacy notes, and tradeoffs:
-[`macos/README.md`](macos/README.md#one-command-apple-silicon) and
-[`setup-guide.md`](setup-guide.md#option-a--the-installer-script-handles-the-torch-difference-for-you).
-
-### Install — Windows / Linux (fallback)
-
-The shell commands below use Linux activation. On Windows, create the venv
-with `py -3.12 -m venv .venv`, activate with `.\.venv\Scripts\Activate.ps1`,
-then run the same two pip install commands.
-
-```bash
-git clone https://github.com/CGFixIT/CyClaw
-cd CyClaw
-python3.12 -m venv .venv
-source .venv/bin/activate
-# 1) CPU-only torch first (CVE-2025-32434 fixed in 2.6.0; 2.13.0 is within the patched range)
-pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-# 2) The rest, using the shared dependency constraints. --ignore-installed PyYAML
-#    avoids a resolver conflict with a system PyYAML some platforms preinstall.
-pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
-```
-
-The Windows twin of `macos/install-cyclaw.sh` is
-`powershell/Install-CyClaw.ps1` (home layout, venv, `cyclaw` shim). Flags and
-Credential Manager notes: [`powershell/README.md`](powershell/README.md).
-Windows is the fallback path — CyClaw is developed and verified on macOS first,
-but everything here is CI-covered on `windows-latest`.
-
-### Docker (optional runtime image)
-
-Prefer GHCR when you want a prebuilt `linux/amd64` runtime without a local
-`pip install`. Pull `ghcr.io/cgfixit/cyclaw` and run with the existing compose
-hardening (loopback publish, read-only rootfs, seccomp builtin). Full operator
-guide: [`docs/DOCKER.md`](docs/DOCKER.md).
-
-```bash
-export CYCLAW_IMAGE_TAG=1.9.0
-docker compose pull && docker compose up -d
-curl -sS http://127.0.0.1:8787/health
-```
-
-The published image installs `requirements.txt` only; native install remains
-the primary path for Apple Silicon.
-
-### Optional-feature extras
-
-For a from-scratch dev box or a full manual smoke test — Postgres/pgvector,
-NeMo Guardrails, dev/test tools, Numbat CEL, and both cloud providers — after
-the platform-specific torch preparation, install:
-
-```bash
-pip install -e ".[all]" -c constraints.txt
-```
-
-On macOS, use `-c /tmp/constraints-macos.txt` from the macOS steps instead.
-The current `[all]` aggregate omits the `mssql` extra; select `[all,mssql]`
-explicitly if you need that driver. **Installing an extra does not enable its
-runtime switch.**
-
-`requirements.txt` supplies the base runtime and CPU torch; test tools are
-separate in `requirements-test.txt`. Docker installs only the runtime file.
-`constraints.txt` caps versions and does not install optional packages.
-
-### First-run notes
-
-- `index/` and `logs/` are self-created on first run by `gate.py`, the
-  retriever, and the logger; `mkdir -p index logs` is optional.
-- `GROK_API_KEY` is **not** a boot requirement. `security.require_env` lists it
-  as operator-facing documentation, but no code enforces it: the server boots
-  without it and Grok simply reports unavailable. Set it (and
-  `ANTHROPIC_API_KEY`) only when you want the online fallback; see
-  [API Key Setup](#api-key-setup-soul-mutations).
-- `data/personality/soul.md` ships committed to git with CyClaw's real
-  personality already in place — do not recreate it from a placeholder on a
-  fresh clone. If it's ever deleted, `PersonalityManager` self-heals with a
-  generic default, but that's a recovery path, not the normal first-run state.
-
-### Run
-
-CyClaw is **one** local web app: the RAG gateway serves the browser console at
-`/` and the whole REST API from the same process and port.
-
-```bash
-python -m retrieval.indexer                     # once, before the first /query
-python gate.py                                  # → http://127.0.0.1:8787
-```
-
-`python gate.py` enters the bind guard and TLS startup path and disables
-proxy-header trust. Direct `uvicorn gate:app` bypasses that startup path.
-
-Open `/` for the terminal UI and `/health` for readiness (`degraded` without
-Ollama running is normal, not an error). The terminal exposes five operator
-consoles — **Soul**, **Sync**, **Agentic**, **Filesystem**, and **SQL** — the
-latter four calling `POST /ops/sync`, `/ops/agentic`, `/ops/fsconnect`, and
-`/ops/sqlconnect` (API-key gated, rate-limited, audited).
-
-**The `cyclaw-*` short names need a self-install.** `cyclaw-server`,
-`cyclaw-index`, `cyclaw-mcp`, `cyclaw-metrics`, `cyclaw-clear-cache`,
-`cyclaw-user`, and `cyclaw-gen-cert` are `[project.scripts]` shims that pip
-writes only when the project itself is installed; `requirements.txt` has no
-self-install line, so add `pip install -e . -c constraints.txt` if you want
-them (use `/tmp/constraints-macos.txt` on macOS). The `python -m …` forms
-always work and are what both shipped launchers use.
-
-Every gateway route with a copy-pasteable `curl` invocation, plus what each
-status code means, is in
-[`setup-guide.md`](setup-guide.md#rest-api--testing-every-endpoint-from-the-terminal).
+Install, first run, and starting the gateway are in
+[`setup-guide.md`](setup-guide.md). macOS installs plain `torch==2.13.0`;
+Windows and Linux use the `+cpu` wheel. Platform scripts:
+[`macos/README.md`](macos/README.md) and
+[`powershell/README.md`](powershell/README.md). The optional GHCR image is
+[`docs/DOCKER.md`](docs/DOCKER.md).
 
 ---
 
 ## API Key Setup (Soul Mutations)
 
-CyClaw's soul mutation endpoints (`/soul/propose`, `/soul/apply`,
-`/soul/reload`, `/soul/restore`) require a **Bearer API key** in
-`CYCLAW_API_KEY`. Without it they return `HTTP 401` immediately — intentional
-fail-closed behavior. The same key gates `/ops/*`, `/memory/*`, and
-`/audit/summary`.
-
-> **Which routes need what.** All `/soul/*` endpoints — including `GET /soul`
-> — require a valid `Authorization: Bearer <key>` token. Only `/health`,
-> `/query`, `GET /index/status`, `GET /auth/setup-status`, `POST /auth/login`
-> (issues the session itself; 503 when `auth.enabled` is false), and the
-> console pages (`GET /`, `/static/*`) are unauthenticated. `POST /index/build`
-> and `POST /auth/bootstrap-password` carry no credential either, but neither
-> is open: each is gated on a loopback socket peer plus a same-origin check and
-> returns 403 off-box — `/index/build` 409 while a build is already running,
-> `/auth/bootstrap-password` 409 once the first admin password is set.
-> `POST /query`, though credential-free by default, additionally carries an
-> **unconditional same-origin check** — a cross-site browser request is
-> rejected 403 `CROSS_SITE_BLOCKED` regardless of `auth.enabled`; requests
-> carrying neither `Origin` nor `Sec-Fetch-Site` (curl, PowerShell,
-> schedulers) are unaffected.
-
-### macOS / Linux — zsh or bash
-
-Set it for the current shell. Generate a real value instead of typing one —
-`openssl` ships with macOS and every Linux distribution:
-
-```bash
-export CYCLAW_API_KEY="$(openssl rand -hex 20)"
-echo "$CYCLAW_API_KEY"
-python gate.py
-```
-
-Persist it in your shell profile. macOS has defaulted to **zsh** since
-Catalina, so that means `~/.zshrc` unless you switched — check with
-`echo $SHELL`. On bash, append it to the first existing login file in this
-order: `~/.bash_profile`, `~/.bash_login`, `~/.profile`; create
-`~/.bash_profile` only when none exists, because macOS bash login shells do not
-read `~/.bashrc` (Linux bash does).
-
-```bash
-echo 'export CYCLAW_API_KEY="your-strong-local-secret"' >> ~/.zshrc   # or the bash file above
-source ~/.zshrc
-```
-
-Full macOS walkthrough — including exercising every REST endpoint with `curl`
-— is in [`setup-guide.md`](setup-guide.md#macos-apple-silicon).
+`/soul/*`, `/ops/*`, `/memory/*`, and `/audit/summary` require a Bearer
+`CYCLAW_API_KEY` and fail closed (401) when it is unset. `/query` and
+`/health` do not use that key. What the key gates, and the per-platform
+generate step, are in
+[`setup-guide.md`](setup-guide.md#cyclawapikey--required-for-the-soul-console-not-for-query).
+macOS persist is the Keychain bootstrap:
+[`macos/README.md`](macos/README.md#key-bootstrap)
+([401 recovery](macos/README.md#401--key-drift-recovery)).
+Provider key names and the ledger are in
+[`spend/README.md`](spend/README.md#api-keys).
+Windows user-env persist is the next heading. Scheduled-task secrets use
+[`powershell/README.md`](powershell/README.md#scripts)
+(`powershell/CyClaw-CredMan-Set.ps1`, `powershell/CyClaw-CredMan-Env.ps1`).
 
 ### Windows — PowerShell / cmd.exe
 
-```powershell
-$env:CYCLAW_API_KEY = "your-strong-local-secret"      # current session only
-python gate.py
-```
-
-Persist it for the current user (writes the user environment permanently);
-verify with `echo $env:CYCLAW_API_KEY` before launching:
+Generate the session value in
+[`setup-guide.md`](setup-guide.md#windows-powershell), then persist it.
+Current user (open a new session before `python gate.py`):
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("CYCLAW_API_KEY", "your-strong-local-secret", [System.EnvironmentVariableTarget]::User)
+[System.Environment]::SetEnvironmentVariable("CYCLAW_API_KEY", $env:CYCLAW_API_KEY, "User")
 ```
 
-Windows Server, system-wide (all users, requires admin): the same call with
-`[System.EnvironmentVariableTarget]::Machine`, or **System Properties →
-Advanced → Environment Variables → System variables → New**. From cmd.exe:
-`set CYCLAW_API_KEY=your-strong-local-secret` for the session and
-`setx CYCLAW_API_KEY "your-strong-local-secret"` to persist.
-
-### All platforms — `.env` file (already in `.gitignore`)
-
-Create `.env` in the repo root:
-
-```
-# Keys live here, never in config.yaml — config.yaml only names which
-# provider is enabled; the key itself is read from the environment.
-CYCLAW_API_KEY=your-strong-local-secret
-GROK_API_KEY=your-xai-key-or-dummy-when-offline
-ANTHROPIC_API_KEY=your-anthropic-key
-```
-
-Then tighten it — a hand-created file inherits the shell's umask (usually
-`0644`, i.e. world-readable), and `macos/invoke-cyclaw.sh` **refuses to source a
-dotenv that is not `600` or `400`** rather than load secrets from a file other
-local accounts can read:
-
-```bash
-chmod 600 .env
-```
-
-On Windows, a hand-created file often inherits `BUILTIN\Users` read. Tighten it
-the same way `powershell/Invoke-CyClaw.ps1` requires before it will source the
-file (every Allow ACE must resolve to the current user SID; shared or
-unresolvable entries are refused):
+cmd.exe: `set CYCLAW_API_KEY=<value>` for the session, `setx CYCLAW_API_KEY "<value>"` to persist.
+A repo `.env` is sourced by `powershell/Invoke-CyClaw.ps1` only when every
+Allow ACE is the current user:
 
 ```powershell
 icacls .env /inheritance:r /grant:r "${env:USERNAME}:(R,W)"
 ```
 
-`macos/setup-cyclaw-keys.sh` already writes `~/.CyClaw/.env` at `600`; only
-a hand-made file needs this step.
-
-Load it before launching:
-
-```bash
-# Bash / Zsh
-export $(grep -v '^#' .env | xargs)
-python gate.py
-```
-
-```powershell
-# PowerShell
-Get-Content .env | ForEach-Object {
-    if ($_ -match '^([^#=][^=]*)=(.*)$') {
-        [System.Environment]::SetEnvironmentVariable($Matches[1].Trim(), $Matches[2].Trim())
-    }
-}
-python gate.py
-```
-
-### Provider keys
-
-- The Claude variable is **`ANTHROPIC_API_KEY`**, not `CLAUDE_API_KEY` —
-  `llm/client.py` and `agentic/config.py` both read the former, and nothing in
-  the codebase reads the latter. Setting the wrong name is silent: Claude simply
-  reports unavailable and the query falls back to a local answer.
-- Keys never appear in `logs/spend.jsonl`; a confirmed call that actually bills
-  appends only token counts there. Darwin Keychain service names for
-  `GROK_API_KEY` / `ANTHROPIC_API_KEY` are in
-  [`spend/README.md`](spend/README.md); see [Spend Tracking](#spend-tracking).
-
-### Choosing an API key value
-
-With the default loopback bind (`127.0.0.1:8787`), the key stays on the host.
-For an explicitly configured non-loopback bind, use TLS and the auth gates
-described below. In either case:
-
-- Use at least **20 random characters**: `openssl rand -hex 20` (Linux/macOS)
-  or `[System.Web.Security.Membership]::GeneratePassword(24,4)` (PowerShell).
-- Do **not** reuse a password from elsewhere.
-- Do **not** commit the key to Git (`.env` is already in `.gitignore`).
-- The gateway reads the key from its environment; export it (macOS/Linux) or
-  set it as an env var (Windows) *before* `python gate.py` starts. Paste the
-  same value into the browser console's API-key field (or use the macOS
-  bootstrap's restricted autofill). The browser does not read the server's
-  environment; a missing or mismatched key returns 401 with the default policy.
+Scheduled-task secrets use Credential Manager
+([`powershell/README.md`](powershell/README.md#scripts)).
 
 ## Per-User Authentication
 
-CyClaw ships **two independent credential systems**, and confusing them is the
-most common setup mistake:
-
-| System | Secret | Guards | Toggle |
-|---|---|---|---|
-| **Operator API key** | `CYCLAW_API_KEY` env var (Bearer) | `/soul/*`, `/ops/*`, `/memory/*`, `/audit/summary` | Always on (fail-closed when unset); `security.api_key_optional` is the one deliberate loopback-peer bypass |
-| **Per-user auth** | Per-account scrypt password → session cookie, or a named device token | `POST /query` and the console's user surface | `auth.enabled` in `config.yaml` — ships **`false`** |
-
-The per-user layer is `gate_auth.py` + `utils/authn*`; the full design is
-[`docs/AUTHENTICATION_DESIGN.md`](docs/AUTHENTICATION_DESIGN.md). With
-`auth.enabled: false` (the shipped default) `POST /query` takes no credential
-and every `/auth/*` route answers **503**, not 404 — route presence never
-discloses whether the feature is on.
-
-### Turning it on
-
-1. Set `auth.enabled: true` in `config.yaml` and restart `gate.py`. The store is
-   SQLite at `auth.db_path` (`data/auth/cyclaw_auth.db`); `CYCLAW_AUTH_DB_URL` —
-   its **own** env var, deliberately not the personality subsystem's
-   `CYCLAW_DB_URL` — switches it to a `postgresql://` DSN.
-2. Set the first admin password. The bootstrap account is username **`admin`**,
-   created with no password. Use the terminal console's first-boot box on
-   loopback, or post directly:
-
-   ```bash
-   curl -s -X POST http://127.0.0.1:8787/auth/bootstrap-password \
-     -H 'Content-Type: application/json' \
-     -d '{"password":"<a long passphrase>"}'
-   ```
-
-   That route is **loopback-peer + same-origin only** — 403 from off-box, 409
-   once a password is set, 503 when `auth.enabled` is false — and carries no
-   credential on purpose: on a genuine first run there is nothing to present
-   yet. `GET /auth/setup-status` (no credential, but same-origin-checked and
-   rate-limited) reports `{enabled, needs_password, username}` so a console
-   can tell first-boot from logged-out.
-3. Add the accounts operators actually use with the local-only `cyclaw-user`
-   console script (no HTTP route reaches it). Subcommands: `add`, `list`,
-   `role`, `disable`, `enable`, `passwd`, `token create|list|revoke`; new
-   accounts default to `operator`:
-
-   ```bash
-   cyclaw-user add alice --role operator     # prompts for the password
-   cyclaw-user token create alice laptop     # prints the token ONCE
-   ```
-
-### Roles, sessions, lockout
-
-Three roles, checked server-side on every request:
-
-| Capability | `admin` | `operator` | `audit` |
-|---|---|---|---|
-| `POST /query` | yes | yes | **no** — 403 `AUTH_ROLE_DENIED` |
-| List users (`GET /auth/users`) | yes | yes | no |
-| Create user / reset another user's password | yes | yes, but never on an `admin` account | no |
-| Set role, delete user | yes | no | no |
-| Disable / enable | yes | non-admins only | no |
-| Change own password (`POST /auth/password`) | yes | yes | yes |
-| `GET /auth/audit/summary` | yes | no | yes |
-
-The **last enabled `admin` is protected** — disable, delete, and role-change
-all refuse it, so an operator cannot lock the deployment out of its own admin
-surface. `GET /auth/audit/summary` is the reduced, session-gated audit view, not
-the API-key-gated `GET /audit/summary`.
-
-Browsers get a `cyclaw_session` cookie plus a CSRF token that every mutating
-`/auth/*` route requires in the `X-CyClaw-CSRF` header; `POST /query` is
-deliberately CSRF-exempt because it takes a session *or* a bearer device token
-and mutates no auth state. Programmatic clients send a named device token as
-`Authorization: Bearer <token>` — displayed once, stored only as a hash,
-revoked by label. A session dies at whichever of `auth.session`'s two limits
-comes first: `idle_timeout_sec: 43200` (12 h, rolling) or
-`absolute_timeout_sec: 604800` (7 d, never resets). Failed logins back off per
-account — the first **5** consecutive failures are free, then the delay doubles
-from 2 s to a **900 s ceiling**; no admin action is needed to recover.
-Passwords are scrypt-hashed (`utils/authn.py`), and no password, session id,
-CSRF token, or device token is ever written to `audit.jsonl`.
-
-### Serving it beyond loopback
-
-Enabling `auth.enabled` does **not** by itself make a non-loopback bind safe or
-permitted. `gate.py`'s `_require_loopback_bind` still refuses a non-loopback
-`api.host`, and the auth+TLS route past it is refused outright while
-`security.api_key_optional` is `true` — that flag removes the `CYCLAW_API_KEY`
-gate from `/soul/*`, `/ops/*`, and `/memory/*`, which per-user auth does not
-replace. Set `security.api_key_optional` back to `false` first, then generate a
-certificate with the bundled openssl wrapper (no new runtime dependency):
-
-```bash
-cyclaw-gen-cert --hostname "$(hostname)" --days 825
-```
-
-Flags: `--certfile`, `--keyfile`, `--hostname` (defaults to the machine
-hostname), `--days` (default `825`), `--san` (repeatable extra SAN entry,
-e.g. `IP:10.0.0.5` or `DNS:box.local`), and `--force` — **required to
-overwrite an existing cert/key pair**; without it the command refuses rather
-than clobbering one. Read [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
-before exposing the port.
+The operator API key above gates soul and ops routes. Per-user auth is the
+account system (`gate_auth.py`): scrypt passwords, a session cookie plus CSRF
+for browsers, named device tokens for scripts, and roles `admin`, `operator`,
+and `audit`. It ships with `auth.enabled: false`. While that switch is off,
+every `/auth/*` route returns 503. The design, the role table, TLS, and the
+non-loopback bind rule are in
+[`docs/AUTHENTICATION_DESIGN.md`](docs/AUTHENTICATION_DESIGN.md).
+First-boot `curl` and `cyclaw-user` are in
+[`setup-guide.md`](setup-guide.md#authentication-routes-auth-off-by-default).
 
 ---
 
@@ -1001,299 +651,30 @@ The **Agentic Console** panel drives these from the terminal UI via
 
 ## Agentic Coding Loop (GitHub)
 
-The real-repo coding pipeline: **clone → plan → patch → verify → human decides →
-commit**, with pushing and opening a draft PR as two further, separate decisions.
-Driven by `agentic/real_repo_loop.py`, which fuses three previously-independent
-pieces — the planner's model call, a jailed real clone
-(`agentic/deepagent_github/repo_workspace.py`), and the sandboxed verification
-executor (`agentic/executor/`). Out-of-band (I6) like every other agentic
-feature.
-
-**It ships held, not disarmed.** The three switches that gate whether a run
-happens at all — `agentic.enabled`, `deepagent_github.enabled`,
-`allow_git_write_tools` — ship `false`. The write-path constant
-`agentic/writer.py::EXECUTION_ENABLED` and the cloud switches (`mode: "write"`,
-`writes_enabled`, `allow_cloud_providers`, both providers) ship **open** since
-the signed enablement of 2026-08-07, so on a default checkout it is the master
-switches plus a per-call `reason`/`confirm` that refuse.
-
-**What sits beside it.** `agentic/deepagent_github/` also carries the pieces the
-loop actually calls — `repo_workspace.py` (the jailed clone: clone, read,
-write_file, commit, push) and `chat_client.py` (the cloud-provider planner
-adapter). Its `builder.py` DeepAgents subgraph and the
-`agentic/harness_optimizer/` train/holdout scaffold beside it are **retired by
-owner decision (2026-07-31)** — kept and tested, not deleted, and superseded by
-the pipeline described here. Every switch below the `agentic.enabled` master
-(`deepagent_github.enabled`, `allow_deepagents_dependency`,
-`allow_filesystem_write_tools`, `allow_shell_execution`, `allow_github_writes`,
-`harness_optimizer.enabled`) ships `false`, so nothing under either package is
-reachable from `agentic.cli` and no `deepagents` / `langchain` optional
-dependency is imported. The phase ledger is in
-[`docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md`](docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md).
-
-### How a run works
-
-0. **`real-repo-run-plan`** (optional, two-stage) asks a model for a plan and
-   prints it or writes it to `--out` — it creates no clone, patch, or commit.
-   You read and edit the plan and feed it back with `--plan-file`, so one model
-   plans, a **human approves**, and another model codes against the approved
-   text. The plan is injection-scanned on load, truncated at 6,000 chars, and
-   its SHA-256 is recorded on the run.
-1. **`real-repo-run`** clones the configured repo into a jailed workspace, asks
-   the planner for whole-file replacements, writes them, runs the selected
-   checks, and **stops before committing** (`status: pending_decision`; a run
-   that never passes reports `exhausted`).
-2. **`real-repo-run-decide --decision approve`** commits locally; `reject`
-   discards. Neither pushes unless `approve` also receives `--push`.
-3. **`real-repo-run-push`** puts the approved feature branch on origin
-   (allowed prefixes come from `utils/agent_identity.py`).
-4. **`real-repo-run-publish`** opens a **draft** PR (`gh pr create --draft`).
-5. **`real-repo-run-discard`** reclaims a decided or orphaned run's clone
-   (`reject` and `exhausted` free theirs immediately; only an approved run keeps
-   its clone, since push and publish still need it).
-
-Push and publish can be separate commands, as above. `approve --push` combines
-commit and push; adding `--publish` also opens a draft PR and requires
-`--reason` plus `--confirm-publish`. The same write gates apply to both paths.
-
-### Security posture
-
-- **Diff-scope gate.** A candidate that writes into any of `config.yaml`'s
-  `agentic.deepagent_github.protected_write_paths` (the tests, CI, lint, and
-  config files that judge the candidate's own acceptance — the classic
-  reward-hacking failure of a make-the-checks-pass loop) is refused outright,
-  and writes are budget-capped (`max_write_budget_bytes`).
-- **Two scanners, two questions, on the same bytes.** Proposed content gets an
-  injection scan (*is this trying to talk to a model?*) **and** a code-shape
-  scan (`inspect_code_shape`; `scan_code_shape` ships `true`) that matches
-  *combinations* — a secret path plus network egress, a decode plus dynamic
-  exec, a socket plus fd-dup or a shell path, a pipe-to-shell — because a
-  working key-exfiltration payload contains no injection phrase at all. Every
-  hit is CRITICAL and refuses the candidate.
-- **Verification runs as argv-list subprocesses**, never a shell: `cwd` pinned
-  to the clone, a scrubbed env allowlist (`PATH`, `LANG`, `LC_ALL`,
-  `PYTHONPATH`, `VIRTUAL_ENV`, `PYTHONIOENCODING`) plus a disposable
-  `HOME`/`USERPROFILE`, forced `NO_PROXY=*` / `PIP_NO_INDEX=1`, and a 120s
-  per-check timeout. **Every non-empty check list runs inside a required,
-  fail-closed hard sandbox** (`hard_sandbox.py`: Windows Job Object with
-  `KILL_ON_JOB_CLOSE`, Darwin `sandbox-exec` denying network and off-cwd
-  writes, Linux `unshare --net`) — a missing binary or failed capability probe
-  raises `HardSandboxUnavailable`, with no silent fallback. Residual limits (no
-  microVM; Windows is a process-tree kill, so sockets keep working there) are
-  in `docs/THREAT_MODEL.md`'s executor amendments.
-- **`push_branch` passes no credential.** Its env allowlist deliberately
-  excludes `GH_TOKEN`/`GITHUB_TOKEN` because that environment is shared with
-  the executor; it authenticates only via a HOME-resident credential helper
-  (`gh auth setup-git`). Branch names are forced into the PR-template vendor
-  namespaces (`utils/agent_identity.py`) and `run_id` is validated as 32-char
-  lowercase hex before it can become an argv element.
-- **Optional offline slop-detection nudge** (`unslop.enabled`, ships `false`):
-  hits become feedback appended to the next planning prompt, never a gate.
-
-### Enable it
-
-The block below is what `config.yaml` ships. The three switches that gate
-whether a run happens at all ship `false`; the three cloud switches ship
-**`true`**, armed alongside `models.grok` / `models.claude` on 2026-08-07
-(`docs/THREAT_MODEL.md`'s eighth amendment). Read it as "already armed, waiting
-on the master switches," not as "off": reaching a cloud provider still needs
-the two masters, the provider's API-key env var, and a per-run `--confirm-online`.
-
-```yaml
-agentic:
-  enabled: false                        # master switch -- ships closed
-  deepagent_github:
-    enabled: false                      # ships closed
-    allow_git_write_tools: false        # gates every write/commit/push in the clone
-    model: "qwen3.8:27b-mlx"            # local planner model; cite models.local_llm.model
-    workspace_root: "data/agentic/workspaces"
-    max_write_budget_bytes: 100000
-    max_handoff_chars: 200000           # outbound-prompt cap for cloud egress
-    planner_max_tokens: 3072            # real-repo completion cap; keep it within Ollama num_ctx
-    allow_cloud_providers: true         # gate 3 of the cloud chain -- ARMED
-    providers:
-      grok:   { enabled: true, model: "grok-4.5" }        # ARMED
-      claude: { enabled: true, model: "claude-sonnet-5" } # ARMED
-```
-
-Setting a provider `enabled: true` while `allow_cloud_providers` is `false` is a
-config error, not a silent no-op — the three move together. Opening a PR needs
-`agentic.mode: "write"`, `writes_enabled: true`, and `agentic/writer.py`'s
-`EXECUTION_ENABLED` (all ship open) **and** `agentic.enabled: true` plus a
-per-call `reason` and `confirm`; the arming checklist and the
-`CYCLAW_AGENTIC_WRITE_DISABLE` rollback are in
+The real-repo pipeline clones a repo, plans, patches, verifies, and stops for
+a human decision before it commits. Pushing the branch and opening a draft PR
+are two further decisions. A default checkout holds the run: `agentic.enabled`,
+`deepagent_github.enabled`, and `allow_git_write_tools` ship `false`.
+Enablement and commands are in
+[`agentic/README.md`](agentic/README.md#2-real-repo-coding-loop)
+and
+[`docs/agentic/AGENTIC_README.md`](docs/agentic/AGENTIC_README.md#9-governed-github-coding-harness).
+Draft-PR arming and the `CYCLAW_AGENTIC_WRITE_DISABLE` rollback are in
 [`docs/agentic/GITHUB_WRITE_ENABLEMENT.md`](docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
-
-### Commands
-
-```bash
-# Optional stage 0: plan, review by hand, then hand the approved text to the coder.
-python -m agentic.cli real-repo-run-plan \
-  --pr 123 --instruction "fix the off-by-one in the parser" --out plan.md
-
-python -m agentic.cli real-repo-run \
-  --pr 123 --instruction "fix the off-by-one in the parser" \
-  --read-file src/parser.py --checks-file checks.json \
-  --plan-file plan.md \
-  --branch claude/parser-fix --commit-message "fix: off-by-one" \
-  --reason "triage issue 123" --confirm
-
-python -m agentic.cli real-repo-run-status  --run-id "<32-hex>"
-python -m agentic.cli real-repo-run-decide  --run-id "<32-hex>" --decision approve
-python -m agentic.cli real-repo-run-push    --run-id "<32-hex>"
-python -m agentic.cli real-repo-run-publish --run-id "<32-hex>" --reason "..." --confirm
-python -m agentic.cli real-repo-run-discard --run-id "<32-hex>"
-```
-
-Exit codes are an API: `0` ok · `2` failed · `3` env/config · `4` write refused.
-`real-repo-run` exits `0` whether or not a candidate was accepted — the record's
-`status` field carries that.
-
-### Optional cloud planner (Grok / Claude)
-
-The loop is local-only by default, and the local path (no `--provider` flag)
-needs nothing beyond the base install — `LocalProposerClient` is a plain
-`httpx` call and nothing on that path imports `deepagents` or `langchain`.
-`--provider grok|claude --confirm-online` drives the loop with a cloud model
-behind a **six-condition chain**: `agentic.enabled` →
-`deepagent_github.enabled` → `allow_cloud_providers` → `providers.<name>.enabled`
-→ the provider's API-key env var (`GROK_API_KEY` / `ANTHROPIC_API_KEY`, presence
-only, never a network probe) → per-run `--confirm-online`. Every outbound prompt
-is injection-scanned, redacted, hashed, and audited as egress before it leaves
-the process. A billed 2xx appends `source: "agentic"` to `logs/spend.jsonl`
-(Grok: xAI ticks; Claude: Anthropic token counts × the rate table). That is a
-different client than `/query`'s `GrokClient` / `ClaudeClient` — see
-[Spend Tracking](#spend-tracking).
-
-Cloud SDKs are **opt-in extras, deliberately absent from the default install,
-`requirements.txt`, and the Docker image**:
-
-```bash
-pip install -e ".[agentic-deepagents]"                          -c constraints.txt   # Claude only
-pip install -e ".[agentic-deepagents-cloud]"                    -c constraints.txt   # Grok only — just langchain-xai
-pip install -e ".[agentic-deepagents,agentic-deepagents-cloud]" -c constraints.txt   # both
-```
-
-`full` pulls `agentic-deepagents` but deliberately
-not `agentic-deepagents-cloud`, so a machine that never touches Grok never
-carries `langchain-xai`; `[all]` is the only extra that installs both. The
-published Docker image installs `requirements.txt` only, so running this
-feature in a container means installing on top (`pip install -e .` for local
-mode, or one of the commands above for cloud).
 
 ---
 
 ## Filesystem, SQL & Passive Network Connectors
 
-Three connectors extend the agentic layer beyond GitHub to **local data**, for
-the regulated or security-conscious case where AI use is compliance-heavy. All
-three are **opt-in, disabled by default, and out-of-band (I6)**, so the six
-security invariants hold by construction. While disabled, their CLIs are a
-pure no-op (exit 0).
-
-### `agentic/fsconnect/` — local / SMB filesystem connector
-
-Scoped **reads** and separately-gated **writes** over a local or SMB share,
-sharing one held-handle security core (`pathsafe.py`): POSIX descends with
-`openat` / `O_NOFOLLOW` from a held root fd; Windows read/list/stat locks the
-canonical root ancestry against rename, opens once with `CreateFileW`, verifies
-`GetFinalPathNameByHandleW` containment, and consumes that same handle —
-Windows writes remain hard-refused. UNC, NTFS alternate data streams
-(`file::$DATA`), `\\?\` / `\\.\` device paths, `..` traversal, and symlink /
-reparse traversal are denied; segment-aware containment closes
-**CVE-2025-53110** (sibling-prefix), and held-handle authority prevents
-name-reopen junction swaps.
-
-- **Reads** (`fs_list` / `fs_stat` / `fs_read` / `fs_grep` / `fs_glob` /
-  `fs_largest`) are confined to `allowed_roots`, audited, capped at 5 MiB, and
-  content-scanned (OWASP ∪ `banned_patterns`, advisory).
-- **Writes** (`fs_write` / `fs_append` / `fs_mkdir` / `fs_move` / `fs_delete`) ship
-  **`writes_enabled: false`**; confined to a **separate** `writable_roots` list;
-  gated by a human `reason` (+ `--confirm` for destructive ops); atomic
-  (`tmp` + `os.replace`); content-agnostic (never calls the LLM). A code-level
-  `FS_WRITE_HARD_DISABLE` kill switch forces dry-run regardless of config.
-- **Toggleable RAG-corpus indexing** of the share (`index_enabled`, dry-run
-  default) stages eligible files into the corpus and triggers a reindex
-  **subprocess** — a generate → write → index loop without importing retrieval.
-
-```bash
-python -m agentic.fsconnect.cli status
-python -m agentic.fsconnect.cli read  --path "<path>"                     # scoped read
-python -m agentic.fsconnect.cli grep  --path "<path>" --pattern "<pattern>"
-python -m agentic.fsconnect.cli largest --path "<dir>" --top 20 --min-bytes 1048576
-python -m agentic.fsconnect.cli write --path "<path>" --reason "..."      # dry-run unless writes_enabled
-python -m agentic.fsconnect.cli index --apply           # stage share → corpus
-python -m agentic.fsconnect.cli test                    # pre-flight self-test
-```
-
-Enable in `config.yaml`:
-
-```yaml
-fsconnect:
-  enabled: true
-  allowed_roots: ["/srv/share"]   # REQUIRED when enabled; existing dirs
-  max_file_bytes: 5242880         # 5 MiB read cap
-  largest_max_entries: 100000     # truthful traversal ceiling per largest command
-  writes_enabled: false           # master write switch (dry-run plans while false)
-  writable_roots: [null]          # null => ~/CyClaw-FS (macOS) | /var/lib/cyclaw-fs (Linux) | C:\CyClaw-FS
-  max_write_bytes: 10485760       # 10 MiB write cap
-  index_enabled: false            # toggle RAG-corpus indexing of the share
-```
-
-### `agentic/sqlconnect/` — read-only SQL connector (v0.1 scaffold)
-
-Read-only on-prem SQL (Postgres / MSSQL), enforced three ways: a
-**SELECT/WITH-only query guard** (rejects DDL/DML, stacked statements, and
-comment-hidden keywords by scanning a quote-stripped copy), a **session-level
-read-only** transaction, and a hard `allow_write: false`. The DSN comes from an
-**environment variable only** (`CYCLAW_SQL_DSN`); drivers (`psycopg` / `pyodbc`)
-import lazily. The quote-stripping scan is a single left-to-right pass that
-gives `'...'`, `"..."`, `[...]`, and Postgres `$tag$...$tag$` quoting the same
-precedence the database does — an earlier regex-alternation version could be
-fooled by a quote nested inside a different quoting form (e.g. `$$'$$`) into
-treating a stacked `DROP` as part of one `SELECT`; the other two layers were
-never affected.
-
-```bash
-python -m agentic.sqlconnect.cli status
-python -m agentic.sqlconnect.cli schema                 # list table schemas (read-only)
-python -m agentic.sqlconnect.cli query --table public.users   # bounded preview
-python -m agentic.sqlconnect.cli test
-```
-
-```yaml
-sqlconnect:
-  enabled: false
-  driver: "postgres"             # "postgres" | "mssql"
-  dsn_env: "CYCLAW_SQL_DSN"      # DSN from this env var only
-  statement_timeout_ms: 5000
-  max_rows: 1000
-  allow_write: false             # reserved; v0.1 cannot write regardless
-```
-
-### `agentic/netconnect/` — passive LAN inventory (v0.1 scaffold)
-
-Reports best-effort local host metadata and reads the OS's existing
-ARP/neighbor cache. No ping, port probe, subnet sweep, packet send,
-scheduling, or request-path integration; every returned IPv4 address is
-filtered through operator-supplied CIDRs that must be subnets of RFC1918 or
-loopback space.
-
-```bash
-python -m agentic.netconnect.cli status
-python -m agentic.netconnect.cli self
-python -m agentic.netconnect.cli arp
-python -m agentic.netconnect.cli test
-```
-
-```yaml
-netconnect:
-  enabled: false
-  allowed_cidrs: ["192.168.1.0/24"]
-  allowed_net_ops: [self, arp]
-  command_timeout_sec: 5
-  max_neighbors: 512
-```
+Three connectors extend the agentic layer to local data. All three ship off
+and stay outside the request path. `fsconnect` does scoped filesystem reads,
+with writes on a separate gate. `sqlconnect` is SELECT-only. `netconnect`
+is a passive inventory of local host data and the existing neighbor cache.
+Enablement, the security notes, and the tool lists are in
+[`agentic/README.md`](agentic/README.md):
+[filesystem](agentic/README.md#5-filesystem-connector),
+[SQL](agentic/README.md#6-sql-connector-read-only),
+and [passive network](agentic/README.md#7-passive-network-connector).
 
 ---
 
@@ -1406,7 +787,7 @@ are in [`macos/README.md`](macos/README.md) and
 
 | Layer | Mechanism |
 |---|---|
-| Network | Binds `127.0.0.1:8787` — no external exposure by design; `_require_loopback_bind` refuses a non-loopback `api.host` outside the documented auth + TLS exception ([Serving it beyond loopback](#serving-it-beyond-loopback)) |
+| Network | Binds `127.0.0.1:8787` — no external exposure by design; `_require_loopback_bind` refuses a non-loopback `api.host` outside the documented auth + TLS exception ([auth + TLS bind guard](docs/AUTHENTICATION_DESIGN.md#7-interaction-with-the-main-bind-guard-825)) |
 | Endpoint trust | `utils/endpoint_trust.py` allowlists where a generation client may talk, checked in `graph.py` itself. The local nodes accept loopback or an exact host from `models.local_llm.trusted_hosts` (ships `[]`) before any local context or soul text leaves the process; the online nodes pin Grok to `api.x.ai` and Claude to `api.anthropic.com`, so a tampered `base_url` cannot redirect a confirmed call, and an explicit `user_confirmed_online: false` is refused a second time here as a backstop to the triple gate. Denials surface as a typed `ENDPOINT_TRUST` error |
 | Input | Config-driven injection filter (`policy.prompt_filter`: 40 `banned_patterns`, `max_input_chars: 4000`) |
 | Rate limit | 60 req/min per IP (`api.rate_limit`), sliding window; in-memory by default, optional SQLite or Postgres persistence |
