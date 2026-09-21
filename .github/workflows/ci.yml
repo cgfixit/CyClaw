@@ -982,12 +982,7 @@ jobs:
             --cov=retrieval.results \
             --cov=mcp_hybrid_server \
             --cov=metrics \
-            --cov=sync.selftest \
-            --cov=sync.runner \
-            --cov=sync.config \
-            --cov=sync.filters \
-            --cov=sync.cli \
-            --cov=sync.scheduler \
+            --cov=sync \
             --cov=agentic \
             --cov=guardrails \
             --cov=telegram \
