@@ -33,7 +33,7 @@ pydantic-core==2.46.5
 # loose >=2.0 floor, which is exactly the reproducibility gap constraints.txt exists
 # to close. Kept lock-step-compatible with the pydantic pair above (requires
 # pydantic>=2.7.0; pinned pydantic==2.13.5 satisfies that).
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 
 # Direct dependencies from pyproject.toml [project.dependencies] -- versions MUST match exactly
 fastapi==0.141.1
