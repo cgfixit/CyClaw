@@ -1134,7 +1134,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade "pip==26.2.1"
-          pip install -c constraints.txt pyyaml httpx langgraph langchain-core pytest pytest-asyncio rank-bm25
+          pip install -c constraints.txt pyyaml httpx langgraph langchain-core pytest rank-bm25
           pip install -c constraints.txt deepagents langchain-openai langchain-xai
           python -m pip check
 
