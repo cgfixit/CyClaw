@@ -107,61 +107,29 @@ jobs:
     - name: Pytest — unit + integration + safe smoke (RAG/policy focused)
       shell: bash -leo pipefail {0}
       run: |
-        # --cov target list mirrored from ci.yml's "Run tests + coverage" step -- keep both in sync by hand (2 lanes, below the threshold where a shared/generated list earns its own tooling).
+        # Coverage targets: one per [tool.coverage.run] source entry, same order
+        # and same set as ci.yml's "Run tests + coverage" step -- rationale, and
+        # the editing caveats, are documented there.
+        # tests/test_ci_coverage_flag_contract.py asserts this set equals the
+        # pyproject source list exactly, in both lanes, so the two cannot drift.
         pytest tests/ \
           -v \
           --cov=gate \
           --cov=gate_ops \
           --cov=gate_auth \
           --cov=gate_memory \
-          --cov=memory \
-          --cov=utils.agent_identity \
-          --cov=utils.repo_paths \
-          --cov=utils.authn \
-          --cov=utils.authn_store \
-          --cov=utils.authn_manager \
-          --cov=utils.authn_cli \
-          --cov=utils.gen_cert \
-          --cov=utils.sanitizer \
-          --cov=utils.telemetry_kill \
-          --cov=utils.onnx_telemetry \
-          --cov=utils.config_validation \
-          --cov=utils.gateway_url \
-          --cov=utils.errors \
-          --cov=utils.logger \
-          --cov=utils.numbat_emitter \
-          --cov=utils.numbat_cel \
-          --cov=utils.spend \
-          --cov=utils.sequence_detect \
-          --cov=utils.mcp_manifest \
-          --cov=utils.personality \
-          --cov=utils.personality_db \
-          --cov=utils.ratelimit \
-          --cov=utils.health \
-          --cov=utils.ops_runner \
-          --cov=utils.external_pre_hook \
-          --cov=utils.guardrail_bridge \
-          --cov=utils.selftest \
-          --cov=utils.launchd_plist \
-          --cov=utils.win_schtasks \
-          --cov=utils.endpoint_trust \
-          --cov=utils.tool_broker \
-          --cov=llm.client \
           --cov=graph \
-          --cov=retrieval.embeddings \
-          --cov=retrieval.hybrid_search \
-          --cov=retrieval.indexer \
-          --cov=retrieval.stemmer \
-          --cov=retrieval.vector_store \
-          --cov=retrieval.clear_cache \
-          --cov=retrieval.results \
           --cov=mcp_hybrid_server \
           --cov=metrics \
+          --cov=llm \
+          --cov=retrieval \
+          --cov=utils \
           --cov=sync \
           --cov=agentic \
           --cov=guardrails \
           --cov=telegram \
           --cov=opentweet \
+          --cov=memory \
           --cov=schemas \
           --cov-report=xml \
           --cov-report=term-missing \
