@@ -720,7 +720,17 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .emb_cache
-          key: emb-model-${{ hashFiles('config.yaml') }}
+          # Keyed on the model identity, NOT hashFiles('config.yaml'). The cached
+          # content is one ~90MB model chosen by a single key
+          # (models.embeddings.model), but hashing all 1100+ lines of config.yaml
+          # made every unrelated config edit -- a banned_patterns tweak, a rate
+          # limit, a timeout -- miss the exact key, restore via the prefix below,
+          # then save a duplicate 90MB entry at post-job. Three cache steps x
+          # every config-touching PR is how pip and sibling .emb_cache entries
+          # get LRU-evicted out of the 10GB repo budget. Bump the -v suffix by
+          # hand when models.embeddings.model changes; the prefix restore-key
+          # keeps a bump from starting cold.
+          key: emb-model-all-MiniLM-L6-v2-v1
           restore-keys: |
             emb-model-
 
@@ -1406,7 +1416,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .emb_cache
-          key: emb-model-${{ hashFiles('config.yaml') }}
+          # Model-identity key, not hashFiles('config.yaml') -- see the rationale
+          # on the `test` job's identical step above.
+          key: emb-model-all-MiniLM-L6-v2-v1
           restore-keys: |
             emb-model-
 

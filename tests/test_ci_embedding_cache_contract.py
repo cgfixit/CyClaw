@@ -4,7 +4,7 @@ retrieval/embeddings.py fetches the sentence-transformers embedding model
 (~90MB) from HuggingFace on a cold cache. Any job step that runs
 `python -m retrieval.indexer` -- directly, or indirectly via the
 CyClaw-Sandbox skill's verify.sh -- pays that fetch unless the job also caches
-`.emb_cache` under the `emb-model-${{ hashFiles('config.yaml') }}` key.
+`.emb_cache` under the shared `emb-model-<model>-v<n>` key.
 
 ci.yml's `test` job and python-package-conda.yml's `ci` job have always had
 this cache step. ci.yml's `verify-skills` matrix job runs the CyClaw-Sandbox
@@ -21,7 +21,11 @@ import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_EMB_CACHE_KEY = "emb-model-${{ hashFiles('config.yaml') }}"
+# The exact key all three jobs must share. Keyed on the model identity rather
+# than hashFiles('config.yaml') so an unrelated config edit does not miss the
+# key and save a duplicate ~90MB entry; bump the -v suffix in all three
+# workflows (and here) when models.embeddings.model changes.
+_EMB_CACHE_KEY = "emb-model-all-MiniLM-L6-v2-v1"
 
 # job name -> workflow file. Every job here is known (by prior incident or by
 # code inspection) to run something that can trigger the embedding fetch.
@@ -57,8 +61,8 @@ def test_every_indexer_triggering_job_caches_the_embedding_model() -> None:
         )
         assert _EMB_CACHE_KEY in block, (
             f"{workflow}::{job_name} caches .emb_cache under a key that does not "
-            f"match the shared emb-model-${{{{ hashFiles('config.yaml') }}}} key "
-            f"the other jobs use -- cache entries would never be shared."
+            f"match the shared {_EMB_CACHE_KEY!r} key the other jobs use -- "
+            f"cache entries would never be shared."
         )
 
 
