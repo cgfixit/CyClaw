@@ -172,7 +172,7 @@ class _ChromaWriter:
         try:
             self._client.delete_collection(name)
         except chromadb.errors.NotFoundError:
-            pass
+            pass  # already absent is exactly the state a delete-if-exists wants
 
     def close(self) -> None:
         pass
