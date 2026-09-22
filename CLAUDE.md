@@ -821,15 +821,25 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 
 ### CyClaw-specific security & health skills (built on the invariants)
 
+2026-09-22: `/invariant-guard`, `/config-guard`, `/index-doctor`, and
+`/doc-sync` gained `disable-model-invocation: true` — they are cheap and
+side-effect-free, but Claude was auto-routing to them opportunistically
+(e.g. re-running invariant-guard on every gate.py touch) in a way that added
+turns without being asked. All four remain reachable as slash commands
+(`.claude/commands/<name>.md`) for a human to call explicitly, and other
+skills/CI still invoke their underlying scripts directly
+(`check_invariants.py`, `check_config.py`, `doctor.py`, `doc_sync.py`) — the
+flag only gates *model-initiated* `Skill` tool calls, not script execution.
+
 | Skill | Type | Purpose | Runs pre-install? |
 |---|---|---|---|
-| `/invariant-guard` | check | Static-assert the six invariants + guards against a diff | Yes (stdlib) |
-| `/config-guard` | check | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, current shipped provider posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
+| `/invariant-guard` | check, user-invoked only (`disable-model-invocation: true`) | Static-assert the six invariants + guards against a diff | Yes (stdlib) |
+| `/config-guard` | check, user-invoked only (`disable-model-invocation: true`) | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, current shipped provider posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
 | `/dep-guard` | check | Static-validate dependency-pin invariants across pyproject + constraints + environment.yml (pydantic lock-step, numpy<2, torch +cpu, uvicorn no-extras, cross-file agreement) | Yes (stdlib) |
 | `/verify-deps` | check | Extends dep-guard: adds the requirements.txt cross-check dep-guard skips, the non-manifest drift checks E1–E7 (workflow tool pins, Python version, undeclared imports, install-surface scope, the Dockerfile install contract incl. its torch pin vs constraints.txt, docker-compose.yml/.dockerignore/publish-ghcr.yml coherence with the Dockerfile, and runtime pins no first-party module imports), a dry-run of each install surface's actual command, and a PyPI currency + CVE sweep. Reports only — never auto-bumps a runtime pin | extract_pins.py + check_env_drift.py yes (stdlib); currency sweep needs network |
 | `/injection-redteam` | loop | Adversarial probe corpus vs the sanitizer; close bypasses | Needs venv |
-| `/index-doctor` | check | Rebuild + validate ChromaDB/BM25/RRF; probe retrieval health | Needs venv |
-| `/doc-sync` | check | Detect code↔docs drift; reconcile the docs | Needs PyYAML |
+| `/index-doctor` | check, user-invoked only (`disable-model-invocation: true`) | Rebuild + validate ChromaDB/BM25/RRF; probe retrieval health | Needs venv |
+| `/doc-sync` | check, user-invoked only (`disable-model-invocation: true`) | Detect code↔docs drift; reconcile the docs | Needs PyYAML |
 | `/otel-hardening` | check + task | Validate the full telemetry-kill contract: an independent name→value oracle over both canonical maps + the scrub set, staleness (`--as-of`), pin drift, reference-`.env` format/values, Docker/launcher/generator delivery, programmatic-bypass sweep, ONNX seams, and a category-1–5 egress classification of every dependency/executable/connector/launcher (strict mode fails on an unclassified one); then the live vendor-doc sweep. 22-scenario mutation self-test in `verify.sh` | Yes (stdlib) for the static half; live sweep needs network |
 
 ### Operational & workflow skills
@@ -842,8 +852,8 @@ the local sandbox, **check GitHub main before declaring it absent** (via
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails: surgical diffs, surfaced assumptions, verifiable success criteria |
-| `/cyclaw-privacy` | mode, user-invoked only (`disable-model-invocation: true`) | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes; Claude never auto-routes here. Renamed from `cyclaw-advisor` 2026-09-11 (issue #1351) to resolve an in-repo name collision with `.codex/skills/cyclaw-advisor` (architecture advice — a different skill, same name) |
-| `/cyclaw-gotchas` | reference + driver | Session-tested traps for Claude Code sandboxes (proxy-denied torch/Hugging Face hosts, the 3.12 venv, the silent pytest summary, PR/check-in/review-bot process) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Load before installing deps, running tests, launching `gate.py`, or driving a PR |
+| `/cyclaw-privacy` | mode, user-invoked only (`disable-model-invocation: true`) | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes; Claude never auto-routes here. Renamed from `cyclaw-advisor` 2026-09-11 (issue #1351) to resolve an in-repo name collision with `.codex/skills/cyclaw-advisor` (architecture advice — a different skill, same name). Frontmatter `description` trimmed 2026-09-22 to cut listing-time context cost (full body still loads on explicit invocation) |
+| `/cyclaw-gotchas` | reference + driver | Session-tested traps for Claude Code sandboxes (proxy-denied torch/Hugging Face hosts, the 3.12 venv, the silent pytest summary, PR/check-in/review-bot process) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Load before installing deps, running tests, launching `gate.py`, or driving a PR. Remains model-invocable (unlike the four skills above) since an agent hitting one of its gotchas mid-task needs to self-route to it; frontmatter `description` trimmed 2026-09-22 for the same listing-cost reason |
 
 ### Standalone commands (no skill folder)
 

@@ -1,10 +1,9 @@
 ---
 name: cyclaw-privacy
-description: >
-  Operate as Legal, the in-house privacy/compliance advisor: DPA review,
-  data subject requests, breach analysis, regulatory monitoring, and
-  privacy-impact review of CyClaw changes. Advisory only, never a
-  substitute for licensed counsel.
+description: >-
+  "Legal" persona: DPA review, DSR handling, breach analysis, regulatory
+  monitoring, and privacy-impact review of CyClaw changes. Advisory only,
+  never a substitute for licensed counsel.
 disable-model-invocation: true
 ---
 
