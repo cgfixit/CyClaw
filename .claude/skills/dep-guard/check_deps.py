@@ -453,14 +453,20 @@ def run_environment_pin_check(root: Path, py_reqs: list[Req], con_reqs: list[Req
         ok("D9", f"all {compared} cross-pinned package(s) agree with the pip manifests")
 
 
-# Workflow pytest lanes enumerate their own --cov flags. Granularity differs on
-# purpose: ci.yml curates individual modules (excluding optional-backend modules
-# like utils/personality_db.py that have their own lanes), while the conda lane
-# measures whole packages. What must NOT drift is *presence*: every entry in
-# [tool.coverage.run] source has to be measured by every lane at SOME
-# granularity. Drift class (D10): the conda lane silently lost --cov=gate_ops
-# when the module was added to ci.yml + pyproject (2026-07-19), understating its
-# measured total and blinding that lane to a gate_ops coverage regression.
+# Workflow pytest lanes pass their own coverage flags. Both lanes now pass one
+# per [tool.coverage.run] source entry at package granularity; the older
+# per-module enumeration (53 flags, hand-copied between the two lanes) is gone.
+# What must NOT drift is *presence*: every entry in [tool.coverage.run] source
+# has to be measured by every lane at SOME granularity. Drift class (D10): the
+# conda lane silently lost its gate_ops entry when the module was added to
+# ci.yml + pyproject (2026-07-19), understating its measured total and blinding
+# that lane to a gate_ops coverage regression.
+#
+# This check is deliberately kept after the consolidation even though
+# tests/test_ci_coverage_flag_contract.py now asserts a strictly stronger
+# property (set equality, both directions). The two run on different surfaces:
+# D10 is stdlib-only and runs in a fresh clone before any pip install, the
+# pytest contract runs in the test lane. Overlap is cheap; a gap is not.
 _CI_COV_FILES = (".github/workflows/ci.yml", ".github/workflows/python-package-conda.yml")
 _COV_FLAG_RE = re.compile(r"--cov=([A-Za-z0-9_.-]+)")
 

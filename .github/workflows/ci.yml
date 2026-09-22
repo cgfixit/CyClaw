@@ -940,6 +940,25 @@ jobs:
       - name: Run tests + coverage
         shell: bash
         run: |
+          # Coverage targets below: one per [tool.coverage.run] source entry, in
+          # the same order. This used to enumerate utils.* and retrieval.*
+          # module-by-module (53 flags) -- a hand-copy of a list pyproject.toml
+          # already owns, which needed both
+          # tests/test_ci_coverage_flag_contract.py and dep-guard D10 to police
+          # it and had still drifted twice (utils.win_schtasks was never added;
+          # the conda lane silently lost its gate_ops entry). Package
+          # granularity makes that drift class structurally impossible:
+          # coverage.py walks the package, so a new utils/ module is measured
+          # the moment it lands.
+          #
+          # Two things to keep in mind when editing the list below. Every flag
+          # needs a name: both guards locate a coverage lane by regex-matching a
+          # flag that has one, and a lane with none reads as "not a coverage
+          # lane" and is silently skipped. And keep prose in these comments free
+          # of a literal flag=name token -- those same regexes would parse it as
+          # a real measured target. Comments must also stay OUT of the
+          # backslash-continued command itself: a continuation followed by a '#'
+          # line ends the command, so pytest would run with no coverage at all.
           # tests/ glob auto-discovers all test_*.py files — new test files are
           # picked up without a manual ci.yml edit. ci_rag_smoke.py is excluded
           # by pytest's default discovery pattern (it doesn't match test_*.py)
@@ -950,54 +969,18 @@ jobs:
             --cov=gate_ops \
             --cov=gate_auth \
             --cov=gate_memory \
-            --cov=memory \
-            --cov=utils.agent_identity \
-            --cov=utils.repo_paths \
-            --cov=utils.authn \
-            --cov=utils.authn_store \
-            --cov=utils.authn_manager \
-            --cov=utils.authn_cli \
-            --cov=utils.gen_cert \
-            --cov=utils.sanitizer \
-            --cov=utils.telemetry_kill \
-            --cov=utils.onnx_telemetry \
-            --cov=utils.config_validation \
-            --cov=utils.gateway_url \
-            --cov=utils.errors \
-            --cov=utils.logger \
-            --cov=utils.numbat_emitter \
-            --cov=utils.numbat_cel \
-            --cov=utils.spend \
-            --cov=utils.sequence_detect \
-            --cov=utils.mcp_manifest \
-            --cov=utils.personality \
-            --cov=utils.personality_db \
-            --cov=utils.ratelimit \
-            --cov=utils.health \
-            --cov=utils.ops_runner \
-            --cov=utils.external_pre_hook \
-            --cov=utils.guardrail_bridge \
-            --cov=utils.selftest \
-            --cov=utils.launchd_plist \
-            --cov=utils.win_schtasks \
-            --cov=utils.endpoint_trust \
-            --cov=utils.tool_broker \
-            --cov=llm.client \
             --cov=graph \
-            --cov=retrieval.embeddings \
-            --cov=retrieval.hybrid_search \
-            --cov=retrieval.indexer \
-            --cov=retrieval.stemmer \
-            --cov=retrieval.vector_store \
-            --cov=retrieval.clear_cache \
-            --cov=retrieval.results \
             --cov=mcp_hybrid_server \
             --cov=metrics \
+            --cov=llm \
+            --cov=retrieval \
+            --cov=utils \
             --cov=sync \
             --cov=agentic \
             --cov=guardrails \
             --cov=telegram \
             --cov=opentweet \
+            --cov=memory \
             --cov=schemas \
             --cov-report=xml \
             --cov-report=html \

@@ -455,9 +455,14 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
 - **Trap:** running `pytest` locally, seeing green, assuming coverage passed.
   **Rule:** bare `pytest` runs **no** coverage (`addopts` has no `--cov`). The
   80% gate is `fail_under` in `pyproject.toml`, applied only with the CI-style
-  explicit `--cov=` flags. New **source modules** need a `--cov=` flag in
-  `ci.yml` AND an entry in `[tool.coverage.run] source`; new **test files**
-  auto-discover.
+  explicit `--cov=` flags. Both lanes pass one flag per
+  `[tool.coverage.run] source` entry at **package** granularity, so a new module
+  inside an already-listed package (`utils/`, `retrieval/`, `sync/`, …) is
+  measured the moment it lands — no workflow edit. Only a new **top-level
+  package or module** needs an entry, and it needs it in all three places:
+  `pyproject.toml`'s source list and both lanes.
+  `tests/test_ci_coverage_flag_contract.py` asserts the three match exactly and
+  fails if they drift. New **test files** auto-discover.
 - **Trap:** `GROK_API_KEY=dummy pytest tests/ -q` going green and assuming
   `tools/lora_finetune/tests/` ran. **Rule:** pyproject `testpaths = ["tests"]`
   does not collect that tree. Kit CI is `.github/workflows/lora-finetune.yml`
