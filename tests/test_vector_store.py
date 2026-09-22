@@ -56,3 +56,64 @@ class TestChromaReaderMissingCollection:
 
         with pytest.raises(RuntimeError, match="simulated corrupt client state"):
             get_vector_reader(_cfg(chroma_path))
+
+
+def _build(cfg, rows, *, finalize=True):
+    """Drive the real writer the way retrieval.indexer.build_index does."""
+    from retrieval.vector_store import get_vector_writer
+
+    writer = get_vector_writer(cfg)
+    writer.reset({"model": "m", "dim": "2", "device": "cpu"})
+    writer.add(
+        [f"chunk_{i}" for i in range(len(rows))],
+        list(rows),
+        [[1.0, 0.0]] * len(rows),
+        [{"source": "s.md", "chunk_id": i} for i in range(len(rows))],
+    )
+    if finalize:
+        writer.finalize()
+    writer.close()
+
+
+def _texts(reader):
+    return [hit["text"] for hit in reader.query([1.0, 0.0], 5)]
+
+
+class TestChromaWriterHotRebuild:
+    """POST /index/build rebuilds inside the serving process, so the reader a
+    live /query holds must keep answering until gate.py swaps in a new one."""
+
+    def test_live_reader_keeps_serving_through_a_rebuild(self, tmp_path):
+        from retrieval.vector_store import get_vector_reader
+
+        cfg = _cfg(tmp_path / "chroma")
+        _build(cfg, ["old"])
+        live = get_vector_reader(cfg)
+
+        # Before the fix, reset() deleted the live collection here and this
+        # query raised chromadb NotFoundError for the rest of the build.
+        _build(cfg, ["new"], finalize=False)
+        assert _texts(live) == ["old"]
+
+        _build(cfg, ["new"])
+        assert _texts(live) == ["old"]
+        assert _texts(get_vector_reader(cfg)) == ["new"]
+
+    def test_swap_carries_the_fingerprint_to_the_live_name(self, tmp_path):
+        from retrieval.vector_store import get_vector_reader
+
+        cfg = _cfg(tmp_path / "chroma")
+        _build(cfg, ["only"])
+        assert get_vector_reader(cfg).fingerprint() == {"model": "m", "dim": "2", "device": "cpu"}
+
+    def test_failed_build_leaves_live_untouched_and_next_build_recovers(self, tmp_path):
+        from retrieval.vector_store import get_vector_reader
+
+        cfg = _cfg(tmp_path / "chroma")
+        _build(cfg, ["v1"])
+        _build(cfg, ["abandoned"], finalize=False)
+        assert _texts(get_vector_reader(cfg)) == ["v1"]
+
+        _build(cfg, ["v2"])
+        _build(cfg, ["v3"])
+        assert _texts(get_vector_reader(cfg)) == ["v3"]
