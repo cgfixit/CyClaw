@@ -1,14 +1,11 @@
 ---
 name: cyclaw-gotchas
 description: >-
-  Session-tested traps for working on CyClaw from a Claude Code sandbox, plus
-  a driver that does the setup the right way. Load before: installing deps or
-  building a venv, running pytest, launching or probing gate.py, opening or
-  driving a PR to green, answering a Codex/Copilot review, scheduling a PR
-  check-in, running doc-sync or verify-deps,
-  concurrency gates, or when something "hangs", "won't install", "prints no
-  test summary", or "says 409 busy". Every command here was run in this
-  container; every gotcha names the session, PR, or file that proved it.
+  Session-tested sandbox traps for CyClaw (venv/install, pytest, gate.py,
+  PR/review-bot flow) plus a driver that does the setup correctly. Load
+  before installing deps, running tests, launching or probing gate.py, or
+  driving a PR — or when something hangs, won't install, or prints no test
+  summary. Every gotcha names the session, PR, or file that proved it.
 ---
 
 # cyclaw-gotchas

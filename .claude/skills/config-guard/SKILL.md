@@ -1,6 +1,7 @@
 ---
 name: config-guard
 description: Statically validate CyClaw's config.yaml contract — the relational, value-safety, and threat-model invariants that boot-time validation and invariant-guard do not cover (graph_timeout > llm_timeout, chunk_overlap < chunk_size, the soul/context budget, loopback-only host, RRF-scale min_score, current shipped provider posture). Use before merging any change to config.yaml, when asked to "check config" or "validate config", and as a cheap pre-boot gate in CI or a fresh clone.
+disable-model-invocation: true
 ---
 
 # Config Guard
