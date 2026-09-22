@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.32.0"]
+requires = ["hatchling==1.32.3"]
 build-backend = "hatchling.build"
 
 [project]
@@ -49,7 +49,7 @@ dependencies = [
     "langchain-core==1.6.3",
     # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
     # so legacy/no-deps paths cannot strand the app on websockets 12.x.
-    "websockets==15.0.1",
+    "websockets==17.1",
 ]
 
 [project.optional-dependencies]
@@ -61,7 +61,7 @@ dependencies = [
 # Installing it is a deliberate choice; nothing here constrains fastembed to
 # a local-only embedder yet.
 guardrails = [
-    "nemoguardrails==0.24.0",
+    "nemoguardrails==0.24.1",
 ]
 postgres = [
     "psycopg==3.3.6",
@@ -93,7 +93,7 @@ test = [
     # no production module imports zoneinfo -- opentweet/runner.py uses
     # datetime.astimezone(), which reads the host's local offset and needs no
     # IANA tzdb. Must match the requirements-test.txt / constraints.txt pin.
-    "tzdata==2026.2",
+    "tzdata==2026.4",
     # sqlite-vec (#1255 Phase C spike): test-only, not wired into
     # retrieval/vector_store.py yet. Must match the requirements-test.txt /
     # constraints.txt pin. See tests/test_sqlite_vec_extension_loading.py.
@@ -101,12 +101,12 @@ test = [
 ]
 dev = [
     "ruff==0.16.8",
-    "mypy==2.3.0",
+    "mypy==2.3.1",
     "bandit==1.9.4",
     "pytest-cov==7.1.0",
 ]
 agentic-deepagents = [
-    "deepagents==0.6.12",
+    "deepagents==0.7.15",
     "langchain==1.4.2",
     "langchain-openai==1.6.2",
     # langchain-anthropic is a MANDATORY (non-extra) dependency of deepagents

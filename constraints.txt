@@ -15,7 +15,7 @@
 # result. Current state: direct pins aligned with v1.9.0.
 
 # CRITICAL: pydantic family must stay synchronized or pip resolver explodes
-# pydantic 2.13.5 hard-pins pydantic-core==2.46.5 (exact ==, not a range), and
+# pydantic 2.13.5 hard-pins pydantic-core==2.49.0 (exact ==, not a range), and
 # 2.13.5 is the latest pydantic on PyPI. pydantic-core publishes AHEAD of its
 # parent -- 2.49.0 is its latest as of 2026-09-11 -- and no pydantic release
 # pairs with it yet, so PyPI's "newer pydantic-core" is never a bump candidate
@@ -24,7 +24,7 @@
 # with a compatible pydantic bump, and move dep-guard's _PYDANTIC_LOCKSTEP in
 # the same commit.
 pydantic==2.13.5
-pydantic-core==2.46.5
+pydantic-core==2.49.0
 # Not imported directly anywhere in CyClaw's own source and not in pyproject.toml's
 # [project.dependencies] -- but it IS a real, unconditional (non-extra) transitive
 # of chromadb==1.5.9 (`pydantic-settings>=2.0` in chromadb's own requires_dist), so
@@ -45,7 +45,7 @@ pyyaml==6.0.3
 httpx==0.28.1
 # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
 # so legacy/no-deps paths cannot strand the app on websockets 12.x.
-websockets==15.0.1
+websockets==17.1
 langgraph==1.2.11
 langchain-core==1.6.3
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; risk accepted ONLY for local/offline air-gapped PersistentClient embedded mode). See SECURITY.md + pip-audit.
@@ -88,12 +88,12 @@ nltk==3.10.3
 # (Windows), which the OpenTweet scheduling tests rely on. Installed from
 # requirements-test.txt / the pyproject `test` extra, not from requirements.txt --
 # no production module imports zoneinfo. Pinned here as a version ceiling only.
-tzdata==2026.2
+tzdata==2026.4
 
 # embedding backend (minimum safe post CVE-2025-32434); CPU wheel via
 # --extra-index-url (see this file's header -- no pyproject.toml extra or
 # [tool.uv.sources] table currently routes this).
-torch==2.13.0+cpu
+torch==2.14.0+cpu
 # Transitive of torch (requires_dist setuptools>=77.0.3). Unpinned, pip-audit
 # resolved a pre-83 build and needed PYSEC-2026-3447 ignored. 83.0.0 is the
 # advisory floor; 84.0.0 is current PyPI (2026-09-07). Constraints-only: not a
@@ -127,7 +127,7 @@ sqlite-vec==0.1.9
 # deps (not behind any of its own extras); fastembed fetches ONNX embedding
 # models from a remote CDN by default -- see the caveat next to this extra in
 # pyproject.toml before enabling policy.guardrails.enabled.
-nemoguardrails==0.24.0
+nemoguardrails==0.24.1
 
 # Optional CEL sanitizer backend for Numbat monitor-only rules (pyproject extra:
 # numbat-cel). Default-off; only installed when the operator opts into CEL rules.
@@ -135,7 +135,7 @@ cel-python==0.5.0
 
 # Optional Deep Agents harness (pyproject extra: agentic-deepagents). These are
 # not installed by the default offline runtime or legacy requirements path.
-deepagents==0.6.12
+deepagents==0.7.15
 langchain==1.4.2
 langchain-openai==1.6.2
 # Mandatory transitives of deepagents (not extras of it, not imported directly
@@ -146,7 +146,7 @@ langchain-openai==1.6.2
 # Verified via a real combined-extras install, 2026-08-01.
 langchain-google-genai==4.4.0
 langsmith==0.13.0
-wcmatch==11.0
+wcmatch==11.0.1
 # Mandatory transitive of deepagents (not an extra of it); pinned so the exact
 # version is reproducible rather than floating in deepagents' >=1.4.7,<2 range.
 # Also imported directly by agentic/deepagent_github/model_adapter.py for the
@@ -182,5 +182,5 @@ pygments==2.21.0
 # environment.yml carries the same pins and a conda-only version would break that
 # lane's solve. bandit is already at its latest release (1.9.4) — left alone.
 ruff==0.16.8
-mypy==2.3.0
+mypy==2.3.1
 bandit==1.9.4

@@ -25,14 +25,14 @@
 # exists only on the PyTorch CPU index, so it cannot be satisfied from PyPI
 # (no dependency-confusion exposure).
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.13.0+cpu
+torch==2.14.0+cpu
 
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
 pydantic==2.13.5
 pyyaml==6.0.3
 httpx==0.28.1
-websockets==15.0.1
+websockets==17.1
 langgraph==1.2.11
 langchain-core==1.6.3
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
