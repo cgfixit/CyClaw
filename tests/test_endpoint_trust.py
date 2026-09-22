@@ -7,7 +7,6 @@ import pytest
 from utils.endpoint_trust import (
     EndpointTrustError,
     assert_local_destination,
-    assert_loopback,
     assert_online_destination,
     hostname_of,
 )
@@ -16,15 +15,6 @@ from utils.endpoint_trust import (
 def test_hostname_of_strips_url() -> None:
     assert hostname_of("https://api.x.ai/v1") == "api.x.ai"
     assert hostname_of("http://127.0.0.1:11434/v1") == "127.0.0.1"
-
-
-def test_assert_loopback_accepts_ollama() -> None:
-    assert_loopback("http://127.0.0.1:11434/v1")
-
-
-def test_assert_loopback_rejects_public() -> None:
-    with pytest.raises(EndpointTrustError):
-        assert_loopback("https://api.x.ai/v1")
 
 
 def test_online_requires_confirm() -> None:

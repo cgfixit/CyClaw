@@ -599,11 +599,11 @@ class FsWriter:
         intent_id = uuid.uuid4().hex
         self._audit_intent("fs_delete", reason, target, intent_id, {"mode": mode})
         if purge:
-            result = self._purge(sr, target, kind, root)
+            result = self._purge(target, kind, root)
             self._update_ledger(sr, d_bytes, d_files, ledger=qledger)
             extra_parts = ["purge (allow_hard_delete)"]
         else:
-            result = self._to_trash(sr, target, kind, size, reason, now, root)
+            result = self._to_trash(target, kind, size, reason, now, root)
             extra_parts = ["trash-mode (allow_hard_delete not required)"]
         rule = self._allow_rule(destructive=True, qnote=qnote, rnote=rnote, flags=[],
                                 extra_parts=extra_parts)
@@ -611,7 +611,7 @@ class FsWriter:
         return {"status": "applied", "op": "fs_delete", "executed": True, "reason": reason,
                 "mode": mode, "intent_id": intent_id, "rule_applied": rule, **result}
 
-    def _purge(self, sr: SafeRoot, target: str, kind: str | None, root: str | None) -> dict:
+    def _purge(self, target: str, kind: str | None, root: str | None) -> dict:
         if kind == "dir":
             try:
                 return self._roots.rmdir(target, root=root)
@@ -638,7 +638,7 @@ class FsWriter:
             return None
         return hashlib.sha256(data).hexdigest()
 
-    def _to_trash(self, sr: SafeRoot, target: str, kind: str | None, size: int,
+    def _to_trash(self, target: str, kind: str | None, size: int,
                   reason: str, now: datetime, root: str | None) -> dict:
         self._ensure_trash(root)
         sha = self._content_sha(target, kind, size, root)

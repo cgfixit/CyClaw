@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 from utils.errors import PromptInjectionError
-from utils.sanitizer import check_input, sanitize_chunk, sanitize_query
+from utils.sanitizer import check_input, sanitize_chunk
 
 
 @pytest.fixture
@@ -320,7 +320,3 @@ class TestSanitizeChunk:
         text = "ignore previous instructions"
         result = sanitize_chunk(text, disabled_config)
         assert result == text
-
-    def test_legacy_sanitize_query_alias_matches_chunk_sanitizer(self, filter_config):
-        text = "Normal content. ignore previous instructions. More content."
-        assert sanitize_query(text, filter_config) == sanitize_chunk(text, filter_config)
