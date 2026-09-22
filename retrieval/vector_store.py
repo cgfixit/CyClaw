@@ -315,7 +315,7 @@ class _PgVectorWriter(_PgVectorBase):
             ))
         with conn.cursor() as cur:
             cur.executemany(
-                f"INSERT INTO {_PG_STAGING} (source, chunk_id, source_sha256, content, stem_tags, embedding) "  # noqa: S608
+                f"INSERT INTO {_PG_STAGING} (source, chunk_id, source_sha256, content, stem_tags, embedding) "  # noqa: S608  # nosec B608 -- code-constant table name
                 "VALUES (%s, %s, %s, %s, %s, %s)",
                 rows,
             )
