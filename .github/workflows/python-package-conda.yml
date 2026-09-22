@@ -98,7 +98,9 @@ jobs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: .emb_cache
-        key: emb-model-${{ hashFiles('config.yaml') }}
+        # Model-identity key, not hashFiles('config.yaml') -- see the rationale
+        # on ci.yml's identical step.
+        key: emb-model-all-MiniLM-L6-v2-v1
         restore-keys: |
           emb-model-
 
