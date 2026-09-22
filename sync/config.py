@@ -23,7 +23,6 @@ unless you are changing the schema itself.
 from __future__ import annotations
 
 import os
-import platform
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -404,10 +403,6 @@ class RcloneConfig:
         # log_dir is guaranteed non-empty by _fill_default_paths (run in
         # __post_init__), so no empty-string fallback is needed here.
         return os.path.join(self.log_dir, "rclone_cyclaw.log")
-
-    @property
-    def is_windows(self) -> bool:
-        return platform.system() == "Windows"
 
     # --- Serialization ---------------------------------------------------
 

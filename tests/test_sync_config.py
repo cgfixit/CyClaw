@@ -321,11 +321,6 @@ def test_enabled_flag_read_from_block(tmp_path: Path) -> None:
     assert default.enabled is True  # type: ignore[attr-defined]
 
 
-def test_is_windows_property(tmp_path: Path) -> None:
-    cfg = load_sync_config(_write_config(tmp_path, _base_block()))
-    assert isinstance(cfg.is_windows, bool)
-
-
 def test_blank_path_overrides_fall_back_to_defaults(tmp_path: Path) -> None:
     # Whitespace-only / empty overrides are treated as "unset" and replaced by
     # the computed defaults, never passed verbatim to rclone (which would fail

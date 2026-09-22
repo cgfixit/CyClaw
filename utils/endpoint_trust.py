@@ -31,12 +31,6 @@ def hostname_of(url: str) -> str:
     return host
 
 
-def assert_loopback(base_url: str) -> None:
-    host = hostname_of(base_url)
-    if host not in _LOOPBACK:
-        raise EndpointTrustError(f"local LLM endpoint must be loopback, got {host!r}")
-
-
 def assert_local_destination(base_url: str, trusted_hosts: object = ()) -> None:
     """Allow loopback or an explicitly trusted operator-owned model host."""
     host = hostname_of(base_url)
