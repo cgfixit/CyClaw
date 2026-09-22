@@ -448,8 +448,7 @@ Three canonical lowercase roles on `users.role`. Bootstrap `admin` is
 | `operator` | yes | yes (no delete / set-role / touch admins) | no | no |
 | `audit` | **denied** | no | yes | no |
 
-`HIGH_PRIVILEGE` in `utils/authn.py` is the hook for later destructive
-ops. HTTP admin lives on `gate_auth.py` (`/auth/users*`,
+HTTP admin lives on `gate_auth.py` (`/auth/users*`,
 `/auth/audit/summary`, plus the self-service `POST /auth/password`, which any
 authenticated role can call for its own account **over a session cookie + CSRF** — the
 bearer path requires an admin token (`_require_write_actor`)); `/auth/whoami` returns

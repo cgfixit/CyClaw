@@ -83,11 +83,6 @@ def iter_events(audit_file: str):
     yield from _iter_records(audit_file)
 
 
-def load_events(audit_file: str):
-    """Materialized list form of :func:`iter_events` (kept for existing callers)."""
-    return list(iter_events(audit_file))
-
-
 def iter_spend(spend_file: str):
     """Yield parsed spend records one line at a time (constant memory).
 
@@ -358,14 +353,6 @@ def _print_spend(spend: dict | None) -> None:
         print(f"  rate_unknown: {spend['rate_unknown']}")
 
 
-def compute_audit_integrity(audit_file: str) -> dict:
-    """Count audit-log issues that weaken evidence quality without exposing data."""
-    stats: dict[str, int] = {}
-    for _ in _iter_records(audit_file, stats):
-        pass
-    return stats
-
-
 # Injection findings emitted by agentic/context.py over GitHub-sourced text.
 # Declared here as literals rather than imported from agentic.context, which
 # exports the same two code constants. gate.py calls summarize_audit() to serve
@@ -464,7 +451,7 @@ def compute_metrics(events) -> dict:
         if e.get("event") in ("rag_query", "mcp_rag_query"):
             rag_query_count += 1
             # audit.jsonl is append-only evidence this module already treats as
-            # untrusted (load_events skips non-JSON lines; "query" presence is
+            # untrusted (iter_events skips non-JSON lines; "query" presence is
             # checked, not assumed). Extend the same posture to top_score: a
             # JSON-valid line carrying ``top_score: null`` (or a string) would
             # otherwise TypeError here and take down GET /audit/summary and the

@@ -117,7 +117,6 @@ def require_api_key(
 
 # Shared, synchronized per-IP limiter (utils/ratelimit.py). Persistence is
 # configured below; without a database backend, counters reset on restart.
-from fastapi import Request
 from utils.config_validation import (
     validate_auth_config,
     validate_boot_timeout_config,

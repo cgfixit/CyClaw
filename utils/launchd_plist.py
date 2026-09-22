@@ -191,25 +191,6 @@ def bootout(path: Path) -> None:
     )
 
 
-def is_loaded(label: str) -> bool | None:
-    """Best-effort load-state probe for the agent with this ``Label``.
-
-    Returns ``True``/``False`` when ``launchctl`` answered, or ``None`` when
-    ``launchctl`` itself is unavailable (never raises).
-    """
-    launchctl = launchctl_bin()
-    if not launchctl:
-        return None
-    probe = subprocess.run(  # noqa: S603 -- argv list, launchctl resolved via shutil.which
-        [launchctl, "print", f"gui/{current_uid()}/{label}"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    return probe.returncode == 0
-
-
 def keychain_wrapper_path(repo_root: str | Path) -> str:
     """Absolute path to ``cyclaw-keychain-env.sh`` within *repo_root*."""
     return str(Path(repo_root) / KEYCHAIN_WRAPPER_RELATIVE_PATH)

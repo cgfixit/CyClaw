@@ -186,8 +186,6 @@ retrieval:
   # between a tracked-corpus off-doctrine miss (~0.277) and the weakest
   # ci_rag_smoke hit (~0.333).
   min_semantic_score: 0.30
-  hybrid:
-    enabled: true
 
 personality:
   enabled: true

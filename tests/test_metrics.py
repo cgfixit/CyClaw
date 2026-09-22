@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 import metrics
-from metrics import compute_audit_integrity, compute_metrics, load_events, print_metrics, summarize_audit
+from metrics import compute_metrics, iter_events, print_metrics, summarize_audit
 
 
 def _write_audit(tmp_path, events):
@@ -33,12 +33,12 @@ def _write_config(tmp_path, audit_file):
 
 class TestLoadEvents:
     def test_missing_file_returns_empty(self, tmp_path):
-        assert load_events(str(tmp_path / "nope.jsonl")) == []
+        assert list(iter_events(str(tmp_path / "nope.jsonl"))) == []
 
     def test_skips_malformed_lines(self, tmp_path):
         p = tmp_path / "audit.jsonl"
         p.write_text('{"event": "rag_query"}\nNOT JSON\n{"event": "x"}\n', encoding="utf-8")
-        events = load_events(str(p))
+        events = list(iter_events(str(p)))
         assert len(events) == 2
         assert events[0]["event"] == "rag_query"
 
@@ -51,7 +51,7 @@ class TestLoadEvents:
             '{"event": "rag_query"}\nnull\n42\n"text"\n[]\n{"event": "x"}\n',
             encoding="utf-8",
         )
-        events = load_events(str(p))
+        events = list(iter_events(str(p)))
         assert [e["event"] for e in events] == ["rag_query", "x"]
         # The end-to-end guarantee: aggregation over the same file must not raise.
         assert compute_metrics(events)["total_events"] == 2
@@ -69,7 +69,7 @@ class TestAuditIntegrity:
             encoding="utf-8",
         )
 
-        assert compute_audit_integrity(str(p)) == {
+        assert summarize_audit(str(p))["audit_integrity"] == {
             "malformed_lines": 1,
             "events_with_raw_query": 1,
             "rag_events_missing_query_hash": 1,
@@ -86,7 +86,7 @@ class TestAuditIntegrity:
             ]) + "\n",
             encoding="utf-8",
         )
-        assert compute_audit_integrity(str(p)) == {
+        assert summarize_audit(str(p))["audit_integrity"] == {
             "malformed_lines": 4,
             "events_with_raw_query": 0,
             "rag_events_missing_query_hash": 0,
@@ -107,7 +107,7 @@ class TestAuditIntegrity:
             ]) + "\n",
             encoding="utf-8",
         )
-        assert compute_audit_integrity(str(p)) == {
+        assert summarize_audit(str(p))["audit_integrity"] == {
             "malformed_lines": 1,
             "events_with_raw_query": 0,
             "rag_events_missing_query_hash": 0,
@@ -248,7 +248,7 @@ class TestComputeMetrics:
         """A JSON-valid audit line whose top_score is null/string/bool must be
         excluded from the score stats instead of raising TypeError — one
         malformed line must never take down GET /audit/summary or the
-        cyclaw-metrics CLI (load_events already tolerates non-JSON lines; this
+        cyclaw-metrics CLI (iter_events already tolerates non-JSON lines; this
         extends the same posture to field types)."""
         events = [
             {"event": "rag_query", "top_score": 0.40, "retrieval_mode": "hybrid"},
@@ -426,7 +426,7 @@ def test_jsonl_readers_preserve_streaming_and_integrity_contract(tmp_path, prese
             opened.assert_not_called()
             assert list(stream) == (records if present else [])
             assert opened.call_count == int(present)
-    assert compute_audit_integrity(str(path)) == expected
+    assert summarize_audit(str(path))["audit_integrity"] == expected
     with patch("builtins.open", wraps=open) as opened:
         summary = summarize_audit(str(path))
         assert opened.call_count == int(present)
