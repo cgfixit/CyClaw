@@ -22,9 +22,9 @@ precedes it.
 - `retrieval.min_score` (shipped **0.028**) is on the **RRF scale**, not
   cosine. Ranks are zero-based: dual rank-0 with `rrf_k=60` is
   `2/60 ≈ 0.0333` (the two-leg hybrid ceiling).
-  "Fixing" `min_score` toward 0.5, or above ~0.033, routes every hybrid
-  query to the user gate. Topical strictness is `retrieval.min_semantic_score`
-  (shipped **0.30**, cosine on the top hit when present).
+  It only gates when no hit carries a cosine (the keyword-only degrade).
+  Hybrid queries are decided by `retrieval.min_semantic_score` (shipped
+  **0.30**, cosine on the **best** semantic hit, wherever RRF ranked it).
 - `indexing.chunk_overlap` must stay `< chunk_size`.
 - The BM25 store is **JSON** (`index/bm25.json`), never pickle — pickle is an
   RCE vector and `test_security` guards the format.
