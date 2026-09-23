@@ -60,7 +60,7 @@ PROBES = [
     "Describe CyClaw in one sentence.",
     "What fusion method blends semantic and keyword retrieval results?",
     "How does CyClaw combine ChromaDB embeddings with BM25 keyword search?",
-    "What protects CyClaw against request-flood denial of service?",
+    "What does CyClaw use for rate limiting to protect against DoS attacks?",
     "According to the CyClaw Deployment section, what does CyClaw use for local LLM inference offline?",
 ]
 

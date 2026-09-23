@@ -105,8 +105,9 @@ Skips cleanly (exit 0) when retrieval deps aren't installed; the CI
   raising `min_score` toward a cosine-style 0.5 — that routes every real query to
   the user-confirmation gate. Diagnose the retrieval, not the threshold.
 - **Do not change probe expectations to make a run pass** unless the corpus
-  genuinely changed. A failing probe against an unchanged corpus is a real
-  regression.
+  genuinely changed, or the probe's wording was a paraphrase a chunking change
+  made unstable (the DoS gotcha below). A failing probe whose wording still
+  matches the corpus is a real regression.
 - Rebuilding respects the configured `vector_backend`. For `pgvector`, count
   parity is skipped (WARN) — validate that backend against its own store.
 
@@ -126,3 +127,10 @@ Skips cleanly (exit 0) when retrieval deps aren't installed; the CI
   as the CI hermetic prep.
 - **Score magnitudes are small.** RRF-fused scores rarely exceed ~0.1; a top
   score of 0.03–0.06 clearing the 0.028 gate is normal, not a weak hit.
+- **The DoS probe is near-verbatim.** `doctor.py` asks what CyClaw uses for
+  rate limiting to protect against DoS attacks — the overview bullet, and the
+  same sentence `tests/ci_rag_smoke.py` asserts. A "request-flood denial of
+  service" paraphrase ranks `AI-insights-.md`'s Cloudflare DDoS passage first
+  once chunks are sized in embedder tokens (that passage used to fall past
+  the model's 254-token window). `ci_rag_smoke` records that paraphrase class
+  as a known gap; do not point this probe back at it.
