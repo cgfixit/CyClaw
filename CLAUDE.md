@@ -55,8 +55,9 @@ HTTP POST /query   (or MCP tools/call: hybrid_search)
    graph.py  (LangGraph 12-node state machine)
    retrieve → route_by_score
               ├─ best cosine ≥ min_semantic_score (RRF ≥ min_score if no cosine)
-              │  AND, when models.reranker is on, best cross-encoder logit
-              │  ≥ min_rerank_score (a veto: it only turns a hit into a miss)
+              │  AND, when models.reranker is on and min_rerank_score is set,
+              │  best cross-encoder logit ≥ min_rerank_score (a veto: it only
+              │  turns a hit into a miss; shipped null = shadow, audited only)
               │                       → guardrail_input (offline input rail; opt-in,
               │                       pass-through when guardrails.enabled=false)
               │                       ├─ blocked → audit_logger
@@ -196,7 +197,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `retrieval/hybrid_search.py` | RRF fusion (k=60) over ChromaDB + BM25 |
 | `retrieval/indexer.py` | Corpus ingestion, chunk sanitization (`cyclaw-index`) |
 | `retrieval/embeddings.py` | Local embeddings, device hardcoded to CPU (`EMBED_DEVICE` — cross-platform determinism; see the constant's own comment for why); triple `lru_cache`; `embedding_fingerprint()` for index-staleness detection |
-| `retrieval/rerank.py` | Local cross-encoder (`models.reranker`, shipped `cross-encoder/ms-marco-MiniLM-L6-v2`, CPU, raw logits) behind the vault-hit gate's veto (Phase 3 of #1456). `graph.retrieve_node` scores the `LOCAL_CONTEXT_CHUNKS` window through `HybridRetriever.rerank_scores`; `route_by_score_node` compares the best logit to `retrieval.min_rerank_score`. Fail-soft: off returns `None`, unavailable raises `RerankerError`, and either way the cosine rule decides alone (the audit record says `rerank_degraded`). Not called by `hybrid_search`, so MCP never pays for it |
+| `retrieval/rerank.py` | Local cross-encoder (`models.reranker`, shipped `cross-encoder/ms-marco-MiniLM-L6-v2`, CPU, raw logits) behind the vault-hit gate's veto (Phase 3 of #1456). `graph.retrieve_node` scores the `LOCAL_CONTEXT_CHUNKS` window through `HybridRetriever.rerank_scores`; `route_by_score_node` compares the best logit to `retrieval.min_rerank_score` (shipped `null`: shadow mode, logits audited as `rerank_best`, nothing vetoed). Fail-soft: off returns `None`, unavailable raises `RerankerError`, and either way the cosine rule decides alone (the audit record says `rerank_degraded`). Not called by `hybrid_search`, so MCP never pays for it |
 | `retrieval/stemmer.py` | Porter stemmer + custom vocab; avoids NLTK punkt (CVE) |
 | `retrieval/vector_store.py` | Pluggable reader/writer: embedded ChromaDB (default) or pgvector |
 | `retrieval/clear_cache.py` | Dry-run-by-default embedding-cache cleaner (`cyclaw-clear-cache`) |
@@ -240,7 +241,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `127.0.0.1:8787` | `api.host`/`api.port` | loopback only, never a public interface |
 | `0.028` | `retrieval.min_score` | **RRF scale**, not cosine. Gates only when no hit has a cosine (keyword-only degrade). Dual rank-0 ceiling is `2/60 ≈ 0.0333` |
 | `0.30` | `retrieval.min_semantic_score` | Cosine floor on the **best** semantic hit; the vault-hit gate whenever cosines are present |
-| `0.0` | `retrieval.min_rerank_score` | Cross-encoder **logit** (0.0 = sigmoid 0.5), best over the context window; a veto on a cosine hit, never a way to grant one. Pre-registered, not fitted to the smoke's look-alikes |
+| `null` | `retrieval.min_rerank_score` | Shadow mode: the cross-encoder's best **logit** over the context window is audited, nothing is vetoed. A number turns on a veto that can only turn a cosine hit into a miss. The pre-registered `0.0` was measured and rejected in PR #1463: it removed every look-alike and 10 answerable questions whose answer was in the window |
 | `60` | `retrieval.rrf_k` | RRF fusion constant |
 | `780` | `api.graph_timeout_sec` | must exceed `local_llm.timeout_sec` (720) |
 | `720` / `4096` | `local_llm.timeout_sec` / `max_tokens` | sized for dense ~27B MLX on M5 Pro class 307 GB/s (48 GB unified) — match the shipped default. Decode tok/s is **not** a config value; measure with `scripts/measure_local_llm_throughput.py` |
@@ -445,7 +446,7 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   the horror film *The Medium*" matches the McLuhan chunk at cosine 0.46).
   **Rule:** measured, no cosine floor separates them from real paraphrases;
   that is the cross-encoder veto's job (`retrieval/rerank.py`,
-  `retrieval.min_rerank_score`, on the **logit** scale). The veto can only
+  `retrieval.min_rerank_score`, on the **logit** scale, shipped `null` = shadow). The veto can only
   turn a hit into a miss, so tuning it can never add a false hit, but it can
   drop real ones: `tests/ci_rag_smoke.py` fails if it vetoes an asserted
   answerable probe.

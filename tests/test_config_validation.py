@@ -123,7 +123,13 @@ def test_min_rerank_score_accepts_any_finite_logit(logit):
     validate_retrieval_config(cfg)
 
 
-@pytest.mark.parametrize("bad", ["0", None, True, float("nan"), float("inf")])
+def test_null_min_rerank_score_is_shadow_mode_and_valid():
+    cfg = _with_reranker()
+    cfg["retrieval"]["min_rerank_score"] = yaml.safe_load("min_rerank_score: null\n")["min_rerank_score"]
+    validate_retrieval_config(cfg)
+
+
+@pytest.mark.parametrize("bad", ["0", True, float("nan"), float("inf")])
 def test_min_rerank_score_rejects_non_finite_or_wrong_type(bad):
     cfg = _with_reranker()
     cfg["retrieval"]["min_rerank_score"] = bad

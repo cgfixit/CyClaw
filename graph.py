@@ -388,8 +388,9 @@ def route_by_score_node(state: GraphState, cfg: dict) -> dict:
             # add a false vault hit. Cosine measures topic, and look-alikes
             # ("the plot of the horror film The Medium" vs the McLuhan chunk,
             # 0.46) clear the floor as easily as real paraphrases. No logit in
-            # the window (reranker off or degraded) leaves the cosine rule
-            # deciding alone.
+            # the window (reranker off or degraded), or a null floor (shadow
+            # mode: logits are audited, nothing is vetoed), leaves the cosine
+            # rule deciding alone.
             rerank_floor = retrieval.get("min_rerank_score")
             best_rerank = _best_finite(window, "rerank_score")
             if (

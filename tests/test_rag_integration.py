@@ -75,9 +75,17 @@ class _FakeCrossEncoder:
         return [self.logit for _ in pairs]
 
 
-def _run_graph_on_real_index(tmp_path, monkeypatch, cross_encoder: _FakeCrossEncoder) -> tuple[dict, dict]:
-    """Build the isolated index and invoke the real graph once; return (result, cfg)."""
+def _run_graph_on_real_index(
+    tmp_path, monkeypatch, cross_encoder: _FakeCrossEncoder, min_rerank_score: float | None
+) -> tuple[dict, dict]:
+    """Build the isolated index and invoke the real graph once; return (result, cfg).
+
+    ``min_rerank_score`` is set explicitly: these tests pin the veto mechanism,
+    not the shipped value (null, shadow mode).
+    """
     config_path, cfg = _write_isolated_config(tmp_path)
+    cfg["retrieval"]["min_rerank_score"] = min_rerank_score
+    config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     reset_config_cache()
     monkeypatch.setattr(
         "retrieval.indexer.get_embeddings_batch",
@@ -107,7 +115,7 @@ def _run_graph_on_real_index(tmp_path, monkeypatch, cross_encoder: _FakeCrossEnc
 def test_reranker_veto_turns_a_cosine_hit_into_a_miss_end_to_end(tmp_path, monkeypatch) -> None:
     """The fake index is a cosine hit; a cross-encoder logit below the floor vetoes it."""
     cross_encoder = _FakeCrossEncoder(logit=-5.0)
-    result, cfg = _run_graph_on_real_index(tmp_path, monkeypatch, cross_encoder)
+    result, cfg = _run_graph_on_real_index(tmp_path, monkeypatch, cross_encoder, min_rerank_score=0.0)
 
     assert cfg["models"]["reranker"]["enabled"] is True
     assert cross_encoder.pairs, "retrieve_node never asked the reranker"
@@ -118,8 +126,19 @@ def test_reranker_veto_turns_a_cosine_hit_into_a_miss_end_to_end(tmp_path, monke
 
 
 def test_reranker_above_the_floor_keeps_the_vault_hit(tmp_path, monkeypatch) -> None:
-    result, _cfg = _run_graph_on_real_index(tmp_path, monkeypatch, _FakeCrossEncoder(logit=5.0))
+    result, _cfg = _run_graph_on_real_index(tmp_path, monkeypatch, _FakeCrossEncoder(logit=5.0), min_rerank_score=0.0)
 
+    assert result["answer_model"] == "local"
+    assert not result.get("rerank_vetoed")
+
+
+def test_shadow_mode_scores_but_never_vetoes(tmp_path, monkeypatch) -> None:
+    """A null floor (the shipped default) still scores the window, and the hit stands."""
+    cross_encoder = _FakeCrossEncoder(logit=-9.0)
+    result, _cfg = _run_graph_on_real_index(tmp_path, monkeypatch, cross_encoder, min_rerank_score=None)
+
+    assert cross_encoder.pairs, "shadow mode must still score the window"
+    assert all(d["rerank_score"] == -9.0 for d in result["retrieved_docs"])
     assert result["answer_model"] == "local"
     assert not result.get("rerank_vetoed")
 

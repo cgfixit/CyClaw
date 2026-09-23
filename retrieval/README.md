@@ -26,10 +26,12 @@ precedes it.
   It only gates when no hit carries a cosine (the keyword-only degrade).
   Hybrid queries are decided by `retrieval.min_semantic_score` (shipped
   **0.30**, cosine on the **best** semantic hit, wherever RRF ranked it).
-- `retrieval.min_rerank_score` (shipped **0.0**) is a cross-encoder
-  **logit**, not a cosine or a probability (0.0 is sigmoid 0.5). It is a veto
-  on a cosine vault hit: the best logit among the context-window chunks must
-  reach it, and it can never turn a miss into a hit.
+- `retrieval.min_rerank_score` (shipped **null**: shadow mode, logits are
+  audited and nothing is vetoed) is a cross-encoder **logit** when set, not a
+  cosine or a probability (0.0 is sigmoid 0.5). A number is a veto on a
+  cosine vault hit: the best logit among the context-window chunks must reach
+  it, and it can never turn a miss into a hit. The pre-registered 0.0 was
+  rejected when measured (PR #1463): it also vetoed answerable questions.
 - `indexing.chunk_overlap` must stay `< chunk_size`. With `chunk_unit:
   tokens` (shipped: 256/32) both count the embedder's word pieces, and
   `chunk_size` includes its 2 special tokens, so 256 is exactly

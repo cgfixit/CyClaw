@@ -398,7 +398,8 @@ def print_gate_config(cfg: dict) -> None:
     retrieval = cfg["retrieval"]
     print(f"Configured min_score gate: {retrieval['min_score']}")
     print(f"Configured min_semantic_score gate: {retrieval.get('min_semantic_score')}")
-    print(f"Configured min_rerank_score veto: {retrieval.get('min_rerank_score')}")
+    floor = retrieval.get("min_rerank_score")
+    print(f"Configured min_rerank_score veto: {'null (shadow: logits audited, no veto)' if floor is None else floor}")
 
 
 def reranker_provenance(retriever: HybridRetriever) -> str:

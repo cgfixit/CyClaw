@@ -291,6 +291,12 @@ class TestRerankVeto:
         result = self._route([{"score": 1 / 60, "semantic_score": 0.46, "rerank_score": -9.0}], cfg=cfg)
         assert result == {"needs_user_confirm": False}
 
+    def test_null_floor_is_shadow_mode(self):
+        # The shipped default: logits reach the audit record, the veto never fires.
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30, "min_rerank_score": None}}
+        result = self._route([{"score": 1 / 60, "semantic_score": 0.46, "rerank_score": -9.0}], cfg=cfg)
+        assert result == {"needs_user_confirm": False}
+
     @pytest.mark.parametrize("logit", [float("nan"), float("inf"), float("-inf")])
     def test_non_finite_logit_is_not_evidence(self, logit):
         result = self._route([{"score": 1 / 60, "semantic_score": 0.46, "rerank_score": logit}])
