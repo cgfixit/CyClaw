@@ -88,7 +88,7 @@ if [ -z "${SKIP_INSTALL:-}" ]; then
   if "$VPY" -m pip install --quiet --upgrade "pip==26.2.1" \
      && "$VPY" -m pip install --quiet torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu \
      && "$VPY" -m pip install --quiet -r requirements.txt -c constraints.txt --ignore-installed PyYAML \
-     && "$VPY" -m pip install --quiet pytest pytest-asyncio pytest-cov pyyaml; then
+     && "$VPY" -m pip install --quiet -c constraints.txt pytest pytest-cov pyyaml sqlite-vec; then
     pass "3.12 dependency install" "clean install, no version conflicts"
   else
     fail "3.12 dependency install" "pip install failed — see output above"

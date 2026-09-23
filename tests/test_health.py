@@ -565,21 +565,21 @@ class TestHealthCfgCache:
         # (both calls fall inside the TTL window).
         assert first is second
 
-    def test_cfg_reparsed_after_ttl_expiry(self, tmp_path, monkeypatch):
-        # The TTL cache must serve a *fresh* parse once the entry ages past the
-        # TTL, so an operator editing config.yaml post-startup is picked up
-        # without a process restart (the foot-gun the unbounded lru_cache had).
-        cfg_path = _write_cfg(tmp_path)
-        clock = {"now": 1000.0}
-        monkeypatch.setattr(health.time, "monotonic", lambda: clock["now"])
+    def test_passed_cfg_wins_over_the_file(self, tmp_path, monkeypatch):
+        # gate.py passes the config it booted with. /health must describe
+        # that config, not whatever config.yaml says now: nothing else in the
+        # server reloads, so an edited file (here, Grok armed and probed) must
+        # not show up in /health while /query still runs the boot settings.
+        monkeypatch.setenv("GROK_API_KEY", "dummy")
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+        cfg_path = _write_cfg(tmp_path, mode="hybrid", grok_enabled=True, probe_external=True)
+        running = yaml.safe_load(open(cfg_path, encoding="utf-8"))
+        running["app"]["mode"] = "offline"
 
-        first = health._health_cfg(cfg_path)
-        # Advance the clock just past the TTL so the cached entry is stale.
-        clock["now"] += health._cfg_ttl_sec + 1
-        second = health._health_cfg(cfg_path)
-        # Different object identity -> the file was re-read and re-parsed.
-        assert first is not second
-        assert second == first  # same content, freshly parsed
+        # Control: read from the file, Grok is probed.
+        assert "grok_api" in {s.name for s in health.check_all(cfg_path)}
+        health._status_cache.clear()
+        assert {s.name for s in health.check_all(cfg_path, cfg=running)} == {"ollama", "embeddings_local"}
 
 
 class TestSharedClientLifecycle:
