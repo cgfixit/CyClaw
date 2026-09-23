@@ -325,6 +325,13 @@ def test_real_chroma_bm25_index_uses_only_eval_corpus(tmp_path: Path, monkeypatc
         "get_embedding",
         lambda text, config_path="config.yaml": [1.0, 0.0, 0.0],
     )
+    # The shipped config chunks by embedder tokens; one token per word stands
+    # in for the real tokenizer so no model is loaded.
+    monkeypatch.setattr(
+        retrieval.indexer,
+        "get_token_counter",
+        lambda config_path="config.yaml": (lambda texts: [len(t.split()) for t in texts], 256, 2),
+    )
 
     config_path, fingerprint, manifest = judge_eval.build_eval_index(tmp_path)
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))

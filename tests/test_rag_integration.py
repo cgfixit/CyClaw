@@ -71,6 +71,12 @@ def test_real_retriever_result_flows_through_graph(tmp_path, monkeypatch) -> Non
         "retrieval.indexer.get_embeddings_batch",
         lambda texts, config_path="config.yaml": [_fake_embedding(text) for text in texts],
     )
+    # The shipped config chunks by embedder tokens; one token per word stands
+    # in for the real tokenizer so no model is loaded.
+    monkeypatch.setattr(
+        "retrieval.indexer.get_token_counter",
+        lambda config_path="config.yaml": (lambda texts: [len(t.split()) for t in texts], 256, 2),
+    )
     monkeypatch.setattr("retrieval.hybrid_search.get_embedding", _fake_embedding)
     monkeypatch.setattr("utils.logger._get_config", lambda config_path="config.yaml": cfg)
 

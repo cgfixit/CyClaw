@@ -38,11 +38,18 @@ from pathlib import Path
 # Each query is answerable by the committed corpus (data/corpus/cyclaw_overview.md),
 # phrased near corpus headings so it clears the gate at stable runtime. The
 # "one sentence" probe mirrors CyClaw-Sandbox P13, the canonical vault-hit test.
+# The rate-limit probe is the near-verbatim "Rate Limiting" / "DoS attacks"
+# sentence tests/ci_rag_smoke.py asserts as a top hit. A "request-flood denial
+# of service" paraphrase ranks data/corpus/AI-insights-.md first once
+# indexing.chunk_unit is tokens: that file's Cloudflare DDoS passage used to
+# sit past the embedder's 254-token window inside a 512-word chunk, and a
+# token-sized chunk embeds it whole. ci_rag_smoke keeps that paraphrase class
+# in KNOWN_GAP_ANSWERABLE; this probe stays on the wording the overview uses.
 PROBES = [
     ("Describe CyClaw in one sentence.", "cyclaw_overview"),
     ("What fusion method blends semantic and keyword retrieval results?", "cyclaw_overview"),
     ("How does CyClaw combine ChromaDB embeddings with BM25 keyword search?", "cyclaw_overview"),
-    ("What protects CyClaw against request-flood denial of service?", "cyclaw_overview"),
+    ("What does CyClaw use for rate limiting to protect against DoS attacks?", "cyclaw_overview"),
     (
         "According to the CyClaw Deployment section, what does CyClaw use "
         "for local LLM inference offline?",

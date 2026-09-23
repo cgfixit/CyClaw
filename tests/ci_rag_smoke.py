@@ -80,12 +80,17 @@ QUERIES = [
     ),
 ]
 
-# Answerable in words the corpus does not use (plus two keyword-only
+# Answerable in words the corpus does not use (plus four keyword-only
 # queries). Each must be a vault hit with the expected doc in the context
 # window. The first two are the regression probes for route_by_score_node's
 # best-cosine rule: the semantic leg ranks their chunk first (cosine ~0.41),
 # but BM25's top 5 shares no chunk with the semantic top 5, so the old
 # rank-agreement rule (top RRF score >= min_score) sent both to the user gate.
+# "tetrad" and "YOLO mode" are the regression probes for token-sized chunks
+# (config.yaml indexing.chunk_unit). With 512-word chunks their best cosine
+# stayed under the floor (0.21, 0.28): 5 of the 6 old chunks mentioning
+# "tetrad" had it past the embedder's 254-token window, where the model never
+# saw it. With chunks the model embeds whole, they score 0.42 and 0.35.
 PARAPHRASE_QUERIES = [
     ("Why did the coding assistant wipe out the whole project and talk about erasing itself?", AI_INSIGHTS),
     ("Which setting let the AI run shell commands without a human approving each one?", AI_INSIGHTS),
@@ -100,14 +105,16 @@ PARAPHRASE_QUERIES = [
     ("Which character in the tale acts as the group's conscience and is slowest to authorize intervention?", WHISPER),
     ("global village", MCLUHAN),
     ("Opus-Prime", WHISPER),
+    ("tetrad", MCLUHAN),
+    ("YOLO mode", AI_INSIGHTS),
 ]
 
 # Questions the corpus cannot answer. Each must be a vault miss by the rule
 # route_by_score_node applies (graph.py). QUERIES and PARAPHRASE_QUERIES prove
 # the gate lets real hits through; these prove it keeps unrelated questions
 # out, so min_semantic_score's calibration margin is checked here instead of
-# resting on a single recorded measurement. Measured best cosine: <= ~0.17
-# here, <= ~0.25 with docs/ indexed as well (~10x the chunks).
+# resting on a single recorded measurement. Measured best cosine: <= ~0.22
+# here, <= ~0.26 with docs/ indexed as well (~10x the chunks).
 OFF_TOPIC_QUERIES = [
     "What is a good recipe for sourdough bread with a crispy crust?",
     "Who won the 2014 FIFA World Cup final?",
@@ -126,11 +133,12 @@ OFF_TOPIC_QUERIES = [
 ]
 
 # Known gaps: printed with scores on every run, NOT asserted. Answerable
-# probes that still miss (the right chunk mixes several topics or runs past
-# the embedder's 256-word-piece window, or the query is one rare keyword whose
-# cosine against a long chunk stays low), then look-alikes the corpus cannot
-# answer that share its vocabulary (injection, rate, haiku, medium, village).
-# Bi-encoder cosine cannot separate the last group from real paraphrases.
+# probes that still miss: the overview's one chunk lists six features, so a
+# paraphrase of one bullet either scores under the floor or is a vault hit
+# whose context window other documents fill ahead of the overview, and a lone
+# rare keyword ("RRF") scores a low cosine even against the right chunk. Then look-alikes the corpus cannot answer that share its vocabulary
+# (injection, rate, haiku, medium, village). Bi-encoder cosine cannot
+# separate the last group from real paraphrases.
 KNOWN_GAP_ANSWERABLE = [
     ("Which technique merges the dense and sparse rankings into a single ordered list?", "cyclaw_overview"),
     ("How is the assistant shielded from being flooded with too many requests?", "cyclaw_overview"),
@@ -138,8 +146,6 @@ KNOWN_GAP_ANSWERABLE = [
     ("Is there a trail kept of every action so regulators can review it later?", "cyclaw_overview"),
     ("RRF", "cyclaw_overview"),
     ("rate limiting", "cyclaw_overview"),
-    ("tetrad", MCLUHAN),
-    ("YOLO mode", AI_INSIGHTS),
 ]
 LOOKALIKE_QUERIES = [
     "How do I prevent SQL injection in a PHP login form?",
