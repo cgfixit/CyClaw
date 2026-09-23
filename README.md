@@ -137,9 +137,10 @@ message, or config flag someone could forget to set.
    — `offline_best_effort` can answer from partial context after a vault miss.
 2. **Hybrid search over your Markdown corpus.** ChromaDB semantic vectors plus
    BM25 keyword ranking, fused by RRF (`retrieval.rrf_k`), both local and
-   CPU-only. A top hit weaker than `retrieval.min_score` (and
-   `retrieval.min_semantic_score`, when present) routes to a user gate instead
-   of a confident guess.
+   CPU-only. A query whose best semantic match is below
+   `retrieval.min_semantic_score` (or, with no semantic scores, whose top fused
+   hit is below `retrieval.min_score`) routes to a user gate instead of a
+   confident guess.
 3. **A local model by default.** Ollama serving `models.local_llm.model`
    (shipped: `qwen3.8:27b-mlx`). Context budget, generation cap, and every
    timeout are `config.yaml` values — nothing tunable is hardcoded.
@@ -402,7 +403,7 @@ graph node or a security control.
 
 | Plane | Command | Runs | Measures |
 |---|---|---|---|
-| Retrieval gate | `python -m tests.ci_rag_smoke` | every PR (`ci.yml`), no LLM | four `data/corpus` queries against `retrieval.min_score`, then hit@5/Recall@5/MRR, plus a check each injected doc's chunk was sanitized to `[FILTERED]` |
+| Retrieval gate | `python -m tests.ci_rag_smoke` | every PR (`ci.yml`), no LLM | a `data/corpus` probe matrix decided by `graph.route_by_score_node` (near-verbatim and paraphrased hits, off-topic misses; known gaps reported), then hit@5/Recall@5/MRR, plus a check each injected doc's chunk was sanitized to `[FILTERED]` |
 | Local dogfood | `CYCLAW_EVAL_DOGFOOD=1 python scripts/cyclaw-eval-dogfood.py` | operator, opt-in | one case per category on the real loopback model, with latency and a sanitizer probe; rows are `generated`/`unverified`, never assumed |
 | Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` (+ key) | operator, opt-in, spends money | groundedness, completeness, abstention per case, graded by Claude |
 | Local judge | same, with `evals.local_judge.enabled: true` | operator, opt-in, fully local | same rubric graded by a second loopback model of a different family |

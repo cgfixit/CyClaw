@@ -28,8 +28,11 @@ Never point this fixture at `data/corpus/` or a production index.
 ## Plane 1 — deterministic retrieval gate (required CI, no LLM)
 
 `python -m tests.ci_rag_smoke` runs on every PR in `ci.yml`. It first builds
-the real ChromaDB + BM25 index from `data/corpus/` and checks four queries
-against the configured `retrieval.min_score` and `min_semantic_score` gates,
+the real ChromaDB + BM25 index from `data/corpus/` and runs a probe matrix
+through `graph.route_by_score_node` with the configured gates: near-verbatim
+and paraphrased questions must be vault hits that put the expected document
+in context, off-topic questions must miss, and known gaps plus look-alikes
+the corpus cannot answer are printed with their scores but not asserted. It
 then builds an isolated index from the fixture and computes macro hit@5,
 Recall@5 and MRR over the source-labeled cases (the `out_of_corpus` cases are
 skipped). It also requires each `injected_content` document's retrieved chunk

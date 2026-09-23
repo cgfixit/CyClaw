@@ -18,6 +18,7 @@ audit_log so a caught database failure can be included in the audit event.
 """
 
 import logging
+import math
 import secrets
 from collections.abc import Callable
 from typing import Any, Literal, Protocol, TypedDict
@@ -134,6 +135,11 @@ _OFFLINE_FRAMING_CHARS = 325
 # Preserve some context even when query/soul reservations exhaust the budget;
 # this floor can make the assembled input exceed the configured estimate.
 _MIN_CONTEXT_CHARS = 800
+
+# Chunks the local_llm and offline_best_effort prompts show the model.
+# route_by_score_node gates on this same window, so a vault hit always rests
+# on a chunk the model actually sees, whatever top_k_* retrieval returns.
+LOCAL_CONTEXT_CHUNKS = 5
 
 
 def _context_char_budget(cfg: dict, *, soul_preamble: str, query: str, framing_chars: int) -> int:
@@ -312,33 +318,46 @@ def retrieve_node(state: GraphState, retriever: HybridRetriever, cfg: dict) -> d
     }
 
 def route_by_score_node(state: GraphState, cfg: dict) -> dict:
-    """Node 2: Compare top_score to threshold. Sets routing flag."""
-    # min_score is on the RRF scale, NOT cosine similarity. Dual rank-0 with
-    # rrf_k=60 is 2/61 ≈ 0.0328, the hybrid ceiling, not a weak hit.
-    # Raising min_score above ~0.033 makes every hybrid query a vault miss.
-    # The 0.4 fallback only fires when the key is missing from config entirely;
-    # on the RRF scale it is effectively unreachable, so a misconfigured deploy
-    # routes every query to the user gate instead of answering on a garbage
-    # threshold.
+    """Node 2: Decide whether retrieval found usable context. Sets routing flag."""
+    # When any retrieved doc carries a cosine score, min_semantic_score is the
+    # whole gate: the query is a vault hit when its BEST semantic match clears
+    # the floor, wherever RRF ranked that chunk. The RRF top_score only says
+    # the two legs agreed on rank. Requiring that agreement (the old rule:
+    # top_score >= min_score, then the floor on docs[0] only) vetoed any
+    # paraphrase whose chunk the semantic leg ranked first but BM25 could not
+    # see, and the veto grew with the corpus: indexing data/corpus plus docs/
+    # at the shipped chunking (647 chunks), it rejected 4 of 6 paraphrased
+    # questions the docs answer and 2 of 8 near-verbatim ones. This rule admits
+    # every query the old one did. A one-leg RRF score (memory hits included)
+    # tops out at 1/60, below min_score, so the old rule only ever passed with
+    # a two-leg chunk at docs[0] whose cosine cleared the floor, and that
+    # cosine is a lower bound on the max. It only removes needless trips to
+    # the user gate. Only the LOCAL_CONTEXT_CHUNKS the answer node will show
+    # the model count: with top_k_* above that window, a strong chunk ranked
+    # past it must not vouch for context the model never sees.
     retrieval = cfg.get("retrieval", {})
-    threshold = retrieval.get("min_score", 0.4)
-    top_score = state.get("top_score", 0.0)
-    if top_score < threshold:
-        return {"needs_user_confirm": True}
-
-    # RRF says two lists agreed on rank. It does not say the chunk is on-topic.
-    # Keyword-only hits have semantic_score None; they stay on the RRF gate.
     sem_floor = retrieval.get("min_semantic_score")
-    docs = state.get("retrieved_docs") or []
-    if (
-        isinstance(sem_floor, (int, float))
-        and not isinstance(sem_floor, bool)
-        and docs
-    ):
-        sem = docs[0].get("semantic_score")
-        if isinstance(sem, (int, float)) and not isinstance(sem, bool) and sem < sem_floor:
-            return {"needs_user_confirm": True}
-    return {"needs_user_confirm": False}
+    if isinstance(sem_floor, (int, float)) and not isinstance(sem_floor, bool):
+        best = None
+        for doc in (state.get("retrieved_docs") or [])[:LOCAL_CONTEXT_CHUNKS]:
+            sem = doc.get("semantic_score")
+            # A non-finite score (NaN from a degenerate vector) is not evidence;
+            # skipping it keeps a NaN from passing as "not below the floor".
+            if isinstance(sem, (int, float)) and not isinstance(sem, bool) and math.isfinite(sem):
+                best = sem if best is None else max(best, sem)
+        if best is not None:
+            return {"needs_user_confirm": best < sem_floor}
+
+    # No semantic evidence: the keyword-only degrade (hits rebased to
+    # 1/(rrf_k + rank), which stays below 0.028 by design) or a config with no
+    # min_semantic_score. min_score is on the RRF scale, NOT cosine similarity.
+    # Dual rank-0 with rrf_k=60 is 2/60 ≈ 0.0333 (ranks count from 0), the
+    # hybrid ceiling. The 0.4 fallback only fires when the key is missing from
+    # config entirely; on the RRF scale it is effectively unreachable, so a
+    # misconfigured deploy routes every query to the user gate instead of
+    # answering on a garbage threshold.
+    threshold = retrieval.get("min_score", 0.4)
+    return {"needs_user_confirm": state.get("top_score", 0.0) < threshold}
 
 def guardrail_input_node(
     state: GraphState, *, input_guard: Callable[[str], dict[str, Any]] | None
@@ -438,7 +457,7 @@ def local_llm_node(
     context_budget_chars = _context_char_budget(
         cfg, soul_preamble=soul_preamble, query=query, framing_chars=_LOCAL_FRAMING_CHARS
     )
-    context_chunks, included_docs = _format_context_chunks(docs, limit=5, total_char_budget=context_budget_chars)
+    context_chunks, included_docs = _format_context_chunks(docs, limit=LOCAL_CONTEXT_CHUNKS, total_char_budget=context_budget_chars)
 
     prompt = f"""{soul_preamble}USER QUERY: {query}
 
@@ -732,13 +751,13 @@ def offline_best_effort_node(
         tag = f"ctx-{secrets.token_hex(4)}"
 
         # Richer-but-bounded context (same query/soul-aware budget as local_llm,
-        # limit=5) so the offline/Qwen path gives fuller answers without risking
+        # LOCAL_CONTEXT_CHUNKS) so the offline/Qwen path gives fuller answers without risking
         # the "0% processing" stall.
         context_budget_chars = _context_char_budget(
             cfg, soul_preamble=soul_preamble, query=query,
             framing_chars=_OFFLINE_FRAMING_CHARS + len(identity),
         )
-        context, included_docs = _format_context_chunks(docs, limit=5, total_char_budget=context_budget_chars)
+        context, included_docs = _format_context_chunks(docs, limit=LOCAL_CONTEXT_CHUNKS, total_char_budget=context_budget_chars)
         prompt = f"""{soul_preamble}{identity}USER QUERY: {query}
 
 PARTIAL CONTEXT {UNTRUSTED_NOTE}:
