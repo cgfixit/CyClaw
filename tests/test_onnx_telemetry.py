@@ -141,6 +141,9 @@ def test_vector_store_disables_before_chroma_client(monkeypatch, tmp_path):
         def delete_collection(self, name):
             raise _FakeNotFoundError(name)
 
+        def list_collections(self):
+            return []
+
         def create_collection(self, name, metadata=None):
             order.append("collection")
             return _FakeCollection()
