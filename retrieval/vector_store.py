@@ -114,7 +114,6 @@ class _ChromaWriter:
         self._chroma_path = cfg["indexing"]["chroma_path"]
         self._collection_name = cfg["indexing"]["collection_name"]
         self._staging_name = f"{self._collection_name}_staging"
-        self._previous_name = f"{self._collection_name}_previous"
         self._client = None
         self._collection = None
 
@@ -151,19 +150,13 @@ class _ChromaWriter:
         self._collection.add(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
 
     def finalize(self) -> None:
-        import chromadb
-
-        # Rename rather than delete the live collection: a reader's handle is
-        # bound to the collection's id, not its name, so the old reader keeps
-        # answering from ``<name>_previous`` until gate.py's _init_retrieval
-        # swaps in a reader on the new one. That leaves no window at all, where
-        # delete-then-rename would break the old reader for the BM25 write that
-        # follows. The cost is one retained copy, dropped by the next build.
-        self._delete_if_exists(self._previous_name)
-        try:
-            self._client.get_collection(self._collection_name).modify(name=self._previous_name)
-        except chromadb.errors.NotFoundError:
-            pass  # first build: nothing is live yet
+        # Swap the staged build in under the live name. Dropping the old
+        # collection invalidates the id-bound handle a serving _ChromaReader
+        # holds; its next query re-resolves by name (see _ChromaReader.query).
+        # So nothing is retained for it -- which also means a build that fails
+        # after this point (the BM25 write, before gate.py swaps readers) cannot
+        # leave the server bound to a collection a later build deletes.
+        self._delete_if_exists(self._collection_name)
         self._collection.modify(name=self._collection_name)
 
     def _delete_if_exists(self, name: str) -> None:
@@ -203,6 +196,8 @@ class _ChromaReader:
             raise IndexNotFoundError(
                 f"Collection '{collection_name}' not found in ChromaDB: {e}"
             ) from e
+        self._client = client
+        self._collection_name = collection_name
 
     def fingerprint(self) -> dict[str, str] | None:
         """Return the {model, dim, device} stamp recorded at index-build time.
@@ -217,7 +212,17 @@ class _ChromaReader:
         return {key: str(metadata.get(key, "")) for key in _FINGERPRINT_KEYS}
 
     def query(self, embedding: Any, k: int) -> list[dict]:
-        results = self._collection.query(query_embeddings=[embedding], n_results=k)
+        import chromadb
+
+        try:
+            results = self._collection.query(query_embeddings=[embedding], n_results=k)
+        except chromadb.errors.NotFoundError:
+            # A rebuild swapped a new collection in under this name and dropped
+            # the one this handle is bound to (handles are id-bound). Re-resolve
+            # by name once; if nothing is live under the name yet, the error
+            # reaches hybrid_search's designed degrade like any backend failure.
+            self._collection = self._client.get_collection(self._collection_name)
+            results = self._collection.query(query_embeddings=[embedding], n_results=k)
         out: list[dict] = []
         if results["documents"] and results["documents"][0]:
             for i, doc in enumerate(results["documents"][0]):

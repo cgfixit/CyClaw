@@ -95,9 +95,36 @@ class TestChromaWriterHotRebuild:
         _build(cfg, ["new"], finalize=False)
         assert _texts(live) == ["old"]
 
+        # After the swap the old collection is gone; the serving reader
+        # re-resolves by name and follows the build.
         _build(cfg, ["new"])
-        assert _texts(live) == ["old"]
+        assert _texts(live) == ["new"]
         assert _texts(get_vector_reader(cfg)) == ["new"]
+
+    def test_reader_survives_builds_that_fail_after_finalize(self, tmp_path):
+        """Codex P1 on #1450: a build can fail after finalize() (the BM25
+        write), so gate.py never swaps readers and the serving one stays on
+        the old collection. A later build must not strand it there."""
+        from retrieval.vector_store import get_vector_reader
+
+        cfg = _cfg(tmp_path / "chroma")
+        _build(cfg, ["v1"])
+        serving = get_vector_reader(cfg)
+        _build(cfg, ["v2"])  # finalized, but the server never swapped
+        _build(cfg, ["v3"])
+        assert _texts(serving) == ["v3"]
+
+    def test_swap_leaves_only_the_live_collection(self, tmp_path):
+        import chromadb
+        from chromadb.config import Settings
+
+        cfg = _cfg(tmp_path / "chroma")
+        _build(cfg, ["v1"])
+        _build(cfg, ["v2"])
+        client = chromadb.PersistentClient(
+            path=str(tmp_path / "chroma"), settings=Settings(anonymized_telemetry=False)
+        )
+        assert [c.name for c in client.list_collections()] == ["cyclaw_kb"]
 
     def test_swap_carries_the_fingerprint_to_the_live_name(self, tmp_path):
         from retrieval.vector_store import get_vector_reader
