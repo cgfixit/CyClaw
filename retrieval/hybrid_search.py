@@ -61,9 +61,6 @@ class HybridRetriever:
                 f"BM25 index not found at {bm25_path}. Run: python -m retrieval.indexer"
             )
 
-        self._vector_reader = get_vector_reader(self.cfg)
-        self._check_embedding_fingerprint()
-
         # Validate path is a regular file before deserializing. The BM25 index is
         # project-generated (retrieval/indexer.py) and read from a config-controlled
         # path — not from user-supplied input.
@@ -92,6 +89,15 @@ class HybridRetriever:
             self.bm25 = BM25Okapi(tokenized) if any(tokenized) else None
             self.bm25_chunks = chunks
             self.bm25_metadata = metadata
+
+        # Open the vector generation this bm25.json was built with (see
+        # retrieval/vector_store.py), so both legs come from one build even
+        # while a later build is writing, or has written, another generation.
+        vector_name = bm25_data.get("vector_collection")
+        self._vector_reader = get_vector_reader(
+            self.cfg, vector_name if isinstance(vector_name, str) else None
+        )
+        self._check_embedding_fingerprint()
 
         self.top_k_semantic = self.cfg["retrieval"]["top_k_semantic"]
         self.top_k_keyword = self.cfg["retrieval"]["top_k_keyword"]

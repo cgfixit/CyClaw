@@ -18,14 +18,14 @@ Design contract every caller follows (see
     operator must run by hand.
   - No secrets in the file. Whether a generated plist's
     ``EnvironmentVariables`` (if any) stays secret-free is the caller's
-    responsibility -- this module only writes/removes/probes whatever
-    document dict it is given. Use :func:`wrap_with_keychain_secrets` to
+    responsibility -- this module only writes whatever document dict it
+    is given. Use :func:`wrap_with_keychain_secrets` to
     inject a runtime secret via the macOS Keychain instead of ever writing
     one into ``EnvironmentVariables``.
 
 This module intentionally does NOT depend on ``sync.scheduler``'s
 ``LaunchdScheduler`` (and vice versa): both implement a small, similar
-plist-write/bootout/probe pattern independently rather than sharing code
+plist-write/bootout pattern independently rather than sharing code
 across the two, so each stays a self-contained, independently reviewable
 change. See the PR that introduced this module for the reasoning.
 """
@@ -189,25 +189,6 @@ def bootout(path: Path) -> None:
         timeout=10,
         check=False,
     )
-
-
-def is_loaded(label: str) -> bool | None:
-    """Best-effort load-state probe for the agent with this ``Label``.
-
-    Returns ``True``/``False`` when ``launchctl`` answered, or ``None`` when
-    ``launchctl`` itself is unavailable (never raises).
-    """
-    launchctl = launchctl_bin()
-    if not launchctl:
-        return None
-    probe = subprocess.run(  # noqa: S603 -- argv list, launchctl resolved via shutil.which
-        [launchctl, "print", f"gui/{current_uid()}/{label}"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    return probe.returncode == 0
 
 
 def keychain_wrapper_path(repo_root: str | Path) -> str:

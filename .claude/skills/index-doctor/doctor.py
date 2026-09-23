@@ -68,15 +68,17 @@ def good(msg: str) -> None:
     print(f"  ok    {msg}")
 
 
-def chroma_count(cfg: dict) -> int | None:
-    """Collection size for the chroma backend; None for other backends."""
+def chroma_count(cfg: dict, generation: str | None = None) -> int | None:
+    """Size of the collection bm25.json names (its ``vector_collection``, or
+    the configured name for an index from before generations); None for
+    other backends."""
     if cfg["indexing"].get("vector_backend", "chroma") != "chroma":
         return None
     import chromadb
     from chromadb.config import Settings
     path = cfg["indexing"]["chroma_path"]
     client = chromadb.PersistentClient(path=path, settings=Settings(anonymized_telemetry=False))
-    return client.get_collection(cfg["indexing"]["collection_name"]).count()
+    return client.get_collection(generation or cfg["indexing"]["collection_name"]).count()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     good(f"BM25 chunk count: {bm25_n}")
     ch_n = None
     try:
-        ch_n = chroma_count(cfg)
+        ch_n = chroma_count(cfg, bm25_data.get("vector_collection"))
     except Exception as exc:  # noqa: BLE001
         bad(f"could not read ChromaDB collection: {exc}")
     if ch_n is None:

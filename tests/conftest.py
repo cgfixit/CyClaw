@@ -33,8 +33,7 @@ TEST_CONFIG = {
     "indexing": {"chroma_path": "", "bm25_path": "", "collection_name": "test_kb",
                  "chunk_size": 512, "chunk_overlap": 50, "batch_size": 10},
     "retrieval": {"top_k_semantic": 3, "top_k_keyword": 3, "rrf_k": 60,
-                   "max_context_tokens": 1000, "min_score": 0.75,
-                   "hybrid": {"enabled": True}},
+                   "max_context_tokens": 1000, "min_score": 0.75},
     "policy": {
         "fallback": {"enabled": True, "require_user_confirm": True,
                      "send_local_context_to_grok": False,
