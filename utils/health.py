@@ -8,6 +8,8 @@ in check_all. Embeddings are local sentence-transformers.
 """
 
 
+import hashlib
+import json
 import os
 import re
 import threading
@@ -22,7 +24,9 @@ from .endpoint_trust import EndpointTrustError, assert_local_destination
 from .errors import HealthStatus
 
 _cfg_cache: dict[str, dict] = {}
-_status_cache: dict[str, tuple[tuple[HealthStatus, ...], float]] = {}
+# Keyed by the config path plus a digest of an explicitly supplied config, so
+# two configs probed within the TTL never share results (Codex P2 on #1451).
+_status_cache: dict[tuple[str, str], tuple[tuple[HealthStatus, ...], float]] = {}
 _status_ttl_sec = 2
 
 # A loopback HTTP service either accepts a TCP connection immediately or is
@@ -144,11 +148,24 @@ def _safe_error(exc: Exception) -> str:
     return msg
 
 
+def _status_key(config_path: str, cfg: dict | None) -> tuple[str, str]:
+    if cfg is None:
+        return (config_path, "")
+    try:
+        blob = json.dumps(cfg, sort_keys=True, default=str)
+    except TypeError:
+        # Mixed-type keys cannot be sorted; this object's identity still tells
+        # it apart from every other config probed within the TTL.
+        return (config_path, f"id:{id(cfg)}")
+    return (config_path, hashlib.sha256(blob.encode("utf-8")).hexdigest())
+
+
 def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list[HealthStatus]:
     """Probe the services ``cfg`` configures; gate.py passes the config it serves with."""
     now = time.monotonic()
-    if config_path in _status_cache:
-        cached_statuses, cached_at = _status_cache[config_path]
+    key = _status_key(config_path, cfg)
+    if key in _status_cache:
+        cached_statuses, cached_at = _status_cache[key]
         if now - cached_at < _status_ttl_sec:
             return list(cached_statuses)
 
@@ -277,7 +294,7 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
                 error="ANTHROPIC_API_KEY not set (hybrid mode enabled but no API key)",
             ))
     results.append(HealthStatus(name="embeddings_local", healthy=True, latency_ms=0.0))
-    _status_cache[config_path] = (tuple(results), time.monotonic())
+    _status_cache[key] = (tuple(results), time.monotonic())
     return results
 
 def _ping(
