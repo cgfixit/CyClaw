@@ -46,9 +46,9 @@ from retrieval.embeddings import embedding_fingerprint, get_embedding, get_embed
 from retrieval.indexer import (  # noqa: E402
     _anchor_index_paths,
     _resolve_config_path,
-    chunk_document,
     load_config,
     load_corpus,
+    make_chunker,
 )
 from retrieval.vector_store import get_vector_writer  # noqa: E402
 from utils.errors import RAGError  # noqa: E402
@@ -134,15 +134,14 @@ class _SqliteVecPrototype:
 def _build_chunks(cfg: dict) -> tuple[list[str], list[dict]]:
     corpus_path = cfg["corpus"]["path"]
     extensions = cfg["corpus"]["extensions"]
-    chunk_size = cfg["indexing"]["chunk_size"]
-    chunk_overlap = cfg["indexing"]["chunk_overlap"]
     config_path_str = cfg.get("_config_path_str", "config.yaml")
 
     docs = load_corpus(corpus_path, extensions)
+    split_document = make_chunker(cfg, config_path_str)
     all_chunks: list[str] = []
     all_metadata: list[dict] = []
     for source, content in docs:
-        chunks = chunk_document(content, chunk_size, chunk_overlap)
+        chunks = split_document(content)
         for i, chunk in enumerate(chunks):
             all_chunks.append(sanitize_chunk(chunk, config_path_str))
             all_metadata.append({"source": source, "chunk_id": i})

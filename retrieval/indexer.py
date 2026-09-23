@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from utils.telemetry_kill import apply_telemetry_kill
@@ -29,7 +30,7 @@ import yaml  # noqa: E402
 from utils.errors import CorpusEmptyError  # noqa: E402
 from utils.sanitizer import sanitize_chunk  # noqa: E402
 
-from .embeddings import embedding_fingerprint, get_embeddings_batch  # noqa: E402
+from .embeddings import embedding_fingerprint, get_embeddings_batch, get_token_counter  # noqa: E402
 from .stemmer import tokenize_and_stem  # noqa: E402
 from .vector_store import get_vector_writer, vector_backend  # noqa: E402
 
@@ -135,6 +136,89 @@ def chunk_document(text: str, chunk_size: int = 512, overlap: int = 50) -> list[
     return chunks
 
 
+def chunk_document_by_tokens(
+    text: str,
+    count_tokens: Callable[[list[str]], list[int]],
+    max_tokens: int,
+    overlap: int,
+) -> list[str]:
+    """Split ``text`` into whole-word windows of at most ``max_tokens`` model tokens.
+
+    ``count_tokens`` measures texts in the embedding model's own word pieces
+    (retrieval.embeddings.get_token_counter). Windows are packed greedily from
+    per-word counts, then re-measured as joined text and shrunk if a tokenizer
+    that is not whitespace-separable (BPE/SentencePiece) counts the join
+    higher. Consecutive windows share up to ``overlap`` tokens of whole words.
+    A single word longer than ``max_tokens`` becomes its own window; the model
+    truncates it, as it truncated every chunk before.
+    """
+    if max_tokens < 1:
+        raise ValueError(f"max_tokens must be >= 1, got {max_tokens}")
+    if overlap < 0:
+        raise ValueError(f"overlap must be >= 0, got {overlap}")
+    if overlap >= max_tokens:
+        raise ValueError(f"overlap ({overlap}) must be < max_tokens ({max_tokens})")
+    words = text.split()
+    if not words:
+        return []
+    counts = count_tokens(words)
+    chunks = []
+    start = 0
+    while True:
+        end, used = start, 0
+        while end < len(words) and (end == start or used + counts[end] <= max_tokens):
+            used += counts[end]
+            end += 1
+        while end - start > 1 and count_tokens([" ".join(words[start:end])])[0] > max_tokens:
+            end -= 1
+        chunks.append(" ".join(words[start:end]))
+        if end == len(words):
+            break
+        # Step back over whole trailing words worth at most `overlap` tokens,
+        # but always past `start`, so every window advances.
+        back, carried = end, 0
+        while back - 1 > start and carried + counts[back - 1] <= overlap:
+            back -= 1
+            carried += counts[back]
+        start = back
+    return chunks
+
+
+def make_chunker(cfg: dict, config_path: str) -> Callable[[str], list[str]]:
+    """Return the chunk function ``indexing.chunk_unit`` selects.
+
+    ``words`` (the default when the key is absent) keeps the historical
+    whitespace-word windows. ``tokens`` sizes ``chunk_size`` and
+    ``chunk_overlap`` in the embedding model's own tokens, where
+    ``chunk_size`` includes the special tokens the model adds, so it compares
+    directly with the model's max_seq_length (256 for all-MiniLM-L6-v2). A word
+    window cannot promise that: 512 words of the shipped corpus run 720-1,840
+    word pieces, and the model embedded only the first 254 of them, so most of
+    every chunk was invisible to semantic search and to the vault-hit gate.
+    """
+    indexing = cfg["indexing"]
+    unit = indexing.get("chunk_unit", "words")
+    chunk_size = indexing["chunk_size"]
+    chunk_overlap = indexing["chunk_overlap"]
+    if unit == "words":
+        return lambda text: chunk_document(text, chunk_size, chunk_overlap)
+    if unit != "tokens":
+        raise ValueError(f"indexing.chunk_unit must be 'words' or 'tokens', got {unit!r}")
+    count_tokens, max_seq_length, special = get_token_counter(config_path)
+    if chunk_size > max_seq_length:
+        logger.warning(
+            "indexing.chunk_size %d exceeds the embedding model's max_seq_length %d; using %d",
+            chunk_size, max_seq_length, max_seq_length,
+        )
+    max_tokens = min(chunk_size, max_seq_length) - special
+    if not 0 <= chunk_overlap < max_tokens:
+        raise ValueError(
+            f"chunk_overlap ({chunk_overlap}) must be < the {max_tokens} content tokens "
+            f"a chunk holds (chunk_size, capped at max_seq_length, minus {special} special tokens)"
+        )
+    return lambda text: chunk_document_by_tokens(text, count_tokens, max_tokens, chunk_overlap)
+
+
 def build_index(config_path: str = "config.yaml") -> None:
     resolved_config_path = _resolve_config_path(config_path)
     config_path_str = str(resolved_config_path)
@@ -169,6 +253,7 @@ def build_index(config_path: str = "config.yaml") -> None:
     logger.info("Loading corpus from %s", corpus_path)
     docs = load_corpus(corpus_path, extensions)
     logger.info("Loaded %d documents", len(docs))
+    split_document = make_chunker(cfg, config_path_str)
 
     all_chunks = []
     all_metadata = []
@@ -180,7 +265,7 @@ def build_index(config_path: str = "config.yaml") -> None:
 
     for source, content in docs:
         source_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        chunks = chunk_document(content, chunk_size, chunk_overlap)
+        chunks = split_document(content)
         if not chunks:
             # An empty/whitespace-only file passes load_corpus (it reads fine)
             # but splits to zero words -- without this warning it would vanish

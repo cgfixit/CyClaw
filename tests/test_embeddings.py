@@ -161,6 +161,30 @@ class TestBatch:
         assert fake_model.calls == 1  # one batched encode call
 
 
+class TestTokenCounter:
+    def test_counts_word_pieces_without_special_tokens(self, tmp_path, monkeypatch):
+        calls = []
+
+        class _Tokenizer:
+            # The HF tokenizer surface get_token_counter relies on.
+            def __call__(self, texts, add_special_tokens, truncation):
+                calls.append((add_special_tokens, truncation))
+                return {"input_ids": [[0] * len(t) for t in texts]}
+
+            def num_special_tokens_to_add(self, pair):
+                assert pair is False
+                return 2
+
+        model = _FakeModel()
+        model.tokenizer = _Tokenizer()
+        model.max_seq_length = 256
+        monkeypatch.setattr(embeddings, "_load_model", lambda name, cache, offline_after_index, config_path: model)
+        count, max_seq_length, special = embeddings.get_token_counter(_write_cfg(tmp_path))
+        assert count(["ab", "cde"]) == [2, 3]
+        assert (max_seq_length, special) == (256, 2)
+        assert calls == [(False, False)]
+
+
 class TestQueryCacheSize:
     def test_defaults_to_2048_when_unset(self, monkeypatch):
         monkeypatch.delenv("CYCLAW_EMBED_CACHE_SIZE", raising=False)

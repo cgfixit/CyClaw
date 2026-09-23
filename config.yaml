@@ -119,8 +119,19 @@ indexing:
   chroma_path: "index/chroma_db"
   bm25_path: "index/bm25.json"
   collection_name: "cyclaw_kb"
-  chunk_size: 512
-  chunk_overlap: 50
+  # chunk_unit "tokens": chunk_size and chunk_overlap count the embedding
+  # model's own word pieces, and chunk_size includes the 2 special tokens the
+  # model adds, so 256 = all-MiniLM-L6-v2's max_seq_length and every chunk is
+  # embedded whole (retrieval/indexer.py make_chunker; a larger value is
+  # capped at the model's window). "words" (the default when this key is
+  # absent) is the old whitespace-word window: at 512 words the shipped corpus
+  # ran 720-1,840 word pieces per chunk, the model embedded only the first
+  # 254, and a sentence from the rest of a chunk could not reach the
+  # semantic leg or the vault-hit gate. Changing any of these three needs a
+  # rebuild (python -m retrieval.indexer).
+  chunk_unit: "tokens"
+  chunk_size: 256
+  chunk_overlap: 32
   batch_size: 50
   # Semantic (vector) backend. "chroma" (default) keeps the embedded, zero-config,
   # offline-first PersistentClient. "pgvector" stores/queries the 384-dim embeddings
@@ -132,8 +143,10 @@ indexing:
   # BM25 (keyword) stays file-based (bm25_path) regardless of vector_backend.
 
 retrieval:
-  top_k_semantic: 5
-  top_k_keyword: 5
+  # Per leg. 10 each keeps graph.py's LOCAL_CONTEXT_CHUNKS (10) window full of
+  # fused hits now that a chunk is ~150 words rather than 512.
+  top_k_semantic: 10
+  top_k_keyword: 10
   rrf_k: 60                # Authoritative RRF k — read by hybrid_search.py
   # Token budget for the prompt INPUT to the local LLM. graph.py reserves room for
   # the soul preamble + query + framing and gives the rest to retrieved context
@@ -163,15 +176,12 @@ retrieval:
   # NOTE: the guarantee assumes policy.prompt_filter.enabled stays true (it caps
   # the query at max_input_chars); disabling it lets a huge query exceed the budget.
   # HONEST CEILING: this is a max allowance, not a guarantee the local_llm/
-  # offline_best_effort paths will fill it. graph.py's _format_context_chunks
-  # is still called with limit=5 (docs[:5]) at both call sites, and
-  # indexing.chunk_size below caps each chunk at 512 words (~2,500-3,000
-  # chars). Five max-size chunks plus headers land well under this 48,000-char
-  # allowance for the shipped English corpus — the extra headroom mainly
-  # buys margin for larger individual chunks or a future top_k/limit retune,
-  # not more chunks per query today. Raising top_k_semantic/top_k_keyword or
-  # the graph.py limit= values is a separate, deliberately out-of-scope change
-  # (retrieval volume, not context-window sizing).
+  # offline_best_effort paths will fill it. graph.py shows the model at most
+  # LOCAL_CONTEXT_CHUNKS (10) chunks, and indexing.chunk_size above caps each
+  # at 256 embedder tokens (~150 English words, ~1,000 chars). Ten max-size
+  # chunks plus headers land far under this 48,000-char allowance for the
+  # shipped English corpus; the headroom buys margin for an operator's own
+  # chunk_unit/chunk_size or a future top_k/window retune.
   max_context_tokens: 16000
 
   # min_score: RRF fused-rank floor. route_by_score_node (graph.py) applies it

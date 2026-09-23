@@ -20,7 +20,7 @@ from graph import (
     build_graph, retrieve_node, local_llm_node,
     offline_best_effort_node, grok_fallback_node, claude_fallback_node,
     audit_logger_node, guardrail_input_node, guardrail_output_node, guardrail_router,
-    CHARS_PER_TOKEN, _MIN_CONTEXT_CHARS, _DEFAULT_MAX_CONTEXT_TOKENS,
+    CHARS_PER_TOKEN, _MIN_CONTEXT_CHARS, _DEFAULT_MAX_CONTEXT_TOKENS, LOCAL_CONTEXT_CHUNKS,
     _context_char_budget, _format_context_chunks, SECTION_SEP, _llm_identity,
     _fallback_spend_context,
 )
@@ -601,21 +601,22 @@ class TestOfflineBestEffortIdentity:
         assert "You are a helpful assistant" in llm.last_prompt
 
     def test_answer_sources_matches_context_limit(self, tmp_path):
-        # offline_best_effort_node feeds the model up to limit=5 context chunks
-        # (see _format_context_chunks(docs, limit=5, ...) above); answer_sources
-        # must report the same 5, not a stale docs[:3] that used to under-report
-        # up to 2 chunks that genuinely informed the answer.
+        # offline_best_effort_node feeds the model up to LOCAL_CONTEXT_CHUNKS
+        # context chunks (_format_context_chunks(docs, limit=LOCAL_CONTEXT_CHUNKS,
+        # ...)); answer_sources must report exactly those, not a stale shorter
+        # prefix (a docs[:3] once under-reported chunks that informed the answer)
+        # and not the extra retrieved docs past the window.
         cfg = _make_cfg(tmp_path)
         llm = MockLocalLLM()
         docs = [
             {"text": f"chunk {i}", "score": 0.3, "source": f"{i}.md", "chunk_id": i}
-            for i in range(7)
+            for i in range(LOCAL_CONTEXT_CHUNKS + 2)
         ]
         state = {"query": "explain immutability", "retrieved_docs": docs}
         result = offline_best_effort_node(state, llm=llm, cfg=cfg, personality=_FakePersonality())
 
-        assert len(result["answer_sources"]) == 5
-        assert result["answer_sources"] == docs[:5]
+        assert len(result["answer_sources"]) == LOCAL_CONTEXT_CHUNKS
+        assert result["answer_sources"] == docs[:LOCAL_CONTEXT_CHUNKS]
 
     def test_answer_sources_excludes_chunks_dropped_by_the_context_budget(self, tmp_path):
         # The test above only feeds tiny multi-character chunks, so the

@@ -17,6 +17,7 @@ Security note (2026-06):
 import logging
 import os
 import time
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -353,6 +354,27 @@ def reset_embedding_cache() -> None:
         clear = getattr(cache, "cache_clear", None)
         if clear is not None:
             clear()
+
+def get_token_counter(config_path: str = "config.yaml") -> tuple[Callable[[list[str]], list[int]], int, int]:
+    """Return ``(count, max_seq_length, special_tokens)`` for the embedding model.
+
+    ``count(texts)`` gives each text's length in the model's own word pieces,
+    without the special tokens (e.g. [CLS]/[SEP]) the model adds around every
+    input. The model silently truncates any input longer than
+    ``max_seq_length`` including those special tokens, so the indexer sizes
+    chunks with this rather than guessing from word counts. Like
+    get_embeddings_batch, this is the build path: a load failure aborts.
+    """
+    model_name, cache_dir, offline_after_index = _embeddings_cfg(config_path)
+    model = _load_model(model_name, cache_dir, offline_after_index, config_path)
+    tokenizer = model.tokenizer
+
+    def count(texts: list[str]) -> list[int]:
+        encoded = tokenizer(list(texts), add_special_tokens=False, truncation=False)
+        return [len(ids) for ids in encoded["input_ids"]]
+
+    return count, int(model.max_seq_length), int(tokenizer.num_special_tokens_to_add(pair=False))
+
 
 def get_embeddings_batch(texts: list[str], config_path: str = "config.yaml") -> list[list[float]]:
     # Deliberately NOT wrapped in EmbeddingServiceError: this is the index-build

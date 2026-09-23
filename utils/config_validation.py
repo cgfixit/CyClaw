@@ -39,7 +39,7 @@ def validate_retrieval_config(cfg: dict[str, Any]) -> None:
       * ``top_k_semantic`` / ``top_k_keyword`` / ``rrf_k`` are positive integers.
 
     Valid configs (the shipped defaults: ``min_score: 0.028``,
-    ``min_semantic_score: 0.30``, ``top_k_*: 5``, ``rrf_k: 60``) pass unchanged
+    ``min_semantic_score: 0.30``, ``top_k_*: 10``, ``rrf_k: 60``) pass unchanged
     -- this only rejects out-of-range typos. Absent ``min_semantic_score`` is
     allowed so partial test configs keep RRF-only routing.
     """

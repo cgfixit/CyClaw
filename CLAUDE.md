@@ -242,7 +242,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `720` / `4096` | `local_llm.timeout_sec` / `max_tokens` | sized for dense ~27B MLX on M5 Pro class 307 GB/s (48 GB unified) — match the shipped default. Decode tok/s is **not** a config value; measure with `scripts/measure_local_llm_throughput.py` |
 | `8000` | `personality.soul_max_chars` | soul is capped |
 | `16000` | `retrieval.max_context_tokens` | prompt context budget; floor formula 16000+4096+~1500 = 21,596 ≤ Ollama num_ctx 32768 |
-| `512` / `50` | `indexing.chunk_size` / `chunk_overlap` | overlap must stay `< chunk_size` |
+| `256` / `32` | `indexing.chunk_size` / `chunk_overlap` | in **embedder tokens** (`chunk_unit: tokens`); 256 = all-MiniLM-L6-v2's `max_seq_length` incl. 2 special tokens, so every chunk is embedded whole. Overlap must stay `< chunk_size`. `chunk_unit` absent = the old whitespace-word windows |
 | `60` per `60`s | `api.rate_limit` | per-IP |
 | `40` | `banned_patterns` length | **documentary count**; the *phrases* are contractual (see §4) |
 | `80` | `coverage fail_under` | in `pyproject.toml`, not `ci.yml` |

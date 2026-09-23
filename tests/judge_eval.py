@@ -322,8 +322,12 @@ def build_eval_index(eval_root: Path = EVAL_ROOT) -> tuple[Path, str, tuple[dict
         "corpus": manifest,
         "embedding": embedding_fingerprint(embedding_cfg),
         "indexing": {
-            key: _mapping(cfg["indexing"], label="indexing")[key]
-            for key in ("collection_name", "chunk_size", "chunk_overlap", "vector_backend")
+            **{
+                key: _mapping(cfg["indexing"], label="indexing")[key]
+                for key in ("collection_name", "chunk_size", "chunk_overlap", "vector_backend")
+            },
+            # chunk_size/chunk_overlap mean words or embedder tokens by this key.
+            "chunk_unit": _mapping(cfg["indexing"], label="indexing").get("chunk_unit", "words"),
         },
         "retrieval": {
             key: _mapping(cfg["retrieval"], label="retrieval")[key]

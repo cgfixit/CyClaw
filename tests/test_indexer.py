@@ -580,3 +580,135 @@ class TestMainConfigArg:
         monkeypatch.setattr(indexer, "build_index", lambda cp="config.yaml": seen.setdefault("cp", cp))
         indexer.main(["--config", "/alt/cfg.yaml"])
         assert seen["cp"] == "/alt/cfg.yaml"
+
+
+def _one_per_word(texts):
+    """Token counter where every whitespace word is exactly one token."""
+    return [len(t.split()) for t in texts]
+
+
+class TestChunkDocumentByTokens:
+    """indexing.chunk_unit: tokens -- windows sized in the embedder's own tokens."""
+
+    def test_windows_fit_and_overlap_by_tokens(self):
+        text = " ".join(f"w{i}" for i in range(10))
+        chunks = indexer.chunk_document_by_tokens(text, _one_per_word, max_tokens=4, overlap=1)
+        assert chunks == ["w0 w1 w2 w3", "w3 w4 w5 w6", "w6 w7 w8 w9"]
+
+    def test_every_word_is_covered_in_order(self):
+        words = [f"w{i}" for i in range(97)]
+        chunks = indexer.chunk_document_by_tokens(" ".join(words), _one_per_word, max_tokens=8, overlap=3)
+        assert all(len(c.split()) <= 8 for c in chunks)
+        seen = [w for c in chunks for w in c.split()]
+        assert sorted(set(seen), key=words.index) == words
+
+    def test_word_costs_come_from_the_counter(self):
+        # "long" costs 3 tokens, everything else 1: a 5-token window holds
+        # "a long b" (5) but not "a long b c" (6).
+        def count(texts):
+            return [sum(3 if w == "long" else 1 for w in t.split()) for t in texts]
+
+        chunks = indexer.chunk_document_by_tokens("a long b c d", count, max_tokens=5, overlap=0)
+        assert chunks == ["a long b", "c d"]
+
+    def test_joined_text_is_remeasured(self):
+        # A tokenizer that is not whitespace-separable can count a joined
+        # window higher than the sum of its words; the window must shrink.
+        def count(texts):
+            return [len(t.split()) + t.count(" ") for t in texts]
+
+        text = " ".join(f"w{i}" for i in range(6))
+        chunks = indexer.chunk_document_by_tokens(text, count, max_tokens=4, overlap=0)
+        assert all(count([c])[0] <= 4 for c in chunks)
+        assert " ".join(chunks).split() == text.split()
+
+    def test_oversize_word_is_its_own_window_and_progress_continues(self):
+        def count(texts):
+            return [sum(10 if w == "blob" else 1 for w in t.split()) for t in texts]
+
+        chunks = indexer.chunk_document_by_tokens("a blob b", count, max_tokens=4, overlap=2)
+        assert chunks == ["a", "blob", "b"]
+
+    def test_large_overlap_still_advances(self):
+        text = " ".join(f"w{i}" for i in range(6))
+        chunks = indexer.chunk_document_by_tokens(text, _one_per_word, max_tokens=3, overlap=2)
+        assert chunks == ["w0 w1 w2", "w1 w2 w3", "w2 w3 w4", "w3 w4 w5"]
+
+    def test_empty_text_returns_no_chunks(self):
+        assert indexer.chunk_document_by_tokens("  \n ", _one_per_word, max_tokens=4, overlap=1) == []
+
+    @pytest.mark.parametrize(
+        ("max_tokens", "overlap", "match"),
+        [(0, 0, "max_tokens must be >= 1"), (4, -1, "overlap must be >= 0"), (4, 4, "overlap .* must be < max_tokens")],
+    )
+    def test_rejects_bad_sizes(self, max_tokens, overlap, match):
+        with pytest.raises(ValueError, match=match):
+            indexer.chunk_document_by_tokens("a b c", _one_per_word, max_tokens=max_tokens, overlap=overlap)
+
+
+class TestMakeChunker:
+    """make_chunker reads indexing.chunk_unit and sizes token windows to the model."""
+
+    @staticmethod
+    def _cfg(**indexing):
+        return {"indexing": {"chunk_size": 6, "chunk_overlap": 1, **indexing}}
+
+    def test_words_is_the_default(self):
+        chunk = indexer.make_chunker(self._cfg(), "config.yaml")
+        text = " ".join(f"w{i}" for i in range(10))
+        assert chunk(text) == chunk_document(text, 6, 1)
+
+    def test_rejects_an_unknown_unit(self):
+        with pytest.raises(ValueError, match="chunk_unit must be 'words' or 'tokens'"):
+            indexer.make_chunker(self._cfg(chunk_unit="sentences"), "config.yaml")
+
+    def test_tokens_subtract_the_special_tokens(self, monkeypatch):
+        monkeypatch.setattr(indexer, "get_token_counter", lambda _cp: (_one_per_word, 256, 2))
+        chunk = indexer.make_chunker(self._cfg(chunk_unit="tokens"), "config.yaml")
+        # chunk_size 6 includes the model's 2 special tokens: 4 words per window.
+        assert chunk(" ".join(f"w{i}" for i in range(7))) == ["w0 w1 w2 w3", "w3 w4 w5 w6"]
+
+    def test_tokens_are_capped_at_the_model_window(self, monkeypatch, caplog):
+        monkeypatch.setattr(indexer, "get_token_counter", lambda _cp: (_one_per_word, 5, 2))
+        with caplog.at_level("WARNING", logger="retrieval.indexer"):
+            chunk = indexer.make_chunker(self._cfg(chunk_unit="tokens", chunk_size=512), "config.yaml")
+        assert any("exceeds the embedding model's max_seq_length" in r.getMessage() for r in caplog.records)
+        assert chunk("a b c d e") == ["a b c", "c d e"]
+
+    def test_overlap_must_fit_the_capped_window(self, monkeypatch):
+        monkeypatch.setattr(indexer, "get_token_counter", lambda _cp: (_one_per_word, 5, 2))
+        with pytest.raises(ValueError, match=r"chunk_overlap \(3\) must be < the 3 content tokens"):
+            indexer.make_chunker(self._cfg(chunk_unit="tokens", chunk_size=512, chunk_overlap=3), "config.yaml")
+
+    def test_build_index_chunks_by_tokens(self, tmp_path, monkeypatch):
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        (corpus / "a.md").write_text(" ".join(f"w{i}" for i in range(10)), encoding="utf-8")
+        (corpus / "b.md").write_text("x0 x1 x2", encoding="utf-8")
+        cfg = {
+            "corpus": {"path": str(corpus), "extensions": [".md"]},
+            "indexing": {
+                "chroma_path": str(tmp_path / "chroma"),
+                "bm25_path": str(tmp_path / "bm25.json"),
+                "collection_name": "test_kb",
+                "chunk_unit": "tokens",
+                "chunk_size": 6,
+                "chunk_overlap": 1,
+                "batch_size": 10,
+            },
+        }
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+        seen: list[str] = []
+        monkeypatch.setattr(indexer, "get_token_counter", lambda cp: seen.append(cp) or (_one_per_word, 256, 2))
+        with (
+            patch("retrieval.indexer.get_embeddings_batch", side_effect=lambda texts, _cp: [[0.1]] * len(texts)),
+            patch("retrieval.indexer.get_vector_writer", return_value=MagicMock()),
+        ):
+            build_index(str(config_path))
+
+        chunks = json.loads((tmp_path / "bm25.json").read_text(encoding="utf-8"))["chunks"]
+        # Every document goes through the same chunker (two, so the per-chunk
+        # loop cannot shadow it), and the model's tokenizer is loaded once.
+        assert sorted(chunks) == ["w0 w1 w2 w3", "w3 w4 w5 w6", "w6 w7 w8 w9", "x0 x1 x2"]
+        assert seen == [str(config_path)]
