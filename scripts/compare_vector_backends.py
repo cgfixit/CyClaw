@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         # Force chroma explicitly -- if the operator's real config.yaml sets
         # indexing.vector_backend: pgvector, leaving that key inherited from
         # cfg would make get_vector_writer() below return _PgVectorWriter,
-        # whose reset() truncates the REAL configured kb_chunks table. This
+        # whose build replaces the REAL configured kb_chunks table. This
         # "Chroma leg" must never touch anything but the throwaway tempdir.
         chroma_cfg["indexing"] = {
             **cfg["indexing"],
