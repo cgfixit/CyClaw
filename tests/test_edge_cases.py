@@ -229,6 +229,17 @@ class TestScoreRouterBoundary:
         )
         assert result["needs_user_confirm"] is True
 
+    def test_strong_cosine_outside_the_context_window_does_not_count(self):
+        # top_k_* above the window: RRF agreement fills the first
+        # LOCAL_CONTEXT_CHUNKS with weak chunks, and the strong one lands past
+        # them, where the answer node never shows it to the model.
+        from graph import LOCAL_CONTEXT_CHUNKS, route_by_score_node
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30}}
+        docs = [{"score": 0.032, "semantic_score": 0.2, "mode": "hybrid"}] * LOCAL_CONTEXT_CHUNKS
+        docs.append({"score": 1 / 60, "semantic_score": 0.9, "mode": "hybrid"})
+        result = route_by_score_node({"query": "test", "top_score": 0.032, "retrieved_docs": docs}, cfg=cfg)
+        assert result["needs_user_confirm"] is True
+
     @pytest.mark.parametrize("scores", [[float("nan")], [float("nan"), 0.2], [float("inf")]])
     def test_non_finite_cosine_is_not_evidence(self, scores):
         from graph import route_by_score_node

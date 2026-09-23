@@ -136,6 +136,11 @@ _OFFLINE_FRAMING_CHARS = 325
 # this floor can make the assembled input exceed the configured estimate.
 _MIN_CONTEXT_CHARS = 800
 
+# Chunks the local_llm and offline_best_effort prompts show the model.
+# route_by_score_node gates on this same window, so a vault hit always rests
+# on a chunk the model actually sees, whatever top_k_* retrieval returns.
+LOCAL_CONTEXT_CHUNKS = 5
+
 
 def _context_char_budget(cfg: dict, *, soul_preamble: str, query: str, framing_chars: int) -> int:
     """Estimate context space after reserving query, soul, and framing characters.
@@ -327,12 +332,14 @@ def route_by_score_node(state: GraphState, cfg: dict) -> dict:
     # tops out at 1/60, below min_score, so the old rule only ever passed with
     # a two-leg chunk at docs[0] whose cosine cleared the floor, and that
     # cosine is a lower bound on the max. It only removes needless trips to
-    # the user gate.
+    # the user gate. Only the LOCAL_CONTEXT_CHUNKS the answer node will show
+    # the model count: with top_k_* above that window, a strong chunk ranked
+    # past it must not vouch for context the model never sees.
     retrieval = cfg.get("retrieval", {})
     sem_floor = retrieval.get("min_semantic_score")
     if isinstance(sem_floor, (int, float)) and not isinstance(sem_floor, bool):
         best = None
-        for doc in state.get("retrieved_docs") or []:
+        for doc in (state.get("retrieved_docs") or [])[:LOCAL_CONTEXT_CHUNKS]:
             sem = doc.get("semantic_score")
             # A non-finite score (NaN from a degenerate vector) is not evidence;
             # skipping it keeps a NaN from passing as "not below the floor".
@@ -450,7 +457,7 @@ def local_llm_node(
     context_budget_chars = _context_char_budget(
         cfg, soul_preamble=soul_preamble, query=query, framing_chars=_LOCAL_FRAMING_CHARS
     )
-    context_chunks, included_docs = _format_context_chunks(docs, limit=5, total_char_budget=context_budget_chars)
+    context_chunks, included_docs = _format_context_chunks(docs, limit=LOCAL_CONTEXT_CHUNKS, total_char_budget=context_budget_chars)
 
     prompt = f"""{soul_preamble}USER QUERY: {query}
 
@@ -744,13 +751,13 @@ def offline_best_effort_node(
         tag = f"ctx-{secrets.token_hex(4)}"
 
         # Richer-but-bounded context (same query/soul-aware budget as local_llm,
-        # limit=5) so the offline/Qwen path gives fuller answers without risking
+        # LOCAL_CONTEXT_CHUNKS) so the offline/Qwen path gives fuller answers without risking
         # the "0% processing" stall.
         context_budget_chars = _context_char_budget(
             cfg, soul_preamble=soul_preamble, query=query,
             framing_chars=_OFFLINE_FRAMING_CHARS + len(identity),
         )
-        context, included_docs = _format_context_chunks(docs, limit=5, total_char_budget=context_budget_chars)
+        context, included_docs = _format_context_chunks(docs, limit=LOCAL_CONTEXT_CHUNKS, total_char_budget=context_budget_chars)
         prompt = f"""{soul_preamble}{identity}USER QUERY: {query}
 
 PARTIAL CONTEXT {UNTRUSTED_NOTE}:

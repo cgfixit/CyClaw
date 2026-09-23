@@ -45,7 +45,7 @@ import yaml  # noqa: E402
 from retrieval.indexer import build_index  # noqa: E402
 from retrieval.hybrid_search import HybridRetriever  # noqa: E402
 from retrieval.results import SearchResult  # noqa: E402
-from graph import route_by_score_node  # noqa: E402
+from graph import LOCAL_CONTEXT_CHUNKS, route_by_score_node  # noqa: E402
 from tests import judge_eval  # noqa: E402
 from utils.sanitizer import sanitize_chunk  # noqa: E402
 
@@ -59,9 +59,9 @@ MIN_HIT_AT_K = 1.0
 MIN_RECALL_AT_K = 1.0
 MIN_MRR = 0.5
 
-# The local model sees the first five fused chunks (graph.py local_llm_node,
-# _format_context_chunks limit=5), so "cited" below means "in that window".
-CONTEXT_CHUNKS = 5
+# The local model sees the first LOCAL_CONTEXT_CHUNKS fused chunks (graph.py),
+# so "cited" below means "in that window".
+CONTEXT_CHUNKS = LOCAL_CONTEXT_CHUNKS
 
 MCLUHAN = "Marshall McLuhan"
 AI_INSIGHTS = "AI-insights"
