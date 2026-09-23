@@ -99,7 +99,7 @@ models:
     # Pinned to the snapshot PR #1463's CI measured: any threshold in
     # retrieval.min_rerank_score only means something for these exact
     # weights. A new revision needs re-measuring. null follows the Hub's main.
-    revision: "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+    revision: "233902d25c440f23af6f7d6e94d2946bac0bee0a"  # DevSkim: ignore DS173237 - public Hugging Face commit hash, not a secret
   grok:
     # gate.py constructs this client only in hybrid mode with enabled: true;
     # graph.py also requires per-request consent and a selected, available client.
