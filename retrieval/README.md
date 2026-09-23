@@ -11,7 +11,7 @@ precedes it.
 |---|---|
 | `results.py` | `SearchResult` dataclass. Imported by the retriever and by optional memory fusion so the memory package does not pull in Chroma/BM25. Re-exported from `hybrid_search.py`. |
 | `hybrid_search.py` | `HybridRetriever`: ChromaDB semantic leg + BM25Okapi keyword leg → RRF fusion (`retrieval.rrf_k`, shipped 60). Degrades gracefully if one leg fails. |
-| `indexer.py` | Corpus ingestion from `data/corpus/` (walked recursively; file types from `corpus.extensions`, shipped `[".md", ".txt"]`, matched case-insensitively): chunking (`indexing.chunk_size`/`chunk_overlap`), chunk sanitization via the prompt filter, writes both indices. Run `python -m retrieval.indexer` (or `cyclaw-index`) explicitly — the server never builds the index on startup or on a query — the only in-process build is the operator-triggered `POST /index/build` route (loopback peer + same-origin, background thread, progress via `GET /index/status`); a missing index is fail-soft (503 `INDEX_NOT_FOUND`). |
+| `indexer.py` | Corpus ingestion from `data/corpus/` (walked recursively; file types from `corpus.extensions`, shipped `[".md", ".txt"]`, matched case-insensitively): chunking (`indexing.chunk_size`/`chunk_overlap`, counted in the embedding model's own tokens when `indexing.chunk_unit` is `tokens`, as shipped, so no chunk runs past the model's window), chunk sanitization via the prompt filter, writes both indices. Run `python -m retrieval.indexer` (or `cyclaw-index`) explicitly — the server never builds the index on startup or on a query — the only in-process build is the operator-triggered `POST /index/build` route (loopback peer + same-origin, background thread, progress via `GET /index/status`); a missing index is fail-soft (503 `INDEX_NOT_FOUND`). |
 | `embeddings.py` | Local sentence-transformers embeddings, device hardcoded to CPU (`EMBED_DEVICE` — cross-platform ranking determinism; see the constant's own comment). Triple `lru_cache`; `embedding_fingerprint()` detects index staleness. HF offline flags are set conditionally, never blanket (see `utils/telemetry_kill.py`'s exclusion note). |
 | `vector_store.py` | Pluggable semantic backend: embedded ChromaDB `PersistentClient` (default, offline-first) or pgvector (`indexing.vector_backend: "pgvector"` + Postgres DSN). The sole ChromaDB chokepoint — it applies the telemetry kill itself. Every `PersistentClient(...)` call here must pass `Settings(anonymized_telemetry=False)`; `gate.py` calls `utils.telemetry_kill.verify_telemetry_contract()` at boot, which AST-parses this file and fails closed if any site is missing it. RRF and BM25 are backend-agnostic. |
 | `stemmer.py` | Porter-based stemmer with custom AI/DevOps/CyClaw vocabulary; avoids NLTK punkt (CVE surface). Pins `nltk==3.10.3` (closes a `PorterStemmer` DoS cluster) and caps every token at 256 chars before stemming as defense in depth (CVE-2026-81722). |
@@ -25,7 +25,12 @@ precedes it.
   It only gates when no hit carries a cosine (the keyword-only degrade).
   Hybrid queries are decided by `retrieval.min_semantic_score` (shipped
   **0.30**, cosine on the **best** semantic hit, wherever RRF ranked it).
-- `indexing.chunk_overlap` must stay `< chunk_size`.
+- `indexing.chunk_overlap` must stay `< chunk_size`. With `chunk_unit:
+  tokens` (shipped: 256/32) both count the embedder's word pieces, and
+  `chunk_size` includes its 2 special tokens, so 256 is exactly
+  all-MiniLM-L6-v2's window; a larger value is capped to it. Without the key,
+  both count whitespace words, and a 512-word chunk runs ~720-1,840 word
+  pieces, of which the model embeds only the first 254.
 - The BM25 store is **JSON** (`index/bm25.json`), never pickle — pickle is an
   RCE vector and `test_security` guards the format.
 - All values live in `config.yaml`, with one deliberate exception: the

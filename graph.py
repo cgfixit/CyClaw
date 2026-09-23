@@ -139,7 +139,11 @@ _MIN_CONTEXT_CHARS = 800
 # Chunks the local_llm and offline_best_effort prompts show the model.
 # route_by_score_node gates on this same window, so a vault hit always rests
 # on a chunk the model actually sees, whatever top_k_* retrieval returns.
-LOCAL_CONTEXT_CHUNKS = 5
+# 10 since chunks became 256 embedder tokens (~150 words, config.yaml
+# indexing.chunk_unit): the model sees ~1,500 words, where 5 old 512-word
+# chunks gave it up to ~2,500. Measured on the smoke's probe matrix, widening
+# the gate window from 5 to 8 or 12 chunks changed no vault-hit decision.
+LOCAL_CONTEXT_CHUNKS = 10
 
 
 def _context_char_budget(cfg: dict, *, soul_preamble: str, query: str, framing_chars: int) -> int:

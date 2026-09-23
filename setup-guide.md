@@ -935,8 +935,8 @@ models:
 
 retrieval:
   min_score: 0.028     # RRF fused-rank threshold (NOT cosine similarity — a different scale)
-  top_k_semantic: 5
-  top_k_keyword: 5
+  top_k_semantic: 10
+  top_k_keyword: 10
   rrf_k: 60
 
 personality:
