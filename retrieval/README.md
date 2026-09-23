@@ -13,6 +13,7 @@ precedes it.
 | `hybrid_search.py` | `HybridRetriever`: ChromaDB semantic leg + BM25Okapi keyword leg → RRF fusion (`retrieval.rrf_k`, shipped 60). Degrades gracefully if one leg fails. |
 | `indexer.py` | Corpus ingestion from `data/corpus/` (walked recursively; file types from `corpus.extensions`, shipped `[".md", ".txt"]`, matched case-insensitively): chunking (`indexing.chunk_size`/`chunk_overlap`, counted in the embedding model's own tokens when `indexing.chunk_unit` is `tokens`, as shipped, so no chunk runs past the model's window), chunk sanitization via the prompt filter, writes both indices. Run `python -m retrieval.indexer` (or `cyclaw-index`) explicitly — the server never builds the index on startup or on a query — the only in-process build is the operator-triggered `POST /index/build` route (loopback peer + same-origin, background thread, progress via `GET /index/status`); a missing index is fail-soft (503 `INDEX_NOT_FOUND`). |
 | `embeddings.py` | Local sentence-transformers embeddings, device hardcoded to CPU (`EMBED_DEVICE` — cross-platform ranking determinism; see the constant's own comment). Triple `lru_cache`; `embedding_fingerprint()` detects index staleness. HF offline flags are set conditionally, never blanket (see `utils/telemetry_kill.py`'s exclusion note). |
+| `rerank.py` | Local cross-encoder (`models.reranker`, shipped `cross-encoder/ms-marco-MiniLM-L6-v2`, CPU) behind the vault-hit gate's veto. `graph.retrieve_node` scores the chunks the model will see via `HybridRetriever.rerank_scores`; `hybrid_search` never calls it, so MCP never pays for it. Loads like the embedder (shared `cache_dir`, offline once cached, `offline_after_index` honoured) and is fail-soft: off or unavailable, the cosine rule decides alone. |
 | `vector_store.py` | Pluggable semantic backend: embedded ChromaDB `PersistentClient` (default, offline-first) or pgvector (`indexing.vector_backend: "pgvector"` + Postgres DSN). The sole ChromaDB chokepoint — it applies the telemetry kill itself. Every `PersistentClient(...)` call here must pass `Settings(anonymized_telemetry=False)`; `gate.py` calls `utils.telemetry_kill.verify_telemetry_contract()` at boot, which AST-parses this file and fails closed if any site is missing it. RRF and BM25 are backend-agnostic. |
 | `stemmer.py` | Porter-based stemmer with custom AI/DevOps/CyClaw vocabulary; avoids NLTK punkt (CVE surface). Pins `nltk==3.10.3` (closes a `PorterStemmer` DoS cluster) and caps every token at 256 chars before stemming as defense in depth (CVE-2026-81722). |
 | `clear_cache.py` | Dry-run-by-default embedding-cache cleaner (`--apply` to delete). The cache is a regenerable artifact; index/audit/soul are untouched. |
@@ -25,6 +26,10 @@ precedes it.
   It only gates when no hit carries a cosine (the keyword-only degrade).
   Hybrid queries are decided by `retrieval.min_semantic_score` (shipped
   **0.30**, cosine on the **best** semantic hit, wherever RRF ranked it).
+- `retrieval.min_rerank_score` (shipped **0.0**) is a cross-encoder
+  **logit**, not a cosine or a probability (0.0 is sigmoid 0.5). It is a veto
+  on a cosine vault hit: the best logit among the context-window chunks must
+  reach it, and it can never turn a miss into a hit.
 - `indexing.chunk_overlap` must stay `< chunk_size`. With `chunk_unit:
   tokens` (shipped: 256/32) both count the embedder's word pieces, and
   `chunk_size` includes its 2 special tokens, so 256 is exactly

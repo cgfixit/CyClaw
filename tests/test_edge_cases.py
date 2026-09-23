@@ -249,6 +249,69 @@ class TestScoreRouterBoundary:
         assert result["needs_user_confirm"] is True
 
 
+class TestRerankVeto:
+    """The cross-encoder can veto a cosine vault hit, never grant one (Phase 3 of #1456)."""
+
+    CFG = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30, "min_rerank_score": 0.0}}
+
+    @staticmethod
+    def _route(docs, cfg=None):
+        from graph import route_by_score_node
+        return route_by_score_node(
+            {"query": "test", "top_score": 1 / 60, "retrieved_docs": docs}, cfg=cfg or TestRerankVeto.CFG
+        )
+
+    def test_low_logit_vetoes_a_cosine_hit(self):
+        result = self._route([{"score": 1 / 60, "semantic_score": 0.46, "rerank_score": -6.2}])
+        assert result == {"needs_user_confirm": True, "rerank_vetoed": True}
+
+    def test_logit_at_the_floor_keeps_the_hit(self):
+        result = self._route([{"score": 1 / 60, "semantic_score": 0.46, "rerank_score": 0.0}])
+        assert result == {"needs_user_confirm": False}
+
+    def test_best_logit_in_the_window_decides(self):
+        # One relevant chunk is enough: the model sees all of them.
+        docs = [
+            {"score": 0.032, "semantic_score": 0.41, "rerank_score": -8.0},
+            {"score": 1 / 60, "semantic_score": 0.33, "rerank_score": 3.5},
+        ]
+        assert self._route(docs)["needs_user_confirm"] is False
+
+    def test_high_logit_never_rescues_a_cosine_miss(self):
+        result = self._route([{"score": 1 / 60, "semantic_score": 0.21, "rerank_score": 9.0}])
+        assert result == {"needs_user_confirm": True}
+
+    def test_no_logits_leaves_the_cosine_rule_alone(self):
+        # Reranker off or degraded: retrieve_node attached no rerank_score.
+        result = self._route([{"score": 1 / 60, "semantic_score": 0.46}])
+        assert result == {"needs_user_confirm": False}
+
+    def test_absent_floor_disables_the_veto(self):
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30}}
+        result = self._route([{"score": 1 / 60, "semantic_score": 0.46, "rerank_score": -9.0}], cfg=cfg)
+        assert result == {"needs_user_confirm": False}
+
+    @pytest.mark.parametrize("logit", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_logit_is_not_evidence(self, logit):
+        result = self._route([{"score": 1 / 60, "semantic_score": 0.46, "rerank_score": logit}])
+        assert result == {"needs_user_confirm": False}
+
+    def test_logit_outside_the_context_window_does_not_count(self):
+        from graph import LOCAL_CONTEXT_CHUNKS
+        docs = [{"score": 0.032, "semantic_score": 0.4, "rerank_score": -5.0}] * LOCAL_CONTEXT_CHUNKS
+        docs.append({"score": 1 / 60, "semantic_score": 0.4, "rerank_score": 7.0})
+        assert self._route(docs)["rerank_vetoed"] is True
+
+    def test_keyword_only_degrade_is_untouched_by_the_veto(self):
+        from graph import route_by_score_node
+        state = {
+            "query": "test",
+            "top_score": 0.0333,
+            "retrieved_docs": [{"score": 0.0333, "semantic_score": None, "rerank_score": -9.0}],
+        }
+        assert route_by_score_node(state, cfg=self.CFG) == {"needs_user_confirm": False}
+
+
 class TestUserGateRouter:
     """user_gate_router routing logic edge cases."""
 

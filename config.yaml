@@ -82,6 +82,23 @@ models:
     # flag. Does NOT set HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE in
     # utils/telemetry_kill.py -- that remains intentionally excluded there.
     offline_after_index: false
+  # Local cross-encoder behind the vault-hit gate's veto (retrieval/rerank.py,
+  # Phase 3 of #1456; the threshold is retrieval.min_rerank_score). It reads
+  # the question and each chunk the model will see together and scores
+  # relevance, which the embedder's cosine cannot: look-alikes the corpus
+  # cannot answer clear min_semantic_score as easily as real paraphrases.
+  # ~22.7M parameters on CPU, Apache-2.0. First use downloads ~91MB from
+  # Hugging Face into models.embeddings.cache_dir, the same one-time egress
+  # as the embedder; with models.embeddings.offline_after_index true and an
+  # index already built, a model that was never fetched is not fetched and
+  # the gate runs on cosine alone. Off, or unavailable, the gate is the
+  # cosine rule alone, and the audit record says which.
+  reranker:
+    enabled: true
+    model: "cross-encoder/ms-marco-MiniLM-L6-v2"
+    # null follows the Hub's main branch; a commit sha pins the exact weights
+    # retrieval.min_rerank_score was measured against.
+    revision: null
   grok:
     # gate.py constructs this client only in hybrid mode with enabled: true;
     # graph.py also requires per-request consent and a selected, available client.
@@ -200,6 +217,13 @@ retrieval:
   # on data/corpus and ~0.25 with docs/ indexed too; the answerable probes
   # tests/ci_rag_smoke.py asserts clear it by >= ~0.03.
   min_semantic_score: 0.30
+  # min_rerank_score: the cross-encoder veto (models.reranker). A cosine vault
+  # hit whose best cross-encoder logit over the LOCAL_CONTEXT_CHUNKS window
+  # falls below this becomes a miss; a miss is never turned into a hit. The
+  # scale is raw logits: 0.0 is sigmoid 0.5, the point where the model rates
+  # relevance more likely than not. Chosen from that, before any probe was
+  # scored, so it is not fitted to tests/ci_rag_smoke.py's look-alikes.
+  min_rerank_score: 0.0
 
 personality:
   enabled: true

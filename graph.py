@@ -64,6 +64,10 @@ class RetrievedDoc(TypedDict, total=False):
     rrf_score: float | None
     rrf_semantic_contrib: float | None
     rrf_keyword_contrib: float | None
+    # Cross-encoder logit (retrieval/rerank.py). Only chunks inside the
+    # LOCAL_CONTEXT_CHUNKS window carry one, and none do when the reranker is
+    # off or degraded.
+    rerank_score: float | None
 
 class GraphState(TypedDict, total=False):
     # Inputs
@@ -81,6 +85,11 @@ class GraphState(TypedDict, total=False):
     needs_user_confirm: bool
     user_confirmed_online: bool | None
     online_provider: str | None
+    # Set by route_by_score_node when the cross-encoder turned a cosine vault
+    # hit into a miss, and by retrieve_node when the reranker was enabled but
+    # unavailable (the gate then ran on cosine alone). Audit-only.
+    rerank_vetoed: bool
+    rerank_degraded: bool
 
     # Model outputs
     answer: str
@@ -315,11 +324,38 @@ def retrieve_node(state: GraphState, retriever: HybridRetriever, cfg: dict) -> d
         for r in results
     ]
 
-    return {
+    out: dict[str, Any] = {
         "retrieved_docs": docs,
         "top_score": docs[0]["score"] if docs else 0.0,
         "retrieval_mode": docs[0]["mode"] if docs else "none"
     }
+    # Score the chunks the model will see with the cross-encoder, for
+    # route_by_score_node's veto. A failure is not a retrieval error: the
+    # query still runs on the cosine gate, so no "error" key is set here.
+    window = docs[:LOCAL_CONTEXT_CHUNKS]
+    try:
+        rerank = retriever.rerank_scores(query, [d["text"] for d in window]) if window else None
+    except RAGError as e:
+        logger.warning("reranker degraded, vault-hit gate uses cosine only: %s", e.message)
+        out["rerank_degraded"] = True
+        rerank = None
+    if rerank is not None:
+        for doc, logit in zip(window, rerank, strict=True):
+            doc["rerank_score"] = logit
+    return out
+
+def _best_finite(docs: list[RetrievedDoc], key: str) -> float | None:
+    """Highest finite numeric ``docs[i][key]``, or None when no doc carries one.
+
+    A non-finite score (NaN from a degenerate vector) is not evidence;
+    skipping it keeps a NaN from passing as "not below the floor".
+    """
+    best = None
+    for doc in docs:
+        value = doc.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+            best = value if best is None else max(best, value)
+    return best
 
 def route_by_score_node(state: GraphState, cfg: dict) -> dict:
     """Node 2: Decide whether retrieval found usable context. Sets routing flag."""
@@ -342,15 +378,28 @@ def route_by_score_node(state: GraphState, cfg: dict) -> dict:
     retrieval = cfg.get("retrieval", {})
     sem_floor = retrieval.get("min_semantic_score")
     if isinstance(sem_floor, (int, float)) and not isinstance(sem_floor, bool):
-        best = None
-        for doc in (state.get("retrieved_docs") or [])[:LOCAL_CONTEXT_CHUNKS]:
-            sem = doc.get("semantic_score")
-            # A non-finite score (NaN from a degenerate vector) is not evidence;
-            # skipping it keeps a NaN from passing as "not below the floor".
-            if isinstance(sem, (int, float)) and not isinstance(sem, bool) and math.isfinite(sem):
-                best = sem if best is None else max(best, sem)
+        window = (state.get("retrieved_docs") or [])[:LOCAL_CONTEXT_CHUNKS]
+        best = _best_finite(window, "semantic_score")
         if best is not None:
-            return {"needs_user_confirm": best < sem_floor}
+            if best < sem_floor:
+                return {"needs_user_confirm": True}
+            # Veto only (Phase 3 of #1456): the cross-encoder can turn this
+            # cosine hit into a miss, never a miss into a hit, so it cannot
+            # add a false vault hit. Cosine measures topic, and look-alikes
+            # ("the plot of the horror film The Medium" vs the McLuhan chunk,
+            # 0.46) clear the floor as easily as real paraphrases. No logit in
+            # the window (reranker off or degraded) leaves the cosine rule
+            # deciding alone.
+            rerank_floor = retrieval.get("min_rerank_score")
+            best_rerank = _best_finite(window, "rerank_score")
+            if (
+                best_rerank is not None
+                and isinstance(rerank_floor, (int, float))
+                and not isinstance(rerank_floor, bool)
+                and best_rerank < rerank_floor
+            ):
+                return {"needs_user_confirm": True, "rerank_vetoed": True}
+            return {"needs_user_confirm": False}
 
     # No semantic evidence: the keyword-only degrade (hits rebased to
     # 1/(rrf_k + rank), which stays below 0.028 by design) or a config with no
@@ -879,6 +928,13 @@ def audit_logger_node(state: GraphState, cfg: dict,
         "guardrail_rails": state.get("guardrail_rails", []),
         "guardrail_degraded": state.get("guardrail_degraded", False),
         "pre_action_hook_denied": state.get("pre_action_hook_denied", False),
+        # The reranker veto's inputs and outcome. A vetoed query pauses at the
+        # user gate with no answer_sources, so the best logit is read from the
+        # retrieved window: whenever the cosine rule passes, it is the number
+        # the veto compares against retrieval.min_rerank_score.
+        "rerank_vetoed": state.get("rerank_vetoed", False),
+        "rerank_degraded": state.get("rerank_degraded", False),
+        "rerank_best": _best_finite((state.get("retrieved_docs") or [])[:LOCAL_CONTEXT_CHUNKS], "rerank_score"),
         # now corpus files and hits are visible in audit but not query
         "sources": [
             {
@@ -888,6 +944,7 @@ def audit_logger_node(state: GraphState, cfg: dict,
                 "semantic_score": s.get("semantic_score"),
                 "keyword_score": s.get("keyword_score"),
                 "rrf_score": s.get("rrf_score"),
+                "rerank_score": s.get("rerank_score"),
             }
             for s in sources[:5]
         ],

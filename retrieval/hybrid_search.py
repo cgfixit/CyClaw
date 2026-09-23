@@ -9,7 +9,7 @@ import heapq
 import json
 import logging
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from functools import lru_cache
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from utils.logger import audit_log
 
 from .embeddings import embedding_fingerprint, get_embedding
 from .indexer import _anchor_index_paths, _resolve_config_path
+from .rerank import rerank_scores
 from .results import SearchResult
 from .stemmer import tokenize_and_stem
 from .vector_store import get_vector_reader, parse_stem_tags
@@ -460,3 +461,12 @@ class HybridRetriever:
         # dropping chunks the caller explicitly requested before they ever saw
         # them. Slicing is the caller's responsibility, not the fuser's.
         return self._maybe_fuse_memory(query, merged)
+
+    def rerank_scores(self, query: str, texts: Sequence[str]) -> list[float] | None:
+        """Cross-encoder logits for (query, text) pairs; None when models.reranker is off.
+
+        Raises RerankerError when the reranker is on but unavailable. Kept out
+        of hybrid_search on purpose: only the vault-hit gate needs these scores,
+        so MCP hybrid_search and every other retrieval caller never pay for them.
+        """
+        return rerank_scores(query, texts, self.cfg, self.config_path)

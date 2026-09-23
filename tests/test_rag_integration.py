@@ -63,9 +63,74 @@ def _write_isolated_config(tmp_path: Path) -> tuple[Path, dict]:
     return config_path, cfg
 
 
+class _FakeCrossEncoder:
+    """Returns one fixed logit per pair, standing in for the real cross-encoder."""
+
+    def __init__(self, logit: float) -> None:
+        self.logit = logit
+        self.pairs: list[tuple[str, str]] = []
+
+    def predict(self, pairs, **_kwargs):
+        self.pairs.extend(pairs)
+        return [self.logit for _ in pairs]
+
+
+def _run_graph_on_real_index(tmp_path, monkeypatch, cross_encoder: _FakeCrossEncoder) -> tuple[dict, dict]:
+    """Build the isolated index and invoke the real graph once; return (result, cfg)."""
+    config_path, cfg = _write_isolated_config(tmp_path)
+    reset_config_cache()
+    monkeypatch.setattr(
+        "retrieval.indexer.get_embeddings_batch",
+        lambda texts, config_path="config.yaml": [_fake_embedding(text) for text in texts],
+    )
+    monkeypatch.setattr(
+        "retrieval.indexer.get_token_counter",
+        lambda config_path="config.yaml": (lambda texts: [len(t.split()) for t in texts], 256, 2),
+    )
+    monkeypatch.setattr("retrieval.hybrid_search.get_embedding", _fake_embedding)
+    monkeypatch.setattr("utils.logger._get_config", lambda config_path="config.yaml": cfg)
+    # The shipped config enables the reranker; no unit test may download it.
+    monkeypatch.setattr("retrieval.rerank._load_cross_encoder", lambda *_args: cross_encoder)
+
+    build_index(str(config_path))
+    retriever = HybridRetriever(str(config_path))
+    try:
+        graph = build_graph(retriever=retriever, llm=MockLocalLLM(response="local answer"), grok=None, cfg=cfg)
+        result = graph.invoke({"query": "How does CyClaw blend semantic embeddings with BM25 keyword search?"})
+    finally:
+        retriever.close()
+        close_audit_handles()
+        reset_config_cache()
+    return result, cfg
+
+
+def test_reranker_veto_turns_a_cosine_hit_into_a_miss_end_to_end(tmp_path, monkeypatch) -> None:
+    """The fake index is a cosine hit; a cross-encoder logit below the floor vetoes it."""
+    cross_encoder = _FakeCrossEncoder(logit=-5.0)
+    result, cfg = _run_graph_on_real_index(tmp_path, monkeypatch, cross_encoder)
+
+    assert cfg["models"]["reranker"]["enabled"] is True
+    assert cross_encoder.pairs, "retrieve_node never asked the reranker"
+    assert result["rerank_vetoed"] is True
+    assert result["needs_user_confirm"] is True
+    assert result["answer_model"] != "local"
+    assert all(d["rerank_score"] == -5.0 for d in result["retrieved_docs"])
+
+
+def test_reranker_above_the_floor_keeps_the_vault_hit(tmp_path, monkeypatch) -> None:
+    result, _cfg = _run_graph_on_real_index(tmp_path, monkeypatch, _FakeCrossEncoder(logit=5.0))
+
+    assert result["answer_model"] == "local"
+    assert not result.get("rerank_vetoed")
+
+
 def test_real_retriever_result_flows_through_graph(tmp_path, monkeypatch) -> None:
     """Real index -> HybridRetriever -> LangGraph -> local answer + audit."""
     config_path, cfg = _write_isolated_config(tmp_path)
+    # The shipped config enables the reranker; this test is about the cosine
+    # path, so it runs with the reranker off (and so never loads the model).
+    cfg["models"]["reranker"] = {**cfg["models"]["reranker"], "enabled": False}
+    config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     reset_config_cache()
     monkeypatch.setattr(
         "retrieval.indexer.get_embeddings_batch",

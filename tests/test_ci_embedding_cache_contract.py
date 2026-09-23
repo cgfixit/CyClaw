@@ -21,11 +21,12 @@ import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-# The exact key all three jobs must share. Keyed on the model identity rather
+# The exact key all three jobs must share. Keyed on the model identities rather
 # than hashFiles('config.yaml') so an unrelated config edit does not miss the
-# key and save a duplicate ~90MB entry; bump the -v suffix in all three
-# workflows (and here) when models.embeddings.model changes.
-_EMB_CACHE_KEY = "emb-model-all-MiniLM-L6-v2-v1"
+# key and save a duplicate entry. .emb_cache holds both local models (the
+# embedder and models.reranker's cross-encoder, which shares its cache_dir), so
+# change the key in all three workflows (and here) when either model changes.
+_EMB_CACHE_KEY = "emb-model-all-MiniLM-L6-v2+ms-marco-MiniLM-L6-v2-v1"
 
 # job name -> workflow file. Every job here is known (by prior incident or by
 # code inspection) to run something that can trigger the embedding fetch.
