@@ -399,7 +399,7 @@ in the same Linux sandbox limitation this PR documents — real-macOS
    `python -m agentic.fsconnect.cli trash-empty-plist`, which writes the
    weekly `StartCalendarInterval` plist from real resolved paths (no
    `REPLACE_*` placeholders). Also introduces the shared
-   `utils/launchd_plist.py` helper (write/bootout/probe a plist atomically)
+   `utils/launchd_plist.py` helper (write a plist atomically, boot it out)
    that PRs #911 and #912 below both reuse.
 3. **A Keychain runtime wrapper** for `TELEGRAM_BOT_TOKEN` /
    `CYCLAW_API_KEY`, plus **`telegram-health` / `telegram-poll` on the same
