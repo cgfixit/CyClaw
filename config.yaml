@@ -190,8 +190,6 @@ retrieval:
   # on data/corpus and ~0.25 with docs/ indexed too; the answerable probes
   # tests/ci_rag_smoke.py asserts clear it by >= ~0.03.
   min_semantic_score: 0.30
-  hybrid:
-    enabled: true
 
 personality:
   enabled: true

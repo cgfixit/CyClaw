@@ -231,7 +231,9 @@ def main(argv: list[str] | None = None) -> int:
 
         from retrieval.vector_store import get_vector_reader
 
-        chroma_reader = get_vector_reader(chroma_cfg)
+        # Each build writes its own generation (see retrieval/vector_store.py);
+        # open the one this writer just built.
+        chroma_reader = get_vector_reader(chroma_cfg, writer.generation)
 
         chroma_results = {}
         chroma_query_times = []

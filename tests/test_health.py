@@ -576,10 +576,26 @@ class TestHealthCfgCache:
         running = yaml.safe_load(open(cfg_path, encoding="utf-8"))
         running["app"]["mode"] = "offline"
 
-        # Control: read from the file, Grok is probed.
+        # Control: read from the file, Grok is probed. No cache clear between
+        # the calls: a config supplied within the status TTL is still probed
+        # itself, not answered from the file's cached result (Codex P2 on #1451).
         assert "grok_api" in {s.name for s in health.check_all(cfg_path)}
-        health._status_cache.clear()
         assert {s.name for s in health.check_all(cfg_path, cfg=running)} == {"ollama", "embeddings_local"}
+
+    def test_same_supplied_config_reuses_the_status_cache(self, tmp_path, monkeypatch):
+        cfg_path = _write_cfg(tmp_path, mode="offline")
+        running = yaml.safe_load(open(cfg_path, encoding="utf-8"))
+        calls = 0
+
+        def fake_get(url, **kw):
+            nonlocal calls
+            calls += 1
+            return _OKResp()
+
+        monkeypatch.setattr(health, "_http_get", fake_get)
+        health.check_all(cfg_path, cfg=running)
+        health.check_all(cfg_path, cfg=dict(running))
+        assert calls == 1
 
 
 class TestSharedClientLifecycle:
