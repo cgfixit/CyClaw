@@ -235,6 +235,11 @@ def build_index(config_path: str = "config.yaml") -> None:
         writer.finalize()
     finally:
         writer.close()
+    # The generation this build wrote. bm25.json records it below, and that
+    # atomic replace is what makes the new vectors live: a HybridRetriever
+    # opens exactly the generation its bm25.json names, so a crash or a failed
+    # BM25 write leaves the previous vectors paired with the previous BM25.
+    generation = getattr(writer, "generation", None)
 
     logger.info("Building BM25 (keyword) index...")
     # tokenized_corpus was built alongside all_chunks above (single tokenization pass).
@@ -248,15 +253,15 @@ def build_index(config_path: str = "config.yaml") -> None:
     # on the next boot. os.replace is atomic on POSIX and on Windows for a
     # same-directory rename, mirroring utils/personality.py's soul write.
     bm25_tmp = bm25_target.with_suffix(bm25_target.suffix + ".tmp")
+    bm25_payload: dict[str, object] = {
+        "tokenized_corpus": tokenized_corpus,
+        "chunks": all_chunks,
+        "metadata": all_metadata,
+    }
+    if isinstance(generation, str):
+        bm25_payload["vector_collection"] = generation
     with open(bm25_tmp, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "tokenized_corpus": tokenized_corpus,
-                "chunks": all_chunks,
-                "metadata": all_metadata,
-            },
-            f,
-        )
+        json.dump(bm25_payload, f)
     os.replace(bm25_tmp, bm25_target)
 
     logger.info("Done. Semantic backend: %s, BM25: %s", backend, bm25_path)
