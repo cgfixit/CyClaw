@@ -11,12 +11,15 @@ is fast and deterministic: it verifies the cosine ORDER BY and the `1 - distance
 score mapping reproduce ChromaDB's ranking, plus metadata round-trip.
 """
 
+import json
 import math
 import os
+from pathlib import Path
 
 import pytest
 
 from retrieval.vector_store import get_vector_reader, get_vector_writer
+from utils.errors import IndexNotFoundError
 
 DSN = os.environ.get("CYCLAW_DB_URL")
 pytestmark = pytest.mark.skipif(
@@ -40,25 +43,56 @@ def _vec(*nonzero):
     return _unit(v)
 
 
-def _cfg():
-    return {
+def _cfg(bm25_path=None):
+    cfg = {
         "models": {"embeddings": {"dim": DIM}},
         "indexing": {"vector_backend": "pgvector", "database_url": DSN},
     }
+    if bm25_path is not None:
+        cfg["indexing"]["bm25_path"] = str(bm25_path)
+    return cfg
 
 
-@pytest.fixture
-def fresh_store():
-    """Drop kb_chunks (and its build staging table) before/after so each test starts clean."""
+def _drop_kb_tables():
+    """Drop the legacy, #1450 staging and per-build generation tables."""
     import psycopg
 
     from utils.personality_db import _harden_pg_conninfo
 
     with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS kb_chunks, kb_chunks_staging")
+        for (name,) in conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename LIKE 'kb\\_chunks%%'"
+        ).fetchall():
+            conn.execute(f"DROP TABLE IF EXISTS {name}")
+
+
+@pytest.fixture
+def fresh_store():
+    """Drop every kb_chunks table before/after so each test starts clean."""
+    _drop_kb_tables()
     yield
-    with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS kb_chunks, kb_chunks_staging")
+    _drop_kb_tables()
+
+
+def _build(cfg, text):
+    """One build, the way retrieval.indexer.build_index drives the writer."""
+    writer = get_vector_writer(cfg)
+    try:
+        writer.reset()
+        writer.add(["chunk_0"], [text], [_vec((0, 1.0))], [{"source": "x.md", "chunk_id": 0, "stem_tags": "[]"}])
+        writer.finalize()
+    finally:
+        writer.close()
+    return writer.generation
+
+
+def _publish(cfg, generation):
+    """What build_index's atomic bm25.json replace does for the vector leg."""
+    Path(cfg["indexing"]["bm25_path"]).write_text(json.dumps({"vector_collection": generation}), encoding="utf-8")
+
+
+def _texts(reader):
+    return [h["text"] for h in reader.query(_vec((0, 1.0)), k=10)]
 
 
 def test_pgvector_index_and_rank(fresh_store):
@@ -83,7 +117,7 @@ def test_pgvector_index_and_rank(fresh_store):
     finally:
         writer.close()
 
-    reader = get_vector_reader(cfg)
+    reader = get_vector_reader(cfg, writer.generation)
     try:
         hits = reader.query(_vec((0, 1.0)), k=3)
     finally:
@@ -181,7 +215,7 @@ def test_pgvector_reset_accepts_and_ignores_fingerprint(fresh_store):
     finally:
         writer.close()
 
-    reader = get_vector_reader(cfg)
+    reader = get_vector_reader(cfg, writer.generation)
     try:
         hits = reader.query(_vec((0, 1.0)), k=10)
     finally:
@@ -190,56 +224,51 @@ def test_pgvector_reset_accepts_and_ignores_fingerprint(fresh_store):
     assert not hasattr(reader, "fingerprint")
 
 
-def test_pgvector_rebuild_truncates(fresh_store):
-    cfg = _cfg()
-    md = [{"source": "x.md", "chunk_id": 0, "stem_tags": "[]"}]
-    writer = get_vector_writer(cfg)
+def test_pgvector_rebuild_writes_a_fresh_generation(fresh_store, tmp_path):
+    """Each build writes its own table, so no stale rows accumulate, and the
+    next build drops every generation bm25.json does not name."""
+    cfg = _cfg(tmp_path / "bm25.json")
+    first = _build(cfg, "first")
+    _publish(cfg, first)
+    second = _build(cfg, "second")
+    assert first != second
+    reader = get_vector_reader(cfg, second)
     try:
-        writer.reset()
-        writer.add(["chunk_0"], ["first"], [_vec((0, 1.0))], md)
-        writer.finalize()
-        # A second build replaces the table wholesale — no stale rows accumulate.
-        writer.reset()
-        writer.add(["chunk_0"], ["second"], [_vec((0, 1.0))], md)
-        writer.finalize()
-    finally:
-        writer.close()
-
-    reader = get_vector_reader(cfg)
-    try:
-        hits = reader.query(_vec((0, 1.0)), k=10)
+        assert _texts(reader) == ["second"]
     finally:
         reader.close()
-    assert len(hits) == 1 and hits[0]["text"] == "second"
+    _publish(cfg, second)
+    _build(cfg, "third")
+    with pytest.raises(IndexNotFoundError):
+        get_vector_reader(cfg, first)
 
 
-def test_pgvector_live_reader_keeps_serving_through_a_rebuild(fresh_store):
-    """POST /index/build rebuilds inside the serving process. Before the
-    staging-table swap, reset() TRUNCATEd the live table, so a live reader
-    saw zero rows for the whole build."""
-    cfg = _cfg()
-    md = [{"source": "x.md", "chunk_id": 0, "stem_tags": "[]"}]
-    first = get_vector_writer(cfg)
+def test_pgvector_live_reader_stays_on_its_generation(fresh_store, tmp_path):
+    """POST /index/build rebuilds inside the serving process. A live reader
+    must keep querying the vectors built with its BM25 leg: the #1450
+    staging swap re-pointed it at the new table mid-build (Codex P1)."""
+    cfg = _cfg(tmp_path / "bm25.json")
+    old = _build(cfg, "old")
+    _publish(cfg, old)
+    live = get_vector_reader(cfg, old)
     try:
-        first.reset()
-        first.add(["chunk_0"], ["old"], [_vec((0, 1.0))], md)
-        first.finalize()
+        new = _build(cfg, "new")
+        assert _texts(live) == ["old"]
+        _publish(cfg, new)
+        assert _texts(live) == ["old"]
+        fresh = get_vector_reader(cfg, new)
+        try:
+            assert _texts(fresh) == ["new"]
+        finally:
+            fresh.close()
+        # Every generation owns its constraint/index names, so repeated
+        # builds never reuse one (the #1450 rename left the live table with
+        # the staging table's primary-key name).
+        _build(cfg, "third")
     finally:
-        first.close()
-
-    live = get_vector_reader(cfg)
-    rebuild = get_vector_writer(cfg)
-    try:
-        rebuild.reset()
-        rebuild.add(["chunk_0"], ["new"], [_vec((0, 1.0))], md)
-        assert [h["text"] for h in live.query(_vec((0, 1.0)), k=10)] == ["old"]
-        rebuild.finalize()
-        assert [h["text"] for h in live.query(_vec((0, 1.0)), k=10)] == ["new"]
-        # A third build must find the index/sequence names the swap freed.
-        rebuild.reset()
-        rebuild.add(["chunk_0"], ["third"], [_vec((0, 1.0))], md)
-        rebuild.finalize()
-        assert [h["text"] for h in live.query(_vec((0, 1.0)), k=10)] == ["third"]
-    finally:
-        rebuild.close()
         live.close()
+
+
+def test_pgvector_reader_rejects_a_table_name_it_did_not_write(fresh_store):
+    with pytest.raises(IndexNotFoundError, match="not one this indexer writes"):
+        get_vector_reader(_cfg(), "kb_chunks; DROP TABLE users")

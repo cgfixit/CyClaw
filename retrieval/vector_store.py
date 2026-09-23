@@ -19,9 +19,12 @@ default (ChromaDB) install never loads them.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -65,11 +68,20 @@ def parse_stem_tags(raw: object) -> list[str]:
         return []
 
 
-# all-MiniLM-L6-v2 embedding width (config: models.embeddings.dim). Fixed table name
-# keeps every SQL string a literal — no identifier interpolation, no injection seam.
+# all-MiniLM-L6-v2 embedding width (config: models.embeddings.dim).
 _DEFAULT_EMBED_DIM = 384
+# Every build writes a fresh vector generation (a Chroma collection or a pgvector
+# table) and bm25.json records its name, so a HybridRetriever always queries the
+# vectors that were built with its BM25 leg. _PG_TABLE is the legacy fixed name
+# (and _staging the #1450-era build table); generations are kb_chunks_g<12 hex>.
+# Any table name is checked against _PG_NAME_RE before it reaches SQL, so an
+# identifier can only ever be one of these code-generated shapes.
 _PG_TABLE = "kb_chunks"
-_PG_STAGING = f"{_PG_TABLE}_staging"
+_PG_NAME_RE = re.compile(r"kb_chunks(?:_staging|_g[0-9a-f]{12})?")
+# Chroma collection names are 3-512 chars of [a-zA-Z0-9._-] (chromadb 1.5.9).
+_CHROMA_NAME_MAX = 512
+_GEN_TAG = "__gen_"
+_GEN_TOKEN_LEN = 12
 
 # The keys retrieval.embeddings.embedding_fingerprint() stamps into a freshly
 # built index's metadata, and _ChromaReader.fingerprint() reads back. Shared
@@ -80,6 +92,42 @@ _FINGERPRINT_KEYS = ("model", "dim", "device")
 def vector_backend(cfg: dict) -> str:
     """Return the configured vector backend ("chroma" default, or "pgvector")."""
     return ((cfg.get("indexing") or {}).get("vector_backend") or "chroma").lower()
+
+
+def _generation_token() -> str:
+    return uuid.uuid4().hex[:_GEN_TOKEN_LEN]
+
+
+def _chroma_generation_prefix(name: str) -> str:
+    """The configured collection name, shortened only if a generation suffix
+    would push it past Chroma's limit. A shortened name keeps its head plus a
+    hash of the whole, so two long names sharing a head stay distinct."""
+    room = _CHROMA_NAME_MAX - len(_GEN_TAG) - _GEN_TOKEN_LEN
+    if len(name) <= room:
+        return name
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+    return f"{name[:room - len(digest) - 1]}-{digest}"
+
+
+def _live_names(cfg: dict, legacy_name: str) -> set[str] | None:
+    """Vector generations a new build must not delete, or None if unknown.
+
+    The live generation is the one the on-disk bm25.json was built with: its
+    ``vector_collection`` key, or the legacy fixed name for a bm25.json from
+    before generations existed. No bm25.json means nothing is live. A file
+    that exists but cannot be parsed returns None, and the caller then deletes
+    nothing rather than guess which generation a running server still uses.
+    """
+    path = Path((cfg.get("indexing") or {}).get("bm25_path") or "")
+    if not path.is_file():
+        return set()
+    try:
+        with open(path, encoding="utf-8") as f:  # DevSkim: ignore DS161085 - project-generated index
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    name = data.get("vector_collection") if isinstance(data, dict) else None
+    return {name if isinstance(name, str) and name else legacy_name}
 
 
 def _pg_dsn(cfg: dict) -> str:
@@ -100,22 +148,25 @@ def _embed_dim(cfg: dict) -> int:
 class _ChromaWriter:
     """Wraps the ChromaDB build path (PersistentClient + collection.add).
 
-    Builds into a ``<name>_staging`` collection and swaps it in at
-    :meth:`finalize`, so the collection a live reader is serving is never
-    deleted mid-build. POST /index/build runs this inside the serving
-    process: the old reset-in-place deleted the live collection first, and
-    every /query for the whole embedding pass lost its semantic leg (the
-    reader's handle raised NotFoundError), leaving BM25 alone -- whose best
-    RRF score, 1/61, sits below min_score -- so every query fell to the user
-    gate until the build finished.
+    Each build writes a new ``<name>__gen_<12 hex>`` collection and never
+    renames or deletes the one being served. The indexer records the new name
+    in bm25.json (an atomic replace), and a HybridRetriever opens the
+    generation its bm25.json names, so its two legs always come from the same
+    build. POST /index/build runs this inside the serving process, where the
+    #1450 staging swap re-pointed a live reader at the new vectors while it
+    still held the old BM25, fusing unrelated chunks that happened to share a
+    (source, chunk_id). Stale generations are deleted when the next build
+    starts, except the one bm25.json names.
     """
 
     def __init__(self, cfg: dict):
+        self._cfg = cfg
         self._chroma_path = cfg["indexing"]["chroma_path"]
         self._collection_name = cfg["indexing"]["collection_name"]
-        self._staging_name = f"{self._collection_name}_staging"
+        self._prefix = _chroma_generation_prefix(self._collection_name)
         self._client = None
         self._collection = None
+        self.generation: str | None = None
 
     def reset(self, fingerprint: dict[str, str] | None = None) -> None:
         import chromadb
@@ -133,8 +184,7 @@ class _ChromaWriter:
         self._client = chromadb.PersistentClient(
             path=self._chroma_path, settings=Settings(anonymized_telemetry=False)
         )
-        # A staging collection left behind by a failed earlier build.
-        self._delete_if_exists(self._staging_name)
+        self._discard_stale(_live_names(self._cfg, self._collection_name))
         # Cosine space: embeddings are L2-normalized, so `1 - distance` is genuine
         # cosine similarity (matches hybrid_search's score). See indexer comment.
         # `fingerprint` (model/dim/device, from embeddings.embedding_fingerprint())
@@ -142,39 +192,47 @@ class _ChromaWriter:
         # no separate slot, and HybridRetriever reads it back via .fingerprint()
         # to detect a stale/mismatched index at query time.
         metadata = {"hnsw:space": "cosine", **(fingerprint or {})}
-        self._collection = self._client.create_collection(
-            self._staging_name, metadata=metadata
-        )
+        self.generation = f"{self._prefix}{_GEN_TAG}{_generation_token()}"
+        self._collection = self._client.create_collection(self.generation, metadata=metadata)
 
     def add(self, ids: list[str], documents: list[str], embeddings: Any, metadatas: list[dict]) -> None:
         self._collection.add(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
 
     def finalize(self) -> None:
-        # Swap the staged build in under the live name. Dropping the old
-        # collection invalidates the id-bound handle a serving _ChromaReader
-        # holds; its next query re-resolves by name (see _ChromaReader.query).
-        # So nothing is retained for it -- which also means a build that fails
-        # after this point (the BM25 write, before gate.py swaps readers) cannot
-        # leave the server bound to a collection a later build deletes.
-        self._delete_if_exists(self._collection_name)
-        self._collection.modify(name=self._collection_name)
+        # Nothing to swap: the generation already has its final name, and it
+        # goes live only when the indexer's atomic bm25.json replace names it.
+        # A crash anywhere before that leaves the previous pair intact.
+        pass
 
-    def _delete_if_exists(self, name: str) -> None:
+    def _discard_stale(self, live: set[str] | None) -> None:
         import chromadb
 
-        try:
-            self._client.delete_collection(name)
-        except chromadb.errors.NotFoundError:
-            pass  # already absent is exactly the state a delete-if-exists wants
+        if live is None:
+            logger.warning("bm25.json unreadable; keeping every vector generation this build")
+            return
+        generation = re.compile(re.escape(self._prefix) + _GEN_TAG + f"[0-9a-f]{{{_GEN_TOKEN_LEN}}}")
+        legacy = {self._collection_name, f"{self._collection_name}_staging"}
+        for collection in self._client.list_collections():
+            name = getattr(collection, "name", collection)
+            if name in live or not (name in legacy or generation.fullmatch(name)):
+                continue
+            try:
+                self._client.delete_collection(name)
+            except chromadb.errors.NotFoundError:
+                pass  # already absent is exactly the state a delete-if-exists wants
 
     def close(self) -> None:
         pass
 
 
 class _ChromaReader:
-    """Wraps the ChromaDB query path; returns normalized semantic hits."""
+    """Wraps the ChromaDB query path; returns normalized semantic hits.
 
-    def __init__(self, cfg: dict):
+    ``name`` is the generation bm25.json was built with; None (a bm25.json
+    from before generations) opens the configured collection name.
+    """
+
+    def __init__(self, cfg: dict, name: str | None = None):
         import chromadb
         from chromadb.config import Settings
 
@@ -182,7 +240,7 @@ class _ChromaReader:
         # comment there for why force_import stays off on this seam.
         suppress_onnx_telemetry()
         chroma_path = cfg["indexing"]["chroma_path"]
-        collection_name = cfg["indexing"]["collection_name"]
+        collection_name = name or cfg["indexing"]["collection_name"]
         if not Path(chroma_path).exists():
             raise IndexNotFoundError(
                 f"ChromaDB index not found at {chroma_path}. Run: python -m retrieval.indexer"
@@ -196,8 +254,6 @@ class _ChromaReader:
             raise IndexNotFoundError(
                 f"Collection '{collection_name}' not found in ChromaDB: {e}"
             ) from e
-        self._client = client
-        self._collection_name = collection_name
 
     def fingerprint(self) -> dict[str, str] | None:
         """Return the {model, dim, device} stamp recorded at index-build time.
@@ -212,17 +268,11 @@ class _ChromaReader:
         return {key: str(metadata.get(key, "")) for key in _FINGERPRINT_KEYS}
 
     def query(self, embedding: Any, k: int) -> list[dict]:
-        import chromadb
-
-        try:
-            results = self._collection.query(query_embeddings=[embedding], n_results=k)
-        except chromadb.errors.NotFoundError:
-            # A rebuild swapped a new collection in under this name and dropped
-            # the one this handle is bound to (handles are id-bound). Re-resolve
-            # by name once; if nothing is live under the name yet, the error
-            # reaches hybrid_search's designed degrade like any backend failure.
-            self._collection = self._client.get_collection(self._collection_name)
-            results = self._collection.query(query_embeddings=[embedding], n_results=k)
+        # Bound to one generation for this reader's life. If a later build has
+        # deleted it, the NotFoundError reaches hybrid_search's designed
+        # degrade: re-resolving to another generation here would pair these
+        # vectors with a different build's BM25 leg.
+        results = self._collection.query(query_embeddings=[embedding], n_results=k)
         out: list[dict] = []
         if results["documents"] and results["documents"][0]:
             for i, doc in enumerate(results["documents"][0]):
@@ -274,7 +324,17 @@ class _PgVectorBase:
 
 
 class _PgVectorWriter(_PgVectorBase):
-    """Stores embeddings in a pgvector ``kb_chunks`` table with an HNSW index."""
+    """Stores embeddings in a per-build ``kb_chunks_g<12 hex>`` table with an HNSW index.
+
+    Same generation model as _ChromaWriter: the indexer records the table name
+    in bm25.json, and nothing is renamed, so each generation's primary-key,
+    sequence and index names are its own.
+    """
+
+    def __init__(self, cfg: dict):
+        super().__init__(cfg)
+        self._cfg = cfg
+        self.generation: str | None = None
 
     def reset(self, fingerprint: dict[str, str] | None = None) -> None:
         # pgvector has no analogous per-collection metadata slot to stamp a
@@ -283,15 +343,15 @@ class _PgVectorWriter(_PgVectorBase):
         # the ChromaDB backend only. HybridRetriever only calls .fingerprint() when
         # the reader exposes it (getattr), and _PgVectorReader deliberately does not.
         conn = self._connection()
-        # Build into a staging table and swap it in at finalize(), for the same
-        # reason as _ChromaWriter: TRUNCATE on the live table emptied it under
-        # every /query for the whole of a POST /index/build.
-        # Table name and dimension are code constants (never user input). Build the
-        # HNSW index AFTER the bulk load (finalize) — far faster than maintaining it
-        # row-by-row during insert.
-        conn.execute(f"DROP TABLE IF EXISTS {_PG_STAGING}")
+        self._discard_stale(conn, _live_names(self._cfg, _PG_TABLE))
+        # A fresh generation table, for the same reason as _ChromaWriter: the
+        # served table is never truncated, renamed or dropped by this build.
+        # The table name is code-generated and the dimension an int. Build the
+        # HNSW index AFTER the bulk load (finalize) — far faster than
+        # maintaining it row-by-row during insert.
+        table = f"{_PG_TABLE}_g{_generation_token()}"
         conn.execute(
-            f"CREATE TABLE {_PG_STAGING} ("
+            f"CREATE TABLE {table} ("
             "  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,"
             "  source TEXT NOT NULL,"
             "  chunk_id INT NOT NULL,"
@@ -301,7 +361,8 @@ class _PgVectorWriter(_PgVectorBase):
             f"  embedding vector({self._dim}) NOT NULL"
             ")"
         )
-        conn.execute(f"CREATE INDEX {_PG_STAGING}_src ON {_PG_STAGING} (source, chunk_id)")
+        conn.execute(f"CREATE INDEX {table}_src ON {table} (source, chunk_id)")
+        self.generation = table
 
     def add(self, ids: list[str], documents: list[str], embeddings: Any, metadatas: list[dict]) -> None:
         conn = self._connection()
@@ -320,37 +381,50 @@ class _PgVectorWriter(_PgVectorBase):
             ))
         with conn.cursor() as cur:
             cur.executemany(
-                f"INSERT INTO {_PG_STAGING} (source, chunk_id, source_sha256, content, stem_tags, embedding) "  # noqa: S608  # nosec B608 -- code-constant table name
+                f"INSERT INTO {self.generation} (source, chunk_id, source_sha256, content, stem_tags, embedding) "  # noqa: S608  # nosec B608 -- code-generated table name (_PG_NAME_RE shape)
                 "VALUES (%s, %s, %s, %s, %s, %s)",
                 rows,
             )
 
     def finalize(self) -> None:
-        conn = self._connection()
         # Cosine ops mirror Chroma's cosine space; built once over the full set.
-        conn.execute(
-            f"CREATE INDEX {_PG_STAGING}_hnsw "
-            f"ON {_PG_STAGING} USING hnsw (embedding vector_cosine_ops)"
+        # No swap: bm25.json naming this table is what makes it live.
+        self._connection().execute(
+            f"CREATE INDEX {self.generation}_hnsw "
+            f"ON {self.generation} USING hnsw (embedding vector_cosine_ops)"
         )
-        # One transaction, so a concurrent reader sees the old table or the new
-        # one, never neither: DROP takes an ACCESS EXCLUSIVE lock that waits out
-        # in-flight queries, and readers resolve the table by name per query.
-        # The renames keep the index/sequence names the next build expects free.
-        with conn.transaction():
-            conn.execute(f"DROP TABLE IF EXISTS {_PG_TABLE}")
-            conn.execute(f"ALTER TABLE {_PG_STAGING} RENAME TO {_PG_TABLE}")
-            conn.execute(f"ALTER INDEX {_PG_STAGING}_src RENAME TO {_PG_TABLE}_src")
-            conn.execute(f"ALTER INDEX {_PG_STAGING}_hnsw RENAME TO {_PG_TABLE}_hnsw")
-            conn.execute(f"ALTER SEQUENCE {_PG_STAGING}_id_seq RENAME TO {_PG_TABLE}_id_seq")
+
+    def _discard_stale(self, conn: Any, live: set[str] | None) -> None:
+        if live is None:
+            logger.warning("bm25.json unreadable; keeping every vector generation this build")
+            return
+        # DROP waits out in-flight queries on a table (ACCESS EXCLUSIVE lock).
+        tables = conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = current_schema()"
+        ).fetchall()
+        for (name,) in tables:
+            if name not in live and _PG_NAME_RE.fullmatch(name):
+                conn.execute(f"DROP TABLE IF EXISTS {name}")
 
 
 class _PgVectorReader(_PgVectorBase):
-    """Queries the pgvector ``kb_chunks`` table; returns normalized semantic hits."""
+    """Queries one pgvector generation table; returns normalized semantic hits.
 
-    def __init__(self, cfg: dict):
+    ``name`` is the table bm25.json was built with; None (a bm25.json from
+    before generations) opens the legacy ``kb_chunks`` table.
+    """
+
+    def __init__(self, cfg: dict, name: str | None = None):
         super().__init__(cfg)
+        table = name or _PG_TABLE
+        if not _PG_NAME_RE.fullmatch(table):
+            raise IndexNotFoundError(
+                f"pgvector table name {table!r} in bm25.json is not one this indexer writes. "
+                "Run: python -m retrieval.indexer"
+            )
+        self._table = table
         conn = self._connection()
-        exists = conn.execute("SELECT to_regclass(%s)", (_PG_TABLE,)).fetchone()[0]
+        exists = conn.execute("SELECT to_regclass(%s)", (table,)).fetchone()[0]
         if exists is None:
             # __init__ never returns to the caller on this path, so nothing
             # else can reach self.close() to release the connection just
@@ -359,7 +433,7 @@ class _PgVectorReader(_PgVectorBase):
             # behavior (that reader never opens a resource it doesn't return).
             self.close()
             raise IndexNotFoundError(
-                f"pgvector table '{_PG_TABLE}' not found. Run: python -m retrieval.indexer"
+                f"pgvector table '{table}' not found. Run: python -m retrieval.indexer"
             )
         self._has_source_sha256 = conn.execute(
             "SELECT EXISTS ("
@@ -367,7 +441,7 @@ class _PgVectorReader(_PgVectorBase):
             "WHERE table_schema = current_schema() "
             "AND table_name = %s AND column_name = %s"
             ")",
-            (_PG_TABLE, "source_sha256"),
+            (table, "source_sha256"),
         ).fetchone()[0]
 
     def query(self, embedding: Any, k: int) -> list[dict]:
@@ -377,7 +451,7 @@ class _PgVectorReader(_PgVectorBase):
         # Same ordering expression in SELECT and ORDER BY so the HNSW index is used.
         rows = conn.execute(
             f"SELECT content, source, chunk_id, {source_sha256_sql}, stem_tags, "  # noqa: S608
-            f"1 - (embedding <=> %(q)s::vector) AS score FROM {_PG_TABLE} "
+            f"1 - (embedding <=> %(q)s::vector) AS score FROM {self._table} "
             "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
             {"q": _as_list(embedding), "k": k},
         ).fetchall()
@@ -405,8 +479,12 @@ def get_vector_writer(cfg: dict):
     return _ChromaWriter(cfg)
 
 
-def get_vector_reader(cfg: dict):
-    """Return a read-side store exposing ``query(embedding, k) -> list[dict]``."""
+def get_vector_reader(cfg: dict, name: str | None = None):
+    """Return a read-side store exposing ``query(embedding, k) -> list[dict]``.
+
+    ``name`` is the vector generation bm25.json records (its
+    ``vector_collection`` key); None opens the legacy fixed name.
+    """
     if vector_backend(cfg) == "pgvector":
-        return _PgVectorReader(cfg)
-    return _ChromaReader(cfg)
+        return _PgVectorReader(cfg, name)
+    return _ChromaReader(cfg, name)
