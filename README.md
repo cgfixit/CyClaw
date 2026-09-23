@@ -137,9 +137,10 @@ message, or config flag someone could forget to set.
    — `offline_best_effort` can answer from partial context after a vault miss.
 2. **Hybrid search over your Markdown corpus.** ChromaDB semantic vectors plus
    BM25 keyword ranking, fused by RRF (`retrieval.rrf_k`), both local and
-   CPU-only. A top hit weaker than `retrieval.min_score` (and
-   `retrieval.min_semantic_score`, when present) routes to a user gate instead
-   of a confident guess.
+   CPU-only. A query whose best semantic match is below
+   `retrieval.min_semantic_score` (or, with no semantic scores, whose top fused
+   hit is below `retrieval.min_score`) routes to a user gate instead of a
+   confident guess.
 3. **A local model by default.** Ollama serving `models.local_llm.model`
    (shipped: `qwen3.8:27b-mlx`). Context budget, generation cap, and every
    timeout are `config.yaml` values — nothing tunable is hardcoded.

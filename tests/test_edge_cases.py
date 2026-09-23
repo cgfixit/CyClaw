@@ -167,6 +167,76 @@ class TestScoreRouterBoundary:
         )
         assert result["needs_user_confirm"] is False
 
+    def test_strong_cosine_without_rrf_agreement_stays_local(self):
+        # A paraphrase: the semantic leg ranks the right chunk first, BM25's
+        # top-k shares no chunk with it, so its fused score is one leg (1/60).
+        from graph import route_by_score_node
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30}}
+        result = route_by_score_node(
+            {
+                "query": "test",
+                "top_score": 1 / 60,
+                "retrieved_docs": [{"score": 1 / 60, "semantic_score": 0.41, "mode": "hybrid"}],
+            },
+            cfg=cfg,
+        )
+        assert result["needs_user_confirm"] is False
+
+    def test_best_semantic_hit_gates_not_the_top_rrf_hit(self):
+        from graph import route_by_score_node
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30}}
+        result = route_by_score_node(
+            {
+                "query": "test",
+                "top_score": 0.0333,
+                "retrieved_docs": [
+                    {"score": 0.0333, "semantic_score": 0.22, "mode": "hybrid"},
+                    {"score": 1 / 60, "semantic_score": 0.45, "mode": "hybrid"},
+                ],
+            },
+            cfg=cfg,
+        )
+        assert result["needs_user_confirm"] is False
+
+    def test_every_cosine_below_floor_confirms_despite_rrf_agreement(self):
+        from graph import route_by_score_node
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30}}
+        result = route_by_score_node(
+            {
+                "query": "test",
+                "top_score": 0.0333,
+                "retrieved_docs": [
+                    {"score": 0.0333, "semantic_score": 0.27, "mode": "hybrid"},
+                    {"score": 0.0328, "semantic_score": 0.25, "mode": "hybrid"},
+                ],
+            },
+            cfg=cfg,
+        )
+        assert result["needs_user_confirm"] is True
+
+    def test_keyword_only_degrade_stays_below_rrf_gate(self):
+        # Semantic leg down: BM25 hits are rebased to 1/(rrf_k + rank), which
+        # min_score keeps out, so a degraded retrieval always reaches the gate.
+        from graph import route_by_score_node
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30}}
+        result = route_by_score_node(
+            {
+                "query": "test",
+                "top_score": 1 / 60,
+                "retrieved_docs": [{"score": 1 / 60, "semantic_score": None, "mode": "keyword"}],
+            },
+            cfg=cfg,
+        )
+        assert result["needs_user_confirm"] is True
+
+    @pytest.mark.parametrize("scores", [[float("nan")], [float("nan"), 0.2], [float("inf")]])
+    def test_non_finite_cosine_is_not_evidence(self, scores):
+        from graph import route_by_score_node
+        cfg = {"retrieval": {"min_score": 0.028, "min_semantic_score": 0.30}}
+        docs = [{"score": 1 / 60, "semantic_score": s, "mode": "hybrid"} for s in scores]
+        result = route_by_score_node({"query": "test", "top_score": 1 / 60, "retrieved_docs": docs}, cfg=cfg)
+        assert result["needs_user_confirm"] is True
+
 
 class TestUserGateRouter:
     """user_gate_router routing logic edge cases."""

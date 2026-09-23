@@ -174,17 +174,21 @@ retrieval:
   # (retrieval volume, not context-window sizing).
   max_context_tokens: 16000
 
-  # min_score: RRF fused-rank threshold used by route_by_score_node (graph.py).
-  # Dual rank-0 with rrf_k=60 is 2/61 ≈ 0.0328 — that is the hybrid ceiling.
-  # 0.028 lets a dual rank-0 hit through and treats single-leg rank-0
-  # (1/61 ≈ 0.0164) as a miss. Do not raise this above ~0.033: every hybrid
-  # query would then confirm. Rank agreement is not topical confidence.
+  # min_score: RRF fused-rank floor. route_by_score_node (graph.py) applies it
+  # only when no retrieved hit carries a cosine score: the keyword-only degrade
+  # (semantic leg down), or a config without min_semantic_score. Ranks are
+  # zero-based: dual rank-0 with rrf_k=60 is 2/60 ≈ 0.0333, the hybrid
+  # ceiling, and one leg tops out at 1/60 ≈ 0.0167, so 0.028 sends every
+  # keyword-only degrade to the user gate. Rank agreement is not topical
+  # confidence, which is why it no longer gates hybrid queries.
   min_score: 0.028
-  # min_semantic_score: cosine (1 - distance) floor on the top hit when
-  # retrieve stored a semantic_score (hybrid or semantic-only). Keyword-only
-  # hits have semantic_score null and stay on min_score alone. 0.30 sits
-  # between a tracked-corpus off-doctrine miss (~0.277) and the weakest
-  # ci_rag_smoke hit (~0.333).
+  # min_semantic_score: the vault-hit gate whenever retrieval returned cosine
+  # (1 - distance) scores. A query is a hit when its BEST semantic match
+  # clears this floor, whether or not BM25 ranked the same chunk (requiring
+  # both legs' top 5 to share a chunk rejected answerable paraphrases).
+  # Measured with the shipped embedder: off-topic questions top out at ~0.17
+  # on data/corpus and ~0.25 with docs/ indexed too; the answerable probes
+  # tests/ci_rag_smoke.py asserts clear it by >= ~0.03.
   min_semantic_score: 0.30
 
 personality:
