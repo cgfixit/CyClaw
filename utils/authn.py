@@ -90,9 +90,6 @@ class PasswordPolicyError(ValueError):
 
 ROLES = frozenset({"admin", "operator", "audit"})
 DEFAULT_ROLE = "operator"
-# Single hook for later high-privilege tasks. Do not invent product features
-# here — add a name when a new destructive action exists.
-HIGH_PRIVILEGE = frozenset({"delete_user", "set_role", "disable_last_admin", "dump_secrets"})
 
 
 def validate_role(role: str) -> str:

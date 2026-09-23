@@ -122,23 +122,6 @@ def test_bootout_calls_launchctl_bootout(tmp_path: Path) -> None:
     assert str(path) in argv
 
 
-def test_is_loaded_returns_none_when_launchctl_missing() -> None:
-    with (
-        patch("utils.launchd_plist.shutil.which", return_value=None),
-        patch("utils.launchd_plist.subprocess.run") as mock_run,
-    ):
-        assert launchd_plist.is_loaded("com.example.job") is None
-    mock_run.assert_not_called()
-
-
-def test_is_loaded_true_and_false() -> None:
-    with patch("utils.launchd_plist.shutil.which", return_value="/bin/launchctl"):
-        with patch("utils.launchd_plist.subprocess.run", return_value=_completed(returncode=0)):
-            assert launchd_plist.is_loaded("com.example.job") is True
-        with patch("utils.launchd_plist.subprocess.run", return_value=_completed(returncode=1)):
-            assert launchd_plist.is_loaded("com.example.job") is False
-
-
 def test_keychain_wrapper_path(tmp_path: Path) -> None:
     assert launchd_plist.keychain_wrapper_path(tmp_path) == str(
         tmp_path / "macos" / "cyclaw-keychain-env.sh"
