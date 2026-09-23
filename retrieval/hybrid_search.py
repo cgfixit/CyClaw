@@ -8,6 +8,8 @@ Degrades gracefully if one retrieval path fails.
 import heapq
 import json
 import logging
+import math
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
 
@@ -42,6 +44,22 @@ def _mps_risk_present() -> bool:
         return bool(torch.backends.mps.is_available())
     except Exception:  # noqa: BLE001 -- probe failure must default to "not at risk"
         return False
+
+
+def _best_finite(scores: Iterable[float]) -> float:
+    """The largest finite raw score of one retrieval leg, or 0.0 if it has none."""
+    return max((s for s in scores if math.isfinite(s)), default=0.0)
+
+
+def _share_of_best(score: float, best: float) -> float:
+    """``score`` as a fraction of its leg's best raw score.
+
+    0.0 when the score is not finite or the leg has no positive best, so a
+    NaN or an all-negative leg can never decide an ordering.
+    """
+    if best <= 0 or not math.isfinite(score):
+        return 0.0
+    return score / best
 
 
 class HybridRetriever:
@@ -391,7 +409,28 @@ class HybridRetriever:
                                   "stem_tags": hit.stem_tags}
 
         all_hits = {(h.source, h.chunk_id): h for h in semantic_hits + keyword_hits}
-        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+        # Exact RRF ties are structural, not rare: two chunks at mirrored ranks
+        # (semantic 0 + keyword 1 vs semantic 1 + keyword 0) both sum to
+        # 1/60 + 1/61, and so do a semantic-only and a keyword-only hit at the
+        # same rank. A plain stable sort settled every tie by insertion order,
+        # i.e. always for the semantic leg's pick. Tied candidates are ordered
+        # instead by how close they came to each leg's best raw score (cosine /
+        # best cosine + BM25 / best BM25), the magnitude RRF itself discards.
+        # Only exactly tied candidates move; every RRF score is unchanged, and a
+        # tie that survives this too keeps the old semantic-first order.
+        best_semantic = _best_finite(m["score"] for m in semantic_meta.values())
+        best_keyword = _best_finite(m["score"] for m in keyword_meta.values())
+
+        def tie_break(key: tuple) -> float:
+            share = 0.0
+            if key in semantic_meta:
+                share += _share_of_best(semantic_meta[key]["score"], best_semantic)
+            if key in keyword_meta:
+                share += _share_of_best(keyword_meta[key]["score"], best_keyword)
+            return share
+
+        ranked = sorted(scores.items(), key=lambda x: (x[1], tie_break(x[0])), reverse=True)
 
         merged = []
         for (source, chunk_id), score in ranked:

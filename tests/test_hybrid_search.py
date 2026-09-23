@@ -6,6 +6,7 @@ without requiring live sentence-transformers or ChromaDB indices.
 
 import json
 from functools import lru_cache
+from itertools import pairwise
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -145,6 +146,78 @@ class TestSinglePathNormalization:
         single = out[0].score
         both_paths_agree = 1 / 60 + 1 / 60
         assert single < both_paths_agree
+
+
+class TestRRFExactTies:
+    """Exact RRF ties are settled by each candidate's raw scores relative to
+    its legs' best, not by which leg happened to be inserted first."""
+
+    @staticmethod
+    def _hit(mode, chunk_id, leg_score):
+        return SearchResult(
+            text=f"t{chunk_id}", score=leg_score, source="s.md",
+            chunk_id=chunk_id, stem_tags=[], retrieval_mode=mode,
+        )
+
+    def _fuse(self, sem, kw):
+        fake = _bind_hybrid_helpers(SimpleNamespace(
+            rrf_k=60, top_k_semantic=5, top_k_keyword=5,
+            semantic_search=lambda q: sem,
+            keyword_search=lambda q: kw,
+        ))
+        return HybridRetriever.hybrid_search(fake, "q")
+
+    def test_mirror_tie_goes_to_the_candidate_closer_to_both_bests(self):
+        # The index-doctor case from #1461: chunk 1 tops the semantic leg by a
+        # hair (0.377 vs 0.375), chunk 2 tops BM25 by a wide margin (11.98 vs
+        # 7.58). Mirrored ranks give both 1/60 + 1/61 exactly.
+        sem = [self._hit("semantic", 1, 0.377), self._hit("semantic", 2, 0.375)]
+        kw = [self._hit("keyword", 2, 11.98), self._hit("keyword", 1, 7.58)]
+        out = self._fuse(sem, kw)
+        assert [r.chunk_id for r in out] == [2, 1]
+        assert out[0].score == out[1].score == 1 / 60 + 1 / 61
+        assert out[0].rrf_score == out[1].rrf_score
+
+    def test_mirror_tie_follows_the_magnitudes_either_way(self):
+        # Not "keyword first": here the semantic pick leads its leg by far and
+        # trails the keyword pick only slightly, so it keeps the top spot.
+        sem = [self._hit("semantic", 1, 0.60), self._hit("semantic", 2, 0.30)]
+        kw = [self._hit("keyword", 2, 10.0), self._hit("keyword", 1, 9.5)]
+        assert [r.chunk_id for r in self._fuse(sem, kw)] == [1, 2]
+
+    def test_single_leg_hits_tied_at_one_rank(self):
+        # A semantic-only and a keyword-only hit at the same rank tie at
+        # 1/(60 + rank). Rank 0: both are their leg's best (share 1.0 each),
+        # so the old semantic-first order stands. Rank 1: the keyword hit is
+        # at 0.9 of its best, the semantic hit at 0.5, so it goes first.
+        sem = [self._hit("semantic", 10, 0.8), self._hit("semantic", 11, 0.4)]
+        kw = [self._hit("keyword", 20, 9.0), self._hit("keyword", 21, 8.1)]
+        assert [r.chunk_id for r in self._fuse(sem, kw)] == [10, 20, 21, 11]
+
+    def test_only_exact_ties_move(self):
+        # Every output keeps its plain RRF score, and the list stays sorted by
+        # it: the tie-break never lifts a lower-scored chunk over a higher one.
+        sem = [self._hit("semantic", i, 0.9 - i * 0.05) for i in range(5)]
+        kw = [self._hit("keyword", c, 20.0 - n * 3) for n, c in enumerate([3, 7, 0, 8, 1])]
+        out = self._fuse(sem, kw)
+        sem_rank = {h.chunk_id: n for n, h in enumerate(sem)}
+        kw_rank = {h.chunk_id: n for n, h in enumerate(kw)}
+        for r in out:
+            expected = sum(1 / (60 + ranks[r.chunk_id]) for ranks in (sem_rank, kw_rank) if r.chunk_id in ranks)
+            assert r.score == pytest.approx(expected)
+        assert all(a.score >= b.score for a, b in pairwise(out))
+
+    def test_non_finite_raw_score_never_decides(self):
+        # A NaN cosine counts as 0 and is left out of the leg's best, so the
+        # fused order stays deterministic instead of depending on NaN compares.
+        sem = [self._hit("semantic", 1, float("nan")), self._hit("semantic", 2, 0.5)]
+        kw = [self._hit("keyword", 2, 10.0), self._hit("keyword", 1, 5.0)]
+        assert [r.chunk_id for r in self._fuse(sem, kw)] == [2, 1]
+
+    def test_a_tie_on_both_keys_keeps_semantic_first_order(self):
+        sem = [self._hit("semantic", 1, 0.5), self._hit("semantic", 2, 0.5)]
+        kw = [self._hit("keyword", 2, 3.0), self._hit("keyword", 1, 3.0)]
+        assert [r.chunk_id for r in self._fuse(sem, kw)] == [1, 2]
 
 
 class TestFusionReturnsFullUnion:
