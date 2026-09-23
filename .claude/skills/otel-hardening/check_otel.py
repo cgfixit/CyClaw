@@ -592,7 +592,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "rank-bm25": "core web/runtime libs", "pygments": "core web/runtime libs",
     "websockets": "core web/runtime libs", "tzdata": "core web/runtime libs",
     "python-tzdata": "core web/runtime libs", "pytest": "core web/runtime libs",
-    "pytest-asyncio": "core web/runtime libs", "pytest-cov": "core web/runtime libs",
+    "pytest-cov": "core web/runtime libs",
     "ruff": "core web/runtime libs", "mypy": "core web/runtime libs",
     "bandit": "core web/runtime libs", "pip": "core web/runtime libs",
     "python": "core web/runtime libs",

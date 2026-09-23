@@ -9,7 +9,6 @@
 # the loose pytest range down to pygments 2.9.0 (PYSEC-2023-117 / PYSEC-2026-2987).
 
 pytest==9.1.1
-pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 pygments==2.21.0
 
