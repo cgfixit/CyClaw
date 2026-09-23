@@ -68,6 +68,19 @@ QUERIES = [
     ),
 ]
 
+# Questions the corpus cannot answer. Each must be a vault miss by the rule
+# route_by_score_node applies (graph.py): top RRF score below min_score, or a
+# top semantic score below min_semantic_score. QUERIES above prove the gate
+# lets real hits through; these prove it keeps unrelated questions out, so
+# min_semantic_score's calibration margin is checked here instead of resting
+# on a single recorded measurement (config.yaml's ~0.277 off-doctrine miss).
+OFF_TOPIC_QUERIES = [
+    "What is a good recipe for sourdough bread with a crispy crust?",
+    "Who won the 2014 FIFA World Cup final?",
+    "How do I change the oil in a 2012 Honda Civic?",
+    "What is the boiling point of water at the top of Mount Everest?",
+]
+
 
 def hit_at_k(ranked: Sequence[str], expected: frozenset[str], k: int) -> float | None:
     if not expected:
@@ -232,11 +245,36 @@ def main() -> int:
 
         print("  PASS: vault hit above gate, correct source")
 
+    for i, query in enumerate(OFF_TOPIC_QUERIES, start=1):
+        print(f"\n[off-topic {i}/{len(OFF_TOPIC_QUERIES)}] Query: {query}")
+        results = retriever.hybrid_search(query)
+        if not results:
+            print("  PASS: no hits (vault miss)")
+            continue
+
+        top = results[0]
+        print(f"  Top source: {top.source}")
+        print(f"  Top score:  {round(top.score, 6)} (gate: {min_score})")
+        print(f"  Semantic:   {top.semantic_score} (gate: {min_semantic})")
+        missed = top.score < min_score or (
+            top.semantic_score is not None and top.semantic_score < min_semantic
+        )
+        if not missed:
+            print("  FAIL: off-topic query cleared both gates and would be answered from the corpus")
+            failures += 1
+            continue
+
+        print("  PASS: vault miss, routed to the user gate")
+
+    total = len(QUERIES) + len(OFF_TOPIC_QUERIES)
     if failures:
-        print(f"\nFAIL: {failures}/{len(QUERIES)} RAG smoke queries failed")
+        print(f"\nFAIL: {failures}/{total} RAG smoke probes failed")
         return 1
 
-    print(f"\nAll {len(QUERIES)} real RAG queries passed (vault hits above the {min_score} gate)")
+    print(
+        f"\nAll {len(QUERIES)} real RAG queries passed (vault hits above the {min_score} gate) "
+        f"and all {len(OFF_TOPIC_QUERIES)} off-topic probes missed"
+    )
     return _run_groundedness_retrieval_gate()
 
 
