@@ -145,7 +145,6 @@ dependencies:
   # 2.9.0 (PYSEC-2023-117 / PYSEC-2026-2987). This conda lane pulled pytest
   # with no matching pygments pin of its own until now.
   - pygments=2.21.0
-  - pytest-asyncio=1.4.0
   # NOT 0.16.8 to match the pip path (pyproject.toml/constraints.txt/
   # requirements.txt): conda-forge's ruff-feedstock has not published a
   # 0.16.8 build as of this pin (checked 2026-09-21 -- confirmed live as a
