@@ -403,7 +403,7 @@ graph node or a security control.
 
 | Plane | Command | Runs | Measures |
 |---|---|---|---|
-| Retrieval gate | `python -m tests.ci_rag_smoke` | every PR (`ci.yml`), no LLM | four `data/corpus` queries against `retrieval.min_score`, then hit@5/Recall@5/MRR, plus a check each injected doc's chunk was sanitized to `[FILTERED]` |
+| Retrieval gate | `python -m tests.ci_rag_smoke` | every PR (`ci.yml`), no LLM | a `data/corpus` probe matrix decided by `graph.route_by_score_node` (near-verbatim and paraphrased hits, off-topic misses; known gaps reported), then hit@5/Recall@5/MRR, plus a check each injected doc's chunk was sanitized to `[FILTERED]` |
 | Local dogfood | `CYCLAW_EVAL_DOGFOOD=1 python scripts/cyclaw-eval-dogfood.py` | operator, opt-in | one case per category on the real loopback model, with latency and a sanitizer probe; rows are `generated`/`unverified`, never assumed |
 | Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` (+ key) | operator, opt-in, spends money | groundedness, completeness, abstention per case, graded by Claude |
 | Local judge | same, with `evals.local_judge.enabled: true` | operator, opt-in, fully local | same rubric graded by a second loopback model of a different family |
