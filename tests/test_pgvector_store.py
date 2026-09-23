@@ -49,16 +49,16 @@ def _cfg():
 
 @pytest.fixture
 def fresh_store():
-    """Drop kb_chunks before/after so each test starts clean."""
+    """Drop kb_chunks (and its build staging table) before/after so each test starts clean."""
     import psycopg
 
     from utils.personality_db import _harden_pg_conninfo
 
     with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS kb_chunks")
+        conn.execute("DROP TABLE IF EXISTS kb_chunks, kb_chunks_staging")
     yield
     with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS kb_chunks")
+        conn.execute("DROP TABLE IF EXISTS kb_chunks, kb_chunks_staging")
 
 
 def test_pgvector_index_and_rank(fresh_store):
@@ -198,7 +198,7 @@ def test_pgvector_rebuild_truncates(fresh_store):
         writer.reset()
         writer.add(["chunk_0"], ["first"], [_vec((0, 1.0))], md)
         writer.finalize()
-        # A second build resets (TRUNCATE) — no stale rows accumulate.
+        # A second build replaces the table wholesale — no stale rows accumulate.
         writer.reset()
         writer.add(["chunk_0"], ["second"], [_vec((0, 1.0))], md)
         writer.finalize()
@@ -211,3 +211,35 @@ def test_pgvector_rebuild_truncates(fresh_store):
     finally:
         reader.close()
     assert len(hits) == 1 and hits[0]["text"] == "second"
+
+
+def test_pgvector_live_reader_keeps_serving_through_a_rebuild(fresh_store):
+    """POST /index/build rebuilds inside the serving process. Before the
+    staging-table swap, reset() TRUNCATEd the live table, so a live reader
+    saw zero rows for the whole build."""
+    cfg = _cfg()
+    md = [{"source": "x.md", "chunk_id": 0, "stem_tags": "[]"}]
+    first = get_vector_writer(cfg)
+    try:
+        first.reset()
+        first.add(["chunk_0"], ["old"], [_vec((0, 1.0))], md)
+        first.finalize()
+    finally:
+        first.close()
+
+    live = get_vector_reader(cfg)
+    rebuild = get_vector_writer(cfg)
+    try:
+        rebuild.reset()
+        rebuild.add(["chunk_0"], ["new"], [_vec((0, 1.0))], md)
+        assert [h["text"] for h in live.query(_vec((0, 1.0)), k=10)] == ["old"]
+        rebuild.finalize()
+        assert [h["text"] for h in live.query(_vec((0, 1.0)), k=10)] == ["new"]
+        # A third build must find the index/sequence names the swap freed.
+        rebuild.reset()
+        rebuild.add(["chunk_0"], ["third"], [_vec((0, 1.0))], md)
+        rebuild.finalize()
+        assert [h["text"] for h in live.query(_vec((0, 1.0)), k=10)] == ["third"]
+    finally:
+        rebuild.close()
+        live.close()

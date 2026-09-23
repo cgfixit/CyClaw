@@ -127,6 +127,9 @@ def test_vector_store_disables_before_chroma_client(monkeypatch, tmp_path):
 
     fake_chromadb = types.ModuleType("chromadb")
 
+    class _FakeNotFoundError(Exception):
+        pass
+
     class _FakeCollection:
         def add(self, **kwargs):
             pass
@@ -136,13 +139,14 @@ def test_vector_store_disables_before_chroma_client(monkeypatch, tmp_path):
             order.append("client")
 
         def delete_collection(self, name):
-            raise KeyError(name)
+            raise _FakeNotFoundError(name)
 
         def create_collection(self, name, metadata=None):
             order.append("collection")
             return _FakeCollection()
 
     fake_chromadb.PersistentClient = _FakeClient
+    fake_chromadb.errors = types.SimpleNamespace(NotFoundError=_FakeNotFoundError)
     fake_config = types.ModuleType("chromadb.config")
     fake_config.Settings = lambda **kwargs: None
     fake_chromadb.config = fake_config

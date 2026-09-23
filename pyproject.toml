@@ -81,7 +81,6 @@ numbat-cel = [
 ]
 test = [
     "pytest==9.1.1",
-    "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     # pytest>=8.2 requires pygments>=2.7.2; pin a patched release so a full
     # dependency resolve of this extra (e.g. `pip install -e ".[test]"` with no

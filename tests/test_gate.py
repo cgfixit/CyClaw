@@ -422,6 +422,15 @@ class TestHealthEndpoint:
             data = resp.json()
             assert "status" in data
 
+    def test_health_probes_the_config_the_server_runs(self, client):
+        """/health must describe gate's boot config, the one /query uses, not
+        a fresh read of config.yaml that nothing else in the process reloads."""
+        import gate
+        test_client, _ = client
+        with patch("gate.check_all", return_value=[]) as probe:
+            assert test_client.get("/health").status_code == 200
+        assert probe.call_args.kwargs["cfg"] is gate.cfg
+
     def test_health_carries_console_contract_fields(self, client):
         """static/terminal.html consumes status, mode, version, and
         graph_timeout_sec from /health (checkHealth()). This is the contract
