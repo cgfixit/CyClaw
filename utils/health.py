@@ -21,8 +21,7 @@ import yaml
 from .endpoint_trust import EndpointTrustError, assert_local_destination
 from .errors import HealthStatus
 
-_cfg_cache: dict[str, tuple[dict, float]] = {}
-_cfg_ttl_sec = 60
+_cfg_cache: dict[str, dict] = {}
 _status_cache: dict[str, tuple[tuple[HealthStatus, ...], float]] = {}
 _status_ttl_sec = 2
 
@@ -86,28 +85,28 @@ def close_http_client() -> None:
         client.close()
 # Anchor relative config_path lookups to the repo root, mirroring gate.py's
 # _BASE_DIR pattern — see utils/logger.py's _REPO_ROOT for the matching fix.
-# gate.py calls check_all() with no config_path (line 539), so the bare
-# "config.yaml" default must not depend on the process CWD.
+# A caller that passes no cfg gets the bare "config.yaml" default, which must
+# not depend on the process CWD.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _health_cfg(config_path: str) -> dict:
-    """Parse config with 60-second TTL to balance performance and hot-reload responsiveness.
+    """Parse config once per path, for callers that do not pass ``cfg``.
 
-    If config.yaml is edited post-startup, the cache expires within 60 seconds,
-    allowing operators to toggle settings (e.g. Grok) without restarting.
+    Deliberately not re-read on a timer. It used to expire after 60s so an
+    edited config.yaml showed up here "without restarting" -- but nothing
+    else in the server reloads, so /health then described a config the
+    process was not running: turn grok.enabled off in the file and /health
+    reported it off while /query kept the boot-time Grok client armed.
     """
-    now = time.monotonic()
     if config_path in _cfg_cache:
-        cached_cfg, cached_at = _cfg_cache[config_path]
-        if now - cached_at < _cfg_ttl_sec:
-            return cached_cfg
+        return _cfg_cache[config_path]
     path = Path(config_path).expanduser()
     if not path.is_absolute():
         path = _REPO_ROOT / path
     with open(path.resolve(), encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    _cfg_cache[config_path] = (cfg, now)
+    _cfg_cache[config_path] = cfg
     return cfg
 
 
@@ -145,7 +144,8 @@ def _safe_error(exc: Exception) -> str:
     return msg
 
 
-def check_all(config_path: str = "config.yaml") -> list[HealthStatus]:
+def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list[HealthStatus]:
+    """Probe the services ``cfg`` configures; gate.py passes the config it serves with."""
     now = time.monotonic()
     if config_path in _status_cache:
         cached_statuses, cached_at = _status_cache[config_path]
@@ -153,7 +153,8 @@ def check_all(config_path: str = "config.yaml") -> list[HealthStatus]:
             return list(cached_statuses)
 
     try:
-        cfg = _health_cfg(config_path)
+        if cfg is None:
+            cfg = _health_cfg(config_path)
         llm_cfg = cfg["models"]["local_llm"]
     except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
         return [HealthStatus(name="config", healthy=False, error=f"config load failed: {_safe_error(exc)}")]
