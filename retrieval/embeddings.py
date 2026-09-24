@@ -64,8 +64,12 @@ _CACHE_PROBE_FILENAME = "config.json"
 EMBED_DEVICE = "cpu"
 
 
-def _model_offline_eligible(model_name: str, cache_dir: str) -> bool:
+def _model_offline_eligible(model_name: str, cache_dir: str, revision: str | None = None) -> bool:
     """True if huggingface_hub's own on-disk cache index already has this model.
+
+    ``revision`` (a pinned commit, as retrieval/rerank.py passes) probes that
+    exact snapshot. None probes the ``main`` ref, which is how the embedder,
+    loaded unpinned, finds its copy.
 
     Scopes HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE (set by the caller below) to runs
     where they cannot break anything: forcing offline mode unconditionally would
@@ -99,7 +103,7 @@ def _model_offline_eligible(model_name: str, cache_dir: str) -> bool:
         return False
     try:
         hit = try_to_load_from_cache(
-            repo_id=model_name, filename=_CACHE_PROBE_FILENAME, cache_dir=cache_dir or None
+            repo_id=model_name, filename=_CACHE_PROBE_FILENAME, cache_dir=cache_dir or None, revision=revision
         )
     except Exception:  # noqa: BLE001 -- a probe failure must never block model load
         return False

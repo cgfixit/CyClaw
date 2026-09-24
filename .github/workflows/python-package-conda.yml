@@ -93,14 +93,15 @@ jobs:
       # See ci.yml's identical step for the full rationale: this job's
       # verify.sh (CyClaw-Sandbox) Stage 3 builds a real index via
       # retrieval.indexer, which fetches models.embeddings.model from
-      # HuggingFace into .emb_cache on first use. Caching it here removes that
-      # repeat network fetch on every run.
+      # HuggingFace into .emb_cache on first use, and its graph checks fetch
+      # models.reranker.model into the same directory. Caching it here removes
+      # that repeat network fetch on every run.
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: .emb_cache
         # Model-identity key, not hashFiles('config.yaml') -- see the rationale
         # on ci.yml's identical step.
-        key: emb-model-all-MiniLM-L6-v2-v1
+        key: emb-model-all-MiniLM-L6-v2+ms-marco-MiniLM-L6-v2-v1
         restore-keys: |
           emb-model-
 

@@ -18,6 +18,11 @@ class EmbeddingServiceError(RAGError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, code="EMBEDDING_ERROR", details=details)
 
+class RerankerError(RAGError):
+    """The cross-encoder could not load or score; graph.py falls back to the cosine gate."""
+    def __init__(self, message: str, details: dict | None = None):
+        super().__init__(message, code="RERANKER_UNAVAILABLE", details=details)
+
 class LLMServiceError(RAGError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, code="LLM_SERVICE_ERROR", details=details)

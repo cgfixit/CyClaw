@@ -1,6 +1,6 @@
 # `tests/` — the CyClaw test suite
 
-Pytest suite for this directory (211 `test_*.py` files, auto-collected
+Pytest suite for this directory (212 `test_*.py` files, auto-collected
 via `testpaths = ["tests"]` in `pyproject.toml`). Test trees outside `tests/` —
 notably `tools/lora_finetune/tests/`, whose CI is `.github/workflows/lora-finetune.yml` —
 are NOT collected by `pytest tests/`; see `CLAUDE.md` §8. Ordinary tests avoid

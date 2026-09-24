@@ -10,12 +10,18 @@ dict), this exercises the *actual* retrieval stack end to end:
      a probe matrix over the committed corpus: near-verbatim questions,
      paraphrased and keyword-only questions, off-topic questions, and
      look-alikes the corpus cannot answer.
-  3. Decide vault hit / miss for each probe with graph.route_by_score_node
-     itself, fed the way retrieve_node feeds it, and with the thresholds from
-     config.yaml -- so the smoke checks the rule the /query path applies, not
-     a copy that could drift from it. Answerable probes must be vault hits
+  3. Decide vault hit / miss for each probe with graph.retrieve_node and
+     graph.route_by_score_node themselves, with the thresholds from
+     config.yaml -- so the smoke checks the rule the /query path applies,
+     including the cross-encoder veto (models.reranker) when it is on, not a
+     copy that could drift from it. Answerable probes must be vault hits
      that put the expected document in front of the local model; off-topic
      probes must be misses.
+
+``--with-docs`` instead indexes data/corpus plus docs/ (~10x the chunks) in a
+temporary directory and prints the same probe matrix as a report. It asserts
+nothing and exits 0 unless it crashes: the shipped corpus is small, and the
+look-alike problem the reranker targets is worst on a bigger one.
 
 The asserted probes sit at least ~0.03 cosine from min_semantic_score in a
 measured run, so the smoke is a stable regression gate, not a recall
@@ -30,9 +36,13 @@ gate/graph unit tests with a mocked LLM.
 Exit non-zero on any failure so the CI step goes red on a real retrieval regression.
 """
 
+import argparse
+import math
+import shutil
 import statistics
 import sys
 import tempfile
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -44,8 +54,9 @@ import yaml  # noqa: E402
 
 from retrieval.indexer import build_index  # noqa: E402
 from retrieval.hybrid_search import HybridRetriever  # noqa: E402
-from retrieval.results import SearchResult  # noqa: E402
-from graph import LOCAL_CONTEXT_CHUNKS, route_by_score_node  # noqa: E402
+from retrieval.rerank import reranker_settings  # noqa: E402
+from graph import LOCAL_CONTEXT_CHUNKS, retrieve_node, route_by_score_node  # noqa: E402
+from utils.errors import RAGError  # noqa: E402
 from tests import judge_eval  # noqa: E402
 from utils.sanitizer import sanitize_chunk  # noqa: E402
 
@@ -158,6 +169,53 @@ LOOKALIKE_QUERIES = [
     "How do I configure rate limiting in nginx?",
     "How do I audit my AWS IAM permissions?",
     "What vector database should I use for a million documents?",
+]
+
+# Held out from the reranker's calibration (Phase 3 of #1456): written before
+# any cross-encoder score was seen, together with retrieval.min_rerank_score,
+# so they test that threshold rather than fit it. Reported, not asserted. Each
+# answerable probe rests on one passage of its expected document; each
+# look-alike was grepped against data/corpus and docs/, and neither answers it
+# (the corpus names Sputnik, Cursor and Replit, but not what these ask).
+HELD_OUT_ANSWERABLE = [
+    (
+        "According to the media theorist, what does every new technology take away "
+        "from us at the same time as it extends us?",
+        MCLUHAN,
+    ),
+    ("Which ancient philosopher warned that writing would weaken human memory?", MCLUHAN),
+    ("What did the scholar call the numbness that sets in after a technology stretches one of our senses?", MCLUHAN),
+    ("Which Cold War events shaped his thinking about what technology does to people?", MCLUHAN),
+    ("Which AI agent erased more than a million customer records and then faked a recovery report?", AI_INSIGHTS),
+    ("Why did the coding tool keep going even though the underlying model had flagged self-harm language?", AI_INSIGHTS),
+    ("Where do chatbots pick up their seemingly emotional outbursts, according to the research cited?", AI_INSIGHTS),
+    ("How many milliseconds passed before the monitoring models noticed the sabotage pattern?", WHISPER),
+    ("Which member of the council answered with a reference to Borges' burning library?", WHISPER),
+    ("Which port does the local server listen on for JSON questions?", "cyclaw_overview"),
+    ("What checks does the pipeline run on a question before searching the knowledge base?", "cyclaw_overview"),
+    ("Can the assistant keep a consistent character across conversations?", "cyclaw_overview"),
+]
+HELD_OUT_LOOKALIKE = [
+    "How much does a Claude Pro subscription cost per month?",
+    "Who directed the documentary McLuhan's Wake?",
+    "How do I reset the admin password on my home Wi-Fi router?",
+    "What is the population of Toronto today?",
+    "How do I uninstall Cursor from my Mac?",
+    "How many parameters does GPT-4 have?",
+    "How do I get a refund for my Replit subscription?",
+    "How do I add a Windows Firewall rule that blocks inbound traffic on port 8787?",
+    "Where is Anthropic's headquarters located?",
+    "In what year did the Soviet Union launch Sputnik?",
+]
+
+# Paraphrased questions docs/ answers; only the --with-docs report indexes it.
+DOCS_PARAPHRASE_QUERIES = [
+    "How does the server stop a web page on some other site from submitting questions to it?",
+    "What happens to the protected admin endpoints if the operator never sets the access key?",
+    "Why is the keyword index saved as JSON rather than a binary object dump?",
+    "Which three things must all be true before a question may be sent to an outside AI service?",
+    "How are browser login sessions protected against forged form submissions?",
+    "What stops analytics libraries from phoning home when the app starts?",
 ]
 
 
@@ -273,41 +331,173 @@ def _run_groundedness_retrieval_gate() -> int:
     return 0
 
 
-def vault_hit(results: list[SearchResult], cfg: dict) -> bool:
-    """Apply graph.route_by_score_node to hybrid_search output, fed as retrieve_node feeds it."""
-    state = {
-        "top_score": results[0].score if results else 0.0,
-        "retrieved_docs": [{"score": r.score, "semantic_score": r.semantic_score} for r in results],
-    }
-    return not route_by_score_node(state, cfg)["needs_user_confirm"]
+def gate(retriever: HybridRetriever, cfg: dict, query: str) -> tuple[list[dict], dict]:
+    """Run graph.retrieve_node, then graph.route_by_score_node, exactly as /query does.
+
+    retrieve_node scores the context window with the cross-encoder when
+    models.reranker is on, so its veto is part of every decision checked here.
+    Returns (retrieved_docs, the routing decision plus retrieve_node's
+    rerank_degraded flag).
+    """
+    state: dict = {"query": query}
+    state.update(retrieve_node(state, retriever, cfg))
+    decision = route_by_score_node(state, cfg)
+    return state["retrieved_docs"], {**decision, "rerank_degraded": bool(state.get("rerank_degraded"))}
 
 
-def cites(results: list[SearchResult], expected_source_substr: str) -> bool:
-    return any(expected_source_substr in r.source for r in results[:CONTEXT_CHUNKS])
+def cites(docs: list[dict], expected_source_substr: str) -> bool:
+    return any(expected_source_substr in d["source"] for d in docs[:CONTEXT_CHUNKS])
 
 
-def probe(retriever: HybridRetriever, cfg: dict, label: str, query: str) -> tuple[list[SearchResult], bool]:
-    """Run one query, print its gate inputs and decision, return (results, vault_hit)."""
-    results = retriever.hybrid_search(query)
-    hit = vault_hit(results, cfg)
-    cosines = [r.semantic_score for r in results if r.semantic_score is not None]
-    best = f"{max(cosines):.4f}" if cosines else "none"
-    top = results[0] if results else None
+def best_in_window(docs: list[dict], key: str) -> float | None:
+    """The highest finite ``key`` score among the chunks the model sees, the value the gate compares."""
+    values = [d.get(key) for d in docs[:CONTEXT_CHUNKS]]
+    finite = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
+    return max(finite) if finite else None
+
+
+def _fmt(value: float | None) -> str:
+    return f"{value:.4f}" if value is not None else "none"
+
+
+def probe(retriever: HybridRetriever, cfg: dict, label: str, query: str) -> tuple[list[dict], bool, bool]:
+    """Run one query, print its gate inputs and decision, return (docs, vault_hit, reranker_vetoed)."""
+    docs, decision = gate(retriever, cfg, query)
+    hit = not decision["needs_user_confirm"]
+    vetoed = bool(decision.get("rerank_vetoed"))
     print(f"\n[{label}] Query: {query}")
-    print(f"  Decision:     {'vault hit' if hit else 'vault miss (user gate)'}")
-    print(f"  Best cosine:  {best}")
-    if top is not None:
-        print(f"  Top fused:    {round(top.score, 6)} {top.retrieval_mode} {top.source}")
-    return results, hit
+    if hit:
+        print("  Decision:     vault hit")
+    elif vetoed:
+        print("  Decision:     vault miss (cross-encoder veto)")
+    else:
+        print("  Decision:     vault miss (user gate)")
+    print(f"  Best cosine:  {_fmt(best_in_window(docs, 'semantic_score'))}")
+    degraded = " (reranker degraded: cosine gate only)" if decision["rerank_degraded"] else ""
+    print(f"  Best rerank:  {_fmt(best_in_window(docs, 'rerank_score'))}{degraded}")
+    if docs:
+        print(f"  Top fused:    {round(docs[0]['score'], 6)} {docs[0]['mode']} {docs[0]['source']}")
+    return docs, hit, vetoed
 
 
-def main() -> int:
-    print("=== Real Offline RAG Query Smoke (ChromaDB + BM25 + RRF) ===")
+def report_set(retriever: HybridRetriever, cfg: dict, name: str, cases: Sequence[tuple[str, str | None]]) -> str:
+    """Probe each (query, expected source or None); return a one-line summary. Asserts nothing."""
+    hits = in_context = vetoes = 0
+    for i, (query, expected) in enumerate(cases, start=1):
+        docs, hit, vetoed = probe(retriever, cfg, f"{name} {i}/{len(cases)}", query)
+        hits += hit
+        vetoes += vetoed
+        in_context += bool(expected) and hit and cites(docs, expected)
+    line = f"{name}: {hits}/{len(cases)} vault hits"
+    if any(expected for _query, expected in cases):
+        line += f", {in_context} with the expected doc in context"
+    return f"{line}; {vetoes} vetoed by the cross-encoder"
+
+
+def print_gate_config(cfg: dict) -> None:
+    retrieval = cfg["retrieval"]
+    print(f"Configured min_score gate: {retrieval['min_score']}")
+    print(f"Configured min_semantic_score gate: {retrieval.get('min_semantic_score')}")
+    floor = retrieval.get("min_rerank_score")
+    print(f"Configured min_rerank_score veto: {'null (shadow: logits audited, no veto)' if floor is None else floor}")
+
+
+def reranker_provenance(retriever: HybridRetriever) -> str:
+    """Name the cross-encoder snapshot actually loaded, and time it on real context windows."""
+    settings = reranker_settings(retriever.cfg, retriever.config_path)
+    if settings is None:
+        return "Reranker: off (models.reranker.enabled is not true)"
+    model, revision, cache_dir, _offline = settings
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        cached = try_to_load_from_cache(model, "config.json", cache_dir=cache_dir or None, revision=revision)
+    except Exception:  # noqa: BLE001 -- provenance is informational only
+        cached = None
+    snapshot = Path(cached).parent.name if isinstance(cached, str) else "not in the local cache"
+    timings = []
+    for query, _expected in QUERIES:
+        texts = [hit.text for hit in retriever.hybrid_search(query)[:CONTEXT_CHUNKS]]
+        start = time.perf_counter()
+        try:
+            retriever.rerank_scores(query, texts)
+        except RAGError as e:
+            return f"Reranker: {model} @ {snapshot}, DEGRADED (cosine gate only): {e.message}"
+        timings.append(time.perf_counter() - start)
+    return (
+        f"Reranker: {model} @ snapshot {snapshot} (pinned revision: {revision or 'none'}); "
+        f"{1000 * statistics.fmean(timings):.0f} ms per {CONTEXT_CHUNKS}-chunk window on CPU "
+        f"(mean of {len(timings)})"
+    )
+
+
+def report_with_docs() -> int:
+    """Print the probe matrix over data/corpus plus docs/ in a temporary index. Asserts nothing."""
+    print("=== RAG probe report: data/corpus + docs/ (report only, asserts nothing) ===")
+    repo = Path(__file__).resolve().parent.parent
+    with open(repo / "config.yaml", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    print_gate_config(cfg)
+    extensions = {ext.lower() for ext in cfg["corpus"]["extensions"]}
+    # ignore_cleanup_errors: see _run_groundedness_retrieval_gate (Chroma on Windows).
+    with tempfile.TemporaryDirectory(prefix="cyclaw-rag-docs-", ignore_cleanup_errors=True) as tmp:
+        corpus = Path(tmp) / "corpus"
+        corpus.mkdir()
+        for root in (repo / "data" / "corpus", repo / "docs"):
+            for path in sorted(root.rglob("*")):
+                if path.is_file() and path.suffix.lower() in extensions:
+                    # Flattened names keep same-named files from different folders apart.
+                    shutil.copyfile(path, corpus / "__".join((root.name, *path.relative_to(root).parts)))
+        cfg["corpus"] = {**cfg["corpus"], "path": str(corpus)}
+        cfg["indexing"] = {
+            **cfg["indexing"],
+            "chroma_path": str(Path(tmp) / "chroma"),
+            "bm25_path": str(Path(tmp) / "bm25.json"),
+            "collection_name": "rag_smoke_docs",
+        }
+        # Keep the repo's model cache: a relative cache_dir would otherwise
+        # resolve next to the temporary config and fetch both models again.
+        embeddings = cfg["models"]["embeddings"]
+        if embeddings.get("cache_dir"):
+            embeddings["cache_dir"] = str((repo / embeddings["cache_dir"]).resolve())
+        config_path = Path(tmp) / "config.yaml"
+        config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+        build_index(str(config_path))
+        retriever = HybridRetriever(str(config_path))
+        print(f"Indexed {len(retriever.bm25_chunks)} chunks")
+        lines = [
+            report_set(retriever, cfg, "verbatim", QUERIES),
+            report_set(retriever, cfg, "paraphrase", PARAPHRASE_QUERIES),
+            report_set(retriever, cfg, "known gap", KNOWN_GAP_ANSWERABLE),
+            report_set(retriever, cfg, "docs paraphrase", [(q, None) for q in DOCS_PARAPHRASE_QUERIES]),
+            report_set(retriever, cfg, "held-out answerable", HELD_OUT_ANSWERABLE),
+            report_set(retriever, cfg, "off-topic", [(q, None) for q in OFF_TOPIC_QUERIES]),
+            report_set(retriever, cfg, "look-alike", [(q, None) for q in LOOKALIKE_QUERIES]),
+            report_set(retriever, cfg, "held-out look-alike", [(q, None) for q in HELD_OUT_LOOKALIKE]),
+        ]
+        print("\n=== Summary: data/corpus + docs/ (report only) ===")
+        for line in lines:
+            print(f"  {line}")
+        print(reranker_provenance(retriever))
+        retriever.close()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Real-index RAG smoke; see the module docstring.")
+    parser.add_argument(
+        "--with-docs",
+        action="store_true",
+        help="report the probe matrix over data/corpus plus docs/ in a temporary index; asserts nothing",
+    )
+    if parser.parse_args(argv).with_docs:
+        return report_with_docs()
+
+    print("=== Real Offline RAG Query Smoke (ChromaDB + BM25 + RRF + cross-encoder veto) ===")
 
     with open("config.yaml", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    print(f"Configured min_score gate: {cfg['retrieval']['min_score']}")
-    print(f"Configured min_semantic_score gate: {cfg['retrieval'].get('min_semantic_score')}")
+    print_gate_config(cfg)
 
     print("Building real index from", cfg["corpus"]["path"], "...")
     build_index()
@@ -316,29 +506,29 @@ def main() -> int:
 
     failures = 0
     for i, (query, expected_source_substr) in enumerate(QUERIES, start=1):
-        results, hit = probe(retriever, cfg, f"verbatim {i}/{len(QUERIES)}", query)
+        docs, hit, _ = probe(retriever, cfg, f"verbatim {i}/{len(QUERIES)}", query)
         if not hit:
             print("  FAIL: corpus-answerable query routed to the user gate (vault miss)")
             failures += 1
-        elif expected_source_substr not in results[0].source:
-            print(f"  FAIL: top source {results[0].source!r} did not contain {expected_source_substr!r}")
+        elif expected_source_substr not in docs[0]["source"]:
+            print(f"  FAIL: top source {docs[0]['source']!r} did not contain {expected_source_substr!r}")
             failures += 1
         else:
             print("  PASS: vault hit, correct top source")
 
     for i, (query, expected_source_substr) in enumerate(PARAPHRASE_QUERIES, start=1):
-        results, hit = probe(retriever, cfg, f"paraphrase {i}/{len(PARAPHRASE_QUERIES)}", query)
+        docs, hit, _ = probe(retriever, cfg, f"paraphrase {i}/{len(PARAPHRASE_QUERIES)}", query)
         if not hit:
             print("  FAIL: answerable paraphrase routed to the user gate (vault miss)")
             failures += 1
-        elif not cites(results, expected_source_substr):
+        elif not cites(docs, expected_source_substr):
             print(f"  FAIL: {expected_source_substr!r} not in the {CONTEXT_CHUNKS} chunks the local model sees")
             failures += 1
         else:
             print("  PASS: vault hit, expected doc in context")
 
     for i, query in enumerate(OFF_TOPIC_QUERIES, start=1):
-        _, hit = probe(retriever, cfg, f"off-topic {i}/{len(OFF_TOPIC_QUERIES)}", query)
+        _, hit, _ = probe(retriever, cfg, f"off-topic {i}/{len(OFF_TOPIC_QUERIES)}", query)
         if hit:
             print("  FAIL: off-topic query is a vault hit and would be answered from the corpus")
             failures += 1
@@ -347,18 +537,21 @@ def main() -> int:
 
     gap_misses = 0
     for i, (query, expected_source_substr) in enumerate(KNOWN_GAP_ANSWERABLE, start=1):
-        results, hit = probe(retriever, cfg, f"known gap {i}/{len(KNOWN_GAP_ANSWERABLE)}", query)
-        if not (hit and cites(results, expected_source_substr)):
+        docs, hit, _ = probe(retriever, cfg, f"known gap {i}/{len(KNOWN_GAP_ANSWERABLE)}", query)
+        if not (hit and cites(docs, expected_source_substr)):
             gap_misses += 1
-    lookalike_hits = 0
-    for i, query in enumerate(LOOKALIKE_QUERIES, start=1):
-        _, hit = probe(retriever, cfg, f"look-alike {i}/{len(LOOKALIKE_QUERIES)}", query)
-        lookalike_hits += hit
+    reported = [
+        report_set(retriever, cfg, "look-alike", [(q, None) for q in LOOKALIKE_QUERIES]),
+        report_set(retriever, cfg, "held-out answerable", HELD_OUT_ANSWERABLE),
+        report_set(retriever, cfg, "held-out look-alike", [(q, None) for q in HELD_OUT_LOOKALIKE]),
+    ]
     print(
         f"\nKnown gaps (reported, not asserted): {gap_misses}/{len(KNOWN_GAP_ANSWERABLE)} answerable "
-        f"probes miss or leave the expected doc out of context; {lookalike_hits}/{len(LOOKALIKE_QUERIES)} "
-        f"look-alikes the corpus cannot answer are vault hits"
+        f"probes miss or leave the expected doc out of context"
     )
+    for line in reported:
+        print(f"Reported, not asserted: {line}")
+    print(reranker_provenance(retriever))
 
     total = len(QUERIES) + len(PARAPHRASE_QUERIES) + len(OFF_TOPIC_QUERIES)
     if failures:

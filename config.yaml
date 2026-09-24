@@ -82,6 +82,24 @@ models:
     # flag. Does NOT set HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE in
     # utils/telemetry_kill.py -- that remains intentionally excluded there.
     offline_after_index: false
+  # Local cross-encoder behind the vault-hit gate's veto (retrieval/rerank.py,
+  # Phase 3 of #1456; the threshold is retrieval.min_rerank_score). It reads
+  # the question and each chunk the model will see together and scores
+  # relevance, which the embedder's cosine cannot: look-alikes the corpus
+  # cannot answer clear min_semantic_score as easily as real paraphrases.
+  # ~22.7M parameters on CPU, Apache-2.0. First use downloads ~91MB from
+  # Hugging Face into models.embeddings.cache_dir, the same one-time egress
+  # as the embedder; with models.embeddings.offline_after_index true and an
+  # index already built, a model that was never fetched is not fetched and
+  # the gate runs on cosine alone. Off, or unavailable, the gate is the
+  # cosine rule alone, and the audit record says which.
+  reranker:
+    enabled: true
+    model: "cross-encoder/ms-marco-MiniLM-L6-v2"
+    # Pinned to the snapshot PR #1463's CI measured: any threshold in
+    # retrieval.min_rerank_score only means something for these exact
+    # weights. A new revision needs re-measuring. null follows the Hub's main.
+    revision: "233902d25c440f23af6f7d6e94d2946bac0bee0a"  # DevSkim: ignore DS173237 - public Hugging Face commit hash, not a secret
   grok:
     # gate.py constructs this client only in hybrid mode with enabled: true;
     # graph.py also requires per-request consent and a selected, available client.
@@ -200,6 +218,17 @@ retrieval:
   # on data/corpus and ~0.25 with docs/ indexed too; the answerable probes
   # tests/ci_rag_smoke.py asserts clear it by >= ~0.03.
   min_semantic_score: 0.30
+  # min_rerank_score: the cross-encoder veto (models.reranker). A number turns
+  # it on: a cosine vault hit whose best cross-encoder logit over the
+  # LOCAL_CONTEXT_CHUNKS window falls below it becomes a miss, and a miss is
+  # never turned into a hit. The scale is raw logits (0.0 is sigmoid 0.5).
+  # null (shipped) is shadow mode: every query's best logit is computed and
+  # audited (rerank_best) and nothing is vetoed. The pre-registered 0.0 was
+  # measured in CI and rejected (PR #1463): it vetoed every look-alike, but
+  # also 10 answerable questions whose answer sat in the context window: this
+  # small cross-encoder scored reworded questions as irrelevant even with the
+  # answering chunk in front of it. No threshold separated the two groups.
+  min_rerank_score: null
 
 personality:
   enabled: true

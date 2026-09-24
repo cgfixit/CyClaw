@@ -99,6 +99,79 @@ def test_error_message_names_the_offending_key():
     assert "rrf_k" in str(exc.value)
 
 
+# ── retrieval.min_rerank_score + models.reranker (the gate's veto) ────────
+
+
+def _with_reranker(**reranker) -> dict:
+    cfg = _valid_retrieval()
+    cfg["retrieval"]["min_rerank_score"] = 0.0
+    cfg["models"] = {"reranker": {"enabled": True, "model": "cross-encoder/ms-marco-MiniLM-L6-v2",
+                                  "revision": None, **reranker}}
+    return cfg
+
+
+def test_shipped_config_yaml_passes_with_its_reranker():
+    shipped = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
+    assert "reranker" in shipped["models"]
+    validate_retrieval_config(shipped)  # must not raise
+
+
+@pytest.mark.parametrize("logit", [0.0, -3.5, 2, 12.0])
+def test_min_rerank_score_accepts_any_finite_logit(logit):
+    cfg = _with_reranker()
+    cfg["retrieval"]["min_rerank_score"] = logit
+    validate_retrieval_config(cfg)
+
+
+def test_null_min_rerank_score_is_shadow_mode_and_valid():
+    cfg = _with_reranker()
+    cfg["retrieval"]["min_rerank_score"] = yaml.safe_load("min_rerank_score: null\n")["min_rerank_score"]
+    validate_retrieval_config(cfg)
+
+
+@pytest.mark.parametrize("bad", ["0", True, float("nan"), float("inf")])
+def test_min_rerank_score_rejects_non_finite_or_wrong_type(bad):
+    cfg = _with_reranker()
+    cfg["retrieval"]["min_rerank_score"] = bad
+    with pytest.raises(ConfigError):
+        validate_retrieval_config(cfg)
+
+
+def test_absent_reranker_block_is_allowed():
+    cfg = _valid_retrieval()
+    cfg["models"] = {}
+    validate_retrieval_config(cfg)
+
+
+@pytest.mark.parametrize("enabled", ["true", 1, None])
+def test_reranker_enabled_must_be_boolean(enabled):
+    with pytest.raises(ConfigError):
+        validate_retrieval_config(_with_reranker(enabled=enabled))
+
+
+@pytest.mark.parametrize("model", ["", "   ", None, 7])
+def test_enabled_reranker_needs_a_model(model):
+    with pytest.raises(ConfigError):
+        validate_retrieval_config(_with_reranker(model=model))
+
+
+def test_disabled_reranker_may_omit_the_model():
+    validate_retrieval_config(_with_reranker(enabled=False, model=None))
+
+
+@pytest.mark.parametrize("revision", ["", " ", 123])
+def test_reranker_revision_must_be_null_or_a_name(revision):
+    with pytest.raises(ConfigError):
+        validate_retrieval_config(_with_reranker(revision=revision))
+
+
+def test_reranker_block_must_be_a_mapping():
+    cfg = _valid_retrieval()
+    cfg["models"] = {"reranker": ["cross-encoder"]}
+    with pytest.raises(ConfigError):
+        validate_retrieval_config(cfg)
+
+
 # ── validate_personality_config ──────────────────────────────────────────
 
 

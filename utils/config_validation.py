@@ -36,12 +36,20 @@ def validate_retrieval_config(cfg: dict[str, Any]) -> None:
       * ``min_score`` is a number in ``[0, 1]`` (RRF-fused scores live there);
       * ``min_semantic_score``, when the key is present, is a number in
         ``[0, 1]`` (cosine). A present null or non-number is rejected;
-      * ``top_k_semantic`` / ``top_k_keyword`` / ``rrf_k`` are positive integers.
+      * ``min_rerank_score``, when present, is null (shadow mode: logits are
+        audited, nothing is vetoed) or a finite number. It is a cross-encoder
+        logit, so a negative value is legitimate;
+      * ``top_k_semantic`` / ``top_k_keyword`` / ``rrf_k`` are positive integers;
+      * ``models.reranker``, when present, has a boolean ``enabled``, a
+        non-empty ``model`` string when enabled, and a ``revision`` that is
+        null or a non-empty string. It is checked here because its only job
+        is the retrieval gate's veto.
 
     Valid configs (the shipped defaults: ``min_score: 0.028``,
-    ``min_semantic_score: 0.30``, ``top_k_*: 10``, ``rrf_k: 60``) pass unchanged
-    -- this only rejects out-of-range typos. Absent ``min_semantic_score`` is
-    allowed so partial test configs keep RRF-only routing.
+    ``min_semantic_score: 0.30``, ``min_rerank_score: null``, ``top_k_*: 10``,
+    ``rrf_k: 60``) pass unchanged -- this only rejects out-of-range typos.
+    Absent ``min_semantic_score`` is allowed so partial test configs keep
+    RRF-only routing, and an absent reranker block leaves the gate on cosine.
     """
     retrieval = cfg.get("retrieval")
     if not isinstance(retrieval, dict):
@@ -65,6 +73,16 @@ def validate_retrieval_config(cfg: dict[str, Any]) -> None:
                 details={"received": min_semantic},
             )
 
+    if "min_rerank_score" in retrieval:
+        min_rerank = retrieval["min_rerank_score"]
+        # null is shadow mode (logits audited, nothing vetoed), so it is valid.
+        if min_rerank is not None and (not _is_real_number(min_rerank) or not math.isfinite(min_rerank)):
+            raise ConfigError(
+                "retrieval.min_rerank_score must be null (shadow mode) or a finite number "
+                f"(a cross-encoder logit), got: {min_rerank!r}",
+                details={"received": min_rerank},
+            )
+
     for key in _POSITIVE_INT_KEYS:
         val = retrieval.get(key)
         if not isinstance(val, int) or isinstance(val, bool) or val <= 0:
@@ -72,6 +90,34 @@ def validate_retrieval_config(cfg: dict[str, Any]) -> None:
                 f"retrieval.{key} must be a positive integer, got: {val!r}",
                 details={"received": val, "key": key},
             )
+
+    models = cfg.get("models")
+    reranker = models.get("reranker") if isinstance(models, dict) else None
+    if reranker is None:
+        return
+    if not isinstance(reranker, dict):
+        raise ConfigError(
+            "models.reranker must be a mapping",
+            details={"received_type": type(reranker).__name__},
+        )
+    enabled = reranker.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ConfigError(
+            f"models.reranker.enabled must be true or false, got: {enabled!r}",
+            details={"received": enabled},
+        )
+    model = reranker.get("model")
+    if enabled and (not isinstance(model, str) or not model.strip()):
+        raise ConfigError(
+            f"models.reranker.model must be a non-empty model id when enabled, got: {model!r}",
+            details={"received": model},
+        )
+    revision = reranker.get("revision")
+    if revision is not None and (not isinstance(revision, str) or not revision.strip()):
+        raise ConfigError(
+            f"models.reranker.revision must be null or a non-empty commit/branch, got: {revision!r}",
+            details={"received": revision},
+        )
 
 
 # Documented in config.yaml: graph_timeout >= llm_timeout + 30 (retrieval +

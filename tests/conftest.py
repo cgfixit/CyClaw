@@ -147,12 +147,27 @@ MOCK_EMPTY_RESULTS: list[SearchResult] = []
 
 
 class MockRetriever:
-    """Stand-in for HybridRetriever that returns a fixed result list."""
-    def __init__(self, results):
+    """Stand-in for HybridRetriever that returns a fixed result list.
+
+    ``rerank`` is what rerank_scores answers: None (reranker off, the default),
+    a list of logits (cut to the number of texts asked about), or an exception
+    instance, raised as the degraded reranker would raise it.
+    """
+    def __init__(self, results, rerank=None):
         self.results = results
+        self.rerank = rerank
+        self.rerank_calls = []
 
     def hybrid_search(self, query):
         return self.results
+
+    def rerank_scores(self, query, texts):
+        self.rerank_calls.append((query, list(texts)))
+        if isinstance(self.rerank, BaseException):
+            raise self.rerank
+        if self.rerank is None:
+            return None
+        return list(self.rerank)[: len(texts)]
 
     def semantic_search(self, query, k=None):
         return self.results
