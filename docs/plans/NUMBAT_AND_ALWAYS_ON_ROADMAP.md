@@ -1,21 +1,33 @@
 # CyClaw × Numbat × Always-On Roadmap
 
-> **Status update — 2026-09-06 (docs review, Claude Code):** PARTIAL, and this
-> doc undercounts progress in one spot: Step 2 Slice A (hook-verdict Numbat
-> emission) is actually **shipped** — `utils/external_pre_hook.py` has
-> `emit_verdict`-gated `_emit_hook_verdict(...)` calls emitting
-> `network.indicator`/`permission.denied` events (lines ~185-244), landed in
-> commit `f8ebe430` (2026-08-27, "#1128 Slice A"), the same date as this doc's
-> last edit — the doc's own "Remaining" line for Slice A is stale. Slice B
-> (CEL) is genuinely NOT implemented: `config.yaml:647`'s `numbat.cel:` block
-> and the `numbat-cel` pyproject extra are scaffolding only — zero `cel_python`
-> imports anywhere in the tree. Always-on Phases 0/2/3/4 are not started.
+> **Status update — 2026-09-26 (issue [#1458](https://github.com/cgfixit/CyClaw/issues/1458), against `main` @ `f465e13`):**
+> the 2026-09-06 note that stood here was stale on two counts. Step 2 Slice A
+> (hook-verdict emission) and Step 3 Slice B (the CEL monitor) are both
+> **shipped and gated off**, and `numbat.enabled: true` means far less than it
+> reads. What "Numbat" means on tip, layer by layer:
 >
-> **What's left:**
-> - Mark Step 2 Slice A DONE in this doc's own table (code already ships it).
-> - Step 3 / Slice B: wire `cel-python` rules into the sanitizer (monitor-only).
-> - Step 5 templates, and Always-on Phases 0 (daemonize), 2 (jobs runner),
->   3 (collectors), 4 (Numbat enforce mode) — none started.
+> | Layer | Switch | On tip |
+> |---|---|---|
+> | NDJSON projection (`utils/numbat_emitter.py`) | `numbat.enabled` | **on**: the only Numbat piece that ships on |
+> | Pre-action hook before Grok/Claude (`utils/external_pre_hook.py`) | `policy.fallback.pre_action_hook.enabled` | off. The `command:` example that `config.yaml` suggested (`numbat hook pre-tool --agent cyclaw`) never worked: the pinned 0.2.0 CLI exits 0, which the hook reads as allow |
+> | Hook-verdict emission (Slice A) | `pre_action_hook.emit_verdict` | off, and inert while the hook is off |
+> | CEL monitor (Slice B, `utils/numbat_cel.py`) | `numbat.cel.enabled` | off; monitor-only |
+> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`), on hand-written fixtures; nothing scores the live stream |
+>
+> Checking the live stream against the pinned CLI (Phase 4 of #1458) found that
+> the CLI **rejects** it. Every mainline `/query` event carried a
+> `content_preview` over the schema's 200-character cap, and every `/ops/*`
+> event with a redacted `--reason=` held a bare `<redacted>` that the CLI's
+> shell parser refuses.
+>
+> **#1458 phase status** (draft PRs; a human merges):
+>
+> | Phase | Scope | PR |
+> |---|---|---|
+> | 0 | Truth in advertising: this table, `config.yaml`'s `numbat:` comment, README, CLAUDE.md, AGENTS.md, the evaluator note | this docs PR |
+> | 3 + 4 | Stream contract fixes (200-char previews, shell-safe commands), CEL matches recorded as allowed `tool.result` events, CI scoring of the stream CyClaw actually writes against the pinned CLI and schema, and a CEL lane with cel-python installed | [#1466](https://github.com/cgfixit/CyClaw/pull/1466) |
+> | 1 + 2 | A pre-action hook engine that can gate: `engine: numbat` (`numbat rules test` over the proposed call, `enforce: true` rules deny, every failure denies), fail-closed empty command, `verdict_mode`, `/health` readiness, verdict reasons in metrics, allow verdicts in the stream | [#1467](https://github.com/cgfixit/CyClaw/pull/1467) (stacked on #1466) |
+> | 5 | Scoring the rolling stream out of band, and any enforce from it | not started; needs its own dual-run observation issue |
 
 Status: living plan
 Related PR: feat/numbat-audit-ndjson-v1 (mainline audit-trail projection)
@@ -99,18 +111,23 @@ configured via `policy.fallback.pre_action_hook`. Disabled by default.
 **DONE (runner):** The hook contract (exit 0 allow / 2 deny / else fail-closed)
 is implemented in `utils/external_pre_hook.py` and wired into `graph.py`.
 
-**Remaining ([#1128](https://github.com/cgfixit/CyClaw/issues/1128) Slice A):**
+**DONE, gated off ([#1128](https://github.com/cgfixit/CyClaw/issues/1128) Slice A):**
 Numbat-shaped `permission.denied` / `network.indicator` emission from the
-hook verdict itself, gated by `policy.fallback.pre_action_hook.emit_verdict`.
-The `monitor` `fail_mode` (allow the provider call while still emitting +
-auditing) is intentionally not shipped yet — it is a policy flip that requires
-a separate dual-run observation issue.
+hook verdict itself, behind `policy.fallback.pre_action_hook.emit_verdict`.
+The `monitor` `fail_mode` (let the provider call through while still emitting
+and auditing) is intentionally not shipped. It is a policy flip that requires
+a separate dual-run observation issue. Making the hook usable with Numbat at
+all is #1458 Phases 1-2 (see the status table above).
 
 ### Step 3 — CEL sanitizer backend (monitor-first)
 
+**DONE, gated off (#1128 Slice B):** `utils/numbat_cel.py`, wired in
+`gate.py` behind `numbat.cel.enabled` (ships false) and the `numbat-cel`
+extra.
+
 - Optional cel-python rules evaluating structured fields, not raw prompts alone.
-- Ship monitor-only rules first; enforce later.
-- Keep the regex banned-list as fail-closed baseline until CEL is proven.
+- Monitor-only: a match never blocks `/query`; enforce is later, if ever.
+- The regex banned-list stays the fail-closed baseline until CEL is proven.
 
 ### Step 4 — Sequence rules
 
@@ -195,8 +212,8 @@ first-party NDJSON projection.
 
 1. ~~Step 1 action-plane emitter~~ — DONE (#973)
 2. ~~Step 1 mainline audit projection~~ — DONE (#1033)
-3. Step 2 hook-verdict emission (Slice A, #1128) — ~0.5 day
-4. Step 3 CEL sanitizer backend, monitor-only (Slice B, #1128) — ~0.5–1 day
+3. ~~Step 2 hook-verdict emission (Slice A, #1128)~~ — DONE, gated off
+4. ~~Step 3 CEL sanitizer backend, monitor-only (Slice B, #1128)~~ — DONE, gated off
 5. `session_id` / checkpointer plumbing — parked (required for on-path Step 4 policy; offline join detector for #966 is shipped)
 6. Phase 0 daemon — 0.5–1 day
 7. Phase 1 Telegram allowlist hardening — 1 day
