@@ -237,7 +237,7 @@ def test_payload_query_hash_present_regardless_of_audit_hash_setting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """The hook's stdin payload always carries query_hash -- a documented,
-    unconditional contract (config.yaml:255-260, graph.py's pre_action_hook_node
+    unconditional contract (config.yaml's pre_action_hook block, graph.py's pre_action_hook_node
     docstring, docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md Step 2). Regression
     for a Codex review finding on PR #1187: an earlier revision of this test
     asserted the opposite (payload omits query_hash under

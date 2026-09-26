@@ -1148,3 +1148,44 @@ What this changes in the surface this document describes:
 - The retired `com.cgfixit.cyclaw.harness` LaunchAgent label and
   `CyClaw harness` Task Scheduler name stay in the uninstallers so an older
   install's supervised agent is still booted out.
+
+### Seventeenth amendment — the pre-action hook and its Numbat engine (issue #1458, 2026-09-26)
+
+The pre-action hook (`utils/external_pre_hook.py`, graph nodes
+`pre_action_hook_grok` / `pre_action_hook_claude`, issue #963) predates this
+amendment but was never threat-modeled here. It runs after the I3 triple gate
+has allowed a confirmed Grok/Claude call, and its only outcomes are "proceed
+as I3 already allowed" or "deny". It ships `enabled: false`.
+
+What issue #1458 changed, and the boundaries that follow:
+
+- **An external binary can sit on the request path.** With
+  `pre_action_hook.engine: numbat`, every confirmed external call spawns the
+  operator-installed Numbat CLI (`numbat rules test`, list-form subprocess, no
+  shell, `timeout_sec` clamped to 1-30 s). The `command` engine already did the
+  same with an operator-chosen argv. The binary, `numbat.binary`, and
+  `numbat.rules_dirs` are trusted operator artifacts in the same class as
+  `config.yaml`. Whoever can replace them runs code as the CyClaw user, the
+  same exposure as editing `config.yaml` or the virtualenv. CyClaw never
+  vendors or imports Numbat. Numbat's own SECURITY.md states it makes no
+  outbound request without an HTTP sink or `ship`, and the engine uses neither
+  (otel-hardening classifies the binary under the numbat row).
+- **Tampering can deny, never allow.** A rule set edited into an error, a
+  missing binary, a timeout, unparseable output, or a match the engine cannot
+  classify all deny. So does a hook enabled with nothing to run, which used to
+  allow before #1458. A hostile or broken rule set is therefore a denial of
+  service against online escalation, never an egress path. The local answer
+  path is untouched, and `/health` reports the hook `degraded`.
+- **What reaches the hook.** Only provider, configured model tag, provider URL,
+  host endpoint fields, and the query's SHA-256; the hash is omitted from the
+  temp fixture and the stream when `logging.audit_fields.include_query_hash`
+  is false. Neither engine sees query text, soul text, or retrieved context.
+  The numbat engine writes one 0600 temp file per call and deletes it.
+- **`numbat hook` is explicitly out.** Used as the `command`, it fails open: it
+  exits 0 on errors and cannot see the provider or URL. `config.yaml` says
+  so, and `tests/test_numbat_gate.py` pins the behavior against the pinned
+  CLI.
+- **Residual.** No verdict mode lets a deny through ("monitor" stays
+  unshipped pending a dual-run observation issue), and nothing scores the
+  rolling Numbat stream at runtime (#1458 Phase 5). Operator guide:
+  `docs/security-philosophy/numbat_pre_action_gate.md`.
