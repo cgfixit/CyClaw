@@ -34,6 +34,7 @@ emitter change with::
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import shutil
@@ -75,11 +76,15 @@ def _numbat() -> str:
     return str(exe)
 
 
-def _event_validator() -> Any:
+def _import_or_missing(name: str) -> Any:
     try:
-        import jsonschema
+        return importlib.import_module(name)
     except ImportError:
-        _missing("jsonschema")
+        _missing(name)
+
+
+def _event_validator() -> Any:
+    jsonschema = _import_or_missing("jsonschema")
     schema_dir = os.environ.get("NUMBAT_SCHEMA_DIR")
     if not schema_dir:
         _missing("NUMBAT_SCHEMA_DIR")
