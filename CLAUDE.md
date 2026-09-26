@@ -241,7 +241,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `127.0.0.1:8787` | `api.host`/`api.port` | loopback only, never a public interface |
 | `0.028` | `retrieval.min_score` | **RRF scale**, not cosine. Gates only when no hit has a cosine (keyword-only degrade). Dual rank-0 ceiling is `2/60 ≈ 0.0333` |
 | `0.30` | `retrieval.min_semantic_score` | Cosine floor on the **best** semantic hit; the vault-hit gate whenever cosines are present |
-| `null` | `retrieval.min_rerank_score` | Shadow mode: the cross-encoder's best **logit** over the context window is audited, nothing is vetoed. A number turns on a veto that can only turn a cosine hit into a miss. The pre-registered `0.0` was measured and rejected in PR #1463: it removed every look-alike and 10 answerable questions whose answer was in the window |
+| `null` | `retrieval.min_rerank_score` | Shadow mode: the cross-encoder's best **logit** over the context window is audited, nothing is vetoed. A number turns on a veto that can only turn a cosine hit into a miss. The pre-registered `0.0` was measured and rejected in PR #1463: it removed every look-alike and 10 answerable questions whose answer was in the window. A five-model bake-off (PR #1464, `docs/audits/2026-09-26-reranker-bakeoff.md`) found no model and threshold that passed its held-out probes either |
 | `60` | `retrieval.rrf_k` | RRF fusion constant |
 | `780` | `api.graph_timeout_sec` | must exceed `local_llm.timeout_sec` (720) |
 | `720` / `4096` | `local_llm.timeout_sec` / `max_tokens` | sized for dense ~27B MLX on M5 Pro class 307 GB/s (48 GB unified) — match the shipped default. Decode tok/s is **not** a config value; measure with `scripts/measure_local_llm_throughput.py` |

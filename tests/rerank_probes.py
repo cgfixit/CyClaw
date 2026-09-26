@@ -18,7 +18,9 @@ FRESH_ANSWERABLE and FRESH_LOOKALIKE were written and committed before any
 reranker scored them. scripts/rerank_bakeoff.py picks a model, a scoring
 granularity and a threshold on the older probes only, then judges that choice
 on these. Every look-alike's distinctive terms were grepped against
-data/corpus and docs/, and neither answers it.
+data/corpus and docs/, and neither answers it. PR #1464's bake-off has now
+scored them (docs/audits/2026-09-26-reranker-bakeoff.md), so they are no
+longer held out: a new round calibrates on them and needs probes of its own.
 
 No heavy imports: the bake-off, the smoke and the tests all read this module.
 """
