@@ -42,8 +42,10 @@ from __future__ import annotations
 import errno
 import os
 import plistlib
+import re
 import subprocess
 import sys
+import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -55,6 +57,16 @@ from utils.errors import FsMacOSPermissionError, FsPathError
 
 
 _HDIUTIL = "/usr/bin/hdiutil"
+# hdiutil gives the image its own whole disk (/dev/diskN). Its partitions and
+# the APFS container it synthesizes get further nodes (/dev/diskNsM, /dev/diskK)
+# that all go away when that whole disk is detached.
+_WHOLE_DISK = re.compile(r"/dev/disk\d+")
+# Waits before each forced detach of the image's disk. A first detach by mount
+# path can unmount the volume and then fail to eject ("Resource busy":
+# something such as Spotlight or diskarbitrationd still holds the fresh
+# device). The mount path is gone after that, so the retries name the disk, and
+# the short waits give the holder time to let go.
+_FORCE_DETACH_WAITS_SEC = (0.0, 1.0, 2.0)
 
 
 def _run_hdiutil(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -64,6 +76,33 @@ def _run_hdiutil(*args: str, check: bool = True) -> subprocess.CompletedProcess[
         check=check,
         capture_output=True,
     )
+
+
+def _image_attached(image_path: Path, disk_device: str | None) -> bool:
+    """Whether ``hdiutil info`` still lists the image, matched by its file or by its disk.
+
+    An answer that cannot be read counts as attached, so a failed cleanup is
+    never mistaken for a finished one.
+    """
+    info = _run_hdiutil("info", "-plist", check=False)
+    if info.returncode != 0:
+        return True
+    payload = plistlib.loads(info.stdout)
+    images = payload.get("images") if isinstance(payload, dict) else None
+    if not isinstance(images, list):
+        return True
+    target = os.path.realpath(image_path)
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        path = image.get("image-path")
+        if isinstance(path, str) and os.path.realpath(path) == target:
+            return True
+        entities = image.get("system-entities")
+        if disk_device and isinstance(entities, list):
+            if any(isinstance(e, dict) and e.get("dev-entry") == disk_device for e in entities):
+                return True
+    return False
 
 
 @pytest.fixture
@@ -76,6 +115,7 @@ def case_insensitive_apfs_volume(tmp_path: Path) -> Iterator[Path]:
     volume_name = f"CyClawCI-{uuid.uuid4().hex[:12]}"
     expected_mount = Path("/Volumes") / volume_name
     detach_target = str(expected_mount)
+    disk_device: str | None = None
     attached = False
 
     try:
@@ -111,6 +151,8 @@ def case_insensitive_apfs_volume(tmp_path: Path) -> Iterator[Path]:
                 # An attached device remains a valid cleanup target if plist
                 # parsing later proves that no volume was actually mounted.
                 detach_target = device
+                if disk_device is None and _WHOLE_DISK.fullmatch(device):
+                    disk_device = device
             mount_point = entity.get("mount-point")
             if isinstance(mount_point, str):
                 mount_points.append(mount_point)
@@ -126,15 +168,22 @@ def case_insensitive_apfs_volume(tmp_path: Path) -> Iterator[Path]:
         detached = not attached
         if attached:
             normal = _run_hdiutil("detach", detach_target, check=False)
-            detached = normal.returncode == 0
+            # A failed detach can still have released the image (its return
+            # code covers the eject too), so ask hdiutil what is attached.
+            detached = normal.returncode == 0 or not _image_attached(image_path, disk_device)
+            forced: list[bytes] = []
+            for wait in _FORCE_DETACH_WAITS_SEC:
+                if detached:
+                    break
+                time.sleep(wait)
+                retry = _run_hdiutil("detach", "-force", disk_device or detach_target, check=False)
+                forced.append(retry.stderr)
+                detached = retry.returncode == 0 or not _image_attached(image_path, disk_device)
             if not detached:
-                forced = _run_hdiutil("detach", "-force", detach_target, check=False)
-                detached = forced.returncode == 0
-                if not detached:
-                    pytest.fail(
-                        "could not detach APFS test image; leaving it intact for recovery: "
-                        f"normal={normal.stderr!r}, forced={forced.stderr!r}"
-                    )
+                pytest.fail(
+                    "could not detach APFS test image; leaving it intact for recovery: "
+                    f"normal={normal.stderr!r}, forced={forced!r}"
+                )
         if detached:
             image_path.unlink(missing_ok=True)
 
