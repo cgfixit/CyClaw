@@ -7,6 +7,8 @@ No live services required — all external deps are mocked.
 import contextlib
 import copy
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -31,16 +33,24 @@ _ANCHOR_MODULES = (_logger_mod, _numbat_emitter_mod, _spend_mod)
 _REAL_ANCHOR = _logger_mod._anchor
 
 
+# Set in pytest_configure, read by _repo_logs_untouched and pytest_unconfigure.
+_SESSION_LOGS: dict[str, object] = {}
+
+
+def _anchor_under(sink_root: Path):
+    def _anchor_under_sink(path_str: str) -> Path:
+        path = Path(path_str).expanduser()
+        return path if path.is_absolute() else sink_root / path
+
+    return _anchor_under_sink
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "real_log_anchor: run with utils.logger._anchor's real repo-root anchoring "
-        "(tests OF the anchoring); see _runtime_logs_outside_the_repo",
+        "(tests OF the anchoring); see pytest_configure in tests/conftest.py",
     )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _runtime_logs_outside_the_repo(tmp_path_factory):
     # Tests exercise production code with configs whose log paths are relative
     # ("logs/audit.jsonl", the Numbat stream's "logs/numbat-events.ndjsonl",
     # and TEST_CONFIG's OVERRIDDEN-PER-TEST placeholders). The real _anchor
@@ -50,24 +60,34 @@ def _runtime_logs_outside_the_repo(tmp_path_factory):
     # Most offenders are agentic fixtures that copy the shipped config.yaml,
     # so fixing the config dicts one by one would not have reached them.
     #
-    # A structural backstop instead, like _disarm_agentic_write_execution
-    # below: for the whole session, relative sink paths resolve under a
-    # per-session tmp dir. Absolute paths (every test's own tmp_path) are
-    # untouched. Tests of the anchoring itself opt out with
-    # @pytest.mark.real_log_anchor. _repo_logs_untouched fails the session if
-    # anything still reaches <repo>/logs, e.g. a subprocess this in-process
-    # patch cannot follow.
-    sink_root = tmp_path_factory.mktemp("runtime-logs")
-
-    def _anchor_under_session_tmp(path_str: str) -> Path:
-        path = Path(path_str).expanduser()
-        return path if path.is_absolute() else sink_root / path
-
+    # A structural backstop instead: for the whole run, relative sink paths
+    # resolve under a per-run temp dir; absolute paths (every test's own
+    # tmp_path) are untouched. It is installed HERE, not in a session fixture,
+    # because six test modules import gate at module level and gate.py calls
+    # setup_logging(cfg) at import: that happens during collection, before any
+    # fixture exists, and would otherwise attach a root FileHandler on
+    # <repo>/logs/cyclaw.log that every later test's log lines flow into.
+    # Tests of the anchoring itself opt out with @pytest.mark.real_log_anchor;
+    # a subprocess cannot see this patch and needs absolute tmp paths in the
+    # config it is handed. _repo_logs_untouched fails the run if anything
+    # still reaches the repo.
+    _SESSION_LOGS["before"] = _repo_logs_snapshot()
+    sink_root = Path(tempfile.mkdtemp(prefix="cyclaw-test-logs-"))
     patcher = pytest.MonkeyPatch()
     for module in _ANCHOR_MODULES:
-        patcher.setattr(module, "_anchor", _anchor_under_session_tmp)
-    yield sink_root
-    patcher.undo()
+        patcher.setattr(module, "_anchor", _anchor_under(sink_root))
+    _SESSION_LOGS.update(sink_root=sink_root, patcher=patcher)
+
+
+def pytest_unconfigure(config):
+    patcher = _SESSION_LOGS.pop("patcher", None)
+    if isinstance(patcher, pytest.MonkeyPatch):
+        patcher.undo()
+    sink_root = _SESSION_LOGS.pop("sink_root", None)
+    if isinstance(sink_root, Path):
+        # ignore_errors: a logging FileHandler may still hold a file open,
+        # which Windows refuses to delete.
+        shutil.rmtree(sink_root, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
@@ -105,24 +125,28 @@ def _repo_logs_changes(before: dict[str, tuple[int, int]], after: dict[str, tupl
 
 @pytest.fixture(scope="session", autouse=True)
 def _repo_logs_untouched():
-    # Guard for the backstop above: the suite must leave <repo>/logs (and the
-    # placeholder dir) exactly as it found them. Stat-only at session start and end, never per test, so
-    # a test's own os.stat monkeypatch can never trip it. A server running
-    # from this same checkout writes there too; set
-    # CYCLAW_TEST_ALLOW_REPO_LOGS=1 to skip the guard for that run.
+    # Guard for the backstop in pytest_configure: the run must leave <repo>/logs
+    # (and the placeholder dir) exactly as it found them. The "before" snapshot
+    # is taken in pytest_configure, so collection-time writes count too; the
+    # comparison runs once, after the last test. Stat-only, never per test, so
+    # a test's own os.stat monkeypatch can never trip it. A server running from
+    # this same checkout writes there too; set CYCLAW_TEST_ALLOW_REPO_LOGS=1 to
+    # skip the guard for that run.
     if os.environ.get("CYCLAW_TEST_ALLOW_REPO_LOGS") == "1":
         yield
         return
-    before = _repo_logs_snapshot()
+    before = _SESSION_LOGS.get("before")
+    if not isinstance(before, dict):
+        before = _repo_logs_snapshot()
     yield
     changed = _repo_logs_changes(before, _repo_logs_snapshot())
     if changed:
         pytest.fail(
             f"tests created, modified, or deleted files under {_REPO_ROOT}: {changed}. "
-            "Route the writer's paths to tmp_path (tests/conftest.py's "
-            "_runtime_logs_outside_the_repo covers in-process sinks; a subprocess "
-            "needs a config with absolute tmp paths). If a server running from this "
-            "checkout wrote them, rerun with CYCLAW_TEST_ALLOW_REPO_LOGS=1.",
+            "Route the writer's paths to tmp_path (tests/conftest.py's pytest_configure "
+            "redirects in-process sinks; a subprocess needs a config with absolute tmp "
+            "paths). If a server running from this checkout wrote them, rerun with "
+            "CYCLAW_TEST_ALLOW_REPO_LOGS=1.",
             pytrace=False,
         )
 

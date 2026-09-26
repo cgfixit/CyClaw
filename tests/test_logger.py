@@ -48,8 +48,8 @@ class TestAnchor:
         assert logger._anchor("~/audit.jsonl") == tmp_path / "audit.jsonl"
 
 
-@pytest.mark.real_log_anchor
 class TestAuditLogPathAnchoring:
+    @pytest.mark.real_log_anchor
     def test_relative_audit_file_resolves_regardless_of_cwd(self, tmp_path, monkeypatch):
         # Regression: audit_log() previously did Path(cfg["logging"]["audit_file"])
         # directly, resolving a relative path against the process cwd instead
