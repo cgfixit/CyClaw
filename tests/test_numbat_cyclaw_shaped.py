@@ -34,7 +34,7 @@ emitter change with::
 
 from __future__ import annotations
 
-import importlib
+import importlib.util
 import json
 import os
 import shutil
@@ -77,10 +77,12 @@ def _numbat() -> str:
 
 
 def _import_or_missing(name: str) -> Any:
-    try:
-        return importlib.import_module(name)
-    except ImportError:
+    # One return, no maybe-unbound name: CodeQL does not model _missing as
+    # NoReturn, so both a try/except-return and a bind-then-return shape read
+    # to it as a possible None or uninitialized value.
+    if importlib.util.find_spec(name) is None:
         _missing(name)
+    return importlib.import_module(name)
 
 
 def _event_validator() -> Any:
