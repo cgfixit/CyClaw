@@ -63,7 +63,7 @@ def pytest_configure(config):
     # A structural backstop instead: for the whole run, relative sink paths
     # resolve under a per-run temp dir; absolute paths (every test's own
     # tmp_path) are untouched. It is installed HERE, not in a session fixture,
-    # because six test modules import gate at module level and gate.py calls
+    # because five test modules import gate at module level and gate.py calls
     # setup_logging(cfg) at import: that happens during collection, before any
     # fixture exists, and would otherwise attach a root FileHandler on
     # <repo>/logs/cyclaw.log that every later test's log lines flow into.
