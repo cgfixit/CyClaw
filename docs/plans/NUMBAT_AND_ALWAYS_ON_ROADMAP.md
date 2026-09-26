@@ -12,7 +12,7 @@
 > | Pre-action hook before Grok/Claude (`utils/external_pre_hook.py`) | `policy.fallback.pre_action_hook.enabled` | off. The `command:` example that `config.yaml` suggested (`numbat hook pre-tool --agent cyclaw`) never worked: the pinned 0.2.0 CLI exits 0, which the hook reads as allow |
 > | Hook-verdict emission (Slice A) | `pre_action_hook.emit_verdict` | off, and inert while the hook is off |
 > | CEL monitor (Slice B, `utils/numbat_cel.py`) | `numbat.cel.enabled` | off; monitor-only |
-> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`), on hand-written fixtures; nothing scores the live stream |
+> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures plus one live executor-jail run, never mainline `/query` or `/ops/*` output; nothing scores the live stream |
 >
 > Checking the live stream against the pinned CLI (Phase 4 of #1458) found that
 > the CLI **rejects** it. Every mainline `/query` event carried a
