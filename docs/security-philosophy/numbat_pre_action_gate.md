@@ -64,25 +64,45 @@ fixture jobs run.
    `event_type: "network.indicator"`, `decision: "asked"`,
    `tool_name: "external_llm_call"`, `model` (the configured tag),
    `model_provider` (`"xai"` or `"anthropic"`), `url` (the provider's
-   `base_url`), `tags: ["cyclaw", "pre_action_hook", "<provider>"]`, and the
+   `base_url` with any userinfo, query and fragment removed, so a credential
+   configured into it never reaches a rule or a file),
+   `tags: ["cyclaw", "pre_action_hook", "<provider>"]`, and the
    `endpoint` host fields. The query is present only as its SHA-256, inside
    `content_preview`, and not at all when
    `logging.audit_fields.include_query_hash` is false.
-2. The event is written to a private temp file, and
-   `numbat rules test --fixture <file> --no-builtin-rules --rules-dir <dir> ...`
-   evaluates it against the operator's rule directories only. The shipped
-   catalog is detection-only, so it is not loaded.
-3. A match of a rule with `enforce: true` denies. A match of a rule without it
+2. `numbat version` must print the pinned line, `numbat 0.2.0 (schema
+   0.3.0)`, on every call. `/health` checks it too, but `/health` only
+   advises; a different binary (`/bin/true`, another release) denies the call
+   itself.
+3. A private temp directory receives the event, a byte-for-byte snapshot of
+   each rule directory, and the engine's canary rule. Then
+   `numbat rules test --fixture <file> --no-builtin-rules --rules-dir <snapshot> ... --rules-dir <canary>`
+   evaluates the event against the operator's rules only. The shipped catalog
+   is detection-only, so it is not loaded. The engine classifies the same
+   bytes Numbat reads, so an edit that lands mid-request cannot pair one
+   version's `enforce` flag with another version's match.
+4. The canary rule, `cyclaw.gate.canary`, matches every call. A run that does
+   not report it denies. Exit 0 with no output is also what `/bin/true` or a
+   CLI that skipped the event prints, so only the canary's match shows that
+   the rules actually ran against this call.
+5. A match of a rule with `enforce: true` denies. A match of a rule without it
    is a monitor match: the call is allowed and the match is reported. That is
    Numbat's own rule semantics: severity never blocks, `enforce: true` does.
-4. The temp file is deleted.
+6. The temp directory is deleted.
 
-Every failure denies: a missing binary, a missing or empty `rules_dirs`, a rule
-that does not compile, a duplicate rule id, all rules disabled, a timeout, a
-non-zero exit, output the engine cannot parse, or a matched rule id the engine
-did not find in the rule files. Each evaluation spawns the binary once:
-measured end to end at a median of 12 ms (Linux x86_64, two example rules),
-against a default `timeout_sec` of 5.
+Every failure denies:
+- a missing binary, or one that is not the pinned release;
+- a missing or empty `rules_dirs`, or a rules file that cannot be read;
+- a rule that does not compile, a duplicate rule id, all rules disabled, or a
+  rule that uses the reserved id `cyclaw.gate.canary`;
+- a timeout, a non-zero exit, output the engine cannot parse, a run that does
+  not report the canary, or a matched rule id the engine did not find in the
+  rule files.
+
+Each evaluation spawns the binary twice (the version check, then `rules
+test`) within one `timeout_sec` budget. Measured end to end at a median of
+17 ms (p90 19 ms; Linux x86_64, the two example rules), against a default
+`timeout_sec` of 5.
 
 ## Enabling the Numbat engine for the pre-action gate
 
@@ -139,6 +159,13 @@ dual-run observation issue first. To stop gating, set `enabled: false`: a gate
 whose rules are all disabled denies every call, because `numbat rules test`
 exits non-zero with nothing to run.
 
+Each call reads its rules once, into the snapshot described above. To change
+several rules at once, build the new set in a fresh directory and switch a
+symlink that `rules_dirs` points at. The engine resolves each rules directory
+once per call, so a call sees the old set or the new one, never half of each.
+Editing files in place is safe for one file at a time. The rule id
+`cyclaw.gate.canary` is reserved for the engine.
+
 ## Pre-action gate reason codes and where they show up
 
 Every decided verdict carries one `reason_code`
@@ -148,10 +175,10 @@ Every decided verdict carries one `reason_code`
 |---|---|---|
 | `hook_allowed` | allow | the command exited 0, or no `enforce: true` rule matched |
 | `hook_denied` | deny | policy: the command exited 2, or an `enforce: true` rule matched |
-| `hook_timeout` | deny | the command or `numbat rules test` ran past `timeout_sec` |
-| `hook_error` | deny | the command or the numbat binary could not be started |
-| `hook_failure` | deny | a bad exit code, a Numbat error, or unparseable output |
-| `hook_misconfigured` | deny | an empty command, no `rules_dirs`, a missing rules directory, or an unknown engine |
+| `hook_timeout` | deny | the command, the version check, or `numbat rules test` ran past `timeout_sec` |
+| `hook_error` | deny | the command or the numbat binary could not be started, or a rules file could not be read |
+| `hook_failure` | deny | a bad exit code, a Numbat error, unparseable output, or no canary match |
+| `hook_misconfigured` | deny | an empty command, no `rules_dirs`, a missing rules directory, an unknown engine, a binary that is not the pinned release, or a rule using the reserved canary id |
 
 The code appears in four places:
 
@@ -173,7 +200,7 @@ adds one event to `logs/numbat-events.ndjsonl`:
 
 | Verdict | Event | Decision | Confidence |
 |---|---|---|---|
-| allow | `network.indicator` with the provider `url` | `allowed` | high |
+| allow | `network.indicator` with the provider `url` (credentials stripped) | `allowed` | high |
 | policy deny (`hook_denied`) | `permission.denied` with `approval_reason: "hook_denied"` | `denied` | high |
 | gate failure (any other deny) | `network.indicator` with the provider `url` | `denied` | low |
 

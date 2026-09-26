@@ -31,9 +31,17 @@ reported and the call is allowed, which is how a new policy gets an
 observe-only trial before it can deny.
 
 Unlike ``numbat hook``, every failure here fails CLOSED: a missing binary, a
-missing or empty rules directory, a rule that does not compile, a duplicate
-rule id, a timeout, a non-zero exit, or output this module cannot parse is a
-deny. It can only shrink what the I3 triple gate already allowed.
+binary that is not the pinned release, a missing or empty rules directory, a
+rules file that cannot be read, a rule that does not compile, a duplicate rule
+id, a timeout, a non-zero exit, or output this module cannot parse is a deny.
+An allow also needs positive evidence that Numbat evaluated THIS call: the
+engine adds its own always-matching canary rule (id ``cyclaw.gate.canary``,
+reserved), and a run that does not report it -- ``/bin/true``, a CLI that
+skipped the event -- denies, where exit 0 with empty output used to read as
+"nothing matched". The rules Numbat evaluates are a byte snapshot, the same
+bytes this module classifies, so a rule edited mid-request cannot pair one
+version's enforce flag with another version's match. It can only shrink what
+the I3 triple gate already allowed.
 
 Stdlib + PyYAML only; the binary runs as a list-form subprocess with no
 shell. Numbat is never imported (it is a Go binary, not a library).
@@ -75,6 +83,16 @@ _QUERY_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _RULE_SUFFIXES = (".yaml", ".yml")
 _READINESS_TTL_SEC = 30.0
 _MAX_REASON_CHARS = 300
+
+# The engine's own evidence rule: it matches every event, so each evaluated call
+# reports it. Reserved -- an operator rule with this id is refused.
+CANARY_RULE_ID = "cyclaw.gate.canary"
+_CANARY_RULE = f"""id: {CANARY_RULE_ID}
+version: "1.0"
+title: CyClaw pre-action gate canary (engine-internal; proves the call was evaluated)
+severity: info
+expr: "true"
+"""
 
 
 def _gate_cfg(cfg: dict[str, Any] | None) -> dict[str, Any]:
@@ -131,20 +149,72 @@ def classify_rules(dirs: list[Path]) -> tuple[set[str], set[str]]:
     known: set[str] = set()
     enforcing: set[str] = set()
     for root in dirs:
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.suffix not in _RULE_SUFFIXES:
+        for path in _tree_files(root):
+            if path.suffix not in _RULE_SUFFIXES:
                 continue
             try:
-                doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, yaml.YAMLError):
+                identity = _rule_identity(path.read_bytes())
+            except OSError:
                 continue
-            # Companion *_tests.yaml files carry rule_id, never id.
-            if not isinstance(doc, dict) or not isinstance(doc.get("id"), str):
-                continue
-            known.add(doc["id"])
-            if doc.get("enforce") is True and doc.get("enabled", True) is not False:
-                enforcing.add(doc["id"])
+            if identity is not None:
+                known.add(identity[0])
+                if identity[1]:
+                    enforcing.add(identity[0])
     return known, enforcing
+
+
+def _tree_files(root: Path) -> list[Path]:
+    return [path for path in sorted(root.rglob("*")) if path.is_file()]
+
+
+def _rule_identity(data: bytes) -> tuple[str, bool] | None:
+    """(rule id, can deny) for one rules file's bytes; None when it is not a rule.
+
+    A rule can deny when it sets ``enforce: true`` and is not ``enabled:
+    false``. Companion ``*_tests.yaml`` files carry ``rule_id``, never ``id``.
+    """
+    try:
+        doc = yaml.safe_load(data.decode("utf-8"))
+    except (UnicodeError, yaml.YAMLError):
+        return None
+    if not isinstance(doc, dict) or not isinstance(doc.get("id"), str):
+        return None
+    return doc["id"], doc.get("enforce") is True and doc.get("enabled", True) is not False
+
+
+def _snapshot_rules(dirs: list[Path], dest: Path) -> tuple[list[Path], set[str], set[str]]:
+    """Copy every file under each rules dir into ``dest`` and classify the copies.
+
+    Numbat then evaluates the snapshot, so the rules it runs are byte-for-byte
+    the rules classified here. Reading the live files twice (once to classify,
+    once in the CLI) let a mid-request edit mix two versions: promote rule R
+    to enforce and retire rule Q in one change, and a call both versions deny
+    was allowed, because the CLI reported only R and the stale classification
+    said R could not deny. Each root is resolved once, so swapping a symlink to
+    a new rules directory is an atomic way to change several rules at once.
+    Raises OSError when a file cannot be read: a rule the gate cannot see must
+    deny, never vanish from both sides.
+    """
+    snapshot: list[Path] = []
+    known: set[str] = set()
+    enforcing: set[str] = set()
+    for index, root in enumerate(dirs):
+        real_root = root.resolve()
+        target_root = dest / f"rules-{index}"
+        target_root.mkdir()
+        for path in _tree_files(real_root):
+            data = path.read_bytes()
+            target = target_root / path.relative_to(real_root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            if path.suffix in _RULE_SUFFIXES:
+                identity = _rule_identity(data)
+                if identity is not None:
+                    known.add(identity[0])
+                    if identity[1]:
+                        enforcing.add(identity[0])
+        snapshot.append(target_root)
+    return snapshot, known, enforcing
 
 
 def _provider_url(provider: str, cfg: dict[str, Any] | None) -> str:
@@ -175,14 +245,15 @@ def build_gate_event(provider: str, model: str, query_hash: str, cfg: dict[str, 
     the provider) and the ``event.endpoint`` host fields. The query is only
     ever present as its SHA-256, inside ``content_preview``.
     """
-    from utils.numbat_emitter import build_event  # lazy: keeps this module's import surface stdlib + yaml
+    # lazy: keeps this module's import surface stdlib + yaml
+    from utils.numbat_emitter import build_event, redact_url_for_numbat
 
     preview = None
     if _include_query_hash(cfg) and _QUERY_HASH_RE.fullmatch(query_hash or ""):
         preview = json.dumps({"query_hash": query_hash}, separators=(",", ":"))
     return build_event(
         "network.indicator",
-        url=_provider_url(provider, cfg) or None,
+        url=redact_url_for_numbat(_provider_url(provider, cfg)),
         tool_name="external_llm_call",
         decision="asked",
         model=model or None,
@@ -221,6 +292,9 @@ def evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | N
 
 
 def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | None, *, timeout: float) -> dict[str, Any]:
+    # One budget for the whole decision: the version check and the rules run
+    # share timeout_sec rather than each getting all of it.
+    deadline = time.monotonic() + timeout
     dirs = rules_dirs(cfg)
     if not dirs:
         return _deny("hook_misconfigured", "numbat engine needs a non-empty list of rules_dirs")
@@ -231,30 +305,47 @@ def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | 
     if binary is None:
         return _deny("hook_error", "numbat binary not found (policy.fallback.pre_action_hook.numbat.binary)")
 
-    event = build_gate_event(provider, model, query_hash, cfg)
-    known, enforcing = classify_rules(dirs)
-    fd, fixture = tempfile.mkstemp(prefix="cyclaw-pre-action-", suffix=".ndjson")
+    # readiness() checks the version too, but only for /health, which advises
+    # and cannot enforce. A wrong binary must deny here, on the call itself.
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n")
-        argv = [binary, "rules", "test", "--fixture", fixture, "--no-builtin-rules"]
-        for directory in dirs:
+        version = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell
+            [binary, "version"], capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return _deny("hook_timeout", f"numbat version check timed out after {timeout:g}s")
+    except (OSError, ValueError) as exc:
+        return _deny("hook_error", f"numbat could not run: {type(exc).__name__}")
+    if _first_line(version.stdout) != PINNED_VERSION_LINE:
+        return _deny("hook_misconfigured", f"numbat binary is not the pinned {PINNED_VERSION_LINE!r}")
+
+    event = build_gate_event(provider, model, query_hash, cfg)
+    with tempfile.TemporaryDirectory(prefix="cyclaw-pre-action-", ignore_cleanup_errors=True) as work:
+        workdir = Path(work)
+        try:
+            snapshot, known, enforcing = _snapshot_rules(dirs, workdir)
+        except OSError as exc:
+            return _deny("hook_error", f"numbat rules could not be read: {type(exc).__name__}")
+        if CANARY_RULE_ID in known:
+            return _deny("hook_misconfigured", f"rule id {CANARY_RULE_ID} is reserved for the engine")
+        canary_dir = workdir / "canary"
+        canary_dir.mkdir()
+        (canary_dir / "cyclaw_gate_canary.yaml").write_text(_CANARY_RULE, encoding="utf-8")
+        fixture = workdir / "event.ndjson"
+        fixture.write_text(json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
+        argv = [binary, "rules", "test", "--fixture", str(fixture), "--no-builtin-rules"]
+        for directory in [*snapshot, canary_dir]:
             argv += ["--rules-dir", str(directory)]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return _deny("hook_timeout", f"numbat gate ran out of its {timeout:g}s budget")
         try:
             proc = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell
-                argv, capture_output=True, text=True, timeout=timeout, check=False,
+                argv, capture_output=True, text=True, timeout=remaining, check=False,
             )
         except subprocess.TimeoutExpired:
             return _deny("hook_timeout", f"numbat rules test timed out after {timeout:g}s")
         except (OSError, ValueError) as exc:
             return _deny("hook_error", f"numbat could not run: {type(exc).__name__}")
-    finally:
-        try:
-            os.unlink(fixture)
-        except OSError:
-            # A leftover temp fixture holds one hashed event and nothing else;
-            # it must not turn a decided verdict into an exception.
-            pass
 
     if proc.returncode != 0:
         return _deny("hook_failure", f"numbat rules test exited {proc.returncode}: {_first_line(proc.stderr)}")
@@ -267,6 +358,13 @@ def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | 
         if not sep or event_id.strip() != event["event_id"] or not rule_id.strip():
             return _deny("hook_failure", "numbat rules test printed output this engine cannot parse")
         matched.append(rule_id.strip())
+
+    # Positive evidence: exit 0 with no output is also what /bin/true, or a
+    # CLI that skipped the event, would produce. Only the canary's match
+    # shows the rules actually ran against this call.
+    if CANARY_RULE_ID not in matched:
+        return _deny("hook_failure", "numbat rules test did not evaluate the proposed call (no canary match)")
+    matched = [rule for rule in matched if rule != CANARY_RULE_ID]
 
     unknown = sorted(set(matched) - known)
     if unknown:
@@ -346,6 +444,7 @@ def clear_readiness_cache() -> None:
 
 
 __all__ = [
+    "CANARY_RULE_ID",
     "DEFAULT_BINARY",
     "PINNED_VERSION_LINE",
     "build_gate_event",

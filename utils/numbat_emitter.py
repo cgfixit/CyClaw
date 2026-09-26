@@ -52,6 +52,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
+from urllib.parse import urlsplit, urlunsplit
 
 from utils.logger import _anchor, _get_config
 
@@ -247,6 +248,31 @@ def redact_argv_for_numbat(argv: list[str]) -> str:
             continue
         redacted.append(token)
     return shlex.join(redacted)
+
+
+def redact_url_for_numbat(url: str | None) -> str | None:
+    """``scheme://host[:port]/path`` of ``url``; None when it has no usable host.
+
+    The pre-action hook records the provider's configured ``base_url``, and
+    utils/endpoint_trust.py pins only the parsed hostname, so a URL like
+    ``https://token@api.x.ai/v1`` passes it. The Numbat stream is a persistent
+    file, so userinfo, query and fragment -- where a credential can ride --
+    never reach it; a rule keyed on the host or path sees what it saw before.
+    """
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.scheme or not host:
+        return None
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def posix_path(path: str | Path | None) -> str | None:
@@ -1005,6 +1031,7 @@ __all__ = [
     "emit_numbat_command",
     "emit_numbat_event",
     "posix_path",
+    "redact_url_for_numbat",
     "project_audit_record",
     "redact_argv_for_numbat",
 ]

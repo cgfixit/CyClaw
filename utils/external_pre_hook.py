@@ -242,7 +242,7 @@ def _emit_hook_verdict(
     the hook's graph verdict.
     """
     try:
-        from utils.numbat_emitter import emit_numbat_event
+        from utils.numbat_emitter import emit_numbat_event, redact_url_for_numbat
     except Exception as exc:  # noqa: BLE001 - projection must not break the hook
         logger.warning("pre_action_hook could not load numbat_emitter: %s", exc)
         return
@@ -267,7 +267,7 @@ def _emit_hook_verdict(
             model_provider=_PROVIDER_TO_VENDOR.get(provider, provider),
             tool_name="external_llm_call",
             decision="allowed" if allowed else "denied",
-            url=_provider_url(provider, cfg),
+            url=redact_url_for_numbat(_provider_url(provider, cfg)),
             approval_required=True if policy_deny else None,
             approval_decision="denied" if policy_deny else None,
             approval_reason=reason_code if policy_deny else None,

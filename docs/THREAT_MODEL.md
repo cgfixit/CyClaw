@@ -1170,17 +1170,33 @@ What issue #1458 changed, and the boundaries that follow:
   vendors or imports Numbat. Numbat's own SECURITY.md states it makes no
   outbound request without an HTTP sink or `ship`, and the engine uses neither
   (otel-hardening classifies the binary under the numbat row).
-- **Tampering can deny, never allow.** A rule set edited into an error, a
-  missing binary, a timeout, unparseable output, or a match the engine cannot
-  classify all deny. So does a hook enabled with nothing to run, which used to
-  allow before #1458. A hostile or broken rule set is therefore a denial of
+- **Rule tampering and misconfiguration can deny, never allow.** All of these
+  deny:
+  - a rule set edited into an error;
+  - a missing binary, or one that is not the pinned release (checked on every
+    call, not only by `/health`);
+  - a timeout, unparseable output, or a match the engine cannot classify;
+  - a run that shows no evidence of evaluating the call, i.e. the engine's
+    canary rule did not match. Before the #1467 review, exit 0 with no output
+    read as "nothing matched", so `/bin/true` as the binary allowed every
+    call.
+
+  So does a hook enabled with nothing to run, which used to allow before
+  #1458. Rules are evaluated from a per-call byte snapshot of `rules_dirs`, so
+  an edit racing a call cannot combine two rule versions into an allow.
+  Replacing the binary itself is code execution, covered by the previous
+  bullet. A hostile or broken rule set is therefore a denial of
   service against online escalation, never an egress path. The local answer
   path is untouched, and `/health` reports the hook `degraded`.
 - **What reaches the hook.** Only provider, configured model tag, provider URL,
-  host endpoint fields, and the query's SHA-256; the hash is omitted from the
-  temp fixture and the stream when `logging.audit_fields.include_query_hash`
-  is false. Neither engine sees query text, soul text, or retrieved context.
-  The numbat engine writes one 0600 temp file per call and deletes it.
+  host endpoint fields, and the query's SHA-256. The URL has userinfo, query
+  and fragment removed before it enters an event, because
+  `utils/endpoint_trust.py` pins only the hostname. The hash is omitted from
+  the temp fixture and the stream when
+  `logging.audit_fields.include_query_hash` is false. Neither engine sees
+  query text, soul text, or retrieved context. For each call, the numbat
+  engine writes the event, a snapshot of the rules and its canary rule into
+  a private (0700) temp directory, and deletes the directory afterwards.
 - **`numbat hook` is explicitly out.** Used as the `command`, it fails open: it
   exits 0 on errors and cannot see the provider or URL. `config.yaml` says
   so, and `tests/test_numbat_gate.py` pins the behavior against the pinned
