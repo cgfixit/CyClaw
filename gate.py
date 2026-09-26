@@ -85,7 +85,7 @@ from utils.errors import (
 )
 from utils.guardrail_bridge import build_generate_guard, build_input_guard, build_output_guard
 from utils.health import check_all, close_http_client
-from utils.numbat_cel import monitor_request
+from utils.numbat_cel import model_provider_for_role, monitor_request
 from utils.personality import PersonalityManager
 from utils.authn_manager import AuthManager, BOOTSTRAP_USERNAME
 from gate_ops import register_ops_routes
@@ -333,15 +333,6 @@ _SECRET_PATTERNS = [
     re.compile(r'xox[baprs]-[0-9a-zA-Z\-]+'), # Slack tokens
     re.compile(r'AKIA[0-9A-Z]{16}'),           # AWS access keys
 ]
-
-def _model_provider_for(answer_model: str) -> str:
-    """Map an answer_model string to a Numbat-friendly provider label."""
-    if answer_model.startswith("grok"):
-        return "xai"
-    if answer_model.startswith("claude"):
-        return "anthropic"
-    return "ollama"
-
 
 def _sanitize_error(exc: Exception) -> str:
     """Strip credential-like content from exception messages before HTTP response."""
@@ -986,11 +977,15 @@ async def query_endpoint(request: Request, req: QueryRequest):
                 answer_model=result.get("answer_model"),
                 guardrail_blocked=result.get("guardrail_blocked"),
                 guardrail_rails=result.get("guardrail_rails"),
-                model_provider=_model_provider_for(result.get("answer_model", "")),
+                # By role, so answers no model produced (hook-denied,
+                # guardrail-blocked, the user-gate pause) carry "" rather
+                # than the "ollama" a prefix check used to give them.
+                model_provider=model_provider_for_role(result.get("answer_model"), cfg),
                 source_hashes=[
                     hash_query(f"{s.get('source', '')}:{s.get('chunk_id', -1)}")
                     for s in sources
                 ],
+                llm_model=_llm_identity(result.get("answer_model", ""), cfg).get("llm_model"),
                 cfg=cfg,
             )
     except Exception as exc:

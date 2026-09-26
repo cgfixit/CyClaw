@@ -5,6 +5,13 @@ already-hashed/structured request fields (never raw prompt text) and emit a
 low-confidence Numbat event on match.  They do NOT block ``/query``; the regex
 banned_patterns list remains the fail-closed baseline.
 
+A match is projected as ``tool.result`` from ``tool_name: "cel_monitor"`` with
+``decision: "allowed"``, because the request was allowed: nothing here can
+deny it.  It used to be ``permission.denied`` with ``decision: "denied"``,
+which recorded a block that never happened and could satisfy the first step
+of Numbat sequence rules keyed on denials, such as the shipped
+``chain.permission_denied_then_runtime_bypass`` (issue #1458 Phase 3).
+
 The ``cel-python`` import is lazy and guarded by ``numbat.cel.enabled``.  When
 disabled, this module never imports the optional dependency, so the core
 request path stays free of it (I6 hygiene).
@@ -12,11 +19,44 @@ request path stays free of it (I6 hygiene).
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 from typing import Any
 
 logger = logging.getLogger("cyclaw.numbat_cel")
+
+DEFAULT_MAX_RULE_MS = 20.0
+
+# Same shape as utils/external_pre_hook.py's _QUERY_HASH_RE: only a real
+# SHA-256 hex digest may ride in the emitted preview.
+_QUERY_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+
+# answer_model role (graph.py's GraphState vocabulary) -> Numbat model_provider.
+# The two local roles resolve to the configured local provider at call time.
+_ROLE_PROVIDERS = {"grok": "xai", "claude": "anthropic"}
+_LOCAL_ROLES = frozenset({"local", "offline-best-effort"})
+
+
+def model_provider_for_role(answer_model: str | None, cfg: dict[str, Any] | None = None) -> str:
+    """Map an answer_model role to the provider that produced the answer.
+
+    Returns ``""`` for roles where no model ran ("hook-denied",
+    "guardrail-blocked", "external-unavailable", the empty user-gate pause).
+    gate.py's old prefix check answered "ollama" for all of those, so a CEL
+    rule such as ``model_provider == "ollama"`` matched requests no local model
+    ever touched.
+    """
+    role = answer_model or ""
+    if role in _ROLE_PROVIDERS:
+        return _ROLE_PROVIDERS[role]
+    if role in _LOCAL_ROLES:
+        models = cfg.get("models") if isinstance(cfg, dict) else None
+        local = models.get("local_llm") if isinstance(models, dict) else None
+        provider = local.get("provider") if isinstance(local, dict) else None
+        return provider if isinstance(provider, str) and provider else "ollama"
+    return ""
 
 
 def _cel_cfg(cfg: dict[str, Any] | None) -> dict[str, Any]:
@@ -50,6 +90,20 @@ def _compile_rules(rules: list[Any]) -> list[tuple[int, Any]]:
         except Exception as exc:  # noqa: BLE001 - one bad rule must not break others
             logger.warning("numbat.cel.rules[%d] failed to compile: %s", idx, exc)
     return compiled
+
+
+def _max_rule_ms(raw: Any) -> float:
+    """numbat.cel.max_rule_ms as a positive number; anything else is the default.
+
+    The budget only decides when to log a slow rule, but a string or null from
+    YAML (``max_rule_ms: "20"``) used to reach the ``elapsed_ms > max_ms``
+    compare, which sits outside the per-rule guard, and raise TypeError out of
+    this never-raise function. gate.py's outer guard kept ``/query`` alive,
+    but the monitor then did nothing on any request.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw <= 0:
+        return DEFAULT_MAX_RULE_MS
+    return float(raw)
 
 
 def _build_activation(fields: dict[str, Any]) -> dict[str, Any]:
@@ -101,7 +155,7 @@ def evaluate_cel_monitor(
         "source_hashes": list(source_hashes or []),
     }
     activation = _build_activation(fields)
-    max_ms = block.get("max_rule_ms", 20)
+    max_ms = _max_rule_ms(block.get("max_rule_ms"))
     matches: list[int] = []
 
     for idx, prgm in compiled:
@@ -122,6 +176,39 @@ def evaluate_cel_monitor(
     return matches
 
 
+def _include_query_hash(cfg: dict[str, Any] | None) -> bool:
+    """logging.audit_fields.include_query_hash, default True.
+
+    Twin of utils/external_pre_hook.py's helper of the same name (two call
+    sites, kept separate on purpose): an operator who opted out of the hash in
+    the audit trail must not get it back through the Numbat stream.
+    """
+    if not isinstance(cfg, dict):
+        return True
+    logging_cfg = cfg.get("logging", {})
+    if not isinstance(logging_cfg, dict):
+        return True
+    audit_fields = logging_cfg.get("audit_fields", {})
+    if not isinstance(audit_fields, dict):
+        return True
+    return bool(audit_fields.get("include_query_hash", True))
+
+
+def _match_preview(matches: list[int], query_hash: str | None, cfg: dict[str, Any] | None, cap: int) -> str:
+    """JSON preview joining a match back to its query, within ``cap`` characters.
+
+    query_hash goes first because it is the only join key to the rag_query
+    record; the matched indices also ride in the tags, so they are the part
+    dropped when a long match list would overflow the schema's cap.
+    """
+    preview: dict[str, Any] = {}
+    if query_hash and _QUERY_HASH_RE.fullmatch(query_hash) and _include_query_hash(cfg):
+        preview["query_hash"] = query_hash
+    with_rules = {**preview, "cel_rules_matched": matches}
+    text = json.dumps(with_rules, separators=(",", ":"))
+    return text if len(text) <= cap else json.dumps(preview, separators=(",", ":"))
+
+
 def monitor_request(
     *,
     query_hash: str | None = None,
@@ -131,9 +218,16 @@ def monitor_request(
     guardrail_rails: list[str] | None = None,
     model_provider: str | None = None,
     source_hashes: list[str] | None = None,
+    llm_model: str | None = None,
     cfg: dict[str, Any] | None = None,
 ) -> None:
-    """Monitor-only CEL hook.  Emits a Numbat event on rule match; never blocks."""
+    """Monitor-only CEL hook.  Emits a Numbat event on rule match; never blocks.
+
+    ``answer_model`` is the graph's answer ROLE ("local", "grok", ...), which
+    the rules see; ``llm_model`` is the concrete model tag that answered and
+    is what the event's ``model`` field carries. It is omitted when unknown
+    rather than filled with the role.
+    """
     matches = evaluate_cel_monitor(
         query_hash=query_hash,
         top_score=top_score,
@@ -148,26 +242,25 @@ def monitor_request(
         return
 
     try:
-        from utils.numbat_emitter import emit_numbat_event
+        from utils.numbat_emitter import CONTENT_PREVIEW_MAX_CHARS, emit_numbat_event
     except Exception as exc:  # noqa: BLE001 - projection must not fail the caller
         logger.warning("numbat_cel could not load numbat_emitter: %s", exc)
         return
 
-    reason = f"cel_rules_matched:{','.join(str(i) for i in matches)}"
     try:
         emit_numbat_event(
-            "permission.denied",
-            model=answer_model,
-            model_provider=model_provider,
+            "tool.result",
+            model=llm_model or None,
+            model_provider=model_provider or None,
             tool_name="cel_monitor",
-            decision="denied",
-            approval_required=True,
-            approval_decision="denied",
-            approval_reason=reason,
+            # Monitor-only: the request this describes was allowed.
+            decision="allowed",
             actor="system",
             entrypoint="cyclaw",
-            tags=["cel_monitor", f"rules:{','.join(str(i) for i in matches)}"],
+            tags=["cel_monitor", "monitor_only", f"rules:{','.join(str(i) for i in matches)}"],
             confidence="low",
+            content_preview=_match_preview(matches, query_hash, cfg, CONTENT_PREVIEW_MAX_CHARS),
+            artifact_type="cel_monitor",
             cfg=cfg,
         )
     except Exception as exc:  # noqa: BLE001 - derived stream must never fail the caller

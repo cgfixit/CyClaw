@@ -319,7 +319,17 @@ class TestCelMonitorRequestPath:
         records = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
         assert len(records) == 1
         assert records[0]["tool_name"] == "cel_monitor"
-        assert records[0]["approval_reason"] == "cel_rules_matched:0"
+        # Monitor-only (#1458 Phase 3): the match is recorded as an allowed
+        # tool.result joined to the query by hash, never as a denial.
+        assert records[0]["event_type"] == "tool.result"
+        assert records[0]["decision"] == "allowed"
+        assert "rules:0" in records[0]["tags"]
+        preview = json.loads(records[0]["content_preview"])
+        assert preview == {"query_hash": hash_query("What is Veeam immutability?"), "cel_rules_matched": [0]}
+        # The mock graph answers with the "local" role; the event names the
+        # configured local model tag (TEST_CONFIG's), never the role string.
+        assert records[0]["model_provider"] == "ollama"
+        assert records[0]["model"] == gate.cfg["models"]["local_llm"]["model"]
 
     def test_monitor_receives_answer_source_hashes_without_celpy(self, client):
         # celpy-free complement to test_monitor_emits_on_real_source_hash (which
@@ -338,6 +348,31 @@ class TestCelMonitorRequestPath:
         assert resp.status_code == 200
         mock_monitor.assert_called_once()
         assert mock_monitor.call_args.kwargs["source_hashes"] == [hash_query("test.md:0")]
+        # The provider is mapped by role and the concrete model tag rides
+        # separately, so a CEL event never names the role as the model.
+        assert mock_monitor.call_args.kwargs["model_provider"] == "ollama"
+        assert mock_monitor.call_args.kwargs["llm_model"] == gate.cfg["models"]["local_llm"]["model"]
+
+    @pytest.mark.parametrize(
+        ("answer_model", "expected_provider"),
+        [("hook-denied", ""), ("guardrail-blocked", ""), ("", ""), ("grok", "xai"), ("claude", "anthropic")],
+    )
+    def test_monitor_provider_follows_the_answer_role(self, client, answer_model, expected_provider):
+        # gate.py's old prefix check reported "ollama" for every answer no
+        # model produced, so a CEL rule on model_provider == "ollama" matched
+        # hook-denied and guardrail-blocked requests (#1458 Phase 3).
+        import gate
+
+        test_client, mock_graph = client
+        mock_graph.invoke.return_value = {
+            **mock_graph.invoke.return_value,
+            "answer_model": answer_model,
+        }
+        gate.cfg["numbat"] = {"cel": {"enabled": True}}
+        with patch("gate.monitor_request") as mock_monitor:
+            resp = test_client.post("/query", json={"query": "What is Veeam immutability?"})
+        assert resp.status_code == 200
+        assert mock_monitor.call_args.kwargs["model_provider"] == expected_provider
 
     def test_monitor_skipped_when_cel_disabled(self, client):
         # TEST_CONFIG carries no numbat block, so numbat.cel.enabled is false:
