@@ -120,6 +120,7 @@ def require_api_key(
 from utils.config_validation import (
     validate_auth_config,
     validate_boot_timeout_config,
+    validate_guardrails_config,
     validate_tls_config,
     validate_fallback_confirm_placeholder,
     validate_local_llm_reasoning_effort,
@@ -139,6 +140,9 @@ validate_retrieval_config(cfg)
 validate_personality_config(cfg)
 validate_auth_config(cfg)
 validate_tls_config(cfg)
+# A quoted guardrails.enabled left every guard silently off; refuse it here,
+# before build_input_guard below reads the flag.
+validate_guardrails_config(cfg)
 # An unrecognized reasoning_effort would otherwise reach Ollama and come back as
 # an HTTP 400 on the first /query -- surface it here instead, before any socket.
 validate_local_llm_reasoning_effort(cfg)
