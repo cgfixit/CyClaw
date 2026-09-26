@@ -15,10 +15,13 @@ Run with:
     pytest tests/test_conftest_fixtures.py -v
 """
 
+import os
+
 import pytest
 
 from retrieval.hybrid_search import SearchResult
 from tests.conftest import (
+    _REPO_ROOT,
     MOCK_EMPTY_RESULTS,
     MOCK_HIGH_SCORE_RESULTS,
     MOCK_LOW_SCORE_RESULTS,
@@ -26,6 +29,8 @@ from tests.conftest import (
     MockGrokClient,
     MockLocalLLM,
     MockRetriever,
+    _repo_logs_changes,
+    _repo_logs_snapshot,
 )
 
 
@@ -200,3 +205,86 @@ def test_two_config_fixtures_do_not_share_nested_state(test_config, tmp_path):
     cfg1["models"]["grok"]["enabled"] = True
     assert cfg2["models"]["grok"]["enabled"] is False
     assert cfg1["models"] is not cfg2["models"]
+
+
+# ---------------------------------------------------------------------------
+# 12. Runtime log sinks stay out of the repo's logs/ (and the guard sees it)
+# ---------------------------------------------------------------------------
+
+def test_test_config_keeps_numbat_projection_enabled_under_tmp_path(test_config, tmp_path):
+    """The derived stream stays exercised; only its destination moves to tmp_path."""
+    cfg, _ = test_config
+    assert cfg["numbat"]["enabled"] is True
+    assert cfg["numbat"]["output_path"] == str(tmp_path / "numbat-events.ndjsonl")
+    # The module-level placeholder is untouched by the per-test override.
+    assert TEST_CONFIG["numbat"]["output_path"].startswith("OVERRIDDEN-PER-TEST/")
+
+
+def test_relative_sink_paths_resolve_outside_the_repo(tmp_path):
+    """The session backstop re-points every _anchor binding the sinks use."""
+    from utils import logger, numbat_emitter, spend
+
+    for module in (logger, numbat_emitter, spend):
+        resolved = module._anchor("logs/audit.jsonl")
+        assert resolved.is_absolute()
+        assert _REPO_ROOT not in resolved.parents, module.__name__
+        # Absolute paths (every test's own tmp_path) pass straight through.
+        assert module._anchor(str(tmp_path / "a.jsonl")) == tmp_path / "a.jsonl"
+
+
+@pytest.mark.real_log_anchor
+def test_real_log_anchor_marker_restores_repo_root_anchoring():
+    from utils import logger, numbat_emitter, spend
+
+    for module in (logger, numbat_emitter, spend):
+        assert module._anchor("logs/audit.jsonl") == logger._REPO_ROOT / "logs/audit.jsonl"
+
+
+def _write(path, data: bytes, mtime_ns: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    os.utime(path, ns=(mtime_ns, mtime_ns))
+
+
+def test_repo_logs_snapshot_covers_only_the_guarded_dirs(tmp_path):
+    _write(tmp_path / "logs" / "audit.jsonl", b"{}\n", 1_000)
+    _write(tmp_path / "logs" / "nested" / "x.log", b"x", 2_000)
+    _write(tmp_path / "OVERRIDDEN-PER-TEST" / "numbat-events.ndjsonl", b"{}\n", 3_000)
+    _write(tmp_path / "data" / "unrelated.txt", b"not guarded", 4_000)
+
+    snapshot = _repo_logs_snapshot(tmp_path)
+
+    assert snapshot == {
+        "logs/audit.jsonl": (3, 1_000),
+        "logs/nested/x.log": (1, 2_000),
+        "OVERRIDDEN-PER-TEST/numbat-events.ndjsonl": (3, 3_000),
+    }
+
+
+def test_repo_logs_snapshot_of_missing_dirs_is_empty(tmp_path):
+    assert _repo_logs_snapshot(tmp_path) == {}
+
+
+def test_repo_logs_changes_reports_created_modified_and_deleted(tmp_path):
+    _write(tmp_path / "logs" / "kept.log", b"same", 1_000)
+    _write(tmp_path / "logs" / "grown.log", b"a", 1_000)
+    _write(tmp_path / "logs" / "touched.log", b"t", 1_000)
+    _write(tmp_path / "logs" / "gone.log", b"g", 1_000)
+    before = _repo_logs_snapshot(tmp_path)
+
+    _write(tmp_path / "logs" / "grown.log", b"ab", 1_000)  # size change only
+    _write(tmp_path / "logs" / "touched.log", b"t", 5_000)  # mtime change only
+    (tmp_path / "logs" / "gone.log").unlink()
+    _write(tmp_path / "logs" / "numbat-events.ndjsonl", b"{}\n", 1_000)
+
+    assert _repo_logs_changes(before, _repo_logs_snapshot(tmp_path)) == [
+        "logs/gone.log",
+        "logs/grown.log",
+        "logs/numbat-events.ndjsonl",
+        "logs/touched.log",
+    ]
+
+
+def test_repo_logs_changes_empty_when_nothing_moved(tmp_path):
+    _write(tmp_path / "logs" / "audit.jsonl", b"{}\n", 1_000)
+    assert _repo_logs_changes(_repo_logs_snapshot(tmp_path), _repo_logs_snapshot(tmp_path)) == []

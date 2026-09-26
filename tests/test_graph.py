@@ -43,6 +43,7 @@ def setup_logging(tmp_path, monkeypatch):
             "audit_file": str(tmp_path / "audit.jsonl"),
             "log_file": str(tmp_path / "gateway.log"),
         },
+        "numbat": {**TEST_CONFIG["numbat"], "output_path": str(tmp_path / "numbat-events.ndjsonl")},
     }
     reset_config_cache()
     monkeypatch.setattr("utils.logger._get_config", lambda config_path="config.yaml": cfg)
@@ -64,8 +65,7 @@ def _make_cfg(tmp_path, mode="offline", grok_enabled=False, claude_enabled=False
         "audit_file": str(tmp_path / "audit.jsonl"),
         "log_file": str(tmp_path / "gateway.log")
     }
-
-
+    cfg["numbat"] = {**cfg["numbat"], "output_path": str(tmp_path / "numbat-events.ndjsonl")}
     return cfg
 
 

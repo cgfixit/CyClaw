@@ -29,6 +29,7 @@ def _isolate_logger_state():
     logger.reset_config_cache()
 
 
+@pytest.mark.real_log_anchor
 class TestAnchor:
     def test_relative_path_anchored_to_repo_root(self):
         assert logger._anchor("logs/audit.jsonl") == logger._REPO_ROOT / "logs/audit.jsonl"
@@ -47,6 +48,7 @@ class TestAnchor:
         assert logger._anchor("~/audit.jsonl") == tmp_path / "audit.jsonl"
 
 
+@pytest.mark.real_log_anchor
 class TestAuditLogPathAnchoring:
     def test_relative_audit_file_resolves_regardless_of_cwd(self, tmp_path, monkeypatch):
         # Regression: audit_log() previously did Path(cfg["logging"]["audit_file"])
@@ -141,6 +143,7 @@ class TestAuditLogSerializationFailure:
         assert record["detail"] == "fine"
 
 
+@pytest.mark.real_log_anchor
 class TestSetupLoggingPathAnchoring:
     def test_relative_log_file_resolves_regardless_of_cwd(self, tmp_path, monkeypatch):
         monkeypatch.setattr(logger, "_REPO_ROOT", tmp_path)

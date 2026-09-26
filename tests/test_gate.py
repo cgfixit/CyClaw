@@ -340,7 +340,8 @@ class TestCelMonitorRequestPath:
         assert mock_monitor.call_args.kwargs["source_hashes"] == [hash_query("test.md:0")]
 
     def test_monitor_skipped_when_cel_disabled(self, client):
-        # TEST_CONFIG carries no numbat block, so numbat.cel.enabled is false:
+        # TEST_CONFIG's numbat block carries no cel sub-block, so
+        # numbat.cel.enabled is false:
         # no hash_query and no monitor_request call on the request path.
         test_client, _ = client
         with patch("gate.monitor_request") as mock_monitor:
