@@ -19,6 +19,7 @@ the reranker was degraded.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Sequence
 from functools import lru_cache
@@ -51,6 +52,40 @@ _RETRY_AFTER_SEC = 300.0
 _failed_at: dict[tuple[str, str | None, str, bool, str], float] = {}
 
 RerankSettings = tuple[str, str | None, str, bool]
+
+# A passage is at most this many whitespace words: about the length of the
+# MS MARCO passages most cross-encoders were trained on (~56 words), where a
+# chunk is ~190. Chunks are stored whitespace-joined (retrieval/indexer.py), so
+# line breaks are gone; sentence punctuation and the markdown markers that
+# started a line (heading, quote, bullet, table cell) are the break points left.
+PASSAGE_MAX_WORDS = 48
+_PIECE_BREAK = re.compile(r"(?<=[.!?:;])\s+|\s+(?=(?:#{1,6}|>|[-*•]|\|)\s)")
+
+
+def split_passages(text: str, max_words: int = PASSAGE_MAX_WORDS) -> list[str]:
+    """Split one chunk into consecutive passages of at most ``max_words`` words, breaking between sentences.
+
+    Pieces between break points are packed greedily in order; a piece longer
+    than ``max_words`` is cut into ``max_words``-word runs. Every word of
+    ``text`` lands in exactly one passage, so scoring each passage and taking
+    the best is scoring the chunk at a finer grain. Blank text returns [].
+    """
+    if max_words < 1:
+        raise ValueError(f"max_words must be >= 1, got {max_words}")
+    passages: list[str] = []
+    current: list[str] = []
+    for piece in _PIECE_BREAK.split(text):
+        words = piece.split()
+        if current and len(current) + len(words) > max_words:
+            passages.append(" ".join(current))
+            current = []
+        while len(words) > max_words:
+            passages.append(" ".join(words[:max_words]))
+            words = words[max_words:]
+        current.extend(words)
+    if current:
+        passages.append(" ".join(current))
+    return passages
 
 
 def reranker_settings(cfg: dict[str, Any], config_path: str) -> RerankSettings | None:

@@ -275,3 +275,44 @@ def test_hybrid_retriever_delegates_with_its_own_config(monkeypatch):
     retriever.config_path = "/abs/config.yaml"
     assert retriever.rerank_scores("q", ["t"]) == [0.5]
     assert seen == [("q", ["t"], {"models": {}}, "/abs/config.yaml")]
+
+
+class TestSplitPassages:
+    """Passages for scoring a chunk at a finer grain (scripts/rerank_bakeoff.py's "passage" granularity)."""
+
+    def test_every_word_lands_in_exactly_one_passage_in_order(self):
+        text = "First sentence here. Second one! A third? " + " ".join(f"w{i}" for i in range(130))
+        passages = rerank.split_passages(text, max_words=20)
+        assert " ".join(passages).split() == text.split()
+        assert all(1 <= len(p.split()) <= 20 for p in passages)
+
+    def test_breaks_between_sentences_before_packing(self):
+        text = "Alpha beta gamma. Delta epsilon zeta. Eta theta iota."
+        assert rerank.split_passages(text, max_words=6) == ["Alpha beta gamma. Delta epsilon zeta.", "Eta theta iota."]
+
+    def test_markdown_markers_that_started_a_line_are_break_points(self):
+        # Chunks are stored whitespace-joined, so "### Heading" and "- item"
+        # are the only traces of the line breaks that were there.
+        text = "intro words here ### Heading two words - item one - item two"
+        assert rerank.split_passages(text, max_words=4) == [
+            "intro words here",
+            "### Heading two words",
+            "- item one",
+            "- item two",
+        ]
+
+    def test_a_sentence_longer_than_the_limit_is_cut(self):
+        text = " ".join(f"w{i}" for i in range(10))
+        assert rerank.split_passages(text, max_words=4) == ["w0 w1 w2 w3", "w4 w5 w6 w7", "w8 w9"]
+
+    def test_blank_text_gives_no_passages(self):
+        assert rerank.split_passages("") == []
+        assert rerank.split_passages("   \n ") == []
+
+    def test_the_default_limit_is_about_one_ms_marco_passage(self):
+        assert rerank.PASSAGE_MAX_WORDS == 48
+        assert rerank.split_passages("one two three") == ["one two three"]
+
+    def test_limit_must_be_positive(self):
+        with pytest.raises(ValueError):
+            rerank.split_passages("text", max_words=0)
