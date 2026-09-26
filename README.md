@@ -238,9 +238,9 @@ flowchart TD
         X -->|"passed · high score"| H["④ local_llm\nOllama :11434\nqwen3.8:27b-mlx"]
         G -->|"NO — vault miss"| I["⑤ user_gate\nneeds_confirm = true"]
         I -->|"confirmed=true + hybrid\n+ grok.enabled + provider=grok"| PG["⑥ pre_action_hook_grok\nsync · disabled=pass-through\nexit 2 → deny"]
-        PG -->|"exit 0 → allow"| J["⑦ grok_fallback\nxAI grok-4.5\ntriple-gated · not railed"]
+        PG -->|"exit 0 → allow"| J["⑦ grok_fallback\nxAI grok-4.5\ntriple-gated · skips guardrail_input"]
         I -->|"confirmed=true + hybrid\n+ claude.enabled + provider=claude"| PC["⑧ pre_action_hook_claude\nsync · disabled=pass-through\nexit 2 → deny"]
-        PC -->|"exit 0 → allow"| W["⑨ claude_fallback\nAnthropic claude-sonnet-5\ntriple-gated · not railed"]
+        PC -->|"exit 0 → allow"| W["⑨ claude_fallback\nAnthropic claude-sonnet-5\ntriple-gated · skips guardrail_input"]
         I -->|"confirmed=false\nor offline mode"| X
         X -->|"passed · vault miss"| K["⑩ offline_best_effort\nlocal LLM · no RAG gate"]
         I -->|"confirmed=None — PAUSE\nreturn needs_confirm to the client"| L
@@ -299,7 +299,10 @@ What the diagram compresses: `HybridRetriever` fuses ChromaDB (semantic,
 `all-MiniLM-L6-v2`, 384-dim cosine, CPU-only embeddings) with BM25Okapi
 (keyword, Porter stemming) by RRF (`k=60`, equal weighting), carrying
 per-chunk provenance metadata in every result. The telemetry kill block runs
-before any SDK import; the MCP server and indexer apply the same block.
+before any SDK import; the MCP server and indexer apply the same block. With
+guardrails enabled and `nemoguardrails` installed, NeMo `check()` also wraps
+the model call inside ④, ⑦, ⑨ and ⑩: input rails before it, output rails
+after. It can only deny, and its flows run Python checks, not an LLM.
 
 ---
 

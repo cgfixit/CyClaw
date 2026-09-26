@@ -65,9 +65,11 @@ profiles:
 
   - name: nemo_local
     description: >
-      Same offline floor as deterministic. Live Colang model-assisted rails
-      (check_jailbreak, self_check_facts) are not on the /query path —
-      check_input / check_output never call the NeMo engine.
+      Same offline floor as deterministic. With nemoguardrails installed,
+      GuardrailBroker also runs NeMo check() around each /query model call,
+      but its flows execute the same Python actions. No model-assisted rail
+      is active: check_jailbreak and self_check_facts have no LLM-backed
+      implementation on the /query path.
     stages:
       input: enforced
       retrieval: out-of-scope

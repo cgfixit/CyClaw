@@ -65,7 +65,7 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 | `check()` wrap around existing generate | **Shipped** when enabled+NeMo installed (`GuardrailBroker`). Disabled path stays pass-through. |
 | ToolBroker name-gate | **Shipped** in `utils.tool_broker` (fail-closed allowlist + argv-digest audit). **No production caller as of PR #1367** — the harness console that gated `web_fetch`/`web_search`/`harness_loop`/`agent_run` was removed; only tests exercise it today. Kept as the canonical gate a future tool caller adopts. |
 | Generate-call inventory | **Shipped** — fail-closed AST (`python -m guardrails.call_inventory`). |
-| `check_jailbreak` input rail | **Not enforced offline** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. |
+| `check_jailbreak` input rail | **Not enforced anywhere** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. With NeMo installed, the Colang flow `check cyclaw jailbreak` runs the same injection-marker action as `check_injection`, and no LLM-backed rail (`self_check_input`) is active, so no guardrail layer detects jailbreak personas. |
 | Topical rails (`stay_in_local_knowledge`, `no_unauthed_external_advice`) | **Not enforced offline** — configured but not referenced in `integration.py`. |
 
 When `nemoguardrails` is absent (shipped posture: soft import, `enabled: false`)
