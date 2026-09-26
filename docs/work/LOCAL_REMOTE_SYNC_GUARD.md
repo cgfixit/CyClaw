@@ -29,12 +29,16 @@ A `SessionStart` hook (`.claude/hooks/session-start-sync-check.sh`, **wired sinc
 2026-09-04** as the second entry in `settings.json`'s `SessionStart` array) that,
 on every session start:
 
-1. **Pins commit identity** repo-locally to
-   `cyclaw-agent@users.noreply.github.com` / `CyClaw Agent` — the driver-agnostic
-   default from `utils/agent_identity.py`, overridable via
-   `CYCLAW_AGENT_COMMIT_EMAIL` / `CYCLAW_AGENT_COMMIT_NAME`. Eliminates the
-   recurring "Unverified" failure at its source, without the committer pretending
-   the driver was Claude when it was often a local model or another agent.
+1. **Leaves commit identity to the session runtime** (changed 2026-09-26). It
+   originally pinned `cyclaw-agent@users.noreply.github.com` / `CyClaw Agent`
+   repo-locally to stop "Unverified" commits. On the current cloud runtime that
+   premise is inverted: the runtime signs commits for
+   `Claude <noreply@anthropic.com>`, and its stop hook flags any other
+   committer as Unverified, so the pin itself produced them. The hook now
+   removes that old pin, pins only explicit `CYCLAW_AGENT_COMMIT_EMAIL` /
+   `CYCLAW_AGENT_COMMIT_NAME` overrides, and prints the identity commits will
+   carry. `utils/agent_identity.py` still sets CyClaw's own agentic-loop
+   identity.
 2. **Fetches** the default branch (read-only) and **reports** ahead/behind
    counts for the current branch vs `origin/<default>`.
 3. If local `main` has diverged, **prints guidance** (ff-only when safe; review
@@ -93,7 +97,7 @@ These are the behavioral rules the hook reinforces; they hold regardless:
    run `git log origin/main..HEAD` and confirm every local-only commit is either
    already represented upstream or genuinely disposable (e.g. preserve it on a
    throwaway branch first — exactly how the Codacy work was saved this session).
-4. **Identity is pinned per-repo,** so new commits are verifiable by default.
+4. **Identity is the runtime's,** so new cloud commits are signed and verifiable by default.
 5. **Rebase a feature PR twice at completion.** At the end of implementation,
    fetch `origin/main`, rebase the PR branch onto it, and rerun the affected
    checks before push/drafting. Once draft-PR CI is green, fetch again; if main

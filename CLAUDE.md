@@ -836,7 +836,7 @@ nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources:
 `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`,
 `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
 all external deps — no live services required. The full test-file list is
-discoverable in `tests/` (212 `test_*.py` files including the two under
+discoverable in `tests/` (213 `test_*.py` files including the two under
 `tests/nemo_runtime/`, auto-collected by pytest).
 
 ---
@@ -951,14 +951,25 @@ this skill's §8 onward).
 
 **Start.** Two SessionStart hooks run (a third, injecting the
 Python-coding-agent persona, was removed 2026-09-16 with the skill itself —
-issue #1351). `session-start-sync-check.sh` (wired since 2026-09-04) pins the
-git identity and reports local↔remote divergence without ever mutating — it
-never resets, rebases, pushes or deletes, and always exits 0. If it did not
-run, set the identity yourself before any commit:
+issue #1351). `session-start-sync-check.sh` (wired since 2026-09-04) reports
+local↔remote divergence without ever mutating — it never resets, rebases,
+pushes or deletes, and always exits 0 — and leaves the commit identity to the
+session runtime.
+
+**Claude Code commits as the runtime's identity, never as CyClaw Agent**
+(owner decision, 2026-09-26). In a cloud session that is
+`Claude <noreply@anthropic.com>`: the runtime signs those commits, so GitHub
+shows them Verified, and its stop hook flags any other committer as
+Unverified. In a local session it is the operator's own git identity. The
+hook used to pin `CyClaw Agent`, which overrode the runtime identity and left
+every cloud commit Unverified. It now removes that old pin (only while it
+still holds the old default) and pins an identity only when
+`CYCLAW_AGENT_COMMIT_EMAIL`/`CYCLAW_AGENT_COMMIT_NAME` are set explicitly.
+Before committing, `git var GIT_COMMITTER_IDENT` should show the runtime
+identity; if a stale repo-local pin still shows `CyClaw Agent`, drop it:
 
 ```bash
-git config user.email cyclaw-agent@users.noreply.github.com
-git config user.name "CyClaw Agent"
+git config --local --unset user.email; git config --local --unset user.name
 ```
 
 The second, `fable-protocol-loader.sh` (wired 2026-09-06; re-gated 2026-09-16,
@@ -972,11 +983,12 @@ only hook event that carries one; a mid-session `/model` switch fires no
 hook, so after switching to Sonnet mid-session (or wanting it on Opus/Haiku
 at all) run `/fable-protocol` by hand.
 
-Single source of truth: `utils/agent_identity.py`. Committer defaults are
-**driver-agnostic** (not Claude/Anthropic) because the agentic loop is often a
-local model or another coding agent — attribution should not pretend otherwise.
-Both write surfaces read the same module: repo_workspace commits and writer
-PR heads.
+CyClaw's own agentic loop is different: the single source of truth for its
+identity is `utils/agent_identity.py`, whose committer defaults are
+**driver-agnostic** (not Claude/Anthropic) because that loop is often a local
+model or another coding agent — attribution should not pretend otherwise. Both
+of its write surfaces read the same module: repo_workspace commits and writer
+PR heads. It does not govern Claude Code's own commits.
 
 **Branch namespaces** follow `.github/PULL_REQUEST_TEMPLATE.md` — validation
 accepts every listed vendor (and `agent/`):
@@ -992,18 +1004,21 @@ accepts every listed vendor (and `agent/`):
 
 Environment overrides (optional, per session):
 
-- `CYCLAW_AGENT_COMMIT_NAME` (default `CyClaw Agent`)
-- `CYCLAW_AGENT_COMMIT_EMAIL` (default `cyclaw-agent@users.noreply.github.com`)
+- `CYCLAW_AGENT_COMMIT_NAME` (agentic-loop default `CyClaw Agent`)
+- `CYCLAW_AGENT_COMMIT_EMAIL` (agentic-loop default `cyclaw-agent@users.noreply.github.com`)
 - `CYCLAW_AGENT_BRANCH_PREFIX` (default `agent` — *preferred* prefix only;
   does **not** revoke the multi-vendor allowlist above)
 
-Caveat: an external **session-runtime** stop hook (outside this repo) may still
-enforce a different committer email if your host installs one — align that
-hook with these defaults, or set the env vars to match what the hook allows.
+Setting either commit override explicitly also makes the SessionStart hook pin
+it for a Claude Code session: an opt-in. Unset, the runtime identity stands.
 
-A stop hook, if applied by the **session runtime** (not wired in repo
-`settings.json`), may reject commits whose committer email does not match its
-allowlist and blocks `--force-with-lease` without explicit authorization.
+The cloud **session runtime** applies a stop hook (not wired in repo
+`settings.json`). It flags local commits whose committer email is not
+`noreply@anthropic.com` (the identity its signing key is registered to) as
+Unverified, and blocks `--force-with-lease` without explicit authorization.
+Re-authoring an unpushed commit (`git commit --amend --no-edit --reset-author`)
+is fine; rewriting a published one is a force-push and needs the owner's
+sign-off.
 
 **During.** Track compact memory: Goal, Constraints, Decisions (with one-line
 rationale), Open questions, Verification state. Prefer file-backed facts over

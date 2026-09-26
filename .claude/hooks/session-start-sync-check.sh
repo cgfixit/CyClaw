@@ -2,10 +2,16 @@
 # CyClaw SessionStart hook — git identity + local/remote sync guard.
 #
 # Purpose (proactive, NON-destructive):
-#   1. Pin the commit identity to CyClaw Agent / cyclaw-agent@users.noreply...
-#      so agent commits are attributable without pretending the driver is
-#      Claude Code. Overridable via CYCLAW_AGENT_COMMIT_EMAIL /
-#      CYCLAW_AGENT_COMMIT_NAME (same knobs as utils/agent_identity.py).
+#   1. Leave the commit identity to the session runtime. Claude Code commits
+#      as the runtime's identity: in the cloud, Claude <noreply@anthropic.com>,
+#      which the runtime signs so GitHub shows the commit Verified; locally,
+#      the operator's own git identity. This hook used to pin CyClaw Agent,
+#      which overrode that identity and left every cloud commit Unverified; it
+#      now removes that old pin (only while it still holds the old default,
+#      never an identity someone set on purpose). Setting
+#      CYCLAW_AGENT_COMMIT_EMAIL / CYCLAW_AGENT_COMMIT_NAME explicitly still
+#      pins them. CyClaw's own agentic loop takes its identity from
+#      utils/agent_identity.py, unchanged.
 #   2. Fetch the default branch and REPORT divergence between local and remote.
 #      It never resets, rebases, pushes, or deletes — it only informs, so a
 #      human stays in control of how to reconcile.
@@ -16,9 +22,17 @@ set -uo pipefail
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$repo_root" || exit 0
 
-# ── 1. Pin commit identity (repo-local, durable) ─────────────────────────────
-git config --local user.email "${CYCLAW_AGENT_COMMIT_EMAIL:-cyclaw-agent@users.noreply.github.com}"
-git config --local user.name  "${CYCLAW_AGENT_COMMIT_NAME:-CyClaw Agent}"
+# ── 1. Commit identity: the runtime's, unless explicitly overridden ─────────
+legacy_email="cyclaw-agent@users.noreply.github.com"
+legacy_name="CyClaw Agent"
+if [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ] || [ -n "${CYCLAW_AGENT_COMMIT_NAME:-}" ]; then
+  [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ] && git config --local user.email "$CYCLAW_AGENT_COMMIT_EMAIL"
+  [ -n "${CYCLAW_AGENT_COMMIT_NAME:-}" ] && git config --local user.name "$CYCLAW_AGENT_COMMIT_NAME"
+elif [ "$(git config --local --get user.email 2>/dev/null)" = "$legacy_email" ]; then
+  git config --local --unset user.email
+  [ "$(git config --local --get user.name 2>/dev/null)" = "$legacy_name" ] && git config --local --unset user.name
+fi
+echo "[sync-check] Commits will be authored as: $(git config user.name 2>/dev/null) <$(git config user.email 2>/dev/null)>"
 
 # ── 2. Detect default branch (origin/HEAD, fallback main) ────────────────────
 default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
