@@ -318,3 +318,76 @@ def test_existing_emitter_kwargs_schema_clean(proj_cfg) -> None:
     assert set(rec2.keys()) <= _KNOWN_FIELDS
     assert "tool_name" not in rec2 and "mcp_server" not in rec2 and "url" not in rec2
     assert rec2["model"] == "m" and rec2["entrypoint"] == "cyclaw"
+
+
+def test_rag_query_preview_fits_the_schema_and_keeps_the_join_key(proj_cfg) -> None:
+    """Issue #1458 Phase 4: the preview used to allow 2000 characters, and
+    the pinned CLI rejects anything over 200 ("content_preview exceeds 200
+    runes"), so every realistic rag_query projection broke the stream."""
+    from utils.logger import hash_query
+    from utils.numbat_emitter import CONTENT_PREVIEW_MAX_CHARS
+
+    cfg, _, out = proj_cfg
+    audit_log({
+        "event": "rag_query",
+        "query": "what does the immutability flag do",
+        "top_score": 0.61,
+        "retrieval_mode": "hybrid",
+        "online_escalated": False,
+        "model_used": "local",
+        "llm": "RAG local: qwen3.8:27b-mlx",
+        "llm_model": "qwen3.8:27b-mlx",
+        "hit_count": 5,
+        "guardrail_blocked": False,
+        "rerank_best": 3.25,
+        "sources": [{"source": f"data/corpus/doc{i}.md", "chunk_id": i, "rrf_score": 0.03} for i in range(5)],
+        "error": None,
+    }, cfg=cfg)
+    close_audit_handles()
+    rec = _lines(out)[0]
+    assert len(rec["content_preview"]) <= CONTENT_PREVIEW_MAX_CHARS
+    assert rec["content_preview_truncated"] is True
+    preview = json.loads(rec["content_preview"])
+    # Priority order: identity and join key first, then the routing facts.
+    assert list(preview)[:6] == ["cyclaw_event", "query_hash", "model_used", "top_score", "retrieval_mode", "hit_count"]
+    assert preview["query_hash"] == hash_query("what does the immutability flag do")
+    # False flags are omitted, not spent on characters; the tags and
+    # audit.jsonl keep the full record.
+    assert "guardrail_blocked" not in preview
+    assert "sources" not in preview
+
+
+def test_small_record_preview_is_complete_and_unflagged(proj_cfg) -> None:
+    cfg, _, out = proj_cfg
+    audit_log({"event": "rate_limit_exceeded", "client": "127.0.0.1", "path": "/query"}, cfg=cfg)
+    close_audit_handles()
+    rec = _lines(out)[0]
+    assert json.loads(rec["content_preview"]) == {
+        "cyclaw_event": "rate_limit_exceeded", "client": "127.0.0.1", "path": "/query",
+    }
+    assert "content_preview_truncated" not in rec
+
+
+def test_preview_keeps_zero_scores(proj_cfg) -> None:
+    """0 and 0.0 compare equal to False; only the False identity is dropped."""
+    cfg, _, out = proj_cfg
+    audit_log({"event": "rag_query", "query": "q", "top_score": 0.0, "hit_count": 0,
+               "online_escalated": False}, cfg=cfg)
+    close_audit_handles()
+    preview = json.loads(_lines(out)[0]["content_preview"])
+    assert preview["top_score"] == 0.0
+    assert preview["hit_count"] == 0
+    assert "online_escalated" not in preview
+
+
+def test_oversized_single_field_is_dropped_whole(proj_cfg) -> None:
+    """A field that cannot fit is skipped entirely, never cut mid-string, so
+    the preview always parses."""
+    cfg, _, out = proj_cfg
+    audit_log({"event": "graph_error", "query": "q", "error": "E" * 400, "hit_count": 2}, cfg=cfg)
+    close_audit_handles()
+    rec = _lines(out)[0]
+    preview = json.loads(rec["content_preview"])
+    assert "error" not in preview
+    assert preview["hit_count"] == 2
+    assert rec["content_preview_truncated"] is True
