@@ -20,7 +20,9 @@ the core six (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph
   into `build_graph()`
 
 `graph.py` already has the nodes `guardrail_input` and `guardrail_output`.
-The output grounding check applies to the **`local_llm` answer path only**.
+The output grounding check applies to the **`local_llm` answer path only**,
+in both the offline rail and the NeMo `check()` output rails
+(`build_generate_guard`). The other answers are not held to the vault.
 
 `nemoguardrails` is a **soft** import. Offline heuristic rails run without it.
 
@@ -62,7 +64,7 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 | Shared offline scanner helpers | Shipped |
 | Output grounding (`local_llm` only) | Shipped |
 | Soul-leak output rail | **Shipped** — `detect_soul_leak` on `check_output` (#1155). Not `scan_injection`. Graph still skips non-`local_llm`. |
-| `check()` wrap around existing generate | **Shipped** when enabled+NeMo installed (`GuardrailBroker`). Disabled path stays pass-through. |
+| `check()` wrap around existing generate | **Shipped** when enabled+NeMo installed (`GuardrailBroker`): input rails before the model call, output rails after. Output grounding judges the answer against the chunks the model saw, for the `local_llm` answer only. Until 2026-09-26 the output check was sent no context and blocked every answer. Disabled path stays pass-through. |
 | ToolBroker name-gate | **Shipped** in `utils.tool_broker` (fail-closed allowlist + argv-digest audit). **No production caller as of PR #1367** — the harness console that gated `web_fetch`/`web_search`/`harness_loop`/`agent_run` was removed; only tests exercise it today. Kept as the canonical gate a future tool caller adopts. |
 | Generate-call inventory | **Shipped** — fail-closed AST (`python -m guardrails.call_inventory`). |
 | `check_jailbreak` input rail | **Not enforced anywhere** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. With NeMo installed, the Colang flow `check cyclaw jailbreak` runs the same injection-marker action as `check_injection`, and no LLM-backed rail (`self_check_input`) is active, so no guardrail layer detects jailbreak personas. |

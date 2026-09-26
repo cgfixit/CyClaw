@@ -17,6 +17,7 @@ from guardrails.config import GuardrailsConfig
 from guardrails.errors import GuardrailsDependencyError, RailsLoadError
 from guardrails.integration import get_cyclaw_guardrails
 from guardrails.metrics import GuardrailMetrics
+from guardrails.rails import GROUNDING_SCOPE_KEY
 from utils.errors import RAGError
 
 logger = logging.getLogger("cyclaw.guardrails.broker")
@@ -27,7 +28,7 @@ def _status_blocked(result: object) -> bool:
     return "BLOCKED" in str(getattr(status, "name", status)).upper()
 
 
-def _live_check(rails: object, messages: list[dict[str, str]], *, input_only: bool = False) -> object | None:
+def _live_check(rails: object, messages: list[dict[str, Any]], *, input_only: bool = False) -> object | None:
     """Call NVIDIA ``check(messages=...)``. None on degrade."""
     check = getattr(rails, "check", None)
     if check is None:
@@ -81,15 +82,29 @@ class GuardrailBroker:
             return True
         return False
 
-    def check_assistant(self, query: str, answer: str) -> bool:
-        """True when live output rails BLOCK. False = allow or degrade."""
+    def check_assistant(self, query: str, answer: str, *, grounding_context: str | None) -> bool:
+        """True when live output rails BLOCK. False = allow or degrade.
+
+        ``grounding_context`` is the retrieved text the model was given, and
+        the grounding rail judges the answer against it. None means the answer
+        is not held to the vault (a Grok, Claude or offline best-effort
+        answer), so grounding stands down and the other output rails still run.
+        """
         rails = self._engine()
         if rails is None:
             return False
+        # A context-role message is the only way to set NeMo's relevant_chunks
+        # (see integration.safe_generate). Without it the grounding rail
+        # scored every answer against nothing and blocked it.
+        if grounding_context is None:
+            context: dict[str, object] = {GROUNDING_SCOPE_KEY: False}
+        else:
+            context = {"relevant_chunks": grounding_context, GROUNDING_SCOPE_KEY: True}
         try:
             result = _live_check(
                 rails,
                 [
+                    {"role": "context", "content": context},
                     {"role": "user", "content": query},
                     {"role": "assistant", "content": answer},
                 ],
@@ -113,8 +128,12 @@ def guarded_generate(
     spend_context: dict[str, object] | None,
     cfg: GuardrailsConfig,
     metrics: GuardrailMetrics,
+    grounding_context: str | None = None,
 ) -> tuple[str, str | None]:
-    """Input ``check()`` → existing ``client.generate`` → output ``check()``."""
+    """Input ``check()`` → existing ``client.generate`` → output ``check()``.
+
+    ``grounding_context`` is passed to :meth:`GuardrailBroker.check_assistant`.
+    """
     broker = GuardrailBroker(cfg, metrics)
     if broker.check_user(query or prompt):
         return cfg.block_message, None
@@ -125,6 +144,6 @@ def guarded_generate(
             answer = client.generate(prompt, spend_context=spend_context)
     except RAGError as exc:
         return f"[{label} Error: {exc.message}]", f"{exc.code}: {exc.message}"
-    if broker.check_assistant(query or prompt, answer):
+    if broker.check_assistant(query or prompt, answer, grounding_context=grounding_context):
         return cfg.block_message, None
     return answer, None
