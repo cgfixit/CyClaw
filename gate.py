@@ -124,6 +124,7 @@ from utils.config_validation import (
     validate_fallback_confirm_placeholder,
     validate_local_llm_reasoning_effort,
     validate_personality_config,
+    validate_pre_action_hook_config,
     validate_retrieval_config,
 )
 from utils.ratelimit import RateLimiter
@@ -367,6 +368,9 @@ if not os.environ.get("CYCLAW_API_KEY", ""):
 # Reject insufficient LLM/graph timeout headroom at boot; see utils.config_validation.
 validate_boot_timeout_config(cfg)
 validate_fallback_confirm_placeholder(cfg)
+# A hook block that reads as armed but is not (string booleans, an unknown
+# engine, verdict_mode monitor) is refused here rather than left inert.
+validate_pre_action_hook_config(cfg)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

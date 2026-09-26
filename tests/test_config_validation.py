@@ -12,6 +12,7 @@ from utils.config_validation import (
     validate_boot_timeout_config,
     validate_fallback_confirm_placeholder,
     validate_personality_config,
+    validate_pre_action_hook_config,
     validate_retrieval_config,
     validate_tls_config,
 )
@@ -472,3 +473,79 @@ class TestShippedConfigNoDuplicateKeys:
         with planted.open(encoding="utf-8") as handle:
             root = yaml.compose(handle)
         assert self._duplicate_keys(root) == ["<root>.telegram"]
+
+
+# ---------------------------------------------------------------------------
+# policy.fallback.pre_action_hook (issue #1458 Phase 1)
+# ---------------------------------------------------------------------------
+
+
+def _hook(**block) -> dict:
+    return {"policy": {"fallback": {"pre_action_hook": block}}}
+
+
+def test_shipped_pre_action_hook_block_validates():
+    shipped = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
+    validate_pre_action_hook_config(shipped)
+    block = shipped["policy"]["fallback"]["pre_action_hook"]
+    # The shipped posture this issue settled: off, command engine, enforce, verdicts on.
+    assert (block["enabled"], block["engine"], block["verdict_mode"], block["emit_verdict"]) == (
+        False, "command", "enforce", True,
+    )
+    assert "fail_mode" not in block
+
+
+@pytest.mark.parametrize("cfg", [{}, {"policy": None}, {"policy": {"fallback": {}}}, _hook(enabled=False)])
+def test_absent_or_disabled_hook_passes(cfg):
+    validate_pre_action_hook_config(cfg)
+
+
+@pytest.mark.parametrize("block", [True, "on", ["numbat"], None])
+def test_non_mapping_hook_block_is_refused(block):
+    with pytest.raises(ConfigError, match="must be a mapping"):
+        validate_pre_action_hook_config({"policy": {"fallback": {"pre_action_hook": block}}})
+
+
+@pytest.mark.parametrize("key", ["enabled", "emit_verdict"])
+@pytest.mark.parametrize("value", ["true", "false", 1, "yes"])
+def test_string_booleans_are_refused(key, value):
+    """``enabled: "true"`` leaves the hook OFF at runtime (literal-True check)."""
+    with pytest.raises(ConfigError, match=key):
+        validate_pre_action_hook_config(_hook(**{key: value}))
+
+
+def test_unknown_engine_is_refused():
+    with pytest.raises(ConfigError, match="engine"):
+        validate_pre_action_hook_config(_hook(enabled=False, engine="opa"))
+
+
+@pytest.mark.parametrize("key", ["verdict_mode", "fail_mode"])
+@pytest.mark.parametrize("value", ["monitor", "observe", None])
+def test_only_enforce_verdict_mode_boots(key, value):
+    with pytest.raises(ConfigError, match="enforce"):
+        validate_pre_action_hook_config(_hook(enabled=False, **{key: value}))
+
+
+def test_legacy_fail_mode_enforce_still_boots():
+    validate_pre_action_hook_config(_hook(enabled=True, command=["hook"], fail_mode="enforce"))
+
+
+@pytest.mark.parametrize("command", [None, [], "hook --deny", [""], ["ok", 3]])
+def test_enabled_command_engine_needs_an_argv(command):
+    with pytest.raises(ConfigError, match="command"):
+        validate_pre_action_hook_config(_hook(enabled=True, command=command))
+
+
+@pytest.mark.parametrize(
+    "numbat",
+    [None, "numbat", {}, {"rules_dirs": []}, {"rules_dirs": "rules"}, {"rules_dirs": [" "]},
+     {"rules_dirs": ["r"], "binary": ""}, {"rules_dirs": ["r"], "binary": 7}],
+)
+def test_enabled_numbat_engine_needs_rules_dirs_and_a_binary(numbat):
+    with pytest.raises(ConfigError, match="numbat"):
+        validate_pre_action_hook_config(_hook(enabled=True, engine="numbat", numbat=numbat))
+
+
+def test_valid_enabled_engines_boot():
+    validate_pre_action_hook_config(_hook(enabled=True, command=["/usr/local/bin/cyclaw-hook"], emit_verdict=True))
+    validate_pre_action_hook_config(_hook(enabled=True, engine="numbat", numbat={"rules_dirs": ["/etc/numbat/cyclaw-gate"]}))
