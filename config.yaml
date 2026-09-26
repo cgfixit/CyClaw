@@ -1063,14 +1063,17 @@ guardrails:
                                   # check() flows are fixed by guardrails/config/config.yml,
                                   # not by this list.
     - check_injection
-    - check_jailbreak            # NOT ENFORCED anywhere. The offline floor
+    - check_jailbreak            # NOT ENFORCED as a rail of its own. The offline floor
                                 # (_offline_checks) implements only check_injection and
                                 # check_soul_mutation. With NeMo installed, the Colang flow
                                 # "check cyclaw jailbreak" (rails.co) runs the same
                                 # injection-marker action as check_injection, and no
-                                # LLM-backed rail (NeMo self_check_input) is active, so no
-                                # guardrail layer detects jailbreak personas. The gateway's
-                                # banned_patterns sanitizer is the front door for those.
+                                # LLM-backed rail (NeMo self_check_input) is active. So no
+                                # layer has a jailbreak classifier: a persona prompt is
+                                # caught only when it matches those markers ("you are
+                                # now ...", "from now on you are ..."), and one worded
+                                # differently passes. The gateway's banned_patterns
+                                # sanitizer is the front door for those.
     - check_soul_mutation
   output_rails:                  # offline output rails guardrail_output runs (NeMo flows:
                                   # guardrails/config/config.yml, as for input_rails)
