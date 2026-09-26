@@ -277,8 +277,9 @@ def test_hybrid_retriever_delegates_with_its_own_config(monkeypatch):
     assert seen == [("q", ["t"], {"models": {}}, "/abs/config.yaml")]
 
 
+# Passages for scoring a chunk at a finer grain (scripts/rerank_bakeoff.py's
+# "passage" granularity).
 class TestSplitPassages:
-    """Passages for scoring a chunk at a finer grain (scripts/rerank_bakeoff.py's "passage" granularity)."""
 
     def test_every_word_lands_in_exactly_one_passage_in_order(self):
         text = "First sentence here. Second one! A third? " + " ".join(f"w{i}" for i in range(130))

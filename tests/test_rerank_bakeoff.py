@@ -180,3 +180,43 @@ def test_fresh_verdict(bakeoff) -> None:
     assert bakeoff.fresh_passes(ok)
     assert not bakeoff.fresh_passes({**ok, "fresh_j": 1.01})
     assert not bakeoff.fresh_passes({**ok, "fresh_lar": {bakeoff.SMALL: 0.16, bakeoff.BIG: 0.0}})
+
+
+# Scores each pair by its text length and records every predict call's batch.
+class _CountingModel:
+
+    def __init__(self) -> None:
+        self.calls: list[list[tuple[str, str]]] = []
+
+    def predict(self, pairs, **_kwargs):
+        import numpy as np
+
+        self.calls.append(list(pairs))
+        return np.asarray([float(len(text)) for _query, text in pairs])
+
+
+def test_score_warms_up_once_untimed_then_times_every_window(bakeoff) -> None:
+    windows = [
+        bakeoff.Window(bakeoff.SMALL, "calibration", "g", "q1", 0.5, True, ["aa", "aaaa"]),
+        bakeoff.Window(bakeoff.BIG, "fresh", "g", "q2", 0.5, False, ["aaa"]),
+    ]
+    model = _CountingModel()
+    bakeoff.score(model, windows, "c", "chunk")
+    # One warm-up call on the first window, then one call per window.
+    assert len(model.calls) == 1 + len(windows)
+    assert model.calls[0] == model.calls[1]
+    assert [w.scores["c"] for w in windows] == [4.0, 3.0]
+    assert all("c" in w.ms for w in windows)
+
+
+def test_passage_pairs_cover_the_chunk_in_passages(bakeoff) -> None:
+    window = bakeoff.Window(bakeoff.SMALL, "calibration", "g", "q", 0.5, True, ["One two. Three four."])
+    assert bakeoff.pairs_for(window, "chunk") == [("q", "One two. Three four.")]
+    assert [text for _q, text in bakeoff.pairs_for(window, "passage")] == ["One two. Three four."]
+
+
+def test_selection_latency_counts_calibration_windows_only(bakeoff) -> None:
+    calibration = _window(bakeoff, bakeoff.SMALL, True, 1.0)
+    fresh = _window(bakeoff, bakeoff.BIG, True, 1.0, split="fresh")
+    calibration.ms["c"], fresh.ms["c"] = 100.0, 9000.0
+    assert bakeoff.selection_ms([calibration, fresh], "c") == pytest.approx(100.0)

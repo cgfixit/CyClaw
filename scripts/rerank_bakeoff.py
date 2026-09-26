@@ -33,8 +33,10 @@ The rule below was committed before any candidate scored the fresh probes.
   most 10% of good hits on each corpus. Ties go to the lower loss, then to the
   wider gap.
 * The chosen configuration has the lowest calibration J among those that load,
-  beat no veto, and score a window in at most 3,000 ms on average on the
-  machine running this. Within 0.05 of that J, the fastest wins.
+  beat no veto, and score a calibration window in at most 3,000 ms on average
+  on the machine running this. Within 0.05 of that J, the fastest wins. Latency
+  is timed per window after one untimed warm-up call for each granularity, and
+  only calibration windows count, so the fresh probes cannot sway the choice.
 * The choice then faces FRESH_ANSWERABLE and FRESH_LOOKALIKE. It passes if it
   loses at most 15% of good hits on each corpus and its mean J is at most 1.0.
   If it fails, no threshold ships.
@@ -228,13 +230,25 @@ def snapshot(candidate: Candidate, cache_dir: Path) -> str:
     return Path(cached).parent.name if isinstance(cached, str) else "unknown"
 
 
+def pairs_for(window: Window, granularity: str) -> list[tuple[str, str]]:
+    """The (query, text) pairs one window sends to the model at ``granularity``."""
+    if granularity == "chunk":
+        return [(window.query, text) for text in window.texts]
+    return [(window.query, passage) for text in window.texts for passage in split_passages(text)]
+
+
 def score(model: Any, windows: list[Window], config: str, granularity: str) -> None:
-    """Record each window's best score and wall time, one predict call per window as graph.retrieve_node makes."""
+    """Record each window's best score and wall time, one predict call per window as graph.retrieve_node makes.
+
+    One untimed call comes first, so the first timed window does not also pay
+    for the model's lazy setup. Without it, whichever granularity ran first
+    would look slower, and the latency tie-break could pick the other one.
+    """
+    if windows:
+        warmup = pairs_for(windows[0], granularity)
+        model.predict(warmup, batch_size=len(warmup), show_progress_bar=False, convert_to_numpy=True)
     for window in windows:
-        if granularity == "chunk":
-            pairs = [(window.query, text) for text in window.texts]
-        else:
-            pairs = [(window.query, passage) for text in window.texts for passage in split_passages(text)]
+        pairs = pairs_for(window, granularity)
         start = time.perf_counter()
         raw = model.predict(pairs, batch_size=len(pairs), show_progress_bar=False, convert_to_numpy=True).tolist()
         window.ms[config] = 1000 * (time.perf_counter() - start)
@@ -308,6 +322,11 @@ def auc(windows: list[Window], config: str, corpus: str) -> float | None:
         return None
     wins = sum((g > b) + 0.5 * (g == b) for g in good for b in bad)
     return wins / (len(good) * len(bad))
+
+
+def selection_ms(windows: list[Window], config: str) -> float:
+    """Mean wall time per calibration window: the latency the rule compares. Fresh windows never count."""
+    return statistics.fmean(w.ms[config] for w in windows if w.split == CALIBRATION)
 
 
 def select(results: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -389,14 +408,15 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {granularity}: FAILED TO SCORE: {type(e).__name__}: {e}")
                 results.append({"config": config, "loaded": False, "error": f"{type(e).__name__}: {e}"})
                 continue
-            ms = statistics.fmean(w.ms[config] for w in windows)
+            ms = selection_ms(windows, config)
             threshold, cal_j = pick_threshold(calibration, config)
             cal = rates(calibration, config, threshold)
             fresh_rates = rates(fresh, config, threshold)
             aucs = {corpus: auc(calibration, config, corpus) for corpus in CORPORA}
             shown = "none (no veto)" if threshold is None else f"{threshold:.4f}"
             print(
-                f"  {granularity}: {ms:.0f} ms/window (max {max(w.ms[config] for w in windows):.0f}); "
+                f"  {granularity}: {ms:.0f} ms per calibration window (max over all "
+                f"{max(w.ms[config] for w in windows):.0f}); "
                 "calibration AUC " + ", ".join(f"{c} {a:.3f}" if a is not None else f"{c} n/a" for c, a in aucs.items())
             )
             print(f"    threshold {shown}; calibration {_fmt(cal)}")
