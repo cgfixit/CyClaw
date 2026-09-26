@@ -194,19 +194,25 @@ def _include_query_hash(cfg: dict[str, Any] | None) -> bool:
     return bool(audit_fields.get("include_query_hash", True))
 
 
-def _match_preview(matches: list[int], query_hash: str | None, cfg: dict[str, Any] | None, cap: int) -> str:
+def _match_preview(
+    matches: list[int], query_hash: str | None, cfg: dict[str, Any] | None, cap: int,
+) -> tuple[str, bool]:
     """JSON preview joining a match back to its query, within ``cap`` characters.
 
-    query_hash goes first because it is the only join key to the rag_query
-    record; the matched indices also ride in the tags, so they are the part
-    dropped when a long match list would overflow the schema's cap.
+    Returns ``(preview, truncated)``. query_hash goes first because it is the
+    only join key to the rag_query record; the matched indices also ride in
+    the tags, so they are the part dropped, whole, when a long match list
+    would overflow the schema's cap. ``truncated`` reports that drop: the same
+    content_preview_truncated contract as the audit projection's packer, so a
+    consumer never mistakes the shortened preview for a complete one.
     """
     preview: dict[str, Any] = {}
     if query_hash and _QUERY_HASH_RE.fullmatch(query_hash) and _include_query_hash(cfg):
         preview["query_hash"] = query_hash
-    with_rules = {**preview, "cel_rules_matched": matches}
-    text = json.dumps(with_rules, separators=(",", ":"))
-    return text if len(text) <= cap else json.dumps(preview, separators=(",", ":"))
+    text = json.dumps({**preview, "cel_rules_matched": matches}, separators=(",", ":"))
+    if len(text) <= cap:
+        return text, False
+    return json.dumps(preview, separators=(",", ":")), True
 
 
 def monitor_request(
@@ -224,9 +230,10 @@ def monitor_request(
     """Monitor-only CEL hook.  Emits a Numbat event on rule match; never blocks.
 
     ``answer_model`` is the graph's answer ROLE ("local", "grok", ...), which
-    the rules see; ``llm_model`` is the concrete model tag that answered and
-    is what the event's ``model`` field carries. It is omitted when unknown
-    rather than filled with the role.
+    the rules see; ``llm_model`` is the concrete model that answered (the
+    vendor-resolved served_model when the provider reported one, else the
+    configured tag) and is what the event's ``model`` field carries. It is
+    omitted when unknown rather than filled with the role.
     """
     matches = evaluate_cel_monitor(
         query_hash=query_hash,
@@ -248,6 +255,7 @@ def monitor_request(
         return
 
     try:
+        content_preview, preview_truncated = _match_preview(matches, query_hash, cfg, CONTENT_PREVIEW_MAX_CHARS)
         emit_numbat_event(
             "tool.result",
             model=llm_model or None,
@@ -259,7 +267,8 @@ def monitor_request(
             entrypoint="cyclaw",
             tags=["cel_monitor", "monitor_only", f"rules:{','.join(str(i) for i in matches)}"],
             confidence="low",
-            content_preview=_match_preview(matches, query_hash, cfg, CONTENT_PREVIEW_MAX_CHARS),
+            content_preview=content_preview,
+            content_preview_truncated=preview_truncated,
             artifact_type="cel_monitor",
             cfg=cfg,
         )

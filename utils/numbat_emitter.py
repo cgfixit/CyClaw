@@ -68,8 +68,9 @@ CYCLAW_TAG = "cyclaw"
 # the pinned Numbat 0.2.0 release), and `numbat rules test` enforces it. The
 # audit preview used to allow 2000, so a typical rag_query projection (~700
 # characters) made the pinned CLI reject the live stream at its first /query
-# line. The CLI fixture job stayed green because it only ever scored
-# hand-written action-plane events, never a mainline one (issue #1458 Phase 4).
+# line. The CLI fixture job stayed green because it scored committed fixtures
+# and one live executor-jail run, never a mainline or /ops/* event (issue #1458
+# Phase 4).
 CONTENT_PREVIEW_MAX_CHARS = 200
 
 _EVENT_TYPES = frozenset({
@@ -946,9 +947,16 @@ def project_audit_record(
             model_provider = _AUDIT_MODEL_PROVIDERS.get(
                 role, (cfg or {}).get("models", {}).get("local_llm", {}).get("provider", "ollama"),
             )
-        model = record.get("llm_model")
-        if not isinstance(model, str) or not model:
-            model = None
+        # The model that produced this record: the vendor-resolved
+        # served_model when a Grok/Claude call reported one (graph.py records
+        # it next to the configured llm_model, e.g. grok-4.5 -> grok-4.5-0913),
+        # else the configured tag. Numbat's model field names what actually
+        # ran; the configured alias stays in audit.jsonl, joinable by
+        # query_hash.
+        model = next(
+            (m for m in (record.get("served_model"), record.get("llm_model")) if isinstance(m, str) and m),
+            None,
+        )
 
         # decision: permission.* types carry it natively; for prompt.user the
         # CLI allowlist strips it, so the guardrail verdict rides in

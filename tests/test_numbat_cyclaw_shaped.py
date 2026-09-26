@@ -15,8 +15,9 @@ they wrote. This module holds that output to three contracts:
    findings against the shipped catalog, and CyClaw-shaped exfil/secret-read
    events must still fire the rules that catch them.
 
-Before this existed, the CLI job only scored hand-written action-plane
-events. The live stream failed it twice over: every mainline rag_query
+Before this existed, the CLI job scored committed fixtures and one live
+executor-jail run, never mainline or /ops/* output. The live stream failed it
+twice over: every mainline rag_query
 carried a ~700-character content_preview ("content_preview exceeds 200
 runes"), and every ops event with a redacted ``--reason=`` held a bare
 ``<redacted>`` the CLI's shell parser rejects as "unsupported or malformed

@@ -354,6 +354,29 @@ class TestCelMonitorRequestPath:
         assert mock_monitor.call_args.kwargs["llm_model"] == gate.cfg["models"]["local_llm"]["model"]
 
     @pytest.mark.parametrize(
+        ("served_model", "expected_model"),
+        [("grok-4.5-0913", "grok-4.5-0913"), ("", "grok-4.5"), (None, "grok-4.5")],
+    )
+    def test_monitor_names_the_model_that_answered(self, client, served_model, expected_model):
+        # A provider may resolve the configured alias to another concrete
+        # model; graph.py surfaces it as served_model. The CEL event must name
+        # that one, as the rag_query projection does, and fall back to the
+        # configured tag only when the response reported none.
+        import gate
+
+        test_client, mock_graph = client
+        result = {**mock_graph.invoke.return_value, "answer_model": "grok"}
+        if served_model is not None:
+            result["served_model"] = served_model
+        mock_graph.invoke.return_value = result
+        gate.cfg["numbat"] = {"cel": {"enabled": True}}
+        gate.cfg["models"]["grok"]["model"] = "grok-4.5"
+        with patch("gate.monitor_request") as mock_monitor:
+            resp = test_client.post("/query", json={"query": "What is Veeam immutability?"})
+        assert resp.status_code == 200
+        assert mock_monitor.call_args.kwargs["llm_model"] == expected_model
+
+    @pytest.mark.parametrize(
         ("answer_model", "expected_provider"),
         [("hook-denied", ""), ("guardrail-blocked", ""), ("", ""), ("grok", "xai"), ("claude", "anthropic")],
     )

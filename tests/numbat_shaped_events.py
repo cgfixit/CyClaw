@@ -1,10 +1,10 @@
 """Drive CyClaw's real Numbat producers and collect exactly what they write.
 
-Issue #1458 Phase 4: the CI fixture job used to score only hand-written
-action-plane events, so nothing checked that the stream CyClaw actually
-writes -- above all the mainline plane, one projected event per audit record,
-every /query -- still matches the pinned Numbat 0.2.0 CLI and its schema-0.3.0
-contract. Every event here comes from a production code path:
+Issue #1458 Phase 4: the CI fixture job used to score only committed fixtures
+and one live executor-jail run, so nothing checked that the rest of the stream
+CyClaw actually writes -- above all the mainline plane, one projected event
+per audit record, every /query -- still matches the pinned Numbat 0.2.0 CLI
+and its schema-0.3.0 contract. Every event here comes from a production code path:
 
 * mainline plane: ``utils.logger.audit_log`` -> ``project_audit_record``, fed
   records shaped like graph.py's ``audit_logger_node`` and gate.py's own
