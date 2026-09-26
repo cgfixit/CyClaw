@@ -830,13 +830,14 @@ three `test` legs are release gates (a failing Windows result is not masked).
 Inside `ci.yml` the only job carrying `continue-on-error` is `verify-skills`;
 every other job (including the three `test` legs, `invariant-guard`, and
 packaging) fails the workflow. Advisory lanes elsewhere are
-`numbat-rules.yml`, `lint.yml`'s broader-Ruff and WPS steps (its F/B/S gate
-blocks), and best-effort steps in the
+`numbat-rules.yml`'s original hand-fixture job (its `numbat-stream-contract`
+and `numbat-cel` jobs block, issue #1458), `lint.yml`'s broader-Ruff and WPS
+steps (its F/B/S gate blocks), and best-effort steps in the
 nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources:
 `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`,
 `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
 all external deps — no live services required. The full test-file list is
-discoverable in `tests/` (212 `test_*.py` files including the two under
+discoverable in `tests/` (213 `test_*.py` files including the two under
 `tests/nemo_runtime/`, auto-collected by pytest).
 
 ---
