@@ -204,6 +204,14 @@ def collect(retriever: HybridRetriever, corpus: str, floor: float) -> tuple[list
 
 
 def load_model(candidate: Candidate, cache_dir: Path) -> Any:
+    """Load a candidate as retrieval/rerank.py loads the reranker: CPU, raw logits, float32 weights.
+
+    float32 matters for the rule, not only for parity: mxbai-rerank-xsmall-v1
+    stores float16 weights, and on a CPU without native half precision (the CI
+    runner) float16 scores about 9x slower, which would fail the latency limit
+    for a reason that has nothing to do with the model.
+    """
+    import torch
     from sentence_transformers import CrossEncoder
     from torch import nn
 
@@ -214,6 +222,7 @@ def load_model(candidate: Candidate, cache_dir: Path) -> Any:
         device=EMBED_DEVICE,
         activation_fn=nn.Identity(),
         trust_remote_code=False,
+        model_kwargs={"dtype": torch.float32},
     )
 
 

@@ -1017,11 +1017,13 @@ jobs:
   # choice and is removed before its PR is marked ready. It fetches five
   # cross-encoders (~1.9GB) from Hugging Face into the runner's temp dir, never
   # into .emb_cache, and both caches below are restore-only. Report only: the
-  # script asserts nothing and exits 0 unless it crashes.
+  # script asserts nothing and exits 0 unless it crashes. All five score on
+  # this one runner, so their timings compare on the same machine; about an
+  # hour of scoring in float32, and python -u streams each result as it lands.
   rerank-bakeoff:
     name: rerank-bakeoff (report only, temporary)
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     permissions:
       contents: read
     steps:
@@ -1077,7 +1079,7 @@ jobs:
           echo 'GROK_API_KEY=dummy' >> "$GITHUB_ENV"
 
       - name: Reranker bake-off (report only)
-        run: python scripts/rerank_bakeoff.py --cache-dir "$RUNNER_TEMP/rerank-bakeoff-models" --json "$RUNNER_TEMP/rerank-bakeoff.json"
+        run: python -u scripts/rerank_bakeoff.py --cache-dir "$RUNNER_TEMP/rerank-bakeoff-models" --json "$RUNNER_TEMP/rerank-bakeoff.json"
 
       - name: Upload bake-off scores
         if: always()

@@ -184,7 +184,6 @@ def test_fresh_verdict(bakeoff) -> None:
 
 # Scores each pair by its text length and records every predict call's batch.
 class _CountingModel:
-
     def __init__(self) -> None:
         self.calls: list[list[tuple[str, str]]] = []
 
@@ -207,6 +206,23 @@ def test_score_warms_up_once_untimed_then_times_every_window(bakeoff) -> None:
     assert model.calls[0] == model.calls[1]
     assert [w.scores["c"] for w in windows] == [4.0, 3.0]
     assert all("c" in w.ms for w in windows)
+
+
+def test_candidates_load_like_the_production_reranker_in_float32(bakeoff, monkeypatch, tmp_path) -> None:
+    import types
+
+    import torch
+
+    captured: dict = {}
+
+    def fake_cross_encoder(model, **kwargs):
+        captured.update(model=model, **kwargs)
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(CrossEncoder=fake_cross_encoder))
+    bakeoff.load_model(bakeoff.Candidate("m", "rev", "about"), tmp_path)
+    assert captured["model"] == "m" and captured["revision"] == "rev" and captured["device"] == "cpu"
+    assert captured["trust_remote_code"] is False
+    assert captured["model_kwargs"] == {"dtype": torch.float32}
 
 
 def test_passage_pairs_cover_the_chunk_in_passages(bakeoff) -> None:
