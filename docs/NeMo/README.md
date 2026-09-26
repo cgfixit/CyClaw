@@ -87,6 +87,30 @@ Retrieval chunks are untrusted `SourceProvenance`. IDs only (`source:chunk_id`) 
 
 Qwen asset registry: `guardrails/qwen_manifest.yaml` (tag, optional sha256). Strict digest default **off**. No CI weight download.
 
+## How audit.jsonl records a guardrail refusal
+
+Every guardrail refusal on `POST /query` sets `guardrail_blocked: true`, and
+`guardrail_rails` names what refused. `model_used` says whether a model ran:
+
+- `model_used: "guardrail-blocked"`: the refusal came before any model ran,
+  so nothing was generated or sent (`online_escalated: false`). The offline
+  input rail (`guardrail_input`) and the NeMo `check()` input rails both
+  record a refusal this way.
+- `model_used` names a model (`local`, `grok`, `claude`,
+  `offline-best-effort`): that model answered and a rail replaced its answer.
+  A Grok or Claude call was made and billed, and any docs forwarded to it stay
+  in `sources`. The offline output rail (`guardrail_output`) and the NeMo
+  `check()` output rails both record a refusal this way.
+
+Offline rails appear under their configured names (`check_injection`,
+`check_grounding`, …). A NeMo `check()` refusal appears as
+`nemo_check:<flow>`, after the Colang flow in `guardrails/config/rails.co`
+(for example `nemo_check:check soul leak`).
+
+A failed generation is not a refusal. When the model call errors,
+`guardrail_output` leaves the error answer alone, so an Ollama outage shows up
+as the response's `error`, not as a grounding block.
+
 ## Grounding
 
 `guardrails/rails.py::grounding_score` is **token overlap**

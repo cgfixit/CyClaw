@@ -73,7 +73,7 @@ def build_output_guard(cfg: dict[str, Any]) -> Callable[[str, str, str], dict[st
 
 def build_generate_guard(
     cfg: dict[str, Any],
-) -> Callable[..., tuple[str, str | None]] | None:
+) -> Callable[..., tuple[str, str | None, dict[str, Any] | None]] | None:
     """Build the Phase 3 ``check()`` wrap around ``client.generate``, or None.
 
     Same literal ``enabled is True`` gate. Graph injects the callable into
@@ -97,7 +97,7 @@ def build_generate_guard(
         label: str = "LLM",
         spend_context: dict[str, object] | None = None,
         grounding_context: str | None = None,
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str, str | None, dict[str, Any] | None]:
         return guarded_generate(
             client,
             prompt,

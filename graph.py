@@ -45,6 +45,23 @@ class _GeneratingClient(Protocol):
         # flag a bare Ellipsis expression statement.
         pass
 
+
+class GuardBlock(TypedDict):
+    """A Phase 3 check's refusal, as the injected generate_guard reports it.
+
+    ``stage`` "input" means the check refused before the model ran, and
+    "output" that it replaced an answer the model did produce. ``rails``
+    names what refused (``nemo_check:<flow>``).
+    """
+
+    stage: Literal["input", "output"]
+    rails: list[str]
+
+
+# (client, prompt, *, query, label, spend_context, grounding_context) ->
+# (answer, error, block). Built by utils.guardrail_bridge.build_generate_guard.
+GenerateGuard = Callable[..., tuple[str, str | None, GuardBlock | None]]
+
 # =============================================================================
 # State Definition
 # =============================================================================
@@ -268,13 +285,14 @@ def _generate_or_error(
     label: str,
     spend_context: dict[str, object] | None = None,
     query: str = "",
-    generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    generate_guard: GenerateGuard | None = None,
     grounding_context: str | None = None,
-) -> tuple[str, str | None]:
+) -> tuple[str, str | None, GuardBlock | None]:
     """Call client.generate(prompt); translate a RAGError into a safe answer.
 
     When ``generate_guard`` is injected (Phase 3 bridge), NVIDIA ``check()``
-    runs around the existing generate. None (default) is the pre-Phase-3 path.
+    runs around the existing generate, and the third element reports a
+    refusal (see GuardBlock). None (default) is the pre-Phase-3 path.
     ``grounding_context`` is the retrieved text the answer must be grounded
     in, or None when the answer is not held to the vault.
     """
@@ -292,12 +310,33 @@ def _generate_or_error(
             logger.warning("generate_guard raised; falling back to unwrapped generate", exc_info=True)
     try:
         if spend_context is None:
-            return client.generate(prompt), None
+            return client.generate(prompt), None, None
         # Do not catch TypeError and retry without context: generate() may
         # already have billed a 200. Mocks accept **kwargs.
-        return client.generate(prompt, spend_context=spend_context), None
+        return client.generate(prompt, spend_context=spend_context), None, None
     except RAGError as e:
-        return f"[{label} Error: {e.message}]", f"{e.code}: {e.message}"
+        return f"[{label} Error: {e.message}]", f"{e.code}: {e.message}", None
+
+
+def _record_guard_block(out: dict[str, Any], block: GuardBlock | None, *, sent_sources: bool = False) -> None:
+    """Record a Phase 3 refusal on a node's output, so the audit says what ran.
+
+    An input refusal came before the model ran: nothing answered and nothing
+    was sent, so answer_model becomes guardrail-blocked (as guardrail_input_node
+    sets it). An output refusal replaced an answer the model did produce, so
+    answer_model keeps naming that model. Its sources are dropped, as
+    guardrail_output_node drops them, except docs already forwarded to an
+    external provider (``sent_sources``), which the audit must keep showing.
+    """
+    if block is None:
+        return
+    out["guardrail_blocked"] = True
+    out["guardrail_rails"] = list(block["rails"])
+    if block["stage"] == "input":
+        out["answer_model"] = "guardrail-blocked"
+        out["answer_sources"] = []
+    elif not sent_sources:
+        out["answer_sources"] = []
 
 # =============================================================================
 # Node Functions
@@ -472,6 +511,12 @@ def guardrail_output_node(
     """
     if output_guard is None or state.get("answer_model") != "local":
         return {}
+    # A failed generation left an error placeholder, not a model answer, so
+    # there is nothing to ground; checking it recorded an Ollama outage as a
+    # guardrail block. An answer the Phase 3 check already refused is the block
+    # message, and re-checking it would overwrite which rail refused.
+    if state.get("error") or state.get("guardrail_blocked"):
+        return {}
 
     # Check grounding against the text actually sent to the model, including
     # clipped chunks; using all retrieved_docs could credit unseen evidence.
@@ -498,7 +543,7 @@ def local_llm_node(
     llm: LocalLLMClient,
     cfg: dict,
     personality: PersonalityManager | None = None,
-    generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    generate_guard: GenerateGuard | None = None,
 ) -> dict:
     """Node 3: Build prompt from retrieved docs + query, call Ollama.
 
@@ -559,7 +604,7 @@ Answer based STRICTLY on the retrieved context above. If the context is insuffic
                 "error": f"ENDPOINT_TRUST: {exc}",
             }
 
-    answer, error = _generate_or_error(
+    answer, error, block = _generate_or_error(
         llm, prompt, label="LLM", query=query, generate_guard=generate_guard,
         grounding_context=_grounding_context(included_docs),
     )
@@ -569,6 +614,7 @@ Answer based STRICTLY on the retrieved context above. If the context is insuffic
         "answer_model": "local",
         "answer_sources": included_docs,
     }
+    _record_guard_block(out, block)
     # Surface a generation failure to the audit node + HTTP response, matching
     # retrieve_node's "{code}: {message}" convention. Only set on failure so a
     # successful answer never clobbers an upstream error already in state (e.g. a
@@ -603,7 +649,7 @@ def _external_fallback_node(
     *,
     provider: str,
     label: str,
-    generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    generate_guard: GenerateGuard | None = None,
 ) -> dict:
     """Shared implementation behind grok_fallback_node / claude_fallback_node.
 
@@ -727,7 +773,7 @@ def _external_fallback_node(
         })
 
     spend_context = _fallback_spend_context(state, cfg, provider)
-    answer, error = _generate_or_error(
+    answer, error, block = _generate_or_error(
         client,
         prompt,
         label=label,
@@ -750,6 +796,7 @@ def _external_fallback_node(
         "answer_model": provider,
         "answer_sources": included_docs,
     }
+    _record_guard_block(out, block, sent_sources=True)
     # llm/client.py stamps the response's own vendor-resolved model id back onto
     # this request's spend_context dict; forward it so the audit event shows what
     # actually served next to the configured tag (llm_model).
@@ -765,7 +812,7 @@ def grok_fallback_node(
     state: GraphState,
     grok: GrokClient | None,
     cfg: dict,
-    generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    generate_guard: GenerateGuard | None = None,
 ) -> dict:
     """Node 5: Call Grok API. Only reachable when hybrid + confirmed + selected."""
     return _external_fallback_node(
@@ -777,7 +824,7 @@ def claude_fallback_node(
     state: GraphState,
     claude: ClaudeClient | None,
     cfg: dict,
-    generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    generate_guard: GenerateGuard | None = None,
 ) -> dict:
     """Call Claude API. Only reachable when hybrid + confirmed + selected."""
     return _external_fallback_node(
@@ -790,7 +837,7 @@ def offline_best_effort_node(
     llm: LocalLLMClient,
     cfg: dict,
     personality: PersonalityManager | None = None,
-    generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    generate_guard: GenerateGuard | None = None,
 ) -> dict:
     """Node 6: Best-effort local answer when user declines Grok or offline mode.
 
@@ -856,7 +903,7 @@ Provide the best general answer you can. Clearly note that your local knowledge 
                 "error": f"ENDPOINT_TRUST: {exc}",
             }
 
-    answer, error = _generate_or_error(
+    answer, error, block = _generate_or_error(
         llm, prompt, label="LLM", query=query, generate_guard=generate_guard,
         # Answers a vault miss, so it is not held to the vault.
         grounding_context=None,
@@ -867,6 +914,7 @@ Provide the best general answer you can. Clearly note that your local knowledge 
         "answer_model": "offline-best-effort",
         "answer_sources": included_docs,
     }
+    _record_guard_block(out, block)
     # Only set on failure so a successful best-effort answer does not overwrite an
     # upstream error already in state (e.g. a retrieve_node RAG_ERROR that routed
     # here) — the audit node reads state["error"].
@@ -1154,7 +1202,7 @@ def build_graph(
     personality: PersonalityManager | None = None,
     input_guard: Callable[[str], dict[str, Any]] | None = None,
     output_guard: Callable[[str, str, str], dict[str, Any]] | None = None,
-    generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    generate_guard: GenerateGuard | None = None,
 ):
     """Build and compile the CyClaw LangGraph.
 
@@ -1188,6 +1236,8 @@ def build_graph(
                      (see guardrail_output_node's docstring).
         generate_guard: optional Phase 3 wrap around client.generate
                      (NVIDIA check() via the bridge). None = unwrapped.
+                     Returns (answer, error, block); a refusal is recorded
+                     on the answering node's output (see GuardBlock).
 
     Returns:
         Compiled LangGraph (CompiledGraph) ready to invoke.
