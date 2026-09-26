@@ -357,6 +357,24 @@ def test_rag_query_preview_fits_the_schema_and_keeps_the_join_key(proj_cfg) -> N
     assert "sources" not in preview
 
 
+def test_projected_model_is_the_one_that_answered(proj_cfg) -> None:
+    """graph.py records the vendor-resolved served_model next to the configured
+    llm_model on Grok/Claude answers. The event's model names what actually
+    ran; the configured alias stays in audit.jsonl, joinable by query_hash."""
+    cfg, _, out = proj_cfg
+    base = {"event": "rag_query", "query": "q", "top_score": 0.01, "model_used": "grok"}
+    audit_log({**base, "llm_model": "grok-4.5", "served_model": "grok-4.5-0913"}, cfg=cfg)
+    # No served_model reported (or an empty one): the configured tag stands in.
+    audit_log({**base, "llm_model": "grok-4.5", "served_model": ""}, cfg=cfg)
+    audit_log({**base, "llm_model": "grok-4.5"}, cfg=cfg)
+    close_audit_handles()
+    served, empty, absent = _lines(out)
+    assert served["model"] == "grok-4.5-0913"
+    assert served["model_provider"] == "xai"
+    assert empty["model"] == "grok-4.5"
+    assert absent["model"] == "grok-4.5"
+
+
 def test_small_record_preview_is_complete_and_unflagged(proj_cfg) -> None:
     cfg, _, out = proj_cfg
     audit_log({"event": "rate_limit_exceeded", "client": "127.0.0.1", "path": "/query"}, cfg=cfg)

@@ -970,6 +970,13 @@ async def query_endpoint(request: Request, req: QueryRequest):
         cel_block = numbat.get("cel") if isinstance(numbat, dict) else None
         if isinstance(cel_block, dict) and cel_block.get("enabled") is True:
             sources = result.get("answer_sources", []) or []
+            # The model that answered: the vendor-resolved served_model when
+            # a Grok/Claude call reported one, else the configured tag -- the
+            # same rule utils.numbat_emitter's audit projection applies, so a
+            # CEL event and its rag_query projection name the same model.
+            served_model = result.get("served_model")
+            if not (isinstance(served_model, str) and served_model):
+                served_model = None
             await asyncio.to_thread(
                 monitor_request,
                 query_hash=hash_query(req.query),
@@ -985,7 +992,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
                     hash_query(f"{s.get('source', '')}:{s.get('chunk_id', -1)}")
                     for s in sources
                 ],
-                llm_model=_llm_identity(result.get("answer_model", ""), cfg).get("llm_model"),
+                llm_model=served_model or _llm_identity(result.get("answer_model", ""), cfg).get("llm_model"),
                 cfg=cfg,
             )
     except Exception as exc:

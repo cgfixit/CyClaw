@@ -137,6 +137,8 @@ def test_match_preview_carries_the_query_hash_join_key(tmp_path: Path):
     monitor_request(query_hash=_QUERY_HASH, answer_model="local", cfg=cfg)
     rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
     assert json.loads(rec["content_preview"]) == {"query_hash": _QUERY_HASH, "cel_rules_matched": [0]}
+    # A preview that fits is complete, so it carries no truncation flag.
+    assert "content_preview_truncated" not in rec
 
 
 def test_query_hash_opt_out_keeps_it_out_of_the_stream(tmp_path: Path):
@@ -169,10 +171,11 @@ def test_long_match_list_stays_within_the_schema_cap(tmp_path: Path):
     rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
     assert len(rec["content_preview"]) <= CONTENT_PREVIEW_MAX_CHARS
     # Still parseable JSON: the indices are dropped from the preview whole
-    # (the tags keep them), never cut mid-string.
+    # (the tags keep them), never cut mid-string, and the drop is flagged so
+    # the shortened preview never reads as complete.
     assert json.loads(rec["content_preview"]) == {"query_hash": _QUERY_HASH}
     assert f"rules:{','.join(str(i) for i in range(60))}" in rec["tags"]
-    assert "content_preview_truncated" not in rec
+    assert rec["content_preview_truncated"] is True
 
 
 def test_enabled_no_match_does_not_emit(tmp_path: Path):
