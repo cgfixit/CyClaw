@@ -252,6 +252,15 @@ def _fallback_spend_context(state: GraphState, cfg: dict, provider: str) -> dict
     return ctx
 
 
+def _grounding_context(docs: list[RetrievedDoc]) -> str:
+    """The text an answer's grounding is judged against: the chunks the model saw.
+
+    Shared by the Phase 3 live check and guardrail_output_node so the two
+    grounding checks always read the same evidence.
+    """
+    return "\n\n".join(d.get("text", "") for d in docs)
+
+
 def _generate_or_error(
     client: _GeneratingClient,
     prompt: str,
@@ -260,11 +269,14 @@ def _generate_or_error(
     spend_context: dict[str, object] | None = None,
     query: str = "",
     generate_guard: Callable[..., tuple[str, str | None]] | None = None,
+    grounding_context: str | None = None,
 ) -> tuple[str, str | None]:
     """Call client.generate(prompt); translate a RAGError into a safe answer.
 
     When ``generate_guard`` is injected (Phase 3 bridge), NVIDIA ``check()``
     runs around the existing generate. None (default) is the pre-Phase-3 path.
+    ``grounding_context`` is the retrieved text the answer must be grounded
+    in, or None when the answer is not held to the vault.
     """
     if generate_guard is not None:
         try:
@@ -274,6 +286,7 @@ def _generate_or_error(
                 query=query,
                 label=label,
                 spend_context=spend_context,
+                grounding_context=grounding_context,
             )
         except Exception:
             logger.warning("generate_guard raised; falling back to unwrapped generate", exc_info=True)
@@ -462,8 +475,7 @@ def guardrail_output_node(
 
     # Check grounding against the text actually sent to the model, including
     # clipped chunks; using all retrieved_docs could credit unseen evidence.
-    docs = state.get("answer_sources", [])
-    context = "\n\n".join(d.get("text", "") for d in docs)
+    context = _grounding_context(state.get("answer_sources", []))
 
     try:
         result = output_guard(state.get("query", ""), state.get("answer", ""), context)
@@ -548,7 +560,8 @@ Answer based STRICTLY on the retrieved context above. If the context is insuffic
             }
 
     answer, error = _generate_or_error(
-        llm, prompt, label="LLM", query=query, generate_guard=generate_guard
+        llm, prompt, label="LLM", query=query, generate_guard=generate_guard,
+        grounding_context=_grounding_context(included_docs),
     )
 
     out: dict = {
@@ -721,6 +734,8 @@ def _external_fallback_node(
         spend_context=spend_context,
         query=query,
         generate_guard=generate_guard,
+        # Answers a vault miss, so it is not held to the vault.
+        grounding_context=None,
     )
 
     # No fabricated source. A stub {"source": f"{label} Fallback", "score": 0.0,
@@ -842,7 +857,9 @@ Provide the best general answer you can. Clearly note that your local knowledge 
             }
 
     answer, error = _generate_or_error(
-        llm, prompt, label="LLM", query=query, generate_guard=generate_guard
+        llm, prompt, label="LLM", query=query, generate_guard=generate_guard,
+        # Answers a vault miss, so it is not held to the vault.
+        grounding_context=None,
     )
 
     out: dict = {

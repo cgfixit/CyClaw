@@ -178,3 +178,22 @@ class TestBuildOutputGuardEnabled:
         monkeypatch.setattr("guardrails.config.load_guardrails_config", _boom)
         with pytest.raises(GuardrailsConfigError):
             build_output_guard({"guardrails": {"enabled": True}})
+
+
+class TestBuildGenerateGuardEnabled:
+    def test_forwards_grounding_context_to_guarded_generate(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "guardrails.config.load_guardrails_config",
+            lambda: GuardrailsConfig(enabled=True, metrics_path=str(tmp_path / "guardrails.jsonl")),
+        )
+        seen: dict = {}
+
+        def _fake_guarded_generate(client, prompt, **kwargs):
+            seen.update(kwargs)
+            return "ok", None
+
+        monkeypatch.setattr("guardrails.broker.guarded_generate", _fake_guarded_generate)
+        guard = build_generate_guard({"guardrails": {"enabled": True}})
+        assert guard(object(), "p", query="q", label="LLM", grounding_context="chunks") == ("ok", None)
+        assert seen["grounding_context"] == "chunks"
+        assert seen["query"] == "q"
