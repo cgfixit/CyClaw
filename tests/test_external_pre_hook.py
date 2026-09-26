@@ -6,6 +6,7 @@ No wall-clock sleeps: subprocess.run is monkeypatched.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +17,10 @@ from utils.external_pre_hook import (
     DEFAULT_TIMEOUT_SEC,
     MAX_TIMEOUT_SEC,
     MIN_TIMEOUT_SEC,
+    REASON_CODES,
     _normalize_timeout,
+    hook_readiness,
+    last_verdict,
     run_pre_action_hook,
 )
 from utils.numbat_emitter import close_numbat_handles
@@ -256,11 +260,11 @@ def test_payload_query_hash_present_regardless_of_audit_hash_setting(
     monkeypatch.setattr(subprocess, "run", _capture)
 
     cfg = _hook_config(tmp_path)
-    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg) == {"verdict": "allow"}
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["verdict"] == "allow"
     assert json.loads(captured[-1])["query_hash"] == _TEST_QUERY_HASH
 
     cfg["logging"] = {"audit_fields": {"include_query_hash": False}}
-    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg) == {"verdict": "allow"}
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["verdict"] == "allow"
     optout_payload = json.loads(captured[-1])
     assert optout_payload["query_hash"] == _TEST_QUERY_HASH
     assert optout_payload["provider"] == "grok"
@@ -281,3 +285,219 @@ def test_emit_failure_is_fail_soft(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     result = run_pre_action_hook("grok", "grok-4.5", "abc", cfg)
     assert result["verdict"] == "deny"
     assert _lines(Path(cfg["numbat"]["output_path"])) == []
+
+
+# ---------------------------------------------------------------------------
+# Issue #1458 Phases 1-2: engines, reason codes, verdict events, diagnostics
+# ---------------------------------------------------------------------------
+
+
+def _allow_run(*args, **kwargs):
+    return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
+
+
+def test_every_reason_code_is_in_the_vocabulary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["reason_code"] in REASON_CODES
+
+
+def test_enabled_with_empty_command_denies(tmp_path: Path):
+    """Used to ALLOW every call: a control the operator switched on that did nothing."""
+    cfg = _hook_config(tmp_path, command=())
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert rec["event_type"] == "network.indicator"
+    assert rec["decision"] == "denied"
+    assert "hook_misconfigured" in rec["tags"]
+
+
+def test_enabled_with_missing_command_key_denies():
+    cfg = {"policy": {"fallback": {"pre_action_hook": {"enabled": True}}}}
+    assert run_pre_action_hook("grok", "grok-4.5", "abc", cfg)["verdict"] == "deny"
+
+
+def test_unknown_engine_denies(tmp_path: Path):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "opa"
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert "engine:unknown" in _lines(Path(cfg["numbat"]["output_path"]))[0]["tags"]
+
+
+def test_allow_verdict_is_emitted_as_the_egress_about_to_happen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["models"] = {"grok": {"base_url": "https://api.x.ai/v1"}}
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("allow", "hook_allowed")
+    records = _lines(Path(cfg["numbat"]["output_path"]))
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["event_type"] == "network.indicator"
+    assert rec["decision"] == "allowed"
+    assert rec["url"] == "https://api.x.ai/v1"
+    assert rec["confidence"] == "high"
+    assert rec["tags"] == ["cyclaw", "pre_action_hook", "hook_allowed", "engine:command"]
+    assert rec["evidence"]["artifact_type"] == "pre_action_hook"
+    assert json.loads(rec["content_preview"]) == {"query_hash": _TEST_QUERY_HASH}
+
+
+def test_broken_hook_verdicts_say_denied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Timeouts/crashes used to carry no decision at all; they are denials."""
+    cfg = _hook_config(tmp_path)
+
+    def _exit_7(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=7, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", _exit_7)
+    run_pre_action_hook("claude", "claude-sonnet-5", _TEST_QUERY_HASH, cfg)
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert (rec["event_type"], rec["decision"], rec["confidence"]) == ("network.indicator", "denied", "low")
+    assert "hook_failure" in rec["tags"]
+
+
+def test_emit_verdict_absent_means_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """config.yaml ships emit_verdict: true; a config that omits the key keeps the old default."""
+    cfg = _hook_config(tmp_path)
+    del cfg["policy"]["fallback"]["pre_action_hook"]["emit_verdict"]
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["verdict"] == "allow"
+    assert _lines(Path(cfg["numbat"]["output_path"])) == []
+
+
+@pytest.mark.parametrize("emit_value", ["true", 1, "yes"])
+def test_only_a_literal_true_emit_verdict_emits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, emit_value):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["emit_verdict"] = emit_value
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert _lines(Path(cfg["numbat"]["output_path"])) == []
+
+
+def test_numbat_engine_is_dispatched_and_its_verdict_emitted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    seen: dict = {}
+
+    def _evaluate(provider, model, query_hash, cfg_arg, *, timeout):
+        seen.update(provider=provider, model=model, query_hash=query_hash, timeout=timeout)
+        return {"verdict": "allow", "reason_code": "hook_allowed", "reason": "r",
+                "monitor_matches": ["acme.watch"]}
+
+    monkeypatch.setattr("utils.numbat_gate.evaluate", _evaluate)
+    result = run_pre_action_hook("claude", "claude-sonnet-5", _TEST_QUERY_HASH, cfg)
+    assert result["verdict"] == "allow"
+    assert seen == {"provider": "claude", "model": "claude-sonnet-5", "query_hash": _TEST_QUERY_HASH, "timeout": 5}
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert "engine:numbat" in rec["tags"]
+    assert "monitor_match:acme.watch" in rec["tags"]
+
+
+def test_numbat_engine_deny_is_a_policy_denial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    monkeypatch.setattr(
+        "utils.numbat_gate.evaluate",
+        lambda *a, **k: {"verdict": "deny", "reason_code": "hook_denied", "reason": "denied by Numbat rule(s): x"},
+    )
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_denied")
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert rec["event_type"] == "permission.denied"
+    assert rec["approval_reason"] == "hook_denied"
+    # The rule-naming reason text stays out of the derived stream.
+    assert "denied by Numbat rule" not in json.dumps(rec)
+
+
+def test_numbat_engine_that_cannot_load_denies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import builtins
+
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    real_import = builtins.__import__
+
+    def _no_gate(name, *args, **kwargs):
+        if name == "utils.numbat_gate":
+            raise ImportError("gone")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _no_gate)
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_error")
+
+
+@pytest.mark.parametrize(
+    ("block", "warns"),
+    [
+        ({"verdict_mode": "enforce"}, False),
+        ({"fail_mode": "enforce"}, False),
+        ({}, False),
+        ({"verdict_mode": "monitor"}, True),
+        ({"fail_mode": "monitor"}, True),
+        # verdict_mode wins over its old name.
+        ({"verdict_mode": "enforce", "fail_mode": "monitor"}, False),
+    ],
+)
+def test_verdict_mode_is_always_enforce(tmp_path, monkeypatch, caplog, block, warns):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"].update(block)
+
+    def _exit_2(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=2, stdout=b"", stderr=b"no")
+
+    monkeypatch.setattr(subprocess, "run", _exit_2)
+    with caplog.at_level(logging.WARNING, logger="cyclaw.external_pre_hook"):
+        result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    # A deny always blocks: no setting turns a deny into an allow.
+    assert result["verdict"] == "deny"
+    assert any("verdict_mode" in r.getMessage() for r in caplog.records) is warns
+
+
+def test_last_verdict_records_codes_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+
+    def _exit_2(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=2, stdout=b"", stderr=b"secret stderr text")
+
+    monkeypatch.setattr(subprocess, "run", _exit_2)
+    run_pre_action_hook("claude", "claude-sonnet-5", _TEST_QUERY_HASH, cfg)
+    last = last_verdict()
+    assert last is not None
+    assert {k: last[k] for k in ("verdict", "reason_code", "provider", "engine")} == {
+        "verdict": "deny", "reason_code": "hook_denied", "provider": "claude", "engine": "command",
+    }
+    assert "secret stderr text" not in json.dumps(last)
+
+
+def test_readiness_is_none_when_the_hook_is_off():
+    assert hook_readiness({"policy": {"fallback": {"pre_action_hook": {"enabled": False}}}}) is None
+    assert hook_readiness(None) is None
+
+
+def test_readiness_of_a_resolvable_command(tmp_path: Path):
+    cfg = _hook_config(tmp_path, command=(sys.executable, "-c", "pass"))
+    assert hook_readiness(cfg) == (True, None)
+
+
+@pytest.mark.parametrize("command", [(), ("",), ("definitely-not-a-binary-cyclaw-1458",)])
+def test_readiness_flags_a_command_that_cannot_run(tmp_path: Path, command):
+    ready, problem = hook_readiness(_hook_config(tmp_path, command=command))
+    assert ready is False
+    assert "denied" in problem
+    # Fixed phrases: the argv itself never reaches the unauthenticated /health.
+    assert "definitely-not-a-binary" not in problem
+
+
+def test_readiness_flags_an_unknown_engine(tmp_path: Path):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "opa"
+    assert hook_readiness(cfg)[0] is False
+
+
+def test_readiness_delegates_to_the_numbat_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    monkeypatch.setattr("utils.numbat_gate.readiness", lambda cfg_arg: (False, "numbat binary not found"))
+    assert hook_readiness(cfg) == (False, "numbat binary not found")

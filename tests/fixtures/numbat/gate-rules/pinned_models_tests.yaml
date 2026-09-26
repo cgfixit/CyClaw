@@ -1,0 +1,32 @@
+rule_id: cyclaw.gate.pinned_models
+cases:
+  - name: vetted-grok
+    expect: no_match
+    events:
+      - event_type: network.indicator
+        tags: [cyclaw, pre_action_hook, grok]
+        model: grok-4.5
+        model_provider: xai
+        url: https://api.x.ai/v1
+  - name: vetted-claude
+    expect: no_match
+    events:
+      - event_type: network.indicator
+        tags: [cyclaw, pre_action_hook, claude]
+        model: claude-sonnet-5
+        model_provider: anthropic
+        url: https://api.anthropic.com/v1
+  - name: unvetted-model
+    expect: match
+    events:
+      - event_type: network.indicator
+        tags: [cyclaw, pre_action_hook, grok]
+        model: grok-5-preview
+        model_provider: xai
+        url: https://api.x.ai/v1
+  - name: not-a-gate-event
+    expect: no_match
+    events:
+      - event_type: network.indicator
+        tags: [cyclaw]
+        model: grok-5-preview

@@ -85,8 +85,8 @@ def _cfg(tmp: Path) -> dict[str, Any]:
         },
         "models": {
             "local_llm": {"provider": "ollama", "model": "qwen3.8:27b-mlx"},
-            "grok": {"model": "grok-4.5"},
-            "claude": {"model": "claude-sonnet-5"},
+            "grok": {"model": "grok-4.5", "base_url": "https://api.x.ai/v1"},
+            "claude": {"model": "claude-sonnet-5", "base_url": "https://api.anthropic.com/v1"},
         },
     }
 
@@ -161,21 +161,30 @@ def _mainline(cfg: dict[str, Any]) -> None:
 
 
 def _hook_verdicts(cfg: dict[str, Any]) -> None:
-    """Each fail-closed branch of the pre-action hook, with emit_verdict on."""
+    """One verdict of each shape the pre-action hook emits, emit_verdict on.
+
+    The numbat engine case points at a binary that does not exist, so it is
+    deterministic without Numbat installed and still runs the engine's real
+    emission path (a fail-closed hook_error). Its allow/deny verdicts share
+    the command engine's event shapes, which the cases above cover.
+    """
     python = sys.executable
-    commands = [
-        [python, "-c", "import sys; sys.stderr.write('blocked'); sys.exit(2)"],
-        [python, "-c", "import sys; sys.exit(7)"],
-        [str(_REPO / "no-such-hook-binary")],
+    blocks: list[tuple[str, dict[str, Any]]] = [
+        ("grok", {"command": [python, "-c", "import sys; sys.exit(0)"]}),
+        ("grok", {"command": [python, "-c", "import sys; sys.stderr.write('blocked'); sys.exit(2)"]}),
+        ("claude", {"command": [python, "-c", "import sys; sys.exit(7)"]}),
+        ("grok", {"command": [str(_REPO / "no-such-hook-binary")]}),
+        ("claude", {"command": []}),
+        ("grok", {"engine": "numbat", "numbat": {"binary": str(_REPO / "no-such-numbat"), "rules_dirs": [str(_REPO)]}}),
     ]
-    for provider, command in zip(("grok", "claude", "grok"), commands, strict=True):
+    for provider, block in blocks:
         hook_cfg = {
             **cfg,
             "policy": {"fallback": {"pre_action_hook": {
                 "enabled": True,
-                "command": command,
                 "timeout_sec": 5,
                 "emit_verdict": True,
+                **block,
             }}},
         }
         model = cfg["models"][provider]["model"]

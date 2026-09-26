@@ -108,6 +108,9 @@ class GraphState(TypedDict, total=False):
 
     # Pre-action hook (issue #963)
     pre_action_hook_denied: bool
+    # The verdict's fixed-vocabulary code (utils.external_pre_hook.REASON_CODES),
+    # set only when an enabled hook decided (issue #1458 Phase 1).
+    pre_action_hook_reason: str
 
     # Audit
     audit_event: dict
@@ -959,6 +962,12 @@ def audit_logger_node(state: GraphState, cfg: dict,
     served_model = state.get("served_model")
     if isinstance(served_model, str) and served_model:
         event["served_model"] = served_model
+    # Only when an enabled pre-action hook decided: the code says why it
+    # allowed or denied (hook_denied vs hook_timeout vs ...), which
+    # pre_action_hook_denied alone cannot, and cyclaw-metrics counts it.
+    hook_reason = state.get("pre_action_hook_reason")
+    if isinstance(hook_reason, str) and hook_reason:
+        event["pre_action_hook_reason"] = hook_reason
 
     # Record to personality DB before audit_log so a failure is durable in the
     # JSONL event (personality_db_error), not only in process logs. The call is
@@ -1032,10 +1041,11 @@ def guardrail_router(state: GraphState) -> Literal["local_llm", "offline_best_ef
 def pre_action_hook_node(state: GraphState, cfg: dict, *, provider: str) -> dict[str, Any]:
     """Synchronous checkpoint before an external provider node.
 
-    Runs the configured pre-action hook with a JSON payload describing the
-    proposed call (provider, model, query_hash). Exit code 0 allows the call;
-    exit code 2 denies it; any crash, timeout, or other non-zero exit fails
-    closed (deny + audit). When disabled or unconfigured this node is a no-op.
+    Runs the configured pre-action hook over the proposed call (provider,
+    model, query_hash): the ``command`` engine's exit-code contract (0 allows,
+    2 denies) or the ``numbat`` engine (utils/numbat_gate.py). Any crash,
+    timeout, bad exit, or misconfiguration fails closed (deny + audit). When
+    disabled this node is a no-op; enabled with nothing to run, it denies.
 
     On deny the node short-circuits straight to audit_logger with a dedicated
     answer_model so the audit trail records that the hook shrank the reachable
@@ -1047,7 +1057,11 @@ def pre_action_hook_node(state: GraphState, cfg: dict, *, provider: str) -> dict
 
     result = run_pre_action_hook(provider, model, query_hash, cfg)
     if result.get("verdict") == "allow":
-        return {"pre_action_hook_denied": False}
+        allowed: dict[str, Any] = {"pre_action_hook_denied": False}
+        # Absent when the hook is disabled: a no-op checkpoint decided nothing.
+        if result.get("reason_code"):
+            allowed["pre_action_hook_reason"] = result["reason_code"]
+        return allowed
 
     reason = result.get("reason") or "pre-action hook denied external provider call"
     logger.warning("pre_action_hook denied %s: %s", provider, reason)
@@ -1057,6 +1071,7 @@ def pre_action_hook_node(state: GraphState, cfg: dict, *, provider: str) -> dict
         "answer_sources": [],
         "error": reason,
         "pre_action_hook_denied": True,
+        "pre_action_hook_reason": result.get("reason_code") or "hook_failure",
     }
 
 

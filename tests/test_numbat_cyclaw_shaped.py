@@ -131,10 +131,15 @@ def test_every_producer_family_is_represented(live_clean) -> None:
     """A producer that silently stops emitting must not shrink the fixture."""
     artifact_types = {event["evidence"]["artifact_type"] for event in live_clean}
     assert artifact_types == {
-        "cyclaw_audit_jsonl", "audit_log", "cel_monitor", "ops_runner", "fsconnect", "sqlconnect",
+        "cyclaw_audit_jsonl", "pre_action_hook", "cel_monitor", "ops_runner", "fsconnect", "sqlconnect",
     }
     tags = {tag for event in live_clean for tag in event["tags"]}
-    assert {"pre_action_hook", "hook_denied", "hook_failure", "hook_error"} <= tags
+    assert {
+        "pre_action_hook", "hook_allowed", "hook_denied", "hook_failure", "hook_error",
+        "hook_misconfigured", "engine:command", "engine:numbat",
+    } <= tags
+    decisions = {e["decision"] for e in live_clean if "pre_action_hook" in e["tags"]}
+    assert decisions == {"allowed", "denied"}
     audit_events = [e for e in live_clean if e["evidence"]["artifact_type"] == "cyclaw_audit_jsonl"]
     assert len(audit_events) == 19
 
