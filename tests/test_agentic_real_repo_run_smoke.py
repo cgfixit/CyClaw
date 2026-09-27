@@ -220,6 +220,12 @@ def smoke_config(tmp_path, monkeypatch, instant_model_server):
     monkeypatch.setattr(agentic_config_module, "_repo_root", lambda: tmp_path)
     src = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
     src["logging"]["audit_file"] = str(tmp_path / "audit.jsonl")
+    # Relative sinks anchor to the REPO root (and a subprocess child is out of
+    # conftest's reach); keep the app log, spend ledger and Numbat stream in
+    # tmp_path too.
+    src["logging"]["log_file"] = str(tmp_path / "cyclaw.log")
+    src["logging"]["spend_file"] = str(tmp_path / "spend.jsonl")
+    src["numbat"]["output_path"] = str(tmp_path / "numbat-events.ndjsonl")
     src["agentic"]["enabled"] = True
     src["agentic"]["deepagent_github"]["enabled"] = True
     src["agentic"]["deepagent_github"]["allow_git_write_tools"] = True
@@ -350,6 +356,12 @@ def harness_shaped_agentic_config(tmp_path):
 
     src = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
     src["logging"]["audit_file"] = str(tmp_path / "audit.jsonl")
+    # Relative sinks anchor to the REPO root (and a subprocess child is out of
+    # conftest's reach); keep the app log, spend ledger and Numbat stream in
+    # tmp_path too.
+    src["logging"]["log_file"] = str(tmp_path / "cyclaw.log")
+    src["logging"]["spend_file"] = str(tmp_path / "spend.jsonl")
+    src["numbat"]["output_path"] = str(tmp_path / "numbat-events.ndjsonl")
     src["agentic"]["enabled"] = True
     src["agentic"]["deepagent_github"]["enabled"] = True
     src["agentic"]["deepagent_github"]["allow_git_write_tools"] = True
