@@ -646,6 +646,18 @@ jobs:
           pip install --no-index --no-deps --find-links .torch-wheels "torch==2.13.0+cpu"
           pip install -r requirements.txt -r requirements-test.txt -c constraints.txt
 
+      - name: Install the numbat-cel extra (Linux leg only)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # cel-python is the optional numbat-cel extra, not in requirements.txt,
+          # so without it every test that needs the CEL evaluator skips on all
+          # three legs. That includes the /query integration test in
+          # tests/test_gate.py, which numbat-rules.yml's CEL lane cannot run
+          # (that lane has no app install). One leg is enough; its transitive
+          # pins come from constraints.txt, as in that lane.
+          pip install -c constraints.txt cel-python==0.5.0
+
       - name: Install deps (macOS -- plain torch, no +cpu suffix)
         if: runner.os == 'macOS'
         shell: bash
@@ -951,6 +963,18 @@ jobs:
               }
             }
           }
+
+      - name: CEL monitor through /query with the real evaluator (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          # Promises cel-python is installed (the step above), so a test that
+          # needs the evaluator fails here instead of passing as a skip.
+          CYCLAW_REQUIRE_CELPY: "1"
+        run: |
+          # Visible by test name, like the native fsconnect gates above. The
+          # full suite runs these again, quietly.
+          pytest -vv -rs tests/test_gate.py::TestCelMonitorRequestPath tests/test_numbat_cel.py
 
       - name: Run tests + coverage
         shell: bash

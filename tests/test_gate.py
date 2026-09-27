@@ -10,6 +10,7 @@ Tests the HTTP layer including:
 
 import copy
 import json
+import os
 import re
 
 import pytest
@@ -281,6 +282,21 @@ class TestQueryEndpoint:
         assert resp.json()["retrieval_mode"] == "none"
 
 
+def _need_celpy() -> None:
+    """importorskip("celpy"), except where CI promises the evaluator is installed.
+
+    cel-python is an optional extra, so a plain skip is right on a machine
+    without it. ci.yml's Linux leg installs it and sets CYCLAW_REQUIRE_CELPY=1,
+    the switch tests/test_numbat_cel.py already honours, so a missing
+    evaluator fails that lane instead of passing as a skip.
+    """
+    if os.environ.get("CYCLAW_REQUIRE_CELPY") == "1":
+        import celpy  # noqa: F401 - an ImportError here fails the lane, by design
+
+        return
+    pytest.importorskip("celpy")
+
+
 # Dedicated loopback peer: these tests post real requests and must not spend
 # the shared 127.0.0.1 rate-limit budget (see the client fixture docstring).
 @pytest.mark.parametrize("client", [("127.0.0.4", 51234)], indirect=True)  # DevSkim: ignore DS162092,DS137138 - test loopback peer
@@ -294,7 +310,7 @@ class TestCelMonitorRequestPath:
         # the real monitor_request evaluates a real CEL rule keyed on the exact
         # expected hash of "test.md:0" (the mock graph's answer_sources entry)
         # and emits to a tmp Numbat stream only when source_hashes is populated.
-        pytest.importorskip("celpy")
+        _need_celpy()
         import gate
         from utils.logger import hash_query
         from utils.numbat_emitter import close_numbat_handles
@@ -332,12 +348,13 @@ class TestCelMonitorRequestPath:
         assert records[0]["model"] == gate.cfg["models"]["local_llm"]["model"]
 
     def test_monitor_receives_answer_source_hashes_without_celpy(self, client):
-        # celpy-free complement to test_monitor_emits_on_real_source_hash (which
-        # importorskips celpy and therefore skips in CI): with numbat.cel.enabled
-        # true, the gate must read the graph result's answer_sources key and hand
-        # monitor_request the hash of the mock graph's "test.md:0" entry. The
-        # mock intercepts the call before monitor_request's lazy celpy import,
-        # so this runs without the optional dependency installed.
+        # celpy-free complement to test_monitor_emits_on_real_source_hash, which
+        # skips wherever celpy is missing (every CI leg but ci.yml's Linux one):
+        # with numbat.cel.enabled true, the gate must read the graph result's
+        # answer_sources key and hand monitor_request the hash of the mock
+        # graph's "test.md:0" entry. The mock intercepts the call before
+        # monitor_request's lazy celpy import, so this runs without the optional
+        # dependency installed.
         import gate
         from utils.logger import hash_query
 
