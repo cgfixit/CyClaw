@@ -1112,7 +1112,8 @@ guardrails:
                                 # offline-best-effort legs remain intentionally out of scope
                                 # there. With NeMo installed, the check() flow
                                 # "check soul leak" also checks those answers.
-  topical_rails:                 # soul/personality-boundary topical flows (rails.co)
+  topical_rails:                 # display-only (CLI status): rails.co defines these flows,
+                                  # but no rail activates them and no offline check runs them
     - stay_in_local_knowledge
     - no_unauthed_external_advice
   soul_topics:                   # keywords that flag a turn as soul/personality/identity-related

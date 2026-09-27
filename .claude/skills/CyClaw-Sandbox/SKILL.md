@@ -375,9 +375,15 @@ subdirectory -- invoke them by that path.
 Track as KNOWN -- confirm they still exist at each full audit; never
 report one of these as a new finding.
 
-1. `check_jailbreak` / `check_soul_leak` are listed in guardrails config
-   but not enforced by the offline heuristic floor (model-assisted only);
-   `guardrail_output` is grounding-only.
+1. `check_jailbreak` is listed in the guardrails config but has no rail of
+   its own: the offline floor implements only `check_injection` and
+   `check_soul_mutation` on input, the NeMo flow `check cyclaw jailbreak`
+   runs the same injection markers, and no LLM-backed rail is active, so a
+   persona prompt worded off those markers passes. `topical_rails` is
+   display-only. `guardrail_output` runs `check_soul_leak` and
+   `check_grounding`, but on the `local_llm` answer only; Grok, Claude and
+   best-effort answers get a soul-leak check only from NeMo `check()`, when
+   NeMo is installed.
 2. Telegram's T4 media handling is partial and POSIX-only.
 3. `memory/consolidation.py` is a deliberate stub; consolidation stays
    disabled in v1.

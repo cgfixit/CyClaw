@@ -8,9 +8,11 @@
 # engine/model/base_url from GuardrailsConfig at engine-build time, so edit those
 # THERE. Rail BEHAVIOUR -- the active flows, thresholds, and prompt templates --
 # is defined by THIS file (and rails.co). config.yaml's input_rails / output_rails
-# / topical_rails lists select which offline rails the graph's guardrail_input
-# and guardrail_output nodes run (and what CLI status shows); the live Colang
-# flows below are the engine's active set, whatever those lists say. Every
+# lists select which offline rails the graph's guardrail_input and
+# guardrail_output nodes run (and what CLI status shows). Its topical_rails list
+# is display-only: no offline rail implements it, and rails.co's two topical
+# flows are not in the active set below. The live Colang flows below are the
+# engine's active set, whatever those lists say. Every
 # active flow executes a Python action from guardrails/rails.py; none of them
 # calls an LLM.
 # guardrails.hallucination_threshold IS applied to live rails via the
