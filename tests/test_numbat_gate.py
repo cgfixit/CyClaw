@@ -1160,6 +1160,84 @@ def test_run_cli_waits_for_a_reader_slot_only_until_its_deadline(monkeypatch):
         numbat_gate._run_cli([sys.executable, "-c", "print('never started')"], timeout=0.2)
 
 
+def _free_slots(semaphore: threading.BoundedSemaphore) -> int:
+    """How many slots ``semaphore`` has free right now (taken, counted, given back)."""
+    free = 0
+    while semaphore.acquire(blocking=False):
+        free += 1
+    for _ in range(free):
+        semaphore.release()
+    return free
+
+
+def _join_threads(name: str) -> None:
+    for thread in threading.enumerate():
+        if thread.name == name:
+            thread.join(30)
+
+
+# A worker abandoned at its caller's deadline can finish long after. The slot
+# it holds must go back to the semaphore it was taken from, not to whatever
+# the module name points at by then: a test (or anything else) that swaps the
+# semaphore in the meantime would otherwise be handed a slot it never had, or
+# see a full BoundedSemaphore over-released (ValueError in the worker).
+def test_a_late_cli_reader_gives_its_slot_back_to_the_semaphore_it_took_it_from(monkeypatch):
+    taken_from = threading.BoundedSemaphore(4)
+    monkeypatch.setattr(numbat_gate, "_CLI_READER_SLOTS", taken_from)
+    real_read = os.read
+    release = threading.Event()
+
+    def _read(fd, size):
+        if threading.current_thread().name == "numbat-cli-output":
+            release.wait(30)
+        return real_read(fd, size)
+
+    monkeypatch.setattr(os, "read", _read)
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            numbat_gate._run_cli([sys.executable, "-c", "pass"], timeout=0.3)
+        swapped_in = threading.BoundedSemaphore(1)
+        monkeypatch.setattr(numbat_gate, "_CLI_READER_SLOTS", swapped_in)
+    finally:
+        release.set()
+        _join_threads("numbat-cli-output")
+    assert _free_slots(taken_from) == 4
+    assert _free_slots(swapped_in) == 1
+
+
+def test_a_late_gate_worker_gives_its_slot_back_to_the_semaphore_it_took_it_from(monkeypatch):
+    taken_from = threading.BoundedSemaphore(2)
+    monkeypatch.setattr(numbat_gate, "_GATE_WORKER_SLOTS", taken_from)
+    release = threading.Event()
+    try:
+        with pytest.raises(numbat_gate._Stalled):
+            numbat_gate._within(0.05, lambda: release.wait(30))
+        swapped_in = threading.BoundedSemaphore(1)
+        monkeypatch.setattr(numbat_gate, "_GATE_WORKER_SLOTS", swapped_in)
+    finally:
+        release.set()
+        _join_threads("numbat-gate")
+    assert _free_slots(taken_from) == 2
+    assert _free_slots(swapped_in) == 1
+
+
+def test_a_late_rules_reader_gives_its_slot_back_to_the_semaphore_it_took_it_from(tmp_path, monkeypatch):
+    _rules_dir(tmp_path, ("acme.deny", True))
+    taken_from = threading.BoundedSemaphore(2)
+    monkeypatch.setattr(numbat_gate, "_RULE_READERS", taken_from)
+    release, _ = _stall_reads_of(monkeypatch, "acme_deny.yaml")
+    try:
+        with pytest.raises(numbat_gate._RulesDeadline):
+            numbat_gate._read_rules([tmp_path / "rules"], deadline=time.monotonic() + 0.2)
+        swapped_in = threading.BoundedSemaphore(1)
+        monkeypatch.setattr(numbat_gate, "_RULE_READERS", swapped_in)
+    finally:
+        release.set()
+        _join_threads("numbat-rules-read")
+    assert _free_slots(taken_from) == 2
+    assert _free_slots(swapped_in) == 1
+
+
 @pytest.mark.skipif(os.name == "nt" or shutil.which("yes") is None, reason="needs a POSIX `yes`")
 def test_a_binary_that_floods_its_output_denies(tmp_path):
     """`yes version` prints forever: a misconfigured binary denies, it does not fill memory."""

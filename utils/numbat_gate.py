@@ -431,8 +431,12 @@ def _read_rules(dirs: list[Path], *, deadline: float) -> list[tuple[int, Path, P
     for a free slot until its deadline rather than adding another thread on
     the same mount. Raises _RulesDeadline, or whatever _collect_rules raised.
     """
+    # The worker releases the semaphore it took its slot from, not whatever
+    # the name points at when it finishes: a worker abandoned at its deadline
+    # can finish long after, and must not hand a slot to a replacement.
+    readers = _RULE_READERS
     remaining = deadline - time.monotonic()
-    if remaining <= 0 or not _RULE_READERS.acquire(timeout=remaining):
+    if remaining <= 0 or not readers.acquire(timeout=remaining):
         raise _RulesDeadline
     outcome: list[list[tuple[int, Path, Path, bytes]] | Exception] = []
 
@@ -442,13 +446,13 @@ def _read_rules(dirs: list[Path], *, deadline: float) -> list[tuple[int, Path, P
         except Exception as exc:  # noqa: BLE001 - handed to the waiting caller below
             outcome.append(exc)
         finally:
-            _RULE_READERS.release()
+            readers.release()
 
     worker = threading.Thread(target=_work, name="numbat-rules-read", daemon=True)
     try:
         worker.start()
     except BaseException:
-        _RULE_READERS.release()
+        readers.release()
         raise
     worker.join(max(0.0, deadline - time.monotonic()))
     if worker.is_alive() or not outcome:
@@ -538,7 +542,11 @@ def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[
     killed process is not waited on.
     """
     deadline = time.monotonic() + timeout
-    if not _acquire_reader_slots(2, deadline):
+    # Every release below goes to this instance, the one the slots were taken
+    # from: a reader can outlive the call by a long way (a child still holding
+    # the pipe), and must not hand its slot to a semaphore swapped in since.
+    slots = _CLI_READER_SLOTS
+    if not _acquire_reader_slots(slots, 2, deadline):
         raise subprocess.TimeoutExpired(argv, timeout)
     try:
         proc = subprocess.Popen(  # noqa: S603  # nosec B603 - list-form, no shell
@@ -546,8 +554,8 @@ def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[
             start_new_session=True,  # its own process group, so a kill reaches its children (POSIX)
         )
     except BaseException:
-        _CLI_READER_SLOTS.release()
-        _CLI_READER_SLOTS.release()
+        slots.release()
+        slots.release()
         raise
     captured = (bytearray(), bytearray())
     overflow = threading.Event()
@@ -562,7 +570,7 @@ def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[
                         return
                     sink.extend(chunk)
         finally:
-            _CLI_READER_SLOTS.release()
+            slots.release()
 
     pumps = [
         threading.Thread(target=_pump, args=(stream, sink), name="numbat-cli-output", daemon=True)
@@ -574,7 +582,7 @@ def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[
         except BaseException:
             _kill_tree(proc)
             for _ in pumps[started:]:
-                _CLI_READER_SLOTS.release()
+                slots.release()
             raise
     try:
         returncode = proc.wait(timeout=max(0.0, deadline - time.monotonic()))
@@ -595,13 +603,13 @@ def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[
     return subprocess.CompletedProcess(argv, returncode, stdout=stdout, stderr=stderr)
 
 
-def _acquire_reader_slots(count: int, deadline: float) -> bool:
-    """Take ``count`` reader slots, waiting no later than ``deadline``; all or none."""
+def _acquire_reader_slots(slots: threading.BoundedSemaphore, count: int, deadline: float) -> bool:
+    """Take ``count`` slots from ``slots``, waiting no later than ``deadline``; all or none."""
     taken = 0
     while taken < count:
-        if not _CLI_READER_SLOTS.acquire(timeout=max(0.0, deadline - time.monotonic())):
+        if not slots.acquire(timeout=max(0.0, deadline - time.monotonic())):
             for _ in range(taken):
-                _CLI_READER_SLOTS.release()
+                slots.release()
             return False
         taken += 1
     return True
@@ -674,7 +682,10 @@ def _within[T](timeout: float, work: Callable[[], T]) -> T:
     wakes up later only finishes cleaning up after itself.
     """
     deadline = time.monotonic() + timeout + _GATE_WORKER_GRACE_SEC
-    if not _GATE_WORKER_SLOTS.acquire(timeout=max(0.0, deadline - time.monotonic())):
+    # Released to this instance, as in _read_rules: an abandoned worker can
+    # finish long after its caller gave up on it.
+    slots = _GATE_WORKER_SLOTS
+    if not slots.acquire(timeout=max(0.0, deadline - time.monotonic())):
         raise _Stalled
     outcome: list[Any] = []
 
@@ -686,13 +697,13 @@ def _within[T](timeout: float, work: Callable[[], T]) -> T:
             # which the caller reads as _Stalled and denies.
             outcome.append((False, exc))
         finally:
-            _GATE_WORKER_SLOTS.release()
+            slots.release()
 
     worker = threading.Thread(target=_run, name="numbat-gate", daemon=True)
     try:
         worker.start()
     except BaseException:
-        _GATE_WORKER_SLOTS.release()
+        slots.release()
         raise
     worker.join(max(0.0, deadline - time.monotonic()))
     if worker.is_alive() or not outcome:

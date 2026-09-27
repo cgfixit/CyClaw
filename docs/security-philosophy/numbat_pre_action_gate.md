@@ -236,15 +236,20 @@ adds one event to `logs/numbat-events.ndjsonl`:
 
 | Verdict | Event | Decision | Confidence |
 |---|---|---|---|
-| allow | `network.indicator` with the provider `url` (credentials stripped) | `allowed` | high |
+| allow | `network.indicator` with the provider `url` (origin only) | `allowed` | high |
 | policy deny (`hook_denied`) | `permission.denied` with `approval_reason: "hook_denied"` | `denied` | high |
-| gate failure (any other deny) | `network.indicator` with the provider `url` | `denied` | low |
+| gate failure (any other deny) | `network.indicator` with the provider `url` (origin only) | `denied` | low |
 
 Each event is tagged `pre_action_hook`, its reason code, and `engine:<name>`.
 It carries `evidence.artifact_type: "pre_action_hook"` and, unless
 `include_query_hash` is false, `{"query_hash": ...}` in `content_preview` as
 the join key to the `rag_query` record. A failure to write the event never
-changes the verdict (`tests/test_graph.py::TestPreActionHookEnginesAndVerdicts`).
+changes the verdict (`tests/test_graph.py::TestPreActionHookEnginesAndVerdicts`),
+and a slow write never holds it: the event is written on a worker thread the
+call waits for at most 1 s, and with four such writes already stuck the event
+is skipped and logged. A stalled `numbat.output_path` still stalls the request
+later, though: the audit record that ends every query is projected into the
+same stream, synchronously, and waits on the same write.
 
 ## What the Numbat pre-action gate does not do
 

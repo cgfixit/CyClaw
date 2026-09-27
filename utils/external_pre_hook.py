@@ -283,6 +283,61 @@ def _emit_hook_verdict(
         logger.warning("pre_action_hook numbat emit failed: %s", exc)
 
 
+# The verdict event is forensic, so the call must not wait on its write: it
+# is written on a worker thread that the caller stops waiting for after this
+# long. A healthy append, a size rollover included, takes milliseconds; a
+# filesystem that stalls under numbat.output_path can block the write for as
+# long as it stalls.
+_EMIT_BUDGET_SEC = 1.0
+# How many of those writes can be stuck at once. With every slot held, the
+# event is skipped (and logged) rather than another thread stacked on the
+# same stalled file.
+_MAX_EMIT_WORKERS = 4
+_EMIT_SLOTS = threading.BoundedSemaphore(_MAX_EMIT_WORKERS)
+
+
+def _emit_hook_verdict_within_budget(
+    *,
+    provider: str,
+    model: str,
+    query_hash: str,
+    result: dict[str, Any],
+    engine: str,
+    cfg: dict[str, Any] | None,
+) -> None:
+    """_emit_hook_verdict on a worker thread, waited for at most _EMIT_BUDGET_SEC.
+
+    In the normal case the write finishes well inside the budget, so the event
+    is in the stream by the time the verdict returns. On a stalled filesystem
+    the verdict returns at the budget and the write finishes, or stays stuck,
+    on its own; it can never change or hold the verdict.
+    """
+    slots = _EMIT_SLOTS  # released to this instance, however late the write ends
+    if not slots.acquire(blocking=False):
+        logger.warning("pre_action_hook verdict event skipped: %d earlier writes to the Numbat stream "
+                       "have not finished", _MAX_EMIT_WORKERS)
+        return
+
+    def _run() -> None:
+        try:
+            _emit_hook_verdict(provider=provider, model=model, query_hash=query_hash,
+                               result=result, engine=engine, cfg=cfg)
+        finally:
+            slots.release()
+
+    worker = threading.Thread(target=_run, name="pre-action-hook-emit", daemon=True)
+    try:
+        worker.start()
+    except Exception as exc:  # noqa: BLE001 - projection must not break the hook
+        slots.release()
+        logger.warning("pre_action_hook could not start the verdict event write: %s", exc)
+        return
+    worker.join(_EMIT_BUDGET_SEC)
+    if worker.is_alive():
+        logger.warning("pre_action_hook verdict event not written within %gs; the call goes ahead "
+                       "without it", _EMIT_BUDGET_SEC)
+
+
 # The last decided verdict, for diagnostics only (never an input to routing).
 _LAST_VERDICT_LOCK = threading.Lock()
 _LAST_VERDICT: dict[str, Any] | None = None
@@ -340,7 +395,7 @@ def run_pre_action_hook(
 
     _record_last_verdict(provider, engine, result)
     if emit_verdict:
-        _emit_hook_verdict(
+        _emit_hook_verdict_within_budget(
             provider=provider,
             model=model,
             query_hash=query_hash,

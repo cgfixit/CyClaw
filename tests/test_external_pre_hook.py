@@ -292,6 +292,57 @@ def test_emit_failure_is_fail_soft(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert _lines(Path(cfg["numbat"]["output_path"])) == []
 
 
+def _join_emit_workers() -> None:
+    for thread in threading.enumerate():
+        if thread.name == "pre-action-hook-emit":
+            thread.join(30)
+
+
+def test_a_stalled_verdict_write_does_not_hold_the_verdict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # The event is forensic; a filesystem stalled under numbat.output_path
+    # must not keep the decided call from going ahead.
+    cfg = _hook_config(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    monkeypatch.setattr("utils.external_pre_hook._EMIT_BUDGET_SEC", 0.2)
+    release = threading.Event()
+    writes: list[str] = []
+
+    def _stuck(event_type, **kwargs):
+        writes.append(event_type)
+        release.wait(30)
+
+    monkeypatch.setattr("utils.numbat_emitter.emit_numbat_event", _stuck)
+    started = time.monotonic()
+    try:
+        result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        _join_emit_workers()
+    assert (result["verdict"], result["reason_code"]) == ("allow", "hook_allowed")
+    assert writes == ["network.indicator"]
+    assert elapsed < 10  # the stuck write alone would have held it for 30 s
+
+
+def test_stuck_verdict_writes_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                         caplog: pytest.LogCaptureFixture):
+    # With every write slot held by a stuck write, the next event is skipped
+    # at once instead of stacking another thread on the same stalled file.
+    cfg = _hook_config(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    slots = threading.BoundedSemaphore(1)
+    slots.acquire()
+    monkeypatch.setattr("utils.external_pre_hook._EMIT_SLOTS", slots)
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="cyclaw.external_pre_hook"):
+        result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert time.monotonic() - started < 5
+    assert result["verdict"] == "allow"
+    assert _lines(Path(cfg["numbat"]["output_path"])) == []
+    assert "verdict event skipped" in caplog.text
+    slots.release()
+
+
 # ---------------------------------------------------------------------------
 # Issue #1458 Phases 1-2: engines, reason codes, verdict events, diagnostics
 # ---------------------------------------------------------------------------
