@@ -483,6 +483,9 @@ def test_reading_rules_past_the_deadline_denies(tmp_path, monkeypatch):
     # are read, and the gate denies without running the CLI.
     _rules_dir(tmp_path, ("acme.deny", True))
     fake = _fake(monkeypatch)
+    # This checks the rules read's own deadline, so run the decision on this
+    # thread rather than under evaluate()'s outer bound, which reads the clock too.
+    monkeypatch.setattr(numbat_gate, "_within", lambda timeout, work: work())
     ticks = iter([0.0])
     monkeypatch.setattr(numbat_gate, "time", types.SimpleNamespace(monotonic=lambda: next(ticks, 1_000.0)))
     result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
@@ -512,8 +515,55 @@ def _stall_reads_of(monkeypatch: pytest.MonkeyPatch, name: str) -> tuple[threadi
 
 def _join_rule_readers() -> None:
     for thread in threading.enumerate():
-        if thread.name == "numbat-rules-read":
+        if thread.name in ("numbat-rules-read", "numbat-gate"):
             thread.join(30)
+
+
+def test_a_stalled_check_before_the_rules_read_still_denies_on_time(tmp_path, monkeypatch):
+    # Checking that rules_dirs exists, finding the binary and exec'ing it can
+    # all block on a stalled mount too; the whole decision is bounded, not
+    # just the read.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    fake = _fake(monkeypatch)
+    release = threading.Event()
+    real_is_dir = Path.is_dir
+
+    def _is_dir(self):
+        if self.name == "rules":
+            release.wait(30)
+        return real_is_dir(self)
+
+    monkeypatch.setattr(Path, "is_dir", _is_dir)
+    started = time.monotonic()
+    try:
+        result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=0.2)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        _join_rule_readers()
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_timeout")
+    assert elapsed < 10  # the stalled check alone would have held it for 30 s
+    assert fake.calls == []
+
+
+def test_a_stalled_readiness_check_reports_in_time(tmp_path, monkeypatch):
+    release = threading.Event()
+
+    def _stuck(binary, dirs):
+        release.wait(30)
+        return True, None
+
+    monkeypatch.setattr(numbat_gate, "_readiness", _stuck)
+    monkeypatch.setattr(numbat_gate, "_READINESS_BUDGET_SEC", 0.2)
+    started = time.monotonic()
+    try:
+        ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        _join_rule_readers()
+    assert ready is False and "did not finish" in problem
+    assert elapsed < 10
 
 
 def test_a_rules_read_stuck_past_the_deadline_still_denies_on_time(tmp_path, monkeypatch):

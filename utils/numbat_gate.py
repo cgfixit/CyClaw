@@ -61,6 +61,7 @@ import subprocess  # nosec B404 - list-form only, no shell, operator-configured 
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,9 @@ _PROVIDER_TO_VENDOR = {"grok": "xai", "claude": "anthropic"}
 _QUERY_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _RULE_SUFFIXES = (".yaml", ".yml")
 _READINESS_TTL_SEC = 30.0
+# Budget for one whole /health readiness check: the version check (5 s),
+# `rules check` (10 s) and reading rules_dirs (_READINESS_READ_SEC).
+_READINESS_BUDGET_SEC = 30.0
 _MAX_REASON_CHARS = 300
 
 # The engine's own evidence rule: it matches every event, so each evaluated call
@@ -549,12 +553,68 @@ def evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | N
 
     Returns ``{"verdict": "allow" | "deny", "reason_code": ..., "reason": ...}``
     plus, for an allow with monitor-rule matches, ``"monitor_matches"``.
+    The whole decision runs within ``timeout`` (see _within).
     """
     try:
-        return _evaluate(provider, model, query_hash, cfg, timeout=timeout)
+        return _within(timeout, lambda: _evaluate(provider, model, query_hash, cfg, timeout=timeout))
+    except _Stalled:
+        return _deny("hook_timeout", f"numbat gate did not decide within {timeout:g}s")
     except Exception as exc:  # noqa: BLE001 - the gate fails closed, whatever broke
         logger.warning("numbat gate raised %s; denying", type(exc).__name__)
         return _deny("hook_error", f"numbat gate error: {type(exc).__name__}")
+
+
+# Decisions (and /health checks) run on worker threads, at most this many at
+# once per process. The cap only binds when workers are stuck: then a new
+# call waits for a slot until its deadline instead of adding another.
+_MAX_GATE_WORKERS = 8
+_GATE_WORKER_SLOTS = threading.BoundedSemaphore(_MAX_GATE_WORKERS)
+# Slack past the budget before the caller stops waiting, so a decision that
+# ends on time with its own reason is not cut off by this outer bound.
+_GATE_WORKER_GRACE_SEC = 0.25
+
+
+class _Stalled(Exception):
+    """A gate worker did not finish within its budget."""
+
+
+def _within[T](timeout: float, work: Callable[[], T]) -> T:
+    """Run ``work`` on a worker thread and stop waiting after ``timeout``.
+
+    Every step of a decision can block on the filesystem: checking that the
+    rules directories exist, finding the binary, the exec of the binary
+    itself, reading rules. On a stalled network mount any of them can block
+    for good, and no deadline check between steps interrupts one. So the
+    whole decision runs on a worker that the caller abandons at the deadline
+    (_Stalled). The steps inside still bound themselves, so a worker that
+    wakes up later only finishes cleaning up after itself.
+    """
+    deadline = time.monotonic() + timeout + _GATE_WORKER_GRACE_SEC
+    if not _GATE_WORKER_SLOTS.acquire(timeout=max(0.0, deadline - time.monotonic())):
+        raise _Stalled
+    outcome: list[Any] = []
+
+    def _run() -> None:
+        try:
+            outcome.append((True, work()))
+        except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller below
+            outcome.append((False, exc))
+        finally:
+            _GATE_WORKER_SLOTS.release()
+
+    worker = threading.Thread(target=_run, name="numbat-gate", daemon=True)
+    try:
+        worker.start()
+    except BaseException:
+        _GATE_WORKER_SLOTS.release()
+        raise
+    worker.join(max(0.0, deadline - time.monotonic()))
+    if worker.is_alive() or not outcome:
+        raise _Stalled
+    ok, value = outcome[0]
+    if not ok:
+        raise value
+    return value  # type: ignore[no-any-return]
 
 
 def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | None, *, timeout: float) -> dict[str, Any]:
@@ -685,7 +745,11 @@ def readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None]:
             return cached[1] if cached else (False, "the numbat readiness check is still running")
         _READINESS_RUNNING.add(key)
     try:
-        verdict = _readiness(binary, dirs)
+        try:
+            verdict = _within(_READINESS_BUDGET_SEC, lambda: _readiness(binary, dirs))
+        except _Stalled:
+            verdict = (False, f"the numbat readiness check did not finish within {_READINESS_BUDGET_SEC:g} s, "
+                              "so external calls are likely to time out and be denied")
         with _READINESS_LOCK:
             _READINESS_CACHE[key] = (time.monotonic(), verdict)
     finally:

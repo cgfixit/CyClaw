@@ -1185,8 +1185,9 @@ What issue #1458 changed, and the boundaries that follow:
     check, an all-disabled rule set allowed every call;
   - rule directories the engine cannot read in full: an unreadable file or
     subdirectory, more than its caps on rule files, bytes or directory
-    entries, or a read that outlasts `timeout_sec` (it runs on a worker
-    thread the call abandons, so a stalled mount cannot hold a request);
+    entries, or a read that outlasts `timeout_sec`. The whole decision runs
+    on a worker thread the call abandons at `timeout_sec`, so a stalled
+    mount cannot hold a request;
   - a binary that prints more than the engine reads, which is killed
     rather than buffered.
 

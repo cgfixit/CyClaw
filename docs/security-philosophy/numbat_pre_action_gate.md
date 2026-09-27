@@ -80,10 +80,12 @@ fixture jobs run.
    rule bytes and directory entries (`_MAX_RULE_*` in
    `utils/numbat_gate.py`, far above any real rule set), or past the call's
    `timeout_sec`, the call is denied, so a `rules_dirs` pointed at a home
-   directory or a slow mount cannot stall a request. The read runs on a
-   worker thread, so even a read that never returns (a stalled network
-   mount) only holds the call until its deadline; the worker is left behind,
-   and a few at most (`_MAX_RULE_READERS`) can be stuck at once. Then
+   directory or a slow mount cannot stall a request. The whole decision
+   runs on a worker thread the call stops waiting for at `timeout_sec`, so
+   even a filesystem call that never returns (a stalled network mount under
+   `rules_dirs` or the binary) only holds the call until its deadline. A
+   stuck worker is left behind, and only a few can be stuck at once
+   (`_MAX_GATE_WORKERS`, `_MAX_RULE_READERS`). Then
    `numbat rules test --fixture <file> --no-builtin-rules --rules-dir <snapshot> ... --rules-dir <canary>`
    evaluates the event against the operator's rules only. The shipped catalog
    is detection-only, so it is not loaded. The engine classifies the same
