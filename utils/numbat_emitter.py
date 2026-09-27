@@ -49,9 +49,10 @@ import socket
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, NamedTuple, TextIO
 from urllib.parse import urlsplit, urlunsplit
 
 from utils.logger import _anchor, _get_config
@@ -534,12 +535,34 @@ def _numbat_handle(path: Path) -> TextIO:
 
 
 def close_numbat_handles() -> None:
-    """Flush and close all cached Numbat NDJSON handles.
+    """Write out queued events, then flush and close all cached handles.
 
-    Called automatically at process exit; also useful for tests that need to
-    release file descriptors before deleting their tmp_path output files.
+    Called automatically at process exit, so a CLI that emits and exits still
+    writes what it queued; also useful for tests that need the events on disk,
+    or need to release file descriptors before deleting their tmp_path output
+    files. Waits at most numbat.drain_wait_sec for the queue and again for the
+    write lock: a write stuck on a stalled filesystem delays exit by that much
+    instead of hanging it, and the OS closes the files. Logs any drop count
+    still unreported, and how many queued events are still unwritten, so
+    neither is lost silently with the process.
     """
-    with _WRITE_LOCK:
+    drain = _WRITER.drain_sec()
+    flush_numbat_writes(drain)
+    report = _WRITER.take_drop_report()
+    if report:
+        logger.warning(report[0], *report[1])
+    # The writer may release the write lock between slow appends, so the
+    # lock below can be free while events are still queued: say how many,
+    # since a process exiting now takes them with it.
+    unwritten = _WRITER.unwritten()
+    if unwritten:
+        logger.warning("numbat stream: %d queued event(s) not written after waiting %gs; a process exiting now "
+                       "loses them, audit.jsonl is unaffected", unwritten, drain)
+    lock = _WRITE_LOCK
+    if not lock.acquire(timeout=drain):
+        logger.warning("numbat stream: a write is still stuck; its file handles are left to the OS")
+        return
+    try:
         for handle in _NUMBAT_HANDLES.values():
             try:
                 handle.close()
@@ -548,6 +571,8 @@ def close_numbat_handles() -> None:
                 # below still drops our reference so a future write_ndjson() reopens.
                 pass
         _NUMBAT_HANDLES.clear()
+    finally:
+        lock.release()
 
 
 atexit.register(close_numbat_handles)
@@ -682,8 +707,312 @@ def _release_rollover_lock(lock_fd: int, lock_path: Path) -> None:
         pass
 
 
-def write_ndjson(record: dict[str, Any], path: Path, *, max_bytes: int = 0) -> None:
-    """Append one JSON line. Caller holds no lock; this function does.
+def _write_line(path: Path, line: str, max_bytes: int) -> None:
+    """Append one serialized line, rolling the file over first when it is full.
+
+    Runs on the writer thread (see _StreamWriter). Raises on I/O errors; the
+    writer logs them.
+    """
+    with _WRITE_LOCK:
+        if max_bytes:
+            _rollover_if_needed(path, max_bytes)
+        handle = _numbat_handle(path)
+        handle.write(line)
+        handle.flush()
+
+
+# One writer thread for the whole stream.
+#
+# Every append used to run on the caller's thread. The audit record that ends
+# every /query is projected here (utils/logger.audit_log ->
+# project_audit_record), so a filesystem that stalled under numbat.output_path
+# held that request, and every other request queued on _WRITE_LOCK behind it.
+# #1467 bounded only the pre-action hook's own verdict write.
+#
+# Now one daemon thread owns every append. A caller queues its line and waits
+# for that line to be written for at most numbat.write_wait_sec. On a healthy disk
+# (an append takes microseconds, a rollover milliseconds) the line is in the
+# file when the call returns, as before, so readers, the one-shot CLIs and the
+# tests see what they always saw. A write that overruns the wait marks the
+# stream stalled, and later callers queue their line without waiting until the
+# writer finishes a write again. With numbat.max_queued_writes lines already
+# waiting, a new line is dropped and counted, and the count is logged at most
+# once per numbat.drop_log_interval_sec; drops that interval held back are
+# reported when the queue drains, or at exit. This stream is derived and
+# forensic, audit.jsonl is written separately and stays authoritative, so
+# dropping lines beats holding requests.
+#
+# Order: one writer, first in first out, so lines land in the order callers
+# queued them; for any one thread, the order it emitted them.
+# Exit: close_numbat_handles(), registered with atexit, waits up to
+# numbat.drain_wait_sec for queued lines first.
+# Fork: a forked child gets a fresh writer and write lock (see
+# _reset_after_fork). CyClaw itself only forks to exec (subprocess), and its
+# multiprocessing tests use spawn.
+# The four limits are tunables in config.yaml's numbat block (write_wait_sec,
+# max_queued_writes, drop_log_interval_sec, drain_wait_sec). These are the
+# values used when the block does not set one, or sets one boot validation
+# would refuse; they match the shipped config.
+_WRITE_WAIT_SEC = 1.0
+_MAX_QUEUED_WRITES = 1000
+_DROP_LOG_INTERVAL_SEC = 60.0
+_DRAIN_WAIT_SEC = 2.0
+
+
+class _WriterSettings(NamedTuple):
+    wait_sec: float
+    max_queued: int
+    drop_log_interval_sec: float
+    drain_sec: float
+
+
+def _positive(value: Any, default: float) -> float:
+    # A usable limit is a positive number of seconds no longer than
+    # threading.TIMEOUT_MAX, the longest timed wait the platform accepts. The
+    # one comparison refuses YAML's .nan too, since every comparison with NaN
+    # is false (Condition.wait(nan) returns at once, so a wait loop would
+    # spin), and .inf or any longer value (the wait raises OverflowError).
+    # Comparing an int is exact, so a huge one never reaches float().
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value <= threading.TIMEOUT_MAX:
+        return default
+    return float(value)
+
+
+def _writer_settings(cfg: dict[str, Any] | None) -> _WriterSettings:
+    """The writer limits from ``cfg``'s numbat block, each falling back to its default."""
+    block = _numbat_cfg(cfg)
+    max_queued = block.get("max_queued_writes")
+    if isinstance(max_queued, bool) or not isinstance(max_queued, int) or max_queued < 1:
+        max_queued = _MAX_QUEUED_WRITES
+    return _WriterSettings(
+        wait_sec=_positive(block.get("write_wait_sec"), _WRITE_WAIT_SEC),
+        max_queued=max_queued,
+        drop_log_interval_sec=_positive(block.get("drop_log_interval_sec"), _DROP_LOG_INTERVAL_SEC),
+        drain_sec=_positive(block.get("drain_wait_sec"), _DRAIN_WAIT_SEC),
+    )
+
+# A warning decided under the writer's lock, as a lazy %-format and its
+# arguments, and logged after the lock is released.
+_LogMsg = tuple[str, tuple[Any, ...]]
+
+
+class _StreamWriter:
+    """The stream's writer thread and the bounded queue that feeds it."""
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._pending: deque[tuple[int, Path, str, int]] = deque()
+        # Sequence numbers: the last line queued, and the last line the writer
+        # finished with (written, or failed and logged).
+        self._queued = 0
+        self._written = 0
+        self._stalled = False
+        self._stalled_since = 0.0
+        self._thread: threading.Thread | None = None
+        self.dropped = 0
+        self._dropped_unlogged = 0
+        self._last_drop_log: float | None = None
+        # The drain limit of the last line queued, for close_numbat_handles()
+        # at exit, which has no cfg of its own.
+        self._drain_sec: float | None = None
+        # Writes that raised (logged, not in the stream), and the first one's
+        # sequence number, so flush() can say when it waited for a lost line.
+        self.failed = 0
+        self._first_failed_seq: int | None = None
+
+    def submit(self, path: Path, line: str, max_bytes: int, settings: _WriterSettings) -> None:
+        """Queue ``line`` and wait for it as the comment above _WRITE_WAIT_SEC describes."""
+        message: _LogMsg | None = None
+        with self._cond:
+            self._drain_sec = settings.drain_sec
+            if len(self._pending) >= settings.max_queued:
+                message = self._drop(settings, f"{len(self._pending)} are still waiting to be written")
+            elif self._running() or self._start():
+                self._queued += 1
+                seq = self._queued
+                self._pending.append((seq, path, line, max_bytes))
+                self._cond.notify_all()
+                if not self._stalled and threading.current_thread() is not self._thread:
+                    message = self._wait_for(seq, settings)
+            else:
+                # No writer thread can start: the interpreter is shutting down
+                # (Python 3.12 refuses new threads once exit begins) or the
+                # process is out of threads. Writing on this thread instead
+                # would leave the caller behind a disk that may have stalled,
+                # with no bound, so the line is dropped and counted like one
+                # past a full queue. CyClaw's own atexit handlers emit nothing.
+                message = self._drop(settings, "no writer thread could start")
+        # Logged outside the lock, so a slow log handler cannot hold other
+        # callers.
+        if message:
+            logger.warning(message[0], *message[1])
+
+    def flush(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` s for every line queued so far.
+
+        True once all of them are in the stream. False when the wait runs out,
+        or when one of them failed to write (the writer logged it, and it is
+        not in the stream).
+        """
+        with self._cond:
+            target = self._queued
+            if self._written < target:
+                if not self._running() and not self._start():
+                    return False
+                deadline = time.monotonic() + timeout
+                while self._written < target:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return False
+                    self._cond.wait(remaining)
+            return self._first_failed_seq is None or self._first_failed_seq > target
+
+    def take_drop_report(self) -> _LogMsg | None:
+        """A warning for drops counted but not yet reported, or None; resets the count."""
+        with self._cond:
+            return self._drop_report_locked()
+
+    def _drop_report_locked(self) -> _LogMsg | None:
+        if not self._dropped_unlogged:
+            return None
+        count, self._dropped_unlogged, self._last_drop_log = self._dropped_unlogged, 0, time.monotonic()
+        return ("numbat stream: dropped %d more event(s) since the last report, %d in all; audit.jsonl is "
+                "unaffected", (count, self.dropped))
+
+    def unwritten(self) -> int:
+        """Lines queued that the writer has not finished with yet."""
+        with self._cond:
+            return self._queued - self._written
+
+    def drain_sec(self) -> float:
+        """How long exit waits for queued lines: the last configured value, else the default."""
+        with self._cond:
+            return _DRAIN_WAIT_SEC if self._drain_sec is None else self._drain_sec
+
+    def _wait_for(self, seq: int, settings: _WriterSettings) -> _LogMsg | None:
+        """Wait (lock held) up to settings.wait_sec for line ``seq``; a warning if it overran.
+
+        Also stops waiting as soon as another caller finds the stream stalled,
+        so callers already waiting when a stall is found do not each sit out
+        their own full wait.
+        """
+        deadline = time.monotonic() + settings.wait_sec
+        while self._written < seq:
+            if self._stalled:
+                return None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._stalled = True
+                self._stalled_since = time.monotonic()
+                self._cond.notify_all()
+                return ("numbat stream: an event was not written within %gs (is the filesystem under "
+                        "numbat.output_path stalled?); later events are queued without waiting, up to %d",
+                        (settings.wait_sec, settings.max_queued))
+            self._cond.wait(remaining)
+        return None
+
+    def _drop(self, settings: _WriterSettings, cause: str) -> _LogMsg | None:
+        """Count a dropped line (lock held); a warning at most once per interval."""
+        self.dropped += 1
+        self._dropped_unlogged += 1
+        now = time.monotonic()
+        if self._last_drop_log is not None and now - self._last_drop_log < settings.drop_log_interval_sec:
+            return None
+        count, self._dropped_unlogged, self._last_drop_log = self._dropped_unlogged, 0, now
+        return ("numbat stream: dropped %d event(s) since the last report, %d in all, because %s; audit.jsonl is "
+                "unaffected", (count, self.dropped, cause))
+
+    def _running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _start(self) -> bool:
+        thread = threading.Thread(target=self._run, name="numbat-stream-writer", daemon=True)
+        try:
+            thread.start()
+        except RuntimeError:
+            return False
+        self._thread = thread
+        return True
+
+    def _run(self) -> None:
+        while True:
+            with self._cond:
+                while not self._pending:
+                    self._cond.wait()
+                seq, path, line, max_bytes = self._pending.popleft()
+            messages: list[_LogMsg] = []
+            failed = False
+            try:
+                _write_line(path, line, max_bytes)
+            except Exception as exc:  # noqa: BLE001 - the writer outlives any one bad write
+                failed = True
+                messages.append(("numbat stream write to %s failed: %s", (path, exc)))
+            with self._cond:
+                self._written = seq
+                if failed:
+                    self.failed += 1
+                    if self._first_failed_seq is None:
+                        self._first_failed_seq = seq
+                if self._stalled:
+                    self._stalled = False
+                    messages.append(("numbat stream: a write finished after %.1fs; callers wait for "
+                                     "their events again", (time.monotonic() - self._stalled_since,)))
+                if not self._pending:
+                    # The queue has drained: drops the interval kept quiet
+                    # would otherwise go unreported until the next drop.
+                    report = self._drop_report_locked()
+                    if report:
+                        messages.append(report)
+                self._cond.notify_all()
+            for fmt, args in messages:
+                logger.warning(fmt, *args)
+
+
+_WRITER = _StreamWriter()
+
+
+def flush_numbat_writes(timeout: float | None = None) -> bool:
+    """Wait until every event queued so far is in the stream; True if it is.
+
+    False when the wait runs out, or when one of those events failed to write
+    (logged by the writer).
+
+    Waits at most ``timeout`` seconds (default: numbat.drain_wait_sec as last
+    configured). Never raises.
+    """
+    try:
+        return _WRITER.flush(_WRITER.drain_sec() if timeout is None else timeout)
+    except Exception as exc:  # noqa: BLE001 - this module never raises
+        logger.warning("numbat stream flush failed: %s", exc)
+        return False
+
+
+def _reset_after_fork() -> None:
+    """A forked child starts with no writer thread and a write lock nobody holds.
+
+    The parent's writer thread does not exist in the child, and a lock it held
+    at the fork would stay held there forever. Lines the parent queued are the
+    parent's to write.
+    """
+    global _WRITER, _WRITE_LOCK
+    _WRITER = _StreamWriter()
+    _WRITE_LOCK = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):  # POSIX only
+    os.register_at_fork(after_in_child=_reset_after_fork)
+
+
+def write_ndjson(record: dict[str, Any], path: Path, *, max_bytes: int = 0,
+                 cfg: dict[str, Any] | None = None) -> None:
+    """Queue one JSON line for the stream's writer thread (see _StreamWriter).
+
+    Returns once the line is written, or after numbat.write_wait_sec while
+    the writer is stuck, or at once when it is already known to be stuck. When
+    its queue is full, or no writer thread can start, the line is dropped and
+    counted instead. ``cfg`` supplies
+    those limits (see _writer_settings); without it the defaults apply.
+    Serialization errors still raise here, to the caller.
 
     ``max_bytes`` > 0 arms the size rollover above, checked before the write
     so no single append is split across generations.
@@ -696,12 +1025,7 @@ def write_ndjson(record: dict[str, Any], path: Path, *, max_bytes: int = 0) -> N
     configured value -- see the emit_numbat_event() call site.
     """
     line = json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n"
-    with _WRITE_LOCK:
-        if max_bytes:
-            _rollover_if_needed(path, max_bytes)
-        handle = _numbat_handle(path)
-        handle.write(line)
-        handle.flush()
+    _WRITER.submit(path, line, max_bytes, _writer_settings(cfg))
 
 
 def emit_numbat_event(
@@ -770,7 +1094,7 @@ def emit_numbat_event(
             url=url,
             cfg=cfg,
         )
-        write_ndjson(record, _output_path(cfg), max_bytes=_max_bytes(cfg))
+        write_ndjson(record, _output_path(cfg), max_bytes=_max_bytes(cfg), cfg=cfg)
     except Exception as exc:  # noqa: BLE001 - forensic projection must never fail the caller
         logger.warning("numbat emit failed for %s: %s", event_type, exc)
 
@@ -1038,6 +1362,7 @@ __all__ = [
     "build_event",
     "emit_numbat_command",
     "emit_numbat_event",
+    "flush_numbat_writes",
     "posix_path",
     "redact_url_for_numbat",
     "project_audit_record",

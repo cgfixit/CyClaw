@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -486,6 +487,29 @@ def test_numbat_cel_non_boolean_enabled_is_refused(enabled):
     # gate.py arms the CEL monitor only on the literal True, so "true" left it off.
     with pytest.raises(ConfigError, match="numbat.cel.enabled must be a boolean"):
         validate_numbat_config({"numbat": {"cel": {"enabled": enabled}}})
+
+
+@pytest.mark.parametrize("key", ["write_wait_sec", "drop_log_interval_sec", "drain_wait_sec"])
+@pytest.mark.parametrize("value", [0, -1, "1s", True, [1], float("nan"), float("inf"), 1e300, 10**400])
+def test_numbat_writer_seconds_must_be_positive_numbers(key, value):
+    # The emitter falls back to its default on such a value, so a typo would
+    # run with a limit the operator never chose. NaN, infinity and anything
+    # past threading.TIMEOUT_MAX break the writer's timed waits.
+    with pytest.raises(ConfigError, match=f"numbat.{key} must be a positive number"):
+        validate_numbat_config({"numbat": {key: value}})
+
+
+@pytest.mark.parametrize("value", [0, -5, 2.5, "1000", True])
+def test_numbat_max_queued_writes_must_be_a_whole_number(value):
+    with pytest.raises(ConfigError, match="numbat.max_queued_writes must be a whole number"):
+        validate_numbat_config({"numbat": {"max_queued_writes": value}})
+
+
+def test_numbat_writer_limits_accept_positive_values():
+    validate_numbat_config({"numbat": {"write_wait_sec": 0.5, "max_queued_writes": 1,
+                                       "drop_log_interval_sec": 60, "drain_wait_sec": 2.0}})
+    # The longest timed wait the platform accepts is itself allowed.
+    validate_numbat_config({"numbat": {"write_wait_sec": threading.TIMEOUT_MAX}})
 
 
 def test_shipped_numbat_block_passes():
