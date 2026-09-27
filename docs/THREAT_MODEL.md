@@ -1185,7 +1185,14 @@ What issue #1458 changed, and the boundaries that follow:
     check, an all-disabled rule set allowed every call;
   - rule directories the engine cannot read in full: an unreadable file or
     subdirectory, more than its caps on rule files, bytes or directory
-    entries, or a read that outlasts `timeout_sec`.
+    entries, or a read that outlasts `timeout_sec` (it runs on a worker
+    thread the call abandons, so a stalled mount cannot hold a request);
+  - a binary that prints more than the engine reads, which is killed
+    rather than buffered.
+
+  `/health` reports the gate's problems as fixed phrases and never echoes
+  what an unverified binary printed. Concurrent `/health` calls share one
+  readiness check, so a burst cannot spawn the binary once per caller.
 
   So does a hook enabled with nothing to run, which used to allow before
   #1458. Rules are evaluated from a per-call byte snapshot of `rules_dirs`, so

@@ -80,7 +80,10 @@ fixture jobs run.
    rule bytes and directory entries (`_MAX_RULE_*` in
    `utils/numbat_gate.py`, far above any real rule set), or past the call's
    `timeout_sec`, the call is denied, so a `rules_dirs` pointed at a home
-   directory or a slow mount cannot stall a request. Then
+   directory or a slow mount cannot stall a request. The read runs on a
+   worker thread, so even a read that never returns (a stalled network
+   mount) only holds the call until its deadline; the worker is left behind,
+   and a few at most (`_MAX_RULE_READERS`) can be stuck at once. Then
    `numbat rules test --fixture <file> --no-builtin-rules --rules-dir <snapshot> ... --rules-dir <canary>`
    evaluates the event against the operator's rules only. The shipped catalog
    is detection-only, so it is not loaded. The engine classifies the same
@@ -96,7 +99,8 @@ fixture jobs run.
 6. The temp directory is deleted.
 
 Every failure denies:
-- a missing binary, or one that is not the pinned release;
+- a missing binary, or one that is not the pinned release, including one
+  that prints more than the engine reads (1 MiB per stream; it is killed);
 - a missing or empty `rules_dirs`, a rules file or directory that cannot be
   read, or rule directories past the read limits in step 3;
 - a rule set with no enabled rule (an empty directory, or every rule

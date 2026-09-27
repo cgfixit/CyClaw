@@ -147,8 +147,8 @@ def classify_rules(dirs: list[Path]) -> tuple[set[str], set[str]]:
     reject (a parse error, a string "true", a duplicate id) fails its run, and
     a match this walk did not see is treated as a failure by ``evaluate``, so
     a disagreement between the two loaders can only deny, never allow. Raises
-    OSError when a rules file or directory cannot be read, and _RulesTooLarge
-    past the walk limits.
+    OSError when a rules file or directory cannot be read, _RulesTooLarge past
+    the walk limits, and _RulesDeadline past /health's read budget.
     """
     known, enforcing, _ = _classify(dirs)
     return known, enforcing
@@ -157,25 +157,27 @@ def classify_rules(dirs: list[Path]) -> tuple[set[str], set[str]]:
 def _classify(dirs: list[Path]) -> tuple[set[str], set[str], set[str]]:
     """(every rule id, the ids that can deny, the ids that are enabled) for live dirs.
 
-    Reads within the same limits as the decision path, and raises where it
-    would deny, so /health does not call ready a rule set every call denies on.
+    Reads the way the decision path does (same limits, a worker thread, a
+    budget of _READINESS_READ_SEC), and raises where it would deny, so /health
+    does not call ready a rule set every call denies on.
     """
+    return _classify_files(_read_rules(dirs, deadline=time.monotonic() + _READINESS_READ_SEC))
+
+
+def _classify_files(files: list[tuple[int, Path, Path, bytes]]) -> tuple[set[str], set[str], set[str]]:
+    """(every rule id, the ids that can deny, the ids that are enabled) for rule files read by _read_rules."""
     known: set[str] = set()
     enforcing: set[str] = set()
     active: set[str] = set()
-    walk = _WalkBudget()
-    total_bytes = 0
-    for root in dirs:
-        for path in _rule_files(root, walk):
-            data = _read_rule(path, total_bytes)
-            total_bytes += len(data)
-            identity = _rule_identity(data)
-            if identity is not None:
-                known.add(identity[0])
-                if identity[1]:
-                    enforcing.add(identity[0])
-                if identity[2]:
-                    active.add(identity[0])
+    for *_, data in files:
+        identity = _rule_identity(data)
+        if identity is None:
+            continue
+        known.add(identity[0])
+        if identity[1]:
+            enforcing.add(identity[0])
+        if identity[2]:
+            active.add(identity[0])
     return known, enforcing, active
 
 
@@ -183,11 +185,19 @@ def _classify(dirs: list[Path]) -> tuple[set[str], set[str], set[str]]:
 # reads the rule files on every call and /health reads them too, so a directory
 # set too broadly (a home directory, "/") must not stall either: past any of
 # these caps the gate denies and /health says why. The decision path also stops
-# at the call's deadline, for a slow mount. A real rule set sits far below all
-# three.
+# at the call's deadline, for a slow or stalled mount (see _read_rules). A real
+# rule set sits far below all three.
 _MAX_RULE_WALK_ENTRIES = 20_000
 _MAX_RULE_FILES = 1_000
 _MAX_RULE_BYTES = 8 * 1024 * 1024
+# Worker threads reading rules_dirs at once, per process. The cap only binds
+# when reads are stuck: it stops every new call adding another thread blocked
+# on the same mount.
+_MAX_RULE_READERS = 4
+_RULE_READERS = threading.BoundedSemaphore(_MAX_RULE_READERS)
+# /health's own budget for reading rules_dirs, as long as its `rules check`
+# timeout.
+_READINESS_READ_SEC = 10.0
 
 
 class _RulesTooLarge(Exception):
@@ -289,33 +299,75 @@ def _snapshot_rules(
     Returns (snapshot dirs, every rule id, the ids that can deny, the ids that
     are enabled).
     """
-    snapshot: list[Path] = []
-    known: set[str] = set()
-    enforcing: set[str] = set()
-    active: set[str] = set()
+    files = _read_rules(dirs, deadline=deadline)
+    snapshot = [dest / f"rules-{index}" for index in range(len(dirs))]
+    for target_root in snapshot:
+        target_root.mkdir()
+    for index, real_root, path, data in files:
+        target = snapshot[index] / path.relative_to(real_root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    return (snapshot, *_classify_files(files))
+
+
+def _collect_rules(dirs: list[Path], *, deadline: float) -> list[tuple[int, Path, Path, bytes]]:
+    """(rules dir index, resolved root, file, bytes) for every rule file, within the walk limits.
+
+    Checks ``deadline`` between filesystem operations. Each root is resolved
+    once, so every file of a root comes from the same directory even if a
+    symlink to it is swapped mid-read.
+    """
     walk = _WalkBudget()
     total_bytes = 0
+    files: list[tuple[int, Path, Path, bytes]] = []
     for index, root in enumerate(dirs):
         real_root = root.resolve()
-        target_root = dest / f"rules-{index}"
-        target_root.mkdir()
         for path in _rule_files(real_root, walk, deadline=deadline):
             if time.monotonic() > deadline:
                 raise _RulesDeadline
             data = _read_rule(path, total_bytes)
             total_bytes += len(data)
-            target = target_root / path.relative_to(real_root)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            identity = _rule_identity(data)
-            if identity is not None:
-                known.add(identity[0])
-                if identity[1]:
-                    enforcing.add(identity[0])
-                if identity[2]:
-                    active.add(identity[0])
-        snapshot.append(target_root)
-    return snapshot, known, enforcing, active
+            files.append((index, real_root, path, data))
+    return files
+
+
+def _read_rules(dirs: list[Path], *, deadline: float) -> list[tuple[int, Path, Path, bytes]]:
+    """_collect_rules on a worker thread, abandoned if it is still running at ``deadline``.
+
+    A read blocked in the kernel (a stalled network mount) cannot be
+    interrupted, so the caller stops waiting at the deadline instead and
+    denies. The worker only holds what it read in memory, never the call's
+    temp directory, so one that wakes up later changes nothing.
+    _RULE_READERS caps how many can be stuck at once: past it, a call waits
+    for a free slot until its deadline rather than adding another thread on
+    the same mount. Raises _RulesDeadline, or whatever _collect_rules raised.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or not _RULE_READERS.acquire(timeout=remaining):
+        raise _RulesDeadline
+    outcome: list[list[tuple[int, Path, Path, bytes]] | Exception] = []
+
+    def _work() -> None:
+        try:
+            outcome.append(_collect_rules(dirs, deadline=deadline))
+        except Exception as exc:  # noqa: BLE001 - handed to the waiting caller below
+            outcome.append(exc)
+        finally:
+            _RULE_READERS.release()
+
+    worker = threading.Thread(target=_work, name="numbat-rules-read", daemon=True)
+    try:
+        worker.start()
+    except BaseException:
+        _RULE_READERS.release()
+        raise
+    worker.join(max(0.0, deadline - time.monotonic()))
+    if worker.is_alive() or not outcome:
+        raise _RulesDeadline
+    result = outcome[0]
+    if isinstance(result, Exception):
+        raise result
+    return result
 
 
 def _provider_url(provider: str, cfg: dict[str, Any] | None) -> str:
@@ -368,6 +420,69 @@ def build_gate_event(provider: str, model: str, query_hash: str, cfg: dict[str, 
     )
 
 
+# Cap on what the numbat binary may print on each stream. Until it has printed
+# the pinned version it is just some program: `yes` would fill memory at
+# hundreds of MB a second. Numbat's real output is a line per matched rule.
+_MAX_CLI_OUTPUT = 1024 * 1024
+_CLI_READ_CHUNK = 64 * 1024
+# How long a killed process gets to exit before it is left behind.
+_CLI_REAP_SEC = 2.0
+
+
+class _CliOutputTooLarge(Exception):
+    """The numbat binary printed more than _MAX_CLI_OUTPUT on one stream."""
+
+
+def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    """``subprocess.run(argv, capture_output=True, text=True, timeout=...)``, bounded.
+
+    Output is read in chunks, and the process is killed once either stream
+    passes _MAX_CLI_OUTPUT (_CliOutputTooLarge) or ``timeout`` passes
+    (subprocess.TimeoutExpired). A killed process that does not exit within
+    _CLI_REAP_SEC is left behind rather than waited on.
+    """
+    proc = subprocess.Popen(  # noqa: S603  # nosec B603 - list-form, no shell
+        argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    captured = (bytearray(), bytearray())
+    overflow = threading.Event()
+
+    def _pump(stream: Any, sink: bytearray) -> None:
+        with stream:
+            while chunk := os.read(stream.fileno(), _CLI_READ_CHUNK):
+                if len(sink) + len(chunk) > _MAX_CLI_OUTPUT:
+                    overflow.set()
+                    proc.kill()
+                    return
+                sink.extend(chunk)
+
+    pumps = [
+        threading.Thread(target=_pump, args=(stream, sink), name="numbat-cli-output", daemon=True)
+        for stream, sink in zip((proc.stdout, proc.stderr), captured, strict=True)
+    ]
+    for pump in pumps:
+        pump.start()
+    try:
+        returncode = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        _reap(proc)
+        raise
+    for pump in pumps:
+        pump.join(_CLI_REAP_SEC)
+    if overflow.is_set():
+        raise _CliOutputTooLarge
+    stdout, stderr = (bytes(sink).decode("utf-8", errors="replace") for sink in captured)
+    return subprocess.CompletedProcess(argv, returncode, stdout=stdout, stderr=stderr)
+
+
+def _reap(proc: subprocess.Popen[bytes]) -> None:
+    try:
+        proc.wait(timeout=_CLI_REAP_SEC)
+    except subprocess.TimeoutExpired:
+        logger.warning("numbat process %s did not exit after kill; leaving it", proc.pid)
+
+
 def _deny(reason_code: str, reason: str) -> dict[str, Any]:
     return {"verdict": "deny", "reason_code": reason_code, "reason": reason[:_MAX_REASON_CHARS]}
 
@@ -409,11 +524,11 @@ def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | 
     # readiness() checks the version too, but only for /health, which advises
     # and cannot enforce. A wrong binary must deny here, on the call itself.
     try:
-        version = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell
-            [binary, "version"], capture_output=True, text=True, timeout=timeout, check=False,
-        )
+        version = _run_cli([binary, "version"], timeout=timeout)
     except subprocess.TimeoutExpired:
         return _deny("hook_timeout", f"numbat version check timed out after {timeout:g}s")
+    except _CliOutputTooLarge:
+        return _deny("hook_misconfigured", f"numbat binary is not the pinned {PINNED_VERSION_LINE!r}")
     except (OSError, ValueError) as exc:
         return _deny("hook_error", f"numbat could not run: {type(exc).__name__}")
     if _first_line(version.stdout) != PINNED_VERSION_LINE:
@@ -450,11 +565,11 @@ def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | 
         if remaining <= 0:
             return _deny("hook_timeout", f"numbat gate ran out of its {timeout:g}s budget")
         try:
-            proc = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell
-                argv, capture_output=True, text=True, timeout=remaining, check=False,
-            )
+            proc = _run_cli(argv, timeout=remaining)
         except subprocess.TimeoutExpired:
             return _deny("hook_timeout", f"numbat rules test timed out after {timeout:g}s")
+        except _CliOutputTooLarge:
+            return _deny("hook_failure", "numbat rules test printed more output than the engine reads")
         except (OSError, ValueError) as exc:
             return _deny("hook_error", f"numbat could not run: {type(exc).__name__}")
 
@@ -493,6 +608,8 @@ def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | 
 
 _READINESS_LOCK = threading.Lock()
 _READINESS_CACHE: dict[tuple[Any, ...], tuple[float, tuple[bool, str | None]]] = {}
+# Keys whose check is running now (see readiness).
+_READINESS_RUNNING: set[tuple[Any, ...]] = set()
 
 
 def readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None]:
@@ -507,14 +624,23 @@ def readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None]:
     binary = resolve_binary(cfg)
     dirs = rules_dirs(cfg)
     key = (binary, tuple(str(d) for d in dirs) if dirs is not None else None)
-    now = time.monotonic()
     with _READINESS_LOCK:
         cached = _READINESS_CACHE.get(key)
-        if cached and now - cached[0] < _READINESS_TTL_SEC:
+        if cached and time.monotonic() - cached[0] < _READINESS_TTL_SEC:
             return cached[1]
-    verdict = _readiness(binary, dirs)
-    with _READINESS_LOCK:
-        _READINESS_CACHE[key] = (now, verdict)
+        if key in _READINESS_RUNNING:
+            # One check per key at a time, so a burst of /health calls cannot
+            # each spawn the binary and tie up a worker. While it runs, others
+            # get the previous result, or "not ready" before the first.
+            return cached[1] if cached else (False, "the numbat readiness check is still running")
+        _READINESS_RUNNING.add(key)
+    try:
+        verdict = _readiness(binary, dirs)
+        with _READINESS_LOCK:
+            _READINESS_CACHE[key] = (time.monotonic(), verdict)
+    finally:
+        with _READINESS_LOCK:
+            _READINESS_RUNNING.discard(key)
     return verdict
 
 
@@ -526,18 +652,18 @@ def _readiness(binary: str | None, dirs: list[Path] | None) -> tuple[bool, str |
     if binary is None:
         return False, "numbat binary not found, so every external call is denied"
     try:
-        version = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell
-            [binary, "version"], capture_output=True, text=True, timeout=5, check=False,
-        )
-        # A version string names no path, so it is safe to echo.
+        version = _run_cli([binary, "version"], timeout=5)
+        # A fixed phrase, never what the binary printed: until it prints the
+        # pinned line it is an unverified program, and its output could hold
+        # a path or a token that unauthenticated /health must not publish.
         if _first_line(version.stdout) != PINNED_VERSION_LINE:
-            return False, f"numbat reports {_first_line(version.stdout)[:60]!r}, not the pinned {PINNED_VERSION_LINE!r}"
+            return False, f"numbat binary is not the pinned {PINNED_VERSION_LINE!r}, so every external call is denied"
         argv = [binary, "rules", "check", "--no-builtin-rules"]
         for directory in dirs:
             argv += ["--rules-dir", str(directory)]
-        check = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell
-            argv, capture_output=True, text=True, timeout=10, check=False,
-        )
+        check = _run_cli(argv, timeout=10)
+    except _CliOutputTooLarge:
+        return False, "numbat printed more output than the gate reads, so every external call is denied"
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
         return False, f"numbat could not run: {type(exc).__name__}"
     if check.returncode != 0:
@@ -546,6 +672,9 @@ def _readiness(binary: str | None, dirs: list[Path] | None) -> tuple[bool, str |
         _, enforcing, active = _classify(dirs)
     except _RulesTooLarge:
         return False, "rules_dirs is too large for the gate to read, so every external call is denied"
+    except _RulesDeadline:
+        return False, (f"rules_dirs could not be read within {_READINESS_READ_SEC:g} s, "
+                       "so external calls are likely to time out and be denied")
     except OSError:
         return False, "a rules file or directory could not be read, so every external call is denied"
     if not active:

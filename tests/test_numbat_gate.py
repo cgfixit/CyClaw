@@ -20,6 +20,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 from typing import Any, NoReturn
@@ -122,7 +124,7 @@ class _FakeCli:
 
 def _fake(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> _FakeCli:
     fake = _FakeCli(**kwargs)
-    monkeypatch.setattr(numbat_gate.subprocess, "run", fake)
+    monkeypatch.setattr(numbat_gate, "_run_cli", fake)
     return fake
 
 
@@ -491,6 +493,65 @@ def test_reading_rules_past_the_deadline_denies(tmp_path, monkeypatch):
     assert fake.calls == []
 
 
+def _stall_reads_of(monkeypatch: pytest.MonkeyPatch, name: str) -> tuple[threading.Event, list[str]]:
+    """Make reading the file ``name`` block until the returned event is set,
+    as a read on a stalled network mount blocks in the kernel."""
+    release = threading.Event()
+    attempts: list[str] = []
+    real_read_bytes = Path.read_bytes
+
+    def _read_bytes(self):
+        if self.name == name:
+            attempts.append(self.name)
+            release.wait(30)
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _read_bytes)
+    return release, attempts
+
+
+def _join_rule_readers() -> None:
+    for thread in threading.enumerate():
+        if thread.name == "numbat-rules-read":
+            thread.join(30)
+
+
+def test_a_rules_read_stuck_past_the_deadline_still_denies_on_time(tmp_path, monkeypatch):
+    # No deadline check between filesystem calls helps when one call never
+    # returns: the read runs on a worker thread that the call abandons.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    fake = _fake(monkeypatch)
+    release, attempts = _stall_reads_of(monkeypatch, "acme_deny.yaml")
+    started = time.monotonic()
+    try:
+        result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=0.5)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        _join_rule_readers()
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_timeout")
+    assert attempts == ["acme_deny.yaml"]
+    assert elapsed < 10  # the stuck read alone would have held it for 30 s
+    assert fake.calls == []
+
+
+def test_stuck_rule_readers_are_capped(tmp_path, monkeypatch):
+    # While every reader slot is held by a stuck read, a call waits for a slot
+    # until its deadline and denies, instead of stacking another stuck thread.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    _fake(monkeypatch)
+    monkeypatch.setattr(numbat_gate, "_RULE_READERS", threading.BoundedSemaphore(1))
+    release, attempts = _stall_reads_of(monkeypatch, "acme_deny.yaml")
+    try:
+        first = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=0.3)
+        second = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=0.3)
+    finally:
+        release.set()
+        _join_rule_readers()
+    assert first["reason_code"] == second["reason_code"] == "hook_timeout"
+    assert attempts == ["acme_deny.yaml"]  # the second call never started a read
+
+
 def _unlistable(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     """Make listing any directory called ``name`` fail, as it would for a
     directory the server's user cannot read (the suite may run as root)."""
@@ -524,7 +585,7 @@ def _ready_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     def _run(argv, **_kwargs):
         out = f"{numbat_gate.PINNED_VERSION_LINE}\n" if list(argv[1:]) == ["version"] else ""
         return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
-    monkeypatch.setattr(numbat_gate.subprocess, "run", _run)
+    monkeypatch.setattr(numbat_gate, "_run_cli", _run)
 
 
 def test_readiness_flags_a_rule_set_with_nothing_enabled(tmp_path, monkeypatch):
@@ -660,6 +721,110 @@ def test_readiness_is_cached(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+def _slow_readiness(monkeypatch: pytest.MonkeyPatch, verdict: tuple[bool, str | None]):
+    """A _readiness that blocks until released, counting its runs."""
+    started, release = threading.Event(), threading.Event()
+    runs: list[int] = []
+
+    def _check(binary, dirs):
+        runs.append(1)
+        started.set()
+        release.wait(30)
+        return verdict
+
+    monkeypatch.setattr(numbat_gate, "_readiness", _check)
+    return started, release, runs
+
+
+def test_concurrent_readiness_checks_share_one_run(tmp_path, monkeypatch):
+    # /health is unauthenticated and unthrottled; a burst while the cache is
+    # cold must not spawn the binary once per caller.
+    started, release, runs = _slow_readiness(monkeypatch, (True, None))
+    cfg = _cfg(tmp_path)
+    first: list[tuple[bool, str | None]] = []
+    worker = threading.Thread(target=lambda: first.append(numbat_gate.readiness(cfg)))
+    worker.start()
+    try:
+        assert started.wait(30)
+        ready, problem = numbat_gate.readiness(cfg)
+    finally:
+        release.set()
+        worker.join(30)
+    assert (ready, "still running" in problem) == (False, True)
+    assert first == [(True, None)]
+    assert numbat_gate.readiness(cfg) == (True, None)
+    assert len(runs) == 1
+
+
+def test_a_refreshing_readiness_check_serves_the_previous_result(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    key = (numbat_gate.resolve_binary(cfg), tuple(str(d) for d in numbat_gate.rules_dirs(cfg)))
+    numbat_gate._READINESS_CACHE[key] = (time.monotonic() - 3600, (True, None))  # expired
+    started, release, runs = _slow_readiness(monkeypatch, (False, "fresh answer"))
+    worker = threading.Thread(target=lambda: numbat_gate.readiness(cfg))
+    worker.start()
+    try:
+        assert started.wait(30)
+        assert numbat_gate.readiness(cfg) == (True, None)
+    finally:
+        release.set()
+        worker.join(30)
+    assert numbat_gate.readiness(cfg) == (False, "fresh answer")
+    assert len(runs) == 1
+
+
+def test_readiness_does_not_echo_an_unverified_binary(tmp_path, monkeypatch):
+    # Until it prints the pinned line the binary is some program, and what it
+    # printed must not reach unauthenticated /health.
+    _rules_dir(tmp_path, ("acme.deny", True))
+
+    def _run(argv, **_kwargs):
+        return subprocess.CompletedProcess(argv, 0, stdout="token-6f1c secret /home/op/.ssh/id\n", stderr="")
+
+    monkeypatch.setattr(numbat_gate, "_run_cli", _run)
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False
+    assert "not the pinned" in problem
+    assert "token-6f1c" not in problem and "/home/op" not in problem
+
+
+# ---------------------------------------------------------------------------
+# Running the binary with bounded output
+# ---------------------------------------------------------------------------
+
+def test_run_cli_returns_what_the_program_printed():
+    code = "import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)"
+    proc = numbat_gate._run_cli([sys.executable, "-c", code], timeout=60)
+    assert proc.returncode == 3
+    assert proc.stdout.splitlines() == ["out"]
+    assert proc.stderr.splitlines() == ["err"]
+
+
+def test_run_cli_kills_a_program_that_floods_its_output():
+    # The configured binary is unverified until it prints the pinned version;
+    # one that prints without end must be cut off, not buffered.
+    code = "import sys\nwhile True:\n    sys.stdout.write('y' * 65536)\n"
+    started = time.monotonic()
+    with pytest.raises(numbat_gate._CliOutputTooLarge):
+        numbat_gate._run_cli([sys.executable, "-c", code], timeout=60)
+    assert time.monotonic() - started < 30
+
+
+def test_run_cli_times_out():
+    with pytest.raises(subprocess.TimeoutExpired):
+        numbat_gate._run_cli([sys.executable, "-c", "import time; time.sleep(60)"], timeout=0.5)
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("yes") is None, reason="needs a POSIX `yes`")
+def test_a_binary_that_floods_its_output_denies(tmp_path):
+    """`yes version` prints forever: a misconfigured binary denies, it does not fill memory."""
+    _rules_dir(tmp_path, ("acme.deny", True))
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path, binary=shutil.which("yes")), timeout=10)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path, binary=shutil.which("yes")))
+    assert ready is False and "version" not in problem
+
+
 def test_pinned_version_matches_the_ci_lane():
     workflow = (_REPO / ".github" / "workflows" / "numbat-rules.yml").read_text(encoding="utf-8")
     assert re.search(r'grep -Fx "' + re.escape(numbat_gate.PINNED_VERSION_LINE) + '"', workflow)
@@ -744,7 +909,7 @@ class TestAgainstThePinnedCli:
         head = 'version: "1"\ntitle: t\nseverity: high\n'
         (rules / "q.yaml").write_text(f"id: acme.q\n{head}enforce: true\n{match_all}", encoding="utf-8")
         (rules / "r.yaml").write_text(f"id: acme.r\n{head}{match_all}", encoding="utf-8")
-        real_run = subprocess.run
+        real_run = numbat_gate._run_cli
 
         def _edit_then_run(argv, **kwargs):
             if list(argv[1:3]) == ["rules", "test"]:
@@ -752,7 +917,7 @@ class TestAgainstThePinnedCli:
                 (rules / "r.yaml").write_text(f"id: acme.r\n{head}enforce: true\n{match_all}", encoding="utf-8")
             return real_run(argv, **kwargs)
 
-        monkeypatch.setattr(numbat_gate.subprocess, "run", _edit_then_run)
+        monkeypatch.setattr(numbat_gate, "_run_cli", _edit_then_run)
         result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, self._cfg(tmp_path, numbat_bin, [str(rules)]),
                                       timeout=30)
         assert (result["verdict"], result["reason_code"]) == ("deny", "hook_denied"), result
