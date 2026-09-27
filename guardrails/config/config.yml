@@ -8,8 +8,13 @@
 # engine/model/base_url from GuardrailsConfig at engine-build time, so edit those
 # THERE. Rail BEHAVIOUR -- the active flows, thresholds, and prompt templates --
 # is defined by THIS file (and rails.co). config.yaml's input_rails / output_rails
-# / topical_rails lists still select which offline heuristic siblings run via
-# CLI status; the live Colang flows below are the engine's active set.
+# lists select which offline rails the graph's guardrail_input and
+# guardrail_output nodes run (and what CLI status shows). Its topical_rails list
+# is display-only: no offline rail implements it, and rails.co's two topical
+# flows are not in the active set below. The live Colang flows below are the
+# engine's active set, whatever those lists say. Every
+# active flow executes a Python action from guardrails/rails.py; none of them
+# calls an LLM.
 # guardrails.hallucination_threshold IS applied to live rails via the
 # is_ungrounded action (register_actions at engine build) — same floor as
 # offline safe_generate.
@@ -31,6 +36,7 @@ models:
   # NVIDIA task-specific types (docs: configure-guardrails/yaml-schema/model-configuration).
   # Generic `type: self_check` is no longer the documented identifier.
   # Both entries may share the Ollama tag until the operator points a second model.
+  # No active flow below uses them today, so they are never called.
   # `_apply_guardrails_config` overrides `type: main` only — these are not smashed.
   - type: self_check_input
     engine: openai
@@ -92,8 +98,9 @@ rails:
 # Deprecated global switch (NVIDIA: prefer rails.output.streaming). Keep False.
 streaming: False
 
-# Self-check prompts (used by the model-assisted rails referenced above). These
-# are deliberately conservative; refine alongside the corpus.
+# Self-check prompts for NeMo's model-assisted rails. No flow in rails: above
+# uses them today, so they stay inert until a self check flow is added there.
+# They are deliberately conservative; refine alongside the corpus.
 prompts:
   - task: self_check_input
     content: |
