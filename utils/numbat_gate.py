@@ -32,8 +32,10 @@ observe-only trial before it can deny.
 
 Unlike ``numbat hook``, every failure here fails CLOSED: a missing binary, a
 binary that is not the pinned release, a missing or empty rules directory, a
-rules file that cannot be read, a rule that does not compile, a duplicate rule
-id, a timeout, a non-zero exit, or output this module cannot parse is a deny.
+rule set with no enabled rule, a rules file or directory that cannot be read,
+rules directories too large to read within the engine's limits, a rule that
+does not compile, a duplicate rule id, a timeout, a non-zero exit, or output
+this module cannot parse is a deny.
 An allow also needs positive evidence that Numbat evaluated THIS call: the
 engine adds its own always-matching canary rule (id ``cyclaw.gate.canary``,
 reserved), and a run that does not report it -- ``/bin/true``, a CLI that
@@ -144,34 +146,118 @@ def classify_rules(dirs: list[Path]) -> tuple[set[str], set[str]]:
     rules; Numbat's own loader decides what is valid. Anything Numbat would
     reject (a parse error, a string "true", a duplicate id) fails its run, and
     a match this walk did not see is treated as a failure by ``evaluate``, so
-    a disagreement between the two loaders can only deny, never allow.
+    a disagreement between the two loaders can only deny, never allow. Raises
+    OSError when a rules file or directory cannot be read, and _RulesTooLarge
+    past the walk limits.
+    """
+    known, enforcing, _ = _classify(dirs)
+    return known, enforcing
+
+
+def _classify(dirs: list[Path]) -> tuple[set[str], set[str], set[str]]:
+    """(every rule id, the ids that can deny, the ids that are enabled) for live dirs.
+
+    Reads within the same limits as the decision path, and raises where it
+    would deny, so /health does not call ready a rule set every call denies on.
     """
     known: set[str] = set()
     enforcing: set[str] = set()
+    active: set[str] = set()
+    walk = _WalkBudget()
+    total_bytes = 0
     for root in dirs:
-        for path in _tree_files(root):
-            if path.suffix not in _RULE_SUFFIXES:
-                continue
-            try:
-                identity = _rule_identity(path.read_bytes())
-            except OSError:
-                continue
+        for path in _rule_files(root, walk):
+            data = _read_rule(path, total_bytes)
+            total_bytes += len(data)
+            identity = _rule_identity(data)
             if identity is not None:
                 known.add(identity[0])
                 if identity[1]:
                     enforcing.add(identity[0])
-    return known, enforcing
+                if identity[2]:
+                    active.add(identity[0])
+    return known, enforcing, active
 
 
-def _tree_files(root: Path) -> list[Path]:
-    return [path for path in sorted(root.rglob("*")) if path.is_file()]
+# Limits on reading rules_dirs, across all of them together. The decision path
+# reads the rule files on every call and /health reads them too, so a directory
+# set too broadly (a home directory, "/") must not stall either: past any of
+# these caps the gate denies and /health says why. The decision path also stops
+# at the call's deadline, for a slow mount. A real rule set sits far below all
+# three.
+_MAX_RULE_WALK_ENTRIES = 20_000
+_MAX_RULE_FILES = 1_000
+_MAX_RULE_BYTES = 8 * 1024 * 1024
 
 
-def _rule_identity(data: bytes) -> tuple[str, bool] | None:
-    """(rule id, can deny) for one rules file's bytes; None when it is not a rule.
+class _RulesTooLarge(Exception):
+    """rules_dirs holds more than the gate will read for one decision."""
 
-    A rule can deny when it sets ``enforce: true`` and is not ``enabled:
-    false``. Companion ``*_tests.yaml`` files carry ``rule_id``, never ``id``.
+
+class _RulesDeadline(Exception):
+    """The decision's time budget ran out while reading rules_dirs."""
+
+
+class _WalkBudget:
+    """Directory entries seen and rule files found so far, across every rules dir of one read."""
+
+    def __init__(self) -> None:
+        self.entries = 0
+        self.files = 0
+
+
+def _rule_files(root: Path, walk: _WalkBudget, *, deadline: float | None = None) -> list[Path]:
+    """The rule-suffixed files under ``root``, found within the walk limits.
+
+    Only ``*.yaml`` / ``*.yml`` files are returned: nothing else can be a rule
+    or a companion test. Symlinked subdirectories are not followed, as
+    ``Path.rglob`` did not follow them either. Raises _RulesTooLarge past the
+    entry or file cap, _RulesDeadline once ``deadline`` has passed, and
+    OSError for a directory it cannot list: the rules in it would otherwise
+    drop out of the decision unseen, as an unreadable file would.
+    """
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root, onerror=_raise_walk_error):
+        if deadline is not None and time.monotonic() > deadline:
+            raise _RulesDeadline
+        dirnames.sort()
+        walk.entries += len(dirnames) + len(filenames)
+        if walk.entries > _MAX_RULE_WALK_ENTRIES:
+            raise _RulesTooLarge(f"more than {_MAX_RULE_WALK_ENTRIES} entries")
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            if path.suffix in _RULE_SUFFIXES and path.is_file():
+                found.append(path)
+                walk.files += 1
+                if walk.files > _MAX_RULE_FILES:
+                    raise _RulesTooLarge(f"more than {_MAX_RULE_FILES} rule files")
+    return found
+
+
+def _raise_walk_error(exc: OSError) -> None:
+    raise exc
+
+
+def _read_rule(path: Path, total_bytes: int) -> bytes:
+    """One rule file's bytes, keeping everything read for one decision under _MAX_RULE_BYTES.
+
+    The size is checked before the read, so one huge file is never read in
+    full, and again after, in case the file grew in between.
+    """
+    if total_bytes + path.stat().st_size > _MAX_RULE_BYTES:
+        raise _RulesTooLarge(f"more than {_MAX_RULE_BYTES} bytes of rules")
+    data = path.read_bytes()
+    if total_bytes + len(data) > _MAX_RULE_BYTES:
+        raise _RulesTooLarge(f"more than {_MAX_RULE_BYTES} bytes of rules")
+    return data
+
+
+def _rule_identity(data: bytes) -> tuple[str, bool, bool] | None:
+    """(rule id, can deny, enabled) for one rules file's bytes; None when it is not a rule.
+
+    A rule is enabled unless it sets ``enabled: false``, and it can deny when
+    it is enabled and sets ``enforce: true``. Companion ``*_tests.yaml`` files
+    carry ``rule_id``, never ``id``.
     """
     try:
         doc = yaml.safe_load(data.decode("utf-8"))
@@ -179,11 +265,14 @@ def _rule_identity(data: bytes) -> tuple[str, bool] | None:
         return None
     if not isinstance(doc, dict) or not isinstance(doc.get("id"), str):
         return None
-    return doc["id"], doc.get("enforce") is True and doc.get("enabled", True) is not False
+    enabled = doc.get("enabled", True) is not False
+    return doc["id"], doc.get("enforce") is True and enabled, enabled
 
 
-def _snapshot_rules(dirs: list[Path], dest: Path) -> tuple[list[Path], set[str], set[str]]:
-    """Copy every file under each rules dir into ``dest`` and classify the copies.
+def _snapshot_rules(
+    dirs: list[Path], dest: Path, *, deadline: float,
+) -> tuple[list[Path], set[str], set[str], set[str]]:
+    """Copy the rule files under each rules dir into ``dest`` and classify the copies.
 
     Numbat then evaluates the snapshot, so the rules it runs are byte-for-byte
     the rules classified here. Reading the live files twice (once to classify,
@@ -192,29 +281,41 @@ def _snapshot_rules(dirs: list[Path], dest: Path) -> tuple[list[Path], set[str],
     was allowed, because the CLI reported only R and the stale classification
     said R could not deny. Each root is resolved once, so swapping a symlink to
     a new rules directory is an atomic way to change several rules at once.
-    Raises OSError when a file cannot be read: a rule the gate cannot see must
-    deny, never vanish from both sides.
+    Raises OSError when a rules file or directory cannot be read: a rule the
+    gate cannot see must deny, never vanish from both sides. Only rule files
+    are copied, within the walk limits and the call's ``deadline``
+    (_RulesTooLarge, _RulesDeadline).
+
+    Returns (snapshot dirs, every rule id, the ids that can deny, the ids that
+    are enabled).
     """
     snapshot: list[Path] = []
     known: set[str] = set()
     enforcing: set[str] = set()
+    active: set[str] = set()
+    walk = _WalkBudget()
+    total_bytes = 0
     for index, root in enumerate(dirs):
         real_root = root.resolve()
         target_root = dest / f"rules-{index}"
         target_root.mkdir()
-        for path in _tree_files(real_root):
-            data = path.read_bytes()
+        for path in _rule_files(real_root, walk, deadline=deadline):
+            if time.monotonic() > deadline:
+                raise _RulesDeadline
+            data = _read_rule(path, total_bytes)
+            total_bytes += len(data)
             target = target_root / path.relative_to(real_root)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-            if path.suffix in _RULE_SUFFIXES:
-                identity = _rule_identity(data)
-                if identity is not None:
-                    known.add(identity[0])
-                    if identity[1]:
-                        enforcing.add(identity[0])
+            identity = _rule_identity(data)
+            if identity is not None:
+                known.add(identity[0])
+                if identity[1]:
+                    enforcing.add(identity[0])
+                if identity[2]:
+                    active.add(identity[0])
         snapshot.append(target_root)
-    return snapshot, known, enforcing
+    return snapshot, known, enforcing, active
 
 
 def _provider_url(provider: str, cfg: dict[str, Any] | None) -> str:
@@ -322,11 +423,21 @@ def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | 
     with tempfile.TemporaryDirectory(prefix="cyclaw-pre-action-", ignore_cleanup_errors=True) as work:
         workdir = Path(work)
         try:
-            snapshot, known, enforcing = _snapshot_rules(dirs, workdir)
+            snapshot, known, enforcing, active = _snapshot_rules(dirs, workdir, deadline=deadline)
+        except _RulesDeadline:
+            return _deny("hook_timeout", f"numbat gate ran out of its {timeout:g}s budget reading rules_dirs")
+        except _RulesTooLarge as exc:
+            return _deny("hook_misconfigured", f"rules_dirs is too large for the gate ({exc}); point it at the rules directory")
         except OSError as exc:
             return _deny("hook_error", f"numbat rules could not be read: {type(exc).__name__}")
         if CANARY_RULE_ID in known:
             return _deny("hook_misconfigured", f"rule id {CANARY_RULE_ID} is reserved for the engine")
+        # The canary gives `rules test` something to run even when no operator
+        # rule is enabled, so "no enforce rule matched" would then allow every
+        # call. With nothing enabled there is nothing to decide with: deny,
+        # as an all-disabled rule set did before the canary existed.
+        if not active:
+            return _deny("hook_misconfigured", "no enabled rule in rules_dirs, so the gate has nothing to decide with")
         canary_dir = workdir / "canary"
         canary_dir.mkdir()
         (canary_dir / "cyclaw_gate_canary.yaml").write_text(_CANARY_RULE, encoding="utf-8")
@@ -431,7 +542,14 @@ def _readiness(binary: str | None, dirs: list[Path] | None) -> tuple[bool, str |
         return False, f"numbat could not run: {type(exc).__name__}"
     if check.returncode != 0:
         return False, "numbat rules check failed on the configured rules_dirs, so every external call is denied"
-    _, enforcing = classify_rules(dirs)
+    try:
+        _, enforcing, active = _classify(dirs)
+    except _RulesTooLarge:
+        return False, "rules_dirs is too large for the gate to read, so every external call is denied"
+    except OSError:
+        return False, "a rules file or directory could not be read, so every external call is denied"
+    if not active:
+        return False, "no enabled rule in rules_dirs, so every external call is denied"
     if not enforcing:
         return False, "no enabled enforce: true rule, so the gate cannot deny anything"
     return True, None

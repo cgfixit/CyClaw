@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -394,6 +395,185 @@ def test_an_operator_rule_cannot_take_the_canary_id(tmp_path, monkeypatch):
     assert fake.calls == []
 
 
+def _disabled_rule(root: Path, rule_id: str = "acme.off") -> None:
+    root.mkdir(exist_ok=True)
+    (root / f"{rule_id.replace('.', '_')}.yaml").write_text(
+        f'id: {rule_id}\nversion: "1"\ntitle: t\nseverity: high\nenabled: false\nenforce: true\n'
+        'expr: event.event_type == "network.indicator"\n', encoding="utf-8")
+
+
+def test_a_rule_set_with_nothing_enabled_denies(tmp_path, monkeypatch):
+    # The canary alone lets `rules test` run and report a match, so without this
+    # check an all-disabled rule set read as "no enforce rule matched" and allowed.
+    root = tmp_path / "rules"
+    _disabled_rule(root)
+    (root / "acme_off_tests.yaml").write_text("rule_id: acme.off\ntests: []\n", encoding="utf-8")
+    fake = _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert fake.calls == []
+
+
+def test_an_empty_rules_dir_denies(tmp_path, monkeypatch):
+    (tmp_path / "rules").mkdir()
+    fake = _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert fake.calls == []
+
+
+def test_an_enabled_monitor_only_rule_set_still_allows(tmp_path, monkeypatch):
+    # An enabled rule without enforce: true is still a rule to decide with; it
+    # just cannot deny, which is what an observe-only trial needs.
+    _rules_dir(tmp_path, ("acme.watch", False))
+    _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("allow", "hook_allowed")
+
+
+def test_only_rule_files_are_snapshotted(tmp_path, monkeypatch):
+    root = _rules_dir(tmp_path, ("acme.deny", True))
+    (root / "README.md").write_text("notes\n", encoding="utf-8")
+    (root / "blob.bin").write_bytes(b"\0" * 4096)
+    seen: list[str] = []
+
+    def _look(argv):
+        snapshot = Path(argv[argv.index("--rules-dir") + 1])
+        seen.extend(sorted(p.name for p in snapshot.rglob("*") if p.is_file()))
+
+    _fake(monkeypatch, on_rules_test=_look)
+    numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert seen == ["acme_deny.yaml"]
+
+
+@pytest.mark.parametrize(("limit", "value"), [
+    ("_MAX_RULE_FILES", 1), ("_MAX_RULE_BYTES", 10), ("_MAX_RULE_WALK_ENTRIES", 1),
+])
+def test_a_rules_dir_past_the_walk_limits_denies(tmp_path, monkeypatch, limit, value):
+    _rules_dir(tmp_path, ("acme.deny", True), ("acme.watch", False))
+    monkeypatch.setattr(numbat_gate, limit, value)
+    fake = _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert "too large" in result["reason"]
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(("limit", "value"), [("_MAX_RULE_FILES", 2), ("_MAX_RULE_WALK_ENTRIES", 2)])
+def test_the_walk_limits_count_every_rules_dir_together(tmp_path, monkeypatch, limit, value):
+    # Two directories of two rules each: under each cap one directory at a
+    # time, past it together. Per-directory caps would scale with the list.
+    first = _rules_dir(tmp_path, ("acme.deny", True), ("acme.watch", False))
+    second = tmp_path / "more"
+    second.mkdir()
+    for name in ("acme_deny.yaml", "acme_watch.yaml"):
+        (second / name.replace("acme", "other")).write_bytes((first / name).read_bytes().replace(b"acme.", b"other."))
+    monkeypatch.setattr(numbat_gate, limit, value)
+    fake = _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path, dirs=[str(first), str(second)]), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert fake.calls == []
+
+
+def test_reading_rules_past_the_deadline_denies(tmp_path, monkeypatch):
+    # A slow mount or an over-broad tree must not hold the request past
+    # timeout_sec: here the clock is already past the deadline while the rules
+    # are read, and the gate denies without running the CLI.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    fake = _fake(monkeypatch)
+    ticks = iter([0.0])
+    monkeypatch.setattr(numbat_gate, "time", types.SimpleNamespace(monotonic=lambda: next(ticks, 1_000.0)))
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_timeout")
+    # The read itself stopped, rather than finishing the walk and denying later
+    # at the budget check before the first CLI call.
+    assert "reading rules_dirs" in result["reason"]
+    assert fake.calls == []
+
+
+def _unlistable(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Make listing any directory called ``name`` fail, as it would for a
+    directory the server's user cannot read (the suite may run as root)."""
+    real_scandir = os.scandir
+
+    def _scandir(path=".", *args, **kwargs):
+        if isinstance(path, (str, os.PathLike)) and Path(path).name == name:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "scandir", _scandir)
+
+
+def test_an_unlistable_rules_subdirectory_denies(tmp_path, monkeypatch):
+    # Its rules would otherwise drop out of the snapshot unseen, so an enforce
+    # rule kept there could never deny.
+    root = _rules_dir(tmp_path, ("acme.watch", False))
+    (root / "locked").mkdir()
+    (root / "locked" / "acme_deny.yaml").write_text(
+        'id: acme.deny\nversion: "1"\ntitle: t\nseverity: high\nenforce: true\n'
+        'expr: event.event_type == "network.indicator"\n', encoding="utf-8")
+    _unlistable(monkeypatch, "locked")
+    fake = _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_error")
+    assert fake.calls == []
+
+
+def _ready_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A CLI that reports the pinned version and passes `rules check`."""
+    def _run(argv, **_kwargs):
+        out = f"{numbat_gate.PINNED_VERSION_LINE}\n" if list(argv[1:]) == ["version"] else ""
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+    monkeypatch.setattr(numbat_gate.subprocess, "run", _run)
+
+
+def test_readiness_flags_a_rule_set_with_nothing_enabled(tmp_path, monkeypatch):
+    _disabled_rule(tmp_path / "rules")
+    _ready_cli(monkeypatch)
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False
+    assert "no enabled rule" in problem and str(tmp_path) not in problem
+
+
+@pytest.mark.parametrize(("limit", "value"), [
+    ("_MAX_RULE_FILES", 1), ("_MAX_RULE_BYTES", 10), ("_MAX_RULE_WALK_ENTRIES", 1),
+])
+def test_readiness_flags_a_rules_dir_past_the_walk_limits(tmp_path, monkeypatch, limit, value):
+    _rules_dir(tmp_path, ("acme.deny", True), ("acme.watch", False))
+    monkeypatch.setattr(numbat_gate, limit, value)
+    _ready_cli(monkeypatch)
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False
+    assert "too large" in problem and str(tmp_path) not in problem
+
+
+def test_readiness_flags_an_unreadable_rules_file(tmp_path, monkeypatch):
+    # The decision path denies every call on it, so /health must not say ready.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    real_read_bytes = Path.read_bytes
+
+    def _read_bytes(self):
+        if self.name == "acme_deny.yaml":
+            raise PermissionError("denied")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _read_bytes)
+    _ready_cli(monkeypatch)
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False
+    assert "could not be read" in problem and str(tmp_path) not in problem
+
+
+def test_readiness_flags_an_unlistable_rules_subdirectory(tmp_path, monkeypatch):
+    root = _rules_dir(tmp_path, ("acme.deny", True))
+    (root / "locked").mkdir()
+    _unlistable(monkeypatch, "locked")
+    _ready_cli(monkeypatch)
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False
+    assert "could not be read" in problem and str(tmp_path) not in problem
+
+
 @pytest.mark.skipif(shutil.which("true") is None, reason="needs a `true` executable")
 def test_bin_true_as_the_binary_denies(tmp_path):
     """Codex's reproduction, with a real process: no fakes, no numbat."""
@@ -537,6 +717,15 @@ class TestAgainstThePinnedCli:
             encoding="utf-8")
         result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, self._cfg(tmp_path, numbat_bin, [str(broken)]), timeout=10)
         assert (result["verdict"], result["reason_code"]) == ("deny", "hook_failure")
+
+    def test_a_rule_set_with_nothing_enabled_denies(self, tmp_path, numbat_bin):
+        # Before this check, the pinned CLI plus the canary allowed every call
+        # here: the canary matched, and no enforce rule was enabled to match.
+        disabled = tmp_path / "disabled"
+        _disabled_rule(disabled)
+        result = numbat_gate.evaluate("grok", "grok-4.5", _HASH,
+                                      self._cfg(tmp_path, numbat_bin, [str(disabled)]), timeout=10)
+        assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
 
     def test_duplicate_rule_ids_deny(self, tmp_path, numbat_bin):
         copy = tmp_path / "copy"

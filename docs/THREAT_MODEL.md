@@ -1179,7 +1179,13 @@ What issue #1458 changed, and the boundaries that follow:
   - a run that shows no evidence of evaluating the call, i.e. the engine's
     canary rule did not match. Before the #1467 review, exit 0 with no output
     read as "nothing matched", so `/bin/true` as the binary allowed every
-    call.
+    call;
+  - a rule set with no enabled rule. The canary always gives Numbat a rule
+    to run, so the engine checks for an operator rule itself; before that
+    check, an all-disabled rule set allowed every call;
+  - rule directories the engine cannot read in full: an unreadable file or
+    subdirectory, more than its caps on rule files, bytes or directory
+    entries, or a read that outlasts `timeout_sec`.
 
   So does a hook enabled with nothing to run, which used to allow before
   #1458. Rules are evaluated from a per-call byte snapshot of `rules_dirs`, so

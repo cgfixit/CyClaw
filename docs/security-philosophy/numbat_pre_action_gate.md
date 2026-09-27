@@ -75,7 +75,12 @@ fixture jobs run.
    advises; a different binary (`/bin/true`, another release) denies the call
    itself.
 3. A private temp directory receives the event, a byte-for-byte snapshot of
-   each rule directory, and the engine's canary rule. Then
+   the rule files (`*.yaml`, `*.yml`) in each rule directory, and the
+   engine's canary rule. The read is bounded: past the caps on rule files,
+   rule bytes and directory entries (`_MAX_RULE_*` in
+   `utils/numbat_gate.py`, far above any real rule set), or past the call's
+   `timeout_sec`, the call is denied, so a `rules_dirs` pointed at a home
+   directory or a slow mount cannot stall a request. Then
    `numbat rules test --fixture <file> --no-builtin-rules --rules-dir <snapshot> ... --rules-dir <canary>`
    evaluates the event against the operator's rules only. The shipped catalog
    is detection-only, so it is not loaded. The engine classifies the same
@@ -92,8 +97,10 @@ fixture jobs run.
 
 Every failure denies:
 - a missing binary, or one that is not the pinned release;
-- a missing or empty `rules_dirs`, or a rules file that cannot be read;
-- a rule that does not compile, a duplicate rule id, all rules disabled, or a
+- a missing or empty `rules_dirs`, a rules file or directory that cannot be
+  read, or rule directories past the read limits in step 3;
+- a rule set with no enabled rule (an empty directory, or every rule
+  `enabled: false`), a rule that does not compile, a duplicate rule id, or a
   rule that uses the reserved id `cyclaw.gate.canary`;
 - a timeout, a non-zero exit, output the engine cannot parse, a run that does
   not report the canary, or a matched rule id the engine did not find in the
@@ -131,8 +138,9 @@ test`) within one `timeout_sec` budget. Measured end to end at a median of
 
 4. Check `GET /health`: an enabled gate appears as service `pre_action_hook`,
    and `/health` reports `degraded` while the gate would deny every call
-   (binary missing, wrong version, rules that fail `rules check`) or could
-   never deny one (no `enforce: true` rule). Boot refuses a malformed block,
+   (binary missing, wrong version, rules that fail `rules check`, no enabled
+   rule, a rules file or directory it cannot read, rule directories past the
+   read limits) or could never deny one (no `enforce: true` rule). Boot refuses a malformed block,
    for example `enabled: "true"` as a string, an unknown engine,
    `verdict_mode: monitor`, or an enabled engine with nothing to run.
 
@@ -156,8 +164,9 @@ A new policy should start without `enforce: true`. Its matches then appear as
 right, add `enforce: true`. That is the observe-only trial; there is no
 `verdict_mode: monitor`, which would let a real deny through and needs its own
 dual-run observation issue first. To stop gating, set `enabled: false`: a gate
-whose rules are all disabled denies every call, because `numbat rules test`
-exits non-zero with nothing to run.
+whose rules are all disabled, or whose rules directory is empty, denies every
+call (`hook_misconfigured`), because with no enabled rule it has nothing to
+decide with.
 
 Each call reads its rules once, into the snapshot described above. To change
 several rules at once, build the new set in a fresh directory and switch a
@@ -175,10 +184,10 @@ Every decided verdict carries one `reason_code`
 |---|---|---|
 | `hook_allowed` | allow | the command exited 0, or no `enforce: true` rule matched |
 | `hook_denied` | deny | policy: the command exited 2, or an `enforce: true` rule matched |
-| `hook_timeout` | deny | the command, the version check, or `numbat rules test` ran past `timeout_sec` |
-| `hook_error` | deny | the command or the numbat binary could not be started, or a rules file could not be read |
+| `hook_timeout` | deny | the command, the version check, reading `rules_dirs`, or `numbat rules test` ran past `timeout_sec` |
+| `hook_error` | deny | the command or the numbat binary could not be started, or a rules file or directory could not be read |
 | `hook_failure` | deny | a bad exit code, a Numbat error, unparseable output, or no canary match |
-| `hook_misconfigured` | deny | an empty command, no `rules_dirs`, a missing rules directory, an unknown engine, a binary that is not the pinned release, or a rule using the reserved canary id |
+| `hook_misconfigured` | deny | an empty command, no `rules_dirs`, a missing rules directory, no enabled rule, rule directories past the read limits, an unknown engine, a binary that is not the pinned release, or a rule using the reserved canary id |
 
 The code appears in four places:
 
