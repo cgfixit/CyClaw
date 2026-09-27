@@ -1,9 +1,10 @@
 """Tests for utils/numbat_cel.py — CEL monitor-only backend.
 
 The default-off path must work without ``cel-python`` installed.  Tests that
-need the evaluator skip when it is absent, except in the dedicated CI lane
-(``.github/workflows/numbat-rules.yml``), which sets ``CYCLAW_REQUIRE_CELPY=1``
-so a missing evaluator fails there instead of passing as a skip.
+need the evaluator skip when it is absent, except where CI sets
+``CYCLAW_REQUIRE_CELPY=1`` (the CEL lane in ``.github/workflows/numbat-rules.yml``
+and the CEL step on ``ci.yml``'s Linux leg), so a missing evaluator fails there
+instead of passing as a skip.
 """
 
 from __future__ import annotations

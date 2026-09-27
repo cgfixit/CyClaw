@@ -14,9 +14,11 @@
 #     calls against the example rules in tests/fixtures/numbat/gate-rules,
 #     whose companion tests `numbat rules check` runs first.
 #   numbat-cel (blocking; issue #1458 Phase 3): tests/test_numbat_cel.py with
-#     cel-python installed. The unit lanes do not install it, so its evaluator
-#     tests only ever skipped there; CYCLAW_REQUIRE_CELPY=1 turns a missing
-#     evaluator into a failure here instead of a skip.
+#     cel-python installed. Of the unit lanes, only ci.yml's Linux leg
+#     installs it (and runs tests/test_gate.py's /query test, which needs the
+#     app install this lane skips); its evaluator tests skip on the other
+#     legs. CYCLAW_REQUIRE_CELPY=1 turns a missing evaluator into a failure
+#     here and in that Linux step instead of a skip.
 #
 # "Blocking" means no continue-on-error: a failure turns this workflow red.
 # Whether a check is REQUIRED to merge is a GitHub ruleset setting, not
