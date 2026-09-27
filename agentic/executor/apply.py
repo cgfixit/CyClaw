@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -49,6 +49,26 @@ def _scrubbed_git_config_env(*, hooks_path: Path) -> Iterator[None]:
                 os.environ[key] = value
 
 
+def _git_lock_files(root: Path) -> Callable[[str, list[str]], set[str]]:
+    """copytree ``ignore``: skip ``*.lock`` names inside ``root/.git`` only.
+
+    A lock belongs to a git command still in flight, such as the maintenance
+    that ``git commit`` leaves running in the background (git >= 2.47 detaches
+    it by default, holding ``objects/maintenance.lock``). Copying one races its
+    deletion, which failed the proof spuriously, and a copied lock could also
+    make git refuse to run in the copy. Worktree files such as ``Cargo.lock``
+    or ``poetry.lock`` are candidate bytes and are always copied.
+    """
+    git_dir = os.path.join(os.fspath(root), ".git")
+
+    def _ignore(directory: str, names: list[str]) -> set[str]:
+        if os.path.commonpath([os.path.abspath(directory), os.path.abspath(git_dir)]) != os.path.abspath(git_dir):
+            return set()
+        return {name for name in names if name.endswith(".lock")}
+
+    return _ignore
+
+
 def prove_disposable_copy(
     worktree: Path,
     paths: Sequence[str],
@@ -79,6 +99,7 @@ def prove_disposable_copy(
                 dest,
                 symlinks=True,
                 ignore_dangling_symlinks=True,
+                ignore=_git_lock_files(root),
             )
         except OSError as exc:
             raise AgenticError(
