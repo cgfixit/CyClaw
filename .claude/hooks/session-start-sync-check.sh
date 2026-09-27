@@ -27,20 +27,36 @@ legacy_email="cyclaw-agent@users.noreply.github.com"
 legacy_name="CyClaw Agent"
 local_email=$(git config --local --get user.email 2>/dev/null)
 local_name=$(git config --local --get user.name 2>/dev/null)
+# The overrides are per session, but git config outlives the session. So the
+# hook records what it pinned (cyclaw.hookPinned*) and, in a later session
+# without the override, removes that value if it is still in place. A value
+# someone changed by hand in between is theirs and stays.
+owned_email=$(git config --local --get cyclaw.hookPinnedEmail 2>/dev/null)
+owned_name=$(git config --local --get cyclaw.hookPinnedName 2>/dev/null)
 # Email and name are handled separately, so an override of one still clears
 # the other's old pin: a name-only override must not leave the old email,
 # which is the half that decides whether the runtime can sign the commit.
 if [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ]; then
   git config --local user.email "$CYCLAW_AGENT_COMMIT_EMAIL"
-elif [ "$local_email" = "$legacy_email" ]; then
-  git config --local --unset user.email
+  git config --local cyclaw.hookPinnedEmail "$CYCLAW_AGENT_COMMIT_EMAIL"
+else
+  if [ "$local_email" = "$legacy_email" ] || { [ -n "$owned_email" ] && [ "$local_email" = "$owned_email" ]; }; then
+    git config --local --unset user.email
+  fi
+  [ -n "$owned_email" ] && git config --local --unset cyclaw.hookPinnedEmail
 fi
-# The old name goes only when its email half is going too (old pin or an
-# email override), so a deliberate email with the old name is left alone.
+# The old default name goes only when its email half is going too (old pin
+# or an email override), so a deliberate email keeps the name beside it. A
+# name this hook pinned from an override goes once the override is gone.
 if [ -n "${CYCLAW_AGENT_COMMIT_NAME:-}" ]; then
   git config --local user.name "$CYCLAW_AGENT_COMMIT_NAME"
-elif [ "$local_name" = "$legacy_name" ] && { [ "$local_email" = "$legacy_email" ] || [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ]; }; then
-  git config --local --unset user.name
+  git config --local cyclaw.hookPinnedName "$CYCLAW_AGENT_COMMIT_NAME"
+else
+  if { [ -n "$owned_name" ] && [ "$local_name" = "$owned_name" ]; } || \
+     { [ "$local_name" = "$legacy_name" ] && { [ "$local_email" = "$legacy_email" ] || [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ]; }; }; then
+    git config --local --unset user.name
+  fi
+  [ -n "$owned_name" ] && git config --local --unset cyclaw.hookPinnedName
 fi
 # Report what the next commit will actually carry. GIT_AUTHOR_* and
 # GIT_COMMITTER_* environment variables outrank user.name/user.email, so ask

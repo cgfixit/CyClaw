@@ -37,7 +37,17 @@ hr() { printf '%s\n' "----------------------------------------------------------
 #    CyClaw Agent pin and pins only explicit CYCLAW_AGENT_COMMIT_* overrides)
 # ---------------------------------------------------------------------------
 hr
-echo "git identity: $(git config user.name || true) <$(git config user.email || true)>"
+# Ask git rather than reading user.name/user.email: GIT_AUTHOR_* and
+# GIT_COMMITTER_* environment variables outrank the config keys.
+author=$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//') || true
+committer=$(git var GIT_COMMITTER_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//') || true
+if [ -z "$committer" ]; then
+  echo "git identity: none set; git will refuse to commit until user.name and user.email are"
+elif [ "$author" = "$committer" ]; then
+  echo "git identity: $committer"
+else
+  echo "git identity: author $author, committer $committer"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Fetch main + position on a working branch cut from origin/main

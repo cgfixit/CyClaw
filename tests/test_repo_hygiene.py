@@ -336,3 +336,50 @@ def test_session_hook_reports_the_committer_git_will_use(tmp_path: Path) -> None
     assert ("Commits will be made as: author Someone <someone@example.com>, "
             "committer Runtime <runtime@example.com>") in result.stdout
 
+
+@_needs_posix_bash_and_git
+def test_session_hook_removes_its_own_pin_once_the_override_is_gone(tmp_path: Path) -> None:
+    # The overrides are per session, but git config is not: without this, one
+    # session's override would stay pinned in every later session.
+    repo = _hook_repo(tmp_path)
+    assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com",
+                          CYCLAW_AGENT_COMMIT_NAME="Bot").returncode == 0
+    assert _local_git_config(repo, tmp_path, "user.email") == "bot@example.com"
+    assert _run_sync_hook(repo, tmp_path).returncode == 0
+    assert _local_git_config(repo, tmp_path, "user.email") is None
+    assert _local_git_config(repo, tmp_path, "user.name") is None
+    assert _local_git_config(repo, tmp_path, "cyclaw.hookPinnedEmail") is None
+    assert _local_git_config(repo, tmp_path, "cyclaw.hookPinnedName") is None
+
+
+@_needs_posix_bash_and_git
+def test_session_hook_keeps_a_pinned_identity_changed_by_hand(tmp_path: Path) -> None:
+    repo = _hook_repo(tmp_path)
+    assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com",
+                          CYCLAW_AGENT_COMMIT_NAME="Bot").returncode == 0
+    _set_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
+    assert _run_sync_hook(repo, tmp_path).returncode == 0
+    # The email was changed by hand after the pin, so it is no longer the
+    # hook's; the name is still the one the hook pinned, so it goes.
+    assert _local_git_config(repo, tmp_path, "user.email") == "someone@example.com"
+    assert _local_git_config(repo, tmp_path, "user.name") is None
+    assert _local_git_config(repo, tmp_path, "cyclaw.hookPinnedEmail") is None
+
+
+_OPTIMIZE_BOOTSTRAP = REPO_ROOT / ".claude" / "skills" / "CyClaw-Optimize" / "bootstrap.sh"
+
+
+@_needs_posix_bash_and_git
+def test_optimize_bootstrap_reports_the_committer_git_will_use(tmp_path: Path) -> None:
+    # The identity line is printed before any step that needs a remote, so
+    # the script's exit code in a remote-less repo does not matter here.
+    repo = _hook_repo(tmp_path)
+    _set_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
+    _set_local_git_config(repo, tmp_path, "user.name", "Someone")
+    result = subprocess.run([_BASH, str(_OPTIMIZE_BOOTSTRAP)], cwd=repo, capture_output=True,  # noqa: S603 - fixed argv
+                            text=True, check=False, timeout=60,
+                            env=_hook_env(tmp_path, GIT_COMMITTER_NAME="Runtime",
+                                          GIT_COMMITTER_EMAIL="runtime@example.com"))
+    assert ("git identity: author Someone <someone@example.com>, "
+            "committer Runtime <runtime@example.com>") in result.stdout
+

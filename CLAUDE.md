@@ -1011,7 +1011,10 @@ Environment overrides (optional, per session):
   does **not** revoke the multi-vendor allowlist above)
 
 Setting either commit override explicitly also makes the SessionStart hook pin
-it for a Claude Code session: an opt-in. Unset, the runtime identity stands.
+it for a Claude Code session: an opt-in. Unset, the runtime identity stands:
+the hook records what it pinned (`cyclaw.hookPinned*` in the repo-local git
+config) and removes it in the next session that lacks the override, unless it
+was changed by hand in between.
 
 The cloud **session runtime** applies a stop hook (not wired in repo
 `settings.json`). It flags local commits whose committer email is not
