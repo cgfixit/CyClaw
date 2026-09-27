@@ -11,6 +11,7 @@ import sys
 import types
 
 import pytest
+import torch
 from torch import nn
 
 import retrieval.rerank as rerank
@@ -157,6 +158,9 @@ class TestLoadCrossEncoder:
         assert fake_st["device"] == "cpu"
         assert fake_st["local_files_only"] is False
         assert isinstance(fake_st["activation_fn"], nn.Identity)
+        # float32 whatever the checkpoint stores: a float16 model is ~9x slower
+        # on a CPU without native half precision (issue #1456's bake-off).
+        assert fake_st["model_kwargs"] == {"dtype": torch.float32}
 
     def test_cached_snapshot_loads_local_only(self, fake_st, monkeypatch):
         probed = []

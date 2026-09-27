@@ -228,6 +228,8 @@ retrieval:
   # also 10 answerable questions whose answer sat in the context window: this
   # small cross-encoder scored reworded questions as irrelevant even with the
   # answering chunk in front of it. No threshold separated the two groups.
+  # A five-model bake-off (PR #1464, docs/audits/2026-09-26-reranker-bakeoff.md)
+  # found no model and threshold that passed its held-out probes either.
   min_rerank_score: null
 
 personality:
