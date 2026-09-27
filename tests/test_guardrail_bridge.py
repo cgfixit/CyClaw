@@ -190,10 +190,10 @@ class TestBuildGenerateGuardEnabled:
 
         def _fake_guarded_generate(client, prompt, **kwargs):
             seen.update(kwargs)
-            return "ok", None
+            return "ok", None, None
 
         monkeypatch.setattr("guardrails.broker.guarded_generate", _fake_guarded_generate)
         guard = build_generate_guard({"guardrails": {"enabled": True}})
-        assert guard(object(), "p", query="q", label="LLM", grounding_context="chunks") == ("ok", None)
+        assert guard(object(), "p", query="q", label="LLM", grounding_context="chunks") == ("ok", None, None)
         assert seen["grounding_context"] == "chunks"
         assert seen["query"] == "q"

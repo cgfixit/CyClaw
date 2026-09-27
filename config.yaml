@@ -1090,12 +1090,18 @@ netconnect:
 # to offline heuristic rails (injection + soul-mutation block + token-overlap
 # grounding) when it is absent. See docs/NeMo/later_development_guideline.md.
 guardrails:
-  enabled: false                 # off by default; CLI no-ops. Also gates graph.py's
-                                  # guardrail_input node (Phase 2): false = pure pass-
-                                  # through (no import of guardrails at all); true =
-                                  # the offline input rail (injection markers + soul-
-                                  # mutation regex, no LLM) runs between route_by_score
-                                  # and local_llm. See docs/NeMo/phase2_implementation_plan.md.
+  enabled: false                 # off by default; CLI no-ops. false = pure pass-through
+                                  # (no import of guardrails at all). true arms:
+                                  # - graph.py's guardrail_input node (Phase 2): injection
+                                  #   markers + soul-mutation regex, no LLM, before
+                                  #   local_llm and offline_best_effort;
+                                  # - guardrail_output (Phase 4): grounding + soul leak on
+                                  #   the local_llm answer;
+                                  # - with nemoguardrails installed, NeMo check() around
+                                  #   every /query model call, Grok and Claude included
+                                  #   (Phase 3): the flows in guardrails/config/config.yml,
+                                  #   which run the same Python checks, not an LLM.
+                                  # See docs/NeMo/README.md.
   engine: "openai"               # Ollama exposes an OpenAI-compatible API
   base_url: "http://127.0.0.1:11434/v1"  # DevSkim: ignore DS162092,DS137138 - loopback Ollama, offline-only
   model: "qwen3.8:27b-mlx"           # keep in sync with models.local_llm.model
@@ -1103,24 +1109,34 @@ guardrails:
   metrics_path: "logs/guardrails.jsonl" # SEPARATE stream from logs/audit.jsonl (privacy: hashes only)
   block_message: "I can't help with that request. It was stopped by a CyClaw safety guardrail."
   hallucination_threshold: 0.18  # [0..1] token-overlap floor below which an answer is flagged ungrounded
-  input_rails:                   # mirror guardrails/config/config.yml -> rails.input.flows
+  input_rails:                   # offline input rails guardrail_input runs. The NeMo
+                                  # check() flows are fixed by guardrails/config/config.yml,
+                                  # not by this list.
     - check_injection
-    - check_jailbreak            # NOT ENFORCED BY THE OFFLINE FLOOR -- model-assisted only
-                                # (NeMo self_check_input prompt, guardrails/config/rails.co's
-                                # "check jailbreak" flow). guardrails/integration.py's
-                                # _offline_checks() only implements check_injection and
-                                # check_soul_mutation; listing it here activates it solely on
-                                # a live NeMo Colang run, same silent-skip shape as
-                                # check_soul_leak below.
+    - check_jailbreak            # NOT ENFORCED as a rail of its own. The offline floor
+                                # (_offline_checks) implements only check_injection and
+                                # check_soul_mutation. With NeMo installed, the Colang flow
+                                # "check cyclaw jailbreak" (rails.co) runs the same
+                                # injection-marker action as check_injection, and no
+                                # LLM-backed rail (NeMo self_check_input) is active. So no
+                                # layer has a jailbreak classifier: a persona prompt is
+                                # caught only when it matches those markers ("you are
+                                # now ...", "from now on you are ..."), and one worded
+                                # differently passes. The gateway's banned_patterns
+                                # sanitizer is the front door for those.
     - check_soul_mutation
-  output_rails:                  # mirror guardrails/config/config.yml -> rails.output.flows
+  output_rails:                  # offline output rails guardrail_output runs (NeMo flows:
+                                  # guardrails/config/config.yml, as for input_rails)
     - check_grounding
     - check_soul_leak           # Phase 4b: enforced by the offline check_output
                                 # floor when guardrails.enabled is true. It uses dedicated
                                 # detect_soul_leak, not scan_injection. The graph invokes
                                 # that floor only for local_llm answers; external and
-                                # offline-best-effort legs remain intentionally out of scope.
-  topical_rails:                 # soul/personality-boundary topical flows (rails.co)
+                                # offline-best-effort legs remain intentionally out of scope
+                                # there. With NeMo installed, the check() flow
+                                # "check soul leak" also checks those answers.
+  topical_rails:                 # display-only (CLI status): rails.co defines these flows,
+                                  # but no rail activates them and no offline check runs them
     - stay_in_local_knowledge
     - no_unauthed_external_advice
   soul_topics:                   # keywords that flag a turn as soul/personality/identity-related
