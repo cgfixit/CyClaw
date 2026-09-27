@@ -640,11 +640,20 @@ logging:
   audit_fields:
     include_query_hash: true
 
-# Numbat dual-write projection (issue #959 / #961). Since the mainline plane
-# landed this runs ON the request path but never in front of the answer: it
-# fires inside audit_log, at the terminal audit_logger node (I4), after the
-# response is already computed, and is fail-soft end to end -- a projection
-# failure degrades to a logger.warning and never reaches the caller.
+# Numbat dual-write projection (issue #959 / #961).
+# WHAT THIS SWITCH IS (issue #1458): numbat.enabled turns on ONE thing -- this
+# derived NDJSON file. It is not "Numbat enforcement" and arms no policy. The
+# other Numbat pieces each have their own switch, and all of them ship off or
+# outside the request path:
+#   * pre-action hook before Grok/Claude  -> policy.fallback.pre_action_hook (enabled: false)
+#   * CEL monitor rules on /query         -> numbat.cel.enabled below (false; monitor-only)
+#   * scoring by the Numbat CLI           -> CI only (.github/workflows/numbat-rules.yml);
+#                                            nothing scores the live file at runtime
+# Since the mainline plane landed this runs ON the request path but never in
+# front of the answer: it fires inside audit_log, at the terminal audit_logger
+# node (I4), after the response is already computed, and is fail-soft end to
+# end -- a projection failure degrades to a logger.warning and never reaches
+# the caller.
 # Emitter writes schema 0.3.0; CI pins the Numbat 0.2.0 CLI (that schema).
 # audit.jsonl stays authoritative; this is a derived forensic stream.
 # Two producer planes write here: the out-of-band action plane (agentic /
