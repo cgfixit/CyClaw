@@ -1938,7 +1938,7 @@ class TestGenerateGuardGroundingContext:
     def _recording_guard(seen: list[dict]):
         def _guard(client, prompt, **kwargs):
             seen.append(kwargs)
-            return client.generate(prompt), None
+            return client.generate(prompt), None, None
 
         return _guard
 
@@ -1976,6 +1976,122 @@ class TestGenerateGuardGroundingContext:
         assert result["answer_model"] == answer_model
         assert len(seen) == 1
         assert seen[0]["grounding_context"] is None
+
+
+
+class TestGenerateGuardRefusalsInAudit:
+    """A Phase 3 refusal reaches the audit record as what actually ran.
+
+    generate_guard used to return the block message like any answer, so a
+    refused Grok call was audited as "escalated to online api: grok".
+    """
+
+    @staticmethod
+    def _refusing_guard(stage: str, rail: str, ran: list[str]):
+        def _guard(client, prompt, **kwargs):
+            if stage == "output":
+                ran.append(client.generate(prompt))
+            return "BLOCKED", None, {"stage": stage, "rails": [rail]}
+
+        return _guard
+
+    def _grok_cfg(self, tmp_path, *, send_context: bool = False):
+        cfg = _make_cfg(tmp_path, mode="hybrid", grok_enabled=True)
+        policy = cfg.get("policy", {})
+        cfg["policy"] = {
+            **policy,
+            "fallback": {**policy.get("fallback", {}), "send_local_context_to_grok": send_context},
+        }
+        return cfg
+
+    def test_input_refusal_on_the_grok_path_is_not_an_escalation(self, tmp_path):
+        ran: list[str] = []
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_LOW_SCORE_RESULTS), llm=MockLocalLLM(), grok=MockGrokClient(),
+            cfg=self._grok_cfg(tmp_path),
+            generate_guard=self._refusing_guard("input", "nemo_check:check soul mutation", ran),
+        )
+        result = graph.invoke({"query": "q", "user_confirmed_online": True, "online_provider": "grok"})
+        event = result["audit_event"]
+
+        assert result["answer"] == "BLOCKED"
+        assert event["model_used"] == "guardrail-blocked"
+        assert event["online_escalated"] is False
+        assert event["llm"] == "none: blocked by guardrail"
+        assert event["guardrail_blocked"] is True
+        assert event["guardrail_rails"] == ["nemo_check:check soul mutation"]
+        assert event["sources"] == []
+
+    def test_output_refusal_on_the_grok_path_keeps_the_escalation_and_the_sent_docs(self, tmp_path):
+        ran: list[str] = []
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_LOW_SCORE_RESULTS), llm=MockLocalLLM(), grok=MockGrokClient(),
+            cfg=self._grok_cfg(tmp_path, send_context=True),
+            generate_guard=self._refusing_guard("output", "nemo_check:check soul leak", ran),
+        )
+        result = graph.invoke({"query": "q", "user_confirmed_online": True, "online_provider": "grok"})
+        event = result["audit_event"]
+
+        assert len(ran) == 1  # the provider did answer, and was billed
+        assert result["answer"] == "BLOCKED"
+        assert event["model_used"] == "grok"
+        assert event["online_escalated"] is True
+        assert event["guardrail_blocked"] is True
+        assert event["guardrail_rails"] == ["nemo_check:check soul leak"]
+        # The docs forwarded to Grok stay on the record of what left the machine.
+        assert [s["source"] for s in event["sources"]] == ["misc.md"]
+
+    @pytest.mark.parametrize("stage, model_used", [("input", "guardrail-blocked"), ("output", "local")])
+    def test_refusal_on_the_local_path_keeps_the_rail_that_refused(self, tmp_path, stage, model_used):
+        ran: list[str] = []
+        judged: list[str] = []
+
+        def _output_guard(query, answer, context):
+            judged.append(answer)
+            return {"blocked": True, "message": "OFFLINE BLOCK", "rails": ["check_grounding"]}
+
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_HIGH_SCORE_RESULTS), llm=MockLocalLLM(), grok=None,
+            cfg=_make_cfg(tmp_path), output_guard=_output_guard,
+            generate_guard=self._refusing_guard(stage, "nemo_check:check soul leak", ran),
+        )
+        result = graph.invoke({"query": "What is Veeam immutability?"})
+        event = result["audit_event"]
+
+        # guardrail_output does not re-judge the block message and overwrite the rail.
+        assert judged == []
+        assert result["answer"] == "BLOCKED"
+        assert event["model_used"] == model_used
+        assert event["guardrail_blocked"] is True
+        assert event["guardrail_rails"] == ["nemo_check:check soul leak"]
+        assert event["sources"] == []
+
+    def test_an_llm_outage_is_not_recorded_as_a_guardrail_block(self, tmp_path, monkeypatch):
+        from guardrails.config import GuardrailsConfig
+        from utils.guardrail_bridge import build_output_guard
+
+        monkeypatch.setattr(
+            "guardrails.config.load_guardrails_config",
+            lambda: GuardrailsConfig(enabled=True, metrics_path=str(tmp_path / "guardrails.jsonl")),
+        )
+
+        class _Down:
+            def generate(self, prompt, **kwargs):
+                raise LLMServiceError("Ollama unreachable")
+
+        cfg = _make_cfg(tmp_path)
+        cfg["guardrails"] = {"enabled": True}
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_HIGH_SCORE_RESULTS), llm=_Down(), grok=None, cfg=cfg,
+            output_guard=build_output_guard(cfg),
+        )
+        result = graph.invoke({"query": "What is Veeam immutability?"})
+
+        # The user sees the outage, not "stopped by a CyClaw safety guardrail".
+        assert result["answer"].startswith("[LLM Error:")
+        assert result["error"].startswith("LLM_SERVICE_ERROR")
+        assert result.get("guardrail_blocked", False) is False
+        assert result["audit_event"]["guardrail_rails"] == []
 
 
 class TestLLMIdentityMappings:
