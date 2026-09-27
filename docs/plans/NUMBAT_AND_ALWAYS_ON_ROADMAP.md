@@ -1,6 +1,6 @@
 # CyClaw × Numbat × Always-On Roadmap
 
-> **Status update — 2026-09-26 (issue [#1458](https://github.com/cgfixit/CyClaw/issues/1458), against `main` @ `f465e13`):**
+> **Status update — 2026-09-26, revised 2026-09-27 after #1466 merged (issue [#1458](https://github.com/cgfixit/CyClaw/issues/1458)):**
 > the 2026-09-06 note that stood here was stale on two counts. Step 2 Slice A
 > (hook-verdict emission) and Step 3 Slice B (the CEL monitor) are both
 > **shipped and gated off**, and `numbat.enabled: true` means far less than it
@@ -12,21 +12,22 @@
 > | Pre-action hook before Grok/Claude (`utils/external_pre_hook.py`) | `policy.fallback.pre_action_hook.enabled` | off. The `command:` example that `config.yaml` suggested (`numbat hook pre-tool --agent cyclaw`) never worked: the pinned 0.2.0 CLI exits 0, which the hook reads as allow |
 > | Hook-verdict emission (Slice A) | `pre_action_hook.emit_verdict` | off, and inert while the hook is off |
 > | CEL monitor (Slice B, `utils/numbat_cel.py`) | `numbat.cel.enabled` | off; monitor-only |
-> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures plus one live executor-jail run, never mainline `/query` or `/ops/*` output; nothing scores the live stream |
+> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures, one live executor-jail run, and, since #1466, a stream driven through every producer, mainline `/query` and `/ops/*` included; nothing scores the live stream |
 >
 > Checking the live stream against the pinned CLI (Phase 4 of #1458) found that
-> the CLI **rejects** it. Every mainline `/query` event carried a
+> the CLI **rejected** it. Every mainline `/query` event carried a
 > `content_preview` over the schema's 200-character cap, and every `/ops/*`
 > event with a redacted `--reason=` held a bare `<redacted>` that the CLI's
-> shell parser refuses.
+> shell parser refuses. #1466 fixed both, and added the CI job that would
+> have caught them.
 >
-> **#1458 phase status** (draft PRs; a human merges):
+> **#1458 phase status** (a human merges each PR):
 >
 > | Phase | Scope | PR |
 > |---|---|---|
 > | 0 | Truth in advertising: this table, `config.yaml`'s `numbat:` comment, README, CLAUDE.md, AGENTS.md, the evaluator note | this docs PR |
-> | 3 + 4 | Stream contract fixes (200-char previews, shell-safe commands), CEL matches recorded as allowed `tool.result` events, CI scoring of the stream CyClaw actually writes against the pinned CLI and schema, and a CEL lane with cel-python installed | [#1466](https://github.com/cgfixit/CyClaw/pull/1466) |
-> | 1 + 2 | A pre-action hook engine that can gate: `engine: numbat` (`numbat rules test` over the proposed call, `enforce: true` rules deny, every failure denies), fail-closed empty command, `verdict_mode`, `/health` readiness, verdict reasons in metrics, allow verdicts in the stream | [#1467](https://github.com/cgfixit/CyClaw/pull/1467) (stacked on #1466) |
+> | 3 + 4 | Stream contract fixes (200-char previews, shell-safe commands), CEL matches recorded as allowed `tool.result` events, CI scoring of the stream CyClaw actually writes against the pinned CLI and schema, and a CEL lane with cel-python installed | [#1466](https://github.com/cgfixit/CyClaw/pull/1466), **merged 2026-09-26** |
+> | 1 + 2 | A pre-action hook engine that can gate: `engine: numbat` (`numbat rules test` over the proposed call, `enforce: true` rules deny, every failure denies), fail-closed empty command, `verdict_mode`, `/health` readiness, verdict reasons in metrics, allow verdicts in the stream | [#1467](https://github.com/cgfixit/CyClaw/pull/1467), draft |
 > | 5 | Scoring the rolling stream out of band, and any enforce from it | not started; needs its own dual-run observation issue |
 
 Status: living plan

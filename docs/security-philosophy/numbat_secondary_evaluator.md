@@ -3,7 +3,7 @@
 > **Status update — 2026-09-26 (issue [#1458](https://github.com/cgfixit/CyClaw/issues/1458)):** this remains a reference doc, but two readings of it need correcting.
 >
 > - `numbat.enabled: true` turns on the NDJSON projection **and nothing else**. The pre-action hook (`policy.fallback.pre_action_hook`) and the CEL monitor (`numbat.cel`) ship off, and the Numbat CLI scores events only in CI. "Numbat ships on" means "the forensic file is written", not "Numbat enforces".
-> - The live stream did not satisfy the pinned 0.2.0 CLI. Mainline `/query` events carried `content_preview` over the schema's 200-character cap, and redacted `/ops/*` commands held a bare `<redacted>` the CLI's shell parser rejects. CI had not noticed because it scored committed fixtures and one live executor-jail run, never mainline `/query` or `/ops/*` output. The fixes and a CI job that scores the stream CyClaw actually writes are in [#1466](https://github.com/cgfixit/CyClaw/pull/1466).
+> - The live stream did not satisfy the pinned 0.2.0 CLI. Mainline `/query` events carried `content_preview` over the schema's 200-character cap, and redacted `/ops/*` commands held a bare `<redacted>` the CLI's shell parser rejects. CI had not noticed because it scored committed fixtures and one live executor-jail run, never mainline `/query` or `/ops/*` output. [#1466](https://github.com/cgfixit/CyClaw/pull/1466) (merged 2026-09-26) fixed both, and added a CI job that scores the stream CyClaw actually writes.
 >
 > The phase-by-phase state is in `docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md`.
 
