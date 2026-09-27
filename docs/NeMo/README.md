@@ -32,8 +32,12 @@ or override a deterministic denial.
 The core six (`gate.py` / `gate_ops.py` / `gate_auth.py` / `gate_memory.py` / `graph.py` / `mcp_hybrid_server.py`) never import `guardrails`.
 
 Shipped default: `guardrails.enabled: false` (literal bool `True` required to
-arm). Do not treat a YAML string `"false"` as off-by-truthiness — the bridge
-uses `is True`. Tests pin the tracked file stays false
+arm). The bridge uses `is True`, and gate.py refuses to boot on any
+non-boolean value (`"true"`, `"false"`, `1`) through
+`utils.config_validation.validate_guardrails_config`: a quoted `"true"` used
+to leave every guard silently off. An unknown name in `input_rails`,
+`output_rails` or `topical_rails` is refused when the layer loads. Tests pin
+the tracked file stays false
 (`test_shipped_config_yaml_guardrails_enabled_is_literal_false`). CI may overlay `true`
 under `CYCLAW_NEMO_RUNTIME=1` (`.github/workflows/nemo-guardrails.yml`).
 
