@@ -113,12 +113,25 @@ TEST_LOG="/tmp/cyclaw-verify-pytest.txt"
   -p no:cacheprovider --no-header \
   > "$TEST_LOG" 2>&1
 TEST_RC=$?
-TALLY="$(grep -Eo '[0-9]+ (passed|failed|error|skipped)[a-z, ]*' "$TEST_LOG" | tail -1)"
+# Report pytest's final summary line, which carries every count ("2 failed,
+# 5125 passed, 110 skipped, 1 warning"), minus its timing. Taking the last
+# count on its own (`grep -o | tail -1`) reported a failing run as just
+# "110 skipped".
+TALLY="$(grep -E '[0-9]+ (passed|failed|error)' "$TEST_LOG" | tail -1 \
+  | sed -E 's/^=+ //; s/ =+$//; s/ in [0-9.]+s( \([0-9:]+\))?$//')"
 [ -z "$TALLY" ] && TALLY="$(tail -3 "$TEST_LOG" | tr '\n' ' ')"
 if [ "$TEST_RC" -eq 0 ]; then
   pass "Unit + integration tests" "${TALLY:-all green}"
 else
   fail "Unit + integration tests" "${TALLY:-see $TEST_LOG} (rc=$TEST_RC)"
+  # $TEST_LOG is not kept after a CI run, so name what failed in the job log:
+  # pytest's FAILED/ERROR summary lines, or the log's tail when there are none
+  # (a crash or an interrupted run prints no summary).
+  if grep -qE '^(FAILED|ERROR) ' "$TEST_LOG"; then
+    grep -E '^(FAILED|ERROR) ' "$TEST_LOG" | head -n 100 | sed 's/^/    /'
+  else
+    tail -n 60 "$TEST_LOG" | sed 's/^/    /'
+  fi
 fi
 
 # ── stage 3: emulated RAG query ───────────────────────────────────────────────
