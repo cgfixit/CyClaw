@@ -11,6 +11,11 @@ import pathlib
 import logging
 
 import json
+import subprocess
+import sys
+import textwrap
+import threading
+import weakref
 
 import pytest
 
@@ -502,3 +507,252 @@ class TestThirdPartyLogCapture:
                         handler.close()
             logger._logging_initialized = False
         assert "agentic-info-below-floor-marker" not in text
+
+
+# ---------------------------------------------------------------------------
+# logging.log_file is written by one writer thread (_BackgroundFileHandler),
+# so a stalled disk under it cannot hold a thread that logs. Each stall is an
+# Event the test releases, never a sleep racing a timeout.
+# ---------------------------------------------------------------------------
+
+
+class _StallingStream:
+    """A text stream whose writes wait for ``release``; ``entered`` says one began."""
+
+    def __init__(self, *, fail_first: bool = False) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.lines: list[str] = []
+        self.closed = False
+        self._fail_first = fail_first
+
+    def write(self, text: str) -> int:
+        self.entered.set()
+        self.release.wait(30)
+        if self._fail_first:
+            self._fail_first = False
+            raise OSError("disk full")
+        self.lines.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def background(tmp_path):
+    """Build handlers on an isolated logger; close them all afterwards."""
+    made: list[tuple[logging.Logger, logger._BackgroundFileHandler]] = []
+
+    def build(stream=None, *, max_queued: int = 100, drain: float = 10.0):
+        handler = logger._BackgroundFileHandler(tmp_path / f"app{len(made)}.log", max_queued=max_queued,
+                                                 drain_wait_sec=drain)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        if stream is not None:
+            real, handler._stream = handler._stream, stream
+            real.close()
+        log = logging.getLogger(f"cyclaw.test_background.{len(made)}")
+        log.propagate = False
+        log.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        made.append((log, handler))
+        return log, handler
+
+    yield build
+    for log, handler in made:
+        log.removeHandler(handler)
+        stream = handler._stream
+        if isinstance(stream, _StallingStream):
+            stream.release.set()
+        handler.close()
+
+
+def _in_thread(fn, *args) -> threading.Thread:
+    thread = threading.Thread(target=fn, args=args, daemon=True)
+    thread.start()
+    thread.join(10)
+    return thread
+
+
+class TestBackgroundLogWriter:
+    def test_a_stalled_disk_does_not_hold_threads_that_log(self, background):
+        # With a FileHandler the first caller would sit in write() holding the
+        # handler lock, and the second would wait on that lock behind it.
+        stream = _StallingStream()
+        log, handler = background(stream)
+        try:
+            first = _in_thread(log.warning, "first")
+            assert not first.is_alive()
+            assert stream.entered.wait(10)  # the writer thread is the one stuck
+            second = _in_thread(log.warning, "second")
+            assert not second.is_alive()
+            assert stream.lines == []
+        finally:
+            stream.release.set()
+        handler.flush()
+        assert stream.lines == ["WARNING first\n", "WARNING second\n"]
+
+    def test_a_healthy_file_has_the_line_once_flush_returns(self, background):
+        log, handler = background()
+        log.info("on disk")
+        handler.flush()
+        assert handler.path.read_text(encoding="utf-8") == "INFO on disk\n"
+
+    def test_a_full_queue_drops_notes_once_and_counts_into_the_log(self, background, capsys):
+        stream = _StallingStream()
+        log, handler = background(stream, max_queued=2)
+        try:
+            log.warning("1")
+            assert stream.entered.wait(10)  # line 1 is the stuck write, so 2 and 3 fill the queue
+            for n in (2, 3, 4, 5):
+                log.warning(str(n))
+            assert handler.dropped == 2
+            assert capsys.readouterr().err.count("dropping lines for") == 1
+        finally:
+            stream.release.set()
+        assert handler.drain(10)
+        # The count is written before the line that emptied the queue is
+        # marked written, so it is already there when drain() returns.
+        assert stream.lines == ["WARNING 1\n", "WARNING 2\n", "WARNING 3\n",
+                                "WARNING dropped 2 log line(s) while the log writer was behind, 2 in all\n"]
+
+    def test_exit_does_not_hang_on_a_stalled_disk(self, background, capsys):
+        # logging.shutdown() is what atexit runs: it takes each handler's lock,
+        # then calls flush() and close(). Both wait at most drain_wait_sec.
+        stream = _StallingStream()
+        log, handler = background(stream, drain=0.05)
+        try:
+            log.warning("stuck")
+            assert stream.entered.wait(10)
+            log.warning("queued")
+            shutdown = _in_thread(logging.shutdown, [weakref.ref(handler)])
+            assert not shutdown.is_alive()
+            assert "with 2 queued line(s) not written" in capsys.readouterr().err
+            assert not stream.closed  # the writer is inside write(); the OS closes the file at exit
+        finally:
+            stream.release.set()
+
+    def test_close_waits_for_the_queue_then_closes_the_file(self, background):
+        log, handler = background()
+        for n in range(50):
+            log.info("line %d", n)
+        handler.close()
+        assert handler._stream is None
+        assert handler.path.read_text(encoding="utf-8").count("\n") == 50
+        log.info("after close")  # dropped, never raised
+        assert handler.dropped == 1
+
+    def test_a_failed_write_is_noted_once_and_the_writer_keeps_going(self, background, capsys):
+        stream = _StallingStream(fail_first=True)
+        stream.release.set()
+        log, handler = background(stream)
+        log.warning("lost")
+        log.warning("kept")
+        assert handler.drain(10)
+        assert stream.lines == ["WARNING kept\n"]
+        assert handler.failed == 1
+        err = capsys.readouterr().err
+        assert "failed (disk full)" in err and "works again (1 line(s) lost in all)" in err
+
+    def test_an_event_is_dropped_when_no_writer_thread_can_start(self, background, monkeypatch, capsys):
+        stream = _StallingStream()
+        log, handler = background(stream)
+        handler.close()  # stop the writer started at construction
+        handler._reset_queue()
+        handler._stream = stream
+        monkeypatch.setattr(handler, "_start", lambda: False)
+        caller = _in_thread(log.warning, "nowhere to go")
+        assert not caller.is_alive()
+        assert not stream.entered.is_set()  # nothing was written on the caller's thread
+        assert handler.dropped == 1
+        assert "because no writer thread could start" in capsys.readouterr().err
+
+    @pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="POSIX fork only")
+    def test_a_forked_child_gets_a_fresh_writer(self, tmp_path):
+        # Another thread holds the handler's queue lock at the fork, as the
+        # writer or a caller mid-emit would. That thread does not exist in the
+        # child, so without the at-fork reset the child's emit waits on the
+        # lock forever (the alarm then kills it, and the test fails). The
+        # holder must not be the forking thread: the lock is reentrant, so the
+        # forking thread would simply take it again in the child.
+        out = tmp_path / "child.log"
+        script = textwrap.dedent(f"""
+            import logging, os, signal, sys, threading, warnings
+            from pathlib import Path
+            from utils import logger as L
+            warnings.simplefilter("ignore", DeprecationWarning)
+            h = L._BackgroundFileHandler(Path({str(out)!r}), max_queued=10, drain_wait_sec=10.0)
+            h.setFormatter(logging.Formatter("%(message)s"))
+            log = logging.getLogger("forktest")
+            log.propagate = False
+            log.addHandler(h)
+            held, done = threading.Event(), threading.Event()
+            def hold():
+                with h._cond:
+                    held.set()
+                    done.wait()
+            threading.Thread(target=hold, daemon=True).start()
+            held.wait()
+            pid = os.fork()
+            if pid == 0:
+                signal.alarm(30)
+                log.warning("from the child")
+                os._exit(0 if h.drain(10) else 3)
+            done.set()
+            _, status = os.waitpid(pid, 0)
+            sys.exit(os.waitstatus_to_exitcode(status))
+        """)
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        proc = subprocess.run([sys.executable, "-c", script], cwd=repo, timeout=60,  # noqa: S603 - fixed argv
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert out.read_text(encoding="utf-8") == "from the child\n"
+
+
+class TestLogWriterSettings:
+    def test_setup_logging_writes_the_file_from_a_background_handler(self, tmp_path, monkeypatch):
+        log_path = tmp_path / "cyclaw.log"
+        monkeypatch.setattr(logger, "_logging_initialized", False)
+        real_root = logging.getLogger()
+        before = list(real_root.handlers)
+        try:
+            logger.setup_logging({"logging": {
+                "level": "DEBUG", "log_file": str(log_path), "capture_third_party": True,
+                "third_party_level": "INFO", "max_queued_records": 7, "drain_wait_sec": 0.5,
+            }})
+            added = [h for h in real_root.handlers if h not in before]
+            assert len(added) == 1
+            handler = added[0]
+            assert isinstance(handler, logger._BackgroundFileHandler)
+            assert (handler.max_queued, handler.drain_wait_sec) == (7, 0.5)
+            assert any(isinstance(f, logger._ThirdPartyFloor) for f in handler.filters)
+        finally:
+            for handler in list(real_root.handlers):
+                if handler not in before:
+                    real_root.removeHandler(handler)
+                    handler.close()
+            logger._logging_initialized = False
+
+    @pytest.mark.parametrize("bad", [0, -1, "10", True, None, float("nan"), float("inf"), 1e300])
+    def test_an_unusable_limit_falls_back_to_its_default(self, bad):
+        assert logger._log_writer_settings({"max_queued_records": bad, "drain_wait_sec": bad}) == (
+            logger._DEFAULT_MAX_QUEUED_RECORDS, logger._DEFAULT_LOG_DRAIN_WAIT_SEC)
+
+    def test_a_fractional_queue_size_falls_back(self):
+        assert logger._log_writer_settings({"max_queued_records": 2.5})[0] == logger._DEFAULT_MAX_QUEUED_RECORDS
+
+    def test_a_drain_longer_than_a_timed_wait_allows_falls_back(self):
+        # float() of a huge int raises OverflowError; the comparison does not.
+        assert logger._log_writer_settings({"drain_wait_sec": 10**400})[1] == logger._DEFAULT_LOG_DRAIN_WAIT_SEC
+        assert logger._log_writer_settings({"drain_wait_sec": threading.TIMEOUT_MAX})[1] == threading.TIMEOUT_MAX
+
+    def test_the_shipped_config_sets_the_defaults(self):
+        import yaml
+
+        root = pathlib.Path(__file__).resolve().parents[1]
+        log_cfg = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))["logging"]
+        assert log_cfg["max_queued_records"] == logger._DEFAULT_MAX_QUEUED_RECORDS
+        assert log_cfg["drain_wait_sec"] == logger._DEFAULT_LOG_DRAIN_WAIT_SEC
