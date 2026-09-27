@@ -566,6 +566,28 @@ def test_a_stalled_readiness_check_reports_in_time(tmp_path, monkeypatch):
     assert elapsed < 10
 
 
+# The SystemExit ending the worker thread is the scenario under test, and
+# pytest reports any exception that ends a thread.
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a_decision_that_exits_its_worker_denies_and_frees_the_slot(tmp_path, monkeypatch):
+    # The worker hands back only Exception; a SystemExit ends the thread with
+    # no outcome, which must still deny rather than allow or hang.
+    def _exits(*args, **kwargs):
+        raise SystemExit(0)
+
+    monkeypatch.setattr(numbat_gate, "_evaluate", _exits)
+    started = time.monotonic()
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_timeout")
+    assert time.monotonic() - started < 5
+    slots = numbat_gate._GATE_WORKER_SLOTS
+    taken = [slots.acquire(timeout=1) for _ in range(numbat_gate._MAX_GATE_WORKERS)]
+    for ok in taken:
+        if ok:
+            slots.release()
+    assert all(taken)
+
+
 def test_a_rules_read_stuck_past_the_deadline_still_denies_on_time(tmp_path, monkeypatch):
     # No deadline check between filesystem calls helps when one call never
     # returns: the read runs on a worker thread that the call abandons.

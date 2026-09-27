@@ -533,7 +533,7 @@ def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
     try:
         proc.kill()
     except OSError:
-        pass
+        pass  # it has already exited, so there is nothing left to kill
     proc.poll()  # reap it if it is already dead; otherwise subprocess reaps it later
 
 
@@ -597,7 +597,9 @@ def _within[T](timeout: float, work: Callable[[], T]) -> T:
     def _run() -> None:
         try:
             outcome.append((True, work()))
-        except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller below
+        except Exception as exc:  # noqa: BLE001 - handed to the waiting caller below
+            # Anything else (SystemExit in this thread) leaves outcome empty,
+            # which the caller reads as _Stalled and denies.
             outcome.append((False, exc))
         finally:
             _GATE_WORKER_SLOTS.release()
