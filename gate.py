@@ -125,6 +125,7 @@ from utils.config_validation import (
     validate_tls_config,
     validate_fallback_confirm_placeholder,
     validate_local_llm_reasoning_effort,
+    validate_logging_config,
     validate_personality_config,
     validate_pre_action_hook_config,
     validate_retrieval_config,
@@ -149,6 +150,9 @@ validate_guardrails_config(cfg)
 # and a quoted numbat.cel.enabled left the CEL monitor off; refuse both here,
 # before the first audit record is projected.
 validate_numbat_config(cfg)
+# setup_logging below would replace an unusable log-writer limit with its
+# default; refuse the typo here instead.
+validate_logging_config(cfg)
 # An unrecognized reasoning_effort would otherwise reach Ollama and come back as
 # an HTTP 400 on the first /query -- surface it here instead, before any socket.
 validate_local_llm_reasoning_effort(cfg)
@@ -365,7 +369,9 @@ def _sanitize_error(exc: Exception) -> str:
 # App Init
 # =============================================================================
 
-setup_logging(cfg)
+# background_console: request threads must not wait on stderr either, which
+# a launchd service points at a file (see utils/logger.py's setup_logging).
+setup_logging(cfg, background_console=True)
 logger = logging.getLogger("cyclaw.gate")
 
 if not os.environ.get("CYCLAW_API_KEY", ""):

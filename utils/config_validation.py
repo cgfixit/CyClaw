@@ -492,6 +492,34 @@ def validate_guardrails_config(cfg: dict[str, Any]) -> None:
         )
 
 
+def validate_logging_config(cfg: dict[str, Any]) -> None:
+    """Refuse application-log writer limits the logger would silently replace, at boot.
+
+    ``utils/logger.py``'s ``_log_writer_settings`` falls back to its defaults
+    on a value it cannot use, so without this a typo ("1000", 0, true) would
+    run with a limit the operator never chose. ``drain_wait_sec`` also refuses
+    YAML's .nan (it fails every comparison) and .inf or anything past
+    threading.TIMEOUT_MAX, the longest timed wait the platform accepts. No-op
+    when the block is absent or not a mapping; setup_logging reads the rest.
+    """
+    block = cfg.get("logging")
+    if not isinstance(block, dict):
+        return
+    max_queued = block.get("max_queued_records")
+    if max_queued is not None and (isinstance(max_queued, bool) or not isinstance(max_queued, int) or max_queued < 1):
+        raise ConfigError(
+            f"logging.max_queued_records must be a whole number of at least 1, got: {max_queued!r}",
+            details={"field": "logging.max_queued_records", "received": repr(max_queued)},
+        )
+    drain = block.get("drain_wait_sec")
+    if drain is not None and (not _is_real_number(drain) or not 0 < drain <= threading.TIMEOUT_MAX):
+        raise ConfigError(
+            f"logging.drain_wait_sec must be a positive number of seconds, at most {threading.TIMEOUT_MAX:.0f}, "
+            f"got: {drain!r}",
+            details={"field": "logging.drain_wait_sec", "received": repr(drain)},
+        )
+
+
 def validate_numbat_config(cfg: dict[str, Any]) -> None:
     """Refuse a ``numbat`` block whose switches would not do what they say, at boot.
 

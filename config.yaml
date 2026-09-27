@@ -623,6 +623,21 @@ logging:
   # this to DEBUG would write live API keys into logs/cyclaw.log. Raise it only
   # for a scoped debugging session, and treat the resulting file as secret.
   third_party_level: "INFO"
+  # log_file is written by one writer thread (utils/logger.py's
+  # _BackgroundFileHandler), so a stalled disk under it cannot hold a thread
+  # that logs, request threads included. Past max_queued_records waiting
+  # lines, new ones are dropped and counted: the first drop of a backlog is
+  # noted on stderr, and the count is written into the log once the writer
+  # catches up. At exit, logging waits up to drain_wait_sec for queued lines,
+  # again for the writer to finish, and, if lines were lost, once more for
+  # that note to reach stderr (from its own thread). max_queued_records must
+  # be a whole number of at least 1; drain_wait_sec a positive, finite number
+  # of seconds, at most Python's threading.TIMEOUT_MAX. Boot refuses others.
+  # The gateway's console (stderr) is written the same way, with the same
+  # limits; an agentic CLI's stays synchronous. audit_file below is still
+  # written on the caller's thread: it is the authoritative audit stream (I4).
+  max_queued_records: 10000
+  drain_wait_sec: 2.0
   audit_file: "logs/audit.jsonl"
   spend_file: "logs/spend.jsonl"
   # Read by metrics.py only (the Groundedness eval runs trend). Written by

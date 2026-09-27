@@ -13,12 +13,17 @@ import atexit
 import hashlib
 import json
 import logging
+import os
 import re
+import sys
 import threading
+import time
+import weakref
+from collections import deque
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 import yaml
 
@@ -99,7 +104,7 @@ def _anchor(path_str: str) -> Path:
     return path if path.is_absolute() else _REPO_ROOT / path
 
 
-def setup_logging(cfg: dict | None = None) -> None:
+def setup_logging(cfg: dict | None = None, *, background_console: bool = False) -> None:
     global _logging_initialized
     if _logging_initialized:
         return
@@ -117,7 +122,20 @@ def setup_logging(cfg: dict | None = None) -> None:
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
-    console = logging.StreamHandler()
+    max_queued, drain_wait_sec = _log_writer_settings(log_cfg)
+    # The console is written on the caller's thread by default: tools that run
+    # an agentic CLI read its stderr once it exits (see the agentic_logger
+    # comment below), so those lines must be written before the process ends.
+    # gate.py passes background_console=True instead. Its request threads log
+    # cyclaw.* records here at the shipped DEBUG level, and a launchd service's
+    # stderr is a file (macos/generate_service_plist.py) that can stall with
+    # the log volume, so its console is written from a writer thread, bounded
+    # like the log file below (Codex review on #1482).
+    console: logging.Handler
+    if background_console:
+        console = _BackgroundConsoleHandler(max_queued=max_queued, drain_wait_sec=drain_wait_sec)
+    else:
+        console = logging.StreamHandler()
     console.setFormatter(fmt)
     root.addHandler(console)
 
@@ -147,17 +165,18 @@ def setup_logging(cfg: dict | None = None) -> None:
     if log_file:
         anchored_log_file = _anchor(log_file)
         anchored_log_file.parent.mkdir(parents=True, exist_ok=True)
-        # _capture_third_party attaches a FileHandler to the REAL root, and its
+        # _capture_third_party attaches a file handler to the REAL root, and its
         # filter deliberately passes cyclaw.* through at any level and agentic.*
         # through at WARNING+ (see _ThirdPartyFloor) -- so when it attaches,
         # that single handler already writes cyclaw, agentic (at WARNING and
-        # above), and third-party records to this path. A second FileHandler on
+        # above), and third-party records to this path. A second file handler on
         # the "cyclaw" logger would then write every CyClaw line twice (once
         # here, once at root via propagation) and hold two fds on one file.
         # Only own the file directly when third-party capture is switched off
-        # and nothing else will.
+        # and nothing else will. Either way the file is written by a
+        # _BackgroundFileHandler (see the comment above it).
         if not _capture_third_party(log_cfg, anchored_log_file, fmt):
-            fh = logging.FileHandler(anchored_log_file, encoding="utf-8")
+            fh = _BackgroundFileHandler(anchored_log_file, max_queued=max_queued, drain_wait_sec=drain_wait_sec)
             fh.setFormatter(fmt)
             root.addHandler(fh)
             # With capture_third_party off, the real root logger has no
@@ -171,6 +190,420 @@ def setup_logging(cfg: dict | None = None) -> None:
             agentic_logger.addHandler(fh)
 
     _logging_initialized = True
+
+
+# The application log (logging.log_file) is written by one writer thread.
+#
+# logging.FileHandler writes on the caller's thread while holding the
+# handler's lock (logging.Handler.handle holds it around emit). When the
+# filesystem under log_file stalls, the first thread to log blocks inside
+# write(), and every other thread that logs to that handler waits on the lock
+# behind it: request threads included (graph.py's DEBUG lines, gate.py's
+# warnings, the Numbat writer's own stall warnings). _BackgroundFileHandler
+# formats each record on the caller's thread, as FileHandler does, and queues
+# the finished line for a writer thread that owns the file, so a caller only
+# ever takes a short in-memory lock. On a healthy disk the writer is
+# microseconds behind.
+#
+# Bounded: with logging.max_queued_records lines waiting, a new line is
+# dropped and counted. The first drop of a backlog is noted on stderr, from a
+# thread of its own (see _StderrNotes), and the count is written into the log
+# once the writer catches up (or noted on stderr at close, if it never does).
+#
+# Exit: logging.shutdown() runs from atexit, registered when logging was first
+# imported, so it runs after CyClaw's own atexit hooks, which may still log.
+# It calls flush() and then close() on each handler, and each of those waits
+# at most logging.drain_wait_sec (close() once more for its note on stderr),
+# so a write stuck on a stalled disk delays exit instead of hanging it.
+#
+# Not logging.handlers.QueueHandler with a QueueListener: QueueListener.stop()
+# joins its thread with no timeout, and its target (a FileHandler) is itself
+# registered with logging.shutdown(), which takes that handler's lock at exit,
+# the lock a stuck write holds. Either would hang exit on the very stall this
+# handler exists for. Here the writer's file object is not a handler at all.
+#
+# The console: an agentic CLI's is written on the caller's thread, since
+# tools read its stderr once it exits. The gateway's is a
+# _BackgroundConsoleHandler, the same writer aimed at stderr, since a launchd
+# service's stderr is a file that can stall too (see setup_logging).
+#
+# These defaults apply when the logging block does not set a value, or sets
+# one boot validation would refuse; they match the shipped config.
+_DEFAULT_MAX_QUEUED_RECORDS = 10000
+_DEFAULT_LOG_DRAIN_WAIT_SEC = 2.0
+
+# Every handler, so a forked child can reset them (see _reset_log_writers_after_fork).
+_BACKGROUND_HANDLERS: weakref.WeakSet["_BackgroundFileHandler"] = weakref.WeakSet()
+
+
+def _log_writer_settings(log_cfg: dict[str, Any]) -> tuple[int, float]:
+    """logging.max_queued_records and logging.drain_wait_sec, each falling back to its default."""
+    max_queued = log_cfg.get("max_queued_records")
+    if isinstance(max_queued, bool) or not isinstance(max_queued, int) or max_queued < 1:
+        max_queued = _DEFAULT_MAX_QUEUED_RECORDS
+    drain = log_cfg.get("drain_wait_sec")
+    # The chained comparison refuses NaN (it fails every comparison), .inf and
+    # anything past threading.TIMEOUT_MAX, the longest timed wait the platform
+    # accepts. Comparing an int is exact, so a huge one never reaches float().
+    if isinstance(drain, bool) or not isinstance(drain, int | float) or not 0 < drain <= threading.TIMEOUT_MAX:
+        drain = _DEFAULT_LOG_DRAIN_WAIT_SEC
+    return max_queued, float(drain)
+
+
+def _write_to_stderr(message: str) -> None:
+    try:
+        sys.stderr.write(f"cyclaw logging: {message}\n")
+        sys.stderr.flush()
+    except (AttributeError, OSError, ValueError):
+        # No stderr (None under pythonw), or a closed or broken one: there is
+        # nowhere left to say it.
+        return
+
+
+# Notes about a log file reach stderr from one daemon thread, never from a
+# logging caller or close(). stderr can be a file too: the launchd service
+# points StandardErrorPath at one (macos/generate_service_plist.py), which can
+# stall along with the log volume. emit() runs under the handler's lock, so a
+# note stuck on stderr there would hold every thread that logs through the
+# handler (Codex review on #1482). A caller only queues its note. Past
+# _MAX_QUEUED_NOTES waiting, notes are dropped, and the next one written says
+# how many. The bound caps memory on a rare path (a note per state change of a
+# handler) rather than tuning anything, so it is not in config.yaml.
+_MAX_QUEUED_NOTES = 100
+
+
+class _StderrNotes:
+    def __init__(self, max_queued: int) -> None:
+        self.max_queued = max_queued
+        self._reset()
+
+    def _reset(self) -> None:
+        self._cond = threading.Condition()
+        self._pending: deque[tuple[int, str]] = deque()
+        self._queued = 0
+        self._written = 0
+        self._dropped = 0
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Start the thread now: late in interpreter shutdown, after atexit, Python refuses new threads."""
+        with self._cond:
+            self._ensure_running()
+
+    def note(self, message: str) -> None:
+        with self._cond:
+            if len(self._pending) >= self.max_queued or not self._ensure_running():
+                self._dropped += 1
+                return
+            self._queued += 1
+            self._pending.append((self._queued, message))
+            self._cond.notify_all()
+
+    def wait(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` s for every note queued so far; True once they are all written."""
+        with self._cond:
+            target = self._queued
+            deadline = time.monotonic() + timeout
+            while self._written < target:
+                if not self._running():
+                    return False
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._cond.wait(remaining)
+            return True
+
+    def _running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _ensure_running(self) -> bool:
+        if self._running():
+            return True
+        thread = threading.Thread(target=self._run, name="cyclaw-log-notes", daemon=True)
+        try:
+            thread.start()
+        except RuntimeError:
+            return False
+        self._thread = thread
+        return True
+
+    def _run(self) -> None:
+        while True:
+            with self._cond:
+                while not self._pending:
+                    self._cond.wait()
+                seq, message = self._pending.popleft()
+                dropped, self._dropped = self._dropped, 0
+            if dropped:
+                message = f"{message} ({dropped} earlier note(s) dropped while stderr was behind)"
+            _write_to_stderr(message)
+            with self._cond:
+                self._written = seq
+                self._cond.notify_all()
+
+
+_STDERR_NOTES = _StderrNotes(_MAX_QUEUED_NOTES)
+
+
+def _note_on_stderr(message: str) -> None:
+    """Tell the operator about the log file itself, somewhere other than the log file.
+
+    Not through logging: a record about a stalled log file would only join the
+    backlog it describes. Queued for the stderr thread above; never waits.
+    """
+    _STDERR_NOTES.note(message)
+
+
+class _BackgroundFileHandler(logging.Handler):
+    """Append formatted records to ``path`` from one writer thread (see the comment above)."""
+
+    def __init__(self, path: Path, *, max_queued: int, drain_wait_sec: float) -> None:
+        super().__init__()
+        self.path = path
+        self.max_queued = max_queued
+        self.drain_wait_sec = drain_wait_sec
+        # Lines dropped because the queue was full or no writer could start,
+        # and lines whose write raised (lost, as with FileHandler).
+        self.dropped = 0
+        self.failed = 0
+        # Opened here, on the thread that sets logging up, as FileHandler opens
+        # its file: a bad path fails setup, and the file exists once setup
+        # returns. close() closes it, unless a write is still stuck in it.
+        self._stream: TextIO | None = self._open_stream()
+        self._reset_queue()
+        _BACKGROUND_HANDLERS.add(self)
+        # Started now so a line logged during interpreter shutdown, when Python
+        # refuses new threads, still has a writer; emit() restarts it if needed.
+        # The stderr thread likewise, for a note raised that late.
+        self._start()
+        _STDERR_NOTES.start()
+
+    def _reset_queue(self) -> None:
+        self._cond = threading.Condition()
+        self._pending: deque[tuple[int, str]] = deque()
+        # Sequence numbers: the last line queued, and the last line the writer
+        # finished with (written, or failed).
+        self._queued = 0
+        self._written = 0
+        # Drops not yet counted into the file.
+        self._dropped_unreported = 0
+        self._failing = False
+        self._closing = False
+        self._thread: threading.Thread | None = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            line = self.format(record) + "\n"
+        except Exception:  # noqa: BLE001 - as logging.StreamHandler.emit does
+            self.handleError(record)
+            return
+        note: str | None = None
+        with self._cond:
+            if self._closing:
+                self.dropped += 1
+                return
+            if len(self._pending) >= self.max_queued:
+                note = self._drop_locked(f"{len(self._pending)} are still waiting to be written")
+            elif self._running() or self._start():
+                self._queued += 1
+                self._pending.append((self._queued, line))
+                self._cond.notify_all()
+            else:
+                # No writer thread can start (interpreter shutdown, or the
+                # process is out of threads). Writing here would put the caller
+                # back behind the disk, so the line is dropped like one past a
+                # full queue.
+                note = self._drop_locked("no writer thread could start")
+        if note:
+            _note_on_stderr(note)
+
+    def _drop_locked(self, cause: str) -> str | None:
+        """Count a dropped line (lock held); a note for the first drop of a backlog."""
+        self.dropped += 1
+        self._dropped_unreported += 1
+        if self._dropped_unreported > 1:
+            return None
+        return (f"dropping lines for {self.where} because {cause}; the count is written into it "
+                "once its writer catches up")
+
+    def flush(self) -> None:
+        """Wait up to logging.drain_wait_sec for every line queued so far to reach the file."""
+        self.drain(self.drain_wait_sec)
+
+    def drain(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` s for every line queued so far; True once the writer finished them all."""
+        with self._cond:
+            target = self._queued
+            deadline = time.monotonic() + timeout
+            while self._written < target:
+                if not self._running():
+                    return False
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._cond.wait(remaining)
+            return True
+
+    def close(self) -> None:
+        """Let the writer finish, waiting at most logging.drain_wait_sec, then close the file.
+
+        A write still stuck after that keeps the file open: the writer is
+        inside it, and the OS closes the file at exit.
+        """
+        with self._cond:
+            already_closing = self._closing
+            self._closing = True
+            self._cond.notify_all()
+            thread = self._thread
+        if not already_closing:
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(self.drain_wait_sec)
+            stuck = thread is not None and thread.is_alive()
+            with self._cond:
+                unwritten = self._queued - self._written
+                uncounted, self._dropped_unreported = self._dropped_unreported, 0
+                stream = None if stuck else self._stream
+                if not stuck:
+                    self._stream = None
+            if unwritten or uncounted:
+                _note_on_stderr(f"closing {self.where} with {unwritten} queued line(s) not written and "
+                                f"{uncounted} dropped line(s) not yet counted in it ({self.dropped} dropped in all)")
+            # A process exiting now would lose a note still queued, such as this
+            # one or the writer's report of a last write that failed (Codex
+            # review on #1482), so wait for them, as long as for the file and no
+            # longer. With nothing queued this returns at once.
+            _STDERR_NOTES.wait(self.drain_wait_sec)
+            if stream is not None:
+                self._close_stream(stream)
+        super().close()
+
+    @property
+    def where(self) -> str:
+        """What the notes on stderr call this handler's target."""
+        return str(self.path)
+
+    def _open_stream(self) -> TextIO | None:
+        return open(self.path, "a", encoding="utf-8")  # noqa: SIM115  # codeql[py/file-not-closed] closed in _close_stream()
+
+    def _close_stream(self, stream: TextIO) -> None:
+        try:
+            stream.close()
+        except OSError:
+            # Best-effort, as close_audit_handles(): nothing else to do.
+            pass
+
+    def _running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _start(self) -> bool:
+        thread = threading.Thread(target=self._run, name="cyclaw-log-writer", daemon=True)
+        try:
+            thread.start()
+        except RuntimeError:
+            return False
+        self._thread = thread
+        return True
+
+    def _write(self, line: str) -> Exception | None:
+        stream = self._stream
+        try:
+            if stream is None:
+                raise ValueError("the log file is closed")
+            stream.write(line)
+            stream.flush()
+        except Exception as exc:  # noqa: BLE001 - the writer outlives any one bad write
+            return exc
+        return None
+
+    def _drop_report(self, count: int, total: int) -> str:
+        record = logging.LogRecord(
+            "cyclaw.logger", logging.WARNING, __file__, 0,
+            "dropped %d log line(s) while the log writer was behind, %d in all", (count, total), None,
+        )
+        return self.format(record) + "\n"
+
+    def _run(self) -> None:
+        while True:
+            with self._cond:
+                while not self._pending and not self._closing:
+                    self._cond.wait()
+                if not self._pending:
+                    return  # closing, and every queued line is written
+                seq, line = self._pending.popleft()
+            error = self._write(line)
+            reported = total = 0
+            if error is None:
+                # The queue just emptied: count the drops into the file now,
+                # before this line is marked written, so whoever flush()es
+                # finds the count there too.
+                with self._cond:
+                    if not self._pending and self._dropped_unreported:
+                        reported, self._dropped_unreported = self._dropped_unreported, 0
+                        total = self.dropped
+                if reported:
+                    error = self._write(self._drop_report(reported, total))
+            note: str | None = None
+            with self._cond:
+                self._written = seq
+                if error is None:
+                    if self._failing:
+                        note = f"writing {self.where} works again ({self.failed} line(s) lost in all)"
+                    self._failing = False
+                else:
+                    self.failed += 1
+                    if reported:
+                        self._dropped_unreported += reported  # counted in at the next chance
+                    if not self._failing:
+                        note = f"writing {self.where} failed ({error}); lines are lost until a write succeeds"
+                    self._failing = True
+                self._cond.notify_all()
+            if note:
+                _note_on_stderr(note)
+
+
+class _BackgroundConsoleHandler(_BackgroundFileHandler):
+    """stderr, written from a writer thread as the log file is: the gateway's console (see setup_logging)."""
+
+    def __init__(self, *, max_queued: int, drain_wait_sec: float) -> None:
+        super().__init__(Path("<stderr>"), max_queued=max_queued, drain_wait_sec=drain_wait_sec)
+
+    @property
+    def where(self) -> str:
+        return "stderr"
+
+    def _open_stream(self) -> TextIO | None:
+        # Bound once, as logging.StreamHandler binds it. None under pythonw:
+        # the writes then fail and are counted.
+        return sys.stderr
+
+    def _close_stream(self, stream: TextIO) -> None:
+        # stderr is the process's, not this handler's, to close.
+        return None
+
+
+def _reset_log_writers_after_fork() -> None:
+    """A forked child gets a fresh queue, lock, file object and writer thread per handler.
+
+    The parent's writer thread does not exist in the child, a lock held at the
+    fork would stay held there, and the parent's file object may be mid-write.
+    Lines the parent queued are the parent's to write. The stderr thread's
+    queue and lock are reset for the same reasons.
+    """
+    _STDERR_NOTES._reset()
+    for handler in list(_BACKGROUND_HANDLERS):
+        closing = handler._closing
+        handler._reset_queue()
+        handler._closing = closing
+        if closing:
+            continue
+        try:
+            handler._stream = handler._open_stream()
+        except OSError:
+            handler._stream = None  # its writes fail and are noted on stderr
+
+
+if hasattr(os, "register_at_fork"):  # POSIX only
+    os.register_at_fork(after_in_child=_reset_log_writers_after_fork)
 
 
 # Loggers outside the "cyclaw" namespace: httpx, chromadb, uvicorn, langgraph.
@@ -229,7 +662,7 @@ def _capture_third_party(
     ``logging.third_party_level`` (default INFO) rather than the global DEBUG --
     see ``_ThirdPartyFloor`` for why that gap is deliberate.
 
-    ONE FileHandler, on the real root logger. Records from cyclaw.* propagate up
+    ONE file handler, on the real root logger. Records from cyclaw.* propagate up
     to root and ``_ThirdPartyFloor`` passes them at any level, so this handler is
     the file's single writer for both namespaces -- setup_logging deliberately
     does NOT also attach one to the "cyclaw" logger while this is active, or
@@ -244,7 +677,8 @@ def _capture_third_party(
     floor = getattr(logging, floor_name, logging.INFO)
 
     real_root = logging.getLogger()
-    handler = logging.FileHandler(log_path, encoding="utf-8")
+    max_queued, drain_wait_sec = _log_writer_settings(log_cfg)
+    handler = _BackgroundFileHandler(log_path, max_queued=max_queued, drain_wait_sec=drain_wait_sec)
     handler.setFormatter(fmt)
     handler.addFilter(_ThirdPartyFloor(floor))
     # The handler's own level stays at the floor; the filter is what allows

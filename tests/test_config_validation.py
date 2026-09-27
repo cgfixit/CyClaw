@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from utils.config_validation import (
+    validate_logging_config,
     validate_auth_config,
     validate_boot_timeout_config,
     validate_fallback_confirm_placeholder,
@@ -682,3 +683,28 @@ def test_valid_enabled_engines_boot():
     # passes it through; only command[0] must be non-empty.
     validate_pre_action_hook_config(_hook(enabled=True, command=["/usr/local/bin/cyclaw-hook", ""]))
     validate_pre_action_hook_config(_hook(enabled=True, engine="numbat", numbat={"rules_dirs": ["/etc/numbat/cyclaw-gate"]}))
+
+
+@pytest.mark.parametrize("value", [0, -5, 2.5, "1000", True])
+def test_logging_max_queued_records_must_be_a_whole_number(value):
+    # setup_logging would replace it with its default; refuse the typo instead.
+    with pytest.raises(ConfigError, match="logging.max_queued_records must be a whole number"):
+        validate_logging_config({"logging": {"max_queued_records": value}})
+
+
+@pytest.mark.parametrize("value", [0, -1, "2s", True, [1], float("nan"), float("inf"), 1e300, 10**400])
+def test_logging_drain_wait_sec_must_be_a_positive_number(value):
+    with pytest.raises(ConfigError, match="logging.drain_wait_sec must be a positive number"):
+        validate_logging_config({"logging": {"drain_wait_sec": value}})
+
+
+def test_logging_writer_limits_accept_usable_values():
+    validate_logging_config({"logging": {"max_queued_records": 1, "drain_wait_sec": 0.5}})
+    validate_logging_config({"logging": {"drain_wait_sec": threading.TIMEOUT_MAX}})
+    validate_logging_config({})
+    validate_logging_config({"logging": None})
+
+
+def test_shipped_logging_block_passes():
+    shipped = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
+    validate_logging_config(shipped)
