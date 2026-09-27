@@ -551,6 +551,28 @@ def validate_numbat_config(cfg: dict[str, Any]) -> None:
             f"numbat.enabled must be a boolean true/false, got: {enabled!r}",
             details={"field": "numbat.enabled", "received": repr(enabled)},
         )
+    # The stream writer's limits. The emitter falls back to its defaults on a
+    # value it cannot use, so without this a typo ("1s", 0, true) would run
+    # with a limit the operator never chose. The same test as the emitter's
+    # _positive: the chained comparison also refuses YAML's .nan (it fails
+    # every comparison, and a NaN wait makes the writer's wait loops spin),
+    # and .inf or anything past threading.TIMEOUT_MAX, the longest timed wait
+    # the platform accepts. math.isfinite would raise OverflowError on a huge
+    # int, where an int comparison is exact.
+    for key in ("write_wait_sec", "drop_log_interval_sec", "drain_wait_sec"):
+        value = block.get(key)
+        if value is not None and (not _is_real_number(value) or not 0 < value <= threading.TIMEOUT_MAX):
+            raise ConfigError(
+                f"numbat.{key} must be a positive number of seconds, at most {threading.TIMEOUT_MAX:.0f}, "
+                f"got: {value!r}",
+                details={"field": f"numbat.{key}", "received": repr(value)},
+            )
+    max_queued = block.get("max_queued_writes")
+    if max_queued is not None and (isinstance(max_queued, bool) or not isinstance(max_queued, int) or max_queued < 1):
+        raise ConfigError(
+            f"numbat.max_queued_writes must be a whole number of at least 1, got: {max_queued!r}",
+            details={"field": "numbat.max_queued_writes", "received": repr(max_queued)},
+        )
     cel = block.get("cel")
     if cel is None:
         return

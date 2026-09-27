@@ -124,6 +124,20 @@ def _repo_logs_changes(before: dict[str, tuple[int, int]], after: dict[str, tupl
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _numbat_writes_wait_like_before():
+    # The Numbat stream's writer thread (utils/numbat_emitter._StreamWriter)
+    # makes a caller wait at most _WRITE_WAIT_SEC (1 s) for its line. Tests
+    # read the stream straight after writing, as they did when writes were
+    # synchronous, so a runner slow enough to take a second over one append
+    # would read too early. Tests of the stalled path set their own short wait
+    # with monkeypatch.
+    saved = _numbat_emitter_mod._WRITE_WAIT_SEC
+    _numbat_emitter_mod._WRITE_WAIT_SEC = 30.0
+    yield
+    _numbat_emitter_mod._WRITE_WAIT_SEC = saved
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _repo_logs_untouched():
     # Guard for the backstop in pytest_configure: the run must leave <repo>/logs
     # (and the placeholder dir) exactly as it found them. The "before" snapshot

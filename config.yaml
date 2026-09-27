@@ -688,6 +688,21 @@ numbat:
   # appending rather than dropping events. audit.jsonl (the authoritative
   # stream) is unrelated and never rotated by this.
   max_bytes: 52428800       # 50 MiB
+  # One writer thread does every append, so a stalled output_path cannot hold
+  # requests. A caller waits up to write_wait_sec for its event (on a healthy
+  # disk it is written by then); once a write overruns that, callers stop
+  # waiting until the writer finishes one again. Past max_queued_writes waiting
+  # events, new ones are dropped and counted in a warning, logged at most once
+  # per drop_log_interval_sec; drops that interval held back are reported when
+  # the queue drains, or at exit. At exit, the process waits up to
+  # drain_wait_sec for queued events, and again for a write stuck holding the
+  # lock. The *_sec values must be positive and finite, at most Python's
+  # threading.TIMEOUT_MAX (the longest timed wait); max_queued_writes a whole
+  # number of at least 1. Boot refuses others.
+  write_wait_sec: 1.0
+  max_queued_writes: 1000
+  drop_log_interval_sec: 60
+  drain_wait_sec: 2.0
   source_agent: "unknown"   # "cyclaw" is not a legal Numbat enum
   source_type: "hook"
   # CEL sanitizer backend (issue #1128 Slice B). Monitor-only: rules evaluate
