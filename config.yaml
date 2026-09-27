@@ -300,27 +300,48 @@ policy:
     # per-call token spend. Set <= 0 to disable the cap entirely.
     grok_max_prompt_chars: 8000
     claude_max_prompt_chars: 8000
-    # Pre-action hook for external provider calls (issue #963).
-    # The configured command receives a JSON payload on stdin with keys:
-    #   action, provider, model, query_hash
-    # and decides via exit code:
-    #   0 -> allow the call; 2 -> deny (route to audit_logger instead).
-    # Any crash, timeout, or other non-zero exit fails closed (deny + audit).
-    # Disabled by default; when disabled the pre-action checkpoint is a no-op.
-    # Do not set command to `numbat hook ...` (this file used to suggest it):
-    # the pinned Numbat 0.2.0 CLI exits 0 for CyClaw's payload, errors
-    # included, and this contract reads exit 0 as allow (issue #1458).
+    # Pre-action hook for external provider calls (issues #963, #1458). It runs
+    # AFTER the I3 triple gate allowed a confirmed Grok/Claude call, so it can
+    # only take calls away. Disabled by default: the checkpoint is a no-op.
+    # Once enabled, anything but an explicit allow denies -- a crash, timeout,
+    # bad exit, or misconfiguration fails closed (answer_model "hook-denied",
+    # audited with a pre_action_hook_reason code). Two engines:
+    #   command: `command` gets JSON on stdin (action, provider, model,
+    #     query_hash) and answers by exit code: 0 allows, 2 denies.
+    #   numbat: the pinned Numbat CLI (numbat 0.2.0 / schema 0.3.0, installed
+    #     separately -- CyClaw never vendors it) evaluates the proposed call as
+    #     a network.indicator event against numbat.rules_dirs. A matching rule
+    #     with enforce: true denies; a rule without it only reports, which is
+    #     the observe-only trial for a new policy. Example rules with companion
+    #     tests: tests/fixtures/numbat/gate-rules/.
+    # Do NOT set command to `numbat hook ...` (older copies of this file
+    # suggested it): that subcommand speaks other agents' hook protocols. It
+    # reads CyClaw's payload as a generic tool call that drops the provider
+    # and URL, so no rule can decide on them; most hosts return a deny as
+    # JSON with exit 0, which this contract reads as allow; and any error,
+    # a mistyped event name included, exits 0 -- allow.
+    # Guide: docs/security-philosophy/numbat_pre_action_gate.md
+    # An enabled hook shows in /health as service "pre_action_hook" (degraded
+    # while it cannot run), and `cyclaw-metrics` counts verdicts by reason.
     pre_action_hook:
       enabled: false
-      command: []          # argv list, e.g. ["/usr/local/bin/my-gate"]
-      timeout_sec: 5
-      # Only "enforce" is supported today. "monitor" (allow the provider call
-      # while still emitting + auditing) is a policy flip that must not ship
-      # until a separate dual-run observation issue is filed.
-      fail_mode: enforce
-      # Emit first-party Numbat events for hook verdicts. Requires enabled: true
-      # and numbat.enabled: true. Default false so existing hooks are unaffected.
-      emit_verdict: false
+      engine: command      # command | numbat
+      command: []          # argv list, used by engine: command
+      numbat:
+        binary: "numbat"   # looked up on PATH; a path with a separator is used as-is (relative = repo root)
+        rules_dirs: []     # e.g. ["/etc/numbat/cyclaw-gate"]; required by engine: numbat
+      timeout_sec: 5       # clamped to [1, 30]
+      # What a deny does. "enforce" (a deny blocks) is the only mode, and boot
+      # rejects anything else. This was fail_mode, which is still read when
+      # verdict_mode is absent. It never chose what happens when the hook
+      # itself fails: that is always fail-closed.
+      verdict_mode: enforce
+      # Project every decided verdict into the Numbat stream (needs
+      # numbat.enabled): allow -> network.indicator, decision allowed; policy
+      # deny -> permission.denied; broken hook -> network.indicator, decision
+      # denied. Ships true; a config that omits the key keeps the old default,
+      # false.
+      emit_verdict: true
   prompt_filter:
     enabled: true
     # Regex patterns (single-quoted so backslashes reach the regex engine
@@ -624,7 +645,9 @@ logging:
 # derived NDJSON file. It is not "Numbat enforcement" and arms no policy. The
 # other Numbat pieces each have their own switch, and all of them ship off or
 # outside the request path:
-#   * pre-action hook before Grok/Claude  -> policy.fallback.pre_action_hook (enabled: false)
+#   * pre-action hook before Grok/Claude  -> policy.fallback.pre_action_hook (enabled: false);
+#                                            its engine: numbat has the Numbat CLI decide each
+#                                            proposed call, never this file
 #   * CEL monitor rules on /query         -> numbat.cel.enabled below (false; monitor-only)
 #   * scoring by the Numbat CLI           -> CI only (.github/workflows/numbat-rules.yml);
 #                                            nothing scores the live file at runtime

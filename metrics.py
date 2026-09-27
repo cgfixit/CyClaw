@@ -411,10 +411,21 @@ def compute_metrics(events) -> dict:
     injection_fields: Counter = Counter()
     injection_repos: Counter = Counter()
     injection_patterns: Counter = Counter()
+    hook_reasons: Counter = Counter()
+    hook_last: dict | None = None
 
     for e in events:
         total += 1
         event_counts[_bucket_key(e.get("event"))] += 1
+
+        # graph.audit_logger_node stamps pre_action_hook_reason only when an
+        # enabled pre-action hook decided (issue #1458 Phase 1). The code is a
+        # fixed vocabulary, never free text, so it is safe to aggregate here
+        # and to serve at GET /audit/summary.
+        hook_reason = e.get("pre_action_hook_reason")
+        if isinstance(hook_reason, str) and hook_reason:
+            hook_reasons[hook_reason] += 1
+            hook_last = {"reason": hook_reason, "at": e.get("timestamp") if isinstance(e.get("timestamp"), str) else None}
 
         # graph.audit_logger_node stamps both fields on every rag_query AND
         # user_gate_pause event (never just rag_query), so count across all
@@ -516,6 +527,11 @@ def compute_metrics(events) -> dict:
             "by_repo": dict(injection_repos.most_common()),
             "by_pattern": dict(injection_patterns.most_common()),
         },
+        "pre_action_hook": {
+            "decided": sum(hook_reasons.values()),
+            "by_reason": dict(hook_reasons.most_common()),
+            "last": hook_last,
+        },
     }
 
 
@@ -596,6 +612,16 @@ def print_metrics(config_path: str = "config.yaml"):
             for model, count in summary["model_used"].items():
                 print(f"  {model}: {count}")
         print(f"\nOnline escalations (external LLM): {summary['online_escalated']}")
+    hook = summary["pre_action_hook"]
+    if hook["decided"]:
+        # Why each confirmed escalation was allowed or denied. A column of
+        # hook_timeout / hook_error here means the hook is failing closed,
+        # not that policy is denying -- check /health's pre_action_hook entry.
+        print(f"\nPre-action hook verdicts: {hook['decided']}")
+        for reason, count in hook["by_reason"].items():
+            print(f"  {reason}: {count}")
+        if hook["last"]:
+            print(f"  last: {hook['last']['reason']} at {hook['last']['at'] or 'unknown time'}")
     _print_spend(spend_summary)
     _print_eval_trend(eval_trend)
     if seq_lines:

@@ -2,13 +2,17 @@
 #
 #   numbat-rules-fixture (advisory, continue-on-error; #961 / #965): committed
 #     hand-written fixtures plus a live executor-jail run.
-#   numbat-stream-contract (blocking; issue #1458 Phase 4): the events
-#     CyClaw's production producers actually write (tests/numbat_shaped_events.py:
+#   numbat-stream-contract (blocking; issue #1458 Phases 1 and 4): representative
+#     events from each producer family, written by CyClaw's real emitter code
+#     from inputs modeled on its callers (tests/numbat_shaped_events.py:
 #     mainline audit projection, pre-action hook verdicts, CEL monitor, ops /
-#     fsconnect / sqlconnect action plane) must load in the pinned CLI with
+#     fsconnect / sqlconnect action plane), must load in the pinned CLI with
 #     zero findings; CyClaw-shaped exfil and secret-read events must still fire
 #     the rules that catch them; and every event must validate against the
-#     schema-0.3.0 JSON contract shipped inside the same pinned release.
+#     schema-0.3.0 JSON contract shipped inside the same pinned release. The
+#     pre-action hook's numbat engine (utils/numbat_gate.py) then decides real
+#     calls against the example rules in tests/fixtures/numbat/gate-rules,
+#     whose companion tests `numbat rules check` runs first.
 #   numbat-cel (blocking; issue #1458 Phase 3): tests/test_numbat_cel.py with
 #     cel-python installed. The unit lanes do not install it, so its evaluator
 #     tests only ever skipped there; CYCLAW_REQUIRE_CELPY=1 turns a missing
@@ -134,6 +138,9 @@ jobs:
             --expect exfil.curl_post_file \
             --expect secrets.read_private_key
 
+      - name: Example pre-action gate rules pass their companion tests
+        run: numbat rules check --no-builtin-rules --rules-dir tests/fixtures/numbat/gate-rules
+
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -142,7 +149,7 @@ jobs:
           # Same ad hoc tool pins as the job above, so the same cache key.
           cache-dependency-path: .github/workflows/numbat-rules.yml
 
-      - name: Live producers vs the pinned CLI and schema
+      - name: Live producers and the pre-action gate vs the pinned CLI and schema
         env:
           NUMBAT: /usr/local/bin/numbat
           NUMBAT_SCHEMA_DIR: /tmp/numbat/docs/schema/v0.3.0
@@ -155,7 +162,8 @@ jobs:
           # top-level keys, missing required fields, the endpoint object).
           # --noconftest for the same reason as the job above.
           python -m pip install --disable-pip-version-check pytest==9.1.1 pyyaml==6.0.3 jsonschema==4.26.0
-          python -m pytest --noconftest tests/test_numbat_cyclaw_shaped.py -q --tb=short -o addopts=""
+          python -m pytest --noconftest tests/test_numbat_cyclaw_shaped.py tests/test_numbat_gate.py \
+            -q --tb=short -o addopts=""
 
   numbat-cel:
     name: CEL monitor with cel-python installed

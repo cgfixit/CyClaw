@@ -6,8 +6,11 @@ No wall-clock sleeps: subprocess.run is monkeypatched.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -16,10 +19,14 @@ from utils.external_pre_hook import (
     DEFAULT_TIMEOUT_SEC,
     MAX_TIMEOUT_SEC,
     MIN_TIMEOUT_SEC,
+    REASON_CODES,
     _normalize_timeout,
+    hook_readiness,
+    last_verdict,
     run_pre_action_hook,
 )
 from utils.numbat_emitter import close_numbat_handles
+from utils.numbat_gate import clear_readiness_cache
 
 _TEST_QUERY_HASH = "a" * 64
 
@@ -27,7 +34,9 @@ _TEST_QUERY_HASH = "a" * 64
 @pytest.fixture(autouse=True)
 def _release_numbat_handles():
     """Release cached file handles so tmp_path teardown succeeds on Windows."""
+    clear_readiness_cache()
     yield
+    clear_readiness_cache()
     close_numbat_handles()
 
 
@@ -233,7 +242,7 @@ def test_payload_query_hash_present_regardless_of_audit_hash_setting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """The hook's stdin payload always carries query_hash -- a documented,
-    unconditional contract (config.yaml:255-260, graph.py's pre_action_hook_node
+    unconditional contract (config.yaml's pre_action_hook block, graph.py's pre_action_hook_node
     docstring, docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md Step 2). Regression
     for a Codex review finding on PR #1187: an earlier revision of this test
     asserted the opposite (payload omits query_hash under
@@ -256,11 +265,11 @@ def test_payload_query_hash_present_regardless_of_audit_hash_setting(
     monkeypatch.setattr(subprocess, "run", _capture)
 
     cfg = _hook_config(tmp_path)
-    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg) == {"verdict": "allow"}
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["verdict"] == "allow"
     assert json.loads(captured[-1])["query_hash"] == _TEST_QUERY_HASH
 
     cfg["logging"] = {"audit_fields": {"include_query_hash": False}}
-    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg) == {"verdict": "allow"}
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["verdict"] == "allow"
     optout_payload = json.loads(captured[-1])
     assert optout_payload["query_hash"] == _TEST_QUERY_HASH
     assert optout_payload["provider"] == "grok"
@@ -281,3 +290,334 @@ def test_emit_failure_is_fail_soft(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     result = run_pre_action_hook("grok", "grok-4.5", "abc", cfg)
     assert result["verdict"] == "deny"
     assert _lines(Path(cfg["numbat"]["output_path"])) == []
+
+
+def _join_emit_workers() -> None:
+    for thread in threading.enumerate():
+        if thread.name == "pre-action-hook-emit":
+            thread.join(30)
+
+
+def test_a_stalled_verdict_write_does_not_hold_the_verdict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # The event is forensic; a filesystem stalled under numbat.output_path
+    # must not keep the decided call from going ahead.
+    cfg = _hook_config(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    monkeypatch.setattr("utils.external_pre_hook._EMIT_BUDGET_SEC", 0.2)
+    release = threading.Event()
+    writes: list[str] = []
+
+    def _stuck(event_type, **kwargs):
+        writes.append(event_type)
+        release.wait(30)
+
+    monkeypatch.setattr("utils.numbat_emitter.emit_numbat_event", _stuck)
+    started = time.monotonic()
+    try:
+        result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        _join_emit_workers()
+    assert (result["verdict"], result["reason_code"]) == ("allow", "hook_allowed")
+    assert writes == ["network.indicator"]
+    assert elapsed < 10  # the stuck write alone would have held it for 30 s
+
+
+def test_stuck_verdict_writes_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                         caplog: pytest.LogCaptureFixture):
+    # With every write slot held by a stuck write, the next event is skipped
+    # at once instead of stacking another thread on the same stalled file.
+    cfg = _hook_config(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    slots = threading.BoundedSemaphore(1)
+    slots.acquire()
+    monkeypatch.setattr("utils.external_pre_hook._EMIT_SLOTS", slots)
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="cyclaw.external_pre_hook"):
+        result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert time.monotonic() - started < 5
+    assert result["verdict"] == "allow"
+    assert _lines(Path(cfg["numbat"]["output_path"])) == []
+    assert "verdict event skipped" in caplog.text
+    slots.release()
+
+
+# ---------------------------------------------------------------------------
+# Issue #1458 Phases 1-2: engines, reason codes, verdict events, diagnostics
+# ---------------------------------------------------------------------------
+
+
+def _allow_run(*args, **kwargs):
+    return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
+
+
+def test_every_reason_code_is_in_the_vocabulary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["reason_code"] in REASON_CODES
+
+
+def test_enabled_with_empty_command_denies(tmp_path: Path):
+    """Used to ALLOW every call: a control the operator switched on that did nothing."""
+    cfg = _hook_config(tmp_path, command=())
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert rec["event_type"] == "network.indicator"
+    assert rec["decision"] == "denied"
+    assert "hook_misconfigured" in rec["tags"]
+
+
+def test_enabled_with_missing_command_key_denies():
+    cfg = {"policy": {"fallback": {"pre_action_hook": {"enabled": True}}}}
+    assert run_pre_action_hook("grok", "grok-4.5", "abc", cfg)["verdict"] == "deny"
+
+
+def test_unknown_engine_denies(tmp_path: Path):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "opa"
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert "engine:unknown" in _lines(Path(cfg["numbat"]["output_path"]))[0]["tags"]
+
+
+def test_allow_verdict_is_emitted_as_the_egress_about_to_happen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["models"] = {"grok": {"base_url": "https://api.x.ai/v1"}}
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("allow", "hook_allowed")
+    records = _lines(Path(cfg["numbat"]["output_path"]))
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["event_type"] == "network.indicator"
+    assert rec["decision"] == "allowed"
+    assert rec["url"] == "https://api.x.ai"
+    assert rec["confidence"] == "high"
+    assert rec["tags"] == ["cyclaw", "pre_action_hook", "hook_allowed", "engine:command"]
+    assert rec["evidence"]["artifact_type"] == "pre_action_hook"
+    assert json.loads(rec["content_preview"]) == {"query_hash": _TEST_QUERY_HASH}
+
+
+def test_verdict_url_carries_no_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """utils/endpoint_trust.py pins only the hostname, so a base_url with
+    userinfo, a path segment or a key in its query passes it; the persistent
+    stream keeps only the origin."""
+    cfg = _hook_config(tmp_path)
+    cfg["models"] = {"grok": {"base_url": "https://ops:s3cr3t-tok@api.x.ai/p4th-tok/v1?api_key=k3y-val#frag"}}
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    raw = Path(cfg["numbat"]["output_path"]).read_text(encoding="utf-8")
+    assert json.loads(raw.splitlines()[0])["url"] == "https://api.x.ai"
+    assert "s3cr3t-tok" not in raw
+    assert "p4th-tok" not in raw
+    assert "k3y-val" not in raw
+
+
+def test_broken_hook_verdicts_say_denied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Timeouts/crashes used to carry no decision at all; they are denials."""
+    cfg = _hook_config(tmp_path)
+
+    def _exit_7(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=7, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", _exit_7)
+    run_pre_action_hook("claude", "claude-sonnet-5", _TEST_QUERY_HASH, cfg)
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert (rec["event_type"], rec["decision"], rec["confidence"]) == ("network.indicator", "denied", "low")
+    assert "hook_failure" in rec["tags"]
+
+
+def test_emit_verdict_absent_means_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """config.yaml ships emit_verdict: true; a config that omits the key keeps the old default."""
+    cfg = _hook_config(tmp_path)
+    del cfg["policy"]["fallback"]["pre_action_hook"]["emit_verdict"]
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    assert run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)["verdict"] == "allow"
+    assert _lines(Path(cfg["numbat"]["output_path"])) == []
+
+
+@pytest.mark.parametrize("emit_value", ["true", 1, "yes"])
+def test_only_a_literal_true_emit_verdict_emits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, emit_value):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["emit_verdict"] = emit_value
+    monkeypatch.setattr(subprocess, "run", _allow_run)
+    run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert _lines(Path(cfg["numbat"]["output_path"])) == []
+
+
+def test_numbat_engine_is_dispatched_and_its_verdict_emitted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    seen: dict = {}
+
+    def _evaluate(provider, model, query_hash, cfg_arg, *, timeout):
+        seen.update(provider=provider, model=model, query_hash=query_hash, timeout=timeout)
+        return {"verdict": "allow", "reason_code": "hook_allowed", "reason": "r",
+                "monitor_matches": ["acme.watch"]}
+
+    monkeypatch.setattr("utils.numbat_gate.evaluate", _evaluate)
+    result = run_pre_action_hook("claude", "claude-sonnet-5", _TEST_QUERY_HASH, cfg)
+    assert result["verdict"] == "allow"
+    assert seen == {"provider": "claude", "model": "claude-sonnet-5", "query_hash": _TEST_QUERY_HASH, "timeout": 5}
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert "engine:numbat" in rec["tags"]
+    assert "monitor_match:acme.watch" in rec["tags"]
+
+
+def test_numbat_engine_deny_is_a_policy_denial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    monkeypatch.setattr(
+        "utils.numbat_gate.evaluate",
+        lambda *a, **k: {"verdict": "deny", "reason_code": "hook_denied", "reason": "denied by Numbat rule(s): x"},
+    )
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_denied")
+    rec = _lines(Path(cfg["numbat"]["output_path"]))[0]
+    assert rec["event_type"] == "permission.denied"
+    assert rec["approval_reason"] == "hook_denied"
+    # The rule-naming reason text stays out of the derived stream.
+    assert "denied by Numbat rule" not in json.dumps(rec)
+
+
+def test_numbat_engine_that_cannot_load_denies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import builtins
+
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    real_import = builtins.__import__
+
+    def _no_gate(name, *args, **kwargs):
+        if name == "utils.numbat_gate":
+            raise ImportError("gone")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _no_gate)
+    result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_error")
+
+
+@pytest.mark.parametrize(
+    ("block", "warns"),
+    [
+        ({"verdict_mode": "enforce"}, False),
+        ({"fail_mode": "enforce"}, False),
+        ({}, False),
+        ({"verdict_mode": "monitor"}, True),
+        ({"fail_mode": "monitor"}, True),
+        # verdict_mode wins over its old name.
+        ({"verdict_mode": "enforce", "fail_mode": "monitor"}, False),
+    ],
+)
+def test_verdict_mode_is_always_enforce(tmp_path, monkeypatch, caplog, block, warns):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"].update(block)
+
+    def _exit_2(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=2, stdout=b"", stderr=b"no")
+
+    monkeypatch.setattr(subprocess, "run", _exit_2)
+    with caplog.at_level(logging.WARNING, logger="cyclaw.external_pre_hook"):
+        result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
+    # A deny always blocks: no setting turns a deny into an allow.
+    assert result["verdict"] == "deny"
+    assert any("verdict_mode" in r.getMessage() for r in caplog.records) is warns
+
+
+def test_last_verdict_records_codes_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+
+    def _exit_2(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=2, stdout=b"", stderr=b"secret stderr text")
+
+    monkeypatch.setattr(subprocess, "run", _exit_2)
+    run_pre_action_hook("claude", "claude-sonnet-5", _TEST_QUERY_HASH, cfg)
+    last = last_verdict()
+    assert last is not None
+    assert {k: last[k] for k in ("verdict", "reason_code", "provider", "engine")} == {
+        "verdict": "deny", "reason_code": "hook_denied", "provider": "claude", "engine": "command",
+    }
+    assert "secret stderr text" not in json.dumps(last)
+
+
+def test_readiness_is_none_when_the_hook_is_off():
+    assert hook_readiness({"policy": {"fallback": {"pre_action_hook": {"enabled": False}}}}) is None
+    assert hook_readiness(None) is None
+
+
+def test_readiness_of_a_resolvable_command(tmp_path: Path):
+    cfg = _hook_config(tmp_path, command=(sys.executable, "-c", "pass"))
+    assert hook_readiness(cfg) == (True, None)
+
+
+def test_readiness_accepts_an_empty_argument_after_the_executable(tmp_path: Path):
+    cfg = _hook_config(tmp_path, command=(sys.executable, "-c", "pass", ""))
+    assert hook_readiness(cfg) == (True, None)
+
+
+@pytest.mark.parametrize("command", [(), ("",), ("definitely-not-a-binary-cyclaw-1458",)])
+def test_readiness_flags_a_command_that_cannot_run(tmp_path: Path, command):
+    ready, problem = hook_readiness(_hook_config(tmp_path, command=command))
+    assert ready is False
+    assert "denied" in problem
+    # Fixed phrases: the argv itself never reaches the unauthenticated /health.
+    assert "definitely-not-a-binary" not in problem
+
+
+def test_readiness_flags_an_unknown_engine(tmp_path: Path):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "opa"
+    assert hook_readiness(cfg)[0] is False
+
+
+def test_readiness_delegates_to_the_numbat_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg = _hook_config(tmp_path)
+    cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
+    seen: list[float] = []
+
+    def _readiness(cfg_arg, *, timeout):
+        seen.append(timeout)
+        return False, "numbat binary not found"
+
+    cfg["policy"]["fallback"]["pre_action_hook"]["timeout_sec"] = 2
+    monkeypatch.setattr("utils.numbat_gate.readiness", _readiness)
+    assert hook_readiness(cfg) == (False, "numbat binary not found")
+    assert seen == [2]  # the probe decision gets the call's own timeout_sec
+
+
+def test_command_readiness_is_bounded_and_runs_once_at_a_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # /health is unauthenticated: a PATH lookup stuck on a stalled mount must
+    # neither hold the caller past timeout_sec nor start one lookup per call.
+    cfg = _hook_config(tmp_path, command=("cyclaw-hook-1458",))
+    cfg["policy"]["fallback"]["pre_action_hook"]["timeout_sec"] = 1
+    started, release = threading.Event(), threading.Event()
+    lookups: list[str] = []
+
+    def _which(name):
+        lookups.append(name)
+        started.set()
+        release.wait(30)
+        return None
+
+    monkeypatch.setattr("utils.external_pre_hook.shutil.which", _which)
+    first: list[tuple[bool, str | None] | None] = []
+    worker = threading.Thread(target=lambda: first.append(hook_readiness(cfg)))
+    clock = time.monotonic()
+    worker.start()
+    try:
+        assert started.wait(30)
+        ready, problem = hook_readiness(cfg)
+        assert (ready, "still running" in problem) == (False, True)
+        worker.join(10)
+        elapsed = time.monotonic() - clock
+    finally:
+        release.set()
+        worker.join(30)
+        for thread in threading.enumerate():
+            if thread.name == "numbat-gate":
+                thread.join(30)
+    assert elapsed < 10
+    assert first and first[0][0] is False and "did not finish" in first[0][1]
+    assert lookups == ["cyclaw-hook-1458"]

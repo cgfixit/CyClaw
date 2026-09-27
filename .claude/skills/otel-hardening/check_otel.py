@@ -455,7 +455,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "numbat projection (+ cel-python)", "category": 4, "controls": {},
         "url": "docs/security-philosophy/numbat_secondary_evaluator.md",
-        "versions": "numbat CLI 0.2.0 (CI only); cel-python==0.5.0 optional extra, default-off, with its "
+        "versions": "numbat CLI 0.2.0 (CI, and the default-off pre-action gate engine "
+                    "policy.fallback.pre_action_hook.engine: numbat, which runs only `numbat version`, "
+                    "`rules test` and `rules check` -- never an HTTP sink or `ship`; Numbat's SECURITY.md: "
+                    "no outbound request unless one of those is configured); cel-python==0.5.0 optional "
+                    "extra, default-off, with its "
                     "exclusive transitives google-re2==1.1.20251105 / jmespath==1.1.0 / lark==1.3.1 / "
                     "pendulum==3.2.0 pinned in constraints.txt (issue #1458) -- a regex engine binding, a JSON "
                     "query library, a parser, and a datetime library: none imports socket/urllib/http "
@@ -586,6 +590,8 @@ INVENTORY_ALIASES: dict[str, str] = {
     "ollama": "ollama daemon",
     "openssl": "core web/runtime libs",
     "cel-python": "numbat projection (+ cel-python)",
+    # the external numbat binary, spawned by utils/numbat_gate.py when enabled
+    "numbat": "numbat projection (+ cel-python)",
     # cel-python's own requirements (numbat-cel extra), pinned in constraints.txt
     "google-re2": "numbat projection (+ cel-python)",
     "jmespath": "numbat projection (+ cel-python)",
@@ -621,7 +627,7 @@ INVENTORY_ALIASES: dict[str, str] = {
 # replaced with plain pip, so the repo spawns uv nowhere; a classification for
 # a binary that is no longer invoked is the same stale documentation this
 # checker exists to prevent. Re-add the row if uv ever returns.
-KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl")
+KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat")
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []
