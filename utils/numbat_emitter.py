@@ -543,13 +543,21 @@ def close_numbat_handles() -> None:
     files. Waits at most numbat.drain_wait_sec for the queue and again for the
     write lock: a write stuck on a stalled filesystem delays exit by that much
     instead of hanging it, and the OS closes the files. Logs any drop count
-    still unreported, so it is not lost with the process.
+    still unreported, and how many queued events are still unwritten, so
+    neither is lost silently with the process.
     """
     drain = _WRITER.drain_sec()
     flush_numbat_writes(drain)
     report = _WRITER.take_drop_report()
     if report:
         logger.warning(report[0], *report[1])
+    # The writer may release the write lock between slow appends, so the
+    # lock below can be free while events are still queued: say how many,
+    # since a process exiting now takes them with it.
+    unwritten = _WRITER.unwritten()
+    if unwritten:
+        logger.warning("numbat stream: %d queued event(s) not written after waiting %gs; a process exiting now "
+                       "loses them, audit.jsonl is unaffected", unwritten, drain)
     lock = _WRITE_LOCK
     if not lock.acquire(timeout=drain):
         logger.warning("numbat stream: a write is still stuck; its file handles are left to the OS")
@@ -814,12 +822,11 @@ class _StreamWriter:
 
     def submit(self, path: Path, line: str, max_bytes: int, settings: _WriterSettings) -> None:
         """Queue ``line`` and wait for it as the comment above _WRITE_WAIT_SEC describes."""
-        inline = False
         message: _LogMsg | None = None
         with self._cond:
             self._drain_sec = settings.drain_sec
             if len(self._pending) >= settings.max_queued:
-                message = self._drop(settings)
+                message = self._drop(settings, f"{len(self._pending)} are still waiting to be written")
             elif self._running() or self._start():
                 self._queued += 1
                 seq = self._queued
@@ -828,15 +835,17 @@ class _StreamWriter:
                 if not self._stalled and threading.current_thread() is not self._thread:
                     message = self._wait_for(seq, settings)
             else:
-                # No thread can start (interpreter shutdown refuses new ones):
-                # write on this thread, as before.
-                inline = True
-        # Logged and written outside the lock, so neither a slow log handler
-        # nor the inline write can hold other callers.
+                # No writer thread can start: the interpreter is shutting down
+                # (Python 3.12 refuses new threads once exit begins) or the
+                # process is out of threads. Writing on this thread instead
+                # would leave the caller behind a disk that may have stalled,
+                # with no bound, so the line is dropped and counted like one
+                # past a full queue. CyClaw's own atexit handlers emit nothing.
+                message = self._drop(settings, "no writer thread could start")
+        # Logged outside the lock, so a slow log handler cannot hold other
+        # callers.
         if message:
             logger.warning(message[0], *message[1])
-        if inline:
-            _write_line(path, line, max_bytes)
 
     def flush(self, timeout: float) -> bool:
         """Wait up to ``timeout`` s for every line queued so far.
@@ -870,6 +879,11 @@ class _StreamWriter:
         return ("numbat stream: dropped %d more event(s) since the last report, %d in all; audit.jsonl is "
                 "unaffected", (count, self.dropped))
 
+    def unwritten(self) -> int:
+        """Lines queued that the writer has not finished with yet."""
+        with self._cond:
+            return self._queued - self._written
+
     def drain_sec(self) -> float:
         """How long exit waits for queued lines: the last configured value, else the default."""
         with self._cond:
@@ -897,7 +911,7 @@ class _StreamWriter:
             self._cond.wait(remaining)
         return None
 
-    def _drop(self, settings: _WriterSettings) -> _LogMsg | None:
+    def _drop(self, settings: _WriterSettings, cause: str) -> _LogMsg | None:
         """Count a dropped line (lock held); a warning at most once per interval."""
         self.dropped += 1
         self._dropped_unlogged += 1
@@ -905,9 +919,8 @@ class _StreamWriter:
         if self._last_drop_log is not None and now - self._last_drop_log < settings.drop_log_interval_sec:
             return None
         count, self._dropped_unlogged, self._last_drop_log = self._dropped_unlogged, 0, now
-        return ("numbat stream: dropped %d event(s) since the last report, %d in all, because %d are "
-                "still waiting to be written; audit.jsonl is unaffected",
-                (count, self.dropped, len(self._pending)))
+        return ("numbat stream: dropped %d event(s) since the last report, %d in all, because %s; audit.jsonl is "
+                "unaffected", (count, self.dropped, cause))
 
     def _running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -995,8 +1008,9 @@ def write_ndjson(record: dict[str, Any], path: Path, *, max_bytes: int = 0,
     """Queue one JSON line for the stream's writer thread (see _StreamWriter).
 
     Returns once the line is written, or after numbat.write_wait_sec while
-    the writer is stuck, or at once when it is already known to be stuck or
-    its queue is full (the line is then dropped and counted). ``cfg`` supplies
+    the writer is stuck, or at once when it is already known to be stuck. When
+    its queue is full, or no writer thread can start, the line is dropped and
+    counted instead. ``cfg`` supplies
     those limits (see _writer_settings); without it the defaults apply.
     Serialization errors still raise here, to the caller.
 

@@ -782,6 +782,31 @@ def test_close_reports_drops_still_unreported(tmp_path: Path, monkeypatch: pytes
     assert writer.flush(10)
 
 
+def test_close_warns_about_events_it_could_not_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer,
+                                                    caplog: pytest.LogCaptureFixture) -> None:
+    # The stuck write does not hold the write lock, as a writer between slow
+    # appends would not, so close takes the lock and closes the files. The
+    # events still queued are reported instead of leaving with the process
+    # unmentioned.
+    out = tmp_path / "s.ndjsonl"
+    monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
+    monkeypatch.setattr(numbat_emitter, "_DRAIN_WAIT_SEC", 0.05)
+    entered, release = _stall_writes(monkeypatch)
+    try:
+        numbat_emitter.write_ndjson({"n": 1}, out)
+        assert entered.wait(10)
+        numbat_emitter.write_ndjson({"n": 2}, out)
+        with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+            closer = _in_thread(close_numbat_handles)
+        assert not closer.is_alive()
+        assert "2 queued event(s) not written after waiting 0.05s" in caplog.text
+        assert "still stuck" not in caplog.text  # the lock was free
+    finally:
+        release.set()
+    assert writer.flush(10)
+    assert _ndjson_lines(out) == [{"n": 1}, {"n": 2}]
+
+
 def test_lines_from_one_thread_land_in_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer) -> None:
     out = tmp_path / "s.ndjsonl"
     monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
@@ -838,15 +863,24 @@ def test_a_failed_write_is_logged_and_the_writer_keeps_going(tmp_path: Path, mon
     assert writer.flush(10) is False
 
 
-def test_a_write_falls_back_to_the_caller_when_no_thread_can_start(tmp_path: Path,
-                                                                   monkeypatch: pytest.MonkeyPatch,
-                                                                   writer) -> None:
-    # At interpreter shutdown Python refuses to start threads; the line is
-    # then written on the caller's thread, as before.
+def test_an_event_is_dropped_when_no_writer_thread_can_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                             writer, caplog: pytest.LogCaptureFixture) -> None:
+    # Thread.start() raises at interpreter shutdown and when the process is out
+    # of threads. Writing on the caller's thread instead would leave it behind
+    # a stalled disk with no bound, so the event is dropped and counted.
     monkeypatch.setattr(writer, "_start", lambda: False)
+    entered, release = _stall_writes(monkeypatch)
     out = tmp_path / "s.ndjsonl"
-    numbat_emitter.write_ndjson({"n": 1}, out)
-    assert _ndjson_lines(out) == [{"n": 1}]
+    try:
+        with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+            caller = _in_thread(numbat_emitter.write_ndjson, {"n": 1}, out)
+        assert not caller.is_alive()
+        assert not entered.is_set()  # no write was attempted on the caller's thread
+    finally:
+        release.set()
+    assert writer.dropped == 1
+    assert "dropped 1 event(s) since the last report, 1 in all, because no writer thread could start" in caplog.text
+    assert not out.exists()
     assert writer._thread is None
 
 
