@@ -964,9 +964,7 @@ shows them Verified, and its stop hook flags any other committer as
 Unverified. In a local session it is the operator's own git identity. The
 hook used to pin `CyClaw Agent`, which overrode the runtime identity and left
 every cloud commit Unverified. It now removes that old pin (only while it
-still holds the old default) and pins an identity only when
-`CYCLAW_AGENT_COMMIT_EMAIL`/`CYCLAW_AGENT_COMMIT_NAME` are set explicitly.
-Before committing, `git var GIT_COMMITTER_IDENT` should show the runtime
+still holds the old default) and pins nothing. Before committing, `git var GIT_COMMITTER_IDENT` should show the runtime
 identity; if a stale repo-local pin still shows `CyClaw Agent`, drop it:
 
 ```bash
@@ -1010,11 +1008,14 @@ Environment overrides (optional, per session):
 - `CYCLAW_AGENT_BRANCH_PREFIX` (default `agent` — *preferred* prefix only;
   does **not** revoke the multi-vendor allowlist above)
 
-Setting either commit override explicitly also makes the SessionStart hook pin
-it for a Claude Code session: an opt-in. Unset, the runtime identity stands:
-the hook records what it pinned (`cyclaw.hookPinned*` in the repo-local git
-config) and removes it in the next session that lacks the override, unless it
-was changed by hand in between.
+The two commit overrides set CyClaw's own agentic-loop identity only; the
+SessionStart hook does not apply them to a Claude Code session. A hook can only
+write repo-local git config, which every session and worktree of the
+repository shares and which the `GIT_AUTHOR_*`/`GIT_COMMITTER_*` environment
+outranks, so it cannot give one session its own identity. To commit Claude
+Code work under another identity, set git's own `GIT_AUTHOR_*` and
+`GIT_COMMITTER_*` variables for that session (in the cloud, that commit is then
+Unverified).
 
 The cloud **session runtime** applies a stop hook (not wired in repo
 `settings.json`). It flags local commits whose committer email is not

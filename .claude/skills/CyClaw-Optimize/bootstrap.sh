@@ -34,7 +34,7 @@ hr() { printf '%s\n' "----------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # 1. Git identity: the session runtime's (the SessionStart hook removes the old
-#    CyClaw Agent pin and pins only explicit CYCLAW_AGENT_COMMIT_* overrides)
+#    CyClaw Agent pin and pins nothing)
 # ---------------------------------------------------------------------------
 hr
 # Ask git rather than reading user.name/user.email: GIT_AUTHOR_* and

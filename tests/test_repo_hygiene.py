@@ -180,9 +180,9 @@ def test_tests_readme_test_file_count_matches_tree() -> None:
 # that overrode Claude <noreply@anthropic.com>, the identity the runtime signs
 # commits for, so every commit showed as Unverified on GitHub. The hook now
 # removes only its own old pin, keeps an identity someone set on purpose, and
-# still pins one when the CYCLAW_AGENT_COMMIT_* overrides are set. These run
-# the real script in a throwaway repo with no remote, so the fetch step
-# reports "offline" and nothing leaves the machine.
+# pins nothing, CYCLAW_AGENT_COMMIT_* included (those set CyClaw's own
+# agentic-loop identity). These run the real script in a throwaway repo with no
+# remote, so the fetch step reports "offline" and nothing leaves the machine.
 # ---------------------------------------------------------------------------
 
 _SYNC_HOOK = REPO_ROOT / ".claude" / "hooks" / "session-start-sync-check.sh"
@@ -269,46 +269,44 @@ def test_session_hook_removes_only_the_old_default_name(tmp_path: Path) -> None:
     assert _local_git_config(repo, tmp_path, "user.name") == "Someone"
 
 
+@pytest.mark.parametrize("overrides", [
+    {"CYCLAW_AGENT_COMMIT_EMAIL": "bot@example.com", "CYCLAW_AGENT_COMMIT_NAME": "Bot"},
+    {"CYCLAW_AGENT_COMMIT_EMAIL": "bot@example.com"},
+    {"CYCLAW_AGENT_COMMIT_NAME": "Bot"},
+])
 @_needs_posix_bash_and_git
-def test_session_hook_still_pins_explicit_overrides(tmp_path: Path) -> None:
+def test_session_hook_does_not_pin_the_agentic_loop_overrides(tmp_path: Path, overrides: dict[str, str]) -> None:
+    # Pinned into repo-local config, an override reached every session and
+    # worktree sharing the repository, outlived its own session, and still
+    # lost to a GIT_COMMITTER_* the runtime exported. They set CyClaw's own
+    # agentic-loop identity (utils/agent_identity.py) and nothing else.
     repo = _hook_repo(tmp_path)
-    result = _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com",
-                            CYCLAW_AGENT_COMMIT_NAME="Bot")
-    assert result.returncode == 0, result.stderr
-    assert _local_git_config(repo, tmp_path, "user.email") == "bot@example.com"
-    assert _local_git_config(repo, tmp_path, "user.name") == "Bot"
+    assert _run_sync_hook(repo, tmp_path, **overrides).returncode == 0
+    assert _local_git_config(repo, tmp_path, "user.email") is None
+    assert _local_git_config(repo, tmp_path, "user.name") is None
 
 
 @_needs_posix_bash_and_git
-def test_session_hook_reports_the_identity_and_never_blocks_offline(tmp_path: Path) -> None:
-    repo = _hook_repo(tmp_path)
-    result = _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com",
-                            CYCLAW_AGENT_COMMIT_NAME="Bot")
-    assert result.returncode == 0
-    assert "Commits will be made as: Bot <bot@example.com>" in result.stdout
-    assert "Could not fetch" in result.stdout
-
-
-@_needs_posix_bash_and_git
-def test_session_hook_name_override_still_clears_the_old_email(tmp_path: Path) -> None:
-    # A name-only override used to skip the cleanup, leaving the old email:
+def test_session_hook_removes_the_old_pin_whatever_overrides_are_set(tmp_path: Path) -> None:
+    # A name-only override once skipped this cleanup, which left the old email:
     # the half that decides whether the runtime can sign the commit.
     repo = _hook_repo(tmp_path)
     _set_local_git_config(repo, tmp_path, "user.email", _LEGACY_EMAIL)
     _set_local_git_config(repo, tmp_path, "user.name", _LEGACY_NAME)
     assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_NAME="Chosen Name").returncode == 0
     assert _local_git_config(repo, tmp_path, "user.email") is None
-    assert _local_git_config(repo, tmp_path, "user.name") == "Chosen Name"
+    assert _local_git_config(repo, tmp_path, "user.name") is None
 
 
 @_needs_posix_bash_and_git
-def test_session_hook_email_override_still_clears_the_old_name(tmp_path: Path) -> None:
+def test_session_hook_reports_the_identity_and_never_blocks_offline(tmp_path: Path) -> None:
     repo = _hook_repo(tmp_path)
-    _set_local_git_config(repo, tmp_path, "user.email", _LEGACY_EMAIL)
-    _set_local_git_config(repo, tmp_path, "user.name", _LEGACY_NAME)
-    assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com").returncode == 0
-    assert _local_git_config(repo, tmp_path, "user.email") == "bot@example.com"
-    assert _local_git_config(repo, tmp_path, "user.name") is None
+    _set_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
+    _set_local_git_config(repo, tmp_path, "user.name", "Someone")
+    result = _run_sync_hook(repo, tmp_path)
+    assert result.returncode == 0
+    assert "Commits will be made as: Someone <someone@example.com>" in result.stdout
+    assert "Could not fetch" in result.stdout
 
 
 @_needs_posix_bash_and_git
@@ -335,35 +333,6 @@ def test_session_hook_reports_the_committer_git_will_use(tmp_path: Path) -> None
     assert result.returncode == 0
     assert ("Commits will be made as: author Someone <someone@example.com>, "
             "committer Runtime <runtime@example.com>") in result.stdout
-
-
-@_needs_posix_bash_and_git
-def test_session_hook_removes_its_own_pin_once_the_override_is_gone(tmp_path: Path) -> None:
-    # The overrides are per session, but git config is not: without this, one
-    # session's override would stay pinned in every later session.
-    repo = _hook_repo(tmp_path)
-    assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com",
-                          CYCLAW_AGENT_COMMIT_NAME="Bot").returncode == 0
-    assert _local_git_config(repo, tmp_path, "user.email") == "bot@example.com"
-    assert _run_sync_hook(repo, tmp_path).returncode == 0
-    assert _local_git_config(repo, tmp_path, "user.email") is None
-    assert _local_git_config(repo, tmp_path, "user.name") is None
-    assert _local_git_config(repo, tmp_path, "cyclaw.hookPinnedEmail") is None
-    assert _local_git_config(repo, tmp_path, "cyclaw.hookPinnedName") is None
-
-
-@_needs_posix_bash_and_git
-def test_session_hook_keeps_a_pinned_identity_changed_by_hand(tmp_path: Path) -> None:
-    repo = _hook_repo(tmp_path)
-    assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com",
-                          CYCLAW_AGENT_COMMIT_NAME="Bot").returncode == 0
-    _set_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
-    assert _run_sync_hook(repo, tmp_path).returncode == 0
-    # The email was changed by hand after the pin, so it is no longer the
-    # hook's; the name is still the one the hook pinned, so it goes.
-    assert _local_git_config(repo, tmp_path, "user.email") == "someone@example.com"
-    assert _local_git_config(repo, tmp_path, "user.name") is None
-    assert _local_git_config(repo, tmp_path, "cyclaw.hookPinnedEmail") is None
 
 
 _OPTIMIZE_BOOTSTRAP = REPO_ROOT / ".claude" / "skills" / "CyClaw-Optimize" / "bootstrap.sh"
