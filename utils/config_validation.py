@@ -417,6 +417,53 @@ def validate_guardrails_config(cfg: dict[str, Any]) -> None:
         )
 
 
+def validate_numbat_config(cfg: dict[str, Any]) -> None:
+    """Refuse a ``numbat`` block whose switches would not do what they say, at boot.
+
+    ``utils/numbat_emitter.py`` reads ``numbat.enabled`` by truthiness with a
+    default of on, and treats a block that is not a mapping as absent. So
+    ``numbat: false``, ``numbat: "off"`` and ``enabled: "false"`` all left the
+    derived stream writing (every record carries the host name, user name and
+    uid; SECURITY.md) while the operator believed it off. ``numbat.cel`` is the
+    other direction: gate.py arms the CEL monitor only on a mapping whose
+    ``enabled`` is the literal ``True``, so ``enabled: "true"`` left it
+    silently off.
+
+    No-op when the block is absent or empty (``numbat:`` with nothing under it
+    parses to None): the stream's documented default is on. The emitter reads
+    the rest of the block fail-soft.
+    """
+    block = cfg.get("numbat")
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        raise ConfigError(
+            f"config.numbat must be a mapping, got: {type(block).__name__} "
+            "(a non-mapping value leaves the stream on; turn it off with numbat.enabled: false)",
+            details={"received_type": type(block).__name__},
+        )
+    enabled = block.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError(
+            f"numbat.enabled must be a boolean true/false, got: {enabled!r}",
+            details={"field": "numbat.enabled", "received": repr(enabled)},
+        )
+    cel = block.get("cel")
+    if cel is None:
+        return
+    if not isinstance(cel, dict):
+        raise ConfigError(
+            f"config.numbat.cel must be a mapping, got: {type(cel).__name__}",
+            details={"received_type": type(cel).__name__},
+        )
+    cel_enabled = cel.get("enabled", False)
+    if not isinstance(cel_enabled, bool):
+        raise ConfigError(
+            f"numbat.cel.enabled must be a boolean true/false, got: {cel_enabled!r}",
+            details={"field": "numbat.cel.enabled", "received": repr(cel_enabled)},
+        )
+
+
 def validate_tls_config(cfg: dict[str, Any]) -> None:
     """Validate ``api.tls`` when TLS is the literal boolean True.
 

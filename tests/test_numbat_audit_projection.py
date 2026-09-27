@@ -197,7 +197,12 @@ def test_projection_fail_soft_on_disk_error(proj_cfg, monkeypatch: pytest.Monkey
     cfg, audit, out = proj_cfg
     import utils.numbat_emitter as emitter
 
-    def _boom(record, path):
+    raised: list[str] = []
+
+    def _boom(record, path, **kwargs):
+        # **kwargs: the emitter passes max_bytes=, and a fake that rejected it
+        # died with TypeError before ever raising the disk-full error.
+        raised.append("disk full")
         raise OSError("disk full")
 
     monkeypatch.setattr(emitter, "write_ndjson", _boom)
@@ -205,6 +210,7 @@ def test_projection_fail_soft_on_disk_error(proj_cfg, monkeypatch: pytest.Monkey
     audit_log({"event": "rag_query", "query": "q"}, cfg=cfg)
     close_audit_handles()
     assert len(_lines(audit)) == 1
+    assert raised == ["disk full"]  # the failure under test really happened
 
 
 # Audit events whose own code path calls audit_log(...) AND an emit_numbat_*

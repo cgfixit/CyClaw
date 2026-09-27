@@ -641,7 +641,8 @@ logging:
 # utils/numbat_emitter.project_audit_record, tagged
 # evidence.artifact_type "cyclaw_audit_jsonl"). Disable to silence both.
 numbat:
-  enabled: true
+  enabled: true             # true/false only: boot refuses "false", "off" or a
+                           # non-mapping numbat: block, which used to leave the stream on
   output_path: "logs/numbat-events.ndjsonl"
   # Size-based single-generation rollover: at or past this many bytes the
   # stream is renamed to <output_path>.1 (replacing any previous .1) and a
@@ -673,7 +674,7 @@ numbat:
   # The first flags an online escalation on a near-total vault miss, the
   # second any request a control refused.
   cel:
-    enabled: false
+    enabled: false          # true/false only: a quoted "true" used to leave it off
     rules: []               # list of CEL expression strings
     max_rule_ms: 20         # per-rule budget; log warning if exceeded
 
