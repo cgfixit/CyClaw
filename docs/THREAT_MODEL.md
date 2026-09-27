@@ -1193,7 +1193,11 @@ What issue #1458 changed, and the boundaries that follow:
 
   `/health` reports the gate's problems as fixed phrases and never echoes
   what an unverified binary printed. Concurrent `/health` calls share one
-  readiness check, so a burst cannot spawn the binary once per caller.
+  readiness check, so a burst cannot spawn the binary once per caller. For
+  either engine the check, locating the binary included, runs on a bounded
+  worker thread, so a stalled mount cannot hold a `/health` worker. The
+  numbat check ends with one probe decision within the hook's `timeout_sec`,
+  so `/health` does not call a gate ready whose every call would time out.
 
   So does a hook enabled with nothing to run, which used to allow before
   #1458. Rules are evaluated from a per-call byte snapshot of `rules_dirs`, so

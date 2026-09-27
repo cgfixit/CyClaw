@@ -9,6 +9,8 @@ import json
 import logging
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -24,6 +26,7 @@ from utils.external_pre_hook import (
     run_pre_action_hook,
 )
 from utils.numbat_emitter import close_numbat_handles
+from utils.numbat_gate import clear_readiness_cache
 
 _TEST_QUERY_HASH = "a" * 64
 
@@ -31,7 +34,9 @@ _TEST_QUERY_HASH = "a" * 64
 @pytest.fixture(autouse=True)
 def _release_numbat_handles():
     """Release cached file handles so tmp_path teardown succeeds on Windows."""
+    clear_readiness_cache()
     yield
+    clear_readiness_cache()
     close_numbat_handles()
 
 
@@ -513,5 +518,49 @@ def test_readiness_flags_an_unknown_engine(tmp_path: Path):
 def test_readiness_delegates_to_the_numbat_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cfg = _hook_config(tmp_path)
     cfg["policy"]["fallback"]["pre_action_hook"]["engine"] = "numbat"
-    monkeypatch.setattr("utils.numbat_gate.readiness", lambda cfg_arg: (False, "numbat binary not found"))
+    seen: list[float] = []
+
+    def _readiness(cfg_arg, *, timeout):
+        seen.append(timeout)
+        return False, "numbat binary not found"
+
+    cfg["policy"]["fallback"]["pre_action_hook"]["timeout_sec"] = 2
+    monkeypatch.setattr("utils.numbat_gate.readiness", _readiness)
     assert hook_readiness(cfg) == (False, "numbat binary not found")
+    assert seen == [2]  # the probe decision gets the call's own timeout_sec
+
+
+def test_command_readiness_is_bounded_and_runs_once_at_a_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # /health is unauthenticated: a PATH lookup stuck on a stalled mount must
+    # neither hold the caller past timeout_sec nor start one lookup per call.
+    cfg = _hook_config(tmp_path, command=("cyclaw-hook-1458",))
+    cfg["policy"]["fallback"]["pre_action_hook"]["timeout_sec"] = 1
+    started, release = threading.Event(), threading.Event()
+    lookups: list[str] = []
+
+    def _which(name):
+        lookups.append(name)
+        started.set()
+        release.wait(30)
+        return None
+
+    monkeypatch.setattr("utils.external_pre_hook.shutil.which", _which)
+    first: list[tuple[bool, str | None] | None] = []
+    worker = threading.Thread(target=lambda: first.append(hook_readiness(cfg)))
+    clock = time.monotonic()
+    worker.start()
+    try:
+        assert started.wait(30)
+        ready, problem = hook_readiness(cfg)
+        assert (ready, "still running" in problem) == (False, True)
+        worker.join(10)
+        elapsed = time.monotonic() - clock
+    finally:
+        release.set()
+        worker.join(30)
+        for thread in threading.enumerate():
+            if thread.name == "numbat-gate":
+                thread.join(30)
+    assert elapsed < 10
+    assert first and first[0][0] is False and "did not finish" in first[0][1]
+    assert lookups == ["cyclaw-hook-1458"]

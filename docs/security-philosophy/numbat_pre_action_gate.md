@@ -150,7 +150,12 @@ test`) within one `timeout_sec` budget. Measured end to end at a median of
    and `/health` reports `degraded` while the gate would deny every call
    (binary missing, wrong version, rules that fail `rules check`, no enabled
    rule, a rules file or directory it cannot read, rule directories past the
-   read limits) or could never deny one (no `enforce: true` rule). Boot refuses a malformed block,
+   read limits, a probe decision that fails or does not finish within
+   `timeout_sec`) or could never deny one (no `enforce: true` rule). The
+   check ends with one probe decision, a real `rules test` run within the
+   hook's own `timeout_sec`, so a setup that passes every other check but is
+   too slow to decide a call is not reported ready. The whole check runs
+   bounded, one at a time, and is cached for 30 s. Boot refuses a malformed block,
    for example `enabled: "true"` as a string, an unknown engine,
    `verdict_mode: monitor`, or an enabled engine with nothing to run.
 

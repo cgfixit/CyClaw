@@ -356,8 +356,11 @@ def hook_readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None] | None
 
     For /health: never runs the operator's command (it is a policy decision
     and may have side effects), only checks it resolves; the numbat engine
-    checks its binary, pinned version, and rules via utils.numbat_gate.
-    Problems are fixed phrases that name no argv or file contents.
+    checks its binary, pinned version, and rules, and runs one probe
+    decision within timeout_sec, via utils.numbat_gate. Either way the
+    filesystem work runs bounded, one check at a time, and cached
+    (utils.numbat_gate.bounded_readiness), since a stalled mount can block
+    it. Problems are fixed phrases that name no argv or file contents.
     """
     block = _hook_cfg(cfg)
     if not _is_literal_true(block.get("enabled", False)):
@@ -365,18 +368,26 @@ def hook_readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None] | None
     engine = _engine(block)
     if engine is None:
         return False, f"unknown engine {block.get('engine')!r}"
+    timeout = _normalize_timeout(block.get("timeout_sec", DEFAULT_TIMEOUT_SEC))
+    try:
+        from utils.numbat_gate import bounded_readiness, readiness
+    except Exception:  # noqa: BLE001 - a broken engine import is itself the finding
+        return False, "pre-action hook readiness check unavailable"
     if engine == "numbat":
-        try:
-            from utils.numbat_gate import readiness
-        except Exception:  # noqa: BLE001 - a broken engine import is itself the finding
-            return False, "numbat engine unavailable"
-        return readiness(cfg)
+        return readiness(cfg, timeout=timeout)
     command = block.get("command")
     if not command:
         return False, "enabled with an empty command, so every external call is denied"
     if not isinstance(command, list) or not all(isinstance(c, str) and c for c in command):
         return False, "command is not a list of non-empty strings, so every external call is denied"
     exe = command[0]
+    # The budget is the call's own: a call has to find and start command[0]
+    # within timeout_sec too.
+    return bounded_readiness(("command", exe, os.environ.get("PATH", "")), timeout,
+                             lambda: _command_readiness(exe))
+
+
+def _command_readiness(exe: str) -> tuple[bool, str | None]:
     if os.path.isabs(exe):
         found = os.path.isfile(exe) and os.access(exe, os.X_OK)
     else:

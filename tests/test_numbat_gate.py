@@ -77,7 +77,7 @@ class _FakeCli:
     """Stands in for the numbat binary: answers from what the test sets.
 
     ``version`` answers the engine's pinned-release check (the pinned line by
-    default). A ``rules test`` call reports the engine's canary rule -- the
+    default), and ``rules check`` (/health) passes. A ``rules test`` call reports the engine's canary rule -- the
     evidence that the call was evaluated -- then ``matches``, unless
     ``canary`` is False or ``stdout`` replaces the output wholesale.
     ``raises`` applies to the rules test, ``version_raises`` to the version
@@ -99,6 +99,7 @@ class _FakeCli:
         self.on_rules_test = on_rules_test
         self.calls: list[list[str]] = []
         self.version_calls: list[list[str]] = []
+        self.check_calls: list[list[str]] = []
         self.fixture_events: list[dict] = []
 
     def __call__(self, argv, **kwargs):
@@ -107,6 +108,9 @@ class _FakeCli:
             if self.version_raises is not None:
                 raise self.version_raises
             return subprocess.CompletedProcess(argv, 0, stdout=f"{self.version}\n", stderr="")
+        if list(argv[1:3]) == ["rules", "check"]:
+            self.check_calls.append(list(argv))
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
         self.calls.append(list(argv))
         if self.on_rules_test is not None:
             self.on_rules_test(argv)
@@ -549,7 +553,7 @@ def test_a_stalled_check_before_the_rules_read_still_denies_on_time(tmp_path, mo
 def test_a_stalled_readiness_check_reports_in_time(tmp_path, monkeypatch):
     release = threading.Event()
 
-    def _stuck(binary, dirs):
+    def _stuck(cfg, timeout):
         release.wait(30)
         return True, None
 
@@ -557,7 +561,7 @@ def test_a_stalled_readiness_check_reports_in_time(tmp_path, monkeypatch):
     monkeypatch.setattr(numbat_gate, "_READINESS_BUDGET_SEC", 0.2)
     started = time.monotonic()
     try:
-        ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+        ready, problem = numbat_gate.readiness(_cfg(tmp_path), timeout=0.1)
         elapsed = time.monotonic() - started
     finally:
         release.set()
@@ -786,7 +790,7 @@ def test_readiness_reports_fixed_phrases_without_paths(tmp_path):
 
 def test_readiness_is_cached(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(numbat_gate, "_readiness", lambda binary, dirs: calls.append(1) or (True, None))
+    monkeypatch.setattr(numbat_gate, "_readiness", lambda cfg, timeout: calls.append(1) or (True, None))
     cfg = _cfg(tmp_path)
     assert numbat_gate.readiness(cfg) == (True, None)
     assert numbat_gate.readiness(cfg) == (True, None)
@@ -798,7 +802,7 @@ def _slow_readiness(monkeypatch: pytest.MonkeyPatch, verdict: tuple[bool, str | 
     started, release = threading.Event(), threading.Event()
     runs: list[int] = []
 
-    def _check(binary, dirs):
+    def _check(cfg, timeout):
         runs.append(1)
         started.set()
         release.wait(30)
@@ -830,7 +834,7 @@ def test_concurrent_readiness_checks_share_one_run(tmp_path, monkeypatch):
 
 def test_a_refreshing_readiness_check_serves_the_previous_result(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
-    key = (numbat_gate.resolve_binary(cfg), tuple(str(d) for d in numbat_gate.rules_dirs(cfg)))
+    key = numbat_gate._readiness_key(cfg, 5.0)
     numbat_gate._READINESS_CACHE[key] = (time.monotonic() - 3600, (True, None))  # expired
     started, release, runs = _slow_readiness(monkeypatch, (False, "fresh answer"))
     worker = threading.Thread(target=lambda: numbat_gate.readiness(cfg))
@@ -843,6 +847,54 @@ def test_a_refreshing_readiness_check_serves_the_previous_result(tmp_path, monke
         worker.join(30)
     assert numbat_gate.readiness(cfg) == (False, "fresh answer")
     assert len(runs) == 1
+
+
+def test_readiness_ends_with_a_probe_decision(tmp_path, monkeypatch):
+    _rules_dir(tmp_path, ("acme.deny", True))
+    fake = _fake(monkeypatch)
+    assert numbat_gate.readiness(_cfg(tmp_path)) == (True, None)
+    assert [event["model"] for event in fake.fixture_events] == ["cyclaw-health-probe"]
+
+
+def test_readiness_flags_a_setup_whose_decisions_exceed_timeout_sec(tmp_path, monkeypatch):
+    # Each check has its own bound; a call gets only timeout_sec. On a slow
+    # disk, or with a short timeout_sec, every call can time out while each
+    # check passes, so /health must not report ready.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    _fake(monkeypatch, raises=subprocess.TimeoutExpired(["numbat"], 1))
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path), timeout=1)
+    assert ready is False
+    assert "timeout_sec (1 s)" in problem and str(tmp_path) not in problem
+
+
+def test_readiness_flags_a_probe_decision_that_fails(tmp_path, monkeypatch):
+    _rules_dir(tmp_path, ("acme.deny", True))
+    _fake(monkeypatch, canary=False)
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False and "hook_failure" in problem
+
+
+def test_readiness_resolves_the_binary_inside_its_budget(tmp_path, monkeypatch):
+    # Finding a bare binary name walks PATH, which can hang on a stalled
+    # mount; that too must stay inside the bounded check.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    release = threading.Event()
+
+    def _which(name):
+        release.wait(30)
+        return None
+
+    monkeypatch.setattr(numbat_gate.shutil, "which", _which)
+    monkeypatch.setattr(numbat_gate, "_READINESS_BUDGET_SEC", 0.1)
+    started = time.monotonic()
+    try:
+        ready, problem = numbat_gate.readiness(_cfg(tmp_path, binary="numbat"), timeout=0.1)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        _join_rule_readers()
+    assert ready is False and "did not finish" in problem
+    assert elapsed < 10
 
 
 def test_readiness_does_not_echo_an_unverified_binary(tmp_path, monkeypatch):

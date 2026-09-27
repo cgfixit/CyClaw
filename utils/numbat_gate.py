@@ -86,9 +86,15 @@ _PROVIDER_TO_VENDOR = {"grok": "xai", "claude": "anthropic"}
 _QUERY_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _RULE_SUFFIXES = (".yaml", ".yml")
 _READINESS_TTL_SEC = 30.0
-# Budget for one whole /health readiness check: the version check (5 s),
+# Budget for one whole /health readiness check, on top of the hook's own
+# timeout_sec, which the probe decision gets: the version check (5 s),
 # `rules check` (10 s) and reading rules_dirs (_READINESS_READ_SEC).
 _READINESS_BUDGET_SEC = 30.0
+# The call /health's probe decision proposes. Any provider works: the probe
+# exercises the decision path, and its verdict (allow or deny) is not used.
+_PROBE_PROVIDER = "grok"
+_PROBE_MODEL = "cyclaw-health-probe"
+_PROBE_HASH = "0" * 64
 _MAX_REASON_CHARS = 300
 
 # The engine's own evidence rule: it matches every event, so each evaluated call
@@ -724,33 +730,56 @@ _READINESS_CACHE: dict[tuple[Any, ...], tuple[float, tuple[bool, str | None]]] =
 _READINESS_RUNNING: set[tuple[Any, ...]] = set()
 
 
-def readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None]:
+def readiness(cfg: dict[str, Any] | None, *, timeout: float = 5.0) -> tuple[bool, str | None]:
     """Whether the engine could decide a call right now, and why not if not.
 
-    For /health, so it runs no rule evaluation and is cached for 30 s per
-    (binary, dirs): /health is unauthenticated and polled, and each check
-    spawns the binary twice. Problems are fixed phrases: no path, rule text,
-    or Numbat stderr, which would publish the server's layout. The same
-    ``numbat`` command run by hand gives the detail.
+    For /health, so it is cached for 30 s per configuration and runs at most
+    once at a time (see bounded_readiness): /health is unauthenticated and
+    polled, and each check spawns the binary. It ends with one probe
+    decision within ``timeout`` (the hook's timeout_sec, 5 s by default like
+    the hook's), so a setup whose every call would time out is not reported
+    ready. Problems are fixed phrases: no path, rule text, or Numbat stderr,
+    which would publish the server's layout. The same ``numbat`` command run
+    by hand gives the detail.
     """
-    binary = resolve_binary(cfg)
-    dirs = rules_dirs(cfg)
-    key = (binary, tuple(str(d) for d in dirs) if dirs is not None else None)
+    return bounded_readiness(_readiness_key(cfg, timeout), _READINESS_BUDGET_SEC + timeout,
+                             lambda: _readiness(cfg, timeout))
+
+
+def _readiness_key(cfg: dict[str, Any] | None, timeout: float) -> tuple[Any, ...]:
+    # Built from the raw settings, not the resolved binary or directories:
+    # resolving touches the filesystem, which belongs inside the bounded
+    # check. PATH is part of it because a bare binary name resolves on it.
+    block = _gate_cfg(cfg)
+    dirs = block.get("rules_dirs")
+    return ("numbat", repr(block.get("binary", DEFAULT_BINARY)),
+            repr(dirs if isinstance(dirs, list) else dirs), os.environ.get("PATH", ""), timeout)
+
+
+def bounded_readiness(key: tuple[Any, ...], budget: float,
+                      check: Callable[[], tuple[bool, str | None]]) -> tuple[bool, str | None]:
+    """Run a /health readiness ``check`` bounded, coalesced and cached.
+
+    Shared by both hook engines. The check runs on a worker thread that is
+    abandoned after ``budget`` seconds (see _within), so a stalled mount under
+    the binary, a PATH entry or rules_dirs reports "not ready" instead of
+    holding the /health worker. One check per ``key`` runs at a time: a
+    burst of /health calls while it runs gets the previous result, or "not
+    ready" before the first, rather than each starting a check. Results are
+    cached for 30 s.
+    """
     with _READINESS_LOCK:
         cached = _READINESS_CACHE.get(key)
         if cached and time.monotonic() - cached[0] < _READINESS_TTL_SEC:
             return cached[1]
         if key in _READINESS_RUNNING:
-            # One check per key at a time, so a burst of /health calls cannot
-            # each spawn the binary and tie up a worker. While it runs, others
-            # get the previous result, or "not ready" before the first.
-            return cached[1] if cached else (False, "the numbat readiness check is still running")
+            return cached[1] if cached else (False, "the pre-action hook readiness check is still running")
         _READINESS_RUNNING.add(key)
     try:
         try:
-            verdict = _within(_READINESS_BUDGET_SEC, lambda: _readiness(binary, dirs))
+            verdict = _within(budget, check)
         except _Stalled:
-            verdict = (False, f"the numbat readiness check did not finish within {_READINESS_BUDGET_SEC:g} s, "
+            verdict = (False, f"the pre-action hook readiness check did not finish within {budget:g} s, "
                               "so external calls are likely to time out and be denied")
         with _READINESS_LOCK:
             _READINESS_CACHE[key] = (time.monotonic(), verdict)
@@ -760,7 +789,9 @@ def readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None]:
     return verdict
 
 
-def _readiness(binary: str | None, dirs: list[Path] | None) -> tuple[bool, str | None]:
+def _readiness(cfg: dict[str, Any] | None, timeout: float) -> tuple[bool, str | None]:
+    binary = resolve_binary(cfg)
+    dirs = rules_dirs(cfg)
     if not dirs:
         return False, "numbat engine has no rules_dirs, so every external call is denied"
     if any(not d.is_dir() for d in dirs):
@@ -797,6 +828,16 @@ def _readiness(binary: str | None, dirs: list[Path] | None) -> tuple[bool, str |
         return False, "no enabled rule in rules_dirs, so every external call is denied"
     if not enforcing:
         return False, "no enabled enforce: true rule, so the gate cannot deny anything"
+    # The checks above each have their own bound, not the hook's timeout_sec.
+    # One real decision within timeout_sec shows calls can be decided in it:
+    # on a slow disk, or with a short timeout_sec, every call can time out
+    # while each check above passes.
+    probe = _evaluate(_PROBE_PROVIDER, _PROBE_MODEL, _PROBE_HASH, cfg, timeout=timeout)
+    if probe["reason_code"] == "hook_timeout":
+        return False, (f"a probe decision did not finish within timeout_sec ({timeout:g} s), "
+                       "so external calls are likely to time out and be denied")
+    if probe["reason_code"] not in ("hook_allowed", "hook_denied"):
+        return False, f"a probe decision failed ({probe['reason_code']}), so every external call is denied"
     return True, None
 
 
@@ -810,6 +851,7 @@ __all__ = [
     "CANARY_RULE_ID",
     "DEFAULT_BINARY",
     "PINNED_VERSION_LINE",
+    "bounded_readiness",
     "build_gate_event",
     "classify_rules",
     "clear_readiness_cache",
