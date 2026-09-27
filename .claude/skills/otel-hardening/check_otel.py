@@ -455,7 +455,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "numbat projection (+ cel-python)", "category": 4, "controls": {},
         "url": "docs/security-philosophy/numbat_secondary_evaluator.md",
-        "versions": "numbat CLI 0.2.0 (CI only); cel-python==0.5.0 optional extra, default-off",
+        "versions": "numbat CLI 0.2.0 (CI only); cel-python==0.5.0 optional extra, default-off, with its "
+                    "exclusive transitives google-re2==1.1.20251105 / jmespath==1.1.0 / lark==1.3.1 / "
+                    "pendulum==3.2.0 pinned in constraints.txt (issue #1458) -- a regex engine binding, a JSON "
+                    "query library, a parser, and a datetime library: none imports socket/urllib/http "
+                    "(checked 2026-09-26), so they add no egress to the default-off CEL monitor",
         "enforcement": "local NDJSON file only (logs/numbat-events.ndjsonl); numbat.enabled: false disables. "
                        "Every event carries hostname/username/uid endpoint metadata -- a second sensitive "
                        "LOCAL log, not a privacy improvement. No runtime HTTP sink exists or is implicitly "
@@ -582,6 +586,11 @@ INVENTORY_ALIASES: dict[str, str] = {
     "ollama": "ollama daemon",
     "openssl": "core web/runtime libs",
     "cel-python": "numbat projection (+ cel-python)",
+    # cel-python's own requirements (numbat-cel extra), pinned in constraints.txt
+    "google-re2": "numbat projection (+ cel-python)",
+    "jmespath": "numbat projection (+ cel-python)",
+    "lark": "numbat projection (+ cel-python)",
+    "pendulum": "numbat projection (+ cel-python)",
     "netconnect": "netconnect passive LAN inventory",
     "sqlite-vec": "sqlite-vec",
     # bulk category-5 members

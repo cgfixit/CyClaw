@@ -73,6 +73,15 @@ def _anchor_to_repo_root(raw: str) -> str:
 DEFAULT_INPUT_RAILS = ("check_injection", "check_jailbreak", "check_soul_mutation")
 DEFAULT_OUTPUT_RAILS = ("check_grounding", "check_soul_leak")
 DEFAULT_TOPICAL_RAILS = ("stay_in_local_knowledge", "no_unauthed_external_advice")
+# Every rail name each list may hold. A name outside its list's set (a typo, or
+# an output rail listed under input_rails) matched nothing, so that rail was
+# silently off. guardrails/profiles.py keeps the same input/output names;
+# tests/test_guardrails_config.py pins the two in step.
+_KNOWN_RAIL_NAMES: dict[str, frozenset[str]] = {
+    "input_rails": frozenset(DEFAULT_INPUT_RAILS),
+    "output_rails": frozenset(DEFAULT_OUTPUT_RAILS),
+    "topical_rails": frozenset(DEFAULT_TOPICAL_RAILS),
+}
 # Keywords that flag a query (or answer) as touching the soul / personality /
 # identity layer -- the topic class these advanced rails are tailored to.
 DEFAULT_SOUL_TOPICS = (
@@ -154,6 +163,14 @@ class GuardrailsConfig:
                 raise GuardrailsConfigError(
                     f"guardrails.{field_name} must be a list of strings, got: {value!r}",
                     details={"received": value},
+                )
+        for field_name, known in _KNOWN_RAIL_NAMES.items():
+            unknown = [name for name in getattr(self, field_name) if name not in known]
+            if unknown:
+                raise GuardrailsConfigError(
+                    f"guardrails.{field_name} has unknown rail name(s) {unknown}; "
+                    f"known: {sorted(known)}",
+                    details={"field": field_name, "unknown": unknown, "known": sorted(known)},
                 )
 
     def _validate_engine(self) -> None:

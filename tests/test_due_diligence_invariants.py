@@ -56,6 +56,7 @@ def _route_audit_to_tmp(tmp_path, monkeypatch):
             "audit_file": str(tmp_path / "audit.jsonl"),
             "log_file": str(tmp_path / "gateway.log"),
         },
+        "numbat": {**TEST_CONFIG["numbat"], "output_path": str(tmp_path / "numbat-events.ndjsonl")},
     }
     reset_config_cache()
     monkeypatch.setattr("utils.logger._get_config", lambda config_path="config.yaml": cfg)

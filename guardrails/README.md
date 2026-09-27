@@ -5,8 +5,10 @@ routing authority (topology = policy). This package adds input checks and
 output grounding; it does not decide vault-hit vs fallback.
 
 Ships **off**: `guardrails.enabled: false` in `config.yaml`. When the flag is
-not the literal boolean `True`, both graph nodes are pass-through and this
-package is never imported.
+the boolean `false`, both graph nodes are pass-through and this package is
+never imported. Any non-boolean value (`"true"`, `"false"`, `1`) stops boot
+with a `ConfigError`, and an unknown rail name in `input_rails`,
+`output_rails` or `topical_rails` is refused when the layer loads.
 
 ## How the graph reaches this package (I6)
 

@@ -1,6 +1,6 @@
 # `tests/` — the CyClaw test suite
 
-Pytest suite for this directory (212 `test_*.py` files, auto-collected
+Pytest suite for this directory (214 `test_*.py` files, auto-collected
 via `testpaths = ["tests"]` in `pyproject.toml`). Test trees outside `tests/` —
 notably `tools/lora_finetune/tests/`, whose CI is `.github/workflows/lora-finetune.yml` —
 are NOT collected by `pytest tests/`; see `CLAUDE.md` §8. Ordinary tests avoid
@@ -84,11 +84,13 @@ new test files are auto-discovered and need neither coverage declaration.
 | `fixtures/github_coding_repo/` | Canned repo used by the agentic real-repo-loop tests. |
 | `ci_rag_smoke.py` | Deliberately NOT `test_*`-named so pytest ignores it; runs as a separate CI step against a real index. Renaming it double-runs it and drags ChromaDB into the unit lane. |
 | `judge_eval.py` | Default-off 52-case groundedness evaluator. Builds an isolated real Chroma/BM25 index; the opt-in judge is Claude or a second loopback model. See `docs/EVALS.md`. |
+| `rerank_probes.py` | Answer keys for every answerable RAG probe, plus a fresh held-out probe set, for choosing the reranker veto (issue #1456). Labels a window by whether an answer key is in it, never by a model score. Read by `scripts/rerank_bakeoff.py` and `test_rerank_bakeoff.py`; no heavy imports. |
 | `judge_calibrate.py` | Runs the selected judge over 36 labeled fixture answers without generating contestant answers; reports agreement, not a CI gate. |
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
 | `nemo_runtime/` | NeMo-guardrails runtime tests plus their own harness (`network_jail.py`, `mock_openai.py`); collected with the main suite and skipped unless the runtime lane is enabled. |
 | `executor_sandbox_double.py`, `spend_live_probe.py` | Helper doubles/probes, not `test_*`-named, so not collected. |
+| `numbat_shaped_events.py` | Drives every production Numbat producer (mainline audit projection, pre-action hook verdicts, CEL monitor, ops/fsconnect/sqlconnect) into a throwaway stream; `python -m tests.numbat_shaped_events --frozen --out ...` regenerates `fixtures/numbat/cyclaw-shaped-*.ndjson`. Not collected; `test_numbat_cyclaw_shaped.py` and `numbat-rules.yml`'s `numbat-stream-contract` job hold its output to the pinned Numbat CLI and schema (issue #1458). |
 
 ## Conventions that bite
 

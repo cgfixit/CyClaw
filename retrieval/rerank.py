@@ -99,11 +99,20 @@ def _load_cross_encoder(
     ``activation_fn`` is pinned to identity, so scores are raw logits whatever
     a future sentence-transformers default becomes: retrieval.min_rerank_score
     is a threshold on that scale.
+
+    The weights are computed in float32 whatever dtype the checkpoint stores.
+    Transformers 5 loads a checkpoint in its saved dtype, and on a CPU
+    without native half precision a float16 cross-encoder scores about 9x
+    slower (measured with the CPU limited to AVX2, for issue #1456's
+    bake-off). float32 also keeps scores close across machines, so a
+    threshold measured on one stays meaningful on another. The shipped model
+    is stored in float32, so for it this changes nothing.
     """
     eligible = _model_offline_eligible(model, cache_dir, revision) or (
         offline_after_index and _index_or_bm25_present(config_path)
     )
 
+    import torch
     from sentence_transformers import CrossEncoder
     from torch import nn
 
@@ -116,6 +125,7 @@ def _load_cross_encoder(
                 local_files_only=eligible,
                 device=EMBED_DEVICE,
                 activation_fn=nn.Identity(),
+                model_kwargs={"dtype": torch.float32},
             )
             return encoder
         except (OSError, RuntimeError):
