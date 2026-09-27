@@ -25,14 +25,35 @@ cd "$repo_root" || exit 0
 # ── 1. Commit identity: the runtime's, unless explicitly overridden ─────────
 legacy_email="cyclaw-agent@users.noreply.github.com"
 legacy_name="CyClaw Agent"
-if [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ] || [ -n "${CYCLAW_AGENT_COMMIT_NAME:-}" ]; then
-  [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ] && git config --local user.email "$CYCLAW_AGENT_COMMIT_EMAIL"
-  [ -n "${CYCLAW_AGENT_COMMIT_NAME:-}" ] && git config --local user.name "$CYCLAW_AGENT_COMMIT_NAME"
-elif [ "$(git config --local --get user.email 2>/dev/null)" = "$legacy_email" ]; then
+local_email=$(git config --local --get user.email 2>/dev/null)
+local_name=$(git config --local --get user.name 2>/dev/null)
+# Email and name are handled separately, so an override of one still clears
+# the other's old pin: a name-only override must not leave the old email,
+# which is the half that decides whether the runtime can sign the commit.
+if [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ]; then
+  git config --local user.email "$CYCLAW_AGENT_COMMIT_EMAIL"
+elif [ "$local_email" = "$legacy_email" ]; then
   git config --local --unset user.email
-  [ "$(git config --local --get user.name 2>/dev/null)" = "$legacy_name" ] && git config --local --unset user.name
 fi
-echo "[sync-check] Commits will be authored as: $(git config user.name 2>/dev/null) <$(git config user.email 2>/dev/null)>"
+# The old name goes only when its email half is going too (old pin or an
+# email override), so a deliberate email with the old name is left alone.
+if [ -n "${CYCLAW_AGENT_COMMIT_NAME:-}" ]; then
+  git config --local user.name "$CYCLAW_AGENT_COMMIT_NAME"
+elif [ "$local_name" = "$legacy_name" ] && { [ "$local_email" = "$legacy_email" ] || [ -n "${CYCLAW_AGENT_COMMIT_EMAIL:-}" ]; }; then
+  git config --local --unset user.name
+fi
+# Report what the next commit will actually carry. GIT_AUTHOR_* and
+# GIT_COMMITTER_* environment variables outrank user.name/user.email, so ask
+# git itself rather than reading the config keys.
+author=$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//')
+committer=$(git var GIT_COMMITTER_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//')
+if [ -z "$committer" ]; then
+  echo "[sync-check] No commit identity is set; git will refuse to commit until user.name and user.email are."
+elif [ "$author" = "$committer" ]; then
+  echo "[sync-check] Commits will be made as: $committer"
+else
+  echo "[sync-check] Commits will be made as: author $author, committer $committer"
+fi
 
 # ── 2. Detect default branch (origin/HEAD, fallback main) ────────────────────
 default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')

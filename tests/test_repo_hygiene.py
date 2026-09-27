@@ -285,6 +285,54 @@ def test_session_hook_reports_the_identity_and_never_blocks_offline(tmp_path: Pa
     result = _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com",
                             CYCLAW_AGENT_COMMIT_NAME="Bot")
     assert result.returncode == 0
-    assert "Commits will be authored as: Bot <bot@example.com>" in result.stdout
+    assert "Commits will be made as: Bot <bot@example.com>" in result.stdout
     assert "Could not fetch" in result.stdout
+
+
+@_needs_posix_bash_and_git
+def test_session_hook_name_override_still_clears_the_old_email(tmp_path: Path) -> None:
+    # A name-only override used to skip the cleanup, leaving the old email:
+    # the half that decides whether the runtime can sign the commit.
+    repo = _hook_repo(tmp_path)
+    _set_local_git_config(repo, tmp_path, "user.email", _LEGACY_EMAIL)
+    _set_local_git_config(repo, tmp_path, "user.name", _LEGACY_NAME)
+    assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_NAME="Chosen Name").returncode == 0
+    assert _local_git_config(repo, tmp_path, "user.email") is None
+    assert _local_git_config(repo, tmp_path, "user.name") == "Chosen Name"
+
+
+@_needs_posix_bash_and_git
+def test_session_hook_email_override_still_clears_the_old_name(tmp_path: Path) -> None:
+    repo = _hook_repo(tmp_path)
+    _set_local_git_config(repo, tmp_path, "user.email", _LEGACY_EMAIL)
+    _set_local_git_config(repo, tmp_path, "user.name", _LEGACY_NAME)
+    assert _run_sync_hook(repo, tmp_path, CYCLAW_AGENT_COMMIT_EMAIL="bot@example.com").returncode == 0
+    assert _local_git_config(repo, tmp_path, "user.email") == "bot@example.com"
+    assert _local_git_config(repo, tmp_path, "user.name") is None
+
+
+@_needs_posix_bash_and_git
+def test_session_hook_keeps_the_old_name_beside_a_deliberate_email(tmp_path: Path) -> None:
+    # Only the old pin is removed. An email someone chose is not the old pin,
+    # so the name beside it stays even when it matches the old default.
+    repo = _hook_repo(tmp_path)
+    _set_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
+    _set_local_git_config(repo, tmp_path, "user.name", _LEGACY_NAME)
+    assert _run_sync_hook(repo, tmp_path).returncode == 0
+    assert _local_git_config(repo, tmp_path, "user.email") == "someone@example.com"
+    assert _local_git_config(repo, tmp_path, "user.name") == _LEGACY_NAME
+
+
+@_needs_posix_bash_and_git
+def test_session_hook_reports_the_committer_git_will_use(tmp_path: Path) -> None:
+    # GIT_COMMITTER_* outranks user.name/user.email, so a report read from the
+    # config keys would name an identity the next commit does not carry.
+    repo = _hook_repo(tmp_path)
+    _set_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
+    _set_local_git_config(repo, tmp_path, "user.name", "Someone")
+    result = _run_sync_hook(repo, tmp_path, GIT_COMMITTER_NAME="Runtime",
+                            GIT_COMMITTER_EMAIL="runtime@example.com")
+    assert result.returncode == 0
+    assert ("Commits will be made as: author Someone <someone@example.com>, "
+            "committer Runtime <runtime@example.com>") in result.stdout
 
