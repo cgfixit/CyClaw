@@ -223,17 +223,22 @@ def test_installer_enabled_profile_lists_stats_reads_and_dry_runs_writes(tmp_pat
     home = tmp_path / "home"
     home.mkdir()
     config = _copy_config(tmp_path)
-    audit = tmp_path / "audit.jsonl"
     config_text = config.read_text(encoding="utf-8")
-    audit_needle = 'audit_file: "logs/audit.jsonl"'
-    assert audit_needle in config_text
-    # JSON strings are valid YAML scalars and avoid PyYAML's standalone-scalar
-    # document terminator (``...``), which would split this copied config.
-    audit_yaml = json.dumps(str(audit))
-    config.write_text(
-        config_text.replace(audit_needle, f"audit_file: {audit_yaml}"),
-        encoding="utf-8",
-    )
+    # The child CLI anchors every relative runtime sink in this copied config
+    # to the REPO root, so each one is pointed at tmp_path; the Numbat stream
+    # is the one the fsconnect ops actually write. JSON strings are valid YAML
+    # scalars and avoid PyYAML's standalone-scalar document terminator
+    # (``...``), which would split this copied config.
+    for key, relative in (
+        ("audit_file", "logs/audit.jsonl"),
+        ("log_file", "logs/cyclaw.log"),
+        ("spend_file", "logs/spend.jsonl"),
+        ("output_path", "logs/numbat-events.ndjsonl"),
+    ):
+        needle = f'{key}: "{relative}"'
+        assert needle in config_text
+        config_text = config_text.replace(needle, f"{key}: {json.dumps(str(tmp_path / Path(relative).name))}")
+    config.write_text(config_text, encoding="utf-8")
 
     installed = _run_script(
         _INSTALLER,

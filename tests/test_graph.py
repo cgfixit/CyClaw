@@ -43,6 +43,7 @@ def setup_logging(tmp_path, monkeypatch):
             "audit_file": str(tmp_path / "audit.jsonl"),
             "log_file": str(tmp_path / "gateway.log"),
         },
+        "numbat": {**TEST_CONFIG["numbat"], "output_path": str(tmp_path / "numbat-events.ndjsonl")},
     }
     reset_config_cache()
     monkeypatch.setattr("utils.logger._get_config", lambda config_path="config.yaml": cfg)
@@ -64,8 +65,7 @@ def _make_cfg(tmp_path, mode="offline", grok_enabled=False, claude_enabled=False
         "audit_file": str(tmp_path / "audit.jsonl"),
         "log_file": str(tmp_path / "gateway.log")
     }
-
-
+    cfg["numbat"] = {**cfg["numbat"], "output_path": str(tmp_path / "numbat-events.ndjsonl")}
     return cfg
 
 
@@ -1923,6 +1923,59 @@ class TestGuardrailOutputGraphIntegration:
             "claude_fallback never reached guardrail_output_node -- the edge "
             "wiring regressed"
         )
+
+
+
+class TestGenerateGuardGroundingContext:
+    """The Phase 3 generate_guard gets the evidence to ground the answer in.
+
+    local_llm passes the chunks it put in the prompt, the same text
+    guardrail_output_node grounds against. The nodes that answer a vault miss
+    pass None, which takes grounding out of the live check's scope.
+    """
+
+    @staticmethod
+    def _recording_guard(seen: list[dict]):
+        def _guard(client, prompt, **kwargs):
+            seen.append(kwargs)
+            return client.generate(prompt), None
+
+        return _guard
+
+    def test_local_llm_passes_the_chunks_it_prompted_with(self, tmp_path):
+        seen: list[dict] = []
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_HIGH_SCORE_RESULTS), llm=MockLocalLLM(), grok=None,
+            cfg=_make_cfg(tmp_path), generate_guard=self._recording_guard(seen),
+        )
+        result = graph.invoke({"query": "What is Veeam immutability?"})
+
+        assert result["answer_model"] == "local"
+        assert len(seen) == 1
+        assert seen[0]["grounding_context"] == "\n\n".join(d["text"] for d in result["answer_sources"])
+        assert "Veeam uses chattr +i" in seen[0]["grounding_context"]
+
+    @pytest.mark.parametrize(
+        "provider, confirmed, answer_model",
+        [("grok", True, "grok"), ("claude", True, "claude"), ("grok", False, "offline-best-effort")],
+    )
+    def test_vault_miss_answers_pass_no_grounding_context(self, tmp_path, provider, confirmed, answer_model):
+        seen: list[dict] = []
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_LOW_SCORE_RESULTS), llm=MockLocalLLM(),
+            grok=MockGrokClient(), claude=MockClaudeClient(),
+            cfg=_make_cfg(tmp_path, mode="hybrid", grok_enabled=True, claude_enabled=True),
+            generate_guard=self._recording_guard(seen),
+        )
+        result = graph.invoke({
+            "query": "What is the capital of France?",
+            "user_confirmed_online": confirmed,
+            "online_provider": provider,
+        })
+
+        assert result["answer_model"] == answer_model
+        assert len(seen) == 1
+        assert seen[0]["grounding_context"] is None
 
 
 class TestLLMIdentityMappings:

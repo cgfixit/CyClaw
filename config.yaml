@@ -228,6 +228,8 @@ retrieval:
   # also 10 answerable questions whose answer sat in the context window: this
   # small cross-encoder scored reworded questions as irrelevant even with the
   # answering chunk in front of it. No threshold separated the two groups.
+  # A five-model bake-off (PR #1464, docs/audits/2026-09-26-reranker-bakeoff.md)
+  # found no model and threshold that passed its held-out probes either.
   min_rerank_score: null
 
 personality:
@@ -305,9 +307,12 @@ policy:
     #   0 -> allow the call; 2 -> deny (route to audit_logger instead).
     # Any crash, timeout, or other non-zero exit fails closed (deny + audit).
     # Disabled by default; when disabled the pre-action checkpoint is a no-op.
+    # Do not set command to `numbat hook ...` (this file used to suggest it):
+    # the pinned Numbat 0.2.0 CLI exits 0 for CyClaw's payload, errors
+    # included, and this contract reads exit 0 as allow (issue #1458).
     pre_action_hook:
       enabled: false
-      command: []          # argv list, e.g. ["numbat", "hook", "pre-tool", "--agent", "cyclaw"]
+      command: []          # argv list, e.g. ["/usr/local/bin/my-gate"]
       timeout_sec: 5
       # Only "enforce" is supported today. "monitor" (allow the provider call
       # while still emitting + auditing) is a policy flip that must not ship
@@ -614,11 +619,20 @@ logging:
   audit_fields:
     include_query_hash: true
 
-# Numbat dual-write projection (issue #959 / #961). Since the mainline plane
-# landed this runs ON the request path but never in front of the answer: it
-# fires inside audit_log, at the terminal audit_logger node (I4), after the
-# response is already computed, and is fail-soft end to end -- a projection
-# failure degrades to a logger.warning and never reaches the caller.
+# Numbat dual-write projection (issue #959 / #961).
+# WHAT THIS SWITCH IS (issue #1458): numbat.enabled turns on ONE thing -- this
+# derived NDJSON file. It is not "Numbat enforcement" and arms no policy. The
+# other Numbat pieces each have their own switch, and all of them ship off or
+# outside the request path:
+#   * pre-action hook before Grok/Claude  -> policy.fallback.pre_action_hook (enabled: false)
+#   * CEL monitor rules on /query         -> numbat.cel.enabled below (false; monitor-only)
+#   * scoring by the Numbat CLI           -> CI only (.github/workflows/numbat-rules.yml);
+#                                            nothing scores the live file at runtime
+# Since the mainline plane landed this runs ON the request path but never in
+# front of the answer: it fires inside audit_log, at the terminal audit_logger
+# node (I4), after the response is already computed, and is fail-soft end to
+# end -- a projection failure degrades to a logger.warning and never reaches
+# the caller.
 # Emitter writes schema 0.3.0; CI pins the Numbat 0.2.0 CLI (that schema).
 # audit.jsonl stays authoritative; this is a derived forensic stream.
 # Two producer planes write here: the out-of-band action plane (agentic /
@@ -640,11 +654,24 @@ numbat:
   source_agent: "unknown"   # "cyclaw" is not a legal Numbat enum
   source_type: "hook"
   # CEL sanitizer backend (issue #1128 Slice B). Monitor-only: rules evaluate
-  # structured fields (query_hash, top_score, answer_model, guardrail_*,
-  # model_provider, source_hashes) and emit a low-confidence Numbat event on
-  # match. They do NOT block /query. The regex banned_patterns remain the
-  # fail-closed baseline. Disabled by default; when false, cel-python is not
-  # imported on the request path.
+  # structured fields (query_hash, top_score, answer_model, guardrail_blocked,
+  # guardrail_rails, model_provider, source_hashes) and emit a low-confidence
+  # Numbat event on match. They do NOT block /query. The regex banned_patterns
+  # remain the fail-closed baseline. Disabled by default; when false,
+  # cel-python is not imported on the request path. Enabling needs the extra:
+  #   pip install -e ".[numbat-cel]" -c constraints.txt
+  # A match is recorded as tool.result / tool_name "cel_monitor" /
+  # decision "allowed" (the request WAS allowed), tagged "rules:<indices>",
+  # with the query_hash in content_preview as the join key to rag_query.
+  # answer_model is the answer ROLE: local, offline-best-effort, grok, claude,
+  # hook-denied, guardrail-blocked, external-unavailable, or "" (the confirm
+  # pause). model_provider is "" when no model ran. Two vetted sample rules
+  # (tests/test_numbat_cel.py compiles and runs these exact strings):
+  #   rules:
+  #     - 'answer_model in ["grok", "claude"] && top_score < 0.05'
+  #     - 'answer_model == "hook-denied" || guardrail_blocked'
+  # The first flags an online escalation on a near-total vault miss, the
+  # second any request a control refused.
   cel:
     enabled: false
     rules: []               # list of CEL expression strings

@@ -190,3 +190,37 @@ def test_non_bool_enabled_raises(tmp_path, bad):
     with pytest.raises(GuardrailsConfigError, match="boolean"):
         load_guardrails_config(path)
     reset_config_cache()
+
+
+@pytest.mark.parametrize(
+    "field_name, name",
+    [
+        ("input_rails", "check_injecton"),  # a typo
+        ("input_rails", "check_grounding"),  # an output rail in the input list
+        ("output_rails", "check_soul_leek"),
+        ("topical_rails", "stay_local"),
+    ],
+)
+def test_unknown_rail_name_raises(tmp_path, field_name, name):
+    # A name outside its list's known set matched nothing, so that rail was
+    # silently off while the config said it was on.
+    path = _write_config(tmp_path, {field_name: [name]})
+    with pytest.raises(GuardrailsConfigError, match="unknown rail name"):
+        load_guardrails_config(path)
+    reset_config_cache()
+
+
+def test_shipped_rail_lists_are_all_known():
+    shipped = yaml.safe_load((_REPO_ROOT / "config.yaml").read_text(encoding="utf-8"))["guardrails"]
+    GuardrailsConfig(
+        input_rails=shipped["input_rails"],
+        output_rails=shipped["output_rails"],
+        topical_rails=shipped["topical_rails"],
+    )
+
+
+def test_known_rail_names_match_the_profiles_vocabulary():
+    from guardrails.config import DEFAULT_INPUT_RAILS, DEFAULT_OUTPUT_RAILS
+    from guardrails.profiles import CONFIGURED_UNIMPLEMENTED, IMPLEMENTED_RAILS
+
+    assert set(DEFAULT_INPUT_RAILS) | set(DEFAULT_OUTPUT_RAILS) == IMPLEMENTED_RAILS | CONFIGURED_UNIMPLEMENTED

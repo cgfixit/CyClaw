@@ -1,6 +1,23 @@
-# Non-blocking Numbat rules-test against committed fixtures plus a live
-# executor-jail run (#961 / #965). Pins CLI 0.2.0 (schema 0.3.0).
-# Does not gate merges. Does not edit ci.yml.
+# The pinned Numbat CLI 0.2.0 (schema 0.3.0) against CyClaw's Numbat stream.
+#
+#   numbat-rules-fixture (advisory, continue-on-error; #961 / #965): committed
+#     hand-written fixtures plus a live executor-jail run.
+#   numbat-stream-contract (blocking; issue #1458 Phase 4): the events
+#     CyClaw's production producers actually write (tests/numbat_shaped_events.py:
+#     mainline audit projection, pre-action hook verdicts, CEL monitor, ops /
+#     fsconnect / sqlconnect action plane) must load in the pinned CLI with
+#     zero findings; CyClaw-shaped exfil and secret-read events must still fire
+#     the rules that catch them; and every event must validate against the
+#     schema-0.3.0 JSON contract shipped inside the same pinned release.
+#   numbat-cel (blocking; issue #1458 Phase 3): tests/test_numbat_cel.py with
+#     cel-python installed. The unit lanes do not install it, so its evaluator
+#     tests only ever skipped there; CYCLAW_REQUIRE_CELPY=1 turns a missing
+#     evaluator into a failure here instead of a skip.
+#
+# "Blocking" means no continue-on-error: a failure turns this workflow red.
+# Whether a check is REQUIRED to merge is a GitHub ruleset setting, not
+# something this file can set. No live LLM, no full pytest, no installer here,
+# and this file does not edit ci.yml.
 name: Numbat rules fixture
 
 on:
@@ -80,3 +97,98 @@ jobs:
           python -m pytest --noconftest \
             tests/test_numbat_rules_fixtures.py::test_executor_jail_live_events_have_zero_rule_hits \
             -q --tb=short
+
+  numbat-stream-contract:
+    name: CyClaw-shaped stream vs numbat 0.2.0 + schema 0.3.0
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install numbat 0.2.0 (linux amd64) and its schema-0.3.0 contract
+        run: |
+          set -euo pipefail
+          # The schema files ship in the same checksummed release archive as
+          # the binary, so the JSON contract can never drift from the CLI.
+          curl -fsSL --retry 3 --retry-all-errors -o /tmp/numbat.tgz \
+            https://github.com/perplexityai/numbat/releases/download/v0.2.0/numbat_0.2.0_linux_amd64.tar.gz
+          echo "6513d8cec69ea4a55667b0a764b93b7cef8fe814c2ef9e2535aaf438f11f1548  /tmp/numbat.tgz" | sha256sum -c -
+          mkdir -p /tmp/numbat
+          tar -xzf /tmp/numbat.tgz -C /tmp/numbat
+          sudo install -m 0755 /tmp/numbat/numbat /usr/local/bin/numbat
+          numbat version | grep -Fx "numbat 0.2.0 (schema 0.3.0)"
+          test -f /tmp/numbat/docs/schema/v0.3.0/event-record.schema.json
+
+      - name: Committed CyClaw-shaped fixtures score as expected
+        run: |
+          numbat rules test \
+            --fixture tests/fixtures/numbat/cyclaw-shaped-events.ndjson \
+            --expect-none
+          numbat rules test \
+            --fixture tests/fixtures/numbat/cyclaw-shaped-known-bad.ndjson \
+            --expect exfil.curl_post_file \
+            --expect secrets.read_private_key
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          # Same ad hoc tool pins as the job above, so the same cache key.
+          cache-dependency-path: .github/workflows/numbat-rules.yml
+
+      - name: Live producers vs the pinned CLI and schema
+        env:
+          NUMBAT: /usr/local/bin/numbat
+          NUMBAT_SCHEMA_DIR: /tmp/numbat/docs/schema/v0.3.0
+          CYCLAW_REQUIRE_NUMBAT: "1"
+          GROK_API_KEY: dummy
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          # jsonschema validates the published Draft 2020-12 contract, which
+          # also covers what `rules test` accepts without checking (unknown
+          # top-level keys, missing required fields, the endpoint object).
+          # --noconftest for the same reason as the job above.
+          python -m pip install --disable-pip-version-check pytest==9.1.1 pyyaml==6.0.3 jsonschema==4.26.0
+          python -m pytest --noconftest tests/test_numbat_cyclaw_shaped.py -q --tb=short -o addopts=""
+
+  numbat-cel:
+    name: CEL monitor with cel-python installed
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          # cel-python and its transitive pins live in constraints.txt; the
+          # tool pins live in this file. Either changing invalidates the cache.
+          cache-dependency-path: |
+            .github/workflows/numbat-rules.yml
+            constraints.txt
+
+      - name: Install the numbat-cel extra's pin
+        run: |
+          python -m pip install --disable-pip-version-check -c constraints.txt \
+            cel-python==0.5.0 pytest==9.1.1 pyyaml==6.0.3
+
+      - name: CEL monitor tests must run, not skip
+        env:
+          CYCLAW_REQUIRE_CELPY: "1"
+          GROK_API_KEY: dummy
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          python -m pytest --noconftest tests/test_numbat_cel.py -q --tb=short -o addopts="" -rs

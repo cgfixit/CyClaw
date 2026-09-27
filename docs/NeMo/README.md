@@ -32,8 +32,12 @@ or override a deterministic denial.
 The core six (`gate.py` / `gate_ops.py` / `gate_auth.py` / `gate_memory.py` / `graph.py` / `mcp_hybrid_server.py`) never import `guardrails`.
 
 Shipped default: `guardrails.enabled: false` (literal bool `True` required to
-arm). Do not treat a YAML string `"false"` as off-by-truthiness — the bridge
-uses `is True`. Tests pin the tracked file stays false
+arm). The bridge uses `is True`, and gate.py refuses to boot on any
+non-boolean value (`"true"`, `"false"`, `1`) through
+`utils.config_validation.validate_guardrails_config`: a quoted `"true"` used
+to leave every guard silently off. An unknown name in `input_rails`,
+`output_rails` or `topical_rails` is refused when the layer loads. Tests pin
+the tracked file stays false
 (`test_shipped_config_yaml_guardrails_enabled_is_literal_false`). CI may overlay `true`
 under `CYCLAW_NEMO_RUNTIME=1` (`.github/workflows/nemo-guardrails.yml`).
 
@@ -43,9 +47,9 @@ The former harness console rows (`:8790` `/api/chat`, `/api/web`, `/api/agent/ru
 
 | Path | Provider / model | Input | Retrieval | Output | Tool | Failure mode | Actual engine |
 |---|---|---|---|---|---|---|---|
-| `POST /query` high-score | local Qwen via Ollama (`models.local_llm`) | `guardrail_input` → offline `check_input` (injection + soul-mutation) when enabled; pass-through when disabled | untrusted chunks; provenance IDs; **no** NeMo retrieval rail | `guardrail_output` → offline `check_output` (token-overlap grounding vs `answer_sources` **and** `detect_soul_leak`) when enabled | none | disabled = pass-through; live NeMo missing/error = **degrade** (`guardrail_skipped`), offline floor still ran | **Python offline floor** on graph nodes. When enabled+NeMo installed, `GuardrailBroker` runs NVIDIA `check()` around the **existing** `client.generate` (`_generate_or_error`). No 13th node. No `generate_async`. |
-| `POST /query` low-score offline | same local model, `offline_best_effort` | same `guardrail_input` | same | **no** `check_output` (4a is `local_llm` only) | none | same degrade | offline floor on input only |
-| `POST /query` Grok / Claude | allowlisted `api.x.ai` / `api.anthropic.com` after I3 | gateway sanitizer, then `pre_action_hook_*`; this route bypasses `guardrail_input` | local context **not** forwarded by default | **no** output grounding rail | none | I3 deny → audit; hook deny → audit | no NeMo |
+| `POST /query` high-score | local Qwen via Ollama (`models.local_llm`) | `guardrail_input` → offline `check_input` (injection + soul-mutation) when enabled; pass-through when disabled | untrusted chunks; provenance IDs; **no** NeMo retrieval rail | `guardrail_output` → offline `check_output` (token-overlap grounding vs `answer_sources` **and** `detect_soul_leak`) when enabled. With NeMo installed, the `check()` output rails ground against the same text | none | disabled = pass-through; live NeMo missing/error = **degrade** (`guardrail_skipped`), offline floor still ran | **Python offline floor** on graph nodes. When enabled+NeMo installed, `GuardrailBroker` runs NVIDIA `check()` around the **existing** `client.generate` (`_generate_or_error`). No 13th node. No `generate_async`. |
+| `POST /query` low-score offline | same local model, `offline_best_effort` | same `guardrail_input` | same | **no** `check_output` (4a is `local_llm` only). With NeMo installed, the `check()` output rails run with grounding out of scope, so soul leak is the one output check | none | same degrade | offline floor on input; with NeMo installed, `check()` around the generate as in the row above |
+| `POST /query` Grok / Claude | allowlisted `api.x.ai` / `api.anthropic.com` after I3 | gateway sanitizer, then `pre_action_hook_*`; this route bypasses `guardrail_input`. With NeMo installed, the `check()` input rails run before the provider call | local context **not** forwarded by default | **no** grounding (out of scope). With NeMo installed, the `check()` output rails run after the call, so soul leak is checked | none | I3 deny → audit; hook deny → audit | NeMo `check()` around the provider call when enabled+installed; otherwise none |
 | MCP retrieval | embeddings + BM25 | sanitizer only | retrieval-only, `sampling: None` | n/a | n/a | fail closed on sanitizer | no NeMo |
 | `safe_generate` / `guardrail_safety_node` | optional `LLMRails.generate_async` | offline floor then NeMo | context-role `relevant_chunks` | token-overlap after generate | none | degrade on load/provider error | **unused example**. Wiring it into the graph would double-generate. **Do not.** |
 | `agentic/executor` | n/a | n/a | n/a | n/a | argv-list inside `production_sandbox()` | **Windows** Job Object (`KILL_ON_JOB_CLOSE`; sockets still work). **Darwin** `sandbox-exec` profile (deny network + off-cwd writes). **Linux** `unshare --net`. Missing binary / EPERM → `HardSandboxUnavailable` (no `ArgvListSandbox` in production). Approve is digest-bound; `prove_disposable_copy` before finalize. | no NeMo |
@@ -79,9 +83,9 @@ Configured but **not** enforced on the offline floor (must stay public):
 
 ## Route grounding labels
 
-- `local_llm`: token-overlap on `answer_sources` (graph `guardrail_output`).
-- `grok` / `claude`: **no** grounding claim; destination allowlisted.
-- `offline_best_effort`: still **no** `check_output`. Do not silently widen.
+- `local_llm`: token-overlap on `answer_sources` (graph `guardrail_output`). The NeMo `check()` output rails ground against the same text.
+- `grok` / `claude`: **no** grounding claim; destination allowlisted. The NeMo `check()` output rails run with grounding out of scope.
+- `offline_best_effort`: still **no** `check_output`. Do not silently widen. The NeMo `check()` output rails run with grounding out of scope.
 
 Retrieval chunks are untrusted `SourceProvenance`. IDs only (`source:chunk_id`) — never raw text in metrics.
 

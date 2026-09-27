@@ -206,7 +206,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `utils/personality.py` | Soul versioning, SHA-256 drift detection, injection gate on write |
 | `utils/personality_db.py` | Soul DB backend: SQLite default, Postgres via `CYCLAW_DB_URL` |
 | `utils/logger.py` | Audit JSONL; SHA-256 query hashing, recursive PII redaction. Since the Numbat mainline plane landed, `audit_log` also projects each **already-redacted** record into the derived NDJSON stream via a lazy, fail-soft `utils/numbat_emitter` call — `audit.jsonl` stays authoritative |
-| `utils/numbat_emitter.py` | Derived Numbat NDJSON stream (`logs/numbat-events.ndjsonl`, `numbat:` block ships **enabled**). Two producer planes: the out-of-band **action** plane (`emit_numbat_event`/`emit_numbat_command` from `agentic/*` + `ops_runner`) and the **mainline** plane (`project_audit_record`, every audit record). Events that already emit directly are listed in `_AUDIT_ACTION_PLANE_EVENTS` so they aren't written twice — keep that set in step with the emit sites. Stdlib-only and fail-soft on purpose: it is lazy-imported *inside* gate/graph processes on every `audit_log`, so it must never raise |
+| `utils/numbat_emitter.py` | Derived Numbat NDJSON stream (`logs/numbat-events.ndjsonl`, `numbat:` block ships **enabled** -- and that switch is this file only, not Numbat enforcement: the pre-action hook (`policy.fallback.pre_action_hook`) and CEL monitor (`numbat.cel`) ship off, and the Numbat CLI scores events in CI only, issue #1458). Two producer planes: the out-of-band **action** plane (`emit_numbat_event`/`emit_numbat_command` from `agentic/*` + `ops_runner`) and the **mainline** plane (`project_audit_record`, every audit record). Events that already emit directly are listed in `_AUDIT_ACTION_PLANE_EVENTS` so they aren't written twice — keep that set in step with the emit sites. Stdlib-only and fail-soft on purpose: it is lazy-imported *inside* gate/graph processes on every `audit_log`, so it must never raise |
 | `utils/ratelimit.py` | Per-IP rate limiting; in-memory / SQLite / Postgres |
 | `utils/health.py` | `check_all()` behind `/health`; probes Grok/Claude only when `api.health_probe_external_providers` is true (ships **false** — `/health` is unauthenticated and unrate-limited, so probing there is operator-triggerable third-party egress), and even then skips a provider whose key is unset |
 | `utils/errors.py` | Typed exception hierarchy rooted at `RAGError` |
@@ -241,7 +241,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `127.0.0.1:8787` | `api.host`/`api.port` | loopback only, never a public interface |
 | `0.028` | `retrieval.min_score` | **RRF scale**, not cosine. Gates only when no hit has a cosine (keyword-only degrade). Dual rank-0 ceiling is `2/60 ≈ 0.0333` |
 | `0.30` | `retrieval.min_semantic_score` | Cosine floor on the **best** semantic hit; the vault-hit gate whenever cosines are present |
-| `null` | `retrieval.min_rerank_score` | Shadow mode: the cross-encoder's best **logit** over the context window is audited, nothing is vetoed. A number turns on a veto that can only turn a cosine hit into a miss. The pre-registered `0.0` was measured and rejected in PR #1463: it removed every look-alike and 10 answerable questions whose answer was in the window |
+| `null` | `retrieval.min_rerank_score` | Shadow mode: the cross-encoder's best **logit** over the context window is audited, nothing is vetoed. A number turns on a veto that can only turn a cosine hit into a miss. The pre-registered `0.0` was measured and rejected in PR #1463: it removed every look-alike and 10 answerable questions whose answer was in the window. A five-model bake-off (PR #1464, `docs/audits/2026-09-26-reranker-bakeoff.md`) found no model and threshold that passed its held-out probes either |
 | `60` | `retrieval.rrf_k` | RRF fusion constant |
 | `780` | `api.graph_timeout_sec` | must exceed `local_llm.timeout_sec` (720) |
 | `720` / `4096` | `local_llm.timeout_sec` / `max_tokens` | sized for dense ~27B MLX on M5 Pro class 307 GB/s (48 GB unified) — match the shipped default. Decode tok/s is **not** a config value; measure with `scripts/measure_local_llm_throughput.py` |
@@ -830,13 +830,14 @@ three `test` legs are release gates (a failing Windows result is not masked).
 Inside `ci.yml` the only job carrying `continue-on-error` is `verify-skills`;
 every other job (including the three `test` legs, `invariant-guard`, and
 packaging) fails the workflow. Advisory lanes elsewhere are
-`numbat-rules.yml`, `lint.yml`'s broader-Ruff and WPS steps (its F/B/S gate
-blocks), and best-effort steps in the
+`numbat-rules.yml`'s original hand-fixture job (its `numbat-stream-contract`
+and `numbat-cel` jobs block, issue #1458), `lint.yml`'s broader-Ruff and WPS
+steps (its F/B/S gate blocks), and best-effort steps in the
 nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources:
 `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`,
 `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
 all external deps — no live services required. The full test-file list is
-discoverable in `tests/` (212 `test_*.py` files including the two under
+discoverable in `tests/` (214 `test_*.py` files including the two under
 `tests/nemo_runtime/`, auto-collected by pytest).
 
 ---
