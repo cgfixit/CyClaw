@@ -32,11 +32,15 @@ legacy_email="cyclaw-agent@users.noreply.github.com"
 # --unset refuses to touch a key with more than one, so every value is read
 # and only the old default's are removed, by an anchored pattern.
 local_emails=$(git config --local --get-all user.email 2>/dev/null)
+effective_email=$(git config --local --get user.email 2>/dev/null)
 if grep -Fxq "$legacy_email" <<<"$local_emails"; then
   git config --local --unset-all user.email '^cyclaw-agent@users\.noreply\.github\.com$'
-  # The old default name goes with its email. Beside an email someone chose,
-  # the name is theirs too, so it is only removed together with the old email.
-  git config --local --unset-all user.name '^CyClaw Agent$' 2>/dev/null
+  # The old default name goes with its email, and only when that email was
+  # the one in effect. Beside an email someone chose, including one added
+  # after the old pin, the name is theirs too.
+  if [ "$effective_email" = "$legacy_email" ]; then
+    git config --local --unset-all user.name '^CyClaw Agent$' 2>/dev/null
+  fi
 fi
 # Report what the next commit will actually carry. GIT_AUTHOR_* and
 # GIT_COMMITTER_* environment variables outrank user.name/user.email, so ask

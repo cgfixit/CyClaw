@@ -334,6 +334,20 @@ def test_session_hook_removes_the_old_pin_from_a_multivalued_email(tmp_path: Pat
 
 
 @_needs_posix_bash_and_git
+def test_session_hook_keeps_the_name_when_a_later_email_is_in_effect(tmp_path: Path) -> None:
+    # The old address was pinned first and an email added after it is the one
+    # git uses: the old address goes, but "CyClaw Agent" now names that later
+    # email, and removing it would leave a useConfigOnly repo with no author.
+    repo = _hook_repo(tmp_path)
+    _add_local_git_config(repo, tmp_path, "user.email", _LEGACY_EMAIL)
+    _add_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
+    _set_local_git_config(repo, tmp_path, "user.name", _LEGACY_NAME)
+    assert _run_sync_hook(repo, tmp_path).returncode == 0
+    assert _local_git_config_all(repo, tmp_path, "user.email") == ["someone@example.com"]
+    assert _local_git_config(repo, tmp_path, "user.name") == _LEGACY_NAME
+
+
+@_needs_posix_bash_and_git
 def test_session_hook_reports_an_incomplete_identity(tmp_path: Path) -> None:
     # GIT_COMMITTER_* alone leaves the author unset, and git refuses the
     # commit. user.useConfigOnly stops git guessing an author from the host,
