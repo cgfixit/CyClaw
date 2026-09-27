@@ -163,7 +163,8 @@ def test_main_maps_typed_errors_and_does_not_mask_untyped_bugs(tmp_path, monkeyp
         cli.main(["--config", cp, "status"])
 
 
-def test_main_wires_logging_before_dispatch(tmp_path, monkeypatch):
+@pytest.mark.usefixtures("isolated_logging")
+def test_main_wires_logging_before_dispatch(tmp_path):
     """main() must call setup_logging before dispatch, not leave it uncalled.
 
     Before this fix, this entrypoint never called setup_logging: its own
@@ -181,23 +182,14 @@ def test_main_wires_logging_before_dispatch(tmp_path, monkeypatch):
     cfg_p.write_text(yaml.safe_dump(doc), encoding="utf-8")
     cfg_path = str(cfg_p)
 
-    monkeypatch.setattr(logger_mod, "_logging_initialized", False)
     real_root = logging.getLogger()
-    before = list(real_root.handlers)
-    try:
-        assert cli.main(["--config", cfg_path, "status"]) == 0
+    assert cli.main(["--config", cfg_path, "status"]) == 0
 
-        logging.getLogger("agentic.sqlconnect.wiring_regression_test").warning("sqlconnect-cli-wiring-marker")
-        for handler in real_root.handlers:
-            handler.flush()
-        assert log_path.exists(), "main() did not call setup_logging with the loaded config"
-        assert "sqlconnect-cli-wiring-marker" in log_path.read_text(encoding="utf-8")
-    finally:
-        for handler in list(real_root.handlers):
-            if handler not in before:
-                real_root.removeHandler(handler)
-                handler.close()
-        logger_mod._logging_initialized = False
+    logging.getLogger("agentic.sqlconnect.wiring_regression_test").warning("sqlconnect-cli-wiring-marker")
+    for handler in real_root.handlers:
+        handler.flush()
+    assert log_path.exists(), "main() did not call setup_logging with the loaded config"
+    assert "sqlconnect-cli-wiring-marker" in log_path.read_text(encoding="utf-8")
 
 
 def test_main_maps_a_broken_log_file_to_env_exit_not_a_crash(tmp_path, monkeypatch):
