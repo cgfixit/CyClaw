@@ -867,6 +867,16 @@ def test_readiness_flags_a_setup_whose_decisions_exceed_timeout_sec(tmp_path, mo
     assert "timeout_sec (1 s)" in problem and str(tmp_path) not in problem
 
 
+def test_readiness_flags_a_rule_with_the_reserved_canary_id(tmp_path, monkeypatch):
+    # Every call denies on it (hook_misconfigured), though `rules check`
+    # accepts it as an ordinary rule.
+    _rules_dir(tmp_path, (numbat_gate.CANARY_RULE_ID, True))
+    _fake(monkeypatch)
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False
+    assert "reserved id" in problem and str(tmp_path) not in problem
+
+
 def test_readiness_flags_a_probe_decision_that_fails(tmp_path, monkeypatch):
     _rules_dir(tmp_path, ("acme.deny", True))
     _fake(monkeypatch, canary=False)

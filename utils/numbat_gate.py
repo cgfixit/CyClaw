@@ -816,7 +816,7 @@ def _readiness(cfg: dict[str, Any] | None, timeout: float) -> tuple[bool, str | 
     if check.returncode != 0:
         return False, "numbat rules check failed on the configured rules_dirs, so every external call is denied"
     try:
-        _, enforcing, active = _classify(dirs)
+        known, enforcing, active = _classify(dirs)
     except _RulesTooLarge:
         return False, "rules_dirs is too large for the gate to read, so every external call is denied"
     except _RulesDeadline:
@@ -824,6 +824,10 @@ def _readiness(cfg: dict[str, Any] | None, timeout: float) -> tuple[bool, str | 
                        "so external calls are likely to time out and be denied")
     except OSError:
         return False, "a rules file or directory could not be read, so every external call is denied"
+    if CANARY_RULE_ID in known:
+        # _evaluate refuses the reserved id before every call, whatever the
+        # rule says; `rules check` accepts it as an ordinary rule.
+        return False, f"a rule uses the reserved id {CANARY_RULE_ID}, so every external call is denied"
     if not active:
         return False, "no enabled rule in rules_dirs, so every external call is denied"
     if not enforcing:

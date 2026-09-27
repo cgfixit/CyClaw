@@ -149,8 +149,8 @@ test`) within one `timeout_sec` budget. Measured end to end at a median of
 4. Check `GET /health`: an enabled gate appears as service `pre_action_hook`,
    and `/health` reports `degraded` while the gate would deny every call
    (binary missing, wrong version, rules that fail `rules check`, no enabled
-   rule, a rules file or directory it cannot read, rule directories past the
-   read limits, a probe decision that fails or does not finish within
+   rule, a rule using the reserved id `cyclaw.gate.canary`, a rules file or
+   directory it cannot read, rule directories past the read limits, a probe decision that fails or does not finish within
    `timeout_sec`) or could never deny one (no `enforce: true` rule). The
    check ends with one probe decision, a real `rules test` run within the
    hook's own `timeout_sec`, so a setup that passes every other check but is
