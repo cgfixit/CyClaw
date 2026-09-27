@@ -63,9 +63,10 @@ fixture jobs run.
    `utils.numbat_emitter.build_event`, the builder the Numbat stream uses:
    `event_type: "network.indicator"`, `decision: "asked"`,
    `tool_name: "external_llm_call"`, `model` (the configured tag),
-   `model_provider` (`"xai"` or `"anthropic"`), `url` (the provider's
-   `base_url` with any userinfo, query and fragment removed, so a credential
-   configured into it never reaches a rule or a file),
+   `model_provider` (`"xai"` or `"anthropic"`), `url` (only the origin,
+   `scheme://host[:port]`, of the provider's `base_url`: userinfo, path,
+   query and fragment are dropped, so a credential configured into any of
+   them never reaches a rule or a file),
    `tags: ["cyclaw", "pre_action_hook", "<provider>"]`, and the
    `endpoint` host fields. The query is present only as its SHA-256, inside
    `content_preview`, and not at all when

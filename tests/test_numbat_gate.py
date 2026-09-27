@@ -310,7 +310,7 @@ def test_gate_event_is_a_schema_legal_egress_event(tmp_path, monkeypatch):
     assert event["tool_name"] == "external_llm_call"
     assert event["model"] == "grok-4.5"
     assert event["model_provider"] == "xai"
-    assert event["url"] == "https://api.x.ai/v1"
+    assert event["url"] == "https://api.x.ai"
     assert event["tags"] == ["cyclaw", "pre_action_hook", "grok"]
     assert event["evidence"]["artifact_type"] == "pre_action_hook"
     assert json.loads(event["content_preview"]) == {"query_hash": _HASH}
@@ -325,20 +325,22 @@ def test_gate_event_honors_the_query_hash_opt_out(tmp_path, monkeypatch):
     event = fake.fixture_events[0]
     assert "content_preview" not in event
     assert _HASH not in json.dumps(event)
-    assert event["url"] == "https://api.anthropic.com/v1"
+    assert event["url"] == "https://api.anthropic.com"
 
 
 def test_gate_event_url_carries_no_credentials(tmp_path, monkeypatch):
-    """endpoint_trust pins only the hostname, so userinfo or a key in the query
-    string could ride a configured base_url; rules see host and path only."""
+    """endpoint_trust pins only the hostname, so userinfo, a path segment or a
+    key in the query string could ride a configured base_url; rules see the
+    origin only."""
     _rules_dir(tmp_path, ("acme.deny", True))
     fake = _fake(monkeypatch)
     cfg = _cfg(tmp_path)
-    cfg["models"]["grok"]["base_url"] = "https://ops:s3cr3t-tok@api.x.ai/v1?api_key=k3y-val#frag"
+    cfg["models"]["grok"]["base_url"] = "https://ops:s3cr3t-tok@api.x.ai/p4th-tok/v1?api_key=k3y-val#frag"
     numbat_gate.evaluate("grok", "grok-4.5", _HASH, cfg, timeout=5)
     event = fake.fixture_events[0]
-    assert event["url"] == "https://api.x.ai/v1"
+    assert event["url"] == "https://api.x.ai"
     assert "s3cr3t-tok" not in json.dumps(event)
+    assert "p4th-tok" not in json.dumps(event)
     assert "k3y-val" not in json.dumps(event)
 
 
@@ -639,6 +641,51 @@ def _unlistable(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
         return real_scandir(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "scandir", _scandir)
+
+
+def test_a_wide_directory_stops_at_the_entry_cap_while_it_is_listed(tmp_path, monkeypatch):
+    # os.walk lists a whole directory before yielding it, so the cap could
+    # only fire after one very wide directory had been read in full. The
+    # walk now counts entries as they are listed and stops at the cap.
+    root = _rules_dir(tmp_path, ("acme.deny", True))
+    wide = root / "wide"
+    wide.mkdir()
+    for index in range(50):
+        (wide / f"f{index}.txt").write_text("", encoding="utf-8")
+    monkeypatch.setattr(numbat_gate, "_MAX_RULE_WALK_ENTRIES", 10)
+    real_scandir = os.scandir
+    listed: list[str] = []
+
+    class _Counting:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self._inner.__exit__(*exc)
+
+        def __iter__(self):
+            for entry in self._inner:
+                listed.append(entry.name)
+                yield entry
+
+    monkeypatch.setattr(os, "scandir", lambda path=".": _Counting(real_scandir(path)))
+    with pytest.raises(numbat_gate._RulesTooLarge):
+        numbat_gate._rule_files(root, numbat_gate._WalkBudget())
+    assert len(listed) == 11  # stopped at the cap, not after all 52 entries
+
+
+def test_the_walk_finds_nested_rules_in_sorted_order(tmp_path):
+    root = tmp_path / "rules"
+    for rel in ("b/z.yaml", "b/a.yml", "a.yaml", "c/d/e.yaml", "notes.txt"):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+    found = numbat_gate._rule_files(root, numbat_gate._WalkBudget())
+    assert [p.relative_to(root).as_posix() for p in found] == ["a.yaml", "b/a.yml", "b/z.yaml", "c/d/e.yaml"]
 
 
 def test_an_unlistable_rules_subdirectory_denies(tmp_path, monkeypatch):

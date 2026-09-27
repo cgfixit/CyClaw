@@ -77,7 +77,7 @@ PINNED_VERSION_LINE = "numbat 0.2.0 (schema 0.3.0)"
 DEFAULT_BINARY = "numbat"
 
 # Same pins as utils/endpoint_trust.py's online allowlist: only these hosts can
-# be reached, so a rule keyed on event.url sees exactly where the call goes.
+# be reached, so a rule keyed on event.url sees the host the call goes to.
 _DEFAULT_PROVIDER_URLS = {
     "grok": "https://api.x.ai/v1",
     "claude": "https://api.anthropic.com/v1",
@@ -236,27 +236,36 @@ def _rule_files(root: Path, walk: _WalkBudget, *, deadline: float | None = None)
     entry or file cap, _RulesDeadline once ``deadline`` has passed, and
     OSError for a directory it cannot list: the rules in it would otherwise
     drop out of the decision unseen, as an unreadable file would.
+
+    Entries are counted one at a time as os.scandir yields them. os.walk
+    lists a whole directory before yielding it, so one very wide directory
+    would be read in full before any cap or the deadline could stop it.
     """
     found: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root, onerror=_raise_walk_error):
-        if deadline is not None and time.monotonic() > deadline:
-            raise _RulesDeadline
-        dirnames.sort()
-        walk.entries += len(dirnames) + len(filenames)
-        if walk.entries > _MAX_RULE_WALK_ENTRIES:
-            raise _RulesTooLarge(f"more than {_MAX_RULE_WALK_ENTRIES} entries")
-        for name in sorted(filenames):
-            path = Path(dirpath) / name
-            if path.suffix in _RULE_SUFFIXES and path.is_file():
-                found.append(path)
-                walk.files += 1
-                if walk.files > _MAX_RULE_FILES:
-                    raise _RulesTooLarge(f"more than {_MAX_RULE_FILES} rule files")
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        subdirs: list[str] = []
+        rule_files: list[Path] = []
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if deadline is not None and time.monotonic() > deadline:
+                    raise _RulesDeadline
+                walk.entries += 1
+                if walk.entries > _MAX_RULE_WALK_ENTRIES:
+                    raise _RulesTooLarge(f"more than {_MAX_RULE_WALK_ENTRIES} entries")
+                if entry.is_dir(follow_symlinks=False):
+                    subdirs.append(entry.path)
+                elif Path(entry.name).suffix in _RULE_SUFFIXES and entry.is_file():
+                    rule_files.append(Path(entry.path))
+                    walk.files += 1
+                    if walk.files > _MAX_RULE_FILES:
+                        raise _RulesTooLarge(f"more than {_MAX_RULE_FILES} rule files")
+        # Sorted, depth first, as os.walk visited them, so the order of the
+        # rules does not depend on the order the filesystem lists them in.
+        found.extend(sorted(rule_files))
+        pending.extend(Path(path) for path in sorted(subdirs, reverse=True))
     return found
-
-
-def _raise_walk_error(exc: OSError) -> None:
-    raise exc
 
 
 def _read_rule(path: Path, total_bytes: int) -> bytes:

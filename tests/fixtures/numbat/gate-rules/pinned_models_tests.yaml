@@ -7,7 +7,7 @@ cases:
         tags: [cyclaw, pre_action_hook, grok]
         model: grok-4.5
         model_provider: xai
-        url: https://api.x.ai/v1
+        url: https://api.x.ai
   - name: vetted-claude
     expect: no_match
     events:
@@ -15,7 +15,7 @@ cases:
         tags: [cyclaw, pre_action_hook, claude]
         model: claude-sonnet-5
         model_provider: anthropic
-        url: https://api.anthropic.com/v1
+        url: https://api.anthropic.com
   - name: unvetted-model
     expect: match
     events:
@@ -23,7 +23,7 @@ cases:
         tags: [cyclaw, pre_action_hook, grok]
         model: grok-5-preview
         model_provider: xai
-        url: https://api.x.ai/v1
+        url: https://api.x.ai
   - name: not-a-gate-event
     expect: no_match
     events:

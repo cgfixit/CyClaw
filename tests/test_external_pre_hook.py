@@ -342,7 +342,7 @@ def test_allow_verdict_is_emitted_as_the_egress_about_to_happen(tmp_path: Path, 
     rec = records[0]
     assert rec["event_type"] == "network.indicator"
     assert rec["decision"] == "allowed"
-    assert rec["url"] == "https://api.x.ai/v1"
+    assert rec["url"] == "https://api.x.ai"
     assert rec["confidence"] == "high"
     assert rec["tags"] == ["cyclaw", "pre_action_hook", "hook_allowed", "engine:command"]
     assert rec["evidence"]["artifact_type"] == "pre_action_hook"
@@ -351,15 +351,16 @@ def test_allow_verdict_is_emitted_as_the_egress_about_to_happen(tmp_path: Path, 
 
 def test_verdict_url_carries_no_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """utils/endpoint_trust.py pins only the hostname, so a base_url with
-    userinfo or a key in its query passes it; the persistent stream must not
-    keep either."""
+    userinfo, a path segment or a key in its query passes it; the persistent
+    stream keeps only the origin."""
     cfg = _hook_config(tmp_path)
-    cfg["models"] = {"grok": {"base_url": "https://ops:s3cr3t-tok@api.x.ai/v1?api_key=k3y-val#frag"}}
+    cfg["models"] = {"grok": {"base_url": "https://ops:s3cr3t-tok@api.x.ai/p4th-tok/v1?api_key=k3y-val#frag"}}
     monkeypatch.setattr(subprocess, "run", _allow_run)
     run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
     raw = Path(cfg["numbat"]["output_path"]).read_text(encoding="utf-8")
-    assert json.loads(raw.splitlines()[0])["url"] == "https://api.x.ai/v1"
+    assert json.loads(raw.splitlines()[0])["url"] == "https://api.x.ai"
     assert "s3cr3t-tok" not in raw
+    assert "p4th-tok" not in raw
     assert "k3y-val" not in raw
 
 
