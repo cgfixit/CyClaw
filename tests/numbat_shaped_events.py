@@ -214,7 +214,11 @@ def _cel_match(cfg: dict[str, Any]) -> None:
 
 
 def _action_plane(cfg: dict[str, Any]) -> None:
-    """Same arguments as the ops_runner, fsconnect and sqlconnect call sites."""
+    """Arguments modeled on the ops_runner, fsconnect and sqlconnect call sites.
+
+    The event shapes are theirs; the values (the argv, the SQL text, the tags)
+    are illustrative, not copies of what those call sites pass.
+    """
     # ops_runner's argv[0] is sys.executable; a literal keeps the golden file
     # identical on every host. The redacted --reason= token is the part that
     # matters: before shlex.join it made the CLI reject the whole event.

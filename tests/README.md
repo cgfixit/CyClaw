@@ -90,7 +90,7 @@ new test files are auto-discovered and need neither coverage declaration.
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
 | `nemo_runtime/` | NeMo-guardrails runtime tests plus their own harness (`network_jail.py`, `mock_openai.py`); collected with the main suite and skipped unless the runtime lane is enabled. |
 | `executor_sandbox_double.py`, `spend_live_probe.py` | Helper doubles/probes, not `test_*`-named, so not collected. |
-| `numbat_shaped_events.py` | Drives every production Numbat producer (mainline audit projection, pre-action hook verdicts, CEL monitor, ops/fsconnect/sqlconnect) into a throwaway stream; `python -m tests.numbat_shaped_events --frozen --out ...` regenerates `fixtures/numbat/cyclaw-shaped-*.ndjson`. Not collected; `test_numbat_cyclaw_shaped.py` and `numbat-rules.yml`'s `numbat-stream-contract` job hold its output to the pinned Numbat CLI and schema (issue #1458). |
+| `numbat_shaped_events.py` | Drives one representative event per producer family (mainline audit projection, pre-action hook verdicts, CEL monitor, ops/fsconnect/sqlconnect; not the executor or `real_repo_loop`) into a throwaway stream; `python -m tests.numbat_shaped_events --frozen --out ...` regenerates `fixtures/numbat/cyclaw-shaped-*.ndjson`. Not collected; `test_numbat_cyclaw_shaped.py` and `numbat-rules.yml`'s `numbat-stream-contract` job hold its output to the pinned Numbat CLI and schema (issue #1458). |
 
 ## Conventions that bite
 

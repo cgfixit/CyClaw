@@ -283,7 +283,9 @@ def test_emit_failure_is_fail_soft(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(subprocess, "run", _exit_2)
 
-    def _boom(**kwargs):
+    def _boom(*args, **kwargs):
+        # *args: the event type is passed positionally; a **kwargs-only fake
+        # died with TypeError before raising the failure under test.
         raise RuntimeError("emit failed")
 
     monkeypatch.setattr("utils.numbat_emitter.emit_numbat_event", _boom)
