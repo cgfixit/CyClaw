@@ -8,7 +8,7 @@ the guardrails layer graduates from skeleton status these can be promoted into
 
 This module is part of a package that is NEVER imported by ``gate.py``,
 ``graph.py``, or ``mcp_hybrid_server.py`` -- that isolation is what preserves
-CyClaw's five security invariants by construction.
+CyClaw's six security invariants by construction.
 """
 
 from __future__ import annotations

@@ -2212,6 +2212,85 @@ class TestGenerateGuardRefusalsInAudit:
         assert result["audit_event"]["guardrail_rails"] == []
 
 
+class TestGenerateGuardDegradedInAudit:
+    """A Phase 3 check that could not run reaches the audit as degraded.
+
+    It used to come back as a clean pass, so audit.jsonl could not tell a
+    checked answer from an unchecked one, and on the Grok/Claude path check()
+    is the only rail.
+    """
+
+    @staticmethod
+    def _degraded_guard(calls: list[str]):
+        def _guard(client, prompt, **kwargs):
+            calls.append(client.generate(prompt))
+            return calls[-1], None, {"stage": "degraded", "rails": []}
+
+        return _guard
+
+    def test_an_unchecked_grok_answer_is_audited_as_degraded(self, tmp_path):
+        calls: list[str] = []
+        cfg = _make_cfg(tmp_path, mode="hybrid", grok_enabled=True)
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_LOW_SCORE_RESULTS), llm=MockLocalLLM(), grok=MockGrokClient(),
+            cfg=cfg, generate_guard=self._degraded_guard(calls),
+        )
+        result = graph.invoke({"query": "q", "user_confirmed_online": True, "online_provider": "grok"})
+        event = result["audit_event"]
+
+        assert len(calls) == 1
+        assert result["answer"] == calls[0]  # the model's answer, unchanged
+        assert event["model_used"] == "grok"
+        assert event["guardrail_degraded"] is True
+        assert event["guardrail_blocked"] is False
+
+    def test_an_unchecked_local_answer_keeps_its_sources_and_the_offline_rail(self, tmp_path):
+        calls: list[str] = []
+        judged: list[str] = []
+
+        def _output_guard(query, answer, context):
+            judged.append(answer)
+            return {"blocked": False}
+
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_HIGH_SCORE_RESULTS), llm=MockLocalLLM(), grok=None,
+            cfg=_make_cfg(tmp_path), output_guard=_output_guard,
+            generate_guard=self._degraded_guard(calls),
+        )
+        result = graph.invoke({"query": "What is Veeam immutability?"})
+        event = result["audit_event"]
+
+        assert result["answer"] == calls[0]
+        assert event["sources"]  # nothing refused, so the evidence stays
+        assert judged == [calls[0]]  # the offline output rail still judged it
+        assert event["guardrail_degraded"] is True
+        assert event["guardrail_blocked"] is False
+
+    def test_a_guard_that_raises_falls_back_once_and_is_audited_as_degraded(self, tmp_path):
+        llm = MockLocalLLM()
+
+        def _broken_guard(client, prompt, **kwargs):
+            raise RuntimeError("guard bug")
+
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_HIGH_SCORE_RESULTS), llm=llm, grok=None,
+            cfg=_make_cfg(tmp_path), generate_guard=_broken_guard,
+        )
+        result = graph.invoke({"query": "What is Veeam immutability?"})
+
+        assert result["answer_model"] == "local"
+        assert result["audit_event"]["guardrail_degraded"] is True
+
+    def test_a_clean_pass_is_not_degraded(self, tmp_path):
+        graph = build_graph(
+            retriever=MockRetriever(MOCK_HIGH_SCORE_RESULTS), llm=MockLocalLLM(), grok=None,
+            cfg=_make_cfg(tmp_path),
+            generate_guard=lambda client, prompt, **kwargs: (client.generate(prompt), None, None),
+        )
+        result = graph.invoke({"query": "What is Veeam immutability?"})
+        assert result["audit_event"]["guardrail_degraded"] is False
+
+
 class TestLLMIdentityMappings:
     """_llm_identity must not conflate distinct no-model states in audit.jsonl."""
 

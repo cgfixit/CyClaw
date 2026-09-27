@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
+import types
+
 import pytest
 
 from guardrails.config import GuardrailsConfig
@@ -77,19 +79,19 @@ def test_benign_query_degrades_when_disabled():
     assert m.counters["guardrail_skipped"] == 1
 
 
-def test_enabled_but_nemo_missing_degrades():
+def test_enabled_but_nemo_missing_degrades(monkeypatch):
+    # Forced missing, so the test checks what its name says wherever it runs.
+    # Its old installed-NeMo branch expected blocked=False, but with 0.24
+    # installed safe_generate runs NeMo's generate_async, whose intent
+    # generation calls the model; with none reachable, that comes back blocked.
+    monkeypatch.setattr("guardrails.integration.NEMO_AVAILABLE", False)
     cfg = GuardrailsConfig(enabled=True)
     m = _metrics()
     res = _run(safe_generate("summarize the local notes", cfg=cfg, metrics=m))
     assert res["blocked"] is False
-    if NEMO_AVAILABLE:
-        # When the dep is present the live path is taken (no LM Studio in CI ->
-        # it will degrade via RailsLoadError, still blocked=False, active=False).
-        assert res["guardrails_active"] in (True, False)
-    else:
-        assert res["guardrails_active"] is False
-        assert res["reason"] == "nemoguardrails not installed"
-        assert m.counters["guardrail_skipped"] == 1
+    assert res["guardrails_active"] is False
+    assert res["reason"] == "nemoguardrails not installed"
+    assert m.counters["guardrail_skipped"] == 1
 
 
 def test_soul_topic_recorded():
@@ -357,6 +359,108 @@ def test_iorails_env_fails_engine_startup(monkeypatch):
     monkeypatch.setattr("guardrails.integration.NEMO_AVAILABLE", True)
     with pytest.raises(RailsLoadError, match="IORails is not supported"):
         get_cyclaw_guardrails(GuardrailsConfig(enabled=True))
+
+
+class _FakeNemo:
+    """Stands in for nemoguardrails: counts engine builds; ``fail`` makes the next build raise."""
+
+    def __init__(self) -> None:
+        self.builds = 0
+        self.fail: list[BaseException] = []
+
+    def from_path(self, _path):
+        self.builds += 1
+        if self.fail:
+            raise self.fail.pop(0)
+        return types.SimpleNamespace(models=[])
+
+    def llm_rails(self, _rails_config):
+        return object()
+
+
+@pytest.fixture
+def fake_nemo(monkeypatch):
+    from guardrails import integration
+
+    integration.reset_rails_singleton()
+    fake = _FakeNemo()
+    monkeypatch.setattr(integration, "NEMO_AVAILABLE", True)
+    monkeypatch.setattr(integration, "RailsConfig", types.SimpleNamespace(from_path=fake.from_path))
+    monkeypatch.setattr(integration, "LLMRails", fake.llm_rails)
+    monkeypatch.setattr(integration, "_apply_guardrails_config", lambda rails_config, cfg: None)
+    monkeypatch.setattr(integration, "suppress_onnx_telemetry", lambda **kwargs: None)
+    monkeypatch.setattr(integration, "register_actions", lambda rails, **kwargs: None)
+    monkeypatch.delenv("NEMO_GUARDRAILS_IORAILS_ENGINE", raising=False)
+    yield fake
+    integration.reset_rails_singleton()
+
+
+def _fail_builds(fake: _FakeNemo, n: int, cfg: GuardrailsConfig) -> None:
+    from guardrails.errors import RailsLoadError
+    from guardrails.integration import get_cyclaw_guardrails
+
+    fake.fail = [RuntimeError("rails.co: syntax error")] * n
+    for _ in range(n):
+        with pytest.raises(RailsLoadError, match="failed to load NeMo rails"):
+            get_cyclaw_guardrails(cfg)
+
+
+def test_breaker_opens_after_repeated_build_failures(fake_nemo):
+    from guardrails.errors import RailsLoadError
+    from guardrails.integration import _BREAKER_LIMIT, get_cyclaw_guardrails
+
+    cfg = GuardrailsConfig(enabled=True)
+    _fail_builds(fake_nemo, _BREAKER_LIMIT, cfg)
+    with pytest.raises(RailsLoadError, match="circuit breaker open"):
+        get_cyclaw_guardrails(cfg)
+    assert fake_nemo.builds == _BREAKER_LIMIT  # the open breaker did not build again
+
+
+def test_breaker_lets_one_build_through_after_the_cooldown(fake_nemo, monkeypatch):
+    # The old breaker was cleared only by a successful build, which it then
+    # never allowed: check() stayed off until the process restarted, even
+    # after the cause (a bad rails.co, fastembed offline) was fixed.
+    from guardrails import integration
+
+    now = [1000.0]
+    monkeypatch.setattr(integration.time, "monotonic", lambda: now[0])
+    cfg = GuardrailsConfig(enabled=True)
+    _fail_builds(fake_nemo, integration._BREAKER_LIMIT, cfg)
+    now[0] += integration._BREAKER_COOLDOWN_SEC + 1
+    engine = integration.get_cyclaw_guardrails(cfg)
+    assert engine is not None
+    assert integration.get_cyclaw_guardrails(cfg) is engine  # cached, breaker cleared
+    assert integration._breaker == {}
+
+
+def test_breaker_never_blocks_a_cached_engine_or_another_key(fake_nemo):
+    # One process-wide counter, checked before the cache, used to turn check()
+    # off for every key once any three builds failed.
+    from guardrails.errors import RailsLoadError
+    from guardrails.integration import _BREAKER_LIMIT, get_cyclaw_guardrails
+
+    built = get_cyclaw_guardrails(GuardrailsConfig(enabled=True, model="model-a"))
+    broken = GuardrailsConfig(enabled=True, model="model-b")
+    _fail_builds(fake_nemo, _BREAKER_LIMIT, broken)
+    with pytest.raises(RailsLoadError, match="circuit breaker open"):
+        get_cyclaw_guardrails(broken)
+    assert get_cyclaw_guardrails(GuardrailsConfig(enabled=True, model="model-a")) is built
+    assert get_cyclaw_guardrails(GuardrailsConfig(enabled=True, model="model-c")) is not None
+
+
+def test_an_action_registration_failure_is_a_failed_build(fake_nemo, monkeypatch):
+    from guardrails import integration
+    from guardrails.errors import RailsLoadError
+
+    def _register_fails(rails, **kwargs):
+        raise TypeError("register_action() got an unexpected keyword")
+
+    monkeypatch.setattr(integration, "register_actions", _register_fails)
+    cfg = GuardrailsConfig(enabled=True)
+    with pytest.raises(RailsLoadError, match="failed to load NeMo rails"):
+        integration.get_cyclaw_guardrails(cfg)
+    assert integration._rails_cache == {}
+    assert list(integration._breaker.values())[0][0] == 1
 
 
 @pytest.mark.skipif(not NEMO_AVAILABLE, reason="nemoguardrails not installed")

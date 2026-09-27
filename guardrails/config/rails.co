@@ -2,7 +2,7 @@
 # CyClaw guardrail flows (Colang 1.0)  [v0.1 skeleton]
 # =============================================================================
 # Advanced rails tailored to CyClaw's soul / personality boundaries. The *checks*
-# these flows call (check_injection, check_soul_mutation, get_grounding_score) are
+# these flows call (check_injection, check_soul_mutation, check_soul_leak, is_ungrounded) are
 # implemented in pure, unit-testable Python in guardrails/rails.py and registered
 # as NeMo actions at engine-build time. Colang here expresses ONLY *when* a rail
 # fires and what the bot says -- the policy logic stays in Python so the offline

@@ -12,6 +12,10 @@
 > **What's left:**
 > - Re-run this matrix after any future guardrails PR; no outstanding gap
 >   found in this pass. Not a delete candidate — it is the live reference doc.
+>
+> **2026-09-27:** the route table's failure modes and the engine notes now
+> describe `check()` degrades being audited (`guardrail_degraded`) and the
+> per-key circuit breaker. The As-of stamp below still dates the rest.
 
 **As-of 2026-08-27**, verified against `origin/main` **`d9b0f8cd`**. This file is
 the canonical description of what the live tree *does*. Historical phase
@@ -47,11 +51,11 @@ The former harness console rows (`:8790` `/api/chat`, `/api/web`, `/api/agent/ru
 
 | Path | Provider / model | Input | Retrieval | Output | Tool | Failure mode | Actual engine |
 |---|---|---|---|---|---|---|---|
-| `POST /query` high-score | local Qwen via Ollama (`models.local_llm`) | `guardrail_input` → offline `check_input` (injection + soul-mutation) when enabled; pass-through when disabled | untrusted chunks; provenance IDs; **no** NeMo retrieval rail | `guardrail_output` → offline `check_output` (token-overlap grounding vs `answer_sources` **and** `detect_soul_leak`) when enabled. With NeMo installed, the `check()` output rails ground against the same text | none | disabled = pass-through; live NeMo missing/error = **degrade** (`guardrail_skipped`), offline floor still ran | **Python offline floor** on graph nodes. When enabled+NeMo installed, `GuardrailBroker` runs NVIDIA `check()` around the **existing** `client.generate` (`_generate_or_error`). No 13th node. No `generate_async`. |
+| `POST /query` high-score | local Qwen via Ollama (`models.local_llm`) | `guardrail_input` → offline `check_input` (injection + soul-mutation) when enabled; pass-through when disabled | untrusted chunks; provenance IDs; **no** NeMo retrieval rail | `guardrail_output` → offline `check_output` (token-overlap grounding vs `answer_sources` **and** `detect_soul_leak`) when enabled. With NeMo installed, the `check()` output rails ground against the same text | none | disabled = pass-through; live NeMo missing/error = **degrade** (`guardrail_skipped`, and `guardrail_degraded` in `audit.jsonl`), offline floor still ran | **Python offline floor** on graph nodes. When enabled+NeMo installed, `GuardrailBroker` runs NVIDIA `check()` around the **existing** `client.generate` (`_generate_or_error`). No 13th node. No `generate_async`. |
 | `POST /query` low-score offline | same local model, `offline_best_effort` | same `guardrail_input` | same | **no** `check_output` (4a is `local_llm` only). With NeMo installed, the `check()` output rails run with grounding out of scope, so soul leak is the one output check | none | same degrade | offline floor on input; with NeMo installed, `check()` around the generate as in the row above |
-| `POST /query` Grok / Claude | allowlisted `api.x.ai` / `api.anthropic.com` after I3 | gateway sanitizer, then `pre_action_hook_*`; this route bypasses `guardrail_input`. With NeMo installed, the `check()` input rails run before the provider call | local context **not** forwarded by default | **no** grounding (out of scope). With NeMo installed, the `check()` output rails run after the call, so soul leak is checked | none | I3 deny → audit; hook deny → audit | NeMo `check()` around the provider call when enabled+installed; otherwise none |
+| `POST /query` Grok / Claude | allowlisted `api.x.ai` / `api.anthropic.com` after I3 | gateway sanitizer, then `pre_action_hook_*`; this route bypasses `guardrail_input`. With NeMo installed, the `check()` input rails run before the provider call | local context **not** forwarded by default | **no** grounding (out of scope). With NeMo installed, the `check()` output rails run after the call, so soul leak is checked | none | I3 deny → audit; hook deny → audit; `check()` unavailable → degrade, the answer goes out unchecked and is audited as `guardrail_degraded` | NeMo `check()` around the provider call when enabled+installed; otherwise none |
 | MCP retrieval | embeddings + BM25 | sanitizer only | retrieval-only, `sampling: None` | n/a | n/a | fail closed on sanitizer | no NeMo |
-| `safe_generate` / `guardrail_safety_node` | optional `LLMRails.generate_async` | offline floor then NeMo | context-role `relevant_chunks` | token-overlap after generate | none | degrade on load/provider error | **unused example**. Wiring it into the graph would double-generate. **Do not.** |
+| `safe_generate` / `guardrail_safety_node` | optional `LLMRails.generate_async` | offline floor then NeMo | context-role `relevant_chunks` | token-overlap after generate | none | degrade on load/provider error | not on the `/query` graph (`guardrail_safety_node` is the unused part). `python -m guardrails.cli check` runs it, and with NeMo installed its `generate_async` runs NeMo's intent generation, which calls the model. Wiring it into the graph would double-generate. **Do not.** |
 | `agentic/executor` | n/a | n/a | n/a | n/a | argv-list inside `production_sandbox()` | **Windows** Job Object (`KILL_ON_JOB_CLOSE`; sockets still work). **Darwin** `sandbox-exec` profile (deny network + off-cwd writes). **Linux** `unshare --net`. Missing binary / EPERM → `HardSandboxUnavailable` (no `ArgvListSandbox` in production). Approve is digest-bound; `prove_disposable_copy` before finalize. | no NeMo |
 
 MCP `tools/call` is **not** wrapped (I6).
@@ -125,7 +129,9 @@ as the response's `error`, not as a grounding block.
 ## Optional dependency
 
 `nemoguardrails==0.24.0` in the `guardrails` extra (and `constraints.txt`).
-IORails stays refused (`NEMO_GUARDRAILS_IORAILS_ENGINE` truthy fails startup).
+IORails stays refused: with `NEMO_GUARDRAILS_IORAILS_ENGINE` truthy the engine refuses to
+build, so `check()` degrades (skipped, and audited as `guardrail_degraded`). It does not
+stop the gateway from starting.
 Not in `full`. Soft-imported.
 
 Real engine construction is proven by `.github/workflows/nemo-guardrails.yml`
@@ -138,7 +144,9 @@ jail, plus `tests/nemo_runtime/test_enabled_check.py` (overlay `enabled: true`).
 - `rails.output.streaming.enabled: false` and `stream_first: false`.
 - Engine keyed by `(policy_fingerprint, provider, model, endpoint)`.
 - `nemo_config_dir` contained, no `..` / symlink escape / `agentic/` roots / unexpected executables.
-- Init lock, bounded semaphore, circuit breaker. Telemetry kill before import.
+- Init lock, bounded semaphore, and a circuit breaker per engine key: after 3 failed builds
+  that key waits 60 s before one more try, and a built engine is always served. Telemetry
+  kill before import.
 
 ## Metrics
 

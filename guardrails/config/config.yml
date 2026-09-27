@@ -82,7 +82,7 @@ rails:
       - check cyclaw jailbreak    # CyClaw bool action; not NVIDIA "check jailbreak"
   output:
     flows:
-      - check grounding           # offline action: get_grounding_score
+      - check grounding           # offline action: is_ungrounded (token-overlap floor)
       - check soul leak           # block identity/config exfiltration
       - check cyclaw facts        # CyClaw is_ungrounded; not NVIDIA "self check facts"
     # Official key for stream_first (NVIDIA output-rail-streaming). Default is

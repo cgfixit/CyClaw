@@ -228,9 +228,10 @@ def grounding_score(answer: str, context: str) -> float:
     """Fraction of answer tokens that also appear in the retrieved context.
 
     A fast, model-free proxy for RAG faithfulness: 1.0 means every content word
-    in the answer is supported by retrieved context; 0.0 means none are. The
-    NeMo ``self_check_facts`` output rail is the model-assisted complement -- this
-    heuristic is the offline floor that needs no second LLM call.
+    in the answer is supported by retrieved context; 0.0 means none are. It is
+    the only grounding check, offline and live (via ``is_ungrounded``): NeMo's
+    model-assisted ``self_check_facts`` rail is declared in config.yml but no
+    flow runs it, so no grounding decision makes a second LLM call.
 
     Returns 1.0 for an empty answer (nothing unsupported to flag) and 0.0 when
     there is no context to ground against but the answer has content.

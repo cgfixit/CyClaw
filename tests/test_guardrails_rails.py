@@ -239,8 +239,9 @@ def test_check_soul_leak_colang_uses_allowed_polarity():
     ``check_injection`` returns True when the text is ALLOWED. Naming the
     result ``$leaked`` inverted the English so the next editor who "fixed"
     ``if not $leaked`` would refuse every clean answer (or disable the rail).
-    The live /query path still does not run this flow — see
-    docs/NeMo/phase4b_soul_leak.md.
+    With ``nemoguardrails`` installed, the live /query path runs this flow
+    through Phase 3's ``check()`` on every answer (tests/nemo_runtime pins
+    it on the Grok path).
     """
     colang = Path("guardrails/config/rails.co").read_text(encoding="utf-8")
     start = colang.index("define flow check soul leak")

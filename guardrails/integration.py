@@ -21,6 +21,7 @@ import hashlib
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -80,17 +81,25 @@ class GuardResult(TypedDict, total=False):
 _rails_cache: dict[tuple[str, str, str, str], Any] = {}
 _rails_lock = threading.Lock()
 _rails_admit = threading.Semaphore(4)
-_breaker_failures = 0
+# Circuit breaker on engine builds, per cache key: (consecutive failures, when
+# the last one happened). After _BREAKER_LIMIT failures a key stops rebuilding
+# on every call, and after _BREAKER_COOLDOWN_SEC one call may try again. It
+# used to be one process-wide counter, checked before the cache and cleared
+# only by a successful build, which it then prevented: three failed builds
+# (a rails.co syntax error, or fastembed's first-use model fetch failing
+# offline) turned check() off for every key until the process restarted,
+# a fixed file and an already-cached engine included.
+_breaker: dict[tuple[str, str, str, str], tuple[int, float]] = {}
 _BREAKER_LIMIT = 3
+_BREAKER_COOLDOWN_SEC = 60.0
 _MAIN_MODEL_TYPES = frozenset({"main", "", None})
 
 
 def reset_rails_singleton() -> None:
-    """Drop cached ``LLMRails`` engines (tests / config reload)."""
-    global _breaker_failures
+    """Drop cached ``LLMRails`` engines and breaker state (tests / config reload)."""
     with _rails_lock:
         _rails_cache.clear()
-        _breaker_failures = 0
+        _breaker.clear()
 
 
 def _model_type(model: Any) -> str | None:
@@ -173,19 +182,13 @@ def get_cyclaw_guardrails(cfg: GuardrailsConfig | None = None) -> Any:
     loaded. Callers that want graceful degradation should use
     :func:`safe_generate` instead, which never raises for the missing-dep case.
     """
-    global _breaker_failures
     if cfg is None:
         cfg = load_guardrails_config()
     if not NEMO_AVAILABLE:
         raise GuardrailsDependencyError(
-            "nemoguardrails is not installed; install it to enable live rails "
-            "(`pip install nemoguardrails`). The skeleton runs without it.",
+            "nemoguardrails is not installed; install the pinned release to enable live rails "
+            "(the `guardrails` extra: nemoguardrails==0.24.0). The skeleton runs without it.",
             details={"degraded": True},
-        )
-    if _breaker_failures >= _BREAKER_LIMIT:
-        raise RailsLoadError(
-            "NeMo engine circuit breaker open",
-            details={"failures": _breaker_failures},
         )
     _refuse_iorails()
     if not cfg.nemo_config_present:
@@ -198,6 +201,13 @@ def get_cyclaw_guardrails(cfg: GuardrailsConfig | None = None) -> Any:
         cached = _rails_cache.get(key)
         if cached is not None:
             return cached
+        # Checked after the cache, so a built engine is always served.
+        failures, last_failure = _breaker.get(key, (0, 0.0))
+        if failures >= _BREAKER_LIMIT and time.monotonic() - last_failure < _BREAKER_COOLDOWN_SEC:
+            raise RailsLoadError(
+                "NeMo engine circuit breaker open",
+                details={"failures": failures, "retry_after_s": _BREAKER_COOLDOWN_SEC},
+            )
     admitted = _rails_admit.acquire(timeout=30)
     if not admitted:
         raise RailsLoadError("NeMo engine admission timeout", details={"timeout_s": 30})
@@ -216,18 +226,21 @@ def get_cyclaw_guardrails(cfg: GuardrailsConfig | None = None) -> Any:
             # apply_telemetry_kill() above, before any import.
             suppress_onnx_telemetry(force_import=True)
             rails = LLMRails(rails_config)
-        except RailsLoadError:
-            raise
+            # Inside the try: an engine whose actions failed to register is
+            # a failed build, counted by the breaker, never cached.
+            register_actions(rails, hallucination_threshold=cfg.hallucination_threshold)
         except Exception as exc:  # noqa: BLE001 - surface any NeMo load failure as RailsLoadError
             with _rails_lock:
-                _breaker_failures += 1
+                failures, _ = _breaker.get(key, (0, 0.0))
+                _breaker[key] = (failures + 1, time.monotonic())
+            if isinstance(exc, RailsLoadError):
+                raise
             raise RailsLoadError(
                 f"failed to load NeMo rails: {exc}", details={"dir": cfg.nemo_config_dir}
             ) from exc
-        register_actions(rails, hallucination_threshold=cfg.hallucination_threshold)
         with _rails_lock:
             _rails_cache[key] = rails
-            _breaker_failures = 0
+            _breaker.pop(key, None)
         return rails
     finally:
         _rails_admit.release()
@@ -442,8 +455,8 @@ async def safe_generate(
     # most likely to produce an ungrounded answer, yet the previous
     # ``if context`` guard skipped the check exactly then and let every
     # no-context generation through. The Colang ``check grounding`` flow
-    # (config/rails.co) always executes ``get_grounding_score`` and refuses below
-    # the floor, so skipping it here drifted the offline floor from the live rail.
+    # (config/rails.co) executes ``is_ungrounded`` (the same token-overlap score)
+    # and refuses below the floor, so skipping it here drifted the offline floor from the live rail.
     # ``grounding_score`` already returns 1.0 for an empty answer (nothing to
     # flag) and 0.0 when there is content but no supporting context, so the
     # unconditional call is well-defined for every input.

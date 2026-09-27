@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any
 
 
@@ -39,6 +39,10 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": {"message": "not found"}})
 
     def do_POST(self) -> None:  # noqa: N802
+        # Every POST is a model request (chat/completions): tests assert on
+        # the count to prove a path never calls the model.
+        with self.server.post_lock:  # type: ignore[attr-defined]
+            self.server.post_count += 1  # type: ignore[attr-defined]
         length = int(self.headers.get("Content-Length", "0") or "0")
         raw = self.rfile.read(length) if length else b""
         try:
@@ -80,7 +84,15 @@ class LoopbackOpenAIMock:
 
     def __init__(self) -> None:
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        self._httpd.post_count = 0  # type: ignore[attr-defined]
+        self._httpd.post_lock = Lock()  # type: ignore[attr-defined]
         self._thread = Thread(target=self._httpd.serve_forever, daemon=True)
+
+    @property
+    def posts(self) -> int:
+        """Model requests (POSTs) this mock has received."""
+        with self._httpd.post_lock:  # type: ignore[attr-defined]
+            return int(self._httpd.post_count)  # type: ignore[attr-defined]
 
     @property
     def base_url(self) -> str:

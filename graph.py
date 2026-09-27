@@ -47,14 +47,16 @@ class _GeneratingClient(Protocol):
 
 
 class GuardBlock(TypedDict):
-    """A Phase 3 check's refusal, as the injected generate_guard reports it.
+    """A Phase 3 check's outcome other than a clean pass, as generate_guard reports it.
 
     ``stage`` "input" means the check refused before the model ran, and
-    "output" that it replaced an answer the model did produce. ``rails``
-    names what refused (``nemo_check:<flow>``).
+    "output" that it replaced an answer the model did produce; ``rails``
+    names what refused (``nemo_check:<flow>``). "degraded" means a check
+    could not run (no engine, or ``check()`` raised) and nothing refused, so
+    the answer went out unchecked; ``rails`` is empty.
     """
 
-    stage: Literal["input", "output"]
+    stage: Literal["input", "output", "degraded"]
     rails: list[str]
 
 
@@ -116,11 +118,15 @@ class GraphState(TypedDict, total=False):
     served_model: str
     answer_sources: list[RetrievedDoc]
 
-    # Guardrail (Phase 2 offline input rail; only set when a guard is configured)
+    # Guardrail outcomes, only set when a guard is configured: the offline
+    # input/output rails (Phases 2 and 4) and the NeMo check() around each
+    # answer node's model call (Phase 3).
     guardrail_blocked: bool
     guardrail_rails: list[str]
-    # True when a configured guard raised and the node failed open (Decision 3).
-    # Distinct from guardrail_blocked so audit can tell "passed" from "degraded".
+    # True when a configured guard could not run and the answer went out
+    # unchecked (Decision 3): an offline rail that raised, or a Phase 3 check
+    # with no engine or a check() that raised. Distinct from guardrail_blocked
+    # so audit can tell "passed" from "degraded".
     guardrail_degraded: bool
 
     # Pre-action hook (issue #963)
@@ -295,10 +301,13 @@ def _generate_or_error(
 
     When ``generate_guard`` is injected (Phase 3 bridge), NVIDIA ``check()``
     runs around the existing generate, and the third element reports a
-    refusal (see GuardBlock). None (default) is the pre-Phase-3 path.
+    refusal or a check that could not run (see GuardBlock). A guard that
+    raises falls back to the unwrapped generate, reported as degraded. None
+    (default) is the pre-Phase-3 path.
     ``grounding_context`` is the retrieved text the answer must be grounded
     in, or None when the answer is not held to the vault.
     """
+    unchecked: GuardBlock | None = None
     if generate_guard is not None:
         try:
             return generate_guard(
@@ -311,14 +320,16 @@ def _generate_or_error(
             )
         except Exception:
             logger.warning("generate_guard raised; falling back to unwrapped generate", exc_info=True)
+            # The answer below is unchecked, so the audit must say degraded.
+            unchecked = {"stage": "degraded", "rails": []}
     try:
         if spend_context is None:
-            return client.generate(prompt), None, None
+            return client.generate(prompt), None, unchecked
         # Do not catch TypeError and retry without context: generate() may
         # already have billed a 200. Mocks accept **kwargs.
-        return client.generate(prompt, spend_context=spend_context), None, None
+        return client.generate(prompt, spend_context=spend_context), None, unchecked
     except RAGError as e:
-        return f"[{label} Error: {e.message}]", f"{e.code}: {e.message}", None
+        return f"[{label} Error: {e.message}]", f"{e.code}: {e.message}", unchecked
 
 
 def _record_guard_block(out: dict[str, Any], block: GuardBlock | None, *, sent_sources: bool = False) -> None:
@@ -330,8 +341,13 @@ def _record_guard_block(out: dict[str, Any], block: GuardBlock | None, *, sent_s
     answer_model keeps naming that model. Its sources are dropped, as
     guardrail_output_node drops them, except docs already forwarded to an
     external provider (``sent_sources``), which the audit must keep showing.
+    A degraded check changes nothing but ``guardrail_degraded``: the answer
+    and its sources are the model's, unchecked, and the audit says so.
     """
     if block is None:
+        return
+    if block["stage"] == "degraded":
+        out["guardrail_degraded"] = True
         return
     out["guardrail_blocked"] = True
     out["guardrail_rails"] = list(block["rails"])

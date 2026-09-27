@@ -85,6 +85,18 @@ def test_redact_argv_strips_reason_and_sql() -> None:
     assert "<redacted>" in joined
 
 
+def test_redact_argv_strips_an_fsconnect_search_pattern() -> None:
+    # /ops/fsconnect's grep text reached the stream verbatim while fsconnect's
+    # own audit record leaves it out; a search can be for a secret.
+    argv = ["python", "-m", "agentic.fsconnect.cli", "grep", "--root=docs", "--path=notes.md",
+            "--pattern=AKIAEXAMPLEKEY123"]
+    joined = redact_argv_for_numbat(argv)
+    assert "AKIAEXAMPLEKEY123" not in joined
+    assert "--pattern=<redacted>" in joined
+    assert "--root=docs" in joined and "--path=notes.md" in joined  # rules key on these
+    assert "AKIAEXAMPLEKEY123" not in redact_argv_for_numbat(["fsconnect", "--pattern", "AKIAEXAMPLEKEY123"])
+
+
 def test_redact_argv_is_one_shell_word_per_token() -> None:
     """The pinned CLI parses ``command`` as shell. A bare ``<redacted>`` read
     as a redirect and failed the whole event (issue #1458 Phase 4)."""

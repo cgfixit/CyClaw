@@ -12,6 +12,7 @@ from utils.config_validation import (
     validate_boot_timeout_config,
     validate_fallback_confirm_placeholder,
     validate_guardrails_config,
+    validate_numbat_config,
     validate_personality_config,
     validate_pre_action_hook_config,
     validate_retrieval_config,
@@ -439,6 +440,69 @@ def test_gate_validates_guardrails_before_building_the_guards():
         if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
             first_call.setdefault(value.func.id, node.lineno)
     assert first_call["validate_guardrails_config"] < first_call["build_input_guard"]
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        {},
+        {"numbat": None},
+        {"numbat": {}},
+        {"numbat": {"enabled": True}},
+        {"numbat": {"enabled": False}},
+        {"numbat": {"enabled": True, "cel": None}},
+        {"numbat": {"cel": {}}},
+        {"numbat": {"cel": {"enabled": True, "rules": []}}},
+        {"numbat": {"cel": {"enabled": False}}},
+    ],
+)
+def test_numbat_boolean_or_absent_switches_pass(cfg):
+    validate_numbat_config(cfg)
+
+
+@pytest.mark.parametrize("enabled", ["false", "off", "no", 0, None])
+def test_numbat_non_boolean_enabled_is_refused(enabled):
+    # The emitter reads enabled by truthiness with a default of on, so "false"
+    # (and "off", "no") kept writing the stream the operator meant to turn off.
+    with pytest.raises(ConfigError, match="numbat.enabled must be a boolean"):
+        validate_numbat_config({"numbat": {"enabled": enabled}})
+
+
+@pytest.mark.parametrize("block", [False, "off", 0, ["enabled"]])
+def test_numbat_block_must_be_a_mapping(block):
+    # numbat: false read as an absent block, and the stream stayed on.
+    with pytest.raises(ConfigError, match="must be a mapping"):
+        validate_numbat_config({"numbat": block})
+
+
+@pytest.mark.parametrize("cel", ["on", True, ["rule"]])
+def test_numbat_cel_block_must_be_a_mapping(cel):
+    with pytest.raises(ConfigError, match="numbat.cel must be a mapping"):
+        validate_numbat_config({"numbat": {"cel": cel}})
+
+
+@pytest.mark.parametrize("enabled", ["true", 1, None])
+def test_numbat_cel_non_boolean_enabled_is_refused(enabled):
+    # gate.py arms the CEL monitor only on the literal True, so "true" left it off.
+    with pytest.raises(ConfigError, match="numbat.cel.enabled must be a boolean"):
+        validate_numbat_config({"numbat": {"cel": {"enabled": enabled}}})
+
+
+def test_shipped_numbat_block_passes():
+    shipped = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
+    validate_numbat_config(shipped)
+
+
+def test_gate_validates_the_numbat_block_at_boot():
+    import ast
+
+    tree = ast.parse((Path(__file__).resolve().parent.parent / "gate.py").read_text(encoding="utf-8"))
+    calls = [
+        node.value.func.id
+        for node in tree.body
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)
+    ]
+    assert "validate_numbat_config" in calls
 
 
 def test_tls_disabled_skips_file_check(tmp_path):
