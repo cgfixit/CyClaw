@@ -1189,7 +1189,15 @@ What issue #1458 changed, and the boundaries that follow:
     on a worker thread the call abandons at `timeout_sec`, so a stalled
     mount cannot hold a request;
   - a binary that prints more than the engine reads, which is killed
-    rather than buffered.
+    rather than buffered;
+  - a rule the engine and Numbat's own loader could read differently. The
+    engine decides which matched rules deny, so it reads `enforce` and
+    `enabled` as Numbat's Go YAML loader does (YAML 1.1 short forms such as
+    `y` and `"yes"` are true), and its snapshot takes every file Numbat
+    loads (`.yaml`/`.yml` in any case). Before the #1467 review, PyYAML's
+    reading made `enforce: y` a monitor rule and `enabled: n` an enabled
+    one, and the snapshot dropped `deny.YAML`: each of those allowed a call
+    the pinned CLI's own hook denies.
 
   `/health` reports the gate's problems as fixed phrases and never echoes
   what an unverified binary printed. Concurrent `/health` calls share one

@@ -76,7 +76,8 @@ fixture jobs run.
    advises; a different binary (`/bin/true`, another release) denies the call
    itself.
 3. A private temp directory receives the event, a byte-for-byte snapshot of
-   the rule files (`*.yaml`, `*.yml`) in each rule directory, and the
+   the rule files in each rule directory (every name ending in `.yaml` or
+   `.yml`, in any case, which is how Numbat finds them), and the
    engine's canary rule. The read is bounded: past the caps on rule files,
    rule bytes and directory entries (`_MAX_RULE_*` in
    `utils/numbat_gate.py`, far above any real rule set), or past the call's
@@ -99,6 +100,8 @@ fixture jobs run.
 5. A match of a rule with `enforce: true` denies. A match of a rule without it
    is a monitor match: the call is allowed and the match is reported. That is
    Numbat's own rule semantics: severity never blocks, `enforce: true` does.
+   The engine reads `enforce` and `enabled` the way Numbat's loader does,
+   YAML 1.1 short forms included (see "Writing rules" below).
 6. The temp directory is deleted.
 
 Every failure denies:
@@ -173,6 +176,14 @@ companion `*_tests.yaml` that `numbat rules check` runs:
   model: the call is denied until the tag is added to the rule too.
 - `cyclaw.gate.watch_escalations` (no `enforce`) matches every gated call and
   only reports it.
+
+Write `enforce` and `enabled` as plain `true` or `false`. Numbat's loader also
+accepts YAML 1.1's short forms, quoted or not: `y`, `yes` and `on` are true,
+`n`, `no` and `off` are false (lowercase, capitalized or all caps), so
+`enforce: y` or `enforce: "yes"` makes a rule deny, and `enabled: n`
+disables it. The engine reads the flags the same way, because it has to
+agree with Numbat about which matched rules deny. A quoted `"true"` or a
+number is refused by Numbat, which fails the call's run and denies it.
 
 A new policy should start without `enforce: true`. Its matches then appear as
 `monitor_match:<rule id>` tags on the allowed verdict events (with

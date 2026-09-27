@@ -172,13 +172,90 @@ def test_disabled_enforce_rule_cannot_deny(tmp_path, monkeypatch):
     assert known == {"acme.off"} and enforcing == set()
 
 
-@pytest.mark.parametrize("enforce_value", ["true", 1, "yes"])
-def test_only_a_yaml_boolean_enforce_can_deny(tmp_path, enforce_value):
+def _flagged_rule(tmp_path: Path, flags: str, name: str = "r.yaml") -> Path:
+    """One rule, acme.r, with ``flags`` (raw YAML lines) written verbatim."""
     root = _rules_dir(tmp_path)
-    (root / "r.yaml").write_text(
-        f'id: acme.r\nversion: "1"\ntitle: t\nseverity: high\nenforce: {json.dumps(enforce_value)}\n'
+    (root / name).write_text(
+        f'id: acme.r\nversion: "1"\ntitle: t\nseverity: high\n{flags}'
         'expr: event.event_type == "network.indicator"\n', encoding="utf-8")
-    assert numbat_gate.classify_rules([root]) == ({"acme.r"}, set())
+    return root
+
+
+# Numbat decodes enforce with Go's yaml.v3 into a bool, which accepts YAML 1.1's
+# short forms, quoted or not; the pinned binary's own exit-2 hook denies on
+# `enforce: y` and `enforce: "yes"` (TestAgainstThePinnedCli pins that). PyYAML
+# reads `y` and every quoted form as a string, and the engine used to label
+# those rules monitor-only, allowing the calls Numbat denies.
+@pytest.mark.parametrize(("raw", "can_deny"), [
+    ("true", True), ("True", True), ("yes", True), ("on", True), ("y", True), ("Y", True),
+    ('"yes"', True), ("'y'", True), ('"ON"', True),
+    ("false", False), ("no", False), ("off", False), ("n", False), ('"no"', False), ("'Off'", False), ("", False),
+])
+def test_enforce_is_read_the_way_numbat_reads_it(tmp_path, raw, can_deny):
+    root = _flagged_rule(tmp_path, f"enforce: {raw}\n")
+    assert numbat_gate.classify_rules([root]) == ({"acme.r"}, {"acme.r"} if can_deny else set())
+
+
+@pytest.mark.parametrize("raw", ['"true"', "1", "maybe"])
+def test_an_enforce_value_numbat_refuses_reads_as_able_to_deny(tmp_path, raw):
+    # The pinned binary refuses these files ("cannot unmarshal !!str `true`
+    # into bool"), so its run fails and the call is denied anyway. Reading
+    # them as able to deny keeps that so if a later release accepts them.
+    root = _flagged_rule(tmp_path, f"enforce: {raw}\n")
+    assert numbat_gate.classify_rules([root]) == ({"acme.r"}, {"acme.r"})
+
+
+@pytest.mark.parametrize("raw", ["n", "N", '"no"', "'off'", "false"])
+def test_a_rule_disabled_the_way_numbat_reads_it_leaves_nothing_enabled(tmp_path, monkeypatch, raw):
+    # `enabled: n` is a disabled rule to Numbat, and a string to PyYAML: read
+    # as enabled, it passed the "no enabled rule" check, and the canary alone
+    # then allowed every call.
+    _flagged_rule(tmp_path, f"enabled: {raw}\nenforce: true\n")
+    fake = _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("raw", ["y", '"yes"', "on", "~"])
+def test_a_rule_enabled_the_way_numbat_reads_it_is_enabled(tmp_path, monkeypatch, raw):
+    _flagged_rule(tmp_path, f"enabled: {raw}\nenforce: true\n")
+    _fake(monkeypatch, matches=["acme.r"])
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_denied")
+
+
+def test_an_enabled_value_numbat_refuses_does_not_count_as_enabled(tmp_path, monkeypatch):
+    _flagged_rule(tmp_path, 'enabled: "maybe"\nenforce: true\n')
+    _fake(monkeypatch)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+
+
+@pytest.mark.parametrize("name", ["deny.YAML", "deny.Yml", ".yaml", "deny.yml"])
+def test_rule_files_are_found_by_numbats_extension_rule(tmp_path, monkeypatch, name):
+    # Numbat loads any-case .yaml/.yml names, a file named just `.yaml`
+    # included. Path.suffix missed both, so the snapshot Numbat evaluates
+    # lacked the rule and an enforce match in it never reached the decision.
+    root = _flagged_rule(tmp_path, "enforce: true\n", name=name)
+    assert numbat_gate.classify_rules([root]) == ({"acme.r"}, {"acme.r"})
+    seen: list[set[str]] = []
+
+    def _snapshot_names(argv):
+        dirs = [Path(argv[i + 1]) for i, arg in enumerate(argv) if arg == "--rules-dir"]
+        seen.append({path.name for d in dirs for path in d.rglob("*") if path.is_file()})
+
+    _fake(monkeypatch, matches=["acme.r"], on_rules_test=_snapshot_names)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_denied")
+    assert name in seen[0]
+
+
+def test_non_rule_files_stay_out_of_the_snapshot(tmp_path):
+    root = _flagged_rule(tmp_path, "enforce: true\n")
+    (root / "notes.json").write_text('{"id": "acme.json"}', encoding="utf-8")
+    (root / "old.yaml.bak").write_text('id: acme.bak\n', encoding="utf-8")
+    assert numbat_gate.classify_rules([root]) == ({"acme.r"}, {"acme.r"})
 
 
 def test_companion_tests_files_are_not_rules(tmp_path):
@@ -1101,6 +1178,61 @@ class TestAgainstThePinnedCli:
         result = numbat_gate.evaluate("grok", "grok-4.5", _HASH,
                                       self._cfg(tmp_path, numbat_bin, [str(disabled)]), timeout=10)
         assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+
+    @staticmethod
+    def _rule(root: Path, name: str, rule_id: str, flags: str = "") -> None:
+        root.mkdir(exist_ok=True)
+        (root / name).write_text(
+            f'id: {rule_id}\nversion: "1"\ntitle: t\nseverity: high\n{flags}expr: event.tool_name != ""\n',
+            encoding="utf-8")
+
+    @pytest.mark.parametrize("raw", ["y", '"yes"', "'on'"])
+    def test_an_enforce_rule_numbat_enforces_denies(self, tmp_path, numbat_bin, raw):
+        """Numbat's own exit-2 hook denies on these spellings of enforce. The
+        engine read them with PyYAML as strings, labeled the rule
+        monitor-only, and allowed the call (the #1467 review)."""
+        rules = tmp_path / "rules"
+        self._rule(rules, "r.yaml", "acme.block", f"enforce: {raw}\n")
+        payload = json.dumps({"session_id": "s", "transcript_path": str(tmp_path / "t.jsonl"),
+                              "cwd": str(tmp_path), "hook_event_name": "PreToolUse", "tool_name": "read_file",
+                              "tool_input": {"absolute_path": str(tmp_path / "a.txt")}})
+        own = subprocess.run(
+            [numbat_bin, "hook", "PreToolUse", "--agent", "qwen", "--enforce", "--no-builtin-rules",
+             "--rules-dir", str(rules), "--output", "file", "--output-file", str(tmp_path / "findings.ndjson")],
+            input=payload, capture_output=True, text=True, check=False, timeout=30)
+        assert own.returncode == 2, own.stdout + own.stderr
+        result = numbat_gate.evaluate("grok", "grok-4.5", _HASH,
+                                      self._cfg(tmp_path, numbat_bin, [str(rules)]), timeout=10)
+        assert (result["verdict"], result["reason_code"]) == ("deny", "hook_denied"), result
+
+    def test_a_rule_numbat_disables_leaves_nothing_enabled(self, tmp_path, numbat_bin):
+        """`enabled: n` is a disabled rule to Numbat. Read as enabled, it passed
+        the engine's "no enabled rule" check and the canary alone allowed
+        every call (the #1467 review)."""
+        rules = tmp_path / "rules"
+        self._rule(rules, "r.yaml", "acme.block", "enabled: n\nenforce: true\n")
+        check = subprocess.run([numbat_bin, "rules", "check", "--no-builtin-rules", "--rules-dir", str(rules)],
+                               capture_output=True, text=True, check=False, timeout=30)
+        assert check.returncode != 0 and "disabled" in check.stdout + check.stderr
+        result = numbat_gate.evaluate("grok", "grok-4.5", _HASH,
+                                      self._cfg(tmp_path, numbat_bin, [str(rules)]), timeout=10)
+        assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured"), result
+
+    @pytest.mark.parametrize("name", ["deny.YAML", ".yaml"])
+    def test_an_enforce_rule_in_any_file_numbat_loads_denies(self, tmp_path, numbat_bin, name):
+        """Numbat loads `deny.YAML` and a file named just `.yaml`. The snapshot
+        it evaluates left them out, so their enforce match never reached the
+        decision and a monitor rule beside it made the call an allow."""
+        rules = tmp_path / "rules"
+        self._rule(rules, name, "acme.block", "enforce: true\n")
+        self._rule(rules, "watch.yaml", "acme.watch")
+        listed = subprocess.run([numbat_bin, "rules", "list", "--no-builtin-rules", "--rules-dir", str(rules)],
+                                capture_output=True, text=True, check=False, timeout=30)
+        assert "acme.block" in listed.stdout.split(), listed.stdout + listed.stderr
+        result = numbat_gate.evaluate("grok", "grok-4.5", _HASH,
+                                      self._cfg(tmp_path, numbat_bin, [str(rules)]), timeout=10)
+        assert (result["verdict"], result["reason_code"]) == ("deny", "hook_denied"), result
+        assert "acme.block" in result["reason"]
 
     def test_duplicate_rule_ids_deny(self, tmp_path, numbat_bin):
         copy = tmp_path / "copy"

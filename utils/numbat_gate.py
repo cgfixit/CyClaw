@@ -42,8 +42,10 @@ reserved), and a run that does not report it -- ``/bin/true``, a CLI that
 skipped the event -- denies, where exit 0 with empty output used to read as
 "nothing matched". The rules Numbat evaluates are a byte snapshot, the same
 bytes this module classifies, so a rule edited mid-request cannot pair one
-version's enforce flag with another version's match. It can only shrink what
-the I3 triple gate already allowed.
+version's enforce flag with another version's match. The snapshot takes every
+file Numbat's loader takes, and each rule's ``enforce`` / ``enabled`` is read
+the way that loader reads it, so the two never disagree about which matched
+rule denies. It can only shrink what the I3 triple gate already allowed.
 
 Stdlib + PyYAML only; the binary runs as a list-form subprocess with no
 shell. Numbat is never imported (it is a Go binary, not a library).
@@ -84,7 +86,21 @@ _DEFAULT_PROVIDER_URLS = {
 }
 _PROVIDER_TO_VENDOR = {"grok": "xai", "claude": "anthropic"}
 _QUERY_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+# Matched against the lowercased file name, the way Numbat finds rule files:
+# `deny.YAML` and a file named just `.yaml` are rules to the pinned 0.2.0
+# binary. Path.suffix is case-sensitive and is empty for `.yaml`, so matching
+# on it left those files out of the snapshot Numbat evaluates, and an enforce
+# rule in one never reached a decision (the #1467 review).
 _RULE_SUFFIXES = (".yaml", ".yml")
+# Numbat decodes a rule's enforce/enabled with Go's yaml.v3 into a bool field.
+# Besides true/false, that decoder accepts YAML 1.1's short forms, quoted or
+# not: against the pinned binary, `enforce: y` and `enforce: "yes"` deny
+# through its own exit-2 hook, and a rule with `enabled: n` is disabled.
+# PyYAML reads `y`, `n` and every quoted form as a plain string, so reading the
+# flags with PyYAML alone labeled a rule Numbat enforces as monitor-only and
+# allowed the call it denies (the #1467 review).
+_NUMBAT_TRUE = frozenset({"y", "Y", "yes", "Yes", "YES", "on", "On", "ON"})
+_NUMBAT_FALSE = frozenset({"n", "N", "no", "No", "NO", "off", "Off", "OFF"})
 _READINESS_TTL_SEC = 30.0
 # Budget for one whole /health readiness check, on top of the hook's own
 # timeout_sec, which the probe decision gets: the version check (5 s),
@@ -153,13 +169,14 @@ def classify_rules(dirs: list[Path]) -> tuple[set[str], set[str]]:
     """Return (every rule id found, the ids whose rules can deny).
 
     A rule can deny when it sets ``enforce: true`` and is not ``enabled:
-    false`` -- the same effect Numbat gives the flag. This walk only labels
-    rules; Numbat's own loader decides what is valid. Anything Numbat would
-    reject (a parse error, a string "true", a duplicate id) fails its run, and
-    a match this walk did not see is treated as a failure by ``evaluate``, so
-    a disagreement between the two loaders can only deny, never allow. Raises
-    OSError when a rules file or directory cannot be read, _RulesTooLarge past
-    the walk limits, and _RulesDeadline past /health's read budget.
+    false`` -- the same effect Numbat gives the flag, read the way Numbat's
+    own loader reads it (_numbat_bool), and from the same files (any-case
+    ``.yaml`` / ``.yml`` names). This walk only labels rules; Numbat's loader
+    decides what is valid. Anything Numbat would reject (a parse error, a
+    string "true", a duplicate id) fails its run, and a match this walk did
+    not see is treated as a failure by ``evaluate``. Raises OSError when a
+    rules file or directory cannot be read, _RulesTooLarge past the walk
+    limits, and _RulesDeadline past /health's read budget.
     """
     known, enforcing, _ = _classify(dirs)
     return known, enforcing
@@ -230,12 +247,14 @@ class _WalkBudget:
 def _rule_files(root: Path, walk: _WalkBudget, *, deadline: float | None = None) -> list[Path]:
     """The rule-suffixed files under ``root``, found within the walk limits.
 
-    Only ``*.yaml`` / ``*.yml`` files are returned: nothing else can be a rule
-    or a companion test. Symlinked subdirectories are not followed, as
-    ``Path.rglob`` did not follow them either. Raises _RulesTooLarge past the
-    entry or file cap, _RulesDeadline once ``deadline`` has passed, and
-    OSError for a directory it cannot list: the rules in it would otherwise
-    drop out of the decision unseen, as an unreadable file would.
+    Only files whose name ends in ``.yaml`` / ``.yml``, in any case, are
+    returned: nothing else can be a rule or a companion test, and Numbat
+    loads every one of those (see _RULE_SUFFIXES). Symlinked subdirectories
+    are not followed; Numbat does not follow them either. Raises
+    _RulesTooLarge past the entry or file cap, _RulesDeadline once
+    ``deadline`` has passed, and OSError for a directory it cannot list: the
+    rules in it would otherwise drop out of the decision unseen, as an
+    unreadable file would.
 
     Entries are counted one at a time as os.scandir yields them. os.walk
     lists a whole directory before yielding it, so one very wide directory
@@ -256,7 +275,7 @@ def _rule_files(root: Path, walk: _WalkBudget, *, deadline: float | None = None)
                     raise _RulesTooLarge(f"more than {_MAX_RULE_WALK_ENTRIES} entries")
                 if entry.is_dir(follow_symlinks=False):
                     subdirs.append(entry.path)
-                elif Path(entry.name).suffix in _RULE_SUFFIXES and entry.is_file():
+                elif entry.name.lower().endswith(_RULE_SUFFIXES) and entry.is_file():
                     rule_files.append(Path(entry.path))
                     walk.files += 1
                     if walk.files > _MAX_RULE_FILES:
@@ -282,12 +301,37 @@ def _read_rule(path: Path, total_bytes: int) -> bytes:
     return data
 
 
+def _numbat_bool(value: Any, *, default: bool) -> bool | None:
+    """A rule's boolean field as Numbat's loader reads it; None for a value it refuses.
+
+    ``value`` is what PyYAML parsed. Absent or null is the field's default,
+    as in Numbat. Besides a YAML boolean, the loader accepts the YAML 1.1
+    short forms in _NUMBAT_TRUE / _NUMBAT_FALSE, quoted or not. Anything else
+    (a string "true", a number) makes Numbat refuse the file, which fails the
+    run and denies.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        if value in _NUMBAT_TRUE:
+            return True
+        if value in _NUMBAT_FALSE:
+            return False
+    return None
+
+
 def _rule_identity(data: bytes) -> tuple[str, bool, bool] | None:
     """(rule id, can deny, enabled) for one rules file's bytes; None when it is not a rule.
 
-    A rule is enabled unless it sets ``enabled: false``, and it can deny when
-    it is enabled and sets ``enforce: true``. Companion ``*_tests.yaml`` files
-    carry ``rule_id``, never ``id``.
+    Both flags are read as Numbat reads them (_numbat_bool). A rule is
+    enabled unless ``enabled`` is false, and it can deny when it is enabled
+    and ``enforce`` is true. A flag value Numbat would refuse fails its run
+    anyway; until then it is read in the direction that denies: as able to
+    deny, and as not enabled, so a rule set of nothing else counts as having
+    no enabled rule. Companion ``*_tests.yaml`` files carry ``rule_id``,
+    never ``id``.
     """
     try:
         doc = yaml.safe_load(data.decode("utf-8"))
@@ -295,8 +339,9 @@ def _rule_identity(data: bytes) -> tuple[str, bool, bool] | None:
         return None
     if not isinstance(doc, dict) or not isinstance(doc.get("id"), str):
         return None
-    enabled = doc.get("enabled", True) is not False
-    return doc["id"], doc.get("enforce") is True and enabled, enabled
+    enforce = _numbat_bool(doc.get("enforce"), default=False)
+    enabled = _numbat_bool(doc.get("enabled"), default=True)
+    return doc["id"], enforce is not False and enabled is not False, enabled is True
 
 
 def _snapshot_rules(
