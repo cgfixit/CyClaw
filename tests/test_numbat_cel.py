@@ -93,13 +93,17 @@ def test_only_literal_true_enables(tmp_path: Path, enabled):
 
 def test_enabled_rule_match_emits_allowed_tool_result(tmp_path: Path):
     _need_celpy()
+    # Not hex, on purpose: the record carries random hex ids (run_id, event_id),
+    # and the old "abc" sentinel turned up inside one of them in about 1.5% of
+    # runs, failing the absence check below.
+    not_a_digest = "not-a-sha256-digest"
     cfg = _cel_cfg(
         tmp_path,
         enabled=True,
-        rules=['query_hash == "abc"', 'top_score > 0.1'],
+        rules=[f'query_hash == "{not_a_digest}"', 'top_score > 0.1'],
     )
     monitor_request(
-        query_hash="abc",
+        query_hash=not_a_digest,
         top_score=0.05,
         answer_model="local",
         guardrail_blocked=False,
@@ -125,10 +129,10 @@ def test_enabled_rule_match_emits_allowed_tool_result(tmp_path: Path):
     assert rec["evidence"]["artifact_type"] == "cel_monitor"
     for denial_field in ("approval_reason", "approval_decision", "approval_required"):
         assert denial_field not in rec
-    # "abc" is not a SHA-256 digest, so it never reaches the stream.
+    # The query hash is not a SHA-256 digest, so it never reaches the stream.
     assert json.loads(rec["content_preview"]) == {"cel_rules_matched": [0]}
     assert "query" not in json.dumps(rec)
-    assert "abc" not in json.dumps(rec)
+    assert not_a_digest not in json.dumps(rec)
     assert set(rec) <= _KNOWN_FIELDS
 
 
