@@ -851,12 +851,16 @@ class TestBackgroundLogWriter:
 class TestLogWriterSettings:
     @pytest.mark.usefixtures("isolated_logging")
     def test_the_gateway_console_is_written_from_a_background_handler(self, tmp_path, capsys):
+        # Only the handlers this call adds: in the full suite, gate.py's own
+        # setup_logging call at collection has already attached one.
+        before = list(logging.getLogger("cyclaw").handlers)
         logger.setup_logging({"logging": {"level": "DEBUG", "log_file": str(tmp_path / "cyclaw.log")}},
                              background_console=True)
-        consoles = [h for h in logging.getLogger("cyclaw").handlers if isinstance(h, logger._BackgroundConsoleHandler)]
+        added = [h for h in logging.getLogger("cyclaw").handlers if h not in before]
+        consoles = [h for h in added if isinstance(h, logger._BackgroundConsoleHandler)]
         assert len(consoles) == 1
         assert consoles[0] in logging.getLogger("agentic").handlers
-        assert not any(type(h) is logging.StreamHandler for h in logging.getLogger("cyclaw").handlers)
+        assert not any(type(h) is logging.StreamHandler for h in added)
         logging.getLogger("cyclaw.graph").debug("console-marker")
         consoles[0].flush()
         assert "console-marker" in capsys.readouterr().err
@@ -865,10 +869,11 @@ class TestLogWriterSettings:
     def test_the_default_console_stays_synchronous(self, tmp_path):
         # The relay contract: a tool that runs an agentic CLI reads its stderr
         # once it exits, so those lines are written on the caller's thread.
+        before = list(logging.getLogger("cyclaw").handlers)
         logger.setup_logging({"logging": {"level": "DEBUG", "log_file": str(tmp_path / "cyclaw.log")}})
-        handlers = logging.getLogger("cyclaw").handlers
-        assert any(type(h) is logging.StreamHandler for h in handlers)
-        assert not any(isinstance(h, logger._BackgroundConsoleHandler) for h in handlers)
+        added = [h for h in logging.getLogger("cyclaw").handlers if h not in before]
+        assert any(type(h) is logging.StreamHandler for h in added)
+        assert not any(isinstance(h, logger._BackgroundConsoleHandler) for h in added)
 
     def test_gate_asks_for_the_background_console(self):
         import ast
