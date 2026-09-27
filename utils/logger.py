@@ -216,6 +216,15 @@ def setup_logging(cfg: dict | None = None, *, background_console: bool = False) 
 # at most logging.drain_wait_sec (close() once more for its note on stderr),
 # so a write stuck on a stalled disk delays exit instead of hanging it.
 #
+# Closed is not final. logging.config.dictConfig closes every handler (it runs
+# logging.shutdown() over all of them) and leaves each attached to its
+# loggers. uvicorn.run() does that when `python gate.py` starts serving, after
+# setup_logging has run. FileHandler reopens its file on the next line, and so
+# does this handler: the line clears the closed state, the writer opens the
+# file again on its own thread, and the handler rejoins the list that
+# logging.shutdown() closes at exit, which dictConfig also empties (Codex
+# review on #1482).
+#
 # Not logging.handlers.QueueHandler with a QueueListener: QueueListener.stop()
 # joins its thread with no timeout, and its target (a FileHandler) is itself
 # registered with logging.shutdown(), which takes that handler's lock at exit,
@@ -225,7 +234,8 @@ def setup_logging(cfg: dict | None = None, *, background_console: bool = False) 
 # The console: an agentic CLI's is written on the caller's thread, since
 # tools read its stderr once it exits. The gateway's is a
 # _BackgroundConsoleHandler, the same writer aimed at stderr, since a launchd
-# service's stderr is a file that can stall too (see setup_logging).
+# service's stderr is a file that can stall too (see setup_logging). It writes
+# below stderr's buffer, as the notes on stderr do (see _write_below_buffer).
 #
 # These defaults apply when the logging block does not set a value, or sets
 # one boot validation would refuse; they match the shipped config.
@@ -250,10 +260,35 @@ def _log_writer_settings(log_cfg: dict[str, Any]) -> tuple[int, float]:
     return max_queued, float(drain)
 
 
+# Without PYTHONUNBUFFERED (the launchd plist does not set it; the Docker image
+# does), sys.stderr is a TextIOWrapper over an io.BufferedWriter, which holds a
+# lock for as long as a write to the file below it takes. A thread stuck there
+# on a stalled stderr keeps that lock, and the next flush of sys.stderr waits
+# for it: at exit, logging.shutdown() flushes logging.lastResort, whose stream
+# is sys.stderr, so exit would wait out the stall (adversarial review on
+# #1482). The raw file under the buffer takes no lock, so a write stuck there
+# holds nothing but its own thread. A stderr with no buffer (unbuffered, or a
+# test's capture object) has no such lock and is written as usual.
+def _write_below_buffer(stream: TextIO, text: str) -> None:
+    """Write ``text`` to the raw file under ``stream``'s buffer, or through ``stream`` when there is none."""
+    raw = getattr(getattr(stream, "buffer", None), "raw", None)
+    if raw is None:
+        stream.write(text)
+        stream.flush()
+        return
+    # Encoded as the TextIOWrapper would: Python's sys.stderr writes "\n" as
+    # os.linesep ("\r\n" on Windows).
+    data = memoryview(text.replace("\n", os.linesep).encode(stream.encoding or "utf-8", "backslashreplace"))
+    while data:
+        written = raw.write(data)
+        if not written:  # None: a non-blocking stderr with no room
+            raise OSError(f"stderr took none of {len(data)} byte(s)")
+        data = data[written:]
+
+
 def _write_to_stderr(message: str) -> None:
     try:
-        sys.stderr.write(f"cyclaw logging: {message}\n")
-        sys.stderr.flush()
+        _write_below_buffer(sys.stderr, f"cyclaw logging: {message}\n")
     except (AttributeError, OSError, ValueError):
         # No stderr (None under pythonw), or a closed or broken one: there is
         # nowhere left to say it.
@@ -354,6 +389,19 @@ def _note_on_stderr(message: str) -> None:
     _STDERR_NOTES.note(message)
 
 
+def _register_for_shutdown(handler: logging.Handler) -> None:
+    """Put ``handler`` back on the list logging.shutdown() closes at exit, unless it is still there."""
+    # Handler.__init__ put it there; dictConfig empties the list after closing
+    # every handler on it (see the comment above _BackgroundFileHandler).
+    handler_refs = getattr(logging, "_handlerList", None)
+    add_ref = getattr(logging, "_addHandlerRef", None)
+    if handler_refs is None or add_ref is None:
+        return
+    if any(ref() is handler for ref in list(handler_refs)):
+        return
+    add_ref(handler)
+
+
 class _BackgroundFileHandler(logging.Handler):
     """Append formatted records to ``path`` from one writer thread (see the comment above)."""
 
@@ -368,7 +416,8 @@ class _BackgroundFileHandler(logging.Handler):
         self.failed = 0
         # Opened here, on the thread that sets logging up, as FileHandler opens
         # its file: a bad path fails setup, and the file exists once setup
-        # returns. close() closes it, unless a write is still stuck in it.
+        # returns. close() closes it, unless a write is still stuck in it, and
+        # the writer opens it again for a line logged after that.
         self._stream: TextIO | None = self._open_stream()
         self._reset_queue()
         _BACKGROUND_HANDLERS.add(self)
@@ -399,9 +448,9 @@ class _BackgroundFileHandler(logging.Handler):
             return
         note: str | None = None
         with self._cond:
-            if self._closing:
-                self.dropped += 1
-                return
+            # A line after close() reopens the handler (see the comment above
+            # the class). The writer opens the file again if close() closed it.
+            reopened, self._closing = self._closing, False
             if len(self._pending) >= self.max_queued:
                 note = self._drop_locked(f"{len(self._pending)} are still waiting to be written")
             elif self._running() or self._start():
@@ -414,6 +463,8 @@ class _BackgroundFileHandler(logging.Handler):
                 # back behind the disk, so the line is dropped like one past a
                 # full queue.
                 note = self._drop_locked("no writer thread could start")
+        if reopened:
+            _register_for_shutdown(self)
         if note:
             _note_on_stderr(note)
 
@@ -448,33 +499,42 @@ class _BackgroundFileHandler(logging.Handler):
         """Let the writer finish, waiting at most logging.drain_wait_sec, then close the file.
 
         A write still stuck after that keeps the file open: the writer is
-        inside it, and the OS closes the file at exit.
+        inside it, and the OS closes the file at exit. A line logged after
+        close() reopens the handler (see emit).
         """
-        with self._cond:
-            already_closing = self._closing
-            self._closing = True
-            self._cond.notify_all()
-            thread = self._thread
-        if not already_closing:
-            if thread is not None and thread is not threading.current_thread():
-                thread.join(self.drain_wait_sec)
-            stuck = thread is not None and thread.is_alive()
+        # Under the handler's lock, as FileHandler.close() is, so no caller's
+        # emit() reopens the handler halfway through. logging.shutdown()
+        # already holds it; it is reentrant. The writer never takes it.
+        self.acquire()
+        try:
             with self._cond:
-                unwritten = self._queued - self._written
-                uncounted, self._dropped_unreported = self._dropped_unreported, 0
-                stream = None if stuck else self._stream
-                if not stuck:
-                    self._stream = None
-            if unwritten or uncounted:
-                _note_on_stderr(f"closing {self.where} with {unwritten} queued line(s) not written and "
-                                f"{uncounted} dropped line(s) not yet counted in it ({self.dropped} dropped in all)")
-            # A process exiting now would lose a note still queued, such as this
-            # one or the writer's report of a last write that failed (Codex
-            # review on #1482), so wait for them, as long as for the file and no
-            # longer. With nothing queued this returns at once.
-            _STDERR_NOTES.wait(self.drain_wait_sec)
-            if stream is not None:
-                self._close_stream(stream)
+                already_closing = self._closing
+                self._closing = True
+                self._cond.notify_all()
+                thread = self._thread
+            if not already_closing:
+                if thread is not None and thread is not threading.current_thread():
+                    thread.join(self.drain_wait_sec)
+                with self._cond:
+                    stuck = self._running()
+                    unwritten = self._queued - self._written
+                    uncounted, self._dropped_unreported = self._dropped_unreported, 0
+                    stream = None if stuck else self._stream
+                    if not stuck:
+                        self._stream = None
+                if unwritten or uncounted:
+                    _note_on_stderr(f"closing {self.where} with {unwritten} queued line(s) not written and "
+                                    f"{uncounted} dropped line(s) not yet counted in it "
+                                    f"({self.dropped} dropped in all)")
+                # A process exiting now would lose a note still queued, such as
+                # this one or the writer's report of a last write that failed
+                # (Codex review on #1482), so wait for them, as long as for the
+                # file and no longer. With nothing queued this returns at once.
+                _STDERR_NOTES.wait(self.drain_wait_sec)
+                if stream is not None:
+                    self._close_stream(stream)
+        finally:
+            self.release()
         super().close()
 
     @property
@@ -505,15 +565,23 @@ class _BackgroundFileHandler(logging.Handler):
         return True
 
     def _write(self, line: str) -> Exception | None:
-        stream = self._stream
         try:
+            if self._stream is None:
+                # close() closed it and a line came after, or a forked child
+                # could not open it again. Opened here, not on the caller's
+                # thread: opening a file on a stalled volume can block too.
+                self._stream = self._open_stream()
+            stream = self._stream
             if stream is None:
-                raise ValueError("the log file is closed")
-            stream.write(line)
-            stream.flush()
+                raise ValueError(f"{self.where} is not open")  # sys.stderr is None under pythonw
+            self._write_line(stream, line)
         except Exception as exc:  # noqa: BLE001 - the writer outlives any one bad write
             return exc
         return None
+
+    def _write_line(self, stream: TextIO, line: str) -> None:
+        stream.write(line)
+        stream.flush()
 
     def _drop_report(self, count: int, total: int) -> str:
         record = logging.LogRecord(
@@ -528,7 +596,12 @@ class _BackgroundFileHandler(logging.Handler):
                 while not self._pending and not self._closing:
                     self._cond.wait()
                 if not self._pending:
-                    return  # closing, and every queued line is written
+                    # Closing, and every queued line is written. Cleared under
+                    # the lock, so a line that reopens the handler from here on
+                    # finds no writer running and starts one.
+                    if self._thread is threading.current_thread():
+                        self._thread = None
+                    return
                 seq, line = self._pending.popleft()
             error = self._write(line)
             reported = total = 0
@@ -544,7 +617,6 @@ class _BackgroundFileHandler(logging.Handler):
                     error = self._write(self._drop_report(reported, total))
             note: str | None = None
             with self._cond:
-                self._written = seq
                 if error is None:
                     if self._failing:
                         note = f"writing {self.where} works again ({self.failed} line(s) lost in all)"
@@ -556,9 +628,13 @@ class _BackgroundFileHandler(logging.Handler):
                     if not self._failing:
                         note = f"writing {self.where} failed ({error}); lines are lost until a write succeeds"
                     self._failing = True
+                if note:
+                    # Queued before the line counts as written, so whoever
+                    # drain()s finds the note queued already (adversarial review
+                    # on #1482). _StderrNotes never takes a handler's lock.
+                    _note_on_stderr(note)
+                self._written = seq
                 self._cond.notify_all()
-            if note:
-                _note_on_stderr(note)
 
 
 class _BackgroundConsoleHandler(_BackgroundFileHandler):
@@ -580,6 +656,9 @@ class _BackgroundConsoleHandler(_BackgroundFileHandler):
         # stderr is the process's, not this handler's, to close.
         return None
 
+    def _write_line(self, stream: TextIO, line: str) -> None:
+        _write_below_buffer(stream, line)
+
 
 def _reset_log_writers_after_fork() -> None:
     """A forked child gets a fresh queue, lock, file object and writer thread per handler.
@@ -599,7 +678,7 @@ def _reset_log_writers_after_fork() -> None:
         try:
             handler._stream = handler._open_stream()
         except OSError:
-            handler._stream = None  # its writes fail and are noted on stderr
+            handler._stream = None  # the writer tries again for the next line
 
 
 if hasattr(os, "register_at_fork"):  # POSIX only

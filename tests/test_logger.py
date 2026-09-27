@@ -10,11 +10,14 @@ to prevent for config.yaml/static/).
 import pathlib
 import logging
 
+import contextlib
 import json
+import os
 import subprocess
 import sys
 import textwrap
 import threading
+import time
 import weakref
 
 import pytest
@@ -606,8 +609,67 @@ class TestBackgroundLogWriter:
         handler.close()
         assert handler._stream is None
         assert handler.path.read_text(encoding="utf-8").count("\n") == 50
-        log.info("after close")  # dropped, never raised
-        assert handler.dropped == 1
+
+    def test_a_line_after_close_reopens_the_file(self, background):
+        # uvicorn.run() in gate.py's _serve() applies uvicorn's logging config
+        # through dictConfig, which closes every handler and leaves them
+        # attached. FileHandler reopens its file on the next line, and so does
+        # this handler, from its writer thread (Codex review on #1482).
+        log, handler = background()
+        log.info("before")
+        handler.close()
+        assert handler._stream is None
+        log.info("after")
+        assert handler.drain(10)
+        assert handler.path.read_text(encoding="utf-8") == "INFO before\nINFO after\n"
+        assert handler.dropped == 0
+        handler.close()
+        assert handler._stream is None
+
+    def test_a_reopened_handler_rejoins_the_exit_shutdown(self, background):
+        # dictConfig closes every handler through logging.shutdown() and then
+        # empties the list that logging.shutdown() works through at exit. A
+        # handler that reopens rejoins that list, so its queue is still drained
+        # at exit, and one that was never taken off it is not listed twice.
+        log, handler = background()
+
+        def listed() -> int:
+            return sum(ref() is handler for ref in logging._handlerList)
+
+        handler.close()
+        log.info("reopened")
+        assert listed() == 1
+        logging.shutdown([weakref.ref(handler)])
+        with logging._lock:
+            logging._handlerList[:] = [ref for ref in logging._handlerList if ref() is not handler]
+        assert listed() == 0
+        log.info("reopened again")
+        assert listed() == 1
+        assert handler.drain(10)
+        assert handler.path.read_text(encoding="utf-8") == "INFO reopened\nINFO reopened again\n"
+
+    def test_drain_returns_only_once_the_writers_notes_are_queued(self, background, monkeypatch, capsys):
+        # Draining the handler and then waiting for the stderr thread must
+        # cover the writer's notes about the lines drained, so the writer
+        # queues a note before the line counts as written (adversarial review
+        # on #1482). A slow note() widens the gap: queued any later, it is
+        # still on its way when drain() returns, and the wait misses it.
+        real_note = logger._STDERR_NOTES.note
+
+        def slow_note(message: str) -> None:
+            time.sleep(0.2)
+            real_note(message)
+
+        monkeypatch.setattr(logger._STDERR_NOTES, "note", slow_note)
+        stream = _StallingStream(fail_first=True)
+        stream.release.set()
+        log, handler = background(stream)
+        log.warning("lost")
+        log.warning("kept")
+        assert handler.drain(10)
+        assert logger._STDERR_NOTES.wait(10)
+        err = capsys.readouterr().err
+        assert "failed (disk full)" in err and "works again (1 line(s) lost in all)" in err
 
     def test_a_failed_write_is_noted_once_and_the_writer_keeps_going(self, background, capsys):
         stream = _StallingStream(fail_first=True)
@@ -750,6 +812,79 @@ class TestBackgroundLogWriter:
                               capture_output=True, text=True, check=False)
         assert proc.returncode == 0, proc.stderr
         assert "failed (disk full)" in proc.stderr
+
+    @pytest.mark.parametrize("capture_third_party", [True, False])
+    def test_logging_survives_uvicorn_configuring_logging(self, tmp_path, capture_third_party):
+        # gate.py sets logging up at import, and `python gate.py` (the launchd
+        # service's command) then calls uvicorn.run(), whose default log_config
+        # goes through logging.config.dictConfig: every handler is closed and
+        # CyClaw's stay attached (Codex review on #1482). Lines logged after
+        # that still reach the log file and the console.
+        log_file = tmp_path / "cyclaw.log"
+        script = textwrap.dedent(f"""
+            import logging
+            import uvicorn
+            from utils import logger as L
+            L.setup_logging({{"logging": {{"level": "INFO", "log_file": {str(log_file)!r},
+                                           "capture_third_party": {capture_third_party!r}}}}},
+                            background_console=True)
+            logging.getLogger("cyclaw.test").warning("cyclaw before uvicorn")
+            uvicorn.Config(app=lambda scope, receive, send: None)  # applies uvicorn's LOGGING_CONFIG
+            logging.getLogger("cyclaw.test").warning("cyclaw after uvicorn")
+            logging.getLogger("agentic.test").warning("agentic after uvicorn")
+        """)
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        proc = subprocess.run([sys.executable, "-c", script], cwd=repo, timeout=60,  # noqa: S603 - fixed argv
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 0, proc.stderr
+        written = log_file.read_text(encoding="utf-8")
+        for line in ("cyclaw before uvicorn", "cyclaw after uvicorn", "agentic after uvicorn"):
+            assert line in written
+            assert line in proc.stderr
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="fills a POSIX pipe")
+    def test_a_real_exit_does_not_wait_for_a_stalled_buffered_stderr(self):
+        # Without PYTHONUNBUFFERED (the launchd plist does not set it), stderr
+        # is a TextIOWrapper over a BufferedWriter, which holds a lock for as
+        # long as a write below it takes. Here stderr is a full pipe nobody
+        # reads, so the console writer and the stderr thread each block on it.
+        # At exit logging.shutdown() flushes sys.stderr (logging.lastResort
+        # writes there); had either thread written through that buffer, the
+        # flush would wait on its lock until the pipe drained (adversarial
+        # review on #1482).
+        script = textwrap.dedent("""
+            import logging, time
+            from utils import logger as L
+            h = L._BackgroundConsoleHandler(max_queued=10, drain_wait_sec=0.2)
+            log = logging.getLogger("stalltest")
+            log.propagate = False
+            log.addHandler(h)
+            log.warning("to a stalled stderr")
+            deadline = time.monotonic() + 10
+            while h._pending and time.monotonic() < deadline:
+                time.sleep(0.01)  # until the writer has taken the line and is stuck writing it
+        """)
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        env = {name: value for name, value in os.environ.items() if name != "PYTHONUNBUFFERED"}
+        read_fd, write_fd = os.pipe()
+        try:
+            os.set_blocking(write_fd, False)
+            with contextlib.suppress(BlockingIOError):
+                while True:
+                    os.write(write_fd, b"x" * 65536)
+            os.set_blocking(write_fd, True)  # the child's stderr shares this file description
+            proc = subprocess.Popen([sys.executable, "-W", "ignore", "-c", script],  # noqa: S603 - fixed argv
+                                    cwd=repo, env=env, stdout=subprocess.DEVNULL, stderr=write_fd)
+            try:
+                returncode = proc.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                pytest.fail("exit waited for the stalled stderr")
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+        assert returncode == 0
 
     def test_the_console_variant_writes_stderr_from_its_thread(self, monkeypatch):
         err = _StallingStream()
