@@ -103,8 +103,9 @@ squashed merge commit carries that title, which is why `git log` shows
 `[security] - ...` rather than `feat:` despite CLAUDE.md §5 asking for
 conventional commits on the branch itself). Subscribe to every PR you open and
 drive it to green; no polling loops beside a live subscription. Identity for
-commits: `CyClaw Agent <cyclaw-agent@users.noreply.github.com>` unless the host
-stop-hook demands otherwise.
+commits: the session runtime's (cloud: `Claude <noreply@anthropic.com>`, which
+the runtime signs; local: the owner's own git identity), never `CyClaw Agent`,
+which belongs to CyClaw's own agentic loop (owner decision 2026-09-26).
 
 **Recent trajectory (Aug-Sep 2026, from `git log` and changelog)** so you know
 where the frontier is: doc-sync + verify-deps skill hardening and a full
