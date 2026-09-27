@@ -33,6 +33,9 @@
 Status: living plan
 Related PR: feat/numbat-audit-ndjson-v1 (mainline audit-trail projection)
 
+> **Superseded, kept as history.** The status table at the top is current:
+> Slices A and B below have since shipped, gated off (Steps 2 and 3).
+>
 > Reality check (2026-08-27, baseline `main` `8a2bda97`): Step 1 action-plane
 > and mainline audit projection, the rules-test fixture CI job (#961/#981), and
 > the pre-external hook runner (`utils/external_pre_hook.py`) are all shipped.

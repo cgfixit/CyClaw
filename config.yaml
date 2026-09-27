@@ -307,9 +307,12 @@ policy:
     #   0 -> allow the call; 2 -> deny (route to audit_logger instead).
     # Any crash, timeout, or other non-zero exit fails closed (deny + audit).
     # Disabled by default; when disabled the pre-action checkpoint is a no-op.
+    # Do not set command to `numbat hook ...` (this file used to suggest it):
+    # the pinned Numbat 0.2.0 CLI exits 0 for CyClaw's payload, errors
+    # included, and this contract reads exit 0 as allow (issue #1458).
     pre_action_hook:
       enabled: false
-      command: []          # argv list, e.g. ["numbat", "hook", "pre-tool", "--agent", "cyclaw"]
+      command: []          # argv list, e.g. ["/usr/local/bin/my-gate"]
       timeout_sec: 5
       # Only "enforce" is supported today. "monitor" (allow the provider call
       # while still emitting + auditing) is a policy flip that must not ship
