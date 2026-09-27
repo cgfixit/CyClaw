@@ -2,16 +2,19 @@
 
 A content-safety layer that complements (never replaces) the LangGraph
 topology. The graph keeps owning routing/policy; these rails add input
-sanitization and output grounding on the local-LLM path.
+sanitization and output grounding on the local-LLM path, and (with
+``nemoguardrails`` installed) NeMo ``check()`` around every answer node's
+model call, the Grok and Claude calls included.
 
 STATUS: input rail and local-LLM output grounding are wired. ``gate.py``,
 ``graph.py``, and ``mcp_hybrid_server.py`` must not import this package (I6;
 ``tests/test_guardrails_isolation.py``). The live seam is
 ``utils/guardrail_bridge.py``, which lazy-imports ``check_input`` /
-``check_output`` only when ``guardrails.enabled is True`` and injects
-closures into ``graph.py`` nodes ``guardrail_input`` and ``guardrail_output``.
-When the flag is off, both nodes pass through and this package is never
-imported. Operator CLI: ``python -m guardrails.cli``. Phased history:
+``check_output`` / ``guarded_generate`` only when ``guardrails.enabled is
+True`` and injects closures into ``graph.py``: the ``guardrail_input`` and
+``guardrail_output`` nodes, and the ``generate_guard`` each answer node wraps
+its model call in. When the flag is off, those pass through and this
+package is never imported. Operator CLI: ``python -m guardrails.cli``. Phased history:
 ``docs/NeMo/README.md``.
 
 The optional ``nemoguardrails`` dependency is soft-imported: this package imports

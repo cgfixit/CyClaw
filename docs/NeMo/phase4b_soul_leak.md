@@ -25,7 +25,7 @@ Related:
 |---|---|---|
 | Live `/query` (`guardrail_output` → `check_output`) | Grounding + `detect_soul_leak` when listed in `output_rails` | **Yes (Phase 4b).** Graph still skips non-`local_llm` answers. |
 | Offline CLI / `safe_generate` floor | Input injection + soul-mutation heuristics | **No** output soul-leak check. |
-| Live NeMo Colang (`safe_generate` + `nemoguardrails` installed + `enabled: true`) | `check soul leak` flow in `guardrails/config/rails.co` | **Cheap leftover only.** The flow still calls `check_injection(text=$bot_message)` — the input scanner reused on output. That reuse is a known residual risk, not the 4b design. |
+| Live NeMo Colang (`nemoguardrails` installed + `enabled: true`) | `check soul leak` flow in `guardrails/config/rails.co` | **Yes.** Since this table was written, the flow runs `check_soul_leak(text=$bot_message)`, the 4b primitive, not the reused input scanner, and Phase 3's `check()` runs it on every `/query` answer (Grok, Claude and offline best-effort included), not only through `safe_generate` (corrected 2026-09-27). |
 
 Listing `check_soul_leak` in config is **not** enforcement. The offline
 floor only implements the names it has code for. Same silent-skip shape as
@@ -113,7 +113,7 @@ named the result `$leaked`, which inverted the English. The behaviour
 `if not $leaked` to `if $leaked` would refuse every clean answer.
 
 The flow is now `$allowed` / `if not $allowed`, matching
-`check injection`, `check soul mutation`, and `check jailbreak`.
+`check injection`, `check soul mutation`, and `check cyclaw jailbreak`.
 `test_check_soul_leak_colang_uses_allowed_polarity` pins the names so the
 old `$leaked` wording cannot return.
 

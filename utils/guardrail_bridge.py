@@ -1,4 +1,4 @@
-"""Inversion shim binding the guardrails offline input rail into graph.py.
+"""Inversion shim binding the guardrails layer into graph.py (Phases 2-4).
 
 Neither gate.py nor graph.py may import guardrails (module isolation, I6 --
 tests/test_guardrails_isolation.py forbids gate.py, graph.py, AND

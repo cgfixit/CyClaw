@@ -1059,16 +1059,19 @@ netconnect:
 # NeMo Guardrails (out-of-band, content-safety layer)  [v0.1 — skeleton]
 # ===========================
 # Disabled-by-default, opt-in defense-in-depth layer. Absence of this block, or
-# enabled: false, is a pure no-op with NO effect on existing functionality: the
-# graph topology stays the sole source of routing/policy. Runs strictly out-of-band
-# (`python -m guardrails.cli`) and is NEVER imported by gate.py, graph.py, or
-# mcp_hybrid_server.py — that isolation preserves the six security invariants.
+# enabled: false, is a pure no-op on /query: the graph topology stays the sole
+# source of routing/policy. enabled: true arms the /query rails listed under
+# enabled: below, reached only through utils/guardrail_bridge.py; this package is
+# NEVER imported by gate.py, graph.py, or mcp_hybrid_server.py — that isolation
+# preserves the six security invariants. Operator CLI: `python -m guardrails.cli`.
 # nemoguardrails is an OPTIONAL dependency: the layer soft-imports it and degrades
-# to offline heuristic rails (injection + soul-mutation block + token-overlap
-# grounding) when it is absent. See docs/NeMo/later_development_guideline.md.
+# to offline heuristic rails (injection + soul-mutation block, token-overlap
+# grounding + soul leak) when it is absent; a skipped check() is audited as
+# guardrail_degraded. See docs/NeMo/later_development_guideline.md.
 guardrails:
-  enabled: false                 # off by default; CLI no-ops. false = pure pass-through
-                                  # (no import of guardrails at all). true arms:
+  enabled: false                 # off by default. false = pure pass-through on /query
+                                  # (no import of guardrails there; the CLI's check
+                                  # still runs the offline heuristics). true arms:
                                   # - graph.py's guardrail_input node (Phase 2): injection
                                   #   markers + soul-mutation regex, no LLM, before
                                   #   local_llm and offline_best_effort;

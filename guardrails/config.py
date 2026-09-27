@@ -14,7 +14,7 @@ Hardened defaults (conservative, matching CyClaw's offline-first posture):
   - metrics_path:  logs/guardrails.jsonl   SEPARATE from logs/audit.jsonl
 
 This module is part of a package that is NEVER imported by gate.py, graph.py, or
-mcp_hybrid_server.py. That isolation is what preserves CyClaw's five security
+mcp_hybrid_server.py. That isolation is what preserves CyClaw's six security
 invariants by construction.
 """
 
@@ -116,8 +116,9 @@ class GuardrailsConfig:
     metrics_path: str = DEFAULT_METRICS_PATH
     block_message: str = DEFAULT_BLOCK_MESSAGE
     # 0.0..1.0 token-overlap floor below which an answer is flagged as a possible
-    # hallucination (ungrounded in retrieved context). Offline heuristic; the
-    # NeMo self-check rail is the model-assisted complement (see rails.co).
+    # hallucination (ungrounded in retrieved context). A token-overlap heuristic,
+    # and the only grounding check: no model-assisted self-check rail is active
+    # (config.yml declares the self_check prompts, but no flow runs them).
     hallucination_threshold: float = 0.18
     # Ollama's OpenAI-compatible reasoning control. Deliberately NOT read from
     # the guardrails: block -- load_guardrails_config sources it from
