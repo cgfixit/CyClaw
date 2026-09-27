@@ -198,12 +198,18 @@ _EVENT_TYPE_FORBIDDEN_FIELDS: dict[str, frozenset[str]] = {
     event_type: _ACTION_FIELDS - allowed
     for event_type, allowed in _EVENT_TYPE_ALLOWED_ACTION_FIELDS.items()
 }
+# Free-text option values the Numbat stream must not carry. --pattern is the
+# fsconnect grep/glob text /ops/fsconnect passes through utils/ops_runner.py:
+# fsconnect's own audit record leaves it out (a search can be for a secret),
+# and this derived stream must not hold more than the audit trail does.
+# Paths, roots and table names stay: they are what rules key on.
 _SENSITIVE_ARGV_PREFIXES = (
     "--reason=",
     "--instruction=",
     "--commit-message=",
     "--body=",
     "--sql=",
+    "--pattern=",
     "--name=",
     "--desc=",
     "--plan=",
