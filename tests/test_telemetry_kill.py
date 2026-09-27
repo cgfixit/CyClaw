@@ -22,6 +22,7 @@ Run with:
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -249,6 +250,26 @@ def test_update_check_opt_outs_applied():
     _assert_subprocess_ok(result, "update_check_opt_outs_applied")
 
 
+def _log_redirect_preamble(sink: str) -> str:
+    # gate.py loads the shipped config.yaml unconditionally and calls
+    # setup_logging(cfg) at import, so every bare `import gate` child appended
+    # its boot warnings to <repo>/logs/cyclaw.log. tests/conftest.py's redirect
+    # is in-process only; this applies the same one inside the child. It loads
+    # only utils.logger (stdlib + PyYAML) and the two stdlib-only sinks that
+    # bind its _anchor -- nothing the telemetry kill governs -- and touches no
+    # environment variable, so what these tests assert is unchanged.
+    return (
+        "import pathlib as _pl\n"
+        "import utils.logger as _lg, utils.numbat_emitter as _ne, utils.spend as _sp\n"
+        f"_sink = _pl.Path({sink!r})\n"
+        "def _anchor_to_sink(p):\n"
+        "    p = _pl.Path(p).expanduser()\n"
+        "    return p if p.is_absolute() else _sink / p\n"
+        "for _m in (_lg, _ne, _sp):\n"
+        "    _m._anchor = _anchor_to_sink\n"
+    )
+
+
 def _run_in_subprocess(snippet: str, extra_env: dict | None = None) -> subprocess.CompletedProcess:
     """Run a Python snippet in a fresh subprocess with gate importable.
 
@@ -260,14 +281,15 @@ def _run_in_subprocess(snippet: str, extra_env: dict | None = None) -> subproces
     env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     if extra_env:
         env.update(extra_env)
-    return subprocess.run(
-        [sys.executable, "-c", snippet],
-        env=env,
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    with tempfile.TemporaryDirectory(prefix="cyclaw-telemetry-kill-", ignore_cleanup_errors=True) as sink:
+        return subprocess.run(
+            [sys.executable, "-c", _log_redirect_preamble(sink) + snippet],
+            env=env,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
 
 
 def _assert_subprocess_ok(result: subprocess.CompletedProcess, label: str) -> None:
