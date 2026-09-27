@@ -6,7 +6,10 @@
 # agent can do: reading code for optimization opportunities and authoring PRs.
 #
 # What it does:
-#   1. Pins the git identity the session-runtime stop hook requires (not wired in repo settings.json).
+#   1. Reports the git identity commits will carry: the session runtime's own
+#      (cloud: Claude <noreply@anthropic.com>, which the runtime signs). It no
+#      longer pins CyClaw Agent, which left cloud commits Unverified; see
+#      CLAUDE.md section 10.
 #   2. Ensures `main` is fetched and that we are on a fresh working branch cut
 #      from origin/main (creates one if missing; never force-resets an existing
 #      branch that already has work).
@@ -30,13 +33,23 @@ WORK_BRANCH="${1:-}"
 hr() { printf '%s\n' "------------------------------------------------------------"; }
 
 # ---------------------------------------------------------------------------
-# 1. Git identity (driver-agnostic CyClaw Agent defaults; overridable via
-#    CYCLAW_AGENT_COMMIT_EMAIL / CYCLAW_AGENT_COMMIT_NAME — see utils/agent_identity.py)
+# 1. Git identity: the session runtime's (the SessionStart hook removes the old
+#    CyClaw Agent pin and pins nothing)
 # ---------------------------------------------------------------------------
-git config user.email "${CYCLAW_AGENT_COMMIT_EMAIL:-cyclaw-agent@users.noreply.github.com}"
-git config user.name "${CYCLAW_AGENT_COMMIT_NAME:-CyClaw Agent}"
 hr
-echo "git identity: $(git config user.name) <$(git config user.email)>"
+# Ask git rather than reading user.name/user.email: GIT_AUTHOR_* and
+# GIT_COMMITTER_* environment variables outrank the config keys.
+author=$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//') || true
+committer=$(git var GIT_COMMITTER_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//') || true
+# Author and committer are separate lookups: GIT_COMMITTER_* alone leaves the
+# author unset, and git then refuses the commit, so both must resolve.
+if [ -z "$author" ] || [ -z "$committer" ]; then
+  echo "git identity: incomplete (author: ${author:-none}, committer: ${committer:-none}); git will refuse to commit until user.name and user.email are set"
+elif [ "$author" = "$committer" ]; then
+  echo "git identity: $committer"
+else
+  echo "git identity: author $author, committer $committer"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Fetch main + position on a working branch cut from origin/main

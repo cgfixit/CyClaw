@@ -275,7 +275,7 @@ repo:
   #1351 aligned it to `name: CyClaw-Sandbox`.)
 - All SKILL.md files use YAML frontmatter: `name:`, `description:`
 - Refactor progress is tracked in `/tmp/refactor-CyClaw.md`
-- Git identity must be set before commits (driver-agnostic defaults from
-  `utils/agent_identity.py`; see `CLAUDE.md` §10):
-  `git config user.email cyclaw-agent@users.noreply.github.com` and
-  `git config user.name "CyClaw Agent"`
+- Claude Code commits as the session runtime's identity (cloud:
+  `Claude <noreply@anthropic.com>`, signed so GitHub shows it Verified; local:
+  the operator's own git identity), never as `CyClaw Agent`, which belongs to
+  CyClaw's own agentic loop (`utils/agent_identity.py`). See `CLAUDE.md` §10.
