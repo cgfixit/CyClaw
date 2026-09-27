@@ -65,7 +65,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import yaml
 
@@ -287,18 +287,42 @@ def _rule_files(root: Path, walk: _WalkBudget, *, deadline: float | None = None)
     return found
 
 
-def _read_rule(path: Path, total_bytes: int) -> bytes:
+# Rule files are read in chunks of this size, so the byte cap and the
+# deadline are checked while a file is read, not only after.
+_RULE_READ_CHUNK = 64 * 1024
+
+
+def _open_rule(path: Path) -> BinaryIO:
+    return path.open("rb")
+
+
+def _read_rule(path: Path, total_bytes: int, *, deadline: float | None = None) -> bytes:
     """One rule file's bytes, keeping everything read for one decision under _MAX_RULE_BYTES.
 
-    The size is checked before the read, so one huge file is never read in
-    full, and again after, in case the file grew in between.
+    The size is checked before the read, so one file known to be too big is
+    never opened, and the read itself stops as soon as the cap is passed: a
+    file that grew after the stat, or one whose reported size is stale (a
+    network or pseudo filesystem), never grows past the cap in memory. The
+    deadline is checked between chunks (_RulesDeadline).
     """
-    if total_bytes + path.stat().st_size > _MAX_RULE_BYTES:
+    budget = _MAX_RULE_BYTES - total_bytes
+    if path.stat().st_size > budget:
         raise _RulesTooLarge(f"more than {_MAX_RULE_BYTES} bytes of rules")
-    data = path.read_bytes()
-    if total_bytes + len(data) > _MAX_RULE_BYTES:
-        raise _RulesTooLarge(f"more than {_MAX_RULE_BYTES} bytes of rules")
-    return data
+    chunks: list[bytes] = []
+    size = 0
+    with _open_rule(path) as handle:
+        while True:
+            if deadline is not None and time.monotonic() > deadline:
+                raise _RulesDeadline
+            # One byte past what is left is enough to tell the file is too big.
+            chunk = handle.read(min(_RULE_READ_CHUNK, budget - size + 1))
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > budget:
+                raise _RulesTooLarge(f"more than {_MAX_RULE_BYTES} bytes of rules")
+            chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _numbat_bool(value: Any, *, default: bool) -> bool | None:
@@ -390,7 +414,7 @@ def _collect_rules(dirs: list[Path], *, deadline: float) -> list[tuple[int, Path
         for path in _rule_files(real_root, walk, deadline=deadline):
             if time.monotonic() > deadline:
                 raise _RulesDeadline
-            data = _read_rule(path, total_bytes)
+            data = _read_rule(path, total_bytes, deadline=deadline)
             total_bytes += len(data)
             files.append((index, real_root, path, data))
     return files
@@ -703,7 +727,10 @@ def _evaluate(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | 
         return _deny("hook_misconfigured", f"numbat binary is not the pinned {PINNED_VERSION_LINE!r}")
     except (OSError, ValueError) as exc:
         return _deny("hook_error", f"numbat could not run: {type(exc).__name__}")
-    if _first_line(version.stdout) != PINNED_VERSION_LINE:
+    # A non-zero exit fails the check even with the pinned line printed, as it
+    # would fail any other step: a wrapper that prints it and then errors is
+    # not the pinned binary.
+    if version.returncode != 0 or _first_line(version.stdout) != PINNED_VERSION_LINE:
         return _deny("hook_misconfigured", f"numbat binary is not the pinned {PINNED_VERSION_LINE!r}")
 
     event = build_gate_event(provider, model, query_hash, cfg)
@@ -857,7 +884,7 @@ def _readiness(cfg: dict[str, Any] | None, timeout: float) -> tuple[bool, str | 
         # A fixed phrase, never what the binary printed: until it prints the
         # pinned line it is an unverified program, and its output could hold
         # a path or a token that unauthenticated /health must not publish.
-        if _first_line(version.stdout) != PINNED_VERSION_LINE:
+        if version.returncode != 0 or _first_line(version.stdout) != PINNED_VERSION_LINE:
             return False, f"numbat binary is not the pinned {PINNED_VERSION_LINE!r}, so every external call is denied"
         argv = [binary, "rules", "check", "--no-builtin-rules"]
         for directory in dirs:

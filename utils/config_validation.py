@@ -345,9 +345,12 @@ def validate_pre_action_hook_config(cfg: dict[str, Any]) -> None:
         return
     if engine == "command":
         command = block.get("command")
-        if not isinstance(command, list) or not command or not all(isinstance(c, str) and c for c in command):
-            raise _hook_error("enabled with engine 'command' needs command: a non-empty list of strings",
-                              received=command)
+        # Only command[0], the executable, must be non-empty: an empty string
+        # later in argv is a valid argument, and the runner passes it through.
+        if (not isinstance(command, list) or not command or not all(isinstance(c, str) for c in command)
+                or not command[0]):
+            raise _hook_error("enabled with engine 'command' needs command: a list of strings whose "
+                              "first item, the executable, is non-empty", received=command)
         return
     numbat = block.get("numbat")
     if not isinstance(numbat, dict):

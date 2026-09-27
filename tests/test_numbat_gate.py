@@ -14,6 +14,7 @@ Conftest-free on purpose: that lane runs this module with ``--noconftest``.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -87,6 +88,7 @@ class _FakeCli:
     def __init__(self, *, matches: list[str] | None = None, returncode: int = 0, stdout: str | None = None,
                  stderr: str = "", raises: BaseException | None = None,
                  version: str = numbat_gate.PINNED_VERSION_LINE, version_raises: BaseException | None = None,
+                 version_returncode: int = 0,
                  canary: bool = True, on_rules_test: Any = None) -> None:
         self.matches = matches or []
         self.returncode = returncode
@@ -95,6 +97,7 @@ class _FakeCli:
         self.raises = raises
         self.version = version
         self.version_raises = version_raises
+        self.version_returncode = version_returncode
         self.canary = canary
         self.on_rules_test = on_rules_test
         self.calls: list[list[str]] = []
@@ -107,7 +110,7 @@ class _FakeCli:
             self.version_calls.append(list(argv))
             if self.version_raises is not None:
                 raise self.version_raises
-            return subprocess.CompletedProcess(argv, 0, stdout=f"{self.version}\n", stderr="")
+            return subprocess.CompletedProcess(argv, self.version_returncode, stdout=f"{self.version}\n", stderr="")
         if list(argv[1:3]) == ["rules", "check"]:
             self.check_calls.append(list(argv))
             return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
@@ -584,15 +587,15 @@ def _stall_reads_of(monkeypatch: pytest.MonkeyPatch, name: str) -> tuple[threadi
     as a read on a stalled network mount blocks in the kernel."""
     release = threading.Event()
     attempts: list[str] = []
-    real_read_bytes = Path.read_bytes
+    real_open = numbat_gate._open_rule
 
-    def _read_bytes(self):
-        if self.name == name:
-            attempts.append(self.name)
+    def _open(path):
+        if path.name == name:
+            attempts.append(path.name)
             release.wait(30)
-        return real_read_bytes(self)
+        return real_open(path)
 
-    monkeypatch.setattr(Path, "read_bytes", _read_bytes)
+    monkeypatch.setattr(numbat_gate, "_open_rule", _open)
     return release, attempts
 
 
@@ -808,17 +811,79 @@ def test_readiness_flags_a_rules_dir_past_the_walk_limits(tmp_path, monkeypatch,
     assert "too large" in problem and str(tmp_path) not in problem
 
 
+def _unreadable(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Make opening the rules file ``name`` fail, as it would for a file the
+    server's user cannot read (the suite may run as root)."""
+    real_open = numbat_gate._open_rule
+
+    def _open(path):
+        if path.name == name:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path)
+
+    monkeypatch.setattr(numbat_gate, "_open_rule", _open)
+
+
+class _GrowingFile(io.BytesIO):
+    """A rules file larger than its stat said, counting the bytes read from it."""
+
+    def __init__(self, size: int) -> None:
+        super().__init__(b"x" * size)
+        self.bytes_read = 0
+
+    def read(self, size: int | None = -1) -> bytes:
+        data = super().read(size)
+        self.bytes_read += len(data)
+        return data
+
+
+def test_a_rule_file_larger_than_its_stat_stops_at_the_byte_cap(tmp_path, monkeypatch):
+    # The size is checked before the read, but a file can grow after the
+    # stat, or report a stale size on a network or pseudo filesystem. The
+    # read must stop at the cap rather than hold the whole file in memory.
+    rule = tmp_path / "rules" / "grown.yaml"
+    rule.parent.mkdir()
+    rule.write_bytes(b"id: x\n")
+    monkeypatch.setattr(numbat_gate, "_MAX_RULE_BYTES", 1000)
+    monkeypatch.setattr(numbat_gate, "_RULE_READ_CHUNK", 256)
+    grown = _GrowingFile(1_000_000)
+    monkeypatch.setattr(numbat_gate, "_open_rule", lambda path: grown)
+    with pytest.raises(numbat_gate._RulesTooLarge):
+        numbat_gate._read_rule(rule, 0)
+    assert grown.bytes_read <= 1001
+
+
+def test_a_rule_file_read_stops_at_the_deadline(tmp_path):
+    rule = tmp_path / "r.yaml"
+    rule.write_bytes(b"id: x\n")
+    with pytest.raises(numbat_gate._RulesDeadline):
+        numbat_gate._read_rule(rule, 0, deadline=time.monotonic() - 1)
+
+
+def test_a_rule_file_is_read_in_full_under_the_cap(tmp_path, monkeypatch):
+    rule = tmp_path / "r.yaml"
+    body = b"".join(b"line %d\n" % n for n in range(500))
+    rule.write_bytes(body)
+    monkeypatch.setattr(numbat_gate, "_RULE_READ_CHUNK", 100)
+    assert numbat_gate._read_rule(rule, 0) == body
+
+
+def test_a_version_check_that_exits_nonzero_denies(tmp_path, monkeypatch):
+    # A wrapper can print the pinned line and still fail; a non-zero exit
+    # fails the check as it fails every other step.
+    _rules_dir(tmp_path, ("acme.deny", True))
+    fake = _fake(monkeypatch, version_returncode=1)
+    result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
+    assert (result["verdict"], result["reason_code"]) == ("deny", "hook_misconfigured")
+    assert fake.calls == []
+    ready, problem = numbat_gate.readiness(_cfg(tmp_path))
+    assert ready is False and "not the pinned" in problem
+
+
 def test_readiness_flags_an_unreadable_rules_file(tmp_path, monkeypatch):
     # The decision path denies every call on it, so /health must not say ready.
     _rules_dir(tmp_path, ("acme.deny", True))
-    real_read_bytes = Path.read_bytes
-
-    def _read_bytes(self):
-        if self.name == "acme_deny.yaml":
-            raise PermissionError("denied")
-        return real_read_bytes(self)
-
-    monkeypatch.setattr(Path, "read_bytes", _read_bytes)
+    _unreadable(monkeypatch, "acme_deny.yaml")
     _ready_cli(monkeypatch)
     ready, problem = numbat_gate.readiness(_cfg(tmp_path))
     assert ready is False
@@ -868,14 +933,7 @@ def test_a_rule_edited_mid_request_cannot_reach_the_evaluated_rules(tmp_path, mo
 
 def test_an_unreadable_rules_file_denies(tmp_path, monkeypatch):
     _rules_dir(tmp_path, ("acme.deny", True))
-    real_read_bytes = Path.read_bytes
-
-    def _read_bytes(self):
-        if self.name == "acme_deny.yaml":
-            raise PermissionError("denied")
-        return real_read_bytes(self)
-
-    monkeypatch.setattr(Path, "read_bytes", _read_bytes)
+    _unreadable(monkeypatch, "acme_deny.yaml")
     fake = _fake(monkeypatch, matches=["acme.deny"])
     result = numbat_gate.evaluate("grok", "grok-4.5", _HASH, _cfg(tmp_path), timeout=5)
     # A rule the gate cannot see must deny, not drop out of both sides.

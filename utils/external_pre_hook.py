@@ -378,8 +378,8 @@ def hook_readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None] | None
     command = block.get("command")
     if not command:
         return False, "enabled with an empty command, so every external call is denied"
-    if not isinstance(command, list) or not all(isinstance(c, str) and c for c in command):
-        return False, "command is not a list of non-empty strings, so every external call is denied"
+    if not isinstance(command, list) or not all(isinstance(c, str) for c in command) or not command[0]:
+        return False, "command is not a list of strings with a non-empty command[0], so every external call is denied"
     exe = command[0]
     # The budget is the call's own: a call has to find and start command[0]
     # within timeout_sec too.

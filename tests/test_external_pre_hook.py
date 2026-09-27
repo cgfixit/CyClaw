@@ -501,6 +501,11 @@ def test_readiness_of_a_resolvable_command(tmp_path: Path):
     assert hook_readiness(cfg) == (True, None)
 
 
+def test_readiness_accepts_an_empty_argument_after_the_executable(tmp_path: Path):
+    cfg = _hook_config(tmp_path, command=(sys.executable, "-c", "pass", ""))
+    assert hook_readiness(cfg) == (True, None)
+
+
 @pytest.mark.parametrize("command", [(), ("",), ("definitely-not-a-binary-cyclaw-1458",)])
 def test_readiness_flags_a_command_that_cannot_run(tmp_path: Path, command):
     ready, problem = hook_readiness(_hook_config(tmp_path, command=command))

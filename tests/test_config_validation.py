@@ -572,7 +572,7 @@ def test_legacy_fail_mode_enforce_still_boots():
     validate_pre_action_hook_config(_hook(enabled=True, command=["hook"], fail_mode="enforce"))
 
 
-@pytest.mark.parametrize("command", [None, [], "hook --deny", [""], ["ok", 3]])
+@pytest.mark.parametrize("command", [None, [], "hook --deny", [""], ["", "arg"], ["ok", 3]])
 def test_enabled_command_engine_needs_an_argv(command):
     with pytest.raises(ConfigError, match="command"):
         validate_pre_action_hook_config(_hook(enabled=True, command=command))
@@ -590,4 +590,7 @@ def test_enabled_numbat_engine_needs_rules_dirs_and_a_binary(numbat):
 
 def test_valid_enabled_engines_boot():
     validate_pre_action_hook_config(_hook(enabled=True, command=["/usr/local/bin/cyclaw-hook"], emit_verdict=True))
+    # An empty argument after the executable is valid argv, and the runner
+    # passes it through; only command[0] must be non-empty.
+    validate_pre_action_hook_config(_hook(enabled=True, command=["/usr/local/bin/cyclaw-hook", ""]))
     validate_pre_action_hook_config(_hook(enabled=True, engine="numbat", numbat={"rules_dirs": ["/etc/numbat/cyclaw-gate"]}))
