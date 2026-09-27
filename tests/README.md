@@ -84,6 +84,7 @@ new test files are auto-discovered and need neither coverage declaration.
 | `fixtures/github_coding_repo/` | Canned repo used by the agentic real-repo-loop tests. |
 | `ci_rag_smoke.py` | Deliberately NOT `test_*`-named so pytest ignores it; runs as a separate CI step against a real index. Renaming it double-runs it and drags ChromaDB into the unit lane. |
 | `judge_eval.py` | Default-off 52-case groundedness evaluator. Builds an isolated real Chroma/BM25 index; the opt-in judge is Claude or a second loopback model. See `docs/EVALS.md`. |
+| `rerank_probes.py` | Answer keys for every answerable RAG probe, plus a fresh held-out probe set, for choosing the reranker veto (issue #1456). Labels a window by whether an answer key is in it, never by a model score. Read by `scripts/rerank_bakeoff.py` and `test_rerank_bakeoff.py`; no heavy imports. |
 | `judge_calibrate.py` | Runs the selected judge over 36 labeled fixture answers without generating contestant answers; reports agreement, not a CI gate. |
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
