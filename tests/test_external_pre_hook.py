@@ -294,55 +294,66 @@ def test_emit_failure_is_fail_soft(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert _lines(Path(cfg["numbat"]["output_path"])) == []
 
 
-def _join_emit_workers() -> None:
-    for thread in threading.enumerate():
-        if thread.name == "pre-action-hook-emit":
-            thread.join(30)
+@pytest.fixture
+def stream_writer(monkeypatch: pytest.MonkeyPatch):
+    """A Numbat stream writer of this test's own, so stalling it leaves the module's alone."""
+    import utils.numbat_emitter as emitter
+
+    writer = emitter._StreamWriter()
+    monkeypatch.setattr(emitter, "_WRITER", writer)
+    return writer
 
 
-def test_a_stalled_verdict_write_does_not_hold_the_verdict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_a_stalled_verdict_write_does_not_hold_the_verdict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                           stream_writer):
     # The event is forensic; a filesystem stalled under numbat.output_path
-    # must not keep the decided call from going ahead.
+    # must not keep the decided call from going ahead. The stream's writer
+    # thread takes the write, and the verdict waits for it at most
+    # _WRITE_WAIT_SEC.
+    import utils.numbat_emitter as emitter
+
     cfg = _hook_config(tmp_path)
     monkeypatch.setattr(subprocess, "run", _allow_run)
-    monkeypatch.setattr("utils.external_pre_hook._EMIT_BUDGET_SEC", 0.2)
+    monkeypatch.setattr(emitter, "_WRITE_WAIT_SEC", 0.05)
+    real_write = emitter._write_line
+    entered = threading.Event()
     release = threading.Event()
-    writes: list[str] = []
 
-    def _stuck(event_type, **kwargs):
-        writes.append(event_type)
+    def _stalled(path, line, max_bytes):
+        entered.set()
         release.wait(30)
+        real_write(path, line, max_bytes)
 
-    monkeypatch.setattr("utils.numbat_emitter.emit_numbat_event", _stuck)
-    started = time.monotonic()
+    monkeypatch.setattr(emitter, "_write_line", _stalled)
     try:
         result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
-        elapsed = time.monotonic() - started
+        # Only this finally releases the write, so the verdict above came back
+        # while its event was still stuck.
+        assert entered.wait(10)
     finally:
         release.set()
-        _join_emit_workers()
     assert (result["verdict"], result["reason_code"]) == ("allow", "hook_allowed")
-    assert writes == ["network.indicator"]
-    assert elapsed < 10  # the stuck write alone would have held it for 30 s
+    assert stream_writer.flush(10)
+    assert [e["event_type"] for e in _lines(Path(cfg["numbat"]["output_path"]))] == ["network.indicator"]
 
 
-def test_stuck_verdict_writes_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                         caplog: pytest.LogCaptureFixture):
-    # With every write slot held by a stuck write, the next event is skipped
-    # at once instead of stacking another thread on the same stalled file.
+def test_a_full_stream_queue_drops_the_verdict_event_not_the_verdict(tmp_path: Path,
+                                                                     monkeypatch: pytest.MonkeyPatch,
+                                                                     caplog: pytest.LogCaptureFixture,
+                                                                     stream_writer):
+    # With the writer's queue full, the event is dropped and counted at once
+    # instead of waiting; the verdict is unaffected.
+    import utils.numbat_emitter as emitter
+
     cfg = _hook_config(tmp_path)
     monkeypatch.setattr(subprocess, "run", _allow_run)
-    slots = threading.BoundedSemaphore(1)
-    slots.acquire()
-    monkeypatch.setattr("utils.external_pre_hook._EMIT_SLOTS", slots)
-    started = time.monotonic()
-    with caplog.at_level(logging.WARNING, logger="cyclaw.external_pre_hook"):
+    monkeypatch.setattr(emitter, "_MAX_QUEUED_WRITES", 0)
+    with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
         result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
-    assert time.monotonic() - started < 5
     assert result["verdict"] == "allow"
+    assert stream_writer.dropped == 1
     assert _lines(Path(cfg["numbat"]["output_path"])) == []
-    assert "verdict event skipped" in caplog.text
-    slots.release()
+    assert "dropped 1 event(s)" in caplog.text
 
 
 # ---------------------------------------------------------------------------

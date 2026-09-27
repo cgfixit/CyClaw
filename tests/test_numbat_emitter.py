@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
+import subprocess
+import sys
+import textwrap
 import threading
 import time
 from pathlib import Path
@@ -546,3 +550,217 @@ def test_redact_url_for_numbat_keeps_only_the_origin(url, expected):
 
     assert redact_url_for_numbat(url) == expected
 
+
+
+# ---------------------------------------------------------------------------
+# The stream's single writer thread: a stalled filesystem under
+# numbat.output_path must not hold the caller (the audit step of every /query).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def writer(monkeypatch: pytest.MonkeyPatch) -> numbat_emitter._StreamWriter:
+    """A writer of this test's own, so stalling it leaves the module's alone."""
+    fresh = numbat_emitter._StreamWriter()
+    monkeypatch.setattr(numbat_emitter, "_WRITER", fresh)
+    return fresh
+
+
+def _stall_writes(monkeypatch: pytest.MonkeyPatch, *, hold_lock: bool = False) -> tuple[threading.Event, threading.Event]:
+    """Make the first write block until ``release`` is set; ``entered`` says it began.
+
+    With ``hold_lock`` it blocks holding _WRITE_LOCK, as a real append stuck on
+    a stalled mount does.
+    """
+    real_write = numbat_emitter._write_line
+    entered, release = threading.Event(), threading.Event()
+    first = [True]
+
+    def _write(path: Path, line: str, max_bytes: int) -> None:
+        if first[0]:
+            first[0] = False
+            if hold_lock:
+                with numbat_emitter._WRITE_LOCK:
+                    entered.set()
+                    release.wait(30)
+            else:
+                entered.set()
+                release.wait(30)
+        real_write(path, line, max_bytes)
+
+    monkeypatch.setattr(numbat_emitter, "_write_line", _write)
+    return entered, release
+
+
+def _in_thread(fn, *args) -> threading.Thread:
+    thread = threading.Thread(target=fn, args=args, daemon=True)
+    thread.start()
+    thread.join(10)
+    return thread
+
+
+def test_a_healthy_write_is_in_the_file_when_the_call_returns(tmp_path: Path, writer) -> None:
+    out = tmp_path / "s.ndjsonl"
+    numbat_emitter.write_ndjson({"n": 1}, out)
+    assert _ndjson_lines(out) == [{"n": 1}]
+
+
+def test_a_stalled_write_does_not_hold_its_caller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer,
+                                                  caplog: pytest.LogCaptureFixture) -> None:
+    out = tmp_path / "s.ndjsonl"
+    monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
+    entered, release = _stall_writes(monkeypatch)
+    try:
+        with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+            # Returns after the 0.05 s wait although only the finally below
+            # releases the write.
+            numbat_emitter.write_ndjson({"n": 1}, out)
+            assert entered.wait(10)
+            assert "was not written within 0.05s" in caplog.text
+            # The stream is now known to be stalled: the next caller does not
+            # wait at all, even with an hour-long wait configured.
+            monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 3600.0)
+            second = _in_thread(numbat_emitter.write_ndjson, {"n": 2}, out)
+            assert not second.is_alive()
+            assert writer.flush(0.05) is False
+    finally:
+        release.set()
+    assert writer.flush(10)
+    assert _ndjson_lines(out) == [{"n": 1}, {"n": 2}]
+    assert "a write finished after" in caplog.text
+
+
+def test_callers_already_waiting_stop_when_the_stall_is_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                             writer) -> None:
+    # The first caller waits with an hour-long wait on its own stuck write.
+    # When a second caller times out and finds the stream stalled, the first
+    # stops waiting too instead of sitting out its hour.
+    out = tmp_path / "s.ndjsonl"
+    monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 3600.0)
+    entered, release = _stall_writes(monkeypatch)
+    first = threading.Thread(target=numbat_emitter.write_ndjson, args=({"n": 1}, out), daemon=True)
+    try:
+        first.start()
+        # The writer took line 1 only after the first caller released the lock
+        # to wait, so the first caller is waiting now.
+        assert entered.wait(10)
+        monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
+        numbat_emitter.write_ndjson({"n": 2}, out)
+        first.join(10)
+        assert not first.is_alive()
+    finally:
+        release.set()
+    assert writer.flush(10)
+    assert _ndjson_lines(out) == [{"n": 1}, {"n": 2}]
+
+
+def test_a_full_queue_drops_new_events_and_reports_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer,
+                                                        caplog: pytest.LogCaptureFixture) -> None:
+    out = tmp_path / "s.ndjsonl"
+    monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
+    monkeypatch.setattr(numbat_emitter, "_MAX_QUEUED_WRITES", 2)
+    entered, release = _stall_writes(monkeypatch)
+    try:
+        numbat_emitter.write_ndjson({"n": 1}, out)
+        assert entered.wait(10)  # line 1 is the stuck write, so 2 and 3 fill the queue
+        with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+            for n in (2, 3, 4, 5):
+                numbat_emitter.write_ndjson({"n": n}, out)
+    finally:
+        release.set()
+    assert writer.dropped == 2
+    drops = [r for r in caplog.records if "dropped" in r.getMessage()]
+    assert len(drops) == 1 and "dropped 1 event(s)" in drops[0].getMessage()
+    assert writer.flush(10)
+    assert _ndjson_lines(out) == [{"n": 1}, {"n": 2}, {"n": 3}]
+
+
+def test_lines_from_one_thread_land_in_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer) -> None:
+    out = tmp_path / "s.ndjsonl"
+    monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
+    entered, release = _stall_writes(monkeypatch)
+    try:
+        for n in range(20):  # everything after the first queues behind the stuck write
+            numbat_emitter.write_ndjson({"n": n}, out)
+        assert entered.wait(10)
+    finally:
+        release.set()
+    assert writer.flush(10)
+    assert [line["n"] for line in _ndjson_lines(out)] == list(range(20))
+
+
+def test_close_does_not_hang_on_a_stuck_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer,
+                                              caplog: pytest.LogCaptureFixture) -> None:
+    # At exit (atexit runs close_numbat_handles) a write stuck on a stalled
+    # mount holds the write lock; exit waits for it only _DRAIN_WAIT_SEC.
+    monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
+    monkeypatch.setattr(numbat_emitter, "_DRAIN_WAIT_SEC", 0.05)
+    entered, release = _stall_writes(monkeypatch, hold_lock=True)
+    try:
+        numbat_emitter.write_ndjson({"n": 1}, tmp_path / "s.ndjsonl")
+        assert entered.wait(10)
+        with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+            closer = _in_thread(close_numbat_handles)
+        assert not closer.is_alive()
+        assert "a write is still stuck" in caplog.text
+    finally:
+        release.set()
+    assert writer.flush(10)
+
+
+def test_a_failed_write_is_logged_and_the_writer_keeps_going(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                             writer, caplog: pytest.LogCaptureFixture) -> None:
+    out = tmp_path / "s.ndjsonl"
+    real_write = numbat_emitter._write_line
+    calls = [0]
+
+    def _fail_first(path: Path, line: str, max_bytes: int) -> None:
+        calls[0] += 1
+        if calls[0] == 1:
+            raise OSError("disk full")
+        real_write(path, line, max_bytes)
+
+    monkeypatch.setattr(numbat_emitter, "_write_line", _fail_first)
+    with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+        numbat_emitter.write_ndjson({"n": 1}, out)
+        numbat_emitter.write_ndjson({"n": 2}, out)
+    assert _ndjson_lines(out) == [{"n": 2}]
+    assert "failed: disk full" in caplog.text
+
+
+def test_a_write_falls_back_to_the_caller_when_no_thread_can_start(tmp_path: Path,
+                                                                   monkeypatch: pytest.MonkeyPatch,
+                                                                   writer) -> None:
+    # At interpreter shutdown Python refuses to start threads; the line is
+    # then written on the caller's thread, as before.
+    monkeypatch.setattr(writer, "_start", lambda: False)
+    out = tmp_path / "s.ndjsonl"
+    numbat_emitter.write_ndjson({"n": 1}, out)
+    assert _ndjson_lines(out) == [{"n": 1}]
+    assert writer._thread is None
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
+def test_a_forked_child_gets_a_write_lock_nobody_holds(tmp_path: Path) -> None:
+    # The parent holds the write lock at the fork, as its writer thread would
+    # mid-append. Without the at-fork reset the child's line never lands: its
+    # writer waits on a lock no thread in the child will ever release.
+    out = tmp_path / "child.ndjsonl"
+    script = textwrap.dedent(f"""
+        import os, sys, warnings
+        from pathlib import Path
+        from utils import numbat_emitter as e
+        warnings.simplefilter("ignore", DeprecationWarning)
+        e._WRITE_LOCK.acquire()
+        pid = os.fork()
+        if pid == 0:
+            e.write_ndjson({{"child": True}}, Path({str(out)!r}))
+            e.close_numbat_handles()
+            os._exit(0)
+        _, status = os.waitpid(pid, 0)
+        sys.exit(os.waitstatus_to_exitcode(status))
+    """)
+    proc = subprocess.run([sys.executable, "-c", script], cwd=_REPO_ROOT, timeout=60,  # noqa: S603 - fixed argv
+                          capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert _ndjson_lines(out) == [{"child": True}]

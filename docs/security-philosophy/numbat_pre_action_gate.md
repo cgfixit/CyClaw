@@ -245,11 +245,20 @@ It carries `evidence.artifact_type: "pre_action_hook"` and, unless
 `include_query_hash` is false, `{"query_hash": ...}` in `content_preview` as
 the join key to the `rag_query` record. A failure to write the event never
 changes the verdict (`tests/test_graph.py::TestPreActionHookEnginesAndVerdicts`),
-and a slow write never holds it: the event is written on a worker thread the
-call waits for at most 1 s, and with four such writes already stuck the event
-is skipped and logged. A stalled `numbat.output_path` still stalls the request
-later, though: the audit record that ends every query is projected into the
-same stream, synchronously, and waits on the same write.
+and a slow write holds it for 1 s at most. Every write to the stream, the verdict event
+and the audit record that ends every query alike, goes through one writer
+thread in `utils/numbat_emitter.py`:
+
+- A caller waits at most 1 s for its event. On a healthy disk the event is in
+  the file when the call returns.
+- Once a write overruns that, later callers do not wait at all until the
+  writer finishes a write again.
+- With 1,000 events already waiting, new ones are dropped and counted in a
+  warning, logged at most once a minute.
+
+So a stalled `numbat.output_path` holds a request for about a second when the
+stall starts, instead of for as long as the stall lasts. `audit.jsonl` is
+written separately and is unaffected.
 
 ## What the Numbat pre-action gate does not do
 
