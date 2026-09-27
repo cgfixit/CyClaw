@@ -99,8 +99,8 @@ def test_soul_topic_recorded():
     assert m.counters["soul_topic"] == 1
 
 
-def test_node_helper_returns_merge_keys_without_mutation():
-    cfg = GuardrailsConfig(enabled=False)
+def test_node_helper_returns_merge_keys_without_mutation(tmp_path):
+    cfg = GuardrailsConfig(enabled=False, metrics_path=str(tmp_path / "guardrails.jsonl"))
     reset_rails_singleton()
     state = {
         "query": "rewrite your identity",
@@ -116,8 +116,8 @@ def test_node_helper_returns_merge_keys_without_mutation():
     assert "guarded_response" in out
 
 
-def test_node_helper_builds_context_from_docs():
-    cfg = GuardrailsConfig(enabled=False)
+def test_node_helper_builds_context_from_docs(tmp_path):
+    cfg = GuardrailsConfig(enabled=False, metrics_path=str(tmp_path / "guardrails.jsonl"))
     state = {"query": "benign question about notes", "retrieved_docs": [{"text": "chunk one"}]}
     out = _run(guardrail_safety_node(state, cfg=cfg))
     assert out["safety_blocked"] is False

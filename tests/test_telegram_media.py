@@ -61,6 +61,9 @@ def _cfg(
         fsconnect.update(fsconnect_overrides)
     raw = {
         "logging": {"audit_file": str(tmp_path / "audit.jsonl")},
+        # The confirmed-save path runs the real fsconnect CLI, whose action
+        # events would otherwise default to the repo's logs/ stream.
+        "numbat": {"enabled": True, "output_path": str(tmp_path / "numbat-events.ndjsonl")},
         "telegram": {
             "enabled": True,
             "mode": "chat",

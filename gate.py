@@ -85,7 +85,7 @@ from utils.errors import (
 )
 from utils.guardrail_bridge import build_generate_guard, build_input_guard, build_output_guard
 from utils.health import check_all, close_http_client
-from utils.numbat_cel import monitor_request
+from utils.numbat_cel import model_provider_for_role, monitor_request
 from utils.personality import PersonalityManager
 from utils.authn_manager import AuthManager, BOOTSTRAP_USERNAME
 from gate_ops import register_ops_routes
@@ -120,6 +120,7 @@ def require_api_key(
 from utils.config_validation import (
     validate_auth_config,
     validate_boot_timeout_config,
+    validate_guardrails_config,
     validate_tls_config,
     validate_fallback_confirm_placeholder,
     validate_local_llm_reasoning_effort,
@@ -139,6 +140,9 @@ validate_retrieval_config(cfg)
 validate_personality_config(cfg)
 validate_auth_config(cfg)
 validate_tls_config(cfg)
+# A quoted guardrails.enabled left every guard silently off; refuse it here,
+# before build_input_guard below reads the flag.
+validate_guardrails_config(cfg)
 # An unrecognized reasoning_effort would otherwise reach Ollama and come back as
 # an HTTP 400 on the first /query -- surface it here instead, before any socket.
 validate_local_llm_reasoning_effort(cfg)
@@ -333,15 +337,6 @@ _SECRET_PATTERNS = [
     re.compile(r'xox[baprs]-[0-9a-zA-Z\-]+'), # Slack tokens
     re.compile(r'AKIA[0-9A-Z]{16}'),           # AWS access keys
 ]
-
-def _model_provider_for(answer_model: str) -> str:
-    """Map an answer_model string to a Numbat-friendly provider label."""
-    if answer_model.startswith("grok"):
-        return "xai"
-    if answer_model.startswith("claude"):
-        return "anthropic"
-    return "ollama"
-
 
 def _sanitize_error(exc: Exception) -> str:
     """Strip credential-like content from exception messages before HTTP response."""
@@ -979,6 +974,13 @@ async def query_endpoint(request: Request, req: QueryRequest):
         cel_block = numbat.get("cel") if isinstance(numbat, dict) else None
         if isinstance(cel_block, dict) and cel_block.get("enabled") is True:
             sources = result.get("answer_sources", []) or []
+            # The model that answered: the vendor-resolved served_model when
+            # a Grok/Claude call reported one, else the configured tag -- the
+            # same rule utils.numbat_emitter's audit projection applies, so a
+            # CEL event and its rag_query projection name the same model.
+            served_model = result.get("served_model")
+            if not (isinstance(served_model, str) and served_model):
+                served_model = None
             await asyncio.to_thread(
                 monitor_request,
                 query_hash=hash_query(req.query),
@@ -986,11 +988,15 @@ async def query_endpoint(request: Request, req: QueryRequest):
                 answer_model=result.get("answer_model"),
                 guardrail_blocked=result.get("guardrail_blocked"),
                 guardrail_rails=result.get("guardrail_rails"),
-                model_provider=_model_provider_for(result.get("answer_model", "")),
+                # By role, so answers no model produced (hook-denied,
+                # guardrail-blocked, the user-gate pause) carry "" rather
+                # than the "ollama" a prefix check used to give them.
+                model_provider=model_provider_for_role(result.get("answer_model"), cfg),
                 source_hashes=[
                     hash_query(f"{s.get('source', '')}:{s.get('chunk_id', -1)}")
                     for s in sources
                 ],
+                llm_model=served_model or _llm_identity(result.get("answer_model", ""), cfg).get("llm_model"),
                 cfg=cfg,
             )
     except Exception as exc:

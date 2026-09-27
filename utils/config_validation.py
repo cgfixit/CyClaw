@@ -384,6 +384,39 @@ def validate_auth_config(cfg: dict[str, Any]) -> None:
         )
 
 
+def validate_guardrails_config(cfg: dict[str, Any]) -> None:
+    """Refuse a ``guardrails.enabled`` that is not a boolean, at boot.
+
+    ``utils/guardrail_bridge.py`` arms the layer only on the literal boolean
+    ``True``, so a quoted ``enabled: "true"`` (or ``1``, or ``yes`` in quotes)
+    left all three guards off while the operator believed them on. The
+    validation in ``guardrails.config`` never ran either, because the bridge
+    stops before loading that package. ``"false"`` is refused too, because it
+    is the same ambiguous config.
+
+    No-op when the block is absent or empty (``guardrails:`` with nothing
+    under it parses to None). A present block that is not a mapping raises,
+    where the bridge's own ``.get`` would have crashed with AttributeError.
+    The rest of the block (engine, rail names, paths) is validated by
+    ``guardrails.config`` once the layer is enabled; gate.py must not import
+    that package (I6).
+    """
+    block = cfg.get("guardrails")
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        raise ConfigError(
+            f"config.guardrails must be a mapping, got: {type(block).__name__}",
+            details={"received_type": type(block).__name__},
+        )
+    enabled = block.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ConfigError(
+            f"guardrails.enabled must be a boolean true/false, got: {enabled!r}",
+            details={"field": "guardrails.enabled", "received": repr(enabled)},
+        )
+
+
 def validate_tls_config(cfg: dict[str, Any]) -> None:
     """Validate ``api.tls`` when TLS is the literal boolean True.
 
