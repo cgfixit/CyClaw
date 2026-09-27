@@ -263,7 +263,8 @@ def test_atomic_write_onto_a_directory_is_typed_not_a_raw_oserror(tmp_path):
     assert (root / "adir").is_dir(), "the directory must be left untouched"
 
 
-def test_main_wires_logging_before_dispatch(tmp_path, monkeypatch):
+@pytest.mark.usefixtures("isolated_logging")
+def test_main_wires_logging_before_dispatch(tmp_path):
     """main() must call setup_logging before dispatch, not leave it uncalled.
 
     Before this fix, agentic.fsconnect.cli never called setup_logging at all:
@@ -288,29 +289,20 @@ def test_main_wires_logging_before_dispatch(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
 
-    monkeypatch.setattr(logger_mod, "_logging_initialized", False)
     real_root = logging.getLogger()
-    before = list(real_root.handlers)
-    try:
-        assert cli.main(["--config", str(cfg_path), "status"]) == 0
+    assert cli.main(["--config", str(cfg_path), "status"]) == 0
 
-        # A record from a non-cyclaw namespace -- the same class pathsafe's
-        # and trash.py's skipped-entry warnings belong to -- must now reach
-        # the configured file, proving the handler this entrypoint's
-        # setup_logging call attaches is the real one, not a no-op.
-        logging.getLogger("agentic.fsconnect.wiring_regression_test").warning(
-            "fsconnect-cli-wiring-marker"
-        )
-        for handler in real_root.handlers:
-            handler.flush()
-        assert log_path.exists(), "main() did not call setup_logging with the loaded config"
-        assert "fsconnect-cli-wiring-marker" in log_path.read_text(encoding="utf-8")
-    finally:
-        for handler in list(real_root.handlers):
-            if handler not in before:
-                real_root.removeHandler(handler)
-                handler.close()
-        logger_mod._logging_initialized = False
+    # A record from a non-cyclaw namespace -- the same class pathsafe's
+    # and trash.py's skipped-entry warnings belong to -- must now reach
+    # the configured file, proving the handler this entrypoint's
+    # setup_logging call attaches is the real one, not a no-op.
+    logging.getLogger("agentic.fsconnect.wiring_regression_test").warning(
+        "fsconnect-cli-wiring-marker"
+    )
+    for handler in real_root.handlers:
+        handler.flush()
+    assert log_path.exists(), "main() did not call setup_logging with the loaded config"
+    assert "fsconnect-cli-wiring-marker" in log_path.read_text(encoding="utf-8")
 
 
 def test_main_maps_a_broken_log_file_to_env_exit_not_a_crash(tmp_path, monkeypatch):

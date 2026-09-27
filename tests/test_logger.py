@@ -145,9 +145,9 @@ class TestAuditLogSerializationFailure:
 
 @pytest.mark.real_log_anchor
 class TestSetupLoggingPathAnchoring:
+    @pytest.mark.usefixtures("isolated_logging")
     def test_relative_log_file_resolves_regardless_of_cwd(self, tmp_path, monkeypatch):
         monkeypatch.setattr(logger, "_REPO_ROOT", tmp_path)
-        monkeypatch.setattr(logger, "_logging_initialized", False)
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
         monkeypatch.chdir(elsewhere)
@@ -155,19 +155,8 @@ class TestSetupLoggingPathAnchoring:
         cfg = {"logging": {"level": "INFO", "log_file": "relative.log"}}
         logger.setup_logging(cfg)
 
-        try:
-            assert (tmp_path / "relative.log").exists()
-            assert not (elsewhere / "relative.log").exists()
-        finally:
-            # setup_logging attaches a FileHandler to the shared "cyclaw"
-            # logger singleton -- clean it up so later tests in this process
-            # don't inherit a handle on this test's deleted tmp_path file.
-            import logging as _logging
-
-            root = _logging.getLogger("cyclaw")
-            for handler in list(root.handlers):
-                handler.close()
-                root.removeHandler(handler)
+        assert (tmp_path / "relative.log").exists()
+        assert not (elsewhere / "relative.log").exists()
 
 
 class TestThirdPartyLogCapture:
@@ -221,37 +210,30 @@ class TestThirdPartyLogCapture:
         assert log_cfg["level"] == "DEBUG"
         assert log_cfg["third_party_level"] != "DEBUG"
 
-    def test_stray_loggers_land_in_the_configured_file(self, tmp_path, monkeypatch):
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_stray_loggers_land_in_the_configured_file(self, tmp_path):
         """The actual ask: a logger outside the cyclaw.* namespace must end up in
         cyclaw.log rather than only on stderr."""
         import utils.logger as logger_mod
 
         log_path = tmp_path / "cyclaw.log"
-        monkeypatch.setattr(logger_mod, "_logging_initialized", False)
         real_root = logging.getLogger()
-        before = list(real_root.handlers)
-        try:
-            logger_mod.setup_logging({"logging": {
-                "level": "DEBUG",
-                "log_file": str(log_path),
-                "capture_third_party": True,
-                "third_party_level": "INFO",
-            }})
-            logging.getLogger("chromadb.telemetry").warning("third-party line")
-            logging.getLogger("cyclaw.graph").debug("cyclaw debug line")
-            for handler in real_root.handlers:
-                handler.flush()
-            text = log_path.read_text(encoding="utf-8")
-        finally:
-            for handler in list(real_root.handlers):
-                if handler not in before:
-                    real_root.removeHandler(handler)
-                    handler.close()
-            logger._logging_initialized = False
+        logger_mod.setup_logging({"logging": {
+            "level": "DEBUG",
+            "log_file": str(log_path),
+            "capture_third_party": True,
+            "third_party_level": "INFO",
+        }})
+        logging.getLogger("chromadb.telemetry").warning("third-party line")
+        logging.getLogger("cyclaw.graph").debug("cyclaw debug line")
+        for handler in real_root.handlers:
+            handler.flush()
+        text = log_path.read_text(encoding="utf-8")
         assert "third-party line" in text
         assert "cyclaw debug line" in text
 
-    def test_cyclaw_lines_are_written_to_the_file_exactly_once(self, tmp_path, monkeypatch):
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_cyclaw_lines_are_written_to_the_file_exactly_once(self, tmp_path):
         """Presence is not enough -- count it.
 
         _capture_third_party attaches its handler to the REAL root, and
@@ -263,32 +245,24 @@ class TestThirdPartyLogCapture:
         """
 
         log_path = tmp_path / "cyclaw.log"
-        monkeypatch.setattr(logger, "_logging_initialized", False)
         real_root = logging.getLogger()
-        before = list(real_root.handlers)
-        try:
-            logger.setup_logging({"logging": {
-                "level": "DEBUG",
-                "log_file": str(log_path),
-                "capture_third_party": True,
-                "third_party_level": "INFO",
-            }})
-            logging.getLogger("cyclaw.graph").info("count-me-once")
-            logging.getLogger("chromadb.telemetry").warning("third-party-once")
-            for handler in real_root.handlers + logging.getLogger("cyclaw").handlers:
-                handler.flush()
-            text = log_path.read_text(encoding="utf-8")
-        finally:
-            for handler in list(real_root.handlers):
-                if handler not in before:
-                    real_root.removeHandler(handler)
-                    handler.close()
-            logger._logging_initialized = False
+        logger.setup_logging({"logging": {
+            "level": "DEBUG",
+            "log_file": str(log_path),
+            "capture_third_party": True,
+            "third_party_level": "INFO",
+        }})
+        logging.getLogger("cyclaw.graph").info("count-me-once")
+        logging.getLogger("chromadb.telemetry").warning("third-party-once")
+        for handler in real_root.handlers + logging.getLogger("cyclaw").handlers:
+            handler.flush()
+        text = log_path.read_text(encoding="utf-8")
         assert text.count("count-me-once") == 1, "CyClaw line duplicated in the log file"
         assert text.count("third-party-once") == 1, "third-party line duplicated in the log file"
 
+    @pytest.mark.usefixtures("isolated_logging")
     def test_cyclaw_still_reaches_the_file_when_third_party_capture_is_off(
-        self, tmp_path, monkeypatch,
+        self, tmp_path,
     ):
         """The opt-out path must keep its own handler.
 
@@ -298,28 +272,16 @@ class TestThirdPartyLogCapture:
         """
 
         log_path = tmp_path / "cyclaw.log"
-        monkeypatch.setattr(logger, "_logging_initialized", False)
         cyclaw_logger = logging.getLogger("cyclaw")
-        real_root = logging.getLogger()
-        before_root = list(real_root.handlers)
-        before_cyclaw = list(cyclaw_logger.handlers)
-        try:
-            logger.setup_logging({"logging": {
-                "level": "DEBUG",
-                "log_file": str(log_path),
-                "capture_third_party": False,
-            }})
-            logging.getLogger("cyclaw.graph").info("offline-marker")
-            for handler in cyclaw_logger.handlers:
-                handler.flush()
-            text = log_path.read_text(encoding="utf-8")
-        finally:
-            for logger_obj, before in ((real_root, before_root), (cyclaw_logger, before_cyclaw)):
-                for handler in list(logger_obj.handlers):
-                    if handler not in before:
-                        logger_obj.removeHandler(handler)
-                        handler.close()
-            logger._logging_initialized = False
+        logger.setup_logging({"logging": {
+            "level": "DEBUG",
+            "log_file": str(log_path),
+            "capture_third_party": False,
+        }})
+        logging.getLogger("cyclaw.graph").info("offline-marker")
+        for handler in cyclaw_logger.handlers:
+            handler.flush()
+        text = log_path.read_text(encoding="utf-8")
         assert text.count("offline-marker") == 1
 
     def test_agentic_still_reaches_the_file_when_third_party_capture_is_off(

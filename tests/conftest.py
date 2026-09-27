@@ -6,6 +6,7 @@ No live services required — all external deps are mocked.
 
 import contextlib
 import copy
+import logging
 import os
 import shutil
 import tempfile
@@ -251,6 +252,60 @@ def _disarm_agentic_write_execution(request, monkeypatch):
             return
         raise
     monkeypatch.setattr(_writer, "EXECUTION_ENABLED", False)
+
+
+# The loggers utils/logger.setup_logging attaches handlers to: the real root
+# (the log file, while logging.capture_third_party is on), "cyclaw" (a console
+# handler, plus the log file when capture is off) and "agentic" (the same
+# console handler, and the log file when capture is off).
+_SETUP_LOGGING_LOGGERS = ("", "cyclaw", "agentic")
+
+
+@pytest.fixture(autouse=True)
+def _remove_logging_handlers_the_test_added():
+    # After every test, takes each handler the test added off the three
+    # loggers above, and closes it. One handler can sit on two of them (the
+    # console handler always, the log file when capture is off), so it comes
+    # off both before it is closed, once. Handlers there before the test, such
+    # as the ones gate.py's import-time setup_logging call attaches when a
+    # module imports gate at collection, are left alone.
+    #
+    # Autouse, because setup_logging attaches handlers only on its first call
+    # in a process, so which test does it depends on the run. In the full
+    # suite, gate's import at collection makes that call before any test. In
+    # a run that collects no module importing gate, the first test to reach
+    # it does, often through an agentic CLI's main() without knowing it: when
+    # only the files that mention setup_logging run, that is
+    # tests/test_agentic_cli.py's test_status_runs. Its console handler stayed
+    # on "cyclaw" and "agentic", bound to that test's capsys stream, which
+    # pytest closes after the test, and a later test that flushed those
+    # loggers' handlers failed with "I/O operation on closed file".
+    #
+    # The run-once guard is left as the test left it, so a later call is a
+    # no-op, as in the full suite; isolated_logging below clears it for a test
+    # that needs setup_logging to run. The logger levels setup_logging sets
+    # are not restored.
+    loggers = [logging.getLogger(name) for name in _SETUP_LOGGING_LOGGERS]
+    before = [list(each.handlers) for each in loggers]
+    yield
+    added = []
+    for each, kept in zip(loggers, before, strict=True):
+        for handler in list(each.handlers):
+            if handler not in kept:
+                each.removeHandler(handler)
+                if handler not in added:
+                    added.append(handler)
+    for handler in added:
+        handler.close()
+
+
+@pytest.fixture
+def isolated_logging(monkeypatch):
+    # For a test that runs setup_logging, directly or through a CLI's main():
+    # clears its run-once guard, so the call attaches handlers even after an
+    # earlier call in this process, and monkeypatch puts the session's value
+    # back afterwards. The autouse fixture above removes what it attaches.
+    monkeypatch.setattr(_logger_mod, "_logging_initialized", False)
 
 
 @pytest.fixture
