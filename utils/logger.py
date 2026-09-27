@@ -104,7 +104,7 @@ def _anchor(path_str: str) -> Path:
     return path if path.is_absolute() else _REPO_ROOT / path
 
 
-def setup_logging(cfg: dict | None = None) -> None:
+def setup_logging(cfg: dict | None = None, *, background_console: bool = False) -> None:
     global _logging_initialized
     if _logging_initialized:
         return
@@ -122,7 +122,20 @@ def setup_logging(cfg: dict | None = None) -> None:
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
-    console = logging.StreamHandler()
+    max_queued, drain_wait_sec = _log_writer_settings(log_cfg)
+    # The console is written on the caller's thread by default: tools that run
+    # an agentic CLI read its stderr once it exits (see the agentic_logger
+    # comment below), so those lines must be written before the process ends.
+    # gate.py passes background_console=True instead. Its request threads log
+    # cyclaw.* records here at the shipped DEBUG level, and a launchd service's
+    # stderr is a file (macos/generate_service_plist.py) that can stall with
+    # the log volume, so its console is written from a writer thread, bounded
+    # like the log file below (Codex review on #1482).
+    console: logging.Handler
+    if background_console:
+        console = _BackgroundConsoleHandler(max_queued=max_queued, drain_wait_sec=drain_wait_sec)
+    else:
+        console = logging.StreamHandler()
     console.setFormatter(fmt)
     root.addHandler(console)
 
@@ -163,7 +176,6 @@ def setup_logging(cfg: dict | None = None) -> None:
         # and nothing else will. Either way the file is written by a
         # _BackgroundFileHandler (see the comment above it).
         if not _capture_third_party(log_cfg, anchored_log_file, fmt):
-            max_queued, drain_wait_sec = _log_writer_settings(log_cfg)
             fh = _BackgroundFileHandler(anchored_log_file, max_queued=max_queued, drain_wait_sec=drain_wait_sec)
             fh.setFormatter(fmt)
             root.addHandler(fh)
@@ -210,12 +222,10 @@ def setup_logging(cfg: dict | None = None) -> None:
 # the lock a stuck write holds. Either would hang exit on the very stall this
 # handler exists for. Here the writer's file object is not a handler at all.
 #
-# The console handlers stay synchronous: tools that run an agentic CLI read
-# its stderr once it exits (see the agentic_logger comment in setup_logging),
-# so those lines must be written before the process ends. That leaves one
-# path this handler does not cover: where stderr is itself a file on the
-# stalled volume, as the launchd service's can be, a console write still
-# holds its caller.
+# The console: an agentic CLI's is written on the caller's thread, since
+# tools read its stderr once it exits. The gateway's is a
+# _BackgroundConsoleHandler, the same writer aimed at stderr, since a launchd
+# service's stderr is a file that can stall too (see setup_logging).
 #
 # These defaults apply when the logging block does not set a value, or sets
 # one boot validation would refuse; they match the shipped config.
@@ -359,7 +369,7 @@ class _BackgroundFileHandler(logging.Handler):
         # Opened here, on the thread that sets logging up, as FileHandler opens
         # its file: a bad path fails setup, and the file exists once setup
         # returns. close() closes it, unless a write is still stuck in it.
-        self._stream: TextIO | None = open(path, "a", encoding="utf-8")  # noqa: SIM115  # codeql[py/file-not-closed] closed in close()
+        self._stream: TextIO | None = self._open_stream()
         self._reset_queue()
         _BACKGROUND_HANDLERS.add(self)
         # Started now so a line logged during interpreter shutdown, when Python
@@ -413,7 +423,7 @@ class _BackgroundFileHandler(logging.Handler):
         self._dropped_unreported += 1
         if self._dropped_unreported > 1:
             return None
-        return (f"dropping lines for {self.path} because {cause}; the count is written into the log "
+        return (f"dropping lines for {self.where} because {cause}; the count is written into it "
                 "once its writer catches up")
 
     def flush(self) -> None:
@@ -456,18 +466,31 @@ class _BackgroundFileHandler(logging.Handler):
                 if not stuck:
                     self._stream = None
             if unwritten or uncounted:
-                _note_on_stderr(f"closing {self.path} with {unwritten} queued line(s) not written and "
+                _note_on_stderr(f"closing {self.where} with {unwritten} queued line(s) not written and "
                                 f"{uncounted} dropped line(s) not yet counted in it ({self.dropped} dropped in all)")
-                # A process exiting now would lose a note still queued, so wait
-                # for it, as long as for the file and no longer.
-                _STDERR_NOTES.wait(self.drain_wait_sec)
+            # A process exiting now would lose a note still queued, such as this
+            # one or the writer's report of a last write that failed (Codex
+            # review on #1482), so wait for them, as long as for the file and no
+            # longer. With nothing queued this returns at once.
+            _STDERR_NOTES.wait(self.drain_wait_sec)
             if stream is not None:
-                try:
-                    stream.close()
-                except OSError:
-                    # Best-effort, as close_audit_handles(): nothing else to do.
-                    pass
+                self._close_stream(stream)
         super().close()
+
+    @property
+    def where(self) -> str:
+        """What the notes on stderr call this handler's target."""
+        return str(self.path)
+
+    def _open_stream(self) -> TextIO | None:
+        return open(self.path, "a", encoding="utf-8")  # noqa: SIM115  # codeql[py/file-not-closed] closed in _close_stream()
+
+    def _close_stream(self, stream: TextIO) -> None:
+        try:
+            stream.close()
+        except OSError:
+            # Best-effort, as close_audit_handles(): nothing else to do.
+            pass
 
     def _running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -524,18 +547,38 @@ class _BackgroundFileHandler(logging.Handler):
                 self._written = seq
                 if error is None:
                     if self._failing:
-                        note = f"writing {self.path} works again ({self.failed} line(s) lost in all)"
+                        note = f"writing {self.where} works again ({self.failed} line(s) lost in all)"
                     self._failing = False
                 else:
                     self.failed += 1
                     if reported:
                         self._dropped_unreported += reported  # counted in at the next chance
                     if not self._failing:
-                        note = f"writing {self.path} failed ({error}); lines are lost until a write succeeds"
+                        note = f"writing {self.where} failed ({error}); lines are lost until a write succeeds"
                     self._failing = True
                 self._cond.notify_all()
             if note:
                 _note_on_stderr(note)
+
+
+class _BackgroundConsoleHandler(_BackgroundFileHandler):
+    """stderr, written from a writer thread as the log file is: the gateway's console (see setup_logging)."""
+
+    def __init__(self, *, max_queued: int, drain_wait_sec: float) -> None:
+        super().__init__(Path("<stderr>"), max_queued=max_queued, drain_wait_sec=drain_wait_sec)
+
+    @property
+    def where(self) -> str:
+        return "stderr"
+
+    def _open_stream(self) -> TextIO | None:
+        # Bound once, as logging.StreamHandler binds it. None under pythonw:
+        # the writes then fail and are counted.
+        return sys.stderr
+
+    def _close_stream(self, stream: TextIO) -> None:
+        # stderr is the process's, not this handler's, to close.
+        return None
 
 
 def _reset_log_writers_after_fork() -> None:
@@ -554,7 +597,7 @@ def _reset_log_writers_after_fork() -> None:
         if closing:
             continue
         try:
-            handler._stream = open(handler.path, "a", encoding="utf-8")  # noqa: SIM115  # codeql[py/file-not-closed] closed in close()
+            handler._stream = handler._open_stream()
         except OSError:
             handler._stream = None  # its writes fail and are noted on stderr
 

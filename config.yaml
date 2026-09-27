@@ -633,7 +633,8 @@ logging:
   # that note to reach stderr (from its own thread). max_queued_records must
   # be a whole number of at least 1; drain_wait_sec a positive, finite number
   # of seconds, at most Python's threading.TIMEOUT_MAX. Boot refuses others.
-  # The console (stderr) stays synchronous, and audit_file below is still
+  # The gateway's console (stderr) is written the same way, with the same
+  # limits; an agentic CLI's stays synchronous. audit_file below is still
   # written on the caller's thread: it is the authoritative audit stream (I4).
   max_queued_records: 10000
   drain_wait_sec: 2.0

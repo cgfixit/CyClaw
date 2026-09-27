@@ -709,6 +709,71 @@ class TestBackgroundLogWriter:
         assert proc.returncode == 0, proc.stderr
         assert "queued line(s) not written" in proc.stderr
 
+    def test_a_real_exit_still_reports_a_last_write_that_failed(self, tmp_path):
+        # The last write fails fast, so close() finds nothing unwritten, but
+        # the writer's note about the failure is still queued. close() waits
+        # for it anyway (Codex review on #1482). stderr here takes a second
+        # per write, so without that wait the process would exit, taking the
+        # daemon stderr thread with it, before the note is out.
+        out = tmp_path / "fail.log"
+        script = textwrap.dedent(f"""
+            import logging, sys, threading
+            from pathlib import Path
+            from utils import logger as L
+            class Slow:
+                def __init__(self, real):
+                    self.real = real
+                def write(self, text):
+                    threading.Event().wait(1.0)
+                    return self.real.write(text)
+                def flush(self):
+                    self.real.flush()
+            class Full:
+                def write(self, text):
+                    raise OSError("disk full")
+                def flush(self):
+                    pass
+                def close(self):
+                    pass
+            sys.stderr = Slow(sys.stderr)
+            h = L._BackgroundFileHandler(Path({str(out)!r}), max_queued=10, drain_wait_sec=10.0)
+            real, h._stream = h._stream, Full()
+            real.close()
+            log = logging.getLogger("failtest")
+            log.propagate = False
+            log.addHandler(h)
+            log.warning("lost")
+            h.drain(10)
+        """)
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        proc = subprocess.run([sys.executable, "-c", script], cwd=repo, timeout=60,  # noqa: S603 - fixed argv
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert "failed (disk full)" in proc.stderr
+
+    def test_the_console_variant_writes_stderr_from_its_thread(self, monkeypatch):
+        err = _StallingStream()
+        monkeypatch.setattr(sys, "stderr", err)
+        handler = logger._BackgroundConsoleHandler(max_queued=10, drain_wait_sec=10.0)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        log = logging.getLogger("cyclaw.test_background.console")
+        log.propagate = False
+        log.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        try:
+            first = _in_thread(log.warning, "first")
+            assert not first.is_alive()
+            assert err.entered.wait(10)  # the writer thread is the one stuck on stderr
+            second = _in_thread(log.warning, "second")
+            assert not second.is_alive()
+        finally:
+            err.release.set()
+        assert handler.drain(10)
+        assert err.lines == ["WARNING first\n", "WARNING second\n"]
+        log.removeHandler(handler)
+        handler.close()
+        assert not err.closed  # stderr is the process's to close, not the handler's
+
     @pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="POSIX fork only")
     def test_a_forked_child_gets_a_fresh_writer(self, tmp_path):
         # Another thread holds the handler's queue lock at the fork, as the
@@ -784,6 +849,41 @@ class TestBackgroundLogWriter:
 
 
 class TestLogWriterSettings:
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_the_gateway_console_is_written_from_a_background_handler(self, tmp_path, capsys):
+        logger.setup_logging({"logging": {"level": "DEBUG", "log_file": str(tmp_path / "cyclaw.log")}},
+                             background_console=True)
+        consoles = [h for h in logging.getLogger("cyclaw").handlers if isinstance(h, logger._BackgroundConsoleHandler)]
+        assert len(consoles) == 1
+        assert consoles[0] in logging.getLogger("agentic").handlers
+        assert not any(type(h) is logging.StreamHandler for h in logging.getLogger("cyclaw").handlers)
+        logging.getLogger("cyclaw.graph").debug("console-marker")
+        consoles[0].flush()
+        assert "console-marker" in capsys.readouterr().err
+
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_the_default_console_stays_synchronous(self, tmp_path):
+        # The relay contract: a tool that runs an agentic CLI reads its stderr
+        # once it exits, so those lines are written on the caller's thread.
+        logger.setup_logging({"logging": {"level": "DEBUG", "log_file": str(tmp_path / "cyclaw.log")}})
+        handlers = logging.getLogger("cyclaw").handlers
+        assert any(type(h) is logging.StreamHandler for h in handlers)
+        assert not any(isinstance(h, logger._BackgroundConsoleHandler) for h in handlers)
+
+    def test_gate_asks_for_the_background_console(self):
+        import ast
+
+        gate = pathlib.Path(__file__).resolve().parents[1] / "gate.py"
+        calls = [
+            node for node in ast.walk(ast.parse(gate.read_text(encoding="utf-8")))
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "setup_logging"
+        ]
+        assert calls, "gate.py no longer calls setup_logging"
+        for call in calls:
+            flags = {kw.arg: kw.value for kw in call.keywords}
+            assert isinstance(flags.get("background_console"), ast.Constant)
+            assert flags["background_console"].value is True
+
     def test_setup_logging_writes_the_file_from_a_background_handler(self, tmp_path, monkeypatch):
         log_path = tmp_path / "cyclaw.log"
         monkeypatch.setattr(logger, "_logging_initialized", False)

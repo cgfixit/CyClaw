@@ -369,7 +369,9 @@ def _sanitize_error(exc: Exception) -> str:
 # App Init
 # =============================================================================
 
-setup_logging(cfg)
+# background_console: request threads must not wait on stderr either, which
+# a launchd service points at a file (see utils/logger.py's setup_logging).
+setup_logging(cfg, background_console=True)
 logger = logging.getLogger("cyclaw.gate")
 
 if not os.environ.get("CYCLAW_API_KEY", ""):
