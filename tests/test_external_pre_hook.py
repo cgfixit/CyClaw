@@ -25,7 +25,7 @@ from utils.external_pre_hook import (
     last_verdict,
     run_pre_action_hook,
 )
-from utils.numbat_emitter import close_numbat_handles
+from utils.numbat_emitter import _StreamWriter, _write_line, close_numbat_handles
 from utils.numbat_gate import clear_readiness_cache
 
 _TEST_QUERY_HASH = "a" * 64
@@ -297,10 +297,8 @@ def test_emit_failure_is_fail_soft(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 @pytest.fixture
 def stream_writer(monkeypatch: pytest.MonkeyPatch):
     """A Numbat stream writer of this test's own, so stalling it leaves the module's alone."""
-    import utils.numbat_emitter as emitter
-
-    writer = emitter._StreamWriter()
-    monkeypatch.setattr(emitter, "_WRITER", writer)
+    writer = _StreamWriter()
+    monkeypatch.setattr("utils.numbat_emitter._WRITER", writer)
     return writer
 
 
@@ -310,12 +308,10 @@ def test_a_stalled_verdict_write_does_not_hold_the_verdict(tmp_path: Path, monke
     # must not keep the decided call from going ahead. The stream's writer
     # thread takes the write, and the verdict waits for it at most
     # _WRITE_WAIT_SEC.
-    import utils.numbat_emitter as emitter
-
     cfg = _hook_config(tmp_path)
     monkeypatch.setattr(subprocess, "run", _allow_run)
-    monkeypatch.setattr(emitter, "_WRITE_WAIT_SEC", 0.05)
-    real_write = emitter._write_line
+    monkeypatch.setattr("utils.numbat_emitter._WRITE_WAIT_SEC", 0.05)
+    real_write = _write_line
     entered = threading.Event()
     release = threading.Event()
 
@@ -324,7 +320,7 @@ def test_a_stalled_verdict_write_does_not_hold_the_verdict(tmp_path: Path, monke
         release.wait(30)
         real_write(path, line, max_bytes)
 
-    monkeypatch.setattr(emitter, "_write_line", _stalled)
+    monkeypatch.setattr("utils.numbat_emitter._write_line", _stalled)
     try:
         result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
         # Only this finally releases the write, so the verdict above came back
@@ -343,11 +339,9 @@ def test_a_full_stream_queue_drops_the_verdict_event_not_the_verdict(tmp_path: P
                                                                      stream_writer):
     # With the writer's queue full, the event is dropped and counted at once
     # instead of waiting; the verdict is unaffected.
-    import utils.numbat_emitter as emitter
-
     cfg = _hook_config(tmp_path)
     monkeypatch.setattr(subprocess, "run", _allow_run)
-    monkeypatch.setattr(emitter, "_MAX_QUEUED_WRITES", 0)
+    monkeypatch.setattr("utils.numbat_emitter._MAX_QUEUED_WRITES", 0)
     with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
         result = run_pre_action_hook("grok", "grok-4.5", _TEST_QUERY_HASH, cfg)
     assert result["verdict"] == "allow"
