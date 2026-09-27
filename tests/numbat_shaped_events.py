@@ -1,10 +1,12 @@
-"""Drive CyClaw's real Numbat producers and collect exactly what they write.
+"""Run CyClaw's production Numbat emitters on representative inputs; collect what they write.
 
 Issue #1458 Phase 4: the CI fixture job used to score only committed fixtures
 and one live executor-jail run, so nothing checked that the rest of the stream
 CyClaw actually writes -- above all the mainline plane, one projected event
 per audit record, every /query -- still matches the pinned Numbat 0.2.0 CLI
-and its schema-0.3.0 contract. Every event here comes from a production code path:
+and its schema-0.3.0 contract. Every event here is written by production
+emitter code, but the callers that choose its inputs do not run; the inputs
+are modeled on them:
 
 * mainline plane: ``utils.logger.audit_log`` -> ``project_audit_record``, fed
   records shaped like graph.py's ``audit_logger_node`` and gate.py's own
@@ -16,6 +18,10 @@ and its schema-0.3.0 contract. Every event here comes from a production code pat
   installed; the emission path is the real one);
 * action plane: ``emit_numbat_event`` / ``emit_numbat_command`` with the same
   arguments as the ops_runner, fsconnect and sqlconnect call sites.
+
+So an emit site whose arguments drift from these inputs, or one with no case
+here (``agentic/real_repo_loop.py``'s two), is not scored by this module. The
+executor's emit site is, by the fixture job's executor-jail test.
 
 Run as a module from the repo root::
 

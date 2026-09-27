@@ -2,10 +2,11 @@
 #
 #   numbat-rules-fixture (advisory, continue-on-error; #961 / #965): committed
 #     hand-written fixtures plus a live executor-jail run.
-#   numbat-stream-contract (blocking; issue #1458 Phases 1 and 4): the events
-#     CyClaw's production producers actually write (tests/numbat_shaped_events.py:
+#   numbat-stream-contract (blocking; issue #1458 Phases 1 and 4): representative
+#     events from each producer family, written by CyClaw's real emitter code
+#     from inputs modeled on its callers (tests/numbat_shaped_events.py:
 #     mainline audit projection, pre-action hook verdicts, CEL monitor, ops /
-#     fsconnect / sqlconnect action plane) must load in the pinned CLI with
+#     fsconnect / sqlconnect action plane), must load in the pinned CLI with
 #     zero findings; CyClaw-shaped exfil and secret-read events must still fire
 #     the rules that catch them; and every event must validate against the
 #     schema-0.3.0 JSON contract shipped inside the same pinned release. The
