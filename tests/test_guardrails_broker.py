@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from guardrails.broker import GuardrailBroker, guarded_generate, _blocking_rail, _status_blocked
 from guardrails.config import GuardrailsConfig
+from guardrails.errors import GuardrailsDependencyError, RailsLoadError
 from guardrails.metrics import GuardrailMetrics
 from guardrails.rails import GROUNDING_SCOPE_KEY
 from utils.errors import LLMServiceError
@@ -51,17 +52,106 @@ def test_guarded_generate_skips_client_when_input_blocked(monkeypatch) -> None:
     assert client.calls == 0
 
 
+def _engine_raises(monkeypatch, *errors: BaseException) -> None:
+    """get_cyclaw_guardrails raises each of ``errors`` in turn, one per build attempt."""
+    pending = iter(errors)
+
+    def _raise(cfg):
+        raise next(pending)
+
+    monkeypatch.setattr("guardrails.broker.get_cyclaw_guardrails", _raise)
+
+
+_DEGRADED = {"stage": "degraded", "rails": []}
+
+
 def test_guarded_generate_calls_client_when_check_degrades(monkeypatch) -> None:
+    # No engine: both checks are skipped and the model's answer goes out
+    # unchecked. That used to come back as a clean pass (block None), so
+    # audit.jsonl could not tell "checked" from "never checked", and on the
+    # Grok/Claude path check() is the only rail.
     cfg = GuardrailsConfig(enabled=True)
     client = _Client()
-    monkeypatch.setattr(GuardrailBroker, "_engine", lambda self: None)
+    _engine_raises(monkeypatch, GuardrailsDependencyError("not installed"), GuardrailsDependencyError("not installed"))
     answer, err, block = guarded_generate(
         client, "hello", query="hello", label="LLM", spend_context=None, cfg=cfg, metrics=_metrics()
     )
     assert answer == "answer:hello"
     assert err is None
-    assert block is None
+    assert block == _DEGRADED
     assert client.calls == 1
+
+
+def test_an_unexpected_engine_error_degrades_instead_of_escaping(monkeypatch) -> None:
+    # Only the two expected errors degraded; anything else (here, an
+    # unreadable file while fingerprinting the config dir) escaped, and
+    # graph._generate_or_error then called the model with no check at all.
+    client = _Client()
+    _engine_raises(monkeypatch, PermissionError("rails.co"), PermissionError("rails.co"))
+    answer, err, block = guarded_generate(
+        client, "hello", query="hello", label="LLM", spend_context=None,
+        cfg=GuardrailsConfig(enabled=True), metrics=_metrics(),
+    )
+    assert (answer, err, block) == ("answer:hello", None, _DEGRADED)
+    assert client.calls == 1
+
+
+def test_an_engine_error_after_the_model_ran_never_escapes(monkeypatch) -> None:
+    # The input check degraded, so the output check built the engine again,
+    # and that raised. Escaping there, after the model call, made the graph
+    # call the model a second time -- a second billed Grok/Claude call whose
+    # answer nothing checked.
+    client = _Client()
+    _engine_raises(monkeypatch, RailsLoadError("admission timeout"), OSError("fingerprint read failed"))
+    answer, err, block = guarded_generate(
+        client, "hello", query="hello", label="LLM", spend_context=None,
+        cfg=GuardrailsConfig(enabled=True), metrics=_metrics(),
+    )
+    assert (answer, err, block) == ("answer:hello", None, _DEGRADED)
+    assert client.calls == 1
+
+
+def test_a_check_that_raises_reports_degraded(monkeypatch) -> None:
+    client = _Client()
+    monkeypatch.setattr(GuardrailBroker, "_engine", lambda self: object())
+
+    def _raise(rails, messages, **kwargs):
+        raise RuntimeError("check() exploded")
+
+    monkeypatch.setattr("guardrails.broker._live_check", _raise)
+    answer, err, block = guarded_generate(
+        client, "hello", query="hello", label="LLM", spend_context=None,
+        cfg=GuardrailsConfig(enabled=True), metrics=_metrics(),
+    )
+    assert (answer, err, block) == ("answer:hello", None, _DEGRADED)
+
+
+def test_a_model_error_after_a_skipped_check_is_still_degraded(monkeypatch) -> None:
+    class _Down:
+        def generate(self, prompt: str, *, spend_context=None) -> str:
+            raise LLMServiceError("down")
+
+    _engine_raises(monkeypatch, GuardrailsDependencyError("not installed"))
+    answer, err, block = guarded_generate(
+        _Down(), "p", query="q", label="LLM", spend_context=None,
+        cfg=GuardrailsConfig(enabled=True), metrics=_metrics(),
+    )
+    assert answer.startswith("[LLM Error:") and err is not None
+    assert block == _DEGRADED
+
+
+def test_checks_that_ran_and_passed_are_not_degraded(monkeypatch) -> None:
+    client = _Client()
+    monkeypatch.setattr(GuardrailBroker, "_engine", lambda self: object())
+    monkeypatch.setattr(
+        "guardrails.broker._live_check",
+        lambda rails, messages, **kwargs: SimpleNamespace(status=SimpleNamespace(name="PASSED")),
+    )
+    answer, err, block = guarded_generate(
+        client, "hello", query="hello", label="LLM", spend_context=None,
+        cfg=GuardrailsConfig(enabled=True), metrics=_metrics(),
+    )
+    assert (answer, err, block) == ("answer:hello", None, None)
 
 
 def test_guarded_generate_maps_rag_error(monkeypatch) -> None:

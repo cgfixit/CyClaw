@@ -66,15 +66,25 @@ class GuardrailBroker:
         self._rails: object | None = None
         # Set when a check blocks; guarded_generate reads it after a True.
         self.blocked_rail: str | None = None
+        # Set when a check could not run (no engine, or check() raised), so
+        # the answer went out unchecked; guarded_generate reports it.
+        self.degraded = False
 
     def _engine(self) -> object | None:
         if self._rails is not None:
             return self._rails
         try:
             self._rails = get_cyclaw_guardrails(self.cfg)
-        except (GuardrailsDependencyError, RailsLoadError) as exc:
-            logger.warning("NeMo check engine unavailable (%s); degrade", type(exc).__name__)
+        except Exception as exc:  # noqa: BLE001 - any engine failure degrades; none may escape
+            # Not only the two expected errors: anything that escaped here
+            # (an unreadable file while fingerprinting the config dir, say)
+            # left guarded_generate, and graph._generate_or_error then called
+            # the model again with no check at all -- a second, billed call
+            # to Grok or Claude when it came from the output check.
+            expected = isinstance(exc, (GuardrailsDependencyError, RailsLoadError))
+            logger.warning("NeMo check engine unavailable (%s); degrade", type(exc).__name__, exc_info=not expected)
             self.metrics.record_skipped(reason=type(exc).__name__)
+            self.degraded = True
             return None
         return self._rails
 
@@ -88,6 +98,7 @@ class GuardrailBroker:
         except Exception:
             logger.warning("NeMo check() input failed; degrade", exc_info=True)
             self.metrics.record_skipped(reason="check_input_error", query=query)
+            self.degraded = True
             return False
         if result is not None and _status_blocked(result):
             self.blocked_rail = _blocking_rail(result)
@@ -125,6 +136,7 @@ class GuardrailBroker:
         except Exception:
             logger.warning("NeMo check() output failed; degrade", exc_info=True)
             self.metrics.record_skipped(reason="check_output_error", query=query)
+            self.degraded = True
             return False
         if result is not None and _status_blocked(result):
             self.blocked_rail = _blocking_rail(result)
@@ -146,14 +158,18 @@ def guarded_generate(
 ) -> tuple[str, str | None, dict[str, Any] | None]:
     """Input ``check()`` → existing ``client.generate`` → output ``check()``.
 
-    Returns ``(answer, error, block)``. ``block`` is None unless a check
-    refused, and then the answer is the block message and ``block`` is
-    ``{"stage": "input" | "output", "rails": [...]}``. An input refusal
-    means the model never ran; an output refusal replaced its answer. The
-    graph records both, so the audit shows what actually ran.
-    ``grounding_context`` is passed to :meth:`GuardrailBroker.check_assistant`.
+    Returns ``(answer, error, block)``. ``block`` is None when every check
+    ran and passed. When a check refused, the answer is the block message
+    and ``block`` is ``{"stage": "input" | "output", "rails": [...]}``: an
+    input refusal means the model never ran, an output refusal replaced its
+    answer. When a check could not run (no engine, or ``check()`` raised) and
+    none refused, ``block`` is ``{"stage": "degraded", "rails": []}``: the
+    answer went out unchecked. The graph records all three, so the audit
+    shows what actually ran. ``grounding_context`` is passed to
+    :meth:`GuardrailBroker.check_assistant`.
     """
     broker = GuardrailBroker(cfg, metrics)
+    degraded: dict[str, Any] = {"stage": "degraded", "rails": []}
     if broker.check_user(query or prompt):
         return cfg.block_message, None, {"stage": "input", "rails": [broker.blocked_rail or "nemo_check"]}
     try:
@@ -162,7 +178,7 @@ def guarded_generate(
         else:
             answer = client.generate(prompt, spend_context=spend_context)
     except RAGError as exc:
-        return f"[{label} Error: {exc.message}]", f"{exc.code}: {exc.message}", None
+        return f"[{label} Error: {exc.message}]", f"{exc.code}: {exc.message}", degraded if broker.degraded else None
     if broker.check_assistant(query or prompt, answer, grounding_context=grounding_context):
         return cfg.block_message, None, {"stage": "output", "rails": [broker.blocked_rail or "nemo_check"]}
-    return answer, None, None
+    return answer, None, degraded if broker.degraded else None
