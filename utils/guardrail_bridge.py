@@ -96,6 +96,7 @@ def build_generate_guard(
         query: str = "",
         label: str = "LLM",
         spend_context: dict[str, object] | None = None,
+        grounding_context: str | None = None,
     ) -> tuple[str, str | None]:
         return guarded_generate(
             client,
@@ -105,6 +106,7 @@ def build_generate_guard(
             spend_context=spend_context,
             cfg=gcfg,
             metrics=metrics,
+            grounding_context=grounding_context,
         )
 
     return _generate_guard

@@ -300,6 +300,13 @@ async def _action_get_grounding_score(context: dict | None = None) -> float:
     return grounding_score(ctx.get("bot_message", ""), ctx.get("relevant_chunks", ""))
 
 
+# Context key a caller sets to False when an answer is not meant to be
+# grounded in the vault. Grok, Claude and offline best-effort answer queries
+# the vault could not, so grounding them against it can only fail; the offline
+# output rail (graph.py guardrail_output_node) skips them for the same reason.
+# Absent means grounding applies, which keeps safe_generate's behavior.
+GROUNDING_SCOPE_KEY = "cyclaw_check_grounding"
+
 # Floor used by :func:`_action_is_ungrounded`. Set at engine build via
 # :func:`register_actions` so live Colang matches config.yaml's
 # guardrails.hallucination_threshold (default 0.18 matches GuardrailsConfig).
@@ -327,9 +334,12 @@ async def _action_is_ungrounded(context: dict | None = None) -> bool:
 
     Used by the ``check grounding`` Colang flow so the refuse decision shares
     the same ``hallucination_threshold`` as the offline ``safe_generate`` path
-    instead of a hardcoded ``0.18`` in rails.co.
+    instead of a hardcoded ``0.18`` in rails.co. False when the caller set
+    :data:`GROUNDING_SCOPE_KEY` to False.
     """
     ctx = context or {}
+    if ctx.get(GROUNDING_SCOPE_KEY) is False:
+        return False
     return is_possible_hallucination(
         ctx.get("bot_message", ""),
         ctx.get("relevant_chunks", ""),

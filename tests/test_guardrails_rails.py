@@ -249,3 +249,27 @@ def test_check_soul_leak_colang_uses_allowed_polarity():
     assert "$allowed = execute check_soul_leak(text=$bot_message)" in body
     assert "if not $allowed" in body
     assert "$leaked" not in body
+
+
+def test_is_ungrounded_stands_down_only_when_grounding_is_out_of_scope() -> None:
+    """GROUNDING_SCOPE_KEY False skips grounding; anything else still grounds."""
+    import asyncio
+
+    from guardrails.rails import (
+        GROUNDING_SCOPE_KEY,
+        _action_is_ungrounded,
+        get_hallucination_threshold,
+        set_hallucination_threshold,
+    )
+
+    before = get_hallucination_threshold()
+    set_hallucination_threshold(0.18)
+    try:
+        ungrounded = {"bot_message": "the moon is green cheese", "relevant_chunks": "rrf fuses ranks"}
+        assert asyncio.run(_action_is_ungrounded(context=ungrounded)) is True
+        assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: True})) is True
+        # Only the literal False stands down; a stray string keeps grounding on.
+        assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: "false"})) is True
+        assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: False})) is False
+    finally:
+        set_hallucination_threshold(before)

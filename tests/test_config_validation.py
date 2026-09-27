@@ -11,6 +11,7 @@ from utils.config_validation import (
     validate_auth_config,
     validate_boot_timeout_config,
     validate_fallback_confirm_placeholder,
+    validate_guardrails_config,
     validate_personality_config,
     validate_pre_action_hook_config,
     validate_retrieval_config,
@@ -397,6 +398,47 @@ def test_auth_quoted_yaml_boolean_skips_validation_like_disabled(quoted):
 
     cfg["auth"]["session"] = "not-even-a-mapping"
     validate_auth_config(cfg)  # still must not raise
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [{}, {"guardrails": None}, {"guardrails": {}}, {"guardrails": {"enabled": False}}, {"guardrails": {"enabled": True}}],
+)
+def test_guardrails_boolean_or_absent_enabled_passes(cfg):
+    validate_guardrails_config(cfg)
+
+
+@pytest.mark.parametrize("enabled", ["true", "false", "yes", 1, 0, None])
+def test_guardrails_non_boolean_enabled_is_refused(enabled):
+    # The bridge arms only on the literal True, so "true" left every guard
+    # silently off. guardrails.config refuses the same values, but never got
+    # to see them.
+    with pytest.raises(ConfigError, match="guardrails.enabled must be a boolean"):
+        validate_guardrails_config({"guardrails": {"enabled": enabled}})
+
+
+@pytest.mark.parametrize("block", ["yes", ["enabled"], 1])
+def test_guardrails_block_must_be_a_mapping(block):
+    with pytest.raises(ConfigError, match="must be a mapping"):
+        validate_guardrails_config({"guardrails": block})
+
+
+def test_shipped_guardrails_block_passes():
+    shipped = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
+    validate_guardrails_config(shipped)
+
+
+def test_gate_validates_guardrails_before_building_the_guards():
+    """gate.py must refuse a quoted enabled before the bridge reads the flag."""
+    import ast
+
+    tree = ast.parse((Path(__file__).resolve().parent.parent / "gate.py").read_text(encoding="utf-8"))
+    first_call: dict[str, int] = {}
+    for node in tree.body:
+        value = node.value if isinstance(node, (ast.Expr, ast.Assign)) else None
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            first_call.setdefault(value.func.id, node.lineno)
+    assert first_call["validate_guardrails_config"] < first_call["build_input_guard"]
 
 
 def test_tls_disabled_skips_file_check(tmp_path):

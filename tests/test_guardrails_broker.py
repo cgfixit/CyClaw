@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from guardrails.broker import GuardrailBroker, guarded_generate, _status_blocked
 from guardrails.config import GuardrailsConfig
 from guardrails.metrics import GuardrailMetrics
+from guardrails.rails import GROUNDING_SCOPE_KEY
 from utils.errors import LLMServiceError
 
 
@@ -73,3 +74,55 @@ def test_guarded_generate_maps_rag_error(monkeypatch) -> None:
     )
     assert answer.startswith("[LLM Error:")
     assert err is not None and "LLM_SERVICE_ERROR" in err
+
+
+class _RecordingRails:
+    """Stands in for LLMRails and records the messages of each check() call."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[dict]] = []
+
+    def check(self, messages, **kwargs):
+        self.calls.append(messages)
+        return SimpleNamespace(status=SimpleNamespace(name="PASSED"))
+
+
+def _broker_over(rails: _RecordingRails) -> GuardrailBroker:
+    broker = GuardrailBroker(GuardrailsConfig(enabled=True), _metrics())
+    broker._rails = rails
+    return broker
+
+
+def test_check_assistant_hands_nemo_the_grounding_context() -> None:
+    # NeMo's grounding action reads relevant_chunks from a context-role
+    # message. Without one it grounded every answer against nothing.
+    rails = _RecordingRails()
+    assert _broker_over(rails).check_assistant("q", "a", grounding_context="retrieved text") is False
+    assert rails.calls == [[
+        {"role": "context", "content": {"relevant_chunks": "retrieved text", GROUNDING_SCOPE_KEY: True}},
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "a"},
+    ]]
+
+
+def test_check_assistant_takes_grounding_out_of_scope_without_context() -> None:
+    rails = _RecordingRails()
+    _broker_over(rails).check_assistant("q", "a", grounding_context=None)
+    assert rails.calls[0][0] == {"role": "context", "content": {GROUNDING_SCOPE_KEY: False}}
+
+
+def test_guarded_generate_passes_grounding_context_to_the_output_check(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    def _check_assistant(self, query, answer, *, grounding_context):
+        seen["grounding_context"] = grounding_context
+        return False
+
+    monkeypatch.setattr(GuardrailBroker, "check_user", lambda self, query: False)
+    monkeypatch.setattr(GuardrailBroker, "check_assistant", _check_assistant)
+    answer, err = guarded_generate(
+        _Client(), "p", query="q", label="LLM", spend_context=None,
+        cfg=GuardrailsConfig(enabled=True), metrics=_metrics(), grounding_context="chunks",
+    )
+    assert (answer, err) == ("answer:p", None)
+    assert seen == {"grounding_context": "chunks"}
