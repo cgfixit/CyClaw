@@ -309,12 +309,11 @@ class TestAPIKeyAuth:
 class TestLoggingSetup:
     """Verify that setup_logging creates file + console handlers."""
 
+    @pytest.mark.usefixtures("isolated_logging")
     def test_setup_logging_creates_log_file(self, tmp_path):
         import logging
         from utils.logger import setup_logging, _logging_initialized
-        import utils.logger as logger_mod
 
-        logger_mod._logging_initialized = False
         log_file = str(tmp_path / "test.log")
         cfg = {"logging": {"level": "DEBUG", "log_file": log_file, "audit_file": str(tmp_path / "audit.jsonl"),
                             "audit_fields": {}}}
@@ -326,7 +325,3 @@ class TestLoggingSetup:
         assert Path(log_file).exists()
         content = Path(log_file).read_text()
         assert "test log message" in content
-
-        logger_mod._logging_initialized = False
-        root = logging.getLogger("cyclaw")
-        root.handlers.clear()
