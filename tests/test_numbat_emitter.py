@@ -85,6 +85,37 @@ def test_redact_argv_strips_reason_and_sql() -> None:
     assert "<redacted>" in joined
 
 
+def test_redact_argv_is_one_shell_word_per_token() -> None:
+    """The pinned CLI parses ``command`` as shell. A bare ``<redacted>`` read
+    as a redirect and failed the whole event (issue #1458 Phase 4)."""
+    import shlex
+
+    argv = ["python", "-m", "agentic.cli", "--reason=r", "--instruction", "i", "--path", "/tmp/my dir", "a;b|c"]
+    joined = redact_argv_for_numbat(argv)
+    assert shlex.split(joined) == [
+        "python", "-m", "agentic.cli", "--reason=<redacted>", "--instruction", "<redacted>",
+        "--path", "/tmp/my dir", "a;b|c",
+    ]
+    # Plain tokens stay unquoted, so ordinary commands read exactly as before.
+    assert redact_argv_for_numbat(["python", "-m", "pytest", "-q", "--tb=short"]) == "python -m pytest -q --tb=short"
+
+
+def test_build_event_caps_content_preview_at_the_schema_limit() -> None:
+    record = build_event("prompt.user", content_preview="x" * 500)
+    assert record["content_preview"] == "x" * numbat_emitter.CONTENT_PREVIEW_MAX_CHARS
+    assert record["content_preview_truncated"] is True
+
+
+def test_build_event_marks_only_real_truncation() -> None:
+    fits = build_event("prompt.user", content_preview="y" * numbat_emitter.CONTENT_PREVIEW_MAX_CHARS)
+    assert "content_preview_truncated" not in fits
+    flagged = build_event("prompt.user", content_preview="{}", content_preview_truncated=True)
+    assert flagged["content_preview_truncated"] is True
+    # A truncation flag with no preview to describe is dropped, not emitted alone.
+    orphan = build_event("prompt.user", content_preview_truncated=True)
+    assert "content_preview_truncated" not in orphan
+
+
 def test_posix_path_normalizes_backslashes() -> None:
     assert posix_path(r"C:\Users\x\file") == "C:/Users/x/file"
     assert posix_path("") is None
