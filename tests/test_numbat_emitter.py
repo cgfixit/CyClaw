@@ -654,6 +654,54 @@ def test_callers_already_waiting_stop_when_the_stall_is_found(tmp_path: Path, mo
     assert _ndjson_lines(out) == [{"n": 1}, {"n": 2}]
 
 
+def test_the_writer_limits_come_from_the_numbat_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                      writer) -> None:
+    # config.yaml's numbat block sets the limits (no hardcoded tunables): with
+    # max_queued_writes: 1 and a stuck write, the second queued event is
+    # dropped, and the configured drain is what exit will wait.
+    out = tmp_path / "s.ndjsonl"
+    cfg = {"numbat": {"enabled": True, "output_path": str(out), "write_wait_sec": 0.05,
+                      "max_queued_writes": 1, "drain_wait_sec": 0.25}}
+    entered, release = _stall_writes(monkeypatch)
+    try:
+        emit_numbat_event("tool.result", tool_name="a", cfg=cfg)
+        assert entered.wait(10)  # "a" is the stuck write
+        emit_numbat_event("tool.result", tool_name="b", cfg=cfg)  # fills the queue of one
+        emit_numbat_event("tool.result", tool_name="c", cfg=cfg)  # dropped
+        assert writer.dropped == 1
+        assert writer.drain_sec() == 0.25
+    finally:
+        release.set()
+    assert writer.flush(10)
+    assert [line["tool_name"] for line in _ndjson_lines(out)] == ["a", "b"]
+
+
+@pytest.mark.parametrize("bad", [0, -1, "1s", True, None])
+def test_an_unusable_writer_limit_falls_back_to_its_default(bad) -> None:
+    settings = numbat_emitter._writer_settings({"numbat": {"write_wait_sec": bad, "max_queued_writes": bad,
+                                                           "drop_log_interval_sec": bad, "drain_wait_sec": bad}})
+    assert settings == numbat_emitter._WriterSettings(
+        numbat_emitter._WRITE_WAIT_SEC, numbat_emitter._MAX_QUEUED_WRITES,
+        numbat_emitter._DROP_LOG_INTERVAL_SEC, numbat_emitter._DRAIN_WAIT_SEC)
+
+
+def test_the_shipped_config_sets_the_writer_limits_to_the_defaults() -> None:
+    # Read the defaults from the source, not the module: tests/conftest.py
+    # raises _WRITE_WAIT_SEC for the test session.
+    tree = ast.parse((_REPO_ROOT / "utils" / "numbat_emitter.py").read_text(encoding="utf-8"))
+    defaults = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"_WRITE_WAIT_SEC", "_MAX_QUEUED_WRITES", "_DROP_LOG_INTERVAL_SEC", "_DRAIN_WAIT_SEC"}
+    }
+    block = yaml.safe_load((_REPO_ROOT / "config.yaml").read_text(encoding="utf-8"))["numbat"]
+    assert block["write_wait_sec"] == defaults["_WRITE_WAIT_SEC"]
+    assert block["max_queued_writes"] == defaults["_MAX_QUEUED_WRITES"]
+    assert block["drop_log_interval_sec"] == defaults["_DROP_LOG_INTERVAL_SEC"]
+    assert block["drain_wait_sec"] == defaults["_DRAIN_WAIT_SEC"]
+
+
 def test_a_full_queue_drops_new_events_and_reports_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer,
                                                         caplog: pytest.LogCaptureFixture) -> None:
     out = tmp_path / "s.ndjsonl"

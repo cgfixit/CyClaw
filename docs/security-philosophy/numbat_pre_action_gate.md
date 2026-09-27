@@ -249,12 +249,13 @@ and a slow write holds it for 1 s at most. Every write to the stream, the verdic
 and the audit record that ends every query alike, goes through one writer
 thread in `utils/numbat_emitter.py`:
 
-- A caller waits at most 1 s for its event. On a healthy disk the event is in
-  the file when the call returns.
+- A caller waits at most `numbat.write_wait_sec` (shipped 1 s) for its event.
+  On a healthy disk the event is in the file when the call returns.
 - Once a write overruns that, later callers do not wait at all until the
   writer finishes a write again.
-- With 1,000 events already waiting, new ones are dropped and counted in a
-  warning, logged at most once a minute.
+- With `numbat.max_queued_writes` (1,000) events already waiting, new ones are
+  dropped and counted in a warning, logged at most once per
+  `numbat.drop_log_interval_sec` (60 s).
 
 So a stalled `numbat.output_path` holds a request for about a second when the
 stall starts, instead of for as long as the stall lasts. `audit.jsonl` is
