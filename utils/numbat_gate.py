@@ -56,6 +56,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess  # nosec B404 - list-form only, no shell, operator-configured binary
 import tempfile
 import threading
@@ -425,8 +426,13 @@ def build_gate_event(provider: str, model: str, query_hash: str, cfg: dict[str, 
 # hundreds of MB a second. Numbat's real output is a line per matched rule.
 _MAX_CLI_OUTPUT = 1024 * 1024
 _CLI_READ_CHUNK = 64 * 1024
-# How long a killed process gets to exit before it is left behind.
-_CLI_REAP_SEC = 2.0
+# Reader threads for the binary's output, across all calls. A process the
+# binary leaves behind can hold its pipes open past the kill (one that left
+# its process group, or any child on Windows), and its readers stay until it
+# closes them. The cap stops those piling up: at the cap, a call waits for a
+# free slot until its deadline and then times out.
+_MAX_CLI_READERS = 32
+_CLI_READER_SLOTS = threading.BoundedSemaphore(_MAX_CLI_READERS)
 
 
 class _CliOutputTooLarge(Exception):
@@ -436,51 +442,95 @@ class _CliOutputTooLarge(Exception):
 def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
     """``subprocess.run(argv, capture_output=True, text=True, timeout=...)``, bounded.
 
-    Output is read in chunks, and the process is killed once either stream
-    passes _MAX_CLI_OUTPUT (_CliOutputTooLarge) or ``timeout`` passes
-    (subprocess.TimeoutExpired). A killed process that does not exit within
-    _CLI_REAP_SEC is left behind rather than waited on.
+    Everything, reading the output included, happens within ``timeout``:
+    past it, or once either stream passes _MAX_CLI_OUTPUT, the binary and
+    anything left in its process group are killed, and
+    subprocess.TimeoutExpired or _CliOutputTooLarge is raised. A child that
+    keeps the pipes open after the binary exits counts as not finished. A
+    killed process is not waited on.
     """
-    proc = subprocess.Popen(  # noqa: S603  # nosec B603 - list-form, no shell
-        argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
+    deadline = time.monotonic() + timeout
+    if not _acquire_reader_slots(2, deadline):
+        raise subprocess.TimeoutExpired(argv, timeout)
+    try:
+        proc = subprocess.Popen(  # noqa: S603  # nosec B603 - list-form, no shell
+            argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True,  # its own process group, so a kill reaches its children (POSIX)
+        )
+    except BaseException:
+        _CLI_READER_SLOTS.release()
+        _CLI_READER_SLOTS.release()
+        raise
     captured = (bytearray(), bytearray())
     overflow = threading.Event()
 
     def _pump(stream: Any, sink: bytearray) -> None:
-        with stream:
-            while chunk := os.read(stream.fileno(), _CLI_READ_CHUNK):
-                if len(sink) + len(chunk) > _MAX_CLI_OUTPUT:
-                    overflow.set()
-                    proc.kill()
-                    return
-                sink.extend(chunk)
+        try:
+            with stream:
+                while chunk := os.read(stream.fileno(), _CLI_READ_CHUNK):
+                    if len(sink) + len(chunk) > _MAX_CLI_OUTPUT:
+                        overflow.set()
+                        _kill_tree(proc)
+                        return
+                    sink.extend(chunk)
+        finally:
+            _CLI_READER_SLOTS.release()
 
     pumps = [
         threading.Thread(target=_pump, args=(stream, sink), name="numbat-cli-output", daemon=True)
         for stream, sink in zip((proc.stdout, proc.stderr), captured, strict=True)
     ]
-    for pump in pumps:
-        pump.start()
+    for started, pump in enumerate(pumps):
+        try:
+            pump.start()
+        except BaseException:
+            _kill_tree(proc)
+            for _ in pumps[started:]:
+                _CLI_READER_SLOTS.release()
+            raise
     try:
-        returncode = proc.wait(timeout=timeout)
+        returncode = proc.wait(timeout=max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
-        proc.kill()
-        _reap(proc)
+        _kill_tree(proc)
         raise
+    # The output ends when every process holding the pipes has closed them,
+    # which a child the binary left running may never do: wait only until the
+    # deadline, then kill what is left of its group and give up on the output.
     for pump in pumps:
-        pump.join(_CLI_REAP_SEC)
+        pump.join(max(0.0, deadline - time.monotonic()))
+    if any(pump.is_alive() for pump in pumps):
+        _kill_tree(proc)
+        raise subprocess.TimeoutExpired(argv, timeout)
     if overflow.is_set():
         raise _CliOutputTooLarge
     stdout, stderr = (bytes(sink).decode("utf-8", errors="replace") for sink in captured)
     return subprocess.CompletedProcess(argv, returncode, stdout=stdout, stderr=stderr)
 
 
-def _reap(proc: subprocess.Popen[bytes]) -> None:
+def _acquire_reader_slots(count: int, deadline: float) -> bool:
+    """Take ``count`` reader slots, waiting no later than ``deadline``; all or none."""
+    taken = 0
+    while taken < count:
+        if not _CLI_READER_SLOTS.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            for _ in range(taken):
+                _CLI_READER_SLOTS.release()
+            return False
+        taken += 1
+    return True
+
+
+def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
+    """Kill the binary and, on POSIX, everything still in its process group."""
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass  # the group is already gone
     try:
-        proc.wait(timeout=_CLI_REAP_SEC)
-    except subprocess.TimeoutExpired:
-        logger.warning("numbat process %s did not exit after kill; leaving it", proc.pid)
+        proc.kill()
+    except OSError:
+        pass
+    proc.poll()  # reap it if it is already dead; otherwise subprocess reaps it later
 
 
 def _deny(reason_code: str, reason: str) -> dict[str, Any]:

@@ -101,6 +101,10 @@ fixture jobs run.
 Every failure denies:
 - a missing binary, or one that is not the pinned release, including one
   that prints more than the engine reads (1 MiB per stream; it is killed);
+- a binary that has not finished, output included, within `timeout_sec`.
+  It runs in its own process group, and the group is killed then, so a
+  child it leaves holding its output cannot stretch the call past its
+  budget;
 - a missing or empty `rules_dirs`, a rules file or directory that cannot be
   read, or rule directories past the read limits in step 3;
 - a rule set with no enabled rule (an empty directory, or every rule

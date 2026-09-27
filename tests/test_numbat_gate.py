@@ -815,6 +815,35 @@ def test_run_cli_times_out():
         numbat_gate._run_cli([sys.executable, "-c", "import time; time.sleep(60)"], timeout=0.5)
 
 
+def _cli_readers_alive() -> int:
+    return sum(1 for thread in threading.enumerate() if thread.name == "numbat-cli-output")
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("sh") is None, reason="needs POSIX sh and process groups")
+def test_run_cli_stays_in_budget_when_a_child_keeps_the_pipes_open():
+    # The binary exits at once but leaves a child holding stdout. Waiting for
+    # the output to end would outlast the budget, and the readers would stay
+    # until the child exits; instead its group is killed at the deadline.
+    before = _cli_readers_alive()
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        numbat_gate._run_cli([shutil.which("sh"), "-c", "sleep 60 & echo started"], timeout=0.5)
+    assert time.monotonic() - started < 2.5
+    for _ in range(100):  # the killed child closes the pipes, so the readers end
+        if _cli_readers_alive() <= before:
+            break
+        time.sleep(0.05)
+    assert _cli_readers_alive() <= before
+
+
+def test_run_cli_waits_for_a_reader_slot_only_until_its_deadline(monkeypatch):
+    # With every reader slot held by readers left over from earlier runs, a
+    # call times out instead of starting more.
+    monkeypatch.setattr(numbat_gate, "_CLI_READER_SLOTS", threading.BoundedSemaphore(1))
+    with pytest.raises(subprocess.TimeoutExpired):
+        numbat_gate._run_cli([sys.executable, "-c", "print('never started')"], timeout=0.2)
+
+
 @pytest.mark.skipif(os.name == "nt" or shutil.which("yes") is None, reason="needs a POSIX `yes`")
 def test_a_binary_that_floods_its_output_denies(tmp_path):
     """`yes version` prints forever: a misconfigured binary denies, it does not fill memory."""
