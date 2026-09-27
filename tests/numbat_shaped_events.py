@@ -1,10 +1,12 @@
-"""Drive CyClaw's real Numbat producers and collect exactly what they write.
+"""Run CyClaw's production Numbat emitters on representative inputs; collect what they write.
 
 Issue #1458 Phase 4: the CI fixture job used to score only committed fixtures
 and one live executor-jail run, so nothing checked that the rest of the stream
 CyClaw actually writes -- above all the mainline plane, one projected event
 per audit record, every /query -- still matches the pinned Numbat 0.2.0 CLI
-and its schema-0.3.0 contract. Every event here comes from a production code path:
+and its schema-0.3.0 contract. Every event here is written by production
+emitter code, but the callers that choose its inputs do not run; the inputs
+are modeled on them:
 
 * mainline plane: ``utils.logger.audit_log`` -> ``project_audit_record``, fed
   records shaped like graph.py's ``audit_logger_node`` and gate.py's own
@@ -16,6 +18,10 @@ and its schema-0.3.0 contract. Every event here comes from a production code pat
   installed; the emission path is the real one);
 * action plane: ``emit_numbat_event`` / ``emit_numbat_command`` with the same
   arguments as the ops_runner, fsconnect and sqlconnect call sites.
+
+So an emit site whose arguments drift from these inputs, or one with no case
+here (``agentic/real_repo_loop.py``'s two), is not scored by this module. The
+executor's emit site is, by the fixture job's executor-jail test.
 
 Run as a module from the repo root::
 
@@ -85,8 +91,8 @@ def _cfg(tmp: Path) -> dict[str, Any]:
         },
         "models": {
             "local_llm": {"provider": "ollama", "model": "qwen3.8:27b-mlx"},
-            "grok": {"model": "grok-4.5"},
-            "claude": {"model": "claude-sonnet-5"},
+            "grok": {"model": "grok-4.5", "base_url": "https://api.x.ai/v1"},
+            "claude": {"model": "claude-sonnet-5", "base_url": "https://api.anthropic.com/v1"},
         },
     }
 
@@ -161,21 +167,30 @@ def _mainline(cfg: dict[str, Any]) -> None:
 
 
 def _hook_verdicts(cfg: dict[str, Any]) -> None:
-    """Each fail-closed branch of the pre-action hook, with emit_verdict on."""
+    """One verdict of each shape the pre-action hook emits, emit_verdict on.
+
+    The numbat engine case points at a binary that does not exist, so it is
+    deterministic without Numbat installed and still runs the engine's real
+    emission path (a fail-closed hook_error). Its allow/deny verdicts share
+    the command engine's event shapes, which the cases above cover.
+    """
     python = sys.executable
-    commands = [
-        [python, "-c", "import sys; sys.stderr.write('blocked'); sys.exit(2)"],
-        [python, "-c", "import sys; sys.exit(7)"],
-        [str(_REPO / "no-such-hook-binary")],
+    blocks: list[tuple[str, dict[str, Any]]] = [
+        ("grok", {"command": [python, "-c", "import sys; sys.exit(0)"]}),
+        ("grok", {"command": [python, "-c", "import sys; sys.stderr.write('blocked'); sys.exit(2)"]}),
+        ("claude", {"command": [python, "-c", "import sys; sys.exit(7)"]}),
+        ("grok", {"command": [str(_REPO / "no-such-hook-binary")]}),
+        ("claude", {"command": []}),
+        ("grok", {"engine": "numbat", "numbat": {"binary": str(_REPO / "no-such-numbat"), "rules_dirs": [str(_REPO)]}}),
     ]
-    for provider, command in zip(("grok", "claude", "grok"), commands, strict=True):
+    for provider, block in blocks:
         hook_cfg = {
             **cfg,
             "policy": {"fallback": {"pre_action_hook": {
                 "enabled": True,
-                "command": command,
                 "timeout_sec": 5,
                 "emit_verdict": True,
+                **block,
             }}},
         }
         model = cfg["models"][provider]["model"]

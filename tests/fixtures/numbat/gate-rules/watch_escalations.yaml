@@ -1,0 +1,14 @@
+# Example CyClaw pre-action gate rule (engine: numbat), issue #1458.
+# NOT enforced (no enforce: true): every confirmed external call matches, the
+# call is still allowed, and the match is reported -- in the verdict event's
+# monitor_match:<id> tag when emit_verdict is on. This is how a new policy
+# gets an observe-only trial: write it without enforce, watch what it would
+# have caught, then add enforce: true.
+id: cyclaw.gate.watch_escalations
+version: "1.0"
+title: Confirmed external LLM call (observe only)
+severity: info
+expr: |-
+  event.event_type == "network.indicator" &&
+  "pre_action_hook" in event.tags
+tags: [cyclaw_gate, egress]

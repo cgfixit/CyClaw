@@ -1,0 +1,21 @@
+# Example CyClaw pre-action gate rule (engine: numbat), issue #1458.
+# Enforced: only the vetted model tags may leave this machine. The gate still
+# holds if config.yaml is edited to a new model -- the call is denied until
+# the tag is added here too, a second sign-off on what gets your data.
+# CyClaw's gate event (utils/numbat_gate.py build_gate_event) is a
+# network.indicator tagged "pre_action_hook" and the provider, carrying model,
+# model_provider ("xai" / "anthropic") and url. Copy this directory, edit the
+# list, and point policy.fallback.pre_action_hook.numbat.rules_dirs at it.
+id: cyclaw.gate.pinned_models
+version: "1.0"
+title: External LLM call to a model outside the vetted list
+description: |-
+  Deny a confirmed Grok/Claude call whose configured model tag is not on the
+  operator's vetted list.
+severity: high
+enforce: true
+expr: |-
+  event.event_type == "network.indicator" &&
+  "pre_action_hook" in event.tags &&
+  !(event.model in ["grok-4.5", "claude-sonnet-5"])
+tags: [cyclaw_gate, egress]

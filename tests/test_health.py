@@ -713,3 +713,52 @@ class TestSafeErrorRedactsCredentials:
             headers={"x-api-key": os.environ["ANTHROPIC_API_KEY"].strip()},
         )
         assert captured["headers"]["x-api-key"] == self.SECRET
+
+
+class TestPreActionHookReadiness:
+    """Issue #1458 Phase 1: an ENABLED pre-action hook reports on /health, so a
+    hook that cannot run shows as degraded before anyone clicks "Send to ..."."""
+
+    def _cfg(self, hook: dict | None) -> dict:
+        cfg = {
+            "app": {"mode": "hybrid"},
+            "api": {"health_probe_external_providers": False},
+            "models": {"local_llm": {"base_url": _OLLAMA_BASE}, "grok": {"enabled": True}, "claude": {"enabled": True}},
+        }
+        if hook is not None:
+            cfg["policy"] = {"fallback": {"pre_action_hook": hook}}
+        return cfg
+
+    def test_disabled_hook_adds_no_service(self, monkeypatch):
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+        for hook in (None, {"enabled": False, "command": ["x"]}):
+            names = {s.name for s in health.check_all(cfg=self._cfg(hook))}
+            assert "pre_action_hook" not in names
+
+    def test_runnable_command_hook_is_healthy(self, monkeypatch):
+        import sys
+
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+        statuses = health.check_all(cfg=self._cfg({"enabled": True, "command": [sys.executable, "-c", "pass"]}))
+        hook = next(s for s in statuses if s.name == "pre_action_hook")
+        assert hook.healthy is True and hook.error is None
+
+    def test_broken_hook_is_unhealthy_without_echoing_its_argv(self, monkeypatch):
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+        statuses = health.check_all(cfg=self._cfg({"enabled": True, "command": ["/opt/secret-layout/hook-bin"]}))
+        hook = next(s for s in statuses if s.name == "pre_action_hook")
+        assert hook.healthy is False
+        assert "denied" in hook.error
+        assert "secret-layout" not in hook.error
+
+    def test_readiness_exception_is_contained(self, monkeypatch):
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+
+        def _boom(cfg):
+            raise RuntimeError("readiness exploded")
+
+        monkeypatch.setattr("utils.external_pre_hook.hook_readiness", _boom)
+        statuses = health.check_all(cfg=self._cfg({"enabled": True, "command": ["x"]}))
+        hook = next(s for s in statuses if s.name == "pre_action_hook")
+        assert hook.healthy is False
+        assert hook.error == "readiness check failed: RuntimeError"

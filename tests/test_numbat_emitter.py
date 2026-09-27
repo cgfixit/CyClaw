@@ -515,3 +515,22 @@ def test_rollover_reclaims_an_abandoned_lock(tmp_path: Path) -> None:
 
     assert live.with_name(live.name + ".1").exists(), "abandoned lock should be reclaimed"
     assert not lock_path.exists()
+
+
+@pytest.mark.parametrize(("url", "expected"), [
+    ("https://api.x.ai/v1", "https://api.x.ai"),
+    ("https://token@api.x.ai/v1", "https://api.x.ai"),
+    ("https://api.x.ai/proxy/sk-secret-token/v1", "https://api.x.ai"),
+    ("https://user:pw@api.x.ai:8443/v1?key=abc#frag", "https://api.x.ai:8443"),
+    ("https://[::1]:8080/x?y=1", "https://[::1]:8080"),
+    ("https://API.Anthropic.com/v1/", "https://api.anthropic.com"),
+    ("not a url", None),
+    ("https://host:99999/", None),
+    ("", None),
+    (None, None),
+])
+def test_redact_url_for_numbat_keeps_only_the_origin(url, expected):
+    from utils.numbat_emitter import redact_url_for_numbat
+
+    assert redact_url_for_numbat(url) == expected
+

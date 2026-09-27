@@ -189,6 +189,24 @@ class TestPrintMetrics:
         # The MCP events must NOT fall through to the "unknown" bucket.
         assert "unknown" not in out
 
+    def test_pre_action_hook_verdicts_are_printed(self, tmp_path, capsys):
+        events = [
+            {"event": "rag_query", "model_used": "hook-denied", "top_score": 0.01,
+             "retrieval_mode": "hybrid", "pre_action_hook_reason": "hook_denied",
+             "timestamp": "2026-09-26T10:00:00+00:00"},
+        ]
+        audit_file = _write_audit(tmp_path, events)
+        print_metrics(_write_config(tmp_path, audit_file))
+        out = capsys.readouterr().out
+        assert "Pre-action hook verdicts: 1" in out
+        assert "hook_denied: 1" in out
+        assert "last: hook_denied at 2026-09-26T10:00:00+00:00" in out
+
+    def test_no_hook_section_when_no_hook_decided(self, tmp_path, capsys):
+        audit_file = _write_audit(tmp_path, [{"event": "rag_query", "model_used": "local", "top_score": 0.5}])
+        print_metrics(_write_config(tmp_path, audit_file))
+        assert "Pre-action hook" not in capsys.readouterr().out
+
     def test_model_used_and_online_escalations_are_printed(self, tmp_path, capsys):
         """compute_metrics() aggregates model_used + online_escalated (both shown
         at GET /audit/summary); the CLI must surface them, not drop them."""
@@ -360,6 +378,31 @@ class TestComputeMetrics:
         summary = compute_metrics(events)
         assert summary["guardrail_blocked_count"] == 0
         assert summary["guardrail_degraded_count"] == 0
+
+    def test_pre_action_hook_verdicts_are_counted_by_reason(self):
+        """Issue #1458 Phase 1: why each confirmed escalation was allowed or
+        denied, from the fixed-vocabulary code graph.py stamps on the record."""
+        events = [
+            {"event": "rag_query", "model_used": "grok", "pre_action_hook_reason": "hook_allowed",
+             "timestamp": "2026-09-26T10:00:00+00:00"},
+            {"event": "rag_query", "model_used": "hook-denied", "pre_action_hook_reason": "hook_timeout",
+             "timestamp": "2026-09-26T10:05:00+00:00"},
+            {"event": "rag_query", "model_used": "hook-denied", "pre_action_hook_reason": "hook_timeout",
+             "timestamp": "2026-09-26T10:06:00+00:00"},
+            {"event": "rag_query", "model_used": "local"},
+            # audit.jsonl is untrusted evidence: a non-string code is ignored.
+            {"event": "rag_query", "model_used": "grok", "pre_action_hook_reason": ["x"]},
+        ]
+        hook = compute_metrics(events)["pre_action_hook"]
+        assert hook == {
+            "decided": 3,
+            "by_reason": {"hook_timeout": 2, "hook_allowed": 1},
+            "last": {"reason": "hook_timeout", "at": "2026-09-26T10:06:00+00:00"},
+        }
+
+    def test_pre_action_hook_section_empty_without_verdicts(self):
+        hook = compute_metrics([{"event": "rag_query", "model_used": "local"}])["pre_action_hook"]
+        assert hook == {"decided": 0, "by_reason": {}, "last": None}
 
 
 class TestMain:

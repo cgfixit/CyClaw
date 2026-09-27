@@ -289,6 +289,80 @@ def validate_fallback_confirm_placeholder(cfg: dict[str, Any]) -> None:
     )
 
 
+_HOOK_ENGINES = ("command", "numbat")
+
+
+def _hook_error(message: str, **details: Any) -> ConfigError:
+    return ConfigError(f"policy.fallback.pre_action_hook: {message}", details=details or None)
+
+
+def validate_pre_action_hook_config(cfg: dict[str, Any]) -> None:
+    """Reject a pre-action hook block that reads as armed but is not (#1458 Phase 1).
+
+    The runtime already fails closed on a broken ENABLED hook (every external
+    call is denied), but that is found only when someone clicks "Send to ...".
+    The other direction is worse and silent: ``enabled: "true"`` (a string) or a
+    non-mapping block leaves the hook OFF while the file says on. Same stance as
+    ``validate_fallback_confirm_placeholder``: a switch that cannot do what it
+    says is refused at boot.
+
+    Always checked when present: the block is a mapping; ``enabled`` and
+    ``emit_verdict`` are YAML booleans; ``engine`` is known; ``verdict_mode``
+    (or its old name ``fail_mode``) is ``enforce``, the only mode that exists.
+    Checked when ``enabled`` is true: the selected engine has something to run.
+    Paths and binaries are not probed here -- /health's pre_action_hook entry
+    reports whether they resolve.
+    """
+    policy = cfg.get("policy")
+    fallback = policy.get("fallback") if isinstance(policy, dict) else None
+    if not isinstance(fallback, dict) or "pre_action_hook" not in fallback:
+        return
+    block = fallback["pre_action_hook"]
+    if not isinstance(block, dict):
+        raise _hook_error("must be a mapping (a non-mapping value leaves the hook silently off)",
+                          received=type(block).__name__)
+
+    for key in ("enabled", "emit_verdict"):
+        if key in block and not isinstance(block[key], bool):
+            raise _hook_error(f"{key} must be true or false; {block[key]!r} would be read as off",
+                              received=block[key])
+
+    engine = block.get("engine", "command")
+    if engine not in _HOOK_ENGINES:
+        raise _hook_error(f"engine must be one of {list(_HOOK_ENGINES)}", received=engine)
+
+    modes = {key: block[key] for key in ("verdict_mode", "fail_mode") if key in block}
+    for key, value in modes.items():
+        if value != "enforce":
+            raise _hook_error(
+                f"{key} must be 'enforce', the only verdict mode that exists; 'monitor' "
+                "would loosen I3 and waits on a dual-run observation issue. For an "
+                "observe-only trial, use a Numbat rule without enforce: true.",
+                received=value,
+            )
+
+    if block.get("enabled") is not True:
+        return
+    if engine == "command":
+        command = block.get("command")
+        # Only command[0], the executable, must be non-empty: an empty string
+        # later in argv is a valid argument, and the runner passes it through.
+        if (not isinstance(command, list) or not command or not all(isinstance(c, str) for c in command)
+                or not command[0]):
+            raise _hook_error("enabled with engine 'command' needs command: a list of strings whose "
+                              "first item, the executable, is non-empty", received=command)
+        return
+    numbat = block.get("numbat")
+    if not isinstance(numbat, dict):
+        raise _hook_error("enabled with engine 'numbat' needs a numbat: mapping with rules_dirs")
+    dirs = numbat.get("rules_dirs")
+    if not isinstance(dirs, list) or not dirs or not all(isinstance(d, str) and d.strip() for d in dirs):
+        raise _hook_error("numbat.rules_dirs must be a non-empty list of directory paths", received=dirs)
+    binary = numbat.get("binary", "numbat")
+    if not isinstance(binary, str) or not binary.strip():
+        raise _hook_error("numbat.binary must be a non-empty string", received=binary)
+
+
 def validate_personality_config(cfg: dict[str, Any]) -> None:
     """Validate ``cfg['personality']`` when the subsystem is enabled.
 

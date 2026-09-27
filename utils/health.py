@@ -294,8 +294,32 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
                 error="ANTHROPIC_API_KEY not set (hybrid mode enabled but no API key)",
             ))
     results.append(HealthStatus(name="embeddings_local", healthy=True, latency_ms=0.0))
+    hook_status = _pre_action_hook_status(cfg)
+    if hook_status is not None:
+        results.append(hook_status)
     _status_cache[key] = (tuple(results), time.monotonic())
     return results
+
+
+def _pre_action_hook_status(cfg: dict[str, object]) -> HealthStatus | None:
+    """Readiness of an ENABLED pre-action hook; None when it is off (#1458 Phase 1).
+
+    An enabled hook that cannot run denies every confirmed online call, and
+    the operator otherwise learns that only after clicking "Send to ...". So
+    it reports here, and /health goes "degraded" while it is broken. Nothing
+    is executed beyond the numbat engine's own version and rules check, both
+    cached upstream; the error names no argv, path contents, or secret.
+    """
+    try:
+        from .external_pre_hook import hook_readiness
+
+        verdict = hook_readiness(cfg)
+    except Exception as exc:
+        return HealthStatus(name="pre_action_hook", healthy=False, error=f"readiness check failed: {type(exc).__name__}")
+    if verdict is None:
+        return None
+    ready, problem = verdict
+    return HealthStatus(name="pre_action_hook", healthy=ready, error=None if ready else _safe_error(Exception(problem)))
 
 def _ping(
     url: str,

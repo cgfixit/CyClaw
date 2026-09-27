@@ -38,8 +38,9 @@ Check live switches before describing availability. Shipped mode is hybrid
 with both external providers enabled, but each external answer still needs
 confirmation. Auth, memory, agentic, and guardrails master switches ship off.
 The Numbat NDJSON projection ships on, and that is all of Numbat that does:
-its pre-action hook and CEL monitor ship off, and the Numbat CLI scores events
-in CI only (issue #1458). Armed writer code is not permission to write.
+its pre-action hook and CEL monitor ship off, and nothing scores the stream at
+runtime. The Numbat CLI runs in CI and, only when the hook's opt-in
+`engine: numbat` is on, on each proposed external call (issue #1458). Armed writer code is not permission to write.
 
 Both local answer nodes use `utils.endpoint_trust.assert_local_destination`:
 loopback is allowed, while container/LAN models need an exact hostname/IP in

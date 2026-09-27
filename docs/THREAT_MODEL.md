@@ -1148,3 +1148,87 @@ What this changes in the surface this document describes:
 - The retired `com.cgfixit.cyclaw.harness` LaunchAgent label and
   `CyClaw harness` Task Scheduler name stay in the uninstallers so an older
   install's supervised agent is still booted out.
+
+### Seventeenth amendment — the pre-action hook and its Numbat engine (issue #1458, 2026-09-26)
+
+The pre-action hook (`utils/external_pre_hook.py`, graph nodes
+`pre_action_hook_grok` / `pre_action_hook_claude`, issue #963) predates this
+amendment but was never threat-modeled here. It runs after the I3 triple gate
+has allowed a confirmed Grok/Claude call, and its only outcomes are "proceed
+as I3 already allowed" or "deny". It ships `enabled: false`.
+
+What issue #1458 changed, and the boundaries that follow:
+
+- **An external binary can sit on the request path.** With
+  `pre_action_hook.engine: numbat`, every confirmed external call spawns the
+  operator-installed Numbat CLI (`numbat rules test`, list-form subprocess, no
+  shell, `timeout_sec` clamped to 1-30 s). The `command` engine already did the
+  same with an operator-chosen argv. The binary, `numbat.binary`, and
+  `numbat.rules_dirs` are trusted operator artifacts in the same class as
+  `config.yaml`. Whoever can replace them runs code as the CyClaw user, the
+  same exposure as editing `config.yaml` or the virtualenv. CyClaw never
+  vendors or imports Numbat. Numbat's own SECURITY.md states it makes no
+  outbound request without an HTTP sink or `ship`, and the engine uses neither
+  (otel-hardening classifies the binary under the numbat row).
+- **Rule tampering and misconfiguration can deny, never allow.** All of these
+  deny:
+  - a rule set edited into an error;
+  - a missing binary, or one that is not the pinned release (checked on every
+    call, not only by `/health`);
+  - a timeout, unparseable output, or a match the engine cannot classify;
+  - a run that shows no evidence of evaluating the call, i.e. the engine's
+    canary rule did not match. Before the #1467 review, exit 0 with no output
+    read as "nothing matched", so `/bin/true` as the binary allowed every
+    call;
+  - a rule set with no enabled rule. The canary always gives Numbat a rule
+    to run, so the engine checks for an operator rule itself; before that
+    check, an all-disabled rule set allowed every call;
+  - rule directories the engine cannot read in full: an unreadable file or
+    subdirectory, more than its caps on rule files, bytes or directory
+    entries, or a read that outlasts `timeout_sec`. The whole decision runs
+    on a worker thread the call abandons at `timeout_sec`, so a stalled
+    mount cannot hold a request;
+  - a binary that prints more than the engine reads, which is killed
+    rather than buffered;
+  - a rule the engine and Numbat's own loader could read differently. The
+    engine decides which matched rules deny, so it reads `enforce` and
+    `enabled` as Numbat's Go YAML loader does (YAML 1.1 short forms such as
+    `y` and `"yes"` are true), and its snapshot takes every file Numbat
+    loads (`.yaml`/`.yml` in any case). Before the #1467 review, PyYAML's
+    reading made `enforce: y` a monitor rule and `enabled: n` an enabled
+    one, and the snapshot dropped `deny.YAML`: each of those allowed a call
+    the pinned CLI's own hook denies.
+
+  `/health` reports the gate's problems as fixed phrases and never echoes
+  what an unverified binary printed. Concurrent `/health` calls share one
+  readiness check, so a burst cannot spawn the binary once per caller. For
+  either engine the check, locating the binary included, runs on a bounded
+  worker thread, so a stalled mount cannot hold a `/health` worker. The
+  numbat check ends with one probe decision within the hook's `timeout_sec`,
+  so `/health` does not call a gate ready whose every call would time out.
+
+  So does a hook enabled with nothing to run, which used to allow before
+  #1458. Rules are evaluated from a per-call byte snapshot of `rules_dirs`, so
+  an edit racing a call cannot combine two rule versions into an allow.
+  Replacing the binary itself is code execution, covered by the previous
+  bullet. A hostile or broken rule set is therefore a denial of
+  service against online escalation, never an egress path. The local answer
+  path is untouched, and `/health` reports the hook `degraded`.
+- **What reaches the hook.** Only provider, configured model tag, provider URL,
+  host endpoint fields, and the query's SHA-256. Only the URL's origin
+  (`scheme://host[:port]`) enters an event; userinfo, path, query and
+  fragment are dropped, because `utils/endpoint_trust.py` pins only the
+  hostname and a credential can ride any of them. The hash is omitted from
+  the temp fixture and the stream when
+  `logging.audit_fields.include_query_hash` is false. Neither engine sees
+  query text, soul text, or retrieved context. For each call, the numbat
+  engine writes the event, a snapshot of the rules and its canary rule into
+  a private (0700) temp directory, and deletes the directory afterwards.
+- **`numbat hook` is explicitly out.** Used as the `command`, it fails open: it
+  exits 0 on errors and cannot see the provider or URL. `config.yaml` says
+  so, and `tests/test_numbat_gate.py` pins the behavior against the pinned
+  CLI.
+- **Residual.** No verdict mode lets a deny through ("monitor" stays
+  unshipped pending a dual-run observation issue), and nothing scores the
+  rolling Numbat stream at runtime (#1458 Phase 5). Operator guide:
+  `docs/security-philosophy/numbat_pre_action_gate.md`.

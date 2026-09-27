@@ -357,6 +357,124 @@ class TestPreActionHook:
         assert "query" not in payload
 
 
+class TestPreActionHookEnginesAndVerdicts:
+    """Issue #1458 Phases 1-2, through the real graph: the numbat engine, the
+    audit reason code, fail-closed misconfiguration, and verdict emission
+    that can never change the verdict (I3 shrink-only, I4 convergence)."""
+
+    def _build(self, cfg, grok=None, claude=None):
+        return build_graph(
+            retriever=MockRetriever(MOCK_LOW_SCORE_RESULTS),
+            llm=MockLocalLLM(response="Local fallback."),
+            grok=grok, claude=claude, cfg=cfg,
+        )
+
+    def _numbat_cfg(self, tmp_path, *, emit_verdict=False):
+        cfg = _make_cfg(tmp_path, mode="hybrid", grok_enabled=True)
+        cfg["numbat"] = {"enabled": True, "output_path": str(tmp_path / "numbat-events.ndjsonl")}
+        cfg["policy"] = {**cfg.get("policy", {})}
+        cfg["policy"]["fallback"] = {**cfg["policy"].get("fallback", {})}
+        cfg["policy"]["fallback"]["pre_action_hook"] = {
+            "enabled": True,
+            "engine": "numbat",
+            "numbat": {"binary": sys.executable, "rules_dirs": [str(tmp_path)]},
+            "timeout_sec": 5,
+            "emit_verdict": emit_verdict,
+        }
+        return cfg
+
+    def test_numbat_engine_deny_short_circuits_to_audit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "utils.numbat_gate.evaluate",
+            lambda *a, **k: {"verdict": "deny", "reason_code": "hook_denied", "reason": "denied by Numbat rule(s): acme"},
+        )
+        grok = MockGrokClient(response="Grok answer.")
+        result = self._build(self._numbat_cfg(tmp_path), grok=grok).invoke(
+            {"query": "q", "user_confirmed_online": True})
+        assert result["answer_model"] == "hook-denied"
+        assert grok.last_prompt is None
+        assert result["audit_event"]["pre_action_hook_denied"] is True
+        assert result["audit_event"]["pre_action_hook_reason"] == "hook_denied"
+        assert result["audit_event"]["model_used"] == "hook-denied"
+
+    def test_numbat_engine_allow_reaches_the_provider(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "utils.numbat_gate.evaluate",
+            lambda *a, **k: {"verdict": "allow", "reason_code": "hook_allowed", "reason": "no enforce rule matched"},
+        )
+        grok = MockGrokClient(response="Grok answer.")
+        result = self._build(self._numbat_cfg(tmp_path), grok=grok).invoke(
+            {"query": "q", "user_confirmed_online": True})
+        assert result["answer_model"] == "grok"
+        assert grok.last_prompt is not None
+        assert result["audit_event"]["pre_action_hook_reason"] == "hook_allowed"
+
+    def test_numbat_engine_with_no_binary_fails_closed(self, tmp_path):
+        cfg = self._numbat_cfg(tmp_path)
+        cfg["policy"]["fallback"]["pre_action_hook"]["numbat"]["binary"] = str(tmp_path / "no-numbat-here")
+        grok = MockGrokClient(response="Grok answer.")
+        result = self._build(cfg, grok=grok).invoke({"query": "q", "user_confirmed_online": True})
+        assert result["answer_model"] == "hook-denied"
+        assert result["audit_event"]["pre_action_hook_reason"] == "hook_error"
+        assert grok.last_prompt is None
+
+    def test_enabled_with_empty_command_fails_closed(self, tmp_path):
+        cfg = _make_cfg(tmp_path, mode="hybrid", grok_enabled=True)
+        cfg["policy"] = {**cfg.get("policy", {})}
+        cfg["policy"]["fallback"] = {**cfg["policy"].get("fallback", {})}
+        cfg["policy"]["fallback"]["pre_action_hook"] = {"enabled": True, "command": []}
+        grok = MockGrokClient(response="Grok answer.")
+        result = self._build(cfg, grok=grok).invoke({"query": "q", "user_confirmed_online": True})
+        assert result["answer_model"] == "hook-denied"
+        assert result["audit_event"]["pre_action_hook_reason"] == "hook_misconfigured"
+        assert grok.last_prompt is None
+
+    def test_disabled_hook_leaves_no_reason_on_the_audit_record(self, tmp_path):
+        grok = MockGrokClient(response="Grok answer.")
+        result = self._build(_make_cfg(tmp_path, mode="hybrid", grok_enabled=True), grok=grok).invoke(
+            {"query": "q", "user_confirmed_online": True})
+        assert result["answer_model"] == "grok"
+        assert "pre_action_hook_reason" not in result["audit_event"]
+
+    @pytest.mark.parametrize(("verdict", "expected_model"), [("allow", "grok"), ("deny", "hook-denied")])
+    def test_verdict_emission_failure_never_changes_the_verdict(self, tmp_path, monkeypatch, verdict, expected_model):
+        """Phase 2 regression: the derived stream is fail-soft on both paths."""
+        reason_code = "hook_allowed" if verdict == "allow" else "hook_denied"
+        monkeypatch.setattr(
+            "utils.numbat_gate.evaluate",
+            lambda *a, **k: {"verdict": verdict, "reason_code": reason_code, "reason": "r"},
+        )
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("numbat stream exploded")
+
+        monkeypatch.setattr("utils.numbat_emitter.emit_numbat_event", _boom)
+        grok = MockGrokClient(response="Grok answer.")
+        result = self._build(self._numbat_cfg(tmp_path, emit_verdict=True), grok=grok).invoke(
+            {"query": "q", "user_confirmed_online": True})
+        assert result["answer_model"] == expected_model
+        assert (grok.last_prompt is not None) is (verdict == "allow")
+        assert "audit_event" in result
+
+    def test_verdict_events_reach_the_stream_when_enabled(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "utils.numbat_gate.evaluate",
+            lambda *a, **k: {"verdict": "allow", "reason_code": "hook_allowed", "reason": "r"},
+        )
+        cfg = self._numbat_cfg(tmp_path, emit_verdict=True)
+        self._build(cfg, grok=MockGrokClient(response="Grok answer.")).invoke(
+            {"query": "q", "user_confirmed_online": True})
+        from utils.numbat_emitter import close_numbat_handles
+
+        close_numbat_handles()
+        records = [json.loads(line) for line in
+                   (tmp_path / "numbat-events.ndjsonl").read_text(encoding="utf-8").splitlines()]
+        verdicts = [r for r in records if "pre_action_hook" in r["tags"]]
+        assert len(verdicts) == 1
+        assert (verdicts[0]["event_type"], verdicts[0]["decision"]) == ("network.indicator", "allowed")
+        assert "engine:numbat" in verdicts[0]["tags"]
+
+
 class TestOfflineBestEffortPath:
     """Path 4: Low score -> user declines -> offline_best_effort"""
 
