@@ -12,7 +12,7 @@
 > | Pre-action hook before Grok/Claude (`utils/external_pre_hook.py`) | `policy.fallback.pre_action_hook.enabled` | off. The `command:` example that `config.yaml` suggested (`numbat hook pre-tool --agent cyclaw`) never worked: the pinned 0.2.0 CLI exits 0, which the hook reads as allow |
 > | Hook-verdict emission (Slice A) | `pre_action_hook.emit_verdict` | off, and inert while the hook is off |
 > | CEL monitor (Slice B, `utils/numbat_cel.py`) | `numbat.cel.enabled` | off; monitor-only |
-> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures, one live executor-jail run, and, since #1466, a stream driven through every producer, mainline `/query` and `/ops/*` included; nothing scores the live stream |
+> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures, one live executor-jail run, and, since #1466, representative events from each producer family, mainline `/query` and `/ops/*` included, written by the real emitter code. Only the executor-jail run exercises a real call site end to end: `tests/numbat_shaped_events.py` feeds the emitters inputs modeled on `graph.py`, `gate.py`, `ops_runner` and the connectors, so an emit site whose arguments drift from those, or one it skips (`real_repo_loop`'s two), is not scored. Nothing scores the live stream |
 >
 > Checking the live stream against the pinned CLI (Phase 4 of #1458) found that
 > the CLI **rejected** it. Every mainline `/query` event carried a
@@ -26,7 +26,7 @@
 > | Phase | Scope | PR |
 > |---|---|---|
 > | 0 | Truth in advertising: this table, `config.yaml`'s `numbat:` comment, README, CLAUDE.md, AGENTS.md, the evaluator note | this docs PR |
-> | 3 + 4 | Stream contract fixes (200-char previews, shell-safe commands), CEL matches recorded as allowed `tool.result` events, CI scoring of the stream CyClaw actually writes against the pinned CLI and schema, and a CEL lane with cel-python installed | [#1466](https://github.com/cgfixit/CyClaw/pull/1466), **merged 2026-09-26** |
+> | 3 + 4 | Stream contract fixes (200-char previews, shell-safe commands), CEL matches recorded as allowed `tool.result` events, CI scoring of CyClaw's own emitter output (representative events per producer family) against the pinned CLI and schema, and a CEL lane with cel-python installed | [#1466](https://github.com/cgfixit/CyClaw/pull/1466), **merged 2026-09-26** |
 > | 1 + 2 | A pre-action hook engine that can gate: `engine: numbat` (`numbat rules test` over the proposed call, `enforce: true` rules deny, every failure denies), fail-closed empty command, `verdict_mode`, `/health` readiness, verdict reasons in metrics, allow verdicts in the stream | [#1467](https://github.com/cgfixit/CyClaw/pull/1467), draft |
 > | 5 | Scoring the rolling stream out of band, and any enforce from it | not started; needs its own dual-run observation issue |
 
@@ -85,8 +85,14 @@ is projected into the same Numbat stream:
   `tool.call` at `confidence: "low"` — an audit line is never dropped.
 - Numbat's `additionalProperties: false` means CyClaw forensics
   (`query_hash`, `top_score`, `guardrail_*`, `sources`, …) cannot be
-  top-level keys; they ride in a capped (2000-char) `content_preview`
-  JSON string built from the ALREADY redacted/hashed record.
+  top-level keys; they ride in a `content_preview` JSON string built from
+  the ALREADY redacted/hashed record. The schema caps that string at 200
+  characters (`CONTENT_PREVIEW_MAX_CHARS`), so the projection packs keys in
+  priority order, `query_hash` (the join key back to `audit.jsonl`) right
+  after the event name, drops any key that no longer fits, and marks the
+  event `content_preview_truncated` when it drops one. `audit.jsonl` keeps
+  every field. Until #1466 the cap was 2000 characters, and the pinned CLI
+  rejected the live stream at its first `/query` event.
 - `artifact_type: "cyclaw_audit_jsonl"` distinguishes the projection from
   action-plane records in the same file.
 - Lazy import inside `audit_log()` — no new import-time surface for
