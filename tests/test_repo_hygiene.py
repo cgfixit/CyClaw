@@ -224,6 +224,17 @@ def _set_local_git_config(repo: Path, tmp_path: Path, key: str, value: str) -> N
                    check=True, env=_hook_env(tmp_path))
 
 
+def _add_local_git_config(repo: Path, tmp_path: Path, key: str, value: str) -> None:
+    subprocess.run([_GIT, "-C", str(repo), "config", "--local", "--add", key, value],  # noqa: S603 - fixed argv
+                   check=True, env=_hook_env(tmp_path))
+
+
+def _local_git_config_all(repo: Path, tmp_path: Path, key: str) -> list[str]:
+    out = subprocess.run([_GIT, "-C", str(repo), "config", "--local", "--get-all", key],  # noqa: S603 - fixed argv
+                         capture_output=True, text=True, env=_hook_env(tmp_path), check=False)
+    return out.stdout.split("\n")[:-1] if out.returncode == 0 else []
+
+
 def _run_sync_hook(repo: Path, tmp_path: Path, **extra: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([_BASH, str(_SYNC_HOOK)], cwd=repo, capture_output=True, text=True,  # noqa: S603 - fixed argv
                           env=_hook_env(tmp_path, **extra), check=False, timeout=60)
@@ -310,6 +321,34 @@ def test_session_hook_reports_the_identity_and_never_blocks_offline(tmp_path: Pa
 
 
 @_needs_posix_bash_and_git
+def test_session_hook_removes_the_old_pin_from_a_multivalued_email(tmp_path: Path) -> None:
+    # git uses the last value, and a plain --unset refuses a key with several,
+    # which left the old address in effect.
+    repo = _hook_repo(tmp_path)
+    _add_local_git_config(repo, tmp_path, "user.email", "someone@example.com")
+    _add_local_git_config(repo, tmp_path, "user.email", _LEGACY_EMAIL)
+    _set_local_git_config(repo, tmp_path, "user.name", _LEGACY_NAME)
+    assert _run_sync_hook(repo, tmp_path).returncode == 0
+    assert _local_git_config_all(repo, tmp_path, "user.email") == ["someone@example.com"]
+    assert _local_git_config(repo, tmp_path, "user.name") is None
+
+
+@_needs_posix_bash_and_git
+def test_session_hook_reports_an_incomplete_identity(tmp_path: Path) -> None:
+    # GIT_COMMITTER_* alone leaves the author unset, and git refuses the
+    # commit. user.useConfigOnly stops git guessing an author from the host,
+    # which some CI hosts would otherwise manage.
+    repo = _hook_repo(tmp_path)
+    _set_local_git_config(repo, tmp_path, "user.useConfigOnly", "true")
+    result = _run_sync_hook(repo, tmp_path, GIT_COMMITTER_NAME="Runtime",
+                            GIT_COMMITTER_EMAIL="runtime@example.com")
+    assert result.returncode == 0
+    assert ("No complete commit identity (author: none, committer: Runtime <runtime@example.com>)"
+            in result.stdout)
+    assert "Commits will be made as" not in result.stdout
+
+
+@_needs_posix_bash_and_git
 def test_session_hook_keeps_the_old_name_beside_a_deliberate_email(tmp_path: Path) -> None:
     # Only the old pin is removed. An email someone chose is not the old pin,
     # so the name beside it stays even when it matches the old default.
@@ -351,4 +390,16 @@ def test_optimize_bootstrap_reports_the_committer_git_will_use(tmp_path: Path) -
                                           GIT_COMMITTER_EMAIL="runtime@example.com"))
     assert ("git identity: author Someone <someone@example.com>, "
             "committer Runtime <runtime@example.com>") in result.stdout
+
+
+@_needs_posix_bash_and_git
+def test_optimize_bootstrap_reports_an_incomplete_identity(tmp_path: Path) -> None:
+    repo = _hook_repo(tmp_path)
+    _set_local_git_config(repo, tmp_path, "user.useConfigOnly", "true")
+    result = subprocess.run([_BASH, str(_OPTIMIZE_BOOTSTRAP)], cwd=repo, capture_output=True,  # noqa: S603 - fixed argv
+                            text=True, check=False, timeout=60,
+                            env=_hook_env(tmp_path, GIT_COMMITTER_NAME="Runtime",
+                                          GIT_COMMITTER_EMAIL="runtime@example.com"))
+    assert ("git identity: incomplete (author: none, committer: Runtime <runtime@example.com>)"
+            in result.stdout)
 

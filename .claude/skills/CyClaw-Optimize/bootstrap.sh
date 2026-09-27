@@ -41,8 +41,10 @@ hr
 # GIT_COMMITTER_* environment variables outrank the config keys.
 author=$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//') || true
 committer=$(git var GIT_COMMITTER_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//') || true
-if [ -z "$committer" ]; then
-  echo "git identity: none set; git will refuse to commit until user.name and user.email are"
+# Author and committer are separate lookups: GIT_COMMITTER_* alone leaves the
+# author unset, and git then refuses the commit, so both must resolve.
+if [ -z "$author" ] || [ -z "$committer" ]; then
+  echo "git identity: incomplete (author: ${author:-none}, committer: ${committer:-none}); git will refuse to commit until user.name and user.email are set"
 elif [ "$author" = "$committer" ]; then
   echo "git identity: $committer"
 else

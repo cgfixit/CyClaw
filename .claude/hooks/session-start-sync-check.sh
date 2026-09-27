@@ -28,22 +28,25 @@ cd "$repo_root" || exit 0
 # it cannot give one session an identity of its own. It only removes the old
 # CyClaw Agent pin, and only while that pin still holds the old default.
 legacy_email="cyclaw-agent@users.noreply.github.com"
-legacy_name="CyClaw Agent"
-local_email=$(git config --local --get user.email 2>/dev/null)
-local_name=$(git config --local --get user.name 2>/dev/null)
-if [ "$local_email" = "$legacy_email" ]; then
-  git config --local --unset user.email
+# user.email can hold several values (git uses the last one), and a plain
+# --unset refuses to touch a key with more than one, so every value is read
+# and only the old default's are removed, by an anchored pattern.
+local_emails=$(git config --local --get-all user.email 2>/dev/null)
+if grep -Fxq "$legacy_email" <<<"$local_emails"; then
+  git config --local --unset-all user.email '^cyclaw-agent@users\.noreply\.github\.com$'
   # The old default name goes with its email. Beside an email someone chose,
   # the name is theirs too, so it is only removed together with the old email.
-  [ "$local_name" = "$legacy_name" ] && git config --local --unset user.name
+  git config --local --unset-all user.name '^CyClaw Agent$' 2>/dev/null
 fi
 # Report what the next commit will actually carry. GIT_AUTHOR_* and
 # GIT_COMMITTER_* environment variables outrank user.name/user.email, so ask
 # git itself rather than reading the config keys.
 author=$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//')
 committer=$(git var GIT_COMMITTER_IDENT 2>/dev/null | sed -E 's/ [0-9]+ [-+][0-9]{4}$//')
-if [ -z "$committer" ]; then
-  echo "[sync-check] No commit identity is set; git will refuse to commit until user.name and user.email are."
+# Author and committer are separate lookups: GIT_COMMITTER_* alone leaves the
+# author unset, and git then refuses the commit, so both must resolve.
+if [ -z "$author" ] || [ -z "$committer" ]; then
+  echo "[sync-check] No complete commit identity (author: ${author:-none}, committer: ${committer:-none}); git will refuse to commit until user.name and user.email are set."
 elif [ "$author" = "$committer" ]; then
   echo "[sync-check] Commits will be made as: $committer"
 else
