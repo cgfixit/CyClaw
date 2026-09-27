@@ -318,10 +318,16 @@ class TestLoggingSetup:
         log_file = str(tmp_path / "test.log")
         cfg = {"logging": {"level": "DEBUG", "log_file": log_file, "audit_file": str(tmp_path / "audit.jsonl"),
                             "audit_fields": {}}}
+        real_root = logging.getLogger()
+        before = list(real_root.handlers)
 
         setup_logging(cfg)
         test_logger = logging.getLogger("cyclaw.test_setup")
         test_logger.info("test log message")
+        # A writer thread appends the line (utils/logger.py's
+        # _BackgroundFileHandler); flush() waits for everything queued so far.
+        for handler in real_root.handlers:
+            handler.flush()
 
         assert Path(log_file).exists()
         content = Path(log_file).read_text()
@@ -330,3 +336,7 @@ class TestLoggingSetup:
         logger_mod._logging_initialized = False
         root = logging.getLogger("cyclaw")
         root.handlers.clear()
+        for handler in list(real_root.handlers):
+            if handler not in before:
+                real_root.removeHandler(handler)
+                handler.close()
