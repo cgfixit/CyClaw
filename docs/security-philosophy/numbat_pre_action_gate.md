@@ -255,7 +255,8 @@ thread in `utils/numbat_emitter.py`:
   writer finishes a write again.
 - With `numbat.max_queued_writes` (1,000) events already waiting, new ones are
   dropped and counted in a warning, logged at most once per
-  `numbat.drop_log_interval_sec` (60 s).
+  `numbat.drop_log_interval_sec` (60 s). Drops that interval held back are
+  reported when the queue drains, or at exit.
 
 So a stalled `numbat.output_path` holds a request for about a second when the
 stall starts, instead of for as long as the stall lasts. `audit.jsonl` is

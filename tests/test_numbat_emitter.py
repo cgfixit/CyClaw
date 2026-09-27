@@ -592,6 +592,19 @@ def _stall_writes(monkeypatch: pytest.MonkeyPatch, *, hold_lock: bool = False) -
     return entered, release
 
 
+class _LogWaiter(logging.Handler):
+    """Sets ``seen`` once cyclaw.numbat_emitter logs a record containing ``text``, on any thread."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(logging.WARNING)
+        self.text = text
+        self.seen = threading.Event()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.text in record.getMessage():
+            self.seen.set()
+
+
 def _in_thread(fn, *args) -> threading.Thread:
     thread = threading.Thread(target=fn, args=args, daemon=True)
     thread.start()
@@ -676,13 +689,24 @@ def test_the_writer_limits_come_from_the_numbat_config(tmp_path: Path, monkeypat
     assert [line["tool_name"] for line in _ndjson_lines(out)] == ["a", "b"]
 
 
-@pytest.mark.parametrize("bad", [0, -1, "1s", True, None])
+@pytest.mark.parametrize("bad", [0, -1, "1s", True, None, float("nan"), float("inf"), 1e300])
 def test_an_unusable_writer_limit_falls_back_to_its_default(bad) -> None:
     settings = numbat_emitter._writer_settings({"numbat": {"write_wait_sec": bad, "max_queued_writes": bad,
                                                            "drop_log_interval_sec": bad, "drain_wait_sec": bad}})
     assert settings == numbat_emitter._WriterSettings(
         numbat_emitter._WRITE_WAIT_SEC, numbat_emitter._MAX_QUEUED_WRITES,
         numbat_emitter._DROP_LOG_INTERVAL_SEC, numbat_emitter._DRAIN_WAIT_SEC)
+
+
+def test_a_wait_longer_than_the_platform_allows_falls_back() -> None:
+    # Condition.wait raises OverflowError past threading.TIMEOUT_MAX, and
+    # float() of a huge int raises it too, so neither may reach the writer.
+    huge = numbat_emitter._writer_settings({"numbat": {"write_wait_sec": 10**400, "drop_log_interval_sec": 10**400,
+                                                       "drain_wait_sec": 10**400}})
+    assert (huge.wait_sec, huge.drop_log_interval_sec, huge.drain_sec) == (
+        numbat_emitter._WRITE_WAIT_SEC, numbat_emitter._DROP_LOG_INTERVAL_SEC, numbat_emitter._DRAIN_WAIT_SEC)
+    longest = numbat_emitter._writer_settings({"numbat": {"write_wait_sec": threading.TIMEOUT_MAX}})
+    assert longest.wait_sec == threading.TIMEOUT_MAX
 
 
 def test_the_shipped_config_sets_the_writer_limits_to_the_defaults() -> None:
@@ -719,8 +743,43 @@ def test_a_full_queue_drops_new_events_and_reports_once(tmp_path: Path, monkeypa
     assert writer.dropped == 2
     drops = [r for r in caplog.records if "dropped" in r.getMessage()]
     assert len(drops) == 1 and "dropped 1 event(s)" in drops[0].getMessage()
-    assert writer.flush(10)
+    # The second drop, held back by the interval, is reported once the queue
+    # drains, so both losses reach the log. The writer logs after releasing
+    # its lock, so the report on the last line can land just after flush()
+    # returns: wait for the record itself.
+    waiter = _LogWaiter("dropped 1 more event(s) since the last report, 2 in all")
+    emitter_log = logging.getLogger("cyclaw.numbat_emitter")
+    emitter_log.addHandler(waiter)
+    try:
+        with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+            assert writer.flush(10)
+            assert waiter.seen.wait(10)
+    finally:
+        emitter_log.removeHandler(waiter)
     assert _ndjson_lines(out) == [{"n": 1}, {"n": 2}, {"n": 3}]
+
+
+def test_close_reports_drops_still_unreported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer,
+                                              caplog: pytest.LogCaptureFixture) -> None:
+    # Exit comes before the queue drains: the held-back count is reported
+    # then instead of being lost with the process.
+    out = tmp_path / "s.ndjsonl"
+    monkeypatch.setattr(numbat_emitter, "_WRITE_WAIT_SEC", 0.05)
+    monkeypatch.setattr(numbat_emitter, "_MAX_QUEUED_WRITES", 1)
+    monkeypatch.setattr(numbat_emitter, "_DRAIN_WAIT_SEC", 0.05)
+    entered, release = _stall_writes(monkeypatch)
+    try:
+        numbat_emitter.write_ndjson({"n": 1}, out)
+        assert entered.wait(10)
+        for n in (2, 3, 4):  # 2 fills the queue of one; 3 is reported, 4 held back
+            numbat_emitter.write_ndjson({"n": n}, out)
+        with caplog.at_level(logging.WARNING, logger="cyclaw.numbat_emitter"):
+            closer = _in_thread(close_numbat_handles)
+        assert not closer.is_alive()
+        assert "dropped 1 more event(s) since the last report, 2 in all" in caplog.text
+    finally:
+        release.set()
+    assert writer.flush(10)
 
 
 def test_lines_from_one_thread_land_in_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer) -> None:
@@ -774,6 +833,9 @@ def test_a_failed_write_is_logged_and_the_writer_keeps_going(tmp_path: Path, mon
         numbat_emitter.write_ndjson({"n": 2}, out)
     assert _ndjson_lines(out) == [{"n": 2}]
     assert "failed: disk full" in caplog.text
+    # flush says "every queued event is in the stream"; line 1 is not.
+    assert writer.failed == 1
+    assert writer.flush(10) is False
 
 
 def test_a_write_falls_back_to_the_caller_when_no_thread_can_start(tmp_path: Path,

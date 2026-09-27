@@ -542,10 +542,14 @@ def close_numbat_handles() -> None:
     or need to release file descriptors before deleting their tmp_path output
     files. Waits at most numbat.drain_wait_sec for the queue and again for the
     write lock: a write stuck on a stalled filesystem delays exit by that much
-    instead of hanging it, and the OS closes the files.
+    instead of hanging it, and the OS closes the files. Logs any drop count
+    still unreported, so it is not lost with the process.
     """
     drain = _WRITER.drain_sec()
     flush_numbat_writes(drain)
+    report = _WRITER.take_drop_report()
+    if report:
+        logger.warning(report[0], *report[1])
     lock = _WRITE_LOCK
     if not lock.acquire(timeout=drain):
         logger.warning("numbat stream: a write is still stuck; its file handles are left to the OS")
@@ -725,9 +729,10 @@ def _write_line(path: Path, line: str, max_bytes: int) -> None:
 # stream stalled, and later callers queue their line without waiting until the
 # writer finishes a write again. With numbat.max_queued_writes lines already
 # waiting, a new line is dropped and counted, and the count is logged at most
-# once per numbat.drop_log_interval_sec: this stream is derived and forensic, audit.jsonl is
-# written separately and stays authoritative, so dropping lines beats holding
-# requests.
+# once per numbat.drop_log_interval_sec; drops that interval held back are
+# reported when the queue drains, or at exit. This stream is derived and
+# forensic, audit.jsonl is written separately and stays authoritative, so
+# dropping lines beats holding requests.
 #
 # Order: one writer, first in first out, so lines land in the order callers
 # queued them; for any one thread, the order it emitted them.
@@ -754,7 +759,13 @@ class _WriterSettings(NamedTuple):
 
 
 def _positive(value: Any, default: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+    # A usable limit is a positive number of seconds no longer than
+    # threading.TIMEOUT_MAX, the longest timed wait the platform accepts. The
+    # one comparison refuses YAML's .nan too, since every comparison with NaN
+    # is false (Condition.wait(nan) returns at once, so a wait loop would
+    # spin), and .inf or any longer value (the wait raises OverflowError).
+    # Comparing an int is exact, so a huge one never reaches float().
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value <= threading.TIMEOUT_MAX:
         return default
     return float(value)
 
@@ -796,6 +807,10 @@ class _StreamWriter:
         # The drain limit of the last line queued, for close_numbat_handles()
         # at exit, which has no cfg of its own.
         self._drain_sec: float | None = None
+        # Writes that raised (logged, not in the stream), and the first one's
+        # sequence number, so flush() can say when it waited for a lost line.
+        self.failed = 0
+        self._first_failed_seq: int | None = None
 
     def submit(self, path: Path, line: str, max_bytes: int, settings: _WriterSettings) -> None:
         """Queue ``line`` and wait for it as the comment above _WRITE_WAIT_SEC describes."""
@@ -824,20 +839,36 @@ class _StreamWriter:
             _write_line(path, line, max_bytes)
 
     def flush(self, timeout: float) -> bool:
-        """Wait up to ``timeout`` s for every line queued so far; True once all are written."""
+        """Wait up to ``timeout`` s for every line queued so far.
+
+        True once all of them are in the stream. False when the wait runs out,
+        or when one of them failed to write (the writer logged it, and it is
+        not in the stream).
+        """
         with self._cond:
             target = self._queued
-            if self._written >= target:
-                return True
-            if not self._running() and not self._start():
-                return False
-            deadline = time.monotonic() + timeout
-            while self._written < target:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
+            if self._written < target:
+                if not self._running() and not self._start():
                     return False
-                self._cond.wait(remaining)
-            return True
+                deadline = time.monotonic() + timeout
+                while self._written < target:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return False
+                    self._cond.wait(remaining)
+            return self._first_failed_seq is None or self._first_failed_seq > target
+
+    def take_drop_report(self) -> _LogMsg | None:
+        """A warning for drops counted but not yet reported, or None; resets the count."""
+        with self._cond:
+            return self._drop_report_locked()
+
+    def _drop_report_locked(self) -> _LogMsg | None:
+        if not self._dropped_unlogged:
+            return None
+        count, self._dropped_unlogged, self._last_drop_log = self._dropped_unlogged, 0, time.monotonic()
+        return ("numbat stream: dropped %d more event(s) since the last report, %d in all; audit.jsonl is "
+                "unaffected", (count, self.dropped))
 
     def drain_sec(self) -> float:
         """How long exit waits for queued lines: the last configured value, else the default."""
@@ -896,20 +927,32 @@ class _StreamWriter:
                 while not self._pending:
                     self._cond.wait()
                 seq, path, line, max_bytes = self._pending.popleft()
-            message: _LogMsg | None = None
+            messages: list[_LogMsg] = []
+            failed = False
             try:
                 _write_line(path, line, max_bytes)
             except Exception as exc:  # noqa: BLE001 - the writer outlives any one bad write
-                message = ("numbat stream write to %s failed: %s", (path, exc))
+                failed = True
+                messages.append(("numbat stream write to %s failed: %s", (path, exc)))
             with self._cond:
                 self._written = seq
+                if failed:
+                    self.failed += 1
+                    if self._first_failed_seq is None:
+                        self._first_failed_seq = seq
                 if self._stalled:
                     self._stalled = False
-                    message = message or ("numbat stream: a write finished after %.1fs; callers wait for "
-                                          "their events again", (time.monotonic() - self._stalled_since,))
+                    messages.append(("numbat stream: a write finished after %.1fs; callers wait for "
+                                     "their events again", (time.monotonic() - self._stalled_since,)))
+                if not self._pending:
+                    # The queue has drained: drops the interval kept quiet
+                    # would otherwise go unreported until the next drop.
+                    report = self._drop_report_locked()
+                    if report:
+                        messages.append(report)
                 self._cond.notify_all()
-            if message:
-                logger.warning(message[0], *message[1])
+            for fmt, args in messages:
+                logger.warning(fmt, *args)
 
 
 _WRITER = _StreamWriter()
@@ -917,6 +960,9 @@ _WRITER = _StreamWriter()
 
 def flush_numbat_writes(timeout: float | None = None) -> bool:
     """Wait until every event queued so far is in the stream; True if it is.
+
+    False when the wait runs out, or when one of those events failed to write
+    (logged by the writer).
 
     Waits at most ``timeout`` seconds (default: numbat.drain_wait_sec as last
     configured). Never raises.

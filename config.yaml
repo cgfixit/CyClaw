@@ -680,9 +680,12 @@ numbat:
   # disk it is written by then); once a write overruns that, callers stop
   # waiting until the writer finishes one again. Past max_queued_writes waiting
   # events, new ones are dropped and counted in a warning, logged at most once
-  # per drop_log_interval_sec. At exit, the process waits up to drain_wait_sec
-  # for queued events, and again for a write stuck holding the lock. All must
-  # be positive numbers (max_queued_writes a whole number); boot refuses others.
+  # per drop_log_interval_sec; drops that interval held back are reported when
+  # the queue drains, or at exit. At exit, the process waits up to
+  # drain_wait_sec for queued events, and again for a write stuck holding the
+  # lock. The *_sec values must be positive and finite, at most Python's
+  # threading.TIMEOUT_MAX (the longest timed wait); max_queued_writes a whole
+  # number of at least 1. Boot refuses others.
   write_wait_sec: 1.0
   max_queued_writes: 1000
   drop_log_interval_sec: 60
