@@ -839,7 +839,7 @@ nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources:
 `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`,
 `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
 all external deps — no live services required. The full test-file list is
-discoverable in `tests/` (214 `test_*.py` files including the two under
+discoverable in `tests/` (215 `test_*.py` files including the two under
 `tests/nemo_runtime/`, auto-collected by pytest).
 
 ---
