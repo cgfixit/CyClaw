@@ -629,11 +629,12 @@ logging:
   # lines, new ones are dropped and counted: the first drop of a backlog is
   # noted on stderr, and the count is written into the log once the writer
   # catches up. At exit, logging waits up to drain_wait_sec for queued lines,
-  # and again for the writer to finish. max_queued_records must be a whole
-  # number of at least 1; drain_wait_sec a positive, finite number of seconds,
-  # at most Python's threading.TIMEOUT_MAX. Boot refuses others. The console
-  # (stderr) stays synchronous, and audit_file below is still written on the
-  # caller's thread: it is the authoritative audit stream (I4).
+  # again for the writer to finish, and, if lines were lost, once more for
+  # that note to reach stderr (from its own thread). max_queued_records must
+  # be a whole number of at least 1; drain_wait_sec a positive, finite number
+  # of seconds, at most Python's threading.TIMEOUT_MAX. Boot refuses others.
+  # The console (stderr) stays synchronous, and audit_file below is still
+  # written on the caller's thread: it is the authoritative audit stream (I4).
   max_queued_records: 10000
   drain_wait_sec: 2.0
   audit_file: "logs/audit.jsonl"

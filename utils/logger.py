@@ -194,15 +194,15 @@ def setup_logging(cfg: dict | None = None) -> None:
 # microseconds behind.
 #
 # Bounded: with logging.max_queued_records lines waiting, a new line is
-# dropped and counted. The first drop of a backlog is noted on stderr, which
-# the stall does not hold, and the count is written into the log once the
-# writer catches up (or noted on stderr at close, if it never does).
+# dropped and counted. The first drop of a backlog is noted on stderr, from a
+# thread of its own (see _StderrNotes), and the count is written into the log
+# once the writer catches up (or noted on stderr at close, if it never does).
 #
 # Exit: logging.shutdown() runs from atexit, registered when logging was first
 # imported, so it runs after CyClaw's own atexit hooks, which may still log.
 # It calls flush() and then close() on each handler, and each of those waits
-# at most logging.drain_wait_sec, so a write stuck on a stalled disk delays
-# exit instead of hanging it.
+# at most logging.drain_wait_sec (close() once more for its note on stderr),
+# so a write stuck on a stalled disk delays exit instead of hanging it.
 #
 # Not logging.handlers.QueueHandler with a QueueListener: QueueListener.stop()
 # joins its thread with no timeout, and its target (a FileHandler) is itself
@@ -210,10 +210,12 @@ def setup_logging(cfg: dict | None = None) -> None:
 # the lock a stuck write holds. Either would hang exit on the very stall this
 # handler exists for. Here the writer's file object is not a handler at all.
 #
-# The console handlers stay synchronous: stderr is not the log volume, and
-# tools that run an agentic CLI read its stderr once it exits (see the
-# agentic_logger comment in setup_logging), so those lines must be written
-# before the process ends.
+# The console handlers stay synchronous: tools that run an agentic CLI read
+# its stderr once it exits (see the agentic_logger comment in setup_logging),
+# so those lines must be written before the process ends. That leaves one
+# path this handler does not cover: where stderr is itself a file on the
+# stalled volume, as the launchd service's can be, a console write still
+# holds its caller.
 #
 # These defaults apply when the logging block does not set a value, or sets
 # one boot validation would refuse; they match the shipped config.
@@ -238,12 +240,7 @@ def _log_writer_settings(log_cfg: dict[str, Any]) -> tuple[int, float]:
     return max_queued, float(drain)
 
 
-def _note_on_stderr(message: str) -> None:
-    """Tell the operator about the log file itself, somewhere other than the log file.
-
-    Written straight to stderr, not through logging: a record about a stalled
-    log file would only join the backlog it describes.
-    """
+def _write_to_stderr(message: str) -> None:
     try:
         sys.stderr.write(f"cyclaw logging: {message}\n")
         sys.stderr.flush()
@@ -251,6 +248,100 @@ def _note_on_stderr(message: str) -> None:
         # No stderr (None under pythonw), or a closed or broken one: there is
         # nowhere left to say it.
         return
+
+
+# Notes about a log file reach stderr from one daemon thread, never from a
+# logging caller or close(). stderr can be a file too: the launchd service
+# points StandardErrorPath at one (macos/generate_service_plist.py), which can
+# stall along with the log volume. emit() runs under the handler's lock, so a
+# note stuck on stderr there would hold every thread that logs through the
+# handler (Codex review on #1482). A caller only queues its note. Past
+# _MAX_QUEUED_NOTES waiting, notes are dropped, and the next one written says
+# how many. The bound caps memory on a rare path (a note per state change of a
+# handler) rather than tuning anything, so it is not in config.yaml.
+_MAX_QUEUED_NOTES = 100
+
+
+class _StderrNotes:
+    def __init__(self, max_queued: int) -> None:
+        self.max_queued = max_queued
+        self._reset()
+
+    def _reset(self) -> None:
+        self._cond = threading.Condition()
+        self._pending: deque[tuple[int, str]] = deque()
+        self._queued = 0
+        self._written = 0
+        self._dropped = 0
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Start the thread now: late in interpreter shutdown, after atexit, Python refuses new threads."""
+        with self._cond:
+            self._ensure_running()
+
+    def note(self, message: str) -> None:
+        with self._cond:
+            if len(self._pending) >= self.max_queued or not self._ensure_running():
+                self._dropped += 1
+                return
+            self._queued += 1
+            self._pending.append((self._queued, message))
+            self._cond.notify_all()
+
+    def wait(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` s for every note queued so far; True once they are all written."""
+        with self._cond:
+            target = self._queued
+            deadline = time.monotonic() + timeout
+            while self._written < target:
+                if not self._running():
+                    return False
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._cond.wait(remaining)
+            return True
+
+    def _running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _ensure_running(self) -> bool:
+        if self._running():
+            return True
+        thread = threading.Thread(target=self._run, name="cyclaw-log-notes", daemon=True)
+        try:
+            thread.start()
+        except RuntimeError:
+            return False
+        self._thread = thread
+        return True
+
+    def _run(self) -> None:
+        while True:
+            with self._cond:
+                while not self._pending:
+                    self._cond.wait()
+                seq, message = self._pending.popleft()
+                dropped, self._dropped = self._dropped, 0
+            if dropped:
+                message = f"{message} ({dropped} earlier note(s) dropped while stderr was behind)"
+            _write_to_stderr(message)
+            with self._cond:
+                self._written = seq
+                self._cond.notify_all()
+
+
+_STDERR_NOTES = _StderrNotes(_MAX_QUEUED_NOTES)
+
+
+def _note_on_stderr(message: str) -> None:
+    """Tell the operator about the log file itself, somewhere other than the log file.
+
+    Not through logging: a record about a stalled log file would only join the
+    backlog it describes. Queued for the stderr thread above; never waits.
+    """
+    _STDERR_NOTES.note(message)
 
 
 class _BackgroundFileHandler(logging.Handler):
@@ -273,7 +364,9 @@ class _BackgroundFileHandler(logging.Handler):
         _BACKGROUND_HANDLERS.add(self)
         # Started now so a line logged during interpreter shutdown, when Python
         # refuses new threads, still has a writer; emit() restarts it if needed.
+        # The stderr thread likewise, for a note raised that late.
         self._start()
+        _STDERR_NOTES.start()
 
     def _reset_queue(self) -> None:
         self._cond = threading.Condition()
@@ -365,6 +458,9 @@ class _BackgroundFileHandler(logging.Handler):
             if unwritten or uncounted:
                 _note_on_stderr(f"closing {self.path} with {unwritten} queued line(s) not written and "
                                 f"{uncounted} dropped line(s) not yet counted in it ({self.dropped} dropped in all)")
+                # A process exiting now would lose a note still queued, so wait
+                # for it, as long as for the file and no longer.
+                _STDERR_NOTES.wait(self.drain_wait_sec)
             if stream is not None:
                 try:
                     stream.close()
@@ -447,8 +543,10 @@ def _reset_log_writers_after_fork() -> None:
 
     The parent's writer thread does not exist in the child, a lock held at the
     fork would stay held there, and the parent's file object may be mid-write.
-    Lines the parent queued are the parent's to write.
+    Lines the parent queued are the parent's to write. The stderr thread's
+    queue and lock are reset for the same reasons.
     """
+    _STDERR_NOTES._reset()
     for handler in list(_BACKGROUND_HANDLERS):
         closing = handler._closing
         handler._reset_queue()

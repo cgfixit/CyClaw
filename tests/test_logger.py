@@ -572,6 +572,7 @@ class TestBackgroundLogWriter:
             for n in (2, 3, 4, 5):
                 log.warning(str(n))
             assert handler.dropped == 2
+            assert logger._STDERR_NOTES.wait(10)  # notes reach stderr from a thread of their own
             assert capsys.readouterr().err.count("dropping lines for") == 1
         finally:
             stream.release.set()
@@ -592,6 +593,7 @@ class TestBackgroundLogWriter:
             log.warning("queued")
             shutdown = _in_thread(logging.shutdown, [weakref.ref(handler)])
             assert not shutdown.is_alive()
+            assert logger._STDERR_NOTES.wait(10)
             assert "with 2 queued line(s) not written" in capsys.readouterr().err
             assert not stream.closed  # the writer is inside write(); the OS closes the file at exit
         finally:
@@ -616,6 +618,7 @@ class TestBackgroundLogWriter:
         assert handler.drain(10)
         assert stream.lines == ["WARNING kept\n"]
         assert handler.failed == 1
+        assert logger._STDERR_NOTES.wait(10)
         err = capsys.readouterr().err
         assert "failed (disk full)" in err and "works again (1 line(s) lost in all)" in err
 
@@ -630,7 +633,81 @@ class TestBackgroundLogWriter:
         assert not caller.is_alive()
         assert not stream.entered.is_set()  # nothing was written on the caller's thread
         assert handler.dropped == 1
+        assert logger._STDERR_NOTES.wait(10)
         assert "because no writer thread could start" in capsys.readouterr().err
+
+    def test_a_stalled_stderr_holds_no_caller(self, background, monkeypatch):
+        # stderr can be a file on the stalled volume too (the launchd service
+        # points StandardErrorPath at one). The note about the first dropped
+        # line is only queued for the stderr thread, so the caller that dropped
+        # the line returns, and so does the next caller, which would otherwise
+        # wait on the handler's lock behind it.
+        disk, err = _StallingStream(), _StallingStream()
+        log, handler = background(disk, max_queued=1)
+        monkeypatch.setattr(sys, "stderr", err)
+        try:
+            log.warning("1")
+            assert disk.entered.wait(10)  # line 1 is the stuck write, so 2 fills the queue
+            log.warning("2")
+            dropping = _in_thread(log.warning, "3")
+            assert not dropping.is_alive()
+            assert err.entered.wait(10)  # the stderr thread is the one stuck
+            after = _in_thread(log.warning, "4")
+            assert not after.is_alive()
+        finally:
+            err.release.set()
+            disk.release.set()
+        assert logger._STDERR_NOTES.wait(10)
+        assert any("dropping lines for" in line for line in err.lines)
+
+    def test_exit_does_not_hang_on_a_stalled_stderr(self, background, monkeypatch):
+        # close() waits for its note at most drain_wait_sec, as it does for the file.
+        disk, err = _StallingStream(), _StallingStream()
+        log, handler = background(disk, drain=0.05)
+        monkeypatch.setattr(sys, "stderr", err)
+        try:
+            log.warning("stuck")
+            assert disk.entered.wait(10)
+            log.warning("queued")
+            shutdown = _in_thread(logging.shutdown, [weakref.ref(handler)])
+            assert not shutdown.is_alive()
+            assert err.entered.wait(10)  # the note is stuck in the stderr thread, not in close()
+        finally:
+            err.release.set()
+            disk.release.set()
+        assert logger._STDERR_NOTES.wait(10)
+        assert any("with 2 queued line(s) not written" in line for line in err.lines)
+
+    def test_a_real_exit_still_reports_what_it_could_not_write(self, tmp_path):
+        # logging.shutdown() runs from atexit and closes the handler. close()
+        # must wait (at most drain_wait_sec) for its note to reach stderr, or
+        # the process ends, taking the daemon stderr thread with it, first.
+        out = tmp_path / "exit.log"
+        script = textwrap.dedent(f"""
+            import logging, threading
+            from pathlib import Path
+            from utils import logger as L
+            class Stuck:
+                def write(self, text):
+                    threading.Event().wait()
+                def flush(self):
+                    pass
+                def close(self):
+                    pass
+            h = L._BackgroundFileHandler(Path({str(out)!r}), max_queued=10, drain_wait_sec=0.2)
+            real, h._stream = h._stream, Stuck()
+            real.close()
+            log = logging.getLogger("exittest")
+            log.propagate = False
+            log.addHandler(h)
+            log.warning("stuck")
+            log.warning("queued")
+        """)
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        proc = subprocess.run([sys.executable, "-c", script], cwd=repo, timeout=60,  # noqa: S603 - fixed argv
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert "queued line(s) not written" in proc.stderr
 
     @pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="POSIX fork only")
     def test_a_forked_child_gets_a_fresh_writer(self, tmp_path):
@@ -672,6 +749,38 @@ class TestBackgroundLogWriter:
                               capture_output=True, text=True, check=False)
         assert proc.returncode == 0, proc.stderr
         assert out.read_text(encoding="utf-8") == "from the child\n"
+
+
+    @pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="POSIX fork only")
+    def test_a_forked_child_gets_a_fresh_stderr_thread(self):
+        # As for the writer above: another thread holds the stderr thread's
+        # lock at the fork, so without the at-fork reset the child's note waits
+        # on it forever and the alarm kills the child.
+        script = textwrap.dedent("""
+            import os, signal, sys, threading, warnings
+            from utils import logger as L
+            warnings.simplefilter("ignore", DeprecationWarning)
+            held, done = threading.Event(), threading.Event()
+            def hold():
+                with L._STDERR_NOTES._cond:
+                    held.set()
+                    done.wait()
+            threading.Thread(target=hold, daemon=True).start()
+            held.wait()
+            pid = os.fork()
+            if pid == 0:
+                signal.alarm(30)
+                L._note_on_stderr("from the child")
+                os._exit(0 if L._STDERR_NOTES.wait(10) else 3)
+            done.set()
+            _, status = os.waitpid(pid, 0)
+            sys.exit(os.waitstatus_to_exitcode(status))
+        """)
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        proc = subprocess.run([sys.executable, "-c", script], cwd=repo, timeout=60,  # noqa: S603 - fixed argv
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert "cyclaw logging: from the child" in proc.stderr
 
 
 class TestLogWriterSettings:
