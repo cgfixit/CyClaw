@@ -6,6 +6,9 @@ No live services required — all external deps are mocked.
 
 import contextlib
 import copy
+import os
+import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +16,139 @@ import pytest
 import yaml
 
 from retrieval.hybrid_search import SearchResult
+from utils import logger as _logger_mod
+from utils import numbat_emitter as _numbat_emitter_mod
+from utils import spend as _spend_mod
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+# What the suite must leave exactly as it found it: logs/, where every runtime
+# sink defaults, and the placeholder dir TEST_CONFIG's un-overridden paths name
+# (a subprocess handed a dumped TEST_CONFIG would write there).
+_GUARDED_DIRS = ("logs", "OVERRIDDEN-PER-TEST")
+# Every module holding a reference to utils.logger._anchor, the single
+# resolver the runtime log sinks use (audit_file, log_file, spend_file, the
+# Numbat stream). numbat_emitter and spend import it by name, so each binding
+# is redirected, not just the one in utils.logger.
+_ANCHOR_MODULES = (_logger_mod, _numbat_emitter_mod, _spend_mod)
+_REAL_ANCHOR = _logger_mod._anchor
+
+
+# Set in pytest_configure, read by _repo_logs_untouched and pytest_unconfigure.
+_SESSION_LOGS: dict[str, object] = {}
+
+
+def _anchor_under(sink_root: Path):
+    def _anchor_under_sink(path_str: str) -> Path:
+        path = Path(path_str).expanduser()
+        return path if path.is_absolute() else sink_root / path
+
+    return _anchor_under_sink
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_log_anchor: run with utils.logger._anchor's real repo-root anchoring "
+        "(tests OF the anchoring); see pytest_configure in tests/conftest.py",
+    )
+    # Tests exercise production code with configs whose log paths are relative
+    # ("logs/audit.jsonl", the Numbat stream's "logs/numbat-events.ndjsonl",
+    # and TEST_CONFIG's OVERRIDDEN-PER-TEST placeholders). The real _anchor
+    # resolves those against the REPO ROOT on purpose (never cwd), so a full
+    # run used to write ~1.8 MB into the working tree's logs/ from ~600 tests,
+    # and concurrent runs from other checkouts raced on the same files.
+    # Most offenders are agentic fixtures that copy the shipped config.yaml,
+    # so fixing the config dicts one by one would not have reached them.
+    #
+    # A structural backstop instead: for the whole run, relative sink paths
+    # resolve under a per-run temp dir; absolute paths (every test's own
+    # tmp_path) are untouched. It is installed HERE, not in a session fixture,
+    # because five test modules import gate at module level and gate.py calls
+    # setup_logging(cfg) at import: that happens during collection, before any
+    # fixture exists, and would otherwise attach a root FileHandler on
+    # <repo>/logs/cyclaw.log that every later test's log lines flow into.
+    # Tests of the anchoring itself opt out with @pytest.mark.real_log_anchor;
+    # a subprocess cannot see this patch and needs absolute tmp paths in the
+    # config it is handed. _repo_logs_untouched fails the run if anything
+    # still reaches the repo.
+    _SESSION_LOGS["before"] = _repo_logs_snapshot()
+    sink_root = Path(tempfile.mkdtemp(prefix="cyclaw-test-logs-"))
+    patcher = pytest.MonkeyPatch()
+    for module in _ANCHOR_MODULES:
+        patcher.setattr(module, "_anchor", _anchor_under(sink_root))
+    _SESSION_LOGS.update(sink_root=sink_root, patcher=patcher)
+
+
+def pytest_unconfigure(config):
+    patcher = _SESSION_LOGS.pop("patcher", None)
+    if isinstance(patcher, pytest.MonkeyPatch):
+        patcher.undo()
+    sink_root = _SESSION_LOGS.pop("sink_root", None)
+    if isinstance(sink_root, Path):
+        # ignore_errors: a logging FileHandler may still hold a file open,
+        # which Windows refuses to delete.
+        shutil.rmtree(sink_root, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _real_log_anchor_when_marked(request, monkeypatch):
+    if request.node.get_closest_marker("real_log_anchor"):
+        for module in _ANCHOR_MODULES:
+            monkeypatch.setattr(module, "_anchor", _REAL_ANCHOR)
+
+
+def _repo_logs_snapshot(
+    root: Path = _REPO_ROOT, dirs: tuple[str, ...] = _GUARDED_DIRS
+) -> dict[str, tuple[int, int]]:
+    """{path relative to root: (size, mtime_ns)} for every file under root/<dirs>."""
+    snapshot: dict[str, tuple[int, int]] = {}
+    for name in dirs:
+        base = root / name
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            try:
+                if path.is_file():
+                    stat = path.stat()
+                    snapshot[path.relative_to(root).as_posix()] = (stat.st_size, stat.st_mtime_ns)
+            except OSError:
+                # A file vanishing mid-walk is itself a change the next
+                # snapshot reports; it must not crash the guard.
+                continue
+    return snapshot
+
+
+def _repo_logs_changes(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int]]) -> list[str]:
+    """Files created, modified, or deleted between two snapshots."""
+    return sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _repo_logs_untouched():
+    # Guard for the backstop in pytest_configure: the run must leave <repo>/logs
+    # (and the placeholder dir) exactly as it found them. The "before" snapshot
+    # is taken in pytest_configure, so collection-time writes count too; the
+    # comparison runs once, after the last test. Stat-only, never per test, so
+    # a test's own os.stat monkeypatch can never trip it. A server running from
+    # this same checkout writes there too; set CYCLAW_TEST_ALLOW_REPO_LOGS=1 to
+    # skip the guard for that run.
+    if os.environ.get("CYCLAW_TEST_ALLOW_REPO_LOGS") == "1":
+        yield
+        return
+    before = _SESSION_LOGS.get("before")
+    if not isinstance(before, dict):
+        before = _repo_logs_snapshot()
+    yield
+    changed = _repo_logs_changes(before, _repo_logs_snapshot())
+    if changed:
+        pytest.fail(
+            f"tests created, modified, or deleted files under {_REPO_ROOT}: {changed}. "
+            "Route the writer's paths to tmp_path (tests/conftest.py's pytest_configure "
+            "redirects in-process sinks; a subprocess needs a config with absolute tmp "
+            "paths). If a server running from this checkout wrote them, rerun with "
+            "CYCLAW_TEST_ALLOW_REPO_LOGS=1.",
+            pytrace=False,
+        )
 
 
 # DevSkim: ignore DS162092,DS137138 - test fixtures; loopback addresses are intentional
@@ -56,6 +192,12 @@ TEST_CONFIG = {
     "logging": {"level": "DEBUG", "log_file": "", "audit_file": "OVERRIDDEN-PER-TEST/audit.jsonl",
                 "spend_file": "OVERRIDDEN-PER-TEST/spend.jsonl",
                 "audit_fields": {"include_query_hash": True}},
+    # Explicit so the derived stream is a visible part of the test config, not
+    # an implicit default: numbat_emitter treats a missing block as enabled
+    # with the repo-relative logs/numbat-events.ndjsonl. Kept ENABLED so the
+    # mainline plane (every audit_log -> project_audit_record) stays exercised;
+    # only the destination is per-test, like audit_file above.
+    "numbat": {"enabled": True, "output_path": "OVERRIDDEN-PER-TEST/numbat-events.ndjsonl"},
     "security": {"require_env": ["GROK_API_KEY"],
                  "allowed_origins": ["http://127.0.0.1", "http://localhost"]},  # DevSkim: ignore DS162092,DS137138
     "personality": {"enabled": False, "soul_path": "", "db_path": "", "interaction_ttl_days": 90}
@@ -113,6 +255,7 @@ def test_config(tmp_path):
     cfg["logging"]["log_file"] = str(tmp_path / "cyclaw.log")
     cfg["logging"]["audit_file"] = str(tmp_path / "audit.jsonl")
     cfg["logging"]["spend_file"] = str(tmp_path / "spend.jsonl")
+    cfg["numbat"]["output_path"] = str(tmp_path / "numbat-events.ndjsonl")
     config_file = tmp_path / "config.yaml"
     with open(config_file, "w") as f:
         yaml.dump(cfg, f)
@@ -244,6 +387,7 @@ def _mocked_gateway(tmp_path, *, peer=("127.0.0.1", 51234)):  # DevSkim: ignore 
     cfg = copy.deepcopy(TEST_CONFIG)
     cfg["logging"]["audit_file"] = str(tmp_path / "audit.jsonl")
     cfg["logging"]["log_file"] = str(tmp_path / "gateway.log")
+    cfg["numbat"]["output_path"] = str(tmp_path / "numbat-events.ndjsonl")
 
     with patch("gate.cfg", cfg), \
          patch("gate.HybridRetriever"), \
