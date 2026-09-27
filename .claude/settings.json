@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/session-start-sync-check.sh",
-            "statusMessage": "Pinning git identity + checking local/remote sync..."
+            "statusMessage": "Checking git identity + local/remote sync..."
           },
           {
             "type": "command",

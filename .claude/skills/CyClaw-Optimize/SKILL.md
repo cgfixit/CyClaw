@@ -38,7 +38,7 @@ root (the `<unit>` dir).
 
 ### Step 0 — Bootstrap (harness)
 
-Run the harness. It pins the git identity the session-runtime stop hook requires, fetches
+Run the harness. It reports the git identity commits will carry (the session runtime's), fetches
 `origin/main`, positions you on a fresh working branch cut from `origin/main`
 (creating it if you pass a name), and prints a repo inventory that seeds the
 scan:
