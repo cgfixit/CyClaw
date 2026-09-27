@@ -132,6 +132,16 @@ nemoguardrails==0.24.0
 # Optional CEL sanitizer backend for Numbat monitor-only rules (pyproject extra:
 # numbat-cel). Default-off; only installed when the operator opts into CEL rules.
 cel-python==0.5.0
+# cel-python 0.5.0's own requirements. Nothing else in the tree pulls these in
+# (pip show: required-by cel-python only), so, like deepagents' transitives
+# below, they are pinned here only, not listed in the extra. Without them the
+# numbat-cel extra and numbat-rules.yml's CEL lane (issue #1458 Phase 3)
+# resolved whatever was newest. pendulum's own python-dateutil dependency is
+# shared with kubernetes and stays wherever the main resolve puts it.
+google-re2==1.1.20251105
+jmespath==1.1.0
+lark==1.3.1
+pendulum==3.2.0
 
 # Optional Deep Agents harness (pyproject extra: agentic-deepagents). These are
 # not installed by the default offline runtime or legacy requirements path.
