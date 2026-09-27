@@ -649,11 +649,24 @@ numbat:
   source_agent: "unknown"   # "cyclaw" is not a legal Numbat enum
   source_type: "hook"
   # CEL sanitizer backend (issue #1128 Slice B). Monitor-only: rules evaluate
-  # structured fields (query_hash, top_score, answer_model, guardrail_*,
-  # model_provider, source_hashes) and emit a low-confidence Numbat event on
-  # match. They do NOT block /query. The regex banned_patterns remain the
-  # fail-closed baseline. Disabled by default; when false, cel-python is not
-  # imported on the request path.
+  # structured fields (query_hash, top_score, answer_model, guardrail_blocked,
+  # guardrail_rails, model_provider, source_hashes) and emit a low-confidence
+  # Numbat event on match. They do NOT block /query. The regex banned_patterns
+  # remain the fail-closed baseline. Disabled by default; when false,
+  # cel-python is not imported on the request path. Enabling needs the extra:
+  #   pip install -e ".[numbat-cel]" -c constraints.txt
+  # A match is recorded as tool.result / tool_name "cel_monitor" /
+  # decision "allowed" (the request WAS allowed), tagged "rules:<indices>",
+  # with the query_hash in content_preview as the join key to rag_query.
+  # answer_model is the answer ROLE: local, offline-best-effort, grok, claude,
+  # hook-denied, guardrail-blocked, external-unavailable, or "" (the confirm
+  # pause). model_provider is "" when no model ran. Two vetted sample rules
+  # (tests/test_numbat_cel.py compiles and runs these exact strings):
+  #   rules:
+  #     - 'answer_model in ["grok", "claude"] && top_score < 0.05'
+  #     - 'answer_model == "hook-denied" || guardrail_blocked'
+  # The first flags an online escalation on a near-total vault miss, the
+  # second any request a control refused.
   cel:
     enabled: false
     rules: []               # list of CEL expression strings
