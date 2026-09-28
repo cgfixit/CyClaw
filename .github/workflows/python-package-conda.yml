@@ -15,6 +15,13 @@ permissions:
   # security-events: write removed — CodeQL is owned by codeql.yml; no
   # duplicate scan here means this workflow needs no SARIF-upload permission.
 
+# Same PyPI read budget as ci.yml, for the pip pin step and the --no-deps
+# editable install. No conda-env or pip download cache is added here: the
+# comment on the pip pin step records why an env overlay cache was removed.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   ci:
     runs-on: ubuntu-latest
