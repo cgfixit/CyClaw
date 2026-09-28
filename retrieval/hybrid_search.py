@@ -13,6 +13,7 @@ from collections.abc import Iterable, Sequence
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import yaml
 from rank_bm25 import BM25Okapi
 
@@ -275,10 +276,15 @@ class HybridRetriever:
         # O(number of query tokens), trivial next to the O(corpus size)
         # get_scores() computation it lets repeated identical queries skip.
         scores = self._bm25_scores(tuple(query_tokens))
-        # Top-k selection only: heapq.nlargest is O(n log k) and matches the
-        # ordering of sorted(..., reverse=True)[:k], avoiding a full O(n log n)
-        # sort of every chunk in the corpus on each keyword query.
-        top_indices = heapq.nlargest(k, range(len(scores)), key=scores.__getitem__)
+        if isinstance(scores, np.ndarray) and 0 < k < len(scores) and np.isfinite(scores).all():
+            cutoff = scores[np.argpartition(scores, -k)[-k]]
+            above = np.flatnonzero(scores > cutoff)
+            # Partition is unstable; take cutoff ties in corpus order before sorting.
+            tied = np.flatnonzero(scores == cutoff)[:k - len(above)]
+            selected = np.concatenate((above, tied))
+            top_indices = selected[np.lexsort((selected, -scores[selected]))]
+        else:
+            top_indices = heapq.nlargest(k, range(len(scores)), key=scores.__getitem__)
         hits = []
         for idx in top_indices:
             if scores[idx] > 0:
