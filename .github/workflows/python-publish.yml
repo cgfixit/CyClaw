@@ -16,6 +16,13 @@ concurrency:
   group: python-publish-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Same PyPI read budget as ci.yml. Still no pip cache: zizmor's
+# cache-poisoning audit flags one on this release-publish workflow
+# (see the setup-python step below).
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   release-build:
     runs-on: ubuntu-latest

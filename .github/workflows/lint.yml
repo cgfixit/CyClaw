@@ -57,6 +57,11 @@ concurrency:
 permissions:
   contents: read
 
+# Same PyPI read budget as ci.yml. Ruff/flake8 pins and which lanes block are unchanged.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   lint:
     name: Lint (Ruff F/B/S blocking; full Ruff + WPS advisory)

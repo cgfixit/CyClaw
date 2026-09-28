@@ -4,6 +4,19 @@
 #   - Exact pip pin ==26.2.1, not floating >=, across every job that upgrades it
 #     (eliminates 4 pip CVEs in CI env per #71 analysis; exact pin keeps CI
 #     reproducible rather than silently picking up whatever pip ships next)
+#   - PIP_DEFAULT_TIMEOUT=60 and PIP_RETRIES=10 at workflow env (the same pair
+#     is set on every other workflow that runs pip). pip's defaults are a 15s
+#     socket timeout and 5 retries. On 2026-09-28 that budget exhausted while
+#     reading https://pypi.org/simple/jsonschema/ and failed two jobs that a
+#     re-run then passed: numbat-rules.yml's stream-contract job (run
+#     36402013039, attempt 1) and this file's ubuntu-latest test leg (run
+#     36402013202). Both jobs already restored a pip download cache; the
+#     missing package still has to be fetched, and a stalled index read is
+#     not a cache hit. The env only widens that socket timeout and retry
+#     count. It does not change pins, hashes, or which gate runs. A dead
+#     index still fails the job under timeout-minutes. python-publish.yml
+#     keeps its deliberate no-pip-cache choice (zizmor cache-poisoning) and
+#     only gains this timeout pair.
 #   - Explicit hermetic prepare (mkdirs, minimal soul.md, env var) cross-platform
 #   - Real RAG smoke validates ChromaDB (version pinned in constraints.txt) + BM25 + RRF on committed corpus
 #   - Coverage scoped to exercised modules only
@@ -39,6 +52,13 @@ concurrency:
 
 permissions:
   contents: read
+
+# See the header note. Inherited by every job, including venv pip and the
+# verify-skills matrix. Download caches stay on the setup-python steps that
+# already declare cache: pip.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
 
 jobs:
   docker-build:

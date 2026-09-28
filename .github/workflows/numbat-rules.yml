@@ -44,6 +44,15 @@ concurrency:
 
 permissions: {}
 
+# pip's 15s / 5-retry default exhausted on /simple/jsonschema/ in this
+# workflow's stream-contract job (run 36402013039, attempt 1) even after a
+# prefix pip-cache restore that did not contain jsonschema. Same pair as
+# ci.yml: wider socket timeout and more retries only. The setup-python
+# cache: pip blocks below are unchanged. A dead index still fails the job.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   numbat-rules-fixture:
     name: numbat rules test --fixture
