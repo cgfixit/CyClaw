@@ -1289,8 +1289,8 @@ jobs:
         run: |
           # Postgres drivers + the import-time deps tests/conftest.py needs
           # (retrieval.hybrid_search → rank-bm25, nltk; numpy backs rank-bm25).
-          # Constraints pin psycopg/psycopg-binary 3.2.13, pgvector 0.4.2, and the
-          # rest to the project versions. PorterStemmer needs no nltk_data download.
+          # Constraints pin the drivers (psycopg, psycopg-binary, pgvector) and
+          # the rest to the project versions. PorterStemmer needs no nltk_data download.
           pip install -c constraints.txt 'psycopg[binary]' pgvector pyyaml rank-bm25 nltk numpy pytest
 
       - name: Run live Postgres / pgvector backend tests
@@ -1307,10 +1307,10 @@ jobs:
         run: echo "Postgres backend tests passed (soul DB + rate limiter + pgvector + authn)"
 
   # ==============================================================================
-  # Skill verification matrix (new in feature/CyClaw-Agent)
+  # Skill verification matrix.
   # Runs every .claude/skills/*/verify.sh and smoke.sh in parallel.
-  # This enforces that all skills (including new agentic/memory ones) stay
-  # healthy and respect the governance invariants.
+  # Advisory (the job below is continue-on-error): environment-heavy e2e
+  # smokes must not gate merges. invariant-guard is its own blocking job.
   # ==============================================================================
   # A matrix cannot reference a step output from its own job (the matrix is
   # evaluated before any step runs). Correct pattern: a discover job emits the

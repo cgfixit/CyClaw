@@ -417,3 +417,260 @@ def test_optimize_bootstrap_reports_an_incomplete_identity(tmp_path: Path) -> No
     assert ("git identity: incomplete (author: none, committer: Runtime <runtime@example.com>)"
             in result.stdout)
 
+
+# ---------------------------------------------------------------------------
+# Workflow contract. actionlint and zizmor run in CI; this pins the rules
+# those tools do not own: timeouts, SHA pins, PR cancel, the Linux CEL leg,
+# the Numbat fixture job, publish without a pip cache, and the pip timeout
+# pair. Security scanners stay on pull_request.
+# ---------------------------------------------------------------------------
+
+_WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+_USES_RE = re.compile(r"uses:\s*([^\s#]+)")
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_VERSION_COMMENT_RE = re.compile(r"#\s*v\d")
+_JOB_KEY_RE = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
+_PIP_WORKFLOWS = (
+    "ci.yml",
+    "pip-audit.yml",
+    "semgrep.yml",
+    "nemo-guardrails.yml",
+    "lora-finetune.yml",
+    "python-package-conda.yml",
+    "numbat-rules.yml",
+    "python-publish.yml",
+    "defender-for-devops.yml",
+    "lint.yml",
+    "copilot-setup-steps.yml",
+)
+_PR_SCANNERS = ("pip-audit.yml", "semgrep.yml", "gitleaks.yml", "trivy.yml")
+
+
+def _workflow_texts() -> dict[str, str]:
+    return {path.name: path.read_text(encoding="utf-8") for path in sorted(_WORKFLOWS.glob("*.yml"))}
+
+
+def _code_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def _trigger_line(line: str) -> str:
+    return line.split("#", 1)[0].rstrip()
+
+
+def _has_pr_trigger(text: str) -> bool:
+    triggers = {"  pull_request:", "  pull_request_target:"}
+    return any(_trigger_line(line) in triggers for line in _code_lines(text))
+
+
+def _is_pull_request_target(text: str) -> bool:
+    return any(_trigger_line(line) == "  pull_request_target:" for line in _code_lines(text))
+
+
+def _job_body(text: str, job: str) -> str:
+    lines = text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.startswith(f"  {job}:"):
+            start = index + 1
+            break
+    assert start is not None, job
+    body: list[str] = []
+    for line in lines[start:]:
+        if _JOB_KEY_RE.match(line):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def _job_calls_reusable_workflow(body: str) -> bool:
+    # actionlint: a job whose body is `uses:` may not also set timeout-minutes.
+    return any(line.startswith("    uses:") for line in _code_lines(body))
+
+
+def _jobs_missing_timeout(text: str) -> list[str]:
+    in_jobs = False
+    job: str | None = None
+    body: list[str] = []
+    missing: list[str] = []
+
+    def flush() -> None:
+        nonlocal job, body
+        if job is not None:
+            joined = "\n".join(body)
+            has_timeout = any(line.startswith("    timeout-minutes:") for line in _code_lines(joined))
+            if not has_timeout and not _job_calls_reusable_workflow(joined):
+                missing.append(job)
+        job = None
+        body = []
+
+    for line in text.splitlines():
+        if line == "jobs:":
+            in_jobs = True
+            continue
+        if not in_jobs:
+            continue
+        if line and not line.startswith(" ") and not line.startswith("#"):
+            flush()
+            in_jobs = False
+            continue
+        match = _JOB_KEY_RE.match(line)
+        if match:
+            flush()
+            job = match.group(1)
+            continue
+        if job is not None:
+            body.append(line)
+    flush()
+    return missing
+
+
+def test_third_party_actions_are_full_sha_pinned_with_a_version_comment() -> None:
+    offenders: list[str] = []
+    for name, text in _workflow_texts().items():
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if line.lstrip().startswith("#"):
+                continue
+            match = _USES_RE.search(line)
+            if match is None:
+                continue
+            ref = match.group(1)
+            if ref.startswith("./") or ref.startswith("docker://"):
+                continue
+            if "@" not in ref:
+                offenders.append(f"{name}:{lineno} missing ref {ref}")
+                continue
+            pin = ref.rsplit("@", 1)[1]
+            if _SHA_RE.fullmatch(pin) is None:
+                offenders.append(f"{name}:{lineno} unpinned {ref}")
+            elif _VERSION_COMMENT_RE.search(line) is None:
+                offenders.append(f"{name}:{lineno} SHA pin missing a version comment")
+    assert not offenders, "\n".join(offenders)
+
+
+def test_every_job_has_a_timeout() -> None:
+    """Reusable-workflow jobs are exempt: timeout-minutes is illegal beside uses:."""
+    offenders: list[str] = []
+    for name, text in _workflow_texts().items():
+        for job in _jobs_missing_timeout(text):
+            offenders.append(f"{name}: {job}")
+    assert not offenders, "jobs missing timeout-minutes:\n" + "\n".join(offenders)
+
+
+def test_osv_reusable_jobs_do_not_set_an_illegal_timeout() -> None:
+    text = (_WORKFLOWS / "osv-scanner.yml").read_text(encoding="utf-8")
+    for job in ("scan-pr", "scan-scheduled"):
+        code = _code_lines(_job_body(text, job))
+        assert any(line.startswith("    uses:") for line in code), job
+        assert not any(line.startswith("    timeout-minutes:") for line in code), job
+
+
+def test_pr_workflows_cancel_superseded_runs() -> None:
+    offenders: list[str] = []
+    for name, text in _workflow_texts().items():
+        if not _has_pr_trigger(text):
+            continue
+        code = "\n".join(_code_lines(text))
+        if "cancel-in-progress:" not in code:
+            offenders.append(name)
+    assert not offenders, "pull_request workflows missing cancel-in-progress: " + ", ".join(offenders)
+
+
+def test_workflow_defaults_do_not_grant_write() -> None:
+    """A job that needs write says so itself. The workflow default stays closed."""
+    offenders: list[str] = []
+    missing_default: list[str] = []
+    for name, text in _workflow_texts().items():
+        lines = text.splitlines()
+        saw_default = False
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("#"):
+                continue
+            if line == "permissions: {}":
+                saw_default = True
+                break
+            if line != "permissions:":
+                continue
+            saw_default = True
+            for cursor in range(index + 1, len(lines)):
+                nxt = lines[cursor]
+                if not nxt.strip() or nxt.lstrip().startswith("#"):
+                    continue
+                if not nxt.startswith(" "):
+                    break
+                if re.search(r":\s*write\b", nxt):
+                    offenders.append(f"{name}:{cursor + 1}: {nxt.strip()}")
+            break
+        if not saw_default:
+            missing_default.append(name)
+    assert not missing_default, "workflows with no top-level permissions: " + ", ".join(missing_default)
+    assert not offenders, "workflow-level write grants:\n" + "\n".join(offenders)
+
+
+def test_pull_request_target_checkouts_do_not_persist_credentials() -> None:
+    offenders: list[str] = []
+    for name, text in _workflow_texts().items():
+        if not _is_pull_request_target(text):
+            continue
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("#") or "uses: actions/checkout@" not in line:
+                continue
+            window = "\n".join(lines[index:index + 8])
+            if "persist-credentials: false" not in window:
+                offenders.append(f"{name}:{index + 1}")
+    assert not offenders, "pull_request_target checkouts persist credentials:\n" + "\n".join(offenders)
+
+
+def test_linux_ci_leg_runs_the_cel_evaluator_instead_of_skipping() -> None:
+    """The /query CEL test used to skip on every leg. Linux installs cel-python
+    and sets CYCLAW_REQUIRE_CELPY so a missing evaluator fails that leg.
+    """
+    ci = (_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    assert "cel-python==0.5.0" in ci
+    assert 'CYCLAW_REQUIRE_CELPY: "1"' in ci
+    assert "tests/test_gate.py::TestCelMonitorRequestPath" in ci
+    assert "tests/test_numbat_cel.py" in ci
+    numbat = (_WORKFLOWS / "numbat-rules.yml").read_text(encoding="utf-8")
+    assert 'CYCLAW_REQUIRE_CELPY: "1"' in numbat
+
+
+def test_numbat_fixture_job_is_blocking() -> None:
+    text = (_WORKFLOWS / "numbat-rules.yml").read_text(encoding="utf-8")
+    body = "\n".join(_code_lines(_job_body(text, "numbat-rules-fixture")))
+    assert "continue-on-error:" not in body
+
+
+def test_security_scanners_still_run_on_pull_requests() -> None:
+    for name in _PR_SCANNERS:
+        text = (_WORKFLOWS / name).read_text(encoding="utf-8")
+        assert _has_pr_trigger(text), name
+    ci = (_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    for token in ("zizmor", "dependency-review-action", "check_invariants.py"):
+        assert token in ci
+    guard = "\n".join(_code_lines(_job_body(ci, "invariant-guard")))
+    assert "continue-on-error:" not in guard
+
+
+def test_pip_install_workflows_keep_the_timeout_pair() -> None:
+    for name in _PIP_WORKFLOWS:
+        text = (_WORKFLOWS / name).read_text(encoding="utf-8")
+        assert 'PIP_DEFAULT_TIMEOUT: "60"' in text, name
+        assert 'PIP_RETRIES: "10"' in text, name
+    docker = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "ARG PIP_DEFAULT_TIMEOUT=60" in docker
+    assert "ARG PIP_RETRIES=10" in docker
+
+
+def test_python_publish_does_not_cache_pip() -> None:
+    text = (_WORKFLOWS / "python-publish.yml").read_text(encoding="utf-8")
+    assert not any("cache:" in line for line in _code_lines(text))
+
+
+def test_conda_workflow_does_not_call_a_missing_root_verify_script() -> None:
+    text = (_WORKFLOWS / "python-package-conda.yml").read_text(encoding="utf-8")
+    code = "\n".join(_code_lines(text))
+    if not (REPO_ROOT / "verify.sh").is_file():
+        assert "./verify.sh" not in code
+    assert ".claude/skills/CyClaw-Sandbox/verify.sh" in text
+
