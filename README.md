@@ -59,13 +59,14 @@ does *not* cover (no microVM by design), is
 - [macOS launchd & Keychain](#macos-launchd--keychain)
 - [Local Model Fine-Tuning](#local-model-fine-tuning)
 
-**Optional layers** (master switches ship disabled; each section names its enablement gates)
+**Optional layers** (master switches ship disabled, except the Numbat stream; each section names its enablement gates)
 
 - [Optional layers at a glance](#optional-layers)
 - [Agentic Layer](#agentic-layer)
 - [Agentic Coding Loop (GitHub)](#agentic-coding-loop-github)
 - [Filesystem, SQL & Passive Network Connectors](#filesystem-sql--passive-network-connectors)
 - [NeMo Guardrails](#nemo-guardrails)
+- [Numbat](#numbat)
 - [Telegram Channel](#telegram-channel)
 - [OpenTweet Channel](#opentweet-channel)
 
@@ -182,25 +183,25 @@ records which are code-enforced vs. conventional, and the test pinning each.
 ### Optional layers
 
 Three kinds: **route modules** on the gateway (per-user auth, memory),
-**in-path utilities** inside the core request path (the Numbat stream and
-spend ledger — both in `utils/` rather than out-of-band, and both ship **on**
-since neither needs a config edit, adds egress, or does more than write a
-local file), and **I6-isolated subsystems** — everything else, never imported
-by `gate.py`/`graph.py`/the MCP server, a boundary asserted statically.
+**in-path utilities** in `utils/` that run inside the request path (the
+Numbat stream and the spend ledger ship **on**, since each only writes a local
+file; the pre-action hook and the CEL monitor ship off), and **I6-isolated
+subsystems**, never imported by `gate.py`/`graph.py`/the MCP server, a boundary
+asserted statically. NeMo Guardrails is I6-isolated at import time but, when
+enabled, runs in the request path through `utils/guardrail_bridge.py`.
 
 | Layer | What it adds | Ships |
 |---|---|---|
 | [Per-user authentication](#per-user-authentication) (`gate_auth.py`, `utils/authn*`) | scrypt password hashes, session cookie + CSRF, bearer device tokens, three roles (`admin`/`operator`/`audit`), `cyclaw-user` CLI. With `auth.enabled: true`, `/query` requires a session or token | off |
 | Facts + episodes memory (`gate_memory.py`, [`memory/`](memory/README.md)) | SQLite + FTS5 store with propose/apply governance (human `reason` + injection scan) and an optional retrieval-fusion hook | off |
-| [NeMo Guardrails](#nemo-guardrails) ([`guardrails/`](guardrails/README.md)) | content-safety input rail + output grounding check, degrading to offline heuristics without `nemoguardrails` — defense in depth, never a routing authority | off |
+| [NeMo Guardrails](#nemo-guardrails) ([`guardrails/`](guardrails/README.md)) | offline input rail (injection markers, soul mutation) and output rail (grounding, soul leak) as graph nodes; with the `guardrails` extra installed, NeMo `check()` around every answer node's model call. Deny-only, fails open (audited `guardrail_degraded`), never a routing authority | off |
 | [Dropbox corpus sync](#dropbox-corpus-sync) (`sync/`) | an `rclone` wrapper refreshing `data/corpus/` out-of-band, signaling "reindex" by exit code | CLI only |
 | [Local-data connectors](#filesystem-sql--passive-network-connectors) (`agentic/fsconnect`, `sqlconnect`, `netconnect`) | scoped filesystem reads with gated writes, SELECT-only SQL, and passive LAN inventory | off |
 | [Agentic layer](#agentic-layer) + [coding loop](#agentic-coding-loop-github) (`agentic/`) | read-only GitHub context via `gh`, a governed skills registry, and a real-repo clone → plan → patch → verify → **human decides** → commit pipeline (push/draft-PR are further decisions) | off |
 | [Telegram](#telegram-channel) and [OpenTweet](#opentweet-channel) channels | a phone remote and a weekly X poster; both reach the pipeline only through loopback `POST /query` | off |
-| Numbat forensic stream (`utils/numbat_emitter.py`) | a derived NDJSON projection of the audit trail (`logs/numbat-events.ndjsonl`), written for the pinned Numbat 0.2.0 CLI ([design note](docs/security-philosophy/numbat_secondary_evaluator.md)); since #1466 the CLI accepts the representative events CI scores from each producer family the generator drives (the executor is scored in an advisory lane; `real_repo_loop`'s two emit sites are not scored) ([roadmap](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md)). `numbat.enabled` switches on this file and nothing else: it is not Numbat enforcement | **on** |
-| External-provider pre-action hook (`utils/external_pre_hook.py`, `utils/numbat_gate.py`) | a checkpoint before every confirmed Grok/Claude call that can only deny (`policy.fallback.pre_action_hook`): `engine: command` runs an operator-configured command, and `engine: numbat` has the pinned Numbat CLI evaluate the proposed call against operator rules ([gate guide](docs/security-philosophy/numbat_pre_action_gate.md)). Once enabled, anything but an explicit allow denies | off |
-| Numbat CEL monitor (`utils/numbat_cel.py`) | monitor-only CEL rules over structured `/query` fields; never blocks (`numbat.cel`, `numbat-cel` extra) | off |
-| Numbat CLI scoring | `numbat rules test` in `.github/workflows/numbat-rules.yml`, over committed fixtures, one live executor-jail run, and representative events from each producer family (audit-trail records, hook verdicts, CEL matches, `/ops/*` and connector actions) written by the real emitter code (`tests/numbat_shaped_events.py`); nothing scores the live stream at runtime | CI only |
+| [Numbat](#numbat) stream (`utils/numbat_emitter.py`) | a derived NDJSON stream (`logs/numbat-events.ndjsonl`) of audit records and out-of-band actions, in the format the pinned Numbat 0.2.0 CLI scores. It observes; it enforces nothing | **on** |
+| [Numbat](#numbat) pre-action hook (`utils/external_pre_hook.py`, `utils/numbat_gate.py`) | a deny-only checkpoint after the triple gate, before every confirmed Grok/Claude call: an operator command or the Numbat CLI decides. Once enabled, anything but an explicit allow denies | off |
+| [Numbat](#numbat) CEL monitor (`utils/numbat_cel.py`) | monitor-only CEL rules over structured `/query` fields, recorded in the stream; never blocks | off |
 | [Spend ledger](#spend-tracking) (`utils/spend.py`) | token counts per billed call in `logs/spend.jsonl`, tagged `source: query`/`agentic`; dollars derived at read time | **on** |
 | [Fine-tune kit](#local-model-fine-tuning) (`tools/lora_finetune/`) | offline QLoRA kit teaching a local model this codebase; installed by no runtime surface | toolkit |
 
@@ -235,15 +236,15 @@ flowchart TD
 
     subgraph GRAPH ["graph.py — LangGraph 12-node State Machine"]
         F(["① retrieve\nChroma + BM25 + RRF"])
-        F --> G["② route_by_score\ntop_score ≥ 0.028?"]
+        F --> G["② route_by_score\nbest cosine ≥ 0.30?\n(RRF ≥ 0.028 if no cosine)"]
         G -->|"YES — local context"| X["③ guardrail_input\noffline rail · opt-in\npass-through when disabled"]
         X -->|"blocked"| L
         X -->|"passed · high score"| H["④ local_llm\nOllama :11434\nqwen3.8:27b-mlx"]
         G -->|"NO — vault miss"| I["⑤ user_gate\nneeds_confirm = true"]
-        I -->|"confirmed=true + hybrid\n+ grok.enabled + provider=grok"| PG["⑥ pre_action_hook_grok\nsync · disabled=pass-through\nexit 2 → deny"]
-        PG -->|"exit 0 → allow"| J["⑦ grok_fallback\nxAI grok-4.5\ntriple-gated · skips guardrail_input"]
-        I -->|"confirmed=true + hybrid\n+ claude.enabled + provider=claude"| PC["⑧ pre_action_hook_claude\nsync · disabled=pass-through\nexit 2 → deny"]
-        PC -->|"exit 0 → allow"| W["⑨ claude_fallback\nAnthropic claude-sonnet-5\ntriple-gated · skips guardrail_input"]
+        I -->|"confirmed=true + hybrid\n+ grok.enabled + provider=grok"| PG["⑥ pre_action_hook_grok\ndeny-only · disabled=pass-through\nnot allowed → deny"]
+        PG -->|"allow"| J["⑦ grok_fallback\nxAI grok-4.5\ntriple-gated · skips guardrail_input"]
+        I -->|"confirmed=true + hybrid\n+ claude.enabled + provider=claude"| PC["⑧ pre_action_hook_claude\ndeny-only · disabled=pass-through\nnot allowed → deny"]
+        PC -->|"allow"| W["⑨ claude_fallback\nAnthropic claude-sonnet-5\ntriple-gated · skips guardrail_input"]
         I -->|"confirmed=false\nor offline mode"| X
         X -->|"passed · vault miss"| K["⑩ offline_best_effort\nlocal LLM · no RAG gate"]
         I -->|"confirmed=None — PAUSE\nreturn needs_confirm to the client"| L
@@ -254,7 +255,7 @@ flowchart TD
         Y --> L
         PG -.->|"deny"| L
         PC -.->|"deny"| L
-        L(["⑫ audit_logger\nSHA-256 hash · PII redact\n→ logs/audit.jsonl"])
+        L(["⑫ audit_logger\nSHA-256 hash · PII redact\n→ logs/audit.jsonl\n+ derived Numbat stream"])
     end
 
     L --> M(["📤 QueryResponse\nanswer · sources · model_used\nretrieval_mode · needs_confirm"])
@@ -282,7 +283,7 @@ flowchart TD
         S["agentic/cli.py\nGitHub read ops"]
         T["agentic/fsconnect/\nscoped FS read/write"]
         U["sync/cli.py\nDropbox corpus pull"]
-        V["guardrails/\noptional rails via guardrail_bridge"]
+        V["guardrails/\nlazy-imported by utils/guardrail_bridge\nruns in ③ ⑪ and around ④ ⑦ ⑨ ⑩ when enabled"]
     end
 
     style GATEWAY fill:#1a3a5c,color:#ffffff,stroke:#4a90d9
@@ -305,7 +306,10 @@ per-chunk provenance metadata in every result. The telemetry kill block runs
 before any SDK import; the MCP server and indexer apply the same block. With
 guardrails enabled and `nemoguardrails` installed, NeMo `check()` also wraps
 the model call inside ④, ⑦, ⑨ and ⑩: input rails before it, output rails
-after. It can only deny, and its flows run Python checks, not an LLM.
+after. It can only deny, and its flows run Python checks, not an LLM. When a
+guard cannot run, the answer goes out and the audit record says
+`guardrail_degraded: true`. After the graph returns, `gate.py` runs the CEL
+monitor when `numbat.cel` is enabled; it records matches and never blocks.
 
 ---
 
@@ -590,33 +594,125 @@ and [passive network](agentic/README.md#7-passive-network-connector).
 
 ## NeMo Guardrails
 
-An **opt-in** content-safety layer in `guardrails/`
-([package README](guardrails/README.md)). Absence of the `guardrails:` block,
-or `enabled: false` (shipped default), is a pure no-op. When enabled,
-`utils/guardrail_bridge.py` wires two `graph.py` nodes — `guardrail_input` and
-`guardrail_output` (grounding check, **`local_llm` path only**) — still
-**defense-in-depth only, never a routing authority**: the graph's own edges
-decide where a blocked query goes. `gate.py`/`graph.py`/`mcp_hybrid_server.py`
-never import `guardrails` directly (I6).
+An **opt-in**, deny-only content-safety layer in `guardrails/`
+([package README](guardrails/README.md), status and phase history in
+[`docs/NeMo/README.md`](docs/NeMo/README.md)). It ships
+`guardrails.enabled: false`, which is a pure pass-through; only the literal
+boolean `true` arms it, and boot refuses a non-boolean value. `gate.py`,
+`graph.py` and the MCP server never import `guardrails` (I6): at startup
+`utils/guardrail_bridge.py` builds three callables, or `None` for each while
+the layer is off, and `gate.py` passes them to `build_graph`. The graph's own
+edges still decide every route.
 
-`nemoguardrails` is an **optional dependency**: absent, the layer degrades to
-offline heuristic rails needing no second LLM call — an **input** rail
-(injection marker scan + soul-mutation intent detection) and an **output**
-rail (token-overlap **grounding** check, flagging likely-hallucinated answers
-below `hallucination_threshold`). When installed, the same checks back the
-live NeMo actions via `guardrails/config/rails.co`, so heuristics and live
-rails never drift. Decisions go to a **separate** metrics stream
-(`logs/guardrails.jsonl`) storing only SHA-256 hashes.
+What `enabled: true` runs:
+
+| Guard | Where | Checks | On a block |
+|---|---|---|---|
+| Offline input rail | `guardrail_input` node, on the `local_llm` and `offline_best_effort` paths (never Grok/Claude, whose gate is the triple gate) | `check_injection` (injection markers) and `check_soul_mutation` | answer becomes `block_message`; straight to `audit_logger`, no model call |
+| Offline output rail | `guardrail_output` node, `local_llm` answers only | `check_grounding` (token overlap with the retrieved chunks, below `hallucination_threshold`, shipped `0.18`) and `check_soul_leak` | answer replaced with `block_message` |
+| NeMo `check()` (needs the `guardrails` extra, `nemoguardrails==0.24.0`) | around the model call in all four answer nodes, Grok and Claude included | input rails before the call; output rails after it (grounding only for `local_llm`) | input refusal: the model is never called; output refusal: answer replaced |
+
+Key things to know:
+- **No LLM-backed rail is active.** Every NeMo flow runs the same Python checks
+  as the offline rails; the CI lane asserts zero model calls. `check_jailbreak`
+  is listed in `input_rails` but is not enforced as a rail of its own, and the
+  topical rails are display-only.
+- **Every guard fails open.** A raising offline rail, a NeMo engine that cannot
+  build (package missing, circuit breaker open, admission timeout) or a
+  `check()` that raises lets the answer through, and the audit record says
+  `guardrail_degraded: true`. With `enabled: true` and `nemoguardrails` not
+  installed, every answered query is audited as degraded.
+- **Logging.** Each `audit.jsonl` record carries `guardrail_blocked`,
+  `guardrail_rails` (rail names, or `nemo_check:<flow>`) and
+  `guardrail_degraded`, which `cyclaw-metrics` and `/audit/summary` count.
+  Blocked and skipped events also go to `logs/guardrails.jsonl`
+  (`metrics_path`), which stores only SHA-256 query hashes and is not rotated.
+- **Which flows run.** `input_rails`/`output_rails` in `config.yaml` select
+  the offline rails; the NeMo `check()` flow set is fixed by
+  `guardrails/config/config.yml`.
+- **CI.** `.github/workflows/nemo-guardrails.yml` installs the extra, asserts
+  `nemoguardrails` 0.24.0, and runs `tests/nemo_runtime` against a loopback
+  mock. The main test matrix covers the offline rails without the extra.
 
 ```bash
+pip install -e ".[guardrails]" -c constraints.txt   # optional: the NeMo check() seam
 python -m guardrails.cli status
 python -m guardrails.cli check "your query here"   # also: metrics | test
 ```
 
-Config keys (`guardrails.enabled`, `engine`, `model`, `hallucination_threshold`,
-`metrics_path`) and their shipped values live in `config.yaml`; the status
-table, phased history, and rail semantics are in
-[`docs/NeMo/README.md`](docs/NeMo/README.md).
+## Numbat
+
+[Numbat](https://github.com/perplexityai/numbat) is an external Go CLI,
+pinned at **0.2.0 (schema 0.3.0)**, that scores agent-activity events against
+rules. CyClaw never vendors or imports it: it writes a stream Numbat can
+score, can ask the CLI to decide a proposed external call, and CI scores the
+stream's shape. Four pieces, each with its own switch:
+
+| Piece | Switch | Ships | Enforces or observes | Writes to |
+|---|---|---|---|---|
+| Stream (`utils/numbat_emitter.py`) | `numbat.enabled` | **on** | observes | `logs/numbat-events.ndjsonl`, rolled over at 50 MiB to one `.1` file |
+| Pre-action hook (`utils/external_pre_hook.py`) | `policy.fallback.pre_action_hook.enabled` | off | **enforces**, deny-only | `audit.jsonl` (`pre_action_hook_denied`, `pre_action_hook_reason`), plus the stream when `emit_verdict` is on |
+| CEL monitor (`utils/numbat_cel.py`) | `numbat.cel.enabled` (`numbat-cel` extra) | off | observes, never blocks | the stream, as `tool.result` records |
+| CLI scoring | none | CI only | checks the stream's shape and rules | `.github/workflows/numbat-rules.yml` |
+
+Key things to know:
+- **`numbat.enabled` turns on the stream and nothing else.** It feeds every
+  redacted audit record, plus the out-of-band action plane (executor,
+  `/ops/*`, fsconnect, sqlconnect) and hook verdicts and CEL matches. One
+  writer thread does every append, bounded by `numbat.write_wait_sec` and
+  `numbat.max_queued_writes`, so a stalled disk cannot hold a request.
+  Nothing scores the live stream at runtime.
+- **The hook is the only piece that can deny.** It runs after the I3 triple
+  gate has allowed a confirmed call, and can only shrink what the triple gate
+  allows. `engine: command` runs an operator command (JSON on stdin; exit 0
+  allows, 2 denies). `engine: numbat` has the pinned CLI evaluate the call
+  with `rules test --no-builtin-rules` against
+  `policy.fallback.pre_action_hook.numbat.rules_dirs` (shipped `[]`, which
+  boot refuses while the engine is enabled): a match on an enabled rule marked
+  `enforce: true` denies, other matches only report. Once enabled, anything
+  but an explicit allow denies, engine failures included, and each verdict
+  carries a fixed `reason_code` (`hook_allowed`, `hook_denied`,
+  `hook_timeout`, `hook_error`, `hook_failure`, `hook_misconfigured`) that
+  `cyclaw-metrics` and `/audit/summary` count; `/health` reports whether an
+  enabled hook could decide a call now. Never point the
+  command engine at `numbat hook ...`: it drops the provider and URL and
+  exits 0 on errors.
+- **No rules ship.** The example gate rules live in
+  `tests/fixtures/numbat/gate-rules/`; operators write their own.
+- **The CEL monitor** runs on HTTP `/query` only, after the graph returns,
+  and only records matches (so it needs `numbat.enabled: true`). If
+  `cel-python` is missing it logs a warning and matches nothing.
+- **Privacy.** Every event carries the host name, user name and uid (`N/A`
+  on Windows) of the machine that wrote it. The stream inherits the audit trail's hashing and
+  redaction. `numbat.enabled: false` also silences hook-verdict and CEL
+  records, while the hook itself keeps deciding.
+- **Install the CLI** only for the hook's numbat engine or local scoring: put
+  the pinned 0.2.0 release on `PATH` (or set its path in the hook config) and
+  check its sha256 against the release's `checksums.txt`. The engine refuses
+  any binary that does not print `numbat 0.2.0 (schema 0.3.0)`.
+- **CI** (`numbat-rules.yml`): events from each producer family, written by
+  the real emitter code, must load in the pinned CLI with zero findings and
+  validate against the schema-0.3.0 JSON; known-bad events must fire; the
+  example gate rules pass `numbat rules check`; the CEL tests run with
+  `cel-python` installed. Those jobs block; the hand-written fixture job is
+  advisory.
+
+```yaml
+policy:
+  fallback:
+    pre_action_hook:
+      enabled: true
+      engine: "numbat"
+      numbat:
+        rules_dirs: ["/path/to/your/numbat-rules"]
+numbat:
+  cel:
+    enabled: true        # pip install -e ".[numbat-cel]" -c constraints.txt
+```
+
+Guides: [pre-action gate](docs/security-philosophy/numbat_pre_action_gate.md),
+[stream design](docs/security-philosophy/numbat_secondary_evaluator.md),
+[roadmap and phase status](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md).
 
 ---
 
@@ -685,12 +781,12 @@ are in [`macos/README.md`](macos/README.md) and
 | Rate limit | 60 req/min per IP, sliding window; in-memory by default, optional SQLite/Postgres persistence |
 | Proxy bypass | All `httpx` clients set `trust_env=False` — ambient `HTTP(S)_PROXY`/`.netrc` can't reroute local traffic or carry API keys |
 | Telemetry | Canonical kill maps applied before any SDK import at every chokepoint (invariant-guard G1) and delivered as literal environment at every process boundary. ONNX gets a post-import suppression call; HF Hub calls stop once the embedding model is confirmed cached. Not a network kill switch — see [SECURITY.md](SECURITY.md) |
-| Audit | All paths log SHA-256 query hash + PII-redacted metadata ([What It Does](#what-it-does), item 7) |
-| Grok / Claude gating | The [triple gate](#the-core--always-present-no-switches-involved) (item 5), per provider: `mode=hybrid` AND `<provider>.enabled=true` AND `user_confirmed_online=true` |
+| Audit | All paths log SHA-256 query hash + PII-redacted metadata to `logs/audit.jsonl` ([What It Does](#what-it-does), item 7), projected after redaction into the derived [Numbat](#numbat) stream, which also carries host identity |
+| Grok / Claude gating | The [triple gate](#the-core--always-present-no-switches-involved) (item 5), per provider: `mode=hybrid` AND `<provider>.enabled=true` AND `user_confirmed_online=true`; then the opt-in [pre-action hook](#numbat), deny-only and fail-closed once enabled |
 | Soul writes | Explicit human reason string + enforced write-boundary scan + atomic write |
 | Agentic writes | `pr_create` implemented; `agentic.enabled` (ships `false`) plus per-call reason/confirm is what refuses — see [Agentic Layer](#agentic-layer). Git-level writes additionally need `deepagent_github.allow_git_write_tools`, ships `false` |
 | Local-data connectors | fsconnect reads scoped/capped with atomic gated writes; sqlconnect is SELECT/WITH-only; netconnect is passive-only — all disabled by default, see [Connectors](#filesystem-sql--passive-network-connectors) |
-| Guardrails | Out-of-band, opt-in defense-in-depth; degrades to offline heuristics without `nemoguardrails`; never a routing authority — see [NeMo Guardrails](#nemo-guardrails) |
+| Guardrails | Opt-in, deny-only defense in depth, isolated at import time and run in the request path through `utils/guardrail_bridge.py`; fails open with `guardrail_degraded` audited; never a routing authority — see [NeMo Guardrails](#nemo-guardrails) |
 | Telegram / OpenTweet channels | Both out-of-band, ship `enabled: false`, and reach the pipeline only via loopback `POST /query` — see their sections above for the T3/T4 gates and draft-only defaults |
 | launchd secrets (macOS) | Generated plists never embed tokens — Keychain wrapper injects at exec time, fails closed when missing; supervised-service generators require `--confirm` + `--reason` |
 | `/ops/*` routes | Loopback-only, `require_api_key` gated, rate-limited, every call audited; shells out via `subprocess.run([...])` — never imports `sync/` or `agentic/` |
@@ -729,7 +825,7 @@ CyClaw/
 │   (gh pr create --draft), real_repo_loop.py (clone→plan→patch→verify→human
 │   decides→commit), executor/ (sandboxed check runner), fsconnect/sqlconnect/
 │   netconnect (local FS, read-only SQL, passive LAN), deepagent_github/
-├── guardrails/             # opt-in rails; graph nodes via guardrail_bridge
+├── guardrails/             # opt-in rails: offline input/output nodes + NeMo check() broker, via guardrail_bridge
 ├── telegram/ / opentweet/  # optional channels, out-of-band, shipped enabled: false
 ├── powershell/ / windows/ / macos/   # per-platform installers, launchd/task glue
 ├── .claude/                # local operator workflows and prompts (22 project skills)
@@ -739,7 +835,8 @@ CyClaw/
 ├── sync/                   # optional Dropbox corpus sync
 ├── utils/                  # sanitizer, logger, personality, health, ratelimit,
 │   guardrail_bridge (sole bridge to guardrails/), endpoint_trust (destination
-│   allowlist), ops_runner, numbat_emitter, spend.py, sequence_detect, authn*
+│   allowlist), ops_runner, numbat_emitter, external_pre_hook + numbat_gate
+│   (pre-action hook), numbat_cel, spend.py, sequence_detect, authn*
 │   (per-user auth stack), gen_cert, telemetry_kill (invariant-guard G1),
 │   onnx_telemetry
 ├── schemas/                # Pydantic API models (extra='forbid', strict)
@@ -772,7 +869,9 @@ its authoritative doc) — the exception is `tools/`, whose README lives at
 | [`docs/DOCKER.md`](docs/DOCKER.md) | the GHCR image, compose hardening, Falco opt-in |
 | [`docs/EVALS.md`](docs/EVALS.md) | the four eval planes, thresholds, and what is not yet measured |
 | [`spend/README.md`](spend/README.md) | the ledger schema, Keychain service names, live probes |
-| [`docs/security-philosophy/`](docs/security-philosophy/) | why telemetry is killed and why offline is the default |
+| [`docs/security-philosophy/`](docs/security-philosophy/) | why telemetry is killed, why offline is the default, and the Numbat stream and pre-action gate designs |
+| [`docs/NeMo/README.md`](docs/NeMo/README.md) / [`guardrails/README.md`](guardrails/README.md) | what the NeMo layer does today, rail semantics, phase history |
+| [`docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md`](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md) | Numbat phase status and what is left |
 | [`macos/README.md`](macos/README.md) / [`powershell/README.md`](powershell/README.md) | platform scripts, Keychain / Credential Manager, 401 recovery |
 
 ---
