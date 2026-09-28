@@ -45,6 +45,11 @@ concurrency:
 permissions:
   contents: read
 
+# Same PyPI read budget as ci.yml. The kit install stays pytest-only.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   test:
     name: pytest + dry-run (no GPU)
@@ -63,7 +68,12 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: .github/workflows/lora-finetune.yml
+          # pytest is unpinned on the install line (`-c ../../constraints.txt
+          # pytest`); its version lives in constraints.txt. Key both. Paths
+          # are workspace-root relative, not the job working-directory.
+          cache-dependency-path: |
+            constraints.txt
+            .github/workflows/lora-finetune.yml
 
       - name: Install pytest
         run: pip install -c ../../constraints.txt pytest

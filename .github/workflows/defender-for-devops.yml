@@ -31,6 +31,11 @@ concurrency:
   group: bandit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Same PyPI read budget as ci.yml. Bandit's pin and SARIF settings are unchanged.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   bandit:
     name: bandit

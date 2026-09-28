@@ -23,6 +23,11 @@ concurrency:
   group: semgrep-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Same PyPI read budget as ci.yml. The semgrep pin and the scan flags are unchanged.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   semgrep:
     name: Semgrep OSS Scan

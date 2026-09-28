@@ -32,6 +32,12 @@ concurrency:
   group: pip-audit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Same PyPI read budget as ci.yml. Applies inside the audit venvs too.
+# Does not change pins, ignore-vuln lists, or the install commands.
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
 jobs:
   verify-install:
     name: verify-install (${{ matrix.os }})
