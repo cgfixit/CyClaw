@@ -30,6 +30,7 @@ from utils.numbat_emitter import (
     close_numbat_handles,
     emit_numbat_command,
     emit_numbat_event,
+    flush_numbat_writes,
     posix_path,
     redact_argv_for_numbat,
 )
@@ -908,3 +909,38 @@ def test_a_forked_child_gets_a_write_lock_nobody_holds(tmp_path: Path) -> None:
                           capture_output=True, text=True, check=False)
     assert proc.returncode == 0, proc.stderr
     assert _ndjson_lines(out) == [{"child": True}]
+
+
+def test_flush_numbat_writes_waits_until_the_queued_event_is_on_disk(tmp_path: Path, writer) -> None:
+    out = tmp_path / "s.ndjsonl"
+    numbat_emitter.write_ndjson({"n": 1}, out)
+    assert flush_numbat_writes(10) is True
+    assert _ndjson_lines(out) == [{"n": 1}]
+
+
+def test_flush_numbat_writes_uses_the_configured_drain_when_no_timeout_is_passed(
+    writer, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, float] = {}
+
+    def drain() -> float:
+        return 1.5
+
+    def flush(timeout: float) -> bool:
+        seen["timeout"] = timeout
+        return True
+
+    monkeypatch.setattr(writer, "drain_sec", drain)
+    monkeypatch.setattr(writer, "flush", flush)
+    assert flush_numbat_writes() is True
+    assert seen["timeout"] == 1.5
+
+
+def test_flush_numbat_writes_returns_false_when_the_writer_raises(
+    writer, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(_timeout: float) -> bool:
+        raise RuntimeError("writer exploded")
+
+    monkeypatch.setattr(writer, "flush", boom)
+    assert flush_numbat_writes(1) is False
