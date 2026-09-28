@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -28,6 +29,8 @@ _cfg_cache: dict[str, dict] = {}
 # two configs probed within the TTL never share results (Codex P2 on #1451).
 _status_cache: dict[tuple[str, str], tuple[tuple[HealthStatus, ...], float]] = {}
 _status_ttl_sec = 2
+_status_lock = threading.Lock()
+_status_inflight: dict[tuple[str, str], Future[tuple[HealthStatus, ...]]] = {}
 
 # A loopback HTTP service either accepts a TCP connection immediately or is
 # not listening. Bounding only that connect avoids a stale /health wait on a
@@ -162,143 +165,164 @@ def _status_key(config_path: str, cfg: dict | None) -> tuple[str, str]:
 
 def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list[HealthStatus]:
     """Probe the services ``cfg`` configures; gate.py passes the config it serves with."""
-    now = time.monotonic()
     key = _status_key(config_path, cfg)
-    if key in _status_cache:
-        cached_statuses, cached_at = _status_cache[key]
-        if now - cached_at < _status_ttl_sec:
-            return list(cached_statuses)
+    with _status_lock:
+        if key in _status_cache:
+            cached_statuses, cached_at = _status_cache[key]
+            if time.monotonic() - cached_at < _status_ttl_sec:
+                return list(cached_statuses)
+        future = _status_inflight.get(key)
+        leader = future is None
+        if leader:
+            future = Future()
+            _status_inflight[key] = future
+
+    if not leader:
+        return list(future.result())
 
     try:
-        if cfg is None:
-            cfg = _health_cfg(config_path)
-        llm_cfg = cfg["models"]["local_llm"]
-    except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
-        return [HealthStatus(name="config", healthy=False, error=f"config load failed: {_safe_error(exc)}")]
-
-    # /health is the one route that carries neither auth nor a rate limit, and it
-    # has five unauthenticated consumers (the web console, the Docker
-    # healthcheck, the telegram health plist, macos/invoke-cyclaw.sh, and the
-    # sandbox smoke script). Probing Grok/Claude from here therefore turns an
-    # open endpoint into an authenticated outbound call to a third party on the
-    # operator's own API key -- reachable by any local process, and triggerable
-    # cross-origin by any page the operator's browser loads, since GET is a
-    # CORS-simple request. Off by default: an operator who wants provider
-    # liveness reported here opts in explicitly and accepts that egress.
-    # This is an egress gate, so accept only the literal YAML boolean ``true``.
-    # A quoted ``"false"`` is a non-empty string and therefore truthy; using
-    # bool(...) here turned an operator's explicit opt-out into authenticated
-    # outbound requests from the unauthenticated /health route.
-    probe_external = cfg.get("api", {}).get("health_probe_external_providers") is True
-
-    results = []
-    # Resolve the same local backend LocalLLMClient uses (primary Ollama, or
-    # LM Studio when models.local_llm.fallback is enabled and primary is down).
-    # Model-pin drift guard: a healthy endpoint with a missing/renamed tag
-    # otherwise stays green until the first /query stalls. Only applied when
-    # the resolved model pin is non-empty.
-    try:
-        from llm.client import resolve_local_backend
-
-        # Trust the configured primary URL before resolve_local_backend.
-        # When fallback.enabled, that resolver probes primary first; /health
-        # must not discover an untrusted host (and must not send its API key).
-        primary_url = str(llm_cfg.get("base_url") or "").strip()
-        if primary_url:
-            assert_local_destination(primary_url, llm_cfg.get("trusted_hosts", []))
-        resolved = resolve_local_backend(llm_cfg)
-        llm_base = resolved.base_url
-        local_model = resolved.model or ""
-        local_name = resolved.provider or "ollama"
-        local_headers = (
-            {"Authorization": f"Bearer {resolved.api_key}"} if resolved.api_key else None
-        )
-    except EndpointTrustError as exc:
-        results.append(HealthStatus(
-            name="local_llm", healthy=False, error=_safe_error(exc),
-        ))
-        llm_base = None
-        local_model = ""
-        local_name = "local_llm"
-        local_headers = None
-    except Exception as exc:
-        # Resolver validation (e.g. fallback enabled without model) should not
-        # 500 the whole /health payload — surface as unhealthy local status.
-        err = getattr(exc, "message", None) or _safe_error(exc)
-        results.append(HealthStatus(name="local_llm", healthy=False, error=str(err)))
-        llm_base = None
-        local_model = ""
-        local_name = "local_llm"
-        local_headers = None
-
-    if llm_base is not None:
-        # Same destination allowlist as graph.py generate: /health is
-        # unauthenticated, so a mis-set primary URL must not become a probe.
         try:
-            assert_local_destination(llm_base, llm_cfg.get("trusted_hosts", []))
+            if cfg is None:
+                cfg = _health_cfg(config_path)
+            llm_cfg = cfg["models"]["local_llm"]
+        except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
+            snapshot = (HealthStatus(name="config", healthy=False, error=f"config load failed: {_safe_error(exc)}"),)
+            future.set_result(snapshot)
+            return list(snapshot)
+
+        # /health is the one route that carries neither auth nor a rate limit, and it
+        # has five unauthenticated consumers (the web console, the Docker
+        # healthcheck, the telegram health plist, macos/invoke-cyclaw.sh, and the
+        # sandbox smoke script). Probing Grok/Claude from here therefore turns an
+        # open endpoint into an authenticated outbound call to a third party on the
+        # operator's own API key -- reachable by any local process, and triggerable
+        # cross-origin by any page the operator's browser loads, since GET is a
+        # CORS-simple request. Off by default: an operator who wants provider
+        # liveness reported here opts in explicitly and accepts that egress.
+        # This is an egress gate, so accept only the literal YAML boolean ``true``.
+        # A quoted ``"false"`` is a non-empty string and therefore truthy; using
+        # bool(...) here turned an operator's explicit opt-out into authenticated
+        # outbound requests from the unauthenticated /health route.
+        probe_external = cfg.get("api", {}).get("health_probe_external_providers") is True
+
+        results = []
+        # Resolve the same local backend LocalLLMClient uses (primary Ollama, or
+        # LM Studio when models.local_llm.fallback is enabled and primary is down).
+        # Model-pin drift guard: a healthy endpoint with a missing/renamed tag
+        # otherwise stays green until the first /query stalls. Only applied when
+        # the resolved model pin is non-empty.
+        try:
+            from llm.client import resolve_local_backend
+
+            # Trust the configured primary URL before resolve_local_backend.
+            # When fallback.enabled, that resolver probes primary first; /health
+            # must not discover an untrusted host (and must not send its API key).
+            primary_url = str(llm_cfg.get("base_url") or "").strip()
+            if primary_url:
+                assert_local_destination(primary_url, llm_cfg.get("trusted_hosts", []))
+            resolved = resolve_local_backend(llm_cfg)
+            llm_base = resolved.base_url
+            local_model = resolved.model or ""
+            local_name = resolved.provider or "ollama"
+            local_headers = (
+                {"Authorization": f"Bearer {resolved.api_key}"} if resolved.api_key else None
+            )
         except EndpointTrustError as exc:
             results.append(HealthStatus(
-                name=local_name, healthy=False, error=_safe_error(exc),
+                name="local_llm", healthy=False, error=_safe_error(exc),
             ))
-        else:
-            results.append(_ping(
-                f"{llm_base.rstrip('/')}/models",
-                local_name,
-                headers=local_headers,
-                expect_model=local_model if local_model else None,
-                timeout=_health_probe_timeout(llm_base),
-            ))
-    if (probe_external and cfg["app"]["mode"] == "hybrid" and
-            cfg["models"].get("grok", {}).get("enabled") is True):
-        grok_base = cfg["models"]["grok"]["base_url"]
-        # xAI's /v1/models is an authenticated endpoint: without a Bearer token it
-        # returns 401, which made grok_api report *unhealthy* on every probe even
-        # when the API was fully up — masking real outages. Send the same key the
-        # GrokClient uses. With no key configured (the default offline posture),
-        # report a clear "key not set" state instead of a misleading 401/network
-        # error, and skip the doomed request entirely.
-        # .strip() matches llm/client.py:485 -- a key carrying a trailing
-        # newline (CRLF .env, --env-file, EnvironmentFile) is an illegal HTTP
-        # header value, and h11 puts the whole value in the exception it
-        # raises. Stripping at read means the probe simply works instead of
-        # relying on _safe_error to scrub the fallout.
-        api_key = os.environ.get("GROK_API_KEY", "").strip()
-        if api_key:
-            results.append(_ping(
-                f"{grok_base}/models", "grok_api",
-                headers={"Authorization": f"Bearer {api_key}"},
-                expect_model=cfg["models"]["grok"].get("model", ""),
-            ))
-        else:
-            results.append(HealthStatus(
-                name="grok_api", healthy=False,
-                error="GROK_API_KEY not set (hybrid mode enabled but no API key)",
-            ))
-    if (probe_external and cfg["app"]["mode"] == "hybrid" and
-            cfg["models"].get("claude", {}).get("enabled") is True):
-        claude_cfg = cfg["models"]["claude"]
-        # .strip() matches llm/client.py:543 -- see the GROK_API_KEY note above.
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        if api_key:
-            results.append(_ping(
-                f"{claude_cfg['base_url'].rstrip('/')}/models", "claude_api",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": claude_cfg.get("anthropic_version", "2023-06-01"),
-                },
-                expect_model=claude_cfg.get("model", ""),
-            ))
-        else:
-            results.append(HealthStatus(
-                name="claude_api", healthy=False,
-                error="ANTHROPIC_API_KEY not set (hybrid mode enabled but no API key)",
-            ))
-    results.append(HealthStatus(name="embeddings_local", healthy=True, latency_ms=0.0))
-    hook_status = _pre_action_hook_status(cfg)
-    if hook_status is not None:
-        results.append(hook_status)
-    _status_cache[key] = (tuple(results), time.monotonic())
-    return results
+            llm_base = None
+            local_model = ""
+            local_name = "local_llm"
+            local_headers = None
+        except Exception as exc:
+            # Resolver validation (e.g. fallback enabled without model) should not
+            # 500 the whole /health payload — surface as unhealthy local status.
+            err = getattr(exc, "message", None) or _safe_error(exc)
+            results.append(HealthStatus(name="local_llm", healthy=False, error=str(err)))
+            llm_base = None
+            local_model = ""
+            local_name = "local_llm"
+            local_headers = None
+
+        if llm_base is not None:
+            # Same destination allowlist as graph.py generate: /health is
+            # unauthenticated, so a mis-set primary URL must not become a probe.
+            try:
+                assert_local_destination(llm_base, llm_cfg.get("trusted_hosts", []))
+            except EndpointTrustError as exc:
+                results.append(HealthStatus(
+                    name=local_name, healthy=False, error=_safe_error(exc),
+                ))
+            else:
+                results.append(_ping(
+                    f"{llm_base.rstrip('/')}/models",
+                    local_name,
+                    headers=local_headers,
+                    expect_model=local_model if local_model else None,
+                    timeout=_health_probe_timeout(llm_base),
+                ))
+        if (probe_external and cfg["app"]["mode"] == "hybrid" and
+                cfg["models"].get("grok", {}).get("enabled") is True):
+            grok_base = cfg["models"]["grok"]["base_url"]
+            # xAI's /v1/models is an authenticated endpoint: without a Bearer token it
+            # returns 401, which made grok_api report *unhealthy* on every probe even
+            # when the API was fully up — masking real outages. Send the same key the
+            # GrokClient uses. With no key configured (the default offline posture),
+            # report a clear "key not set" state instead of a misleading 401/network
+            # error, and skip the doomed request entirely.
+            # .strip() matches llm/client.py:485 -- a key carrying a trailing
+            # newline (CRLF .env, --env-file, EnvironmentFile) is an illegal HTTP
+            # header value, and h11 puts the whole value in the exception it
+            # raises. Stripping at read means the probe simply works instead of
+            # relying on _safe_error to scrub the fallout.
+            api_key = os.environ.get("GROK_API_KEY", "").strip()
+            if api_key:
+                results.append(_ping(
+                    f"{grok_base}/models", "grok_api",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    expect_model=cfg["models"]["grok"].get("model", ""),
+                ))
+            else:
+                results.append(HealthStatus(
+                    name="grok_api", healthy=False,
+                    error="GROK_API_KEY not set (hybrid mode enabled but no API key)",
+                ))
+        if (probe_external and cfg["app"]["mode"] == "hybrid" and
+                cfg["models"].get("claude", {}).get("enabled") is True):
+            claude_cfg = cfg["models"]["claude"]
+            # .strip() matches llm/client.py:543 -- see the GROK_API_KEY note above.
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            if api_key:
+                results.append(_ping(
+                    f"{claude_cfg['base_url'].rstrip('/')}/models", "claude_api",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": claude_cfg.get("anthropic_version", "2023-06-01"),
+                    },
+                    expect_model=claude_cfg.get("model", ""),
+                ))
+            else:
+                results.append(HealthStatus(
+                    name="claude_api", healthy=False,
+                    error="ANTHROPIC_API_KEY not set (hybrid mode enabled but no API key)",
+                ))
+        results.append(HealthStatus(name="embeddings_local", healthy=True, latency_ms=0.0))
+        hook_status = _pre_action_hook_status(cfg)
+        if hook_status is not None:
+            results.append(hook_status)
+        snapshot = tuple(results)
+        with _status_lock:
+            _status_cache[key] = (snapshot, time.monotonic())
+        future.set_result(snapshot)
+        return list(snapshot)
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _status_lock:
+            if _status_inflight.get(key) is future:
+                del _status_inflight[key]
 
 
 def _pre_action_hook_status(cfg: dict[str, object]) -> HealthStatus | None:

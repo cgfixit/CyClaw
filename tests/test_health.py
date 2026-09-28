@@ -12,6 +12,9 @@ All HTTP is mocked; no live service is required.
 """
 
 import os
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -596,6 +599,166 @@ class TestHealthCfgCache:
         health.check_all(cfg_path, cfg=running)
         health.check_all(cfg_path, cfg=dict(running))
         assert calls == 1
+
+
+@pytest.fixture
+def health_cohort(monkeypatch):
+    ready = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    entered = 0
+
+    def record_probe_or_waiter():
+        nonlocal entered
+        with lock:
+            entered += 1
+            if entered == 16:
+                ready.set()
+
+    class ObservedFuture(Future):
+        def result(self, timeout=None):
+            record_probe_or_waiter()
+            return super().result(timeout=10)
+
+    monkeypatch.setattr(health, "Future", ObservedFuture, raising=False)
+
+    def hold():
+        record_probe_or_waiter()
+        assert release.wait(10), "cohort was not released"
+
+    def run(call):
+        start = threading.Barrier(17)
+
+        def invoke():
+            start.wait(timeout=10)
+            return call()
+
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            futures = [pool.submit(invoke) for _ in range(16)]
+            try:
+                start.wait(timeout=10)
+                assert ready.wait(10), "not all callers reached the probe or shared future"
+            finally:
+                release.set()
+        return futures
+
+    return hold, run
+
+
+class TestHealthSingleFlight:
+    @pytest.mark.parametrize("round_number", range(7))
+    def test_same_key_16_callers_share_one_probe(self, monkeypatch, health_cohort, round_number):
+        hold, run = health_cohort
+        calls = []
+        cfg = {"models": {"local_llm": {"base_url": _OLLAMA_BASE}}}
+
+        def ping(url, name, **kwargs):
+            calls.append(url)
+            hold()
+            return health.HealthStatus(name=name, healthy=True)
+
+        monkeypatch.setattr(health, "_ping", ping)
+        results = [future.result() for future in run(lambda: health.check_all(cfg=cfg))]
+        assert len(calls) == 1
+        assert all(result == results[0] for result in results)
+        assert len({id(result) for result in results}) == 16
+        assert all(result[0] is results[0][0] for result in results)
+        results[0].clear()
+        assert len(health.check_all(cfg=cfg)) == 2
+        assert len(calls) == 1
+        assert not health._status_inflight
+
+    def test_different_configs_probe_concurrently(self, monkeypatch):
+        probes = threading.Barrier(2)
+        calls = []
+
+        def ping(url, name, **kwargs):
+            calls.append(kwargs["expect_model"])
+            probes.wait(timeout=10)
+            return health.HealthStatus(name=name, healthy=True)
+
+        monkeypatch.setattr(health, "_ping", ping)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(health.check_all, cfg={"models": {"local_llm": {
+                "base_url": _OLLAMA_BASE, "model": model,
+            }}}) for model in ("first", "second")]
+            assert all(future.result(timeout=10)[0].healthy for future in futures)
+        assert sorted(calls) == ["first", "second"]
+        assert not health._status_inflight
+
+    def test_ttl_starts_at_completion_and_expires_at_two_seconds(self, monkeypatch):
+        clock = [100.0]
+        calls = []
+        cfg = {"models": {"local_llm": {"base_url": _OLLAMA_BASE}}}
+        monkeypatch.setattr(health, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+        def ping(url, name, **kwargs):
+            calls.append(url)
+            clock[0] += 10
+            return health.HealthStatus(name=name, healthy=False, error="unavailable")
+
+        monkeypatch.setattr(health, "_ping", ping)
+        first = health.check_all(cfg=cfg)
+        clock[0] = 111.999
+        cached = health.check_all(cfg=cfg)
+        assert cached == first and cached is not first
+        assert cached[0] is first[0]
+        assert len(calls) == 1
+        clock[0] = 112.0
+        health.check_all(cfg=cfg)
+        assert len(calls) == 2
+        assert not health._status_inflight
+
+    @pytest.mark.parametrize("error_type", [RuntimeError, BaseException])
+    def test_error_fanout_cleans_up_and_retries(self, monkeypatch, health_cohort, error_type):
+        hold, run = health_cohort
+        calls = []
+        error = error_type("probe interrupted")
+        cfg = {"models": {"local_llm": {"base_url": _OLLAMA_BASE}}}
+
+        def ping(url, name, **kwargs):
+            calls.append(url)
+            hold()
+            raise error
+
+        monkeypatch.setattr(health, "_ping", ping)
+        futures = run(lambda: health.check_all(cfg=cfg))
+        for future in futures:
+            with pytest.raises(error_type) as caught:
+                future.result()
+            assert caught.value is error
+        assert len(calls) == 1
+        assert not health._status_inflight
+        assert not health._status_cache
+        monkeypatch.setattr(health, "_ping", lambda url, name, **kw: health.HealthStatus(name=name, healthy=True))
+        assert health.check_all(cfg=cfg)[0].healthy
+        assert not health._status_inflight
+
+    def test_config_failure_shared_but_not_cached(self, monkeypatch, health_cohort):
+        hold, run = health_cohort
+        calls = []
+
+        def load(path):
+            calls.append(path)
+            hold()
+            raise yaml.YAMLError("invalid config")
+
+        monkeypatch.setattr(health, "_health_cfg", load)
+        results = [future.result() for future in run(health.check_all)]
+        assert len(calls) == 1
+        assert all(result[0].name == "config" and not result[0].healthy for result in results)
+        assert len({id(result) for result in results}) == 16
+        assert all(result[0] is results[0][0] for result in results)
+        assert not health._status_cache
+        assert not health._status_inflight
+        assert health.check_all()[0].name == "config"
+        assert len(calls) == 2
+        assert not health._status_cache
+        assert not health._status_inflight
+        monkeypatch.setattr(health, "_health_cfg", lambda path: {"models": {"local_llm": {"base_url": _OLLAMA_BASE}}})
+        monkeypatch.setattr(health, "_ping", lambda url, name, **kw: health.HealthStatus(name=name, healthy=True))
+        assert health.check_all()[0].healthy
+        assert not health._status_inflight
 
 
 class TestSharedClientLifecycle:
