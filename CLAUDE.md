@@ -5,10 +5,6 @@ written to be followed literally. Where a rule gives a number, use that number.
 Where it says "never," there is no exception without explicit user approval.
 Read it fully before acting. It **overrides** your default behavior.
 
-If you do only one thing before editing: run
-`python3 .claude/skills/invariant-guard/check_invariants.py` to learn the shape
-of what must not break.
-
 ---
 
 ## 1. Read Me First
