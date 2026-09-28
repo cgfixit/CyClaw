@@ -70,6 +70,40 @@ def test_dockerfile_dependency_install_fails_loudly() -> None:
     )
 
 
+def test_dockerfile_builder_declares_pip_socket_budget() -> None:
+    """The builder stage must widen pip's socket timeout itself.
+
+    Workflow ``env:`` is visible to job steps and invisible to a ``docker
+    build`` RUN. pip's default is a 15s read timeout; that is what failed
+    the docker-build job (run 36409708059, job 108886754079) on
+    ``https://pypi.org/simple/python-dateutil/``. The ARG defaults match
+    ci.yml's ``PIP_DEFAULT_TIMEOUT`` / ``PIP_RETRIES`` pair, ENV publishes
+    them to the pip process, and the runtime stage starts from its own
+    FROM so those names stay out of the shipped image.
+    """
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    stages = re.split(r"(?m)^FROM ", dockerfile)
+    assert len(stages) == 3, "expected a preamble plus builder and runtime stages"
+    builder, runtime = stages[1], stages[2]
+    assert " AS builder" in builder.splitlines()[0]
+
+    timeout_at = builder.index("ARG PIP_DEFAULT_TIMEOUT=60\n")
+    retries_at = builder.index("ARG PIP_RETRIES=10\n")
+    env_at = builder.index("ENV PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT}")
+    assert "PIP_RETRIES=${PIP_RETRIES}" in builder[env_at:builder.index("\nRUN ")]
+    run_at = builder.index("\nRUN pip install ")
+    assert max(timeout_at, retries_at, env_at) < run_at
+
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    ci_timeout = re.search(r'(?m)^  PIP_DEFAULT_TIMEOUT:\s*"(\d+)"\s*$', ci)
+    ci_retries = re.search(r'(?m)^  PIP_RETRIES:\s*"(\d+)"\s*$', ci)
+    assert ci_timeout and ci_timeout.group(1) == "60"
+    assert ci_retries and ci_retries.group(1) == "10"
+
+    assert "PIP_DEFAULT_TIMEOUT" not in runtime
+    assert "PIP_RETRIES" not in runtime
+
+
 def test_dockerfile_torch_preinstall_matches_constraints_pin() -> None:
     """The explicit CPU-torch pre-install and constraints.txt must move together.
 
