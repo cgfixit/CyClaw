@@ -77,6 +77,5 @@ the offline floor, once armed, enforces `check_injection`, `check_soul_mutation`
 `check_grounding`, and `check_soul_leak`. `check_jailbreak` and the topical rails
 still skip. Do not read a rail's presence in config as evidence it runs.
 
-`guardrail_safety_node` in `integration.py` is an unused example helper, not
-the live graph path. Issue #1134 is closed; residuals (NLI, sockets on Job
-Object, live Seatbelt/netns, enabling shipped `enabled`) are follow-ups.
+Issue #1134 is closed; residuals (NLI, sockets on Job Object, live
+Seatbelt/netns, enabling shipped `enabled`) are follow-ups.
