@@ -6,8 +6,8 @@ by hand.
 
 | Path | What it is | Write rules |
 |---|---|---|
-| `corpus/` | The RAG knowledge base: Markdown/text documents ingested by `python -m retrieval.indexer`. Add/edit files here, then reindex — the server never picks up corpus changes on its own. | Free to edit. Chunks are sanitized at ingestion; write self-contained `##` sections (the corpus is chunked and searched section-by-section). |
-| `personality/soul.md` | The soul file — CyClaw's persona/behavior contract, capped at `personality.soul_max_chars` (8000). | **Never hand-edit or script a write around `PersonalityManager`.** Mutation requires a non-empty human `reason` and passes an injection scan; writes are atomic (invariant I5). Use `/soul/propose` → `/soul/apply`, or the manager API. Deleting it does not break boot — it self-heals with a default. |
+| `corpus/` | The RAG knowledge base: Markdown/text documents ingested by `python -m retrieval.indexer`. Add/edit files here, then reindex — the server never picks up corpus changes on its own. | Free to edit. Chunks are sanitized at ingestion. The indexer uses overlapping embedder-token windows with the shipped config, not Markdown section boundaries. |
+| `personality/soul.md` | The soul file — CyClaw's persona/behavior contract, capped at `personality.soul_max_chars` (8000). | Use `/soul/propose` then `/soul/apply`; apply requires a human `reason`, scans for injection, and writes atomically. Restore re-applies the vetted `.bak` with an advisory scan. Startup drift recovery and `/soul/reload` adopt on-disk content without scanning (see `INVARIANTS.md` Rule 5). A missing soul self-initializes at boot. |
 | `personality/cyclaw_soul.db` | Soul version history + SHA-256 drift baseline (SQLite; Postgres via `CYCLAW_DB_URL`). The newest `soul_versions` row is the drift baseline — there is no hash constant in code. | Managed by `utils/personality_db.py`; don't edit. |
 | `agentic/skills_registry.json` | Governed skills registry for the out-of-band agentic layer. | Managed via `python -m agentic.cli` under the registry governance rules — see `docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`. The browser terminal (`static/terminal.js`) reaches it only through `POST /ops/agentic` — `status` (reads `registry_version` + `skills`), `propose-skill`, and `apply-skill` — never by reading the file directly — see [`agentic/README.md`](../agentic/README.md#how-skills_registryjson-relates-to-the-console). |
 | `agentic/workspaces/` | Jailed clones for the real-repo loop, plus persisted run records under `runs/`. Created on demand; absent on a fresh clone. | **Treat as secret-bearing.** A clone here holds whatever the target repository contains, which may include its secrets. Discard workspaces when a run is done rather than leaving them around; never add anything under here to the corpus. |
@@ -18,7 +18,7 @@ by hand.
 
 Not in this directory but adjacent in spirit: the retrieval indices live in
 `index/` (regenerable — rebuild with `python -m retrieval.indexer`), the
-embedding model cache in `.emb_cache/` (regenerable —
+embedding and reranker model cache in `.emb_cache/` (regenerable —
 `python -m retrieval.clear_cache`), and the audit log at
 `logs/audit.jsonl` (append-only JSONL; query text stored as SHA-256
 hashes by default; disabling `logging.audit_fields.include_query_hash` retains

@@ -56,7 +56,7 @@ the audit log, or any argv.
 | **`include_soul` deprecated** | `data/personality/` is governed via `POST /soul/apply` with a human reason string and an injection scan. Sync can never touch it: `local_path` is validated to resolve inside `data/corpus`, and the soul filter rule is unconditional. The `include_soul` key is kept only so old configs still load — it has no effect. **This is the single most important path-safety rule.** |
 | **Hardened exclude list** | Model weights, indices, caches, venvs, logs, secrets, `.git`, and the soul DB (`*.db*`) are all excluded by default. See `sync/filters.py`. |
 | **`max_delete: 20`** | rclone aborts the run if more than 20 deletions would occur. Tune up only when you understand exactly why. |
-| **Per-file SHA-256 audit** | Every added/modified file under `data/corpus/` gets a SHA-256 hash logged in `logs/audit.jsonl`. |
+| **Per-file SHA-256 audit** | Added/modified file events include a SHA-256 hash when the local file resolves inside the corpus and can be read. Otherwise the audit row has an empty `sha256`. |
 | **No in-process gateway import** | No graph node/edge; `sync/` is never imported by the core three. Optional `POST /ops/sync` is an API-key-gated subprocess shim only (`utils/ops_runner.py`). The only outbound call is still `rclone` → Dropbox. |
 | **Zero new deps** | stdlib + existing `pyyaml`/`utils.*` only. `rclone` is an external binary, installed out-of-band like Ollama. |
 
@@ -138,8 +138,9 @@ owned by your user, managed entirely by rclone. CyClaw never holds it.
 
 ## Step 3 — Edit the `sync:` block in `config.yaml`
 
-The additive `sync:` block was appended to `config.yaml`. No secrets go here —
-only metadata. Absence of the block disables sync entirely.
+The `sync:` block contains metadata, not secrets. A missing or empty block is
+a configuration error. Set `enabled: false` to disable syncing explicitly;
+a valid block without an `enabled` key defaults to enabled.
 
 ```yaml
 sync:
@@ -222,14 +223,20 @@ record of real syncs only.
 
 | Code | Meaning | Caller action |
 |---|---|---|
-| 0 | Success, no corpus change | none |
-| **10** | Success **and `data/corpus/**` changed** | run `python -m retrieval.indexer`, then **restart the gateway** |
+| 0 | Successful operation, disabled sync, or successful automatic reindex | inspect the command output; restart the gateway after an automatic rebuild |
+| **10** | Corpus changed and the caller must reindex; this can follow a partial failed sync | inspect the sync result, run `python -m retrieval.indexer`, then **restart the gateway** |
 | 1 | Aborted by a safety fuse (`--max-delete` / `--max-transfer`) | investigate the remote; do **not** blindly raise the fuse |
 | 2 | Sync failed (other) | inspect the audit log / rclone log |
 | 3 | Config / environment problem (rclone missing or old, config invalid) | fix per the error details |
 
-The retriever is constructed at import time in `gate.py`, so a **gateway
-restart is required** to pick up the rebuilt index after a reindex.
+Exit 10 signals a reindex obligation, not proof of a successful sync. Inspect
+the rclone log and `sync_failed` audit events for a partial failure. With
+`auto_reindex: true`, the CLI runs the indexer instead of returning 10; a
+caught sync error still returns failure even if that rebuild succeeds.
+
+A standalone reindex needs a gateway restart to load the new retriever. The
+separate `POST /index/build` route rebuilds in the gateway and replaces its
+retriever after a successful build.
 
 ### Cron-friendly reindex chain
 

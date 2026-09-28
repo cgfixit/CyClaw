@@ -30,7 +30,9 @@ grepping.
 | `DOCKER.md`, `SECCOMP_EBPF_HARDENING.md`, `POSTGRES_BACKEND.md` | Deployment: containers, hardening (see also `../deploy/README.md`), Postgres backends. |
 | `m5-48gb-coding-expectations.md` | Local-model doctrine for the shipped Ollama tag: context budget, timeouts, and the no-stall arithmetic. The only doc `doc-sync`'s D7 check cross-references against `config.yaml` + `macos/ollama-mlx.env`. |
 | `ARCHIVE_AND_ROADMAP.md` | Where moved documents went, and the forward-looking roadmap. |
-| `online-llm/`, `NeMo/`, `security-philosophy/` | Provider notes, guardrails background, telemetry-kill reference env, Numbat 0.2.0 secondary-evaluator note. |
+| [`online-llm/readme.md`](online-llm/readme.md), [`NeMo/README.md`](NeMo/README.md) | Provider contracts and the current guardrails path/stage matrix. |
+| [`security-philosophy/numbat_pre_action_gate.md`](security-philosophy/numbat_pre_action_gate.md), [`security-philosophy/numbat_secondary_evaluator.md`](security-philosophy/numbat_secondary_evaluator.md) | The default-off deny-only external-call hook and the separate default-on observation stream. |
+| [`../retrieval/README.md`](../retrieval/README.md), [`audits/2026-09-26-reranker-bakeoff.md`](audits/2026-09-26-reranker-bakeoff.md) | Token chunking, paired index generations, context-window gating, and the evidence for leaving reranker scores in shadow mode. |
 
 ## Working / historical trees
 
@@ -43,7 +45,7 @@ grepping.
 | `mailtag/IMPLEMENTATION_PLAN.md` | **DRAFT** mailtag (provider-neutral email tagging) plan. Not shipped, not a graph node, not approved. Do not implement from this file without an explicit owner sign-off. |
 | `analysis/`, `zIdeas/`, `zWork/`, `! How-To-Guides/`, `screenshots/` | Working material and archives; not authorities. |
 
-Writing rules for anything added here: every `##` section self-contained
-(the corpus is chunked section-by-section), numbers cited from
-`config.yaml`/`pyproject.toml` rather than restated, dated reports to
-`audits/`.
+Keep each `##` section understandable on its own. The indexer uses overlapping
+token windows, not Markdown heading boundaries, and only configured corpus
+paths are indexed. Cite `config.yaml` or `pyproject.toml` for defaults, and put
+dated reports in `audits/`.

@@ -17,8 +17,9 @@ by token.
 
 **What that means in practice**
 
-- **Your data stays put.** Once the embedding model is cached, nothing leaves
-  the machine unless you say so on that question.
+- **Local answers use local models.** The embedding model and enabled
+  reranker each need a cached Hugging Face snapshot. Their bootstrap downloads
+  are separate from per-question consent for Grok or Claude.
 - **Policy is topology.** Retrieval is the graph's unconditional entry node,
   every path converges on the audit logger, and the online-provider gate is a
   graph edge — checkable in code, not a prompt someone can forget.
@@ -120,15 +121,17 @@ Confirm it's alive: `curl http://127.0.0.1:8787/health`, then open
 ## What It Does
 
 CyClaw answers questions from your documents using a local model reading a
-local index. What makes the "nothing leaves the machine" claim checkable is
-*where* the safety lives: the shape of the graph, not a prompt, system
-message, or config flag someone could forget to set.
+local index. Graph edges enforce retrieval and paid-provider consent. Model
+bootstrap and separately enabled connectors have their own network behavior.
 
-> **First run is the one exception.** If the embedding model isn't already in
-> the Hugging Face cache, `retrieval/embeddings.py` fetches it once — a
-> documented bootstrap, not something `user_confirmed_online` gates. Once
-> cached, a disk-only probe confirms it and every later load passes
-> `local_files_only=True`, so a warm cache never reaches out again.
+> **Cache both retrieval models for offline use.** `retrieval/embeddings.py`
+> and the enabled `retrieval/rerank.py` can fetch missing Hugging Face models.
+> Building the index loads only the embedder; the reranker loads on a query.
+> Cached snapshots load with `local_files_only=True`. With a completed index,
+> `models.embeddings.offline_after_index: true` forces both loaders to use
+> local files, even when a snapshot is missing. An unavailable reranker leaves
+> the cosine gate in control and sets `rerank_degraded` in the audit record.
+> These model downloads do not use `user_confirmed_online`.
 
 ### The core — always present, no switches involved
 
@@ -138,10 +141,14 @@ message, or config flag someone could forget to set.
    — `offline_best_effort` can answer from partial context after a vault miss.
 2. **Hybrid search over your Markdown corpus.** ChromaDB semantic vectors plus
    BM25 keyword ranking, fused by RRF (`retrieval.rrf_k`), both local and
-   CPU-only. A query whose best semantic match is below
-   `retrieval.min_semantic_score` (or, with no semantic scores, whose top fused
-   hit is below `retrieval.min_score`) routes to a user gate instead of a
-   confident guess.
+   CPU-only. The gate considers the chunks in the local context window. A query
+   whose best semantic match there is below `retrieval.min_semantic_score`
+   (or, with no semantic scores, whose top fused
+   hit is below `retrieval.min_score`) routes to a user gate. The enabled
+   cross-encoder scores retrieved context in shadow mode because
+   `retrieval.min_rerank_score` ships `null`; it records scores without vetoing
+   a hit. A numeric threshold can reject a hit, but cannot promote a miss.
+   See the [retrieval guide](retrieval/README.md) for the measured limits.
 3. **A local model by default.** Ollama serving `models.local_llm.model`
    (shipped: `qwen3.8:27b-mlx`). Context budget, generation cap, and every
    timeout are `config.yaml` values — nothing tunable is hardcoded.
@@ -406,10 +413,11 @@ Full schema and the live-probe walkthrough: [`spend/README.md`](spend/README.md)
 ## Benchmarks and Evals
 
 Quality is measured on four separate planes, and only the first blocks a
-merge. All score the synthetic fixture under `tests/fixtures/groundedness/`
-(eight documents, 52 labeled cases in six categories including
-`injected_content`, where the evidence itself carries instructions); none is a
-graph node or a security control.
+merge. The groundedness fixture under `tests/fixtures/groundedness/` has
+eight documents and 52 labeled cases in six categories, including
+`injected_content`, where evidence carries instructions. The retrieval lane
+also probes the committed corpus and runs a separate reranker probe set.
+These evaluations are not graph nodes or security controls.
 
 | Plane | Command | Runs | Measures |
 |---|---|---|---|
@@ -418,13 +426,14 @@ graph node or a security control.
 | Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` (+ key) | operator, opt-in, spends money | groundedness, completeness, abstention per case, graded by Claude |
 | Local judge | same, with `evals.local_judge.enabled: true` | operator, opt-in, fully local | same rubric graded by a second loopback model of a different family |
 
-**Measured so far.** The retrieval gate holds at hit@5 1.0 / Recall@5 1.0 /
-MRR 1.0 on CI (20 scored cases, 2026-09-12) and locally after the fixture grew
-to 52 (44 scored, 2026-09-16). The dogfood matrix produced five real
-`generated` rows on `qwen3.8:27b-mlx` on an M5 Pro 48 GB
-([dated record](docs/audits/2026-09-12_Local_Qwen_Dogfood_Matrix.md)).
-**No judge-plane result has been published yet.** Planes, thresholds, and the
-not-yet-measured list are in [`docs/EVALS.md`](docs/EVALS.md).
+**Results are tied to their fixtures.** Historical groundedness runs reached
+hit@5, Recall@5, and MRR of 1.0; they do not establish answerability for every
+corpus query. The [September 26 reranker bake-off](docs/audits/2026-09-26-reranker-bakeoff.md)
+found no model and threshold that passed its held-out acceptance criteria,
+so the veto remains in shadow mode. The [local dogfood record](docs/audits/2026-09-12_Local_Qwen_Dogfood_Matrix.md)
+contains five generated rows on `qwen3.8:27b-mlx` on an M5 Pro 48 GB.
+No judge-plane result has been published. See [`docs/EVALS.md`](docs/EVALS.md)
+for thresholds and unmeasured cases.
 
 ---
 
@@ -653,7 +662,7 @@ stream's shape. Four pieces, each with its own switch:
 | Stream (`utils/numbat_emitter.py`) | `numbat.enabled` | **on** | observes | `logs/numbat-events.ndjsonl`, rolled over at 50 MiB to one `.1` file |
 | Pre-action hook (`utils/external_pre_hook.py`) | `policy.fallback.pre_action_hook.enabled` | off | **enforces**, deny-only | `audit.jsonl` (`pre_action_hook_denied`, `pre_action_hook_reason`), plus the stream when `emit_verdict` is on |
 | CEL monitor (`utils/numbat_cel.py`) | `numbat.cel.enabled` (`numbat-cel` extra) | off | observes, never blocks | the stream, as `tool.result` records |
-| CLI scoring | none | CI only | checks the stream's shape and rules | `.github/workflows/numbat-rules.yml` |
+| Offline stream scoring | none | CI and operator-run CLI | checks the stream's shape and rules | `.github/workflows/numbat-rules.yml` |
 
 Key things to know:
 - **`numbat.enabled` turns on the stream and nothing else.** It feeds every
@@ -830,7 +839,7 @@ CyClaw/
 ├── powershell/ / windows/ / macos/   # per-platform installers, launchd/task glue
 ├── .claude/                # local operator workflows and prompts (22 project skills)
 ├── retrieval/              # indexer, hybrid_search (RRF), embeddings, stemmer,
-│                           # vector_store (pluggable Chroma/pgvector), clear_cache
+│                           # rerank (shadow scores), vector_store (Chroma/pgvector), clear_cache
 ├── llm/client.py
 ├── sync/                   # optional Dropbox corpus sync
 ├── utils/                  # sanitizer, logger, personality, health, ratelimit,

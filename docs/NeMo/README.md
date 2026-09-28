@@ -1,29 +1,15 @@
 # NeMo Guardrails — current-state matrix
 
-> **Status update — 2026-09-06 (docs review, Claude Code):** MOSTLY_COMPLETE.
-> This file's own claims still verify live: `guardrails/broker.py`,
-> `guardrails/tool_broker.py`, `guardrails/call_inventory.py`,
-> `guardrails/qwen_registry.py` all exist; `guardrails.enabled: false` remains
-> the shipped default (`config.yaml`'s `guardrails:` block). One drift found elsewhere: Numbat
-> issue #1128 Slice A (hook-verdict emission) shipped 2026-08-27 in the same
-> commit range as this file's last edit but is not cross-referenced here —
-> see `docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md`'s own status stamp.
->
-> **What's left:**
-> - Re-run this matrix after any future guardrails PR; no outstanding gap
->   found in this pass. Not a delete candidate — it is the live reference doc.
->
-> **2026-09-27:** the route table's failure modes and the engine notes now
-> describe `check()` degrades being audited (`guardrail_degraded`) and the
-> per-key circuit breaker. The As-of stamp below still dates the rest.
+This matrix describes the implemented guardrails paths. `guardrails.enabled`
+ships `false`; enabling it adds offline checks and, when installed, NeMo
+`check()` around generation. The graph remains the routing authority.
+Engine failures pass through and are recorded as `guardrail_degraded`.
 
-**As-of 2026-08-27**, verified against `origin/main` **`d9b0f8cd`**. This file is
-the canonical description of what the live tree *does*. Historical phase
-plans below are **superseded for status**; they remain valid as decision logs.
-
-Issue [#1134](https://github.com/cgfixit/CyClaw/issues/1134) (5-delivery
-program) is **closed**. Brokers, inventory, POSIX sandbox backends, and the
-enabled-overlay CI tests are on `main`.
+Read this matrix with `guardrails/broker.py`, `guardrails/integration.py`,
+`utils/guardrail_bridge.py`, and `graph.py`. The phase plans below preserve
+historical decisions; their completion labels do not establish current
+runtime coverage. The enabled-overlay CI lane exercises the installed NeMo
+runtime with a loopback mock, not a live provider.
 
 ## Authoritative rule
 

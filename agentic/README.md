@@ -532,12 +532,12 @@ python -m agentic.cli real-repo-run-publish --run-id "<id>" --reason "..." --con
 python -m agentic.cli real-repo-run-discard --run-id "<id>"
 ```
 
-**CLI-only.** `utils/ops_runner.py`'s allowlist and `run_agentic_op` carry
-every `real-repo-run*` action, but `schemas/api.py`'s `OpsAgenticRequest.action`
-Literal and `gate_ops.py`'s forwarding stop at `status`/`test`/`context`/
-`propose-skill`/`apply-skill`, so `POST /ops/agentic` answers 422 for them.
-No HTTP route reaches the pipeline; wiring it into the terminal is a separate
-decision. `real-repo-run-plan` is not in `ops_runner._AGENTIC_ACTIONS` at all.
+**CLI-only.** `utils/ops_runner.py` accepts `real-repo-run` and its
+`-status`, `-decide`, `-push`, `-publish`, and `-discard` actions, but excludes
+`real-repo-run-plan`. `schemas/api.py`'s `OpsAgenticRequest.action` and
+`gate_ops.py` expose only `status`/`test`/`context`/`propose-skill`/`apply-skill`.
+`POST /ops/agentic` therefore rejects all coding-loop actions with 422.
+No HTTP route reaches the pipeline.
 
 **`--provider` semantics differ by subcommand:**
 

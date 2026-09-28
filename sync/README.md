@@ -24,9 +24,11 @@ authority; this file is the in-tree map.
 
 ## Exit codes (an API — keep them)
 
-`0` success/no change · `1` safety fuse tripped (`--max-delete` /
-`--max-transfer` abort) · `2` operation failed · `3` env/config problem ·
-`10` corpus changed → caller should reindex (`python -m retrieval.indexer`).
+`0` successful operation or disabled sync; `1` safety fuse tripped
+(`--max-delete` / `--max-transfer` abort); `2` operation failed;
+`3` env/config problem; `10` corpus changed and the caller must reindex
+(`python -m retrieval.indexer`, then restart the gateway). Exit 10 can also
+follow a partial failed sync; inspect the command output and audit log.
 
 The `10` contract holds for the shipped posture, where `sync.auto_reindex` is
 `false`. Turning that switch on makes `python -m sync.cli sync` run the indexer
