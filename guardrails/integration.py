@@ -10,9 +10,8 @@ This is the single seam between CyClaw and ``nemoguardrails``. It is designed to
     (reached only via ``utils/guardrail_bridge.py``; ``graph.py`` never
     imports this module -- I6).
 
-``guardrail_safety_node`` below is an unused example helper, not the live
-path. ``gate.py`` / ``graph.py`` / ``mcp_hybrid_server.py`` must not import
-this package (``tests/test_guardrails_isolation.py``).
+``gate.py`` / ``graph.py`` / ``mcp_hybrid_server.py`` must not import this
+package (``tests/test_guardrails_isolation.py``).
 """
 
 from __future__ import annotations
@@ -275,9 +274,8 @@ def check_input(
 
     Unlike :func:`safe_generate`, this NEVER generates: it only runs the
     model-free heuristic floor (:func:`_offline_checks`), so wiring it into the
-    graph as ``guardrail_input_node`` cannot double-generate an answer -- the
-    disqualifier that keeps :func:`guardrail_safety_node` unwired (see
-    docs/NeMo/later_development_guideline.md). ``utils/guardrail_bridge.py``
+    graph as ``guardrail_input_node`` cannot double-generate an answer.
+    ``utils/guardrail_bridge.py``
     is the only production caller and already short-circuits to ``None``
     before this is ever reached when guardrails are disabled, but this
     function is correct standalone too (e.g. from the CLI).
@@ -478,32 +476,3 @@ async def safe_generate(
         response=response, blocked=False, reason=None, rails_triggered=triggered,
         grounding_score=score, soul_topic=soul, guardrails_active=True,
     )
-
-
-# Unused example helper. Live graph nodes are guardrail_input / guardrail_output
-# in graph.py; they call check_input / check_output via utils/guardrail_bridge.py.
-
-
-async def guardrail_safety_node(state: dict[str, Any], cfg: GuardrailsConfig | None = None) -> dict[str, Any]:
-    """Example LangGraph node: run guardrails over the current state.
-
-    Reads ``state['query']`` and ``state['retrieved_context']`` (or builds it from
-    ``retrieved_docs``) and returns ONLY the new keys to merge -- it never mutates
-    the input state in place, matching CyClaw's node contract.
-    """
-    if cfg is None:
-        cfg = load_guardrails_config()
-    query = state.get("query", "")
-    context = state.get("retrieved_context", "")
-    if not context and state.get("retrieved_docs"):
-        context = "\n\n".join(d.get("text", "") for d in state["retrieved_docs"])
-
-    result = await safe_generate(query, context=context, cfg=cfg)
-    return {
-        "guarded_response": result.get("response", ""),
-        "safety_blocked": result.get("blocked", False),
-        "safety_reason": result.get("reason"),
-        "safety_rails_triggered": result.get("rails_triggered", []),
-        "safety_grounding_score": result.get("grounding_score"),
-        "safety_soul_topic": result.get("soul_topic", False),
-    }
