@@ -16,7 +16,9 @@
 #     count. It does not change pins, hashes, or which gate runs. A dead
 #     index still fails the job under timeout-minutes. python-publish.yml
 #     keeps its deliberate no-pip-cache choice (zizmor cache-poisoning) and
-#     only gains this timeout pair.
+#     only gains this timeout pair. Image builds do not inherit this env;
+#     the Dockerfile builder stage declares the same 60/10 pair as ARG
+#     defaults (a dead index there still fails under timeout-minutes).
 #   - Explicit hermetic prepare (mkdirs, minimal soul.md, env var) cross-platform
 #   - Real RAG smoke validates ChromaDB (version pinned in constraints.txt) + BM25 + RRF on committed corpus
 #   - Coverage scoped to exercised modules only
@@ -55,7 +57,8 @@ permissions:
 
 # See the header note. Inherited by every job, including venv pip and the
 # verify-skills matrix. Download caches stay on the setup-python steps that
-# already declare cache: pip.
+# already declare cache: pip. A process inside `docker build` does not see
+# this block; the Dockerfile builder ARG defaults carry the same pair.
 env:
   PIP_DEFAULT_TIMEOUT: "60"
   PIP_RETRIES: "10"

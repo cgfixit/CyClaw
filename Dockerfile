@@ -46,6 +46,21 @@ COPY pyproject.toml constraints.txt requirements.txt ./
 # Keep the two in lock-step on any bump.
 # No stderr redirect and no `||` on this RUN: a dependency install that fails
 # must fail the build loudly rather than silently take another path.
+#
+# pip's own defaults are a 15s socket timeout and 5 retries. A `docker build`
+# RUN receives only ARG/ENV declared in this stage; the workflow env pair
+# (PIP_DEFAULT_TIMEOUT=60, PIP_RETRIES=10) stays on the runner. That gap
+# surfaced on 2026-09-28 as `Read timed out. (read timeout=15)` while
+# reading https://pypi.org/simple/python-dateutil/ inside the docker-build
+# job (run 36409708059, job 108886754079), reported as a chromadb
+# ResolutionImpossible. These ARG defaults match the workflow pair so a
+# local `docker build` / `docker compose build` gets the same budget with
+# no --build-arg. ENV publishes them into the pip process. ARG scope resets
+# at the runtime FROM below, so the final image does not carry either name.
+ARG PIP_DEFAULT_TIMEOUT=60
+ARG PIP_RETRIES=10
+ENV PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
+    PIP_RETRIES=${PIP_RETRIES}
 RUN pip install --no-cache-dir --upgrade "pip==26.2.1" && \
     pip install --no-cache-dir torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt -c constraints.txt
