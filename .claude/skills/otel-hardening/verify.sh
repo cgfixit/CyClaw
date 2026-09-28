@@ -53,7 +53,8 @@ _mktree() {
            "$d/agentic/fsconnect" "$d/sync" "$d/telegram" "$d/opentweet"
   cp "$repo_root/pyproject.toml" "$repo_root/constraints.txt" "$repo_root/requirements.txt" \
      "$repo_root/environment.yml" "$repo_root/Dockerfile" "$repo_root/docker-compose.yml" "$d/"
-  cp "$repo_root/utils/telemetry_kill.py" "$repo_root/utils/onnx_telemetry.py" "$d/utils/"
+  cp "$repo_root/utils/telemetry_kill.py" "$repo_root/utils/onnx_telemetry.py" \
+     "$repo_root/utils/external_pre_hook.py" "$d/utils/"
   cp "$repo_root/retrieval/embeddings.py" "$repo_root/retrieval/vector_store.py" "$d/retrieval/"
   cp "$repo_root/guardrails/integration.py" "$d/guardrails/"
   cp "$repo_root/docs/security-philosophy/cyclaw_telemetry_kill.env" "$d/docs/security-philosophy/"
@@ -348,6 +349,34 @@ old = "    _enforce(os.environ)\n    return dict(TELEMETRY_KILL)\n"
 assert old in text
 text = text.replace(old, "    for key, value in TELEMETRY_KILL.items():\n        os.environ[key] = value\n    return dict(TELEMETRY_KILL)\n", 1)'
 _expect "T9 parent-path drift mutation" 2 "FAIL  \[T9\].*apply_telemetry_kill"
+
+# 28. T13: the build backend is swapped for an unclassified one. Until
+#     2026-09-28 the sweep never read [build-system].requires, so this exact
+#     edit left strict mode green (Codex P2 on PR #1502). WARN by default,
+#     FAIL under --strict, same as any other unclassified dependency.
+a="$(_mktree)"
+_mutate "$a/pyproject.toml" '
+import re
+text, n = re.subn(r"\"hatchling==[0-9][^\"]*\"", "\"some-build-backend==1.0.0\"", text)
+assert n == 1'
+_expect "T13 unclassified build backend (default)" 0 "WARN  \[T13\].*some-build-backend"
+a="$(_mktree)"
+_mutate "$a/pyproject.toml" '
+import re
+text, n = re.subn(r"\"hatchling==[0-9][^\"]*\"", "\"some-build-backend==1.0.0\"", text)
+assert n == 1'
+_expect "T13 unclassified build backend (--strict)" 2 "FAIL  \[T13\].*some-build-backend" "--strict"
+
+# 29. T13: a dynamic-launcher site stops spawning. The row for the pre-action
+#     hook's command engine is only true while _run_command still hands the
+#     operator's argv to subprocess; removing that call must be reported so
+#     the row is retired rather than left describing a surface that is gone.
+#     The replacement must not contain the original marker as a substring.
+a="$(_mktree)"
+_mutate "$a/utils/external_pre_hook.py" '
+text = text.replace("subprocess.run(", "zz_spawn_removed_zz(")
+assert "subprocess.run(" not in text'
+_expect "T13 dynamic-launcher site gone mutation" 0 "WARN  \[T13\] dynamic launcher .pre-action-hook-command.*no longer carries"
 
 echo
 if [ "$fails" -eq 0 ]; then

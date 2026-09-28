@@ -105,10 +105,18 @@ these values silence vendor telemetry readers; they do not close sockets.
    its binary there AND alias it (the 2026-09-28 sweep found nine spawned
    binaries — `launchctl`, `crontab`, `schtasks`, `cmd.exe`, `unshare`,
    `sandbox-exec`, `xdg-open`/`open`/`explorer` — that had never been listed).
-   The reverse holds too: when a pin or spawn site is removed, delete its
-   alias and row (the `uv` precedent), and keep each row's `versions` text in
-   step with the pins so T13's "classified" never means "classified against a
-   version nobody ships". Categories:
+   Python dependencies are read from `project.dependencies`, every
+   `optional-dependencies` group, AND `[build-system].requires` (the build
+   backend is an install surface too; it was skipped until PR #1502). A spawn
+   site whose executable is chosen at run time (the pre-action hook's
+   `command` engine, the executor's caller-declared checks) cannot be named
+   by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the source
+   marker that proves it spawns, and its row describes the surface and the
+   gate around it, never a binary. The reverse holds too: when a pin or spawn
+   site is removed, delete its alias and row (the `uv` precedent — T13 warns
+   when a dynamic site loses its marker), and keep each row's `versions` text
+   in step with the pins so T13's "classified" never means "classified
+   against a version nobody ships". Categories:
    1 unsolicited telemetry with an official control (control pairs must exist
    in the oracles — never invent one) · 2 ancillary update/version-check
    egress · 3 intentional policy-gated functional egress (controls stay

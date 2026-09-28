@@ -570,6 +570,28 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "negative finding; source is a single compiled extension binary, no HTTP client linked in",
     },
     {
+        "name": "operator/caller-configured launchers", "category": 3, "controls": {},
+        "url": "docs/security-philosophy/numbat_pre_action_gate.md",
+        "versions": "no fixed binary -- the executable is chosen at run time: (a) the pre-action hook's "
+                    "`command` engine (utils/external_pre_hook.py::_run_command) runs "
+                    "policy.fallback.pre_action_hook.command verbatim, JSON on stdin, exit 0 allow / 2 deny; "
+                    "(b) agentic/executor/runner.py::run_verification runs each caller-declared Check.argv "
+                    "(CyClaw's own default_checks are pytest/ruff/invariant-guard)",
+        "enforcement": "both ship off (hook enabled: false with command: []; agentic.enabled false) and both "
+                       "can only deny or verify, never widen an external call. (a) inherits the parent's "
+                       "already-killed os.environ (no env= is built, so inheritance is the delivery); (b) is "
+                       "wrapped by build_telemetry_safe_env (T12) and production_sandbox(), whose Linux "
+                       "netns denies the child network outright. Whatever the operator's command or the "
+                       "caller's check does on the network is that operator's policy, not CyClaw telemetry: "
+                       "the static sweep cannot name the binary, so T13 checks the two spawn sites still "
+                       "exist instead and this row documents the surface. Never a kill-map entry",
+        "scope": "confirmed Grok/Claude calls when the hook is on; agentic verification when enabled",
+        "reviewed": "2026-09-28",
+        "evidence": "_run_command reads block['command'] and passes it to subprocess.run; run_verification "
+                    "passes check.argv to the sandbox backend (Codex P2 on PR #1502: a dynamic launcher "
+                    "no row could name)",
+    },
+    {
         "name": "local OS process tooling", "category": 4, "controls": {},
         "url": "docs/THREAT_MODEL.md",
         "versions": "host binaries, never pinned: launchctl + crontab + schtasks + cmd.exe (sync/scheduler.py, "
@@ -593,9 +615,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
                     "pyyaml/rank-bm25/pygments/websockets/tzdata/wcmatch and the dev/test/build tools "
-                    "(pytest*/ruff/mypy/bandit/pip/python/setuptools==84.0.0; hatchling is the build "
-                    "backend and is never installed at runtime). psycopg-binary and cel-python have their "
-                    "own rows above",
+                    "(pytest*/ruff/mypy/bandit/pip/python/setuptools==84.0.0; hatchling==1.32.0 is the "
+                    "[build-system] backend, swept from build-system.requires, never installed at "
+                    "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
                        "is caller policy (all CyClaw clients set trust_env=False); nltk data downloads are "
                        "avoided by design (local Porter stemmer, no punkt)",
@@ -667,6 +689,10 @@ INVENTORY_ALIASES: dict[str, str] = {
     "xdg-open": "local OS process tooling",
     "open": "local OS process tooling",
     "explorer": "local OS process tooling",
+    # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
+    # operator/caller-chosen at run time, so the surface itself is the component
+    "pre-action-hook-command": "operator/caller-configured launchers",
+    "executor-check": "operator/caller-configured launchers",
     "sqlite-vec": "sqlite-vec",
     # bulk category-5 members
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
@@ -683,6 +709,8 @@ INVENTORY_ALIASES: dict[str, str] = {
     "pydantic-core": "core web/runtime libs",
     "pydantic-settings": "core web/runtime libs",
     "wcmatch": "core web/runtime libs",
+    # [build-system].requires -- swept since 2026-09-28
+    "hatchling": "core web/runtime libs",
     # constraints.txt-only pin (torch's transitive setuptools>=77.0.3 floor,
     # hardened to 84.0.0 for PYSEC-2026-3447): a build backend, no own
     # telemetry mechanism, same bucket as pip/wheel/python above.
@@ -703,7 +731,20 @@ INVENTORY_ALIASES: dict[str, str] = {
 # future spawn site that adds a NEW binary still needs a row.
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "unshare", "sandbox-exec",
-                             "xdg-open", "open", "explorer", "ip", "arp")
+                             "xdg-open", "open", "explorer", "ip", "arp",
+                             "pre-action-hook-command", "executor-check")
+
+# Spawn sites whose executable is NOT fixed in the code -- the operator's
+# configured hook command, the caller's verification checks. No static sweep
+# can name the binary, so the surface is the component: each entry must
+# resolve to an INVENTORY row (via KNOWN_EXTERNAL_COMPONENTS above) AND the
+# file must still carry the marker that proves it spawns. A site that stops
+# spawning turns its row into the stale documentation this checker exists to
+# prevent, so that is reported too (Codex P2 on PR #1502, 2026-09-28).
+DYNAMIC_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("pre-action-hook-command", "utils/external_pre_hook.py", ("def _run_command", "subprocess.run(")),
+    ("executor-check", "agentic/executor/runner.py", ("def run_verification", "check.argv")),
+)
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []
@@ -846,6 +887,11 @@ def _load_pyproject_deps(pyproject_path: Path) -> dict[str, str]:
         data = tomllib.load(fh)
     groups: list[list[str]] = [data.get("project", {}).get("dependencies", [])]
     groups.extend(data.get("project", {}).get("optional-dependencies", {}).values())
+    # [build-system].requires is an install surface too: `pip install -e .`
+    # and every wheel build resolve it. Until 2026-09-28 (Codex P2 on PR
+    # #1502) this loader skipped it, so replacing hatchling with an
+    # unclassified backend left strict T13 green.
+    groups.append(data.get("build-system", {}).get("requires", []))
     return _parse_requirement_names([e for g in groups for e in g])
 
 
@@ -1218,6 +1264,21 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
             warn("T13", msg)
     else:
         ok("T13", f"all {len(components)} declared components resolve to a classification row")
+    # -- dynamic launchers: the surface must still exist for its row to be true
+    for component, rel, markers in DYNAMIC_LAUNCHER_SITES:
+        path = root / rel
+        if not path.exists():
+            warn("T13", f"dynamic launcher {component!r}: {rel} is missing -- if the launcher was removed, "
+                        "retire its alias and inventory row; if it moved, update DYNAMIC_LAUNCHER_SITES")
+            continue
+        text = path.read_text(encoding="utf-8")
+        gone = [m for m in markers if m not in text]
+        if gone:
+            warn("T13", f"dynamic launcher {component!r}: {rel} no longer carries {gone} -- the site may "
+                        "have stopped spawning, so its inventory row would document a surface that no "
+                        "longer exists; retire or re-point it")
+        else:
+            ok("T13", f"dynamic launcher {component!r} still spawns from {rel} (row present)")
     for name in UNBOUNDED_TELEMETRY_CAPABLE:
         # Recorded review findings (issue #1135): bounding these is a
         # dependency decision, not a checker fix, so an unbound one is
