@@ -29,8 +29,10 @@ STALE_AFTER_DAYS = 30
 TICKS_PER_USD = 10_000_000_000
 
 # USD per 1M tokens. Hardcoded; no vendor billing API.
-# Rates: https://docs.x.ai/developers/pricing and
-# https://platform.claude.com/docs/en/about-claude/pricing (verified 2026-08-19).
+# Rates: https://docs.x.ai/developers/pricing (grok-4.5 verified 2026-08-19) and
+# https://platform.claude.com/docs/en/about-claude/pricing (claude-sonnet-5
+# verified 2026-09-28; the page states the Sept 1 2026 rise to $3/$15 that the
+# launch pricing had scheduled will not occur, so $2/$10 is the standard price).
 # grok-4.5 ≥200k prompt bills the long-context band for ALL tokens in the request.
 # Claude cache writes split 5m vs 1h when usage.cache_creation is present.
 _RATES: dict[str, dict[str, float]] = {
@@ -83,7 +85,7 @@ _RATES: dict[str, dict[str, float]] = {
 # would not lower it.
 _RATE_VERIFIED: dict[str, str] = {
     "grok-4.5": "2026-08-19",
-    "claude-sonnet-5": "2026-08-19",
+    "claude-sonnet-5": "2026-09-28",
     "grok-4.3": "2026-08-27",
     "grok-4.6": "2026-09-02",
 }
