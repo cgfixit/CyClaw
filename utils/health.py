@@ -114,28 +114,14 @@ def _health_cfg(config_path: str) -> dict:
     return cfg
 
 
-# Credential env vars whose live values must never reach a probe's error string.
-# /health is UNAUTHENTICATED (gate.py), so anything _safe_error lets through is
-# world-readable to any local process. Mirrors gate.py::_sanitize_error's own
-# env-value sweep — the same defense, on the one response path that had only the
-# URL half of it.
+# Best-effort redaction for non-HTTP health diagnostics. HTTP probe failures
+# use the closed vocabulary in _public_probe_error instead.
 _CREDENTIAL_ENVS = ("GROK_API_KEY", "ANTHROPIC_API_KEY", "CYCLAW_API_KEY")
 _MIN_REDACTABLE_LEN = 8
 
 
 def _safe_error(exc: Exception) -> str:
-    """Strip URLs AND live credential values from a probe failure message.
-
-    The URL half was here from the start. The credential half closes a real
-    leak, reproduced against httpx 0.28.1 / h11: if an API key carries a
-    trailing newline, a trailing CRLF, or a leading space -- exactly what a
-    CRLF ``.env`` on Windows, a Docker ``--env-file``, or a hand-edited systemd
-    ``EnvironmentFile`` produces -- h11 rejects the header and raises
-    ``LocalProtocolError: Illegal header value b'<the entire key>'``. That
-    message survived the URL-only regex and was returned verbatim in the
-    unauthenticated ``GET /health`` body. ``_ping``'s bare ``except Exception``
-    means every future exception type inherits this scrub for free.
-    """
+    """Redact URLs and known credential values from non-HTTP health diagnostics."""
     msg = re.sub(r"https?://\S+", "[URL REDACTED]", str(exc))
     for env_key in _CREDENTIAL_ENVS:
         val = os.environ.get(env_key, "")
@@ -261,7 +247,7 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
         # newline (CRLF .env, --env-file, EnvironmentFile) is an illegal HTTP
         # header value, and h11 puts the whole value in the exception it
         # raises. Stripping at read means the probe simply works instead of
-        # relying on _safe_error to scrub the fallout.
+        # reporting an invalid request.
         api_key = os.environ.get("GROK_API_KEY", "").strip()
         if api_key:
             results.append(_ping(
@@ -321,6 +307,22 @@ def _pre_action_hook_status(cfg: dict[str, object]) -> HealthStatus | None:
     ready, problem = verdict
     return HealthStatus(name="pre_action_hook", healthy=ready, error=None if ready else _safe_error(Exception(problem)))
 
+
+def _public_probe_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.ConnectTimeout):
+        return "Connection timed out"
+    if isinstance(exc, httpx.ConnectError):
+        return "Connection failed"
+    if isinstance(exc, httpx.TimeoutException):
+        return "Request timed out"
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return f"HTTP {code}" if type(code) is int and 100 <= code <= 599 else "HTTP status failure"
+    if isinstance(exc, httpx.LocalProtocolError):
+        return "Invalid request"
+    return "Health probe failed"
+
+
 def _ping(
     url: str,
     name: str,
@@ -334,9 +336,7 @@ def _ping(
         latency = (time.monotonic() - start) * 1000
         resp.raise_for_status()
     except Exception as e:
-        # Redact the URL (which may contain credentials or internal hostnames)
-        # from the exception message before surfacing it in the public /health response.
-        return HealthStatus(name=name, healthy=False, error=_safe_error(e))
+        return HealthStatus(name=name, healthy=False, error=_public_probe_error(e))
     # Model-pin drift guard for OpenAI-style /models endpoints: a retired or
     # renamed pin (xAI retired grok-beta and grok-4) otherwise surfaces only as
     # a runtime HTTP 4xx on the first live fallback — after the user already
