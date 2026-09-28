@@ -164,9 +164,12 @@ places no manifest checker reads, and nothing cross-checks those. Seven classes:
   not the same as "unused": a pin can be a transitive deliberately version-
   pinned on this surface, and deleting one of those silently floats the real
   dependency. Every exemption in `_PINNED_NOT_IMPORTED` therefore carries the
-  package that pulls it — `websockets` is `uvicorn[standard]`'s
-  (`websockets>=13.0`), `numpy` is chromadb/onnxruntime/sentence-transformers'
-  held at the documented `<2` ceiling, `onnxruntime` is chromadb's. Added
+  package that pulls it — today that is only `websockets`, `uvicorn[standard]`'s
+  (`websockets>=13.0`). `numpy` is no longer exempt: `retrieval/hybrid_search.py`
+  imports it directly (vectorized BM25 top-k), so E3/E7 treat it as a
+  first-party dependency — its pin is still held at the documented `<2`
+  ceiling. `onnxruntime` is likewise imported (`utils/onnx_telemetry.py`) and
+  carries no exemption. Added
   after #1367's harness removal made the question live; commit 92afb95
   ("drop two things nothing calls") had found and removed exactly one such
   orphan — a `tzdata` runtime pin kept for a test-only import — by hand.
