@@ -78,7 +78,7 @@ correct any claim the code contradicts:
   code path it describes.
 - **Boot/failure semantics** in CLAUDE.md "Environment Quirks" — verify against
   `gate.py`/`utils/personality.py`: soul.md self-heals; a missing index is a
-  503 fail-soft, not a crash; `require_env` is decorative.
+  503 fail-soft, not a crash; startup does not require `GROK_API_KEY`.
 - **AGENTS.md ↔ CLAUDE.md** — the two manuals must not contradict each other on
   invariants, install steps, or the current project mode.
 - **Two session-note locations** — `docs/memories/` is live; `.claude/memory/`

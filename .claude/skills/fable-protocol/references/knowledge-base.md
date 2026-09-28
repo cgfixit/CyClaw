@@ -78,7 +78,7 @@ about, not shipped features to reference as fact.
   does this end to end — load it for any sandbox setup/test/PR-driving task.
 - `import gate` at test top level boots the whole app. Patch or subprocess.
 - `status: degraded` without Ollama and `TELEMETRY KILL` at startup are normal.
-- `security.require_env` is decorative. Tests need only `GROK_API_KEY=dummy`.
+- Startup does not require `GROK_API_KEY`. Tests need only `GROK_API_KEY=dummy`.
 - The `_TELEMETRY_KILL` binding in `gate.py` must stay above heavy imports;
   invariant-guard G1 finds it by AST. `HF_HUB_OFFLINE` is excluded from the kill
   map on purpose. `ORT_TELEMETRY_OPT_OUT` is inert; `ORT_DISABLE_TELEMETRY=1`

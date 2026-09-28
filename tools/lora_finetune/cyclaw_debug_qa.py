@@ -28,7 +28,7 @@ _DEBUG_SYSTEM = (
     "real source, not by guessing. Distinguish established fact (the code does X) "
     "from reasonable inference (a config probably caused it). Never propose a "
     "fix that weakens an I1-I6 invariant. If a signal is decorative "
-    "(require_env, /health embeddings_local, sampling=None), say so explicitly "
+    "(/health embeddings_local, sampling=None), say so explicitly "
     "rather than treating it as enforcement. Cite the file and function."
 )
 
@@ -402,8 +402,7 @@ DEBUG_QA: list[dict] = [
         {"role": "system", "content": _DEBUG_SYSTEM},
         {"role": "user", "content": (
             "POST /soul/apply returns 401 even though I'm on localhost. There's "
-            "no 'open mode' for local dev? And the docs mention "
-            "security.require_env — do I set that?"
+            "no 'open mode' for local dev? Does setting GROK_API_KEY fix it?"
         )},
         {"role": "assistant", "content": (
             "There is no open mode, by design. Per INVARIANTS.md Rule 6, with "
@@ -412,9 +411,9 @@ DEBUG_QA: list[dict] = [
             "hmac.compare_digest (constant-time), so do not try to shortcut it "
             "with ==. Reintroducing an unauthenticated fallback is explicitly "
             "forbidden.\n\n"
-            "security.require_env is decorative — no code reads it, and the "
-            "server boots fine without GROK_API_KEY (Grok just reports "
-            "unavailable). Setting it does nothing for auth. Set "
+            "GROK_API_KEY controls provider availability, not operator API "
+            "authentication. The server boots without it; Grok reports "
+            "unavailable. Set "
             "CYCLAW_API_KEY in the environment to a strong secret and send it as "
             "the API key header on /soul/* and /ops/* requests.\n\n"
             "Separately, the scanner path resolution is CWD-independent: "

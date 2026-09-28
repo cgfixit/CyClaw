@@ -282,8 +282,8 @@ packages). A narrower characterization (`gate` / `gate_ops` / `graph` / `mcp` vs
   `graph.py`, `utils/`, or `llm/`. It is pinned so that whoever wires it to
   something real (traceback echo, `FastAPI(debug=True)`) must confront the shipped
   value in the same diff. (`TestShippedCoreConfigContract.test_app_debug_is_pinned_and_currently_inert`.)
-- **`security.require_env`** is decorative — no code reads it; the server boots
-  without `GROK_API_KEY` (Grok just reports unavailable).
+- **Gateway startup** does not require `GROK_API_KEY`; Grok reports unavailable
+  when the key is absent.
 - **`banned_patterns`** is best-effort regex over raw text (40 patterns in the
   shipped config). It is defense-in-depth, not a completeness guarantee; homoglyph /
   zero-width evasion is out of scope per the threat model.
