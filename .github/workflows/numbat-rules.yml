@@ -1,7 +1,13 @@
 # The pinned Numbat CLI 0.2.0 (schema 0.3.0) against CyClaw's Numbat stream.
 #
-#   numbat-rules-fixture (advisory, continue-on-error; #961 / #965): committed
-#     hand-written fixtures plus a live executor-jail run.
+#   numbat-rules-fixture (blocking): committed hand-written fixtures plus a
+#     live executor-jail run. It was advisory (continue-on-error, #961 / #965)
+#     while that contract was new. The job itself succeeded on the last 30
+#     main runs through 3552d790 (workflow run 36416247349 and the 29 before
+#     it), so a failure now turns this workflow red. A GitHub release outage
+#     for the pinned numbat 0.2.0 tarball still fails the job; that is the
+#     residual risk. Whether the check is required to merge stays a ruleset
+#     setting, which this file cannot set.
 #   numbat-stream-contract (blocking; issue #1458 Phases 1 and 4): representative
 #     events from each producer family, written by CyClaw's real emitter code
 #     from inputs modeled on its callers (tests/numbat_shaped_events.py:
@@ -58,7 +64,6 @@ jobs:
     name: numbat rules test --fixture
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    continue-on-error: true
     permissions:
       contents: read
     steps:
