@@ -23,7 +23,17 @@ never reset an unknown or dirty checkout to make it match remote.
 - `gate.py` exposes FastAPI routes; `gate_ops.py`, `gate_auth.py`, and
   `gate_memory.py` register route groups. `graph.py` owns routing.
 - `retrieval/` implements hybrid search/indexing; `llm/` implements model
-  clients; `utils/` and `schemas/` hold helpers and contracts.
+  clients; `utils/` and `schemas/` hold helpers and contracts. The BM25 leg's
+  top-k selection is vectorized with numpy (a direct import since #1491).
+- `retrieval/rerank.py` is the enabled cross-encoder behind the vault-hit
+  gate. `retrieval.min_rerank_score` ships `null`, so it runs in shadow mode:
+  logits are audited as `rerank_best` and nothing is vetoed. A numeric
+  threshold can only turn a cosine hit into a miss, never promote one; the
+  pre-registered `0.0` and a five-model bake-off were both measured and
+  rejected (`docs/audits/2026-09-26-reranker-bakeoff.md`). An unavailable
+  reranker leaves the cosine rule in control and records `rerank_degraded`.
+  It shares the embedder's `cache_dir` and `offline_after_index`, so both
+  retrieval models must be cached for offline use.
 - `mcp_hybrid_server.py` provides retrieval-only MCP access, with input
   sanitization and no generation/sampling path.
 - `agentic/`, `sync/`, `guardrails/`, `telegram/`, and `opentweet/` are
@@ -71,7 +81,14 @@ and a non-cross-site request; it does not disable auth/RBAC.
 6. Preserve core/out-of-band import isolation and retrieval-only MCP behavior.
 
 Preserve telemetry suppression before heavy imports. It is not a network
-firewall. Keep private corpus, raw queries, credentials, generated indexes,
+firewall. The application log, the gateway console, and the Numbat stream are
+each written from one bounded writer thread (`logging.max_queued_records`,
+`logging.drain_wait_sec`, `numbat.max_queued_writes`, `numbat.write_wait_sec`),
+so a stalled disk cannot hold a request; a full queue drops and counts.
+`audit.jsonl` is still written on the caller's thread and stays authoritative.
+Concurrent `/health` calls share one in-flight probe set per configuration
+behind a short cache; the endpoint probes external providers only when
+`api.health_probe_external_providers` is true (ships false). Keep private corpus, raw queries, credentials, generated indexes,
 audit logs, and local DBs out of commits and reports.
 
 ## Build, test, and coding conventions
