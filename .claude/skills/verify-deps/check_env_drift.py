@@ -291,12 +291,6 @@ def check_undeclared_imports() -> dict[str, list[str]]:
 # back into documentation nobody re-derived.
 _PINNED_NOT_IMPORTED = {
     "websockets": "transitive of uvicorn[standard] (requires websockets>=13.0); pinned so this surface fixes the version the extra would float",
-    # chromadb (>=1.22.5), onnxruntime (>=1.21.6) and sentence-transformers
-    # (>=1.20.0) all require numpy and would each float it to 2.x. The pin is
-    # the <2 ceiling CLAUDE.md documents: numpy 2 removes np.float_ and breaks
-    # chromadb/onnxruntime. Dropping it because nothing here imports numpy
-    # directly would silently re-open that break.
-    "numpy": "transitive of chromadb/onnxruntime/sentence-transformers, pinned <2 -- numpy 2 removes np.float_ and breaks chromadb/onnxruntime",
 }
 
 

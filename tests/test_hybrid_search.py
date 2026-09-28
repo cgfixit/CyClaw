@@ -4,12 +4,14 @@ Tests RRF fusion logic, graceful degradation, and score calculation
 without requiring live sentence-transformers or ChromaDB indices.
 """
 
+import heapq
 import json
 from functools import lru_cache
 from itertools import pairwise
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
 from rank_bm25 import BM25Okapi
@@ -656,6 +658,39 @@ class TestParseStemTags:
 
     def test_empty_string_returns_empty(self):
         assert parse_stem_tags("") == []
+
+
+@pytest.mark.parametrize("as_list", [False, True])
+@pytest.mark.parametrize("distribution", ["random", "ties", "equal", "nonfinite"])
+def test_keyword_top_k_matches_stable_heap(distribution, as_list):
+    rng = np.random.default_rng(20260928)
+    for size in (0, 1, 2, 17, 257):
+        if distribution == "random":
+            scores = rng.normal(size=size)
+        elif distribution == "ties":
+            scores = rng.integers(-2, 4, size=size).astype(float)
+        elif distribution == "equal":
+            scores = np.ones(size)
+        else:
+            scores = np.resize([np.nan, 3.0, np.inf, 2.0, -np.inf, 0.0, 3.0], size)
+        if as_list:
+            scores = scores.tolist()
+        before = np.array(scores, copy=True)
+        retriever = SimpleNamespace(
+            _bm25_scores=lambda _query, scores=scores: scores,
+            top_k_keyword=5,
+            bm25_chunks=[f"chunk {i}" for i in range(size)],
+            bm25_metadata=[{"source": "fixture.md", "chunk_id": i} for i in range(size)],
+        )
+        for k in (None, -1, 0, 1, 5, size - 1, size, size + 1):
+            expected = heapq.nlargest(5 if k is None else k, range(size), key=scores.__getitem__)
+            expected = [i for i in expected if scores[i] > 0]
+            hits = HybridRetriever.keyword_search(retriever, "fixture", k=k)
+            assert [hit.chunk_id for hit in hits] == expected
+            assert [hit.keyword_rank for hit in hits] == list(range(len(expected)))
+            assert [hit.keyword_score for hit in hits] == [scores[i] for i in expected]
+            assert len({hit.chunk_id for hit in hits}) == len(hits)
+            np.testing.assert_array_equal(scores, before)
 
 
 class TestBM25ScoreCache:
