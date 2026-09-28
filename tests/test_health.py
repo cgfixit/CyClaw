@@ -2,7 +2,7 @@
 
 health.py was previously only ever *mocked out* (``patch("gate.check_all")``
 in test_gate.py); none of its own branches were exercised directly:
-  - ``_ping`` success vs. failure (and the URL-redaction on failure)
+  - ``_ping`` success vs. failure (closed public error vocabulary)
   - ``check_all`` offline (Ollama only) vs. hybrid (Grok) paths
   - the hybrid Grok key-set / key-missing split
   - the ``_health_cfg`` per-path parse cache
@@ -11,9 +11,11 @@ in test_gate.py); none of its own branches were exercised directly:
 All HTTP is mocked; no live service is required.
 """
 
+import json
 import os
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import httpx
@@ -139,16 +141,15 @@ class TestPing:
         assert status.latency_ms is not None
         assert status.error is None
 
-    def test_ping_unreachable_redacts_url(self, monkeypatch):
+    def test_ping_connect_failure_is_closed(self, monkeypatch):
         def boom(url, **kw):
             raise httpx.ConnectError(f"cannot connect to {_OLLAMA_MODELS}")
 
         monkeypatch.setattr(health, "_http_get", boom)
         status = health._ping(_OLLAMA_MODELS, "ollama")
         assert status.healthy is False
-        # The URL (possible creds / internal hostnames) must not leak into /health.
-        assert "127.0.0.1" not in status.error
-        assert "[URL REDACTED]" in status.error
+        assert status.error == "Connection failed"
+        assert status.latency_ms is None
 
     def test_ping_non_2xx_is_unhealthy(self, monkeypatch):
         request = httpx.Request("GET", _HOST_MODELS)
@@ -161,6 +162,101 @@ class TestPing:
         monkeypatch.setattr(health, "_http_get", lambda url, **kw: _Resp())
         status = health._ping(_HOST_MODELS, "ollama")
         assert status.healthy is False
+        assert status.error == "HTTP 503"
+
+    @pytest.mark.parametrize(("error_type", "expected"), [
+        (httpx.ConnectTimeout, "Connection timed out"),
+        (httpx.ConnectError, "Connection failed"),
+        (httpx.ReadTimeout, "Request timed out"),
+        (httpx.LocalProtocolError, "Invalid request"),
+        (RuntimeError, "Health probe failed"),
+        (type("fixture-secret-class-name", (Exception,), {}), "Health probe failed"),
+    ])
+    def test_ping_closed_error_contract(self, monkeypatch, error_type, expected):
+        def boom(url, **kw):
+            raise error_type("fixture-secret-message")
+
+        monkeypatch.setattr(health, "_http_get", boom)
+        status = health._ping(_HOST_MODELS, "ollama")
+        assert status.error == expected
+        assert status.healthy is False
+        assert status.latency_ms is None
+
+    def test_ping_does_not_format_unknown_exception(self, monkeypatch):
+        class UnprintableError(Exception):
+            def __str__(self):
+                raise AssertionError("exception text must not be read")
+
+        def boom(url, **kw):
+            raise UnprintableError("fixture-secret-message")
+
+        monkeypatch.setattr(health, "_http_get", boom)
+        status = health._ping(_HOST_MODELS, "ollama")
+        assert status.error == "Health probe failed"
+        assert status.healthy is False
+        assert status.latency_ms is None
+
+    @pytest.mark.parametrize(("code", "expected"), [
+        (100, "HTTP 100"),
+        (599, "HTTP 599"),
+        (99, "HTTP status failure"),
+        (600, "HTTP status failure"),
+        (True, "HTTP status failure"),
+        ("503", "HTTP status failure"),
+    ])
+    def test_ping_http_status_is_bounded(self, monkeypatch, code, expected):
+        request = httpx.Request("GET", _HOST_MODELS)
+        response = httpx.Response(503, request=request)
+        response.status_code = code
+
+        def boom(url, **kw):
+            raise httpx.HTTPStatusError("fixture-secret-message", request=request, response=response)
+
+        monkeypatch.setattr(health, "_http_get", boom)
+        status = health._ping(_HOST_MODELS, "ollama")
+        assert status.error == expected
+        assert status.healthy is False
+        assert status.latency_ms is None
+
+    @pytest.mark.parametrize("key", [
+        "tiny", "fixture-raw-key", r"fixture-escaped\nkey", "fixture-'quoted\"-key",
+        "fixture-\\-key", "fixture-\n-key", "fixture-\r\n-key",
+    ], ids=["short", "raw", "escaped", "quoted", "backslash", "lf", "crlf"])
+    @pytest.mark.parametrize("provider", ["local_llm", "grok", "claude"])
+    def test_probe_header_errors_do_not_disclose_credentials(self, monkeypatch, caplog, key, provider):
+        cfg = {
+            "app": {"mode": "hybrid"},
+            "api": {"health_probe_external_providers": True},
+            "models": {
+                "local_llm": {"base_url": _OLLAMA_BASE},
+                "grok": {"enabled": provider == "grok", "base_url": "https://api.x.ai/v1"},
+                "claude": {"enabled": provider == "claude", "base_url": "https://api.anthropic.com/v1"},
+            },
+        }
+        if provider == "local_llm":
+            cfg["models"]["local_llm"]["api_key"] = key
+        else:
+            monkeypatch.setenv("GROK_API_KEY" if provider == "grok" else "ANTHROPIC_API_KEY", key)
+        captured = []
+
+        def boom(url, *, headers, **kw):
+            if not headers:
+                return _OKResp()
+            value = headers.get("Authorization") or headers["x-api-key"]
+            captured.append(value)
+            raise httpx.LocalProtocolError(f"Illegal header value {value.encode()!r}; raw={value}")
+
+        monkeypatch.setattr(health, "_http_get", boom)
+        statuses = health.check_all(cfg=cfg)
+        assert captured == [key if provider == "claude" else f"Bearer {key}"]
+        failed = [status for status in statuses if not status.healthy]
+        assert len(failed) == 1
+        assert failed[0].error == "Invalid request"
+        assert failed[0].latency_ms is None
+        serialized = json.dumps([asdict(status) for status in statuses])
+        for representation in (key, repr(key), repr(key.encode())):
+            assert json.dumps(representation)[1:-1] not in serialized
+            assert representation not in caplog.text
 
 
 class TestCheckAll:
