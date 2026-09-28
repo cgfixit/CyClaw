@@ -1228,8 +1228,8 @@ def _pins_by_surface(root: Path, name: str) -> dict[str, str | None]:
 
     Returning the first match found anywhere is what the ONNX path was split
     up to avoid: a pin on one surface then vouches for surfaces its resolver
-    never touches. Membership is not a bound either -- the conda parser admits
-    any line containing an "=", so only a version anchored on a digit counts.
+    never touches. The conda environment can pin a package with either conda's
+    single equals sign or pip's double equals sign in its pip subsection.
     """
     pip_pin: str | None = None
     for manifest in ("constraints.txt", "requirements.txt"):
@@ -1253,7 +1253,7 @@ def _pins_by_surface(root: Path, name: str) -> dict[str, str | None]:
     env_path = root / "environment.yml"
     if env_path.exists():
         match = re.search(
-            rf"^\s*-\s*{re.escape(name)}\s*=\s*([0-9][^\s#]*)",
+            rf"^[ \t]*-[ \t]*{re.escape(name)}[ \t]*={{1,2}}[ \t]*([0-9][^ \t#;\r\n]*)[ \t]*(?:#.*)?$",
             env_path.read_text(encoding="utf-8"),
             re.MULTILINE,
         )
