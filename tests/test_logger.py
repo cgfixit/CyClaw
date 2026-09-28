@@ -10,7 +10,6 @@ to prevent for config.yaml/static/).
 import pathlib
 import logging
 
-import contextlib
 import json
 import os
 import subprocess
@@ -869,9 +868,11 @@ class TestBackgroundLogWriter:
         read_fd, write_fd = os.pipe()
         try:
             os.set_blocking(write_fd, False)
-            with contextlib.suppress(BlockingIOError):
-                while True:
+            while True:
+                try:
                     os.write(write_fd, b"x" * 65536)
+                except BlockingIOError:
+                    break  # full: the child's first write to stderr blocks
             os.set_blocking(write_fd, True)  # the child's stderr shares this file description
             proc = subprocess.Popen([sys.executable, "-W", "ignore", "-c", script],  # noqa: S603 - fixed argv
                                     cwd=repo, env=env, stdout=subprocess.DEVNULL, stderr=write_fd)
