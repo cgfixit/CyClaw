@@ -12,9 +12,11 @@ active environment requires it.
 ## Setup
 
 1. Confirm Python 3.12 and inspect the existing environment before installing.
-2. Install CPU torch before the remaining dependencies. Prefer the current
-   `pyproject.toml`/uv path; use `requirements.txt` only for the documented
-   compatibility path.
+2. Install CPU torch before the remaining dependencies, using the pip commands
+   in `setup-guide.md` and `CLAUDE.md` §8 (plain `torch==2.13.0` on macOS,
+   `torch==2.13.0+cpu` elsewhere). `requirements.txt` is the legacy
+   compatibility surface the Dockerfile uses; `pip install -e . -c constraints.txt`
+   installs the project itself. This repository does not install through uv.
 3. Check `data/personality/soul.md` for governance/identity drift. CyClaw will
    default-initialize the documented file at startup if it is absent; never
    overwrite it or invent custom soul content without an explicit human reason.

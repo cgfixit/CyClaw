@@ -20,8 +20,8 @@ architecture/security assessment lives in `notes.txt` (repo root,
 2026-08-16) — this document does not repeat it; it turns its conclusions
 into buildable slices.
 
-The sharkdp/numbat calculator (`/calc`) plan is a separate document:
-[`docs/work/HARNESS_CALC_PLAN.md`](HARNESS_CALC_PLAN.md).
+The sharkdp/numbat calculator (`/calc`) plan was a separate document,
+`docs/work/HARNESS_CALC_PLAN.md`, which is not in this tree.
 
 Everything here is subordinate to `CLAUDE.md` §3 (the six invariants),
 `.claude/rules/PROJECT_RULES.md`, and `docs/THREAT_MODEL.md`. No slice
@@ -42,7 +42,7 @@ proposals:
 | D3 | Calculator naming vs. the `numbat:` config block (forensics emitter) | **`/calc` command + `calc` identity**; binary stays sharkdp `numbat`, never settable via HTTP |
 | D4 | Calculator network hardening level | **Managed config + best-effort screens**; hardened-source build documented as optional appendix only |
 
-D3/D4 are executed in [`docs/work/HARNESS_CALC_PLAN.md`](HARNESS_CALC_PLAN.md).
+D3/D4 were written up in `docs/work/HARNESS_CALC_PLAN.md`, which is not in this tree.
 
 ---
 
