@@ -80,7 +80,8 @@ jobs:
       actions: read
       contents: read
       security-events: write
-      pull-requests: write   # Required if DO_PR_COMMENT is set to true
+      # DO_PR_COMMENT stays commented out in the scan step, so this job does
+      # not post on the pull request and does not need pull-requests: write.
 
     steps:
       - name: Check Out Source Code

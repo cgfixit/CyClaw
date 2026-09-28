@@ -1,6 +1,6 @@
 ---
 description: >-
-  Verify CyClaw's four install surfaces (pyproject.toml+uv, requirements.txt+pip,
+  Verify CyClaw's four install surfaces (pyproject.toml+pip, requirements.txt+pip,
   the Docker surface — Dockerfile + docker-compose.yml + .dockerignore +
   publish-ghcr.yml — and environment.yml) actually agree AND are current against
   upstream PyPI. Delegates static pin agreement to dep-guard, adds the

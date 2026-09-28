@@ -1,5 +1,14 @@
 # Dependency Currency — Bump Candidates Plan
 
+> **Status update — 2026-09-28 (doc drift vs `constraints.txt`):** the 2026-09-06
+> re-verify below is no longer the pin set. Current constraints are `ruff`
+> `0.16.8`, `mypy` `2.3.0`, `langgraph` `1.2.11`, `langchain` `1.4.2`,
+> `langchain-openai` `1.6.2`, `fastapi` `0.141.1`, `uvicorn` `0.53.0`,
+> `langchain-core` `1.6.3`, `psycopg` `3.3.6`, `pgvector` `0.5.0`, and
+> `websockets` `15.0.1`. The psycopg/pgvector bump this note used to leave open
+> has landed. `websockets` is still `15.0.1`. Tables under the older status
+> blocks stay historical.
+
 > **Status update — 2026-09-06 (docs review, Claude Code):** MOSTLY_COMPLETE. Re-verified against current `constraints.txt`: Tier 1 (`ruff` 0.16.1, `mypy` 2.3.0), Tier 2's `langgraph` (1.2.9), `langchain` (1.3.14), `langchain-openai` (1.3.5), and Tier 3's `fastapi` (0.139.2), `uvicorn` (0.51.0), `langchain-core` (1.5.0) all match or exceed the doc's targets. Still unchanged from the 2026-07-21 snapshot: `psycopg` (3.2.13), `pgvector` (0.4.2), and `websockets` (15.0.1) — exactly the three items the doc's own 2026-08-15 note already flagged as open.
 >
 > **What's left:**

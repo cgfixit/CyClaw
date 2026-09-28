@@ -45,14 +45,14 @@ dependency-install `RUN` that redirects stderr or branches on `||`.
 This is the distinction most reviews get wrong, and getting it wrong produces
 *false* drift findings — "package X is in `constraints.txt` but not
 `requirements.txt`, that's drift" is usually the checker being wrong, not the
-tree. Verified against the repo, 2026-08-02:
+tree. Verified against the repo, 2026-09-28:
 
 | Surface | What it installs | Extras? |
 |---|---|---|
 | `pip install -r requirements.txt -c constraints.txt` | Base runtime + torch CPU. 18 requirement lines (test tools live in `requirements-test.txt`, kept out of the Docker image). Header declares itself a **legacy compatibility surface**, kept in sync with `pyproject.toml`/`constraints.txt` for the Dockerfile and legacy CI/tools | **None.** Zero extras, by design |
-| `pip install -e ".[<extra>]" -c constraints.txt` | The 17 base deps, plus whichever of the 11 extras are named | **Yes — the only surface that can install one** |
+| `pip install -e ".[<extra>]" -c constraints.txt` | The 16 base deps in `pyproject.toml` `[project.dependencies]`, plus whichever of the 11 extras are named | **Yes — the only surface that can install one** |
 | `Dockerfile` (+ `docker-compose.yml`, `.dockerignore`, `.github/workflows/publish-ghcr.yml`) | Runs `pip install --upgrade pip==<ci pin>`, then the CPU torch wheel, then `pip install --no-cache-dir -r requirements.txt -c constraints.txt` — one path, no `||` branch, no stderr redirect. Compose runs the image (loopback publish, runtime-state mounts), `.dockerignore` shapes the build context, `publish-ghcr.yml` ships the image compose pulls — E5/E6 pin the four files to each other | **None** — it *is* surface #1, containerized |
-| `conda env create -f environment.yml` | Base runtime + test/dev tools from conda-forge, plus a 3-package `pip:` tail | **None** |
+| `conda env create -f environment.yml` | Base runtime + test/dev tools from conda-forge, plus a 5-package `pip:` tail (`langgraph`, `rank-bm25`, `websockets`, `onnxruntime`, `sqlite-vec`) | **None** |
 
 Two consequences that drive every judgement in this skill:
 
@@ -65,14 +65,17 @@ and absent from `requirements.txt` is the **designed** state, not drift. The
 drift-shaped question is the reverse: a package installed by a surface but
 *unpinned* in `constraints.txt`.
 
-**`environment.yml` deliberately diverges from the pip pins, twice.** It carries
-`fastapi=0.115.9` where the pip path is `0.139.2`, and
+**`environment.yml` deliberately diverges from the pip pins.** Two of those
+divergences are packaging constraints `dep-guard` already knows:
+`fastapi=0.115.9` where the pip path is `0.141.1`, and
 `opentelemetry-exporter-otlp-proto-grpc>=1.42` where the pip path has no such
-line. Both are conda-forge *packaging* constraints (chromadb=1.5.9's conda build
+line. Both are conda-forge constraints (chromadb=1.5.9's conda build
 hard-pins fastapi; its OTel floor is a 2022-era range that solves into a
-protobuf-incompatible exporter), documented inline at the pin. Do **not**
-"reconcile" either one toward the pip values — that reds the conda lane.
-`dep-guard` already knows about these; re-flagging them is noise.
+protobuf-incompatible exporter), documented inline at the pin. Further
+exceptions (sentence-transformers, starlette, ruff) are commented on their
+pins in that file. Do **not** "reconcile" the fastapi or exporter lines
+toward the pip values — that reds the conda lane. `dep-guard` already knows
+about those two; re-flagging them is noise.
 
 ---
 
@@ -188,7 +191,7 @@ versions from a fresh-venv install, not guessed. `huggingface_hub` is also
 mirrored into `environment.yml`; `starlette` deliberately is not, because
 `environment.yml`'s `fastapi` is pinned older (`0.115.9`, forced by
 conda-forge's `chromadb` build — see the comment there) than the pip path's
-`0.139.2`, and forcing the pip-resolved `starlette==1.3.1` alongside it could
+`0.141.1`, and forcing the pip-resolved `starlette==1.6.0` alongside it could
 easily demand a pairing `fastapi==0.115.9` was never built against. Any name
 this check reports going forward is a new finding, not a known one.
 

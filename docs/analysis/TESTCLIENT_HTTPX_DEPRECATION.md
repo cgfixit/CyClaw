@@ -1,8 +1,8 @@
 # Tech Note — `StarletteDeprecationWarning` in the test suite (httpx / TestClient)
 
 **Status:** warning **filtered** (restored 2026-07-27, re-verified 2026-08-29, see below) · no runtime impact · `httpx2` migration still owed before a future Starlette major
-**Filed:** 2026-06-19 · **Updated:** 2026-08-29
-**Applies to:** `starlette==1.3.1`, `httpx==0.28.1`, `fastapi==0.139.2` (current pins; starlette and httpx are both **direct** pins in all three manifests since 2026-08-02 — starlette also serves `gate.py`/`harness/server.py` middleware imports, httpx serves `llm/client.py`)
+**Filed:** 2026-06-19 · **Updated:** 2026-09-28
+**Applies to:** `starlette==1.6.0`, `httpx==0.28.1`, `fastapi==0.141.1` (current pins; starlette and httpx are both **direct** pins in `pyproject.toml`, `requirements.txt`, and `constraints.txt` — starlette serves `gate.py`'s five middleware/request/response imports, httpx serves `llm/client.py`). The 2026-08-29 wheel inspection below was against `starlette==1.3.1`; that section already recorded the same TestClient shim in `1.6.0`.
 
 **2026-07-27 regression + fix:** the `filterwarnings` entry described below as "Done
 2026-07-19" was silently dropped as collateral damage by an unrelated commit
@@ -65,19 +65,22 @@ so it no longer appears in test output; the underlying deprecation is unchanged.
 
 ### Where the TestClient is used
 
-The footprint has grown well past the three files this note originally recorded. As of
-2026-08-29, **19 test files** import `TestClient` (20 import sites — `tests/test_security.py`
-imports it twice, function-locally at lines 170 and 237): every `tests/test_gate*.py` and
-`tests/test_harness*.py` file plus `test_security.py`, `test_memory_routes.py`,
-`test_runtime_errors.py`, `test_edge_cases.py`, and `test_reasoning_effort.py`
-(`grep -rl "import TestClient" tests/` is the authoritative list). Representative sites:
-`tests/test_gate.py:18`, `tests/test_gate_ops.py:25`, `tests/test_security.py:170`.
+The footprint has grown well past the three files this note originally recorded. On
+2026-08-29 the count was 19 files, including `tests/test_harness*.py`. As of
+2026-09-28, `grep -n "import TestClient" tests/` lists **12 files** and **13 import
+sites** (`tests/test_security.py` imports it twice, at lines 226 and 291):
+`tests/conftest.py`, every `tests/test_gate*.py`, `tests/test_security.py`,
+`tests/test_memory_routes.py`, `tests/test_runtime_errors.py`,
+`tests/test_reasoning_effort.py`, and `tests/test_cors_origins.py`.
+`tests/test_edge_cases.py` uses the `conftest._mocked_gateway` fixture and does not
+import `TestClient` itself. `tests/test_harness*.py` is gone with the harness.
+Representative sites: `tests/test_gate.py:19`, `tests/test_gate_ops.py:26`,
+`tests/test_security.py:226`.
 
-Two more consumers sit **outside pytest**, where the `pyproject.toml` filter does not
-apply: `.claude/skills/CyClaw-Sandbox/run_full_verification.py:1222` and its
-`.codex/skills/Cyclaw-Sandbox/` twin construct a `TestClient` directly, so the warning
-still surfaces in skill verification runs. Cosmetic there too, but worth knowing when
-reading their output.
+The skill scripts no longer construct a `TestClient`.
+`.claude/skills/CyClaw-Sandbox/run_full_verification.py` and its
+`.codex/skills/Cyclaw-Sandbox/` twin have no `TestClient` reference, so the
+out-of-pytest warning path this note used to name is not a current consumer.
 
 The warning remains purely a **test-time** concern — `httpx` is used at runtime by
 `llm/client.py` for Ollama / Grok / Claude calls, but that path does not touch
@@ -97,7 +100,7 @@ We currently pin:
 
 ```
 httpx==0.28.1        # classic httpx, 0.x line; direct pin (serves llm/client.py)
-starlette==1.3.1     # direct pin since 2026-08-02; also required by fastapi==0.139.2
+starlette==1.6.0     # direct pin; fastapi==0.141.1 on the same pip path
 ```
 
 `httpx==0.28.1` is the classic line, so the warning fires. `httpx2` exists on PyPI
@@ -110,8 +113,8 @@ starlette==1.3.1     # direct pin since 2026-08-02; also required by fastapi==0.
 | Horizon | Effect |
 |---|---|
 | **Now** | None functional. Cosmetic warning on every test session (suppressed under pytest; still visible in the two out-of-pytest skill scripts above). |
-| **When Starlette removes the `httpx`-1.x shim** (a future major) | `TestClient` raises `RuntimeError` at import unless `httpx2` is present (the 1.x shim's own no-httpx branch already does exactly that). CI test collection breaks across the 19 consuming test files. |
-| **A Starlette major generally** | Not only a test concern: `gate.py` (5 sites) and `harness/server.py` (4 sites) import starlette middleware/request/response classes directly, so a 2.x bump lands on first-party runtime code too. That is a separate, larger review than the TestClient item tracked here — noted so the "purely test-time" framing above isn't read as covering a major bump. |
+| **When Starlette removes the `httpx`-1.x shim** (a future major) | `TestClient` raises `RuntimeError` at import unless `httpx2` is present (the 1.x shim's own no-httpx branch already does exactly that). CI test collection breaks across the 12 files that import `TestClient`. |
+| **A Starlette major generally** | Not only a test concern: `gate.py` has five direct starlette imports (middleware, request, and response). `harness/server.py` is gone. A 2.x bump lands on that gateway code. That is a separate, larger review than the TestClient item tracked here — noted so the "purely test-time" framing above isn't read as covering a major bump. |
 
 This is a "fix before the next Starlette major" item, not an emergency. It is tracked here so the
 warning is not silently ignored until it becomes a hard break.
@@ -139,7 +142,7 @@ warning is not silently ignored until it becomes a hard break.
    (`python-package-conda.yml`) installs `fastapi=0.115.9` → starlette 0.4x, where that class does
    not exist, and pytest resolves filter categories at startup — a class-qualified filter fails the
    whole lane with `AttributeError` before any test runs (observed 2026-07-19). Message-only parses
-   in both the pip lane (starlette 1.3.1) and the conda lane.
+   in both the pip lane (starlette 1.6.0) and the conda lane.
 
 3. **Migrate the test client to `httpx2`.** Add `httpx2` to the test/dev requirements so
    `starlette.testclient` picks it up. This is the direction Starlette is steering toward.
@@ -154,7 +157,7 @@ warning is not silently ignored until it becomes a hard break.
      the test client over automatically while `llm/client.py`'s `import httpx` keeps
      resolving to classic `httpx==0.28.1` untouched. No resolver verification needed — the
      real cost is the next bullet.
-   - Any direct `httpx`-typed assertions in the **19** TestClient-consuming test files
+   - Any direct `httpx`-typed assertions in the **12** files that import `TestClient`
      (status codes, JSON bodies, response attributes) must be re-checked against the
      `httpx2` response surface. That revalidation, not dependency risk, is now the bulk of
      the migration.
@@ -174,10 +177,10 @@ lives in `pyproject.toml`; since 2026-08-29 it carries a comment pointing back t
 (the claim that one existed earlier was wrong — see the 2026-08-29 re-verification section).
 
 Before the next Starlette **major** bump: **Option 3** — add `httpx2` for the test client and
-re-validate the 19 TestClient-consuming test files (see "Where the TestClient is used"). Two
+re-validate the 12 files that import `TestClient` (see "Where the TestClient is used"). Two
 things about spotting that trigger, verified 2026-08-29:
 
-- `starlette==1.3.1` is a direct pin dependabot tracks (no `ignore` entry for it — only numpy
+- `starlette==1.6.0` is a direct pin dependabot tracks (no `ignore` entry for it — only numpy
   is ignored), so a 2.x bump **will** get a PR. But `.github/dependabot.yml` groups the whole
   pip ecosystem (`pip-all`, `patterns: ["*"]`, `open-pull-requests-limit: 4`), so the bump
   arrives **buried inside a grouped multi-dependency PR**, not as a standalone
@@ -186,7 +189,7 @@ things about spotting that trigger, verified 2026-08-29:
 - Do not migrate speculatively. The original reason ("httpx2 is still beta") no longer holds
   — `httpx2` is stable at 2.12.0 — but the calculus is unchanged: the shim still works, the
   1.x line still ships it (confirmed through 1.6.0), and the migration's real cost is
-  re-validating 19 test files with no forcing event yet.
+  re-validating 12 test files with no forcing event yet.
 
 Do **not** "fix" this by bumping the runtime `httpx==0.28.1` pin — that pin serves `llm/client.py`,
 not the test client, and changing it has nothing to do with the warning.

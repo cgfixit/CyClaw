@@ -5,11 +5,12 @@ description: >
   maps in utils/telemetry_kill.py, ONNX Runtime suppression, and
   process-boundary delivery (Docker, launchers, scheduled jobs) via an
   independent oracle and a category-1-5 egress classification of every
-  dependency/connector/launcher, then a vendor-doc drift sweep. Use when
-  asked to audit/harden telemetry, check for phone-home leaks, after
-  bumping a telemetry vendor pin, or adding a dependency/launcher. Not for
-  network policy, the sanitizer, or dependency pins -- see invariant-guard,
-  injection-redteam, dep-guard.
+  dependency/executable/connector/launcher, then a vendor-doc drift sweep.
+  Use when asked to audit/harden telemetry, check for phone-home leaks,
+  after bumping a telemetry vendor pin, or when adding or removing a
+  dependency, spawned binary, or launcher. Not for network policy, the
+  sanitizer, or dependency pins -- see invariant-guard, injection-redteam,
+  dep-guard.
 ---
 
 # otel-hardening
@@ -66,9 +67,11 @@ these values silence vendor telemetry readers; they do not close sockets.
    bash .claude/skills/otel-hardening/verify.sh
    ```
 
-   The scenarios cover every rule with a mutation that must flip it, and each
-   mutation asserts it actually changed the file (two historical silent-no-op
-   sed bugs are why).
+   The scenarios cover every rule that can fail or warn (T1–T5, T7–T14; T6 is
+   info-only) with a mutation that must flip it, and each mutation asserts it
+   actually changed the file (two historical silent-no-op sed bugs are why).
+   T9's scenario rewrites `apply_telemetry_kill` to bypass `_enforce` while
+   still setting every telemetry pair, so only the wiring check can catch it.
 
 3. **Live vendor sweep** (network) — for each category-1 row in
    `check_otel.py`'s `INVENTORY` whose `reviewed` date is old, or whose pin
@@ -81,7 +84,7 @@ these values silence vendor telemetry readers; they do not close sockets.
    | chromadb (**pinned 1.5.9**) | The `CHROMA_OTEL_*` names are this version's legacy surface and `otel_init()` early-returns on granularity `none`. Current Chroma docs use different names — record by version; do NOT blindly replace the legacy names while the pin stays 1.5.9. `Settings(anonymized_telemetry=False)` still governs only the PostHog path. |
    | langsmith/langchain | 4-name precedence (`get_env_var` lru_cache latch) unchanged? Upload-without-API-key still only warns? `LANGSMITH_RUNS_ENDPOINTS` still a fan-out destination? |
    | onnxruntime | `ORT_DISABLE_TELEMETRY` still the documented pre-init env control (Privacy.md)? `disable_telemetry_events()` still the API? Any new event class before init that the env var misses? |
-   | huggingface_hub | `HF_HUB_DISABLE_TELEMETRY` OR `DISABLE_TELEMETRY` OR `DO_NOT_TRACK` still computed in `constants.py`? |
+   | huggingface_hub (**pinned 1.32.0**, direct) | `HF_HUB_DISABLE_TELEMETRY` OR `DISABLE_TELEMETRY` OR `DO_NOT_TRACK` still computed in `constants.py`? (Re-read at the v1.32.0 tag 2026-09-28: yes, unchanged.) |
    | nemoguardrails | `NEMO_GUARDRAILS_NO_USAGE_STATS` / `DO_NOT_TRACK` still honored (0.24.0: `telemetry.py`)? Sink still `events.telemetry.data.nvidia.com`? |
    | gh / PowerShell | `GH_TELEMETRY` value set unchanged? `POWERSHELL_TELEMETRY_OPTOUT` still read once at startup? |
 
@@ -93,9 +96,27 @@ these values silence vendor telemetry readers; they do not close sockets.
    for any new rule. Then re-run steps 1–2 and
    `GROK_API_KEY=dummy pytest tests/test_telemetry_kill.py tests/test_telemetry_env_delivery.py tests/test_onnx_telemetry.py tests/test_reference_env.py -q`.
 
-5. **Classify anything new.** A new dependency, provider, executable,
-   connector, scheduled job, or process launcher gets an `INVENTORY` row (or
-   an alias to one) with exactly one category:
+5. **Classify anything new; retire anything gone.** A new dependency,
+   provider, executable, connector, scheduled job, or process launcher gets
+   an `INVENTORY` row (or an alias to one) with exactly one category. T13
+   discovers Python dependencies from the four manifests on its own, but an
+   external binary is only swept if it is named in
+   `KNOWN_EXTERNAL_COMPONENTS` — so a new `subprocess` spawn site must add
+   its binary there AND alias it (the 2026-09-28 sweep found nine spawned
+   binaries — `launchctl`, `crontab`, `schtasks`, `cmd.exe`, `unshare`,
+   `sandbox-exec`, `xdg-open`/`open`/`explorer` — that had never been listed).
+   Python dependencies are read from `project.dependencies`, every
+   `optional-dependencies` group, AND `[build-system].requires` (the build
+   backend is an install surface too; it was skipped until PR #1502). A spawn
+   site whose executable is chosen at run time (the pre-action hook's
+   `command` engine, the executor's caller-declared checks) cannot be named
+   by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the source
+   marker that proves it spawns, and its row describes the surface and the
+   gate around it, never a binary. The reverse holds too: when a pin or spawn
+   site is removed, delete its alias and row (the `uv` precedent — T13 warns
+   when a dynamic site loses its marker), and keep each row's `versions` text
+   in step with the pins so T13's "classified" never means "classified
+   against a version nobody ships". Categories:
    1 unsolicited telemetry with an official control (control pairs must exist
    in the oracles — never invent one) · 2 ancillary update/version-check
    egress · 3 intentional policy-gated functional egress (controls stay

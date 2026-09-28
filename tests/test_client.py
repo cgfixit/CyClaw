@@ -25,6 +25,7 @@ from llm.client import (
     GrokClient,
     LocalLLMClient,
     _client_timeout,
+    is_loopback_url,
     reset_graph_deadline,
     reset_local_backend_cache,
     resolve_local_backend,
@@ -1892,3 +1893,26 @@ class TestClaudeStopReasonDiagnostics:
         with pytest.raises(ClaudeServiceError):
             client.generate("p")
         client.close()
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("http://127.0.0.1:11434", True),
+        ("http://LOCALHOST/v1", True),
+        ("http://[::1]:11434/v1", True),
+        ("http://[", False),
+        ("http://example.com", False),
+        ("http://127.0.0.1.example", False),
+        ("http://127.0.0.1@evil.example/v1", False),
+        ("http://0.0.0.0:1", False),
+        ("", False),
+    ],
+)
+def test_is_loopback_url_classifies_the_host(url: str, expected: bool) -> None:
+    """Health probes use this to shorten only a plain-HTTP loopback connect.
+
+    A malformed URL and a userinfo host must stay off the short-connect path.
+    ``0.0.0.0`` is not loopback: it is every interface.
+    """
+    assert is_loopback_url(url) is expected

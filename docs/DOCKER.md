@@ -186,7 +186,7 @@ First-time package settings (org/user admin):
 
 | Path | Role |
 |---|---|
-| [`Dockerfile`](../Dockerfile) | Multi-stage, digest-pinned base + uv, non-root, healthcheck |
+| [`Dockerfile`](../Dockerfile) | Multi-stage, digest-pinned base, pip-only install, non-root, healthcheck |
 | [`docker-compose.yml`](../docker-compose.yml) | Host loopback publish + hardening + optional Falco profile |
 | [`.dockerignore`](../.dockerignore) | Keeps state/secrets out of build context |
 | [`deploy/seccomp/README.md`](../deploy/seccomp/README.md) | Builtin seccomp status; Stage 3 custom profile not yet generated |
