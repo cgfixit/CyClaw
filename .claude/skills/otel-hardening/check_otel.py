@@ -178,15 +178,37 @@ LAST_VERIFIED_VENDOR_PINS = {
     # the same get_env_var helper), and moot either way since tracing itself
     # stays off. All 5 scrubbed credential/destination names are untouched.
     "langsmith": "0.13.0",
+    # Direct pyproject pin since 2026-08-02 (retrieval/embeddings.py imports
+    # it). 1.26.0 -> 1.32.0 re-verified 2026-09-28 against the v1.32.0 tag's
+    # src/huggingface_hub/constants.py (the GitHub source, not an installed
+    # package): HF_HUB_DISABLE_TELEMETRY is still
+    #   _is_true(HF_HUB_DISABLE_TELEMETRY) or _is_true(DISABLE_TELEMETRY)
+    #   or _is_true(DO_NOT_TRACK)
+    # and HF_HUB_OFFLINE is still HF_HUB_OFFLINE-or-TRANSFORMERS_OFFLINE, so
+    # both the category-1 ping control and the conditional offline pair keep
+    # their names and value semantics. HF_HUB_DISABLE_UPDATE_CHECK (shell-only
+    # here) is likewise unchanged.
+    "huggingface-hub": "1.32.0",
+    # Direct pyproject pin (floor for the ORT_DISABLE_TELEMETRY env control,
+    # see the pyproject comment). 1.30.0 verified 2026-09-11 on the bump from
+    # 1.29.0: disable_telemetry_events() still callable. Listed here so the
+    # next bump WARNs instead of silently trusting a getattr-guarded API.
+    "onnxruntime": "1.30.0",
 }
 
-# Transitive-only vendors (no direct pyproject pin). Best-effort INFO context
-# for the live-search step; a fresh clone legitimately has none installed.
+# Vendors whose INSTALLED version is worth printing for the live-search step.
+# huggingface_hub and onnxruntime are direct pyproject pins now (T5 tracks
+# their drift); opentelemetry-sdk, fastembed and transformers are still
+# transitive-only. Best-effort INFO context; a fresh clone legitimately has
+# none installed.
 TRANSITIVE_VENDORS_TO_REPORT = ("huggingface_hub", "onnxruntime", "opentelemetry-sdk", "fastembed", "transformers")
 
-# Telemetry-capable transitives that arrive with NO version bound anywhere in
-# the manifests -- always a WARN-class review finding (issue #1135): an
-# unbounded vendor can change its telemetry contract under CyClaw silently.
+# Telemetry-capable dependencies whose version bound is checked per install
+# surface. fastembed and transformers arrive with NO bound anywhere in the
+# manifests -- a standing INFO finding (issue #1135): an unbounded vendor can
+# change its telemetry contract under CyClaw silently. onnxruntime is bounded
+# on the pip and wheel surfaces since its direct pin landed; it stays in this
+# tuple because its entry is what drives the per-surface ORT floor check.
 UNBOUNDED_TELEMETRY_CAPABLE = ("onnxruntime", "fastembed", "transformers")
 
 # ORT_DISABLE_TELEMETRY only governs onnxruntime's non-Windows 1DS path from
@@ -259,12 +281,14 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "huggingface-hub telemetry ping", "category": 1,
         "controls": {"HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "==1.26.0",
+        "versions": "==1.32.0 (direct pyproject pin; also imported by sentence-transformers/transformers)",
         "enforcement": "env before import; constants.py ORs HF_HUB_DISABLE_TELEMETRY / DISABLE_TELEMETRY / "
                        "DO_NOT_TRACK. Distinct from the CONDITIONAL offline pair (first-run bootstrap fetch "
                        "is category 3, below)",
-        "scope": "embeddings model handling", "reviewed": "2026-08-02",
-        "evidence": "send_telemetry() HEAD request path read in pinned 1.26.0",
+        "scope": "embeddings + reranker model handling", "reviewed": "2026-09-28",
+        "evidence": "send_telemetry() HEAD request path read in 1.26.0; the three-name OR in constants.py "
+                    "re-read at the v1.32.0 tag on 2026-09-28 (see LAST_VERIFIED_VENDOR_PINS) -- same names, "
+                    "same _is_true semantics",
     },
     {
         "name": "nemoguardrails usage stats", "category": 1,
@@ -383,11 +407,16 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "cloud planner adapters (deepagents + langchain-openai/anthropic/google-genai/xai)",
         "category": 3, "controls": {},
         "url": "docs/agentic/AGENTIC_README.md",
-        "versions": "extras: langchain-openai==1.3.5, langchain-anthropic==1.4.8, langchain-xai==1.2.2, "
-                    "langchain-google-genai (constraints)",
-        "enforcement": "out-of-band, --provider/--confirm-online gated; tracing killed by the same env block",
-        "scope": "agentic planner only", "reviewed": "2026-08-27",
-        "evidence": "policy-gated feature traffic, not telemetry",
+        "versions": "agentic-deepagents extra: deepagents==0.6.12, langchain==1.4.2, langchain-openai==1.6.2, "
+                    "langchain-anthropic==1.7.2; agentic-deepagents-cloud extra: langchain-xai==1.3.0; "
+                    "deepagents' mandatory transitives pinned in constraints.txt only: "
+                    "langchain-google-genai==4.4.0, langsmith==0.13.0 (its own category-1 row), wcmatch==11.0",
+        "enforcement": "out-of-band, --provider/--confirm-online gated; tracing killed by the same env block. "
+                       "The provider SDKs these adapters wrap (openai, anthropic, google-genai, xai) carry no "
+                       "vendor telemetry env switch of their own: their only egress is the model call itself",
+        "scope": "agentic planner only", "reviewed": "2026-09-28",
+        "evidence": "policy-gated feature traffic, not telemetry; versions re-read from pyproject.toml/"
+                    "constraints.txt 2026-09-28 (a pin bump changes nothing about the classification)",
     },
     {
         "name": "telegram channel", "category": 3, "controls": {},
@@ -416,9 +445,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "sql connectors (pgvector/psycopg/pyodbc)", "category": 3, "controls": {},
         "url": "docs/agentic/AGENTIC_README.md",
-        "versions": "pgvector/psycopg pinned; pyodbc extra",
+        "versions": "postgres extra: psycopg==3.3.6 + psycopg-binary==3.3.6; pgvector extra: pgvector==0.5.0; "
+                    "mssql extra: pyodbc==5.3.0",
         "enforcement": "operator-configured database endpoints; SELECT/WITH-only guard on sqlconnect",
-        "scope": "vector-store backend + out-of-band sqlconnect", "reviewed": "2026-08-27",
+        "scope": "vector-store backend + out-of-band sqlconnect", "reviewed": "2026-09-28",
         "evidence": "database traffic is the feature; no vendor telemetry mechanism in these drivers",
     },
     {
@@ -540,16 +570,62 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "negative finding; source is a single compiled extension binary, no HTTP client linked in",
     },
     {
+        "name": "operator/caller-configured launchers", "category": 3, "controls": {},
+        "url": "docs/security-philosophy/numbat_pre_action_gate.md",
+        "versions": "no fixed binary -- the executable is chosen at run time: (a) the pre-action hook's "
+                    "`command` engine (utils/external_pre_hook.py::_run_command) runs "
+                    "policy.fallback.pre_action_hook.command verbatim, JSON on stdin, exit 0 allow / 2 deny; "
+                    "(b) agentic/executor/runner.py::run_verification runs each caller-declared Check.argv "
+                    "(CyClaw's own default_checks are pytest/ruff/invariant-guard)",
+        "enforcement": "both ship off (hook enabled: false with command: []; agentic.enabled false) and both "
+                       "can only deny or verify, never widen an external call. (a) inherits the parent's "
+                       "already-killed os.environ (no env= is built, so inheritance is the delivery); (b) is "
+                       "wrapped by build_telemetry_safe_env (T12) and production_sandbox(), whose Linux "
+                       "netns denies the child network outright. Whatever the operator's command or the "
+                       "caller's check does on the network is that operator's policy, not CyClaw telemetry: "
+                       "the static sweep cannot name the binary, so T13 checks the two spawn sites still "
+                       "exist instead and this row documents the surface. Never a kill-map entry",
+        "scope": "confirmed Grok/Claude calls when the hook is on; agentic verification when enabled",
+        "reviewed": "2026-09-28",
+        "evidence": "_run_command reads block['command'] and passes it to subprocess.run; run_verification "
+                    "passes check.argv to the sandbox backend (Codex P2 on PR #1502: a dynamic launcher "
+                    "no row could name)",
+    },
+    {
+        "name": "local OS process tooling", "category": 4, "controls": {},
+        "url": "docs/THREAT_MODEL.md",
+        "versions": "host binaries, never pinned: launchctl + crontab + schtasks + cmd.exe (sync/scheduler.py, "
+                    "utils/launchd_plist.py, utils/win_schtasks.py -- job registration/unregistration and the "
+                    "generated .cmd launchers), unshare + sandbox-exec (agentic/executor/hard_sandbox.py -- "
+                    "the Linux netns and Darwin Seatbelt wrappers), xdg-open + open + explorer "
+                    "(agentic/fsconnect/osutil.py reveal -- launches the desktop file manager on a "
+                    "containment-checked local path)",
+        "enforcement": "every one is a local OS control-plane or GUI tool with no network sink of its own; "
+                       "the scheduler and sandbox wrappers are exactly the boundaries that deliver the "
+                       "canonical env to the children they start (T11/T12), and hard_sandbox's netns "
+                       "denies the child network outright on Linux. Nothing here has, or needs, a "
+                       "telemetry switch",
+        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal",
+        "reviewed": "2026-09-28",
+        "evidence": "spawn-site sweep of every non-test subprocess call 2026-09-28: these were the only "
+                    "binaries the manifests and KNOWN_EXTERNAL_COMPONENTS did not already name",
+    },
+    {
         "name": "core web/runtime libs", "category": 5, "controls": {},
         "url": "pyproject.toml",
-        "versions": "fastapi/starlette/uvicorn/httpx/pydantic/numpy/nltk/pyyaml/rank-bm25/pygments/"
-                    "websockets/tzdata/psycopg-binary/cel-python and the dev/test tools "
-                    "(pytest*/ruff/mypy/bandit/pip/python/setuptools==84.0.0)",
+        "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
+                    "pyyaml/rank-bm25/pygments/websockets/tzdata/wcmatch and the dev/test/build tools "
+                    "(pytest*/ruff/mypy/bandit/pip/python/setuptools==84.0.0; hatchling==1.32.0 is the "
+                    "[build-system] backend, swept from build-system.requires, never installed at "
+                    "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
                        "is caller policy (all CyClaw clients set trust_env=False); nltk data downloads are "
                        "avoided by design (local Porter stemmer, no punkt)",
-        "scope": "runtime + dev", "reviewed": "2026-08-27",
-        "evidence": "bulk negative classification -- a NEW dependency outside every row here trips T13",
+        "scope": "runtime + dev", "reviewed": "2026-09-28",
+        "evidence": "bulk negative classification -- a NEW dependency outside every row here trips T13. "
+                    "Membership re-read against pyproject.toml/constraints.txt/requirements*.txt/"
+                    "environment.yml 2026-09-28: no pinned name is unaccounted for and no aliased name has "
+                    "left the manifests",
     },
 )
 
@@ -598,6 +674,25 @@ INVENTORY_ALIASES: dict[str, str] = {
     "lark": "numbat projection (+ cel-python)",
     "pendulum": "numbat projection (+ cel-python)",
     "netconnect": "netconnect passive LAN inventory",
+    # the fixed absolute neighbor-cache readers netconnect spawns (ip neigh
+    # show / arp -an / arp.exe -a): the same passive read, no probe
+    "ip": "netconnect passive LAN inventory",
+    "arp": "netconnect passive LAN inventory",
+    # scheduler registration, sandbox wrappers and the fsconnect reveal
+    # launcher -- local control-plane/GUI binaries, one category-4 row
+    "launchctl": "local OS process tooling",
+    "crontab": "local OS process tooling",
+    "schtasks": "local OS process tooling",
+    "cmd.exe": "local OS process tooling",
+    "unshare": "local OS process tooling",
+    "sandbox-exec": "local OS process tooling",
+    "xdg-open": "local OS process tooling",
+    "open": "local OS process tooling",
+    "explorer": "local OS process tooling",
+    # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
+    # operator/caller-chosen at run time, so the surface itself is the component
+    "pre-action-hook-command": "operator/caller-configured launchers",
+    "executor-check": "operator/caller-configured launchers",
     "sqlite-vec": "sqlite-vec",
     # bulk category-5 members
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
@@ -614,6 +709,8 @@ INVENTORY_ALIASES: dict[str, str] = {
     "pydantic-core": "core web/runtime libs",
     "pydantic-settings": "core web/runtime libs",
     "wcmatch": "core web/runtime libs",
+    # [build-system].requires -- swept since 2026-09-28
+    "hatchling": "core web/runtime libs",
     # constraints.txt-only pin (torch's transitive setuptools>=77.0.3 floor,
     # hardened to 84.0.0 for PYSEC-2026-3447): a build backend, no own
     # telemetry mechanism, same bucket as pip/wheel/python above.
@@ -627,7 +724,27 @@ INVENTORY_ALIASES: dict[str, str] = {
 # replaced with plain pip, so the repo spawns uv nowhere; a classification for
 # a binary that is no longer invoked is the same stale documentation this
 # checker exists to prevent. Re-add the row if uv ever returns.
-KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat")
+# The second line (2026-09-28) is every other binary a sweep of the non-test
+# subprocess call sites found: the scheduler registrars, the executor's
+# sandbox wrappers, the fsconnect reveal launcher and netconnect's
+# neighbor-cache readers. None has a network sink; they are listed so a
+# future spawn site that adds a NEW binary still needs a row.
+KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
+                             "launchctl", "crontab", "schtasks", "cmd.exe", "unshare", "sandbox-exec",
+                             "xdg-open", "open", "explorer", "ip", "arp",
+                             "pre-action-hook-command", "executor-check")
+
+# Spawn sites whose executable is NOT fixed in the code -- the operator's
+# configured hook command, the caller's verification checks. No static sweep
+# can name the binary, so the surface is the component: each entry must
+# resolve to an INVENTORY row (via KNOWN_EXTERNAL_COMPONENTS above) AND the
+# file must still carry the marker that proves it spawns. A site that stops
+# spawning turns its row into the stale documentation this checker exists to
+# prevent, so that is reported too (Codex P2 on PR #1502, 2026-09-28).
+DYNAMIC_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("pre-action-hook-command", "utils/external_pre_hook.py", ("def _run_command", "subprocess.run(")),
+    ("executor-check", "agentic/executor/runner.py", ("def run_verification", "check.argv")),
+)
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []
@@ -770,6 +887,11 @@ def _load_pyproject_deps(pyproject_path: Path) -> dict[str, str]:
         data = tomllib.load(fh)
     groups: list[list[str]] = [data.get("project", {}).get("dependencies", [])]
     groups.extend(data.get("project", {}).get("optional-dependencies", {}).values())
+    # [build-system].requires is an install surface too: `pip install -e .`
+    # and every wheel build resolve it. Until 2026-09-28 (Codex P2 on PR
+    # #1502) this loader skipped it, so replacing hatchling with an
+    # unclassified backend left strict T13 green.
+    groups.append(data.get("build-system", {}).get("requires", []))
     return _parse_requirement_names([e for g in groups for e in g])
 
 
@@ -1142,6 +1264,21 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
             warn("T13", msg)
     else:
         ok("T13", f"all {len(components)} declared components resolve to a classification row")
+    # -- dynamic launchers: the surface must still exist for its row to be true
+    for component, rel, markers in DYNAMIC_LAUNCHER_SITES:
+        path = root / rel
+        if not path.exists():
+            warn("T13", f"dynamic launcher {component!r}: {rel} is missing -- if the launcher was removed, "
+                        "retire its alias and inventory row; if it moved, update DYNAMIC_LAUNCHER_SITES")
+            continue
+        text = path.read_text(encoding="utf-8")
+        gone = [m for m in markers if m not in text]
+        if gone:
+            warn("T13", f"dynamic launcher {component!r}: {rel} no longer carries {gone} -- the site may "
+                        "have stopped spawning, so its inventory row would document a surface that no "
+                        "longer exists; retire or re-point it")
+        else:
+            ok("T13", f"dynamic launcher {component!r} still spawns from {rel} (row present)")
     for name in UNBOUNDED_TELEMETRY_CAPABLE:
         # Recorded review findings (issue #1135): bounding these is a
         # dependency decision, not a checker fix, so an unbound one is

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # otel-hardening verify — clean-tree pass + mutation self-test.
 # Pure stdlib (tomllib); safe to run before any pip install. Exit 0 = healthy.
-# A checker that cannot fail proves nothing — every rule below is exercised by
-# a mutation that must flip it, and each mutation asserts it actually changed
-# the file first (two prior silent-no-op sed bugs are documented in git
-# history at the old T3/T5 scenarios; the assert-changed discipline is why).
-# No test here touches the network.
+# A checker that cannot fail proves nothing — every rule that can FAIL or WARN
+# (T1-T5, T7-T14; T6 is info-only and has nothing to flip) is exercised below
+# by a mutation that must flip it, and each mutation asserts it actually
+# changed the file first (two prior silent-no-op sed bugs are documented in
+# git history at the old T3/T5 scenarios; the assert-changed discipline is
+# why). No test here touches the network.
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,7 +53,8 @@ _mktree() {
            "$d/agentic/fsconnect" "$d/sync" "$d/telegram" "$d/opentweet"
   cp "$repo_root/pyproject.toml" "$repo_root/constraints.txt" "$repo_root/requirements.txt" \
      "$repo_root/environment.yml" "$repo_root/Dockerfile" "$repo_root/docker-compose.yml" "$d/"
-  cp "$repo_root/utils/telemetry_kill.py" "$repo_root/utils/onnx_telemetry.py" "$d/utils/"
+  cp "$repo_root/utils/telemetry_kill.py" "$repo_root/utils/onnx_telemetry.py" \
+     "$repo_root/utils/external_pre_hook.py" "$d/utils/"
   cp "$repo_root/retrieval/embeddings.py" "$repo_root/retrieval/vector_store.py" "$d/retrieval/"
   cp "$repo_root/guardrails/integration.py" "$d/guardrails/"
   cp "$repo_root/docs/security-philosophy/cyclaw_telemetry_kill.env" "$d/docs/security-philosophy/"
@@ -333,6 +335,48 @@ a="$(_mktree)"
 _mutate "$a/environment.yml" '
 text = text.replace("      - onnxruntime==1.30.0\n", "      - onnxruntime==1.30.0; sys_platform == '\''darwin'\''\n", 1)'
 _expect "T13 conda marker-scoped pin mutation" 0 "info  \[T13\] conda (environment.yml): no onnxruntime floor"
+
+# 27. T9: the parent-process path stops routing through the shared _enforce
+#     core. The rewritten body still sets every telemetry pair (so T2's value
+#     oracle stays green and nothing else can catch it), but it no longer
+#     applies the update-check pairs or pops the scrubbed names -- exactly the
+#     parent/child drift T9 exists to forbid. Until this scenario landed
+#     (2026-09-28, Codex P2 on PR #1496) T9 was the one failing rule with no
+#     mutation, so check_helper_wiring() could have been neutered unnoticed.
+a="$(_mktree)"
+_mutate "$a/utils/telemetry_kill.py" '
+old = "    _enforce(os.environ)\n    return dict(TELEMETRY_KILL)\n"
+assert old in text
+text = text.replace(old, "    for key, value in TELEMETRY_KILL.items():\n        os.environ[key] = value\n    return dict(TELEMETRY_KILL)\n", 1)'
+_expect "T9 parent-path drift mutation" 2 "FAIL  \[T9\].*apply_telemetry_kill"
+
+# 28. T13: the build backend is swapped for an unclassified one. Until
+#     2026-09-28 the sweep never read [build-system].requires, so this exact
+#     edit left strict mode green (Codex P2 on PR #1502). WARN by default,
+#     FAIL under --strict, same as any other unclassified dependency.
+a="$(_mktree)"
+_mutate "$a/pyproject.toml" '
+import re
+text, n = re.subn(r"\"hatchling==[0-9][^\"]*\"", "\"some-build-backend==1.0.0\"", text)
+assert n == 1'
+_expect "T13 unclassified build backend (default)" 0 "WARN  \[T13\].*some-build-backend"
+a="$(_mktree)"
+_mutate "$a/pyproject.toml" '
+import re
+text, n = re.subn(r"\"hatchling==[0-9][^\"]*\"", "\"some-build-backend==1.0.0\"", text)
+assert n == 1'
+_expect "T13 unclassified build backend (--strict)" 2 "FAIL  \[T13\].*some-build-backend" "--strict"
+
+# 29. T13: a dynamic-launcher site stops spawning. The row for the pre-action
+#     hook's command engine is only true while _run_command still hands the
+#     operator's argv to subprocess; removing that call must be reported so
+#     the row is retired rather than left describing a surface that is gone.
+#     The replacement must not contain the original marker as a substring.
+a="$(_mktree)"
+_mutate "$a/utils/external_pre_hook.py" '
+text = text.replace("subprocess.run(", "zz_spawn_removed_zz(")
+assert "subprocess.run(" not in text'
+_expect "T13 dynamic-launcher site gone mutation" 0 "WARN  \[T13\] dynamic launcher .pre-action-hook-command.*no longer carries"
 
 echo
 if [ "$fails" -eq 0 ]; then
