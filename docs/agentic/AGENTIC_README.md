@@ -152,8 +152,10 @@ pushes or opens a GitHub PR on its own: explicit push uses
 `RepoWorkspaceTools.push_branch`; draft publication uses `agentic/writer.py`
 (§5), whose code gate is armed but whose master switch ships off. The
 `real-repo-run*` subcommands are CLI-only:
-`utils/ops_runner.py` allowlists them, but `OpsAgenticRequest.action`
-(`schemas/api.py`) does not, so `POST /ops/agentic` answers 422 for them.
+`utils/ops_runner.py` accepts run/status/decide/push/publish/discard, but not
+`real-repo-run-plan`. `OpsAgenticRequest.action` in `schemas/api.py` accepts
+none of these coding-loop actions, so `POST /ops/agentic` rejects them with
+422.
 
 **Two-stage: plan with cloud, implement locally.** `real-repo-run-plan`
 (`agentic/real_repo_loop.py`'s `generate_plan`) is a separate, one-shot

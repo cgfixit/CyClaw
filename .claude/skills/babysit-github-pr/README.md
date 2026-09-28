@@ -1,6 +1,9 @@
 # `/babysit-github-pr` — PR Lifecycle Automation
 
-Automate the tedious parts of PR management: rebasing, CI triage, review comments, and merge readiness. Once invoked, the skill runs a bounded loop that drives the PR to green or escalates to a human.
+The skill guides an agent through rebasing, CI triage, review comments, and
+merge-readiness checks. Its shell helper runs a bounded polling loop. The
+helper classifies failures, retries checks classified as flaky, and reports
+comments; code fixes and review responses require the agent or operator.
 
 ## Installation
 
@@ -95,7 +98,9 @@ The skill persists state per-repo in `.git/babysit-state.json` (not committed). 
 }
 ```
 
-**Idempotency:** Comments are processed by ID, so re-invoking the skill won't double-process them.
+The helper stores a comment cursor, but its piped comment loop does not
+retain cursor updates in the parent shell. Comments can be reported again;
+it does not apply fixes, reply, or resolve threads automatically.
 
 **Resetting:** Delete `.git/babysit-state.json` to start fresh (re-detect test command, re-process all comments).
 
@@ -107,7 +112,6 @@ The skill persists state per-repo in `.git/babysit-state.json` (not committed). 
 2. **Rewrite history with co-authors** — stops if commits are from another author
 3. **Edit tests to make them pass** — tests are oracles; failures are real
 4. **Suppress lint or add `# noqa`** — ignores the linter instead of fixing
-5. **Process a comment twice** — persists comment ID for idempotency
 
 ---
 
@@ -127,9 +131,11 @@ The skill persists state per-repo in `.git/babysit-state.json` (not committed). 
 TIMEOUT_MINUTES=120 AUTO_MERGE=true /babysit-github-pr 42
 ```
 
-## Dry Run (Testing)
+## Test in a disposable repository
 
-To test the skill without affecting a real PR:
+This procedure creates and pushes a real branch and PR in a throwaway
+repository. It is not a dry run. Agent or operator action is required to fix
+the deliberate failure.
 
 1. Create a throwaway GitHub repo (e.g., `test-babysit`)
 2. Clone it locally
@@ -144,12 +150,9 @@ To test the skill without affecting a real PR:
    ```bash
    /babysit-github-pr feature/test-lint-fail
    ```
-5. Watch it:
-   - Create a draft PR
-   - Wait for CI to detect the lint error
-   - Fix the error, commit, and push
-   - CI re-runs and passes
-   - Report shows PR is ready to merge
+5. Inspect the reported failure, fix the error, run the relevant local checks,
+   and commit and push the correction. The shell helper does not edit code.
+   Confirm fresh CI results and review status before deciding whether to merge.
 6. Close the PR and clean up:
    ```bash
    git push origin --delete feature/test-lint-fail

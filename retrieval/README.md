@@ -10,7 +10,7 @@ precedes it.
 | Module | Role |
 |---|---|
 | `results.py` | `SearchResult` dataclass. Imported by the retriever and by optional memory fusion so the memory package does not pull in Chroma/BM25. Re-exported from `hybrid_search.py`. |
-| `hybrid_search.py` | `HybridRetriever`: ChromaDB semantic leg + BM25Okapi keyword leg → RRF fusion (`retrieval.rrf_k`, shipped 60). Degrades gracefully if one leg fails. |
+| `hybrid_search.py` | `HybridRetriever`: ChromaDB semantic leg + BM25Okapi keyword leg → RRF fusion (`retrieval.rrf_k`, shipped 60). Uses normalized per-leg scores to settle exact RRF ties. Keeps semantic retrieval available when the corpus has no BM25 vocabulary and degrades to one leg when the other fails. |
 | `indexer.py` | Corpus ingestion from `data/corpus/` (walked recursively; file types from `corpus.extensions`, shipped `[".md", ".txt"]`, matched case-insensitively): chunking (`indexing.chunk_size`/`chunk_overlap`, counted in the embedding model's own tokens when `indexing.chunk_unit` is `tokens`, as shipped, so no chunk runs past the model's window), chunk sanitization via the prompt filter, writes both indices. Run `python -m retrieval.indexer` (or `cyclaw-index`) explicitly — the server never builds the index on startup or on a query — the only in-process build is the operator-triggered `POST /index/build` route (loopback peer + same-origin, background thread, progress via `GET /index/status`); a missing index is fail-soft (503 `INDEX_NOT_FOUND`). |
 | `embeddings.py` | Local sentence-transformers embeddings, device hardcoded to CPU (`EMBED_DEVICE` — cross-platform ranking determinism; see the constant's own comment). Triple `lru_cache`; `embedding_fingerprint()` detects index staleness. HF offline flags are set conditionally, never blanket (see `utils/telemetry_kill.py`'s exclusion note). |
 | `rerank.py` | Local cross-encoder (`models.reranker`, shipped `cross-encoder/ms-marco-MiniLM-L6-v2`, CPU) behind the vault-hit gate's veto. `graph.retrieve_node` scores the chunks the model will see via `HybridRetriever.rerank_scores`; `hybrid_search` never calls it, so MCP never pays for it. Loads like the embedder (shared `cache_dir`, offline once cached, `offline_after_index` honoured), in float32, and is fail-soft: off or unavailable, the cosine rule decides alone. |
@@ -25,7 +25,8 @@ precedes it.
   `2/60 ≈ 0.0333` (the two-leg hybrid ceiling).
   It only gates when no hit carries a cosine (the keyword-only degrade).
   Hybrid queries are decided by `retrieval.min_semantic_score` (shipped
-  **0.30**, cosine on the **best** semantic hit, wherever RRF ranked it).
+  **0.30**, cosine on the **best** semantic hit within the first
+  `LOCAL_CONTEXT_CHUNKS` fused results that the local answer node uses).
 - `retrieval.min_rerank_score` (shipped **null**: shadow mode, logits are
   audited and nothing is vetoed) is a cross-encoder **logit** when set, not a
   cosine or a probability (0.0 is sigmoid 0.5). A number is a veto on a
@@ -38,10 +39,16 @@ precedes it.
   tokens` (shipped: 256/32) both count the embedder's word pieces, and
   `chunk_size` includes its 2 special tokens, so 256 is exactly
   all-MiniLM-L6-v2's window; a larger value is capped to it. Without the key,
-  both count whitespace words, and a 512-word chunk runs ~720-1,840 word
-  pieces, of which the model embeds only the first 254.
-- The BM25 store is **JSON** (`index/bm25.json`), never pickle — pickle is an
-  RCE vector and `test_security` guards the format.
+  both count whitespace words, and a 512-word chunk can exceed the model's
+  window. Changing the unit or window size requires a rebuild. In token mode,
+  overlap must be less than the content window after special tokens are
+  reserved, which is 254 tokens for the shipped embedder.
+- The BM25 store is **JSON** (`index/bm25.json`), never pickle. Each build
+  writes a new Chroma collection or pgvector table and records its name as
+  `vector_collection` in the atomically replaced BM25 file. Each retriever
+  therefore pairs keyword data with its own vector generation. A gateway
+  rebuild keeps the old retriever serving until the new one is ready;
+  standalone indexing requires a server restart to load the new index.
 - All values live in `config.yaml`, with one deliberate exception: the
   query-embedding LRU cache size is fixed at import time by `functools.lru_cache`
   (default `2048` in `embeddings.py`), so it is overridable only via the

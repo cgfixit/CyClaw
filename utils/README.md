@@ -45,7 +45,7 @@ modules"; this file groups them by concern.
 | Module | Role |
 |---|---|
 | `ratelimit.py` | Per-IP rate limiting; in-memory / SQLite / Postgres backends. |
-| `health.py` | `check_all()` behind `/health`. `degraded` without Ollama is normal. External-provider probes are opt-in (`api.health_probe_external_providers`, ships false). |
+| `health.py` | `check_all()` behind `/health` probes the gateway's loaded config, including the resolved local backend and model pin. Its short-lived status cache is keyed by that config. Restart after config edits. `degraded` without the local model is normal; external-provider probes require `api.health_probe_external_providers: true` (ships false). |
 | `config_validation.py` | Boot-time config validation; fails fast on a broken `config.yaml`. |
 | `gateway_url.py` | Shared launcher console URL resolver: configured host/TLS plus the effective port; wildcard binds map to loopback browser destinations. Reads YAML without importing or starting the gateway. |
 | `ops_runner.py` | `subprocess.run([...])` shim behind the four `/ops/*` endpoints — core never imports `sync`/`agentic` (I6). |
