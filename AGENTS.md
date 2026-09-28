@@ -84,8 +84,10 @@ Preserve telemetry suppression before heavy imports. It is not a network
 firewall. The application log, the gateway console, and the Numbat stream are
 each written from one bounded writer thread (`logging.max_queued_records`,
 `logging.drain_wait_sec`, `numbat.max_queued_writes`, `numbat.write_wait_sec`),
-so a stalled disk cannot hold a request; a full queue drops and counts.
-`audit.jsonl` is still written on the caller's thread and stays authoritative.
+so a stall on any of those three paths cannot hold a request; a full queue
+drops and counts. `audit.jsonl` is different: it is written synchronously on
+the caller's thread under a lock and stays authoritative, so a stall on the
+audit sink still holds the request that is writing it.
 Concurrent `/health` calls share one in-flight probe set per configuration
 behind a short cache; the endpoint probes external providers only when
 `api.health_probe_external_providers` is true (ships false). Keep private corpus, raw queries, credentials, generated indexes,
