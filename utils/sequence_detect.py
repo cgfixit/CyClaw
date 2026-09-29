@@ -245,29 +245,19 @@ def detect_sequences(
             continue
         escalations.append((ts, hashed, row, "spend"))
     escalations.sort(key=lambda item: item[0])
-    # escalations is sorted ascending by timestamp, so for a given injection
-    # every candidate with esc_ts <= inj_ts is a fixed prefix -- bisect_right
-    # locates its end in O(log E) instead of walking past it one entry at a
-    # time for every injection (this ran as O(injections * escalations) over
-    # an unbounded, append-only audit.jsonl history).
     escalation_timestamps = [item[0] for item in escalations]
+    next_different = [len(escalations)] * len(escalations)
+    for idx in range(len(escalations) - 2, -1, -1):
+        next_different[idx] = idx + 1 if escalations[idx][1] != escalations[idx + 1][1] else next_different[idx + 1]
     for inj_ts, inj_hash, inj_row in injections_all:
-        match: tuple[datetime, str, dict[str, Any], str] | None = None
-        start_idx = bisect.bisect_right(escalation_timestamps, inj_ts)
-        for idx in range(start_idx, len(escalations)):
-            esc_ts, esc_hash, esc_row, kind = escalations[idx]
-            if esc_hash == inj_hash:
-                continue
-            if esc_ts - inj_ts > window:
-                # Also sort-order-safe to stop here: every later entry is
-                # further outside the window too, so scanning the remainder
-                # of the list would find nothing.
-                break
-            match = (esc_ts, esc_hash, esc_row, kind)
-            break
-        if match is None:
+        idx = bisect.bisect_right(escalation_timestamps, inj_ts)
+        if idx < len(escalations) and escalations[idx][1] == inj_hash:
+            idx = next_different[idx]
+        if idx == len(escalations):
             continue
-        esc_ts, _esc_hash, esc_row, kind = match
+        esc_ts, _esc_hash, esc_row, kind = escalations[idx]
+        if esc_ts - inj_ts > window:
+            continue
         findings.append(
             _finding(
                 "window_injection_to_escalation",
