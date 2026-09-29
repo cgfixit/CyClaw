@@ -197,6 +197,30 @@ def test_window_injection_to_escalation_different_hash() -> None:
     assert finding["query_hash"] is None
 
 
+def test_window_skips_same_hash_run_and_selects_first_strictly_later_escalation() -> None:
+    result = detect_sequences(
+        [
+            _audit("prompt_injection_blocked", minutes=0),
+            _audit("prompt_injection_blocked", minutes=15),
+            _audit("rag_query", minutes=15, query_hash=HASH_B, extra={"online_escalated": True}),
+        ],
+        [
+            _spend(minutes=0, query_hash=HASH_B),
+            *[_spend(minutes=minute) for minute in range(1, 15)],
+            _spend(minutes=15, query_hash=HASH_B),
+            _spend(minutes=16),
+            _spend(minutes=17, query_hash=HASH_B),
+            _spend(minutes=18, query_hash=HASH_B),
+        ],
+    )
+    findings = [f for f in result["findings"] if f["rule"] == "window_injection_to_escalation"]
+    assert [(f["window_start"], f["window_end"]) for f in findings] == [(_ts(0), _ts(15)), (_ts(15), _ts(17))]
+    assert [(f["events"][1]["kind"], f["events"][1]["query_hash"]) for f in findings] == [
+        ("audit", HASH_B),
+        ("spend", HASH_B),
+    ]
+
+
 def test_window_injection_outside_default_does_not_fire() -> None:
     result = detect_sequences(
         [
