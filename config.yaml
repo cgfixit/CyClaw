@@ -554,10 +554,6 @@ numbat:
     max_rule_ms: 20         # per-rule budget; log warning if exceeded
 
 security:
-  # Decorative: no code reads require_env. The server boots without
-  # GROK_API_KEY; Grok then reports unavailable.
-  require_env:
-    - "GROK_API_KEY"
   # Opt-out from the CYCLAW_API_KEY Bearer gate (gate.py require_api_key) on
   # its 18 routes: soul/*, ops/*, memory/*, audit/summary, query/export/html.
   # It does not touch /auth/*, which auth.enabled governs. Only a YAML boolean

@@ -172,8 +172,8 @@ for a different reason: no `+cpu` wheel exists on the arm64 index). The
 venv does not survive session end; treat this as a per-session setup step,
 always invoked as `/root/.venv-cyclaw-312/bin/python`, never bare `python3`.
 
-`GROK_API_KEY=dummy` (any non-empty value) is sufficient everywhere --
-`security.require_env` is decorative and read by no code.
+`GROK_API_KEY=dummy` (any non-empty value) is sufficient for these tests.
+Startup does not require `GROK_API_KEY`; Grok reports unavailable without it.
 
 **Full dependency install** (preferred when network access allows):
 `pip install -e ".[test,full]"`.
@@ -392,7 +392,7 @@ report one of these as a new finding.
    exists for `/users`/`/audit`).
 5. `embeddings_local`'s health-check entry is static by design (it does
    not depend on whether the model has actually loaded) -- not a finding.
-6. `security.require_env` is decorative; no code enforces it at boot.
+6. Startup does not require `GROK_API_KEY`; Grok reports unavailable without it.
 7. Hand-run `uvicorn gate:app` (bypassing the shipped launcher or Docker
    CMD) still gets the canonical telemetry/update-check env only at module
    import, not before the interpreter starts -- documented in

@@ -364,8 +364,7 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   runtime's own hook scripts (`~/.claude/*.py`) shebang `#!/usr/bin/env python3` and resolve
   through it.
 - **Trap:** assuming the server refuses to boot without `GROK_API_KEY`.
-  **Rule:** `security.require_env` is **decorative** — no code reads it. The
-  server boots fine; Grok just reports unavailable. Tests only need
+  **Rule:** The server boots without the key; Grok reports unavailable. Tests only need
   `GROK_API_KEY=dummy` (any non-empty value).
 - **Trap:** treating `status: degraded` in `/health` or `TELEMETRY KILL` on
   startup as errors. **Rule:** both are normal (no Ollama; intentional env

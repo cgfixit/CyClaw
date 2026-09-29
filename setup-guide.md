@@ -817,9 +817,9 @@ A dummy value is fine when you explicitly set `app.mode: "offline"`, and for
 the test command below. The key is read lazily at an actual Grok call site
 (`llm/client.py`), which never fires in offline mode. The shipped config is
 `app.mode: "hybrid"`; it still cannot call Grok without the provider gate,
-per-request confirmation, and a usable real key. `security.require_env` in
-`config.yaml` is descriptive; no code enforces it. Tests specifically require
-`GROK_API_KEY=dummy` (or any non-empty value) to be set.
+per-request confirmation, and a usable real key. Startup does not require the
+key. Tests specifically require `GROK_API_KEY=dummy` (or any non-empty value)
+to be set.
 
 ### CYCLAW_API_KEY — required for the Soul console, not for `/query`
 

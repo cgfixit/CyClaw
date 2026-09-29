@@ -213,8 +213,7 @@ TEST_CONFIG = {
     # mainline plane (every audit_log -> project_audit_record) stays exercised;
     # only the destination is per-test, like audit_file above.
     "numbat": {"enabled": True, "output_path": "OVERRIDDEN-PER-TEST/numbat-events.ndjsonl"},
-    "security": {"require_env": ["GROK_API_KEY"],
-                 "allowed_origins": ["http://127.0.0.1", "http://localhost"]},  # DevSkim: ignore DS162092,DS137138
+    "security": {"allowed_origins": ["http://127.0.0.1", "http://localhost"]},  # DevSkim: ignore DS162092,DS137138
     "personality": {"enabled": False, "soul_path": "", "db_path": "", "interaction_ttl_days": 90}
 }
 

@@ -171,7 +171,7 @@ Workflow files are actionlint/zizmor checked; third-party actions are SHA-pinned
 - **Use `subprocess.run([...], list-form)`** — never `shell=True` with user input.
 - **Do not commit** caches, indexes, logs, `.env` files, secrets, or local path artifacts.
 - **`min_score: 0.028`** is on the RRF fusion scale (scores rarely exceed ~0.1). Do not "fix" it toward cosine-like 0.5.
-- **`security.require_env`** in `config.yaml` is decorative — no code reads it. The server boots without `GROK_API_KEY`; Grok just reports unavailable.
+- The server boots without `GROK_API_KEY`; Grok reports unavailable until the key is set.
 
 ---
 
