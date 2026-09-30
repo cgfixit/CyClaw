@@ -832,6 +832,7 @@ esac
 
 
 @_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
 def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: Path) -> None:
     """The rc loader classifies secrets by allowlist and by suffix."""
     dotenv = tmp_path / ".env"
@@ -843,13 +844,18 @@ def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: P
         encoding="utf-8",
     )
     dotenv.chmod(0o600)
+    # Drop inherited CI values (verify-skills exports CYCLAW_API_KEY) before
+    # the loader runs, then keep its status. Later printfs must not hide a refuse.
     program = (
+        "unset CYCLAW_GATE_PORT OLLAMA_MODEL CYCLAW_API_KEY DB_PASSWORD\n"
         f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
         f'cyclaw_source_public_env "{dotenv}"\n'
+        "loader_status=$?\n"
         'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
         'printf "model:%s\\n" "$OLLAMA_MODEL"\n'
         'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "api:set\\n"; else printf "api:unset\\n"; fi\n'
         'if [ -n "${DB_PASSWORD:-}" ]; then printf "db:set\\n"; else printf "db:unset\\n"; fi\n'
+        'exit "$loader_status"\n'
     )
     result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
