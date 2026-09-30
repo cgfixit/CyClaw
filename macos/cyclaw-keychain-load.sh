@@ -122,7 +122,6 @@ _source_dotenv() {
   esac
   # Preserve source failure across export-state cleanup so the caller can
   # try the repo dotenv when loading the preferred file fails.
-  # shellcheck disable=SC1090
   local source_status=0
   local had_allexport=0
   if command -v _remember_secret_presets_in_file >/dev/null 2>&1; then
@@ -130,6 +129,7 @@ _source_dotenv() {
   fi
   case "$-" in *a*) had_allexport=1 ;; esac
   set -a
+  # shellcheck disable=SC1090
   . "$f" || source_status=$?
   # Restore the caller's export policy; an unconditional set +a would disable
   # a setting that may have been enabled before this helper was called.

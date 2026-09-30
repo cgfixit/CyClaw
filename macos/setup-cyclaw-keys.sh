@@ -659,6 +659,11 @@ _install_keys_rc_block() {
 
 _ensure_keys_rc_blocks() {
   local rc primary
+  # --no-profile-edit is accepted and does not skip this rewrite. Leaving a
+  # raw source of the dotenv would keep exporting secrets into every shell.
+  if [ "$DO_PROFILE" -eq 0 ]; then
+    echo "[cyclaw] note : --no-profile-edit does not skip the keys rc rewrite" >&2
+  fi
   _keys_rc_malformed || return 1
   while IFS= read -r rc; do
     [ -f "$rc" ] || continue

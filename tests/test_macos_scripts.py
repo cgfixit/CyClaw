@@ -844,7 +844,7 @@ def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: P
     )
     dotenv.chmod(0o600)
     program = (
-        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}\n'
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
         f'cyclaw_source_public_env "{dotenv}"\n'
         'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
         'printf "model:%s\\n" "$OLLAMA_MODEL"\n'
