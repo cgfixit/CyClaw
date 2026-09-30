@@ -51,7 +51,7 @@
 #   never write them to config.yaml
 #   never put them in argv of a child we do not control
 #   never inline them into ~/.zshrc / ~/.bash_profile
-#   Keychain + ~/.CyClaw/.env (chmod 600) is the only persist path
+#   Keychain holds secrets. ~/.CyClaw/.env (chmod 600) holds non-secret settings
 #   fsconnect writes/indexing stay off
 #   I3: do not flip app.mode or models.*.enabled (triple-gated fallback stays)
 #   I5: do not touch soul.md
@@ -402,55 +402,23 @@ else
   step "skipping keys (--skip-keys)"
 fi
 
-# Load keys into THIS process so the servers inherit them.
-# The dotenv is chmod 600 and gitignored. Never print its contents.
+# Load non-secret settings from dotenv, then secrets from Keychain into THIS
+# process so later steps (gh auth, the gateway) inherit them. Never print values.
 # xtrace would dump every assignment — refuse rather than leak.
-_dotenv_mode() {
-  if [ "$(uname -s)" = "Darwin" ]; then
-    # Pin BSD stat: a GNU stat earlier on PATH interprets -f differently,
-    # so valid private dotenv files could fail the permission check.
-    /usr/bin/stat -f %Lp "$1" 2>/dev/null || true
-  else
-    stat -c %a "$1" 2>/dev/null || true
-  fi
-}
-
-_source_dotenv() {
-  local f="$1"
-  local mode=""
-  [ -f "$f" ] || return 1
-  mode="$(_dotenv_mode "$f")"
-  case "$mode" in
-    600|400) ;;
-    *)
-      # Name the file and the remedy. Without them the operator sees only a
-      # mode number here and "CYCLAW_API_KEY not set" below, and the actual
-      # cause -- a dotenv other local accounts can read -- goes unstated.
-      echo "[cyclaw] warn : refusing to source $f (mode ${mode:-unknown}; want 600 or 400). Fix with: chmod 600 $f" >&2
-      return 1
-      ;;
-  esac
-  # Preserve source failure across export-state cleanup so the caller can
-  # try the repo dotenv when loading the preferred file fails.
-  # shellcheck disable=SC1090
-  local source_status=0
-  local had_allexport=0
-  case "$-" in *a*) had_allexport=1 ;; esac
-  set -a
-  . "$f" || source_status=$?
-  # Restore the caller's export policy; an unconditional set +a would disable
-  # a setting that may have been enabled before this helper was called.
-  if [ "$had_allexport" -eq 0 ]; then
-    set +a
-  fi
-  return "$source_status"
-}
+_CYCLAW_SECRET_HELPER="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/cyclaw-keychain-load.sh"
+if [ ! -f "$_CYCLAW_SECRET_HELPER" ]; then
+  die "cyclaw-keychain-load.sh not found at $_CYCLAW_SECRET_HELPER"
+fi
+# shellcheck disable=SC1090
+. "$_CYCLAW_SECRET_HELPER"
 
 case "$-" in
   *x*) die "refusing to source .env with xtrace on (would print secrets). Re-run without bash -x." ;;
 esac
+_remember_secret_preset
 # Chained on the result, not `-f`: a refused HOME file must not shadow the repo copy.
 _source_dotenv "$HOME_DIR/.env" || _source_dotenv "$REPO_DIR/.env" || true
+_load_os_secrets "$HOME_DIR/.env" "$REPO_DIR/.env" || die "Keychain secret could not be read."
 
 # -- 6. gh auth (optional, never prints a token) ------------------------------
 
@@ -606,12 +574,12 @@ if CONSOLE_PROBE="$("$VENV_PY" "$REPO_DIR/utils/gateway_url.py" \
   CONSOLE_URL="$CONSOLE_PROBE"
 fi
 step "  terminal UI : $CONSOLE_URL"
-step "  this tab    : source $HOME_DIR/.env   (if you open a new one, rc already sources it)"
+step "  secrets     : Keychain, loaded into the cyclaw process only (not every shell)"
 step "  later       : cyclaw     (or: bash macos/invoke-cyclaw.sh)"
 step "  stop        : Ctrl+C in the tab that is running the server"
 if [ -z "${CYCLAW_API_KEY:-}" ]; then
   warn "CYCLAW_API_KEY is unset in this process — Soul / ops state-changing routes will 401."
-  warn "source $HOME_DIR/.env  then re-run  bash macos/invoke-cyclaw.sh"
+  warn "re-run macos/setup-cyclaw-keys.sh so the Keychain item exists, then bash macos/invoke-cyclaw.sh"
 fi
 echo ""
 

@@ -90,6 +90,16 @@ function Unschedule-KnownTasks {
 Unschedule-SyncJob
 Unschedule-KnownTasks
 
+# Plaintext secret lines go away only when Credential Manager already holds
+# them. No backup. A missing item leaves the line (the only copy).
+$secretStore = Join-Path $PSScriptRoot "CyClaw-SecretStore.ps1"
+if (Test-Path -LiteralPath $secretStore) {
+    . $secretStore
+    $repoForEnv = Join-Path $Home_ "repo"
+    if ($env:CYCLAW_REPO) { $repoForEnv = $env:CYCLAW_REPO }
+    Sync-CyclawPlaintextToCredentialManager -HomeDir $Home_ -RepoDir $repoForEnv
+}
+
 # -- profile block --------------------------------------------------------------
 $Marker = "# >>> cyclaw harness >>>"
 if (Test-Path $PROFILE.CurrentUserAllHosts) {

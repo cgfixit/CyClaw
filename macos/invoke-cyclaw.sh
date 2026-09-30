@@ -111,65 +111,40 @@ echo "[cyclaw] home     : $HOME_DIR"
 echo "[cyclaw] terminal : $CONSOLE_URL  (RAG gateway / static/terminal.html)"
 echo "[cyclaw] Ctrl+C stops the server"
 
-# Load persisted keys into THIS process so gate.py inherits them.
-# ~/.CyClaw/.env is chmod 600 and gitignored. Never print its contents.
+# Load non-secret settings from dotenv, then secrets from Keychain into THIS
+# process only. Secret lines in .env are scrubbed and never passed to gate.py.
 # xtrace would dump every assignment — refuse rather than leak.
-# ponytail: one copy here (shim + cyclaw() + direct script all exec this).
-_dotenv_mode() {
-  if [ "$(uname -s)" = "Darwin" ]; then
-    # Pin BSD stat: a GNU stat earlier on PATH interprets -f differently,
-    # so valid private dotenv files could fail the permission check.
-    /usr/bin/stat -f %Lp "$1" 2>/dev/null || true
-  else
-    stat -c %a "$1" 2>/dev/null || true
+# shim + cyclaw() + a direct script all exec this file.
+_INVOKE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+_CYCLAW_SECRET_HELPER=""
+for _cand in "$_INVOKE_DIR/cyclaw-keychain-load.sh" "$REPO_DIR/macos/cyclaw-keychain-load.sh"; do
+  if [ -f "$_cand" ]; then
+    _CYCLAW_SECRET_HELPER="$_cand"
+    break
   fi
-}
-
-_source_dotenv() {
-  local f="$1"
-  local mode=""
-  [ -f "$f" ] || return 1
-  mode="$(_dotenv_mode "$f")"
-  case "$mode" in
-    600|400) ;;
-    *)
-      # Name the file and the remedy. Without them the operator sees only a
-      # mode number here and "CYCLAW_API_KEY not set" below, and the actual
-      # cause -- a dotenv other local accounts can read -- goes unstated.
-      echo "[cyclaw] warn : refusing to source $f (mode ${mode:-unknown}; want 600 or 400). Fix with: chmod 600 $f" >&2
-      return 1
-      ;;
-  esac
-  # Preserve source failure across export-state cleanup so the caller can
-  # try the repo dotenv when loading the preferred file fails.
-  # shellcheck disable=SC1090
-  local source_status=0
-  local had_allexport=0
-  case "$-" in *a*) had_allexport=1 ;; esac
-  set -a
-  . "$f" || source_status=$?
-  # Restore the caller's export policy; an unconditional set +a would disable
-  # a setting that may have been enabled before this helper was called.
-  if [ "$had_allexport" -eq 0 ]; then
-    set +a
-  fi
-  return "$source_status"
-}
-
-if [ -z "${CYCLAW_API_KEY:-}" ]; then
-  case "$-" in
-    *x*) echo "[cyclaw] error: refusing to source .env with xtrace on (would print secrets). Re-run without bash -x." >&2; exit 1 ;;
-  esac
-  # Chained on the result, not `-f`: a refused HOME file must not shadow the repo copy.
-  _source_dotenv "$HOME_DIR/.env" || _source_dotenv "$REPO_DIR/.env" || true
+done
+if [ -z "$_CYCLAW_SECRET_HELPER" ]; then
+  echo "[cyclaw] error: cyclaw-keychain-load.sh not found beside the launcher or in $REPO_DIR/macos" >&2
+  exit 1
 fi
+# shellcheck disable=SC1090
+. "$_CYCLAW_SECRET_HELPER"
+
+_remember_secret_preset
+case "$-" in
+  *x*) echo "[cyclaw] error: refusing to source .env with xtrace on (would print secrets). Re-run without bash -x." >&2; exit 1 ;;
+esac
+# Chained on the result, not `-f`: a refused HOME file must not shadow the repo copy.
+# Secret names in either file are discarded; Keychain is the only secret source.
+_source_dotenv "$HOME_DIR/.env" || _source_dotenv "$REPO_DIR/.env" || true
+_load_os_secrets "$HOME_DIR/.env" "$REPO_DIR/.env" || exit 1
 
 # The selected flag/env port also owns the printed URL; dotenv must not move
 # only the child listener to a different port after that URL was resolved.
 export CYCLAW_GATE_PORT="$GATE_PORT"
 
 if [ -z "${CYCLAW_API_KEY:-}" ]; then
-  echo "[cyclaw] warn : CYCLAW_API_KEY not set — Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server; source ~/.CyClaw/.env or set the env var, then restart." >&2
+  echo "[cyclaw] warn : CYCLAW_API_KEY is not in the Keychain (service com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. Re-run macos/setup-cyclaw-keys.sh; this launcher does not read that secret from .env." >&2
 fi
 
 # --- cleanup on exit / signals ---

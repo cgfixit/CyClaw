@@ -221,7 +221,10 @@ fi
 
 # -- 5. Launcher + shim -----------------------------------------------------------
 cp "$REPO_DIR/macos/invoke-cyclaw.sh" "$BIN_DIR/invoke-cyclaw.sh"
-chmod +x "$BIN_DIR/invoke-cyclaw.sh"
+cp "$REPO_DIR/macos/cyclaw-keychain-load.sh" "$BIN_DIR/cyclaw-keychain-load.sh"
+cp "$REPO_DIR/macos/cyclaw-keychain-env.sh" "$BIN_DIR/cyclaw-keychain-env.sh"
+cp "$REPO_DIR/macos/cyclaw-public-env.sh" "$BIN_DIR/cyclaw-public-env.sh"
+chmod +x "$BIN_DIR/invoke-cyclaw.sh" "$BIN_DIR/cyclaw-keychain-load.sh" "$BIN_DIR/cyclaw-keychain-env.sh" "$BIN_DIR/cyclaw-public-env.sh"
 
 SHIM="$BIN_DIR/cyclaw"
 cat > "$SHIM" <<EOF

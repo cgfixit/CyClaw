@@ -347,6 +347,19 @@ remove_managed_blocks() {
   fi
 }
 
+# Drop plaintext secret lines once Keychain already holds them. No backup.
+# A missing Keychain item leaves the line so this cannot destroy the only copy.
+_UNINSTALL_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ -f "$_UNINSTALL_DIR/cyclaw-keychain-load.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$_UNINSTALL_DIR/cyclaw-keychain-load.sh"
+  _strip_plaintext_if_keychain "$HOME_DIR/.env" || true
+  _strip_plaintext_if_keychain "$HOME_DIR/repo/.env" || true
+  if [ -n "${CYCLAW_REPO:-}" ] && [ "${CYCLAW_REPO}/.env" != "$HOME_DIR/repo/.env" ]; then
+    _strip_plaintext_if_keychain "${CYCLAW_REPO}/.env" || true
+  fi
+fi
+
 # Clean every supported startup file. This also removes legacy macOS bash
 # blocks that pre-fix installers wrote to ~/.bashrc.
 for RC_FILE in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile" "$HOME/.bashrc"; do

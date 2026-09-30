@@ -92,12 +92,17 @@ useful for eyeballing a response shape, not a pass/fail test.
 `powershell/Install-CyClaw.ps1` is the Windows twin of
 [`macos/install-cyclaw.sh`](#option-a--the-installer-script-handles-the-torch-difference-for-you):
 home layout under `%USERPROFILE%\.CyClaw`, venv, and a `cyclaw` shim. It does
-**not** install Ollama, build the retrieval index, or write `CYCLAW_API_KEY`.
-Set the key in the session that will start the server (step 4b above), then
-build the index and launch (`powershell/Invoke-CyClaw.ps1` or `python gate.py`).
-Persist: [README API Key Setup (Windows)](README.md#windows--powershell--cmdexe).
+**not** install Ollama or build the retrieval index. Ordinary settings live
+in `%USERPROFILE%\.CyClaw\.env`. Secrets (`CYCLAW_API_KEY` and the other
+names classified in [`powershell/README.md`](powershell/README.md)) persist
+in Credential Manager and are not written into that file unless
+`-WriteEnvFile` is passed. `Invoke-CyClaw.ps1` loads the non-secret lines,
+then fetches secrets into that process only. Do not use `setx` or a
+User-scope environment variable for provider keys. Set the key for a
+one-off `python gate.py` launch in that session (step 4b above), then
+build the index.
 Flags (`-RepoPath`, `-ReplaceRepo`, `-SkipPythonDeps`, `-NoProfileEdit`,
-`-NoPathEdit`) and Credential Manager notes:
+`-NoPathEdit`, `-WriteEnvFile`) and the secret classification:
 [`powershell/README.md`](powershell/README.md).
 
 ```powershell
@@ -201,8 +206,11 @@ It will:
 5. Run `macos/setup-cyclaw-keys.sh` — autogenerates `CYCLAW_API_KEY`
    (`openssl rand -hex 20`), then prompts (skip allowed) for Telegram,
    Claude (`ANTHROPIC_API_KEY` — that is the only name `llm/client.py`
-   reads), Grok, and GitHub. Secrets go to Keychain + `~/.CyClaw/.env`
-   (`chmod 600`). They are never written to `config.yaml`, never inlined
+   reads), Grok, and GitHub. Secrets go to the Keychain.
+   `~/.CyClaw/.env` (`chmod 600`) holds ordinary non-secret settings
+   (ports, paths, mode flags, model names, feature toggles).
+   Secret-classified names are not written there unless `--write-env-file`
+   is set. They are never written to `config.yaml`, never inlined
    into an rc file, and never placed on a child-process argv.
 6. Optionally `gh auth login --with-token` from stdin if `GH_TOKEN` was
    stored (never `--token "$GH_TOKEN"`)
@@ -343,13 +351,21 @@ Open `http://127.0.0.1:8787` → the terminal UI loads automatically.
 
 ```bash
 bash macos/setup-cyclaw-keys.sh
-source ~/.CyClaw/.env          # this tab; new tabs inherit via the rc source block
+# new tabs inherit non-secret settings from ~/.CyClaw/.env
+# cyclaw reads secrets from the Keychain into that process only
 ```
 
 That generates `CYCLAW_API_KEY` (`openssl rand -hex 20`), prompts for Telegram /
-Claude (`ANTHROPIC_API_KEY`) / Grok / GitHub (skip any), and stores them in the
-macOS Keychain plus `~/.CyClaw/.env` (`chmod 600`). The rc file only *sources*
-that dotenv — it never inlines a secret. LaunchAgents still read Keychain via
+Claude (`ANTHROPIC_API_KEY`) / Grok / GitHub (skip any), and stores those
+secrets in the macOS Keychain. `~/.CyClaw/.env` (`chmod 600`) stays the home
+for ordinary settings. A name is secret-classified when it is on the allowlist
+in `macos/cyclaw-public-env.sh` or it ends in `_API_KEY`, `_TOKEN`, `_SECRET`,
+or `_PASSWORD`. The rc block loads the non-secret lines and does not export
+secret-classified names, and it never inlines a secret. `--write-env-file` is
+the opt-in that also writes secrets into the dotenv; launchers still do not
+export those lines. Re-running the script strips only the allowlisted secret
+lines after the Keychain holds a copy and leaves the rest of the file. No
+backup is written. LaunchAgents still read Keychain via
 `cyclaw-keychain-env.sh`. Flags and service names: [`macos/README.md`](macos/README.md).
 A rotate does not change a running server; if soul routes 401 after
 a key change, follow
@@ -829,9 +845,12 @@ to be set.
 `/ops/sqlconnect` operator consoles — all require a Bearer `CYCLAW_API_KEY`
 and fail **closed** (401) if it's unset. This is easy to miss because the
 terminal UI itself loads with no key at all; you'll only hit it when you try
-to use one of those consoles. See README's
-[API Key Setup](README.md#api-key-setup-soul-mutations) section for the full
-per-platform (PowerShell / cmd / bash / systemd / `.env`) instructions.
+to use one of those consoles. The native installers persist this key in
+the OS store (macOS Keychain, Windows Credential Manager) and keep it out
+of `~/.CyClaw/.env` by default. See
+[`macos/README.md`](macos/README.md#key-bootstrap) and
+[`powershell/README.md`](powershell/README.md#secret-classification).
+Ordinary settings still belong in that dotenv.
 
 ### No NLTK data download needed
 

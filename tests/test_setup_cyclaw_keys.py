@@ -315,7 +315,7 @@ def test_unknown_option_exits_one(fake_security: Path, tmp_path: Path) -> None:
     assert "unknown option" in result.stderr
 
 
-def test_skip_prompts_generates_key_into_home_env(fake_security: Path, tmp_path: Path) -> None:
+def test_skip_prompts_stores_key_in_keychain_not_dotenv(fake_security: Path, tmp_path: Path) -> None:
     argv_log = tmp_path / "security-calls.log"
     stdin_log = tmp_path / "security-stdin.log"
     result = _run(
@@ -332,22 +332,23 @@ def test_skip_prompts_generates_key_into_home_env(fake_security: Path, tmp_path:
     assert env_file.is_file()
     assert env_file.stat().st_mode & 0o777 == 0o600
     text = env_file.read_text(encoding="utf-8")
-    assert "export CYCLAW_API_KEY=" in text
-    assert "export GROK_API_KEY='dummy'" in text
+    assert "non-secret" in text
+    assert "CYCLAW_API_KEY=" not in text
+    assert "GROK_API_KEY=" not in text
     assert "TELEGRAM_BOT_TOKEN" not in text
     assert "ANTHROPIC_API_KEY" not in text
-    match = _API_KEY_RE.search(text)
-    assert match, text
-    generated = match.group(1)
+    assert "Keychain only" in result.stdout
+    writes = _stdin_writes(stdin_log)
+    generated = writes["com.cgfixit.cyclaw.api-key"]
+    assert re.fullmatch(r"[0-9a-f]{40}", generated)
     assert generated not in result.stderr
     assert generated not in result.stdout
+    assert generated not in text
     logged = argv_log.read_text(encoding="utf-8")
     assert "-s com.cgfixit.cyclaw.api-key" in logged
     assert "-s com.cgfixit.cyclaw.grok-api-key" in logged
     assert "-T /usr/bin/security" in logged
     assert generated not in logged
-    writes = _stdin_writes(stdin_log)
-    assert writes["com.cgfixit.cyclaw.api-key"] == generated
     assert writes["com.cgfixit.cyclaw.grok-api-key"] == "dummy"
 
 
@@ -359,15 +360,26 @@ def test_print_key_emits_once_on_stdout(fake_security: Path, tmp_path: Path) -> 
         home=tmp_path,
     )
     assert result.returncode == 0, result.stderr
+    lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+    generated = lines[-1]
+    assert re.fullmatch(r"[0-9a-f]{40}", generated)
+    assert result.stdout.count(generated) == 1
+    assert generated not in result.stderr
     env_file = tmp_path / ".CyClaw" / ".env"
     text = env_file.read_text(encoding="utf-8")
-    match = _API_KEY_RE.search(text)
-    assert match
-    assert result.stdout.strip().endswith(match.group(1))
-    assert match.group(1) not in result.stderr
+    assert "CYCLAW_API_KEY=" not in text
+    assert generated not in text
 
 
-def test_rc_source_block_contains_no_secret(fake_security: Path, tmp_path: Path) -> None:
+def test_rc_source_block_loads_nonsensitive_settings_only(fake_security: Path, tmp_path: Path) -> None:
+    rc_path = tmp_path / ".zshrc"
+    rc_path.write_text(
+        "echo keeper\n"
+        "# >>> cyclaw keys >>>\n"
+        '. "$HOME/.CyClaw/.env"\n'
+        "# <<< cyclaw keys <<<\n",
+        encoding="utf-8",
+    )
     result = _run(
         "--skip-prompts",
         "--no-print-key",
@@ -375,15 +387,17 @@ def test_rc_source_block_contains_no_secret(fake_security: Path, tmp_path: Path)
         home=tmp_path,
     )
     assert result.returncode == 0, result.stderr
-    rc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+    rc = rc_path.read_text(encoding="utf-8")
+    assert "echo keeper" in rc
     assert "# >>> cyclaw keys >>>" in rc
     assert "# <<< cyclaw keys <<<" in rc
-    assert '. "$HOME/.CyClaw/.env"' in rc
+    assert "cyclaw-public-env.sh" in rc
+    assert "cyclaw_source_public_env" in rc
+    assert '. "$HOME/.CyClaw/.env"' not in rc
     assert "CYCLAW_API_KEY=" not in rc
+    assert not re.search(r"[0-9a-f]{40}", rc)
     env_text = (tmp_path / ".CyClaw" / ".env").read_text(encoding="utf-8")
-    match = _API_KEY_RE.search(env_text)
-    assert match
-    assert match.group(1) not in rc
+    assert "CYCLAW_API_KEY=" not in env_text
 
 
 def test_keep_existing_without_rotate(fake_security: Path, tmp_path: Path) -> None:
@@ -392,16 +406,24 @@ def test_keep_existing_without_rotate(fake_security: Path, tmp_path: Path) -> No
     existing = "a" * 40
     (home_env / ".env").write_text(f"export CYCLAW_API_KEY='{existing}'\n", encoding="utf-8")
     (home_env / ".env").chmod(0o600)
+    stdin_log = tmp_path / "security-stdin.log"
     result = _run(
         "--skip-prompts",
         "--no-print-key",
         fake_security_bin=fake_security,
         home=tmp_path,
+        stdin_log=stdin_log,
     )
     assert result.returncode == 0, result.stderr
     text = (home_env / ".env").read_text(encoding="utf-8")
-    assert f"export CYCLAW_API_KEY='{existing}'" in text
+    assert "CYCLAW_API_KEY=" not in text
+    assert existing not in text
     assert "keeping" in result.stdout
+    assert "removed plaintext CYCLAW_API_KEY" in result.stdout
+    assert "No backup was written" in result.stdout
+    assert existing not in result.stdout
+    assert existing not in result.stderr
+    assert _stdin_writes(stdin_log)["com.cgfixit.cyclaw.api-key"] == existing
 
 
 def test_reads_existing_keychain_item_once_after_presence_probe(fake_security: Path, tmp_path: Path) -> None:
@@ -417,7 +439,9 @@ def test_reads_existing_keychain_item_once_after_presence_probe(fake_security: P
     )
     assert result.returncode == 0, result.stderr
     assert "already present (Keychain)" in result.stdout
-    assert f"export CYCLAW_API_KEY='{existing}'" in (tmp_path / ".CyClaw" / ".env").read_text(encoding="utf-8")
+    env_text = (tmp_path / ".CyClaw" / ".env").read_text(encoding="utf-8")
+    assert "CYCLAW_API_KEY=" not in env_text
+    assert existing not in env_text
     assert find_log.read_text(encoding="utf-8").splitlines() == [
         "probe\tcom.cgfixit.cyclaw.api-key",
         "read\tcom.cgfixit.cyclaw.api-key",
@@ -665,17 +689,25 @@ def test_rotate_replaces_existing(fake_security: Path, tmp_path: Path) -> None:
     home_env.mkdir()
     existing = "b" * 40
     (home_env / ".env").write_text(f"export CYCLAW_API_KEY='{existing}'\n", encoding="utf-8")
+    stdin_log = tmp_path / "security-stdin.log"
     result = _run(
         "--skip-prompts",
         "--rotate",
         "--no-print-key",
         fake_security_bin=fake_security,
         home=tmp_path,
+        stdin_log=stdin_log,
     )
     assert result.returncode == 0, result.stderr
     text = (home_env / ".env").read_text(encoding="utf-8")
     assert existing not in text
-    assert _API_KEY_RE.search(text)
+    assert "CYCLAW_API_KEY=" not in text
+    generated = _stdin_writes(stdin_log)["com.cgfixit.cyclaw.api-key"]
+    assert re.fullmatch(r"[0-9a-f]{40}", generated)
+    assert generated != existing
+    assert generated not in text
+    assert generated not in result.stdout
+    assert generated not in result.stderr
 
 
 def test_upsert_preserves_unrelated_keys(fake_security: Path, tmp_path: Path) -> None:
@@ -695,6 +727,7 @@ def test_upsert_preserves_unrelated_keys(fake_security: Path, tmp_path: Path) ->
     assert result.returncode == 0, result.stderr
     text = (home_env / ".env").read_text(encoding="utf-8")
     assert "export OTHER_THING='keep-me'" in text
+    assert "CYCLAW_API_KEY=" not in text
 
 
 def test_refuses_non_tty_without_skip_prompts(fake_security: Path, tmp_path: Path) -> None:
@@ -772,6 +805,7 @@ def test_help_lists_browser_and_schedule_flags(fake_security: Path, tmp_path: Pa
     assert "--schedule-rotate" in result.stdout
     assert "--copy-key" in result.stdout
     assert "--restart-servers" in result.stdout
+    assert "--write-env-file" in result.stdout
 
 
 def test_custom_cyclaw_home_rc_sources_that_env(fake_security: Path, tmp_path: Path) -> None:
@@ -786,13 +820,13 @@ def test_custom_cyclaw_home_rc_sources_that_env(fake_security: Path, tmp_path: P
     assert result.returncode == 0, result.stderr
     env_file = custom / ".env"
     assert env_file.is_file()
+    assert "CYCLAW_API_KEY=" not in env_file.read_text(encoding="utf-8")
     assert not (tmp_path / ".CyClaw" / ".env").exists()
     rc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
     assert str(env_file) in rc
+    assert "cyclaw_source_public_env" in rc
     assert '. "$HOME/.CyClaw/.env"' not in rc
-    match = _API_KEY_RE.search(env_file.read_text(encoding="utf-8"))
-    assert match
-    assert match.group(1) not in rc
+    assert "CYCLAW_API_KEY=" not in rc
 
 
 def test_keep_round_trips_apostrophe_in_existing_key(fake_security: Path, tmp_path: Path) -> None:
@@ -802,18 +836,25 @@ def test_keep_round_trips_apostrophe_in_existing_key(fake_security: Path, tmp_pa
     encoded = "export CYCLAW_API_KEY='abc'\\''def-not-a-real-key-xx'\n"
     (home_env / ".env").write_text(encoded, encoding="utf-8")
     (home_env / ".env").chmod(0o600)
+    stdin_log = tmp_path / "security-stdin.log"
     result = _run(
         "--skip-prompts",
         "--no-print-key",
         fake_security_bin=fake_security,
         home=tmp_path,
+        stdin_log=stdin_log,
     )
     assert result.returncode == 0, result.stderr
     text = (home_env / ".env").read_text(encoding="utf-8")
-    assert "export CYCLAW_API_KEY='abc'\\''def-not-a-real-key-xx'" in text
+    decoded = "abc'def-not-a-real-key-xx"
+    assert "CYCLAW_API_KEY=" not in text
+    assert decoded not in text
+    assert _stdin_writes(stdin_log)["com.cgfixit.cyclaw.api-key"] == decoded
     # A broken decoder would re-quote the escape sequence and double it.
-    assert "\\\\''" not in text
+    assert "\\\\''" not in stdin_log.read_text(encoding="utf-8")
     assert "keeping" in result.stdout
+    assert decoded not in result.stdout
+    assert decoded not in result.stderr
 
 
 def test_malformed_keys_block_is_left_unchanged(fake_security: Path, tmp_path: Path) -> None:
@@ -830,7 +871,7 @@ def test_malformed_keys_block_is_left_unchanged(fake_security: Path, tmp_path: P
     assert rc.read_text(encoding="utf-8") == ("# >>> cyclaw keys >>>\n# half-written, no end marker\n")
 
 
-def test_repo_path_writes_checkout_env(fake_security: Path, tmp_path: Path) -> None:
+def test_repo_path_does_not_write_checkout_secrets(fake_security: Path, tmp_path: Path) -> None:
     checkout = tmp_path / "checkout"
     checkout.mkdir()
     (checkout / "gate.py").write_text("# stub\n", encoding="utf-8")
@@ -843,10 +884,65 @@ def test_repo_path_writes_checkout_env(fake_security: Path, tmp_path: Path) -> N
         home=tmp_path,
     )
     assert result.returncode == 0, result.stderr
+    assert not (checkout / ".env").exists()
+    home_env = (tmp_path / ".CyClaw" / ".env").read_text(encoding="utf-8")
+    assert "CYCLAW_API_KEY=" not in home_env
+
+
+def test_write_env_file_opts_into_plaintext_secrets(fake_security: Path, tmp_path: Path) -> None:
+    result = _run(
+        "--skip-prompts",
+        "--no-print-key",
+        "--write-env-file",
+        "--no-repo-env",
+        fake_security_bin=fake_security,
+        home=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "PLAINTEXT OPT-IN" in result.stderr
+    env_file = tmp_path / ".CyClaw" / ".env"
+    assert env_file.is_file()
+    assert env_file.stat().st_mode & 0o777 == 0o600
+    text = env_file.read_text(encoding="utf-8")
+    match = _API_KEY_RE.search(text)
+    assert match
+    assert match.group(1) not in result.stdout
+    assert match.group(1) not in result.stderr
+    rc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+    assert "cyclaw_source_public_env" in rc
+    assert match.group(1) not in rc
+
+
+def test_repo_env_migration_strips_secrets_and_keeps_the_rest(fake_security: Path, tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "gate.py").write_text("# stub\n", encoding="utf-8")
+    secret = "e" * 40
     repo_env = checkout / ".env"
-    assert repo_env.is_file()
-    assert repo_env.stat().st_mode & 0o777 == 0o600
-    assert "export CYCLAW_API_KEY=" in repo_env.read_text(encoding="utf-8")
+    repo_env.write_text(
+        f"export CYCLAW_GATE_PORT=8788\nexport CYCLAW_API_KEY='{secret}'\n",
+        encoding="utf-8",
+    )
+    repo_env.chmod(0o600)
+    stdin_log = tmp_path / "security-stdin.log"
+    result = _run(
+        "--skip-prompts",
+        "--no-print-key",
+        "--repo-path",
+        str(checkout),
+        fake_security_bin=fake_security,
+        home=tmp_path,
+        stdin_log=stdin_log,
+    )
+    assert result.returncode == 0, result.stderr
+    text = repo_env.read_text(encoding="utf-8")
+    assert "CYCLAW_GATE_PORT=8788" in text
+    assert "CYCLAW_API_KEY=" not in text
+    assert secret not in text
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+    assert "No backup was written" in result.stdout
+    assert _stdin_writes(stdin_log)["com.cgfixit.cyclaw.api-key"] == secret
 
 
 def _run_prompt_and_signal(
@@ -854,7 +950,7 @@ def _run_prompt_and_signal(
     home: Path,
     sig: signal.Signals,
 ) -> int:
-    env = _base_env(fake_security_bin, home)
+    env = _base_env(fake_security_bin, home, stdin_log=home / "security-stdin.log")
     master_fd, slave_fd = pty.openpty()
     try:
         proc = subprocess.Popen(
@@ -911,21 +1007,27 @@ def _exited_by(rc: int, sig: signal.Signals) -> None:
 def test_sigint_during_prompt_exits_130(fake_security: Path, tmp_path: Path) -> None:
     rc = _run_prompt_and_signal(fake_security, tmp_path, signal.SIGINT)
     _exited_by(rc, signal.SIGINT)
-    # CYCLAW_API_KEY is written before the first prompt; later tokens must not be.
-    env_text = (tmp_path / ".CyClaw" / ".env").read_text(encoding="utf-8")
-    assert "export CYCLAW_API_KEY=" in env_text
-    assert "TELEGRAM_BOT_TOKEN" not in env_text
-    assert "ANTHROPIC_API_KEY" not in env_text
-    assert "GROK_API_KEY" not in env_text
-    assert "GH_TOKEN" not in env_text
+    # CYCLAW_API_KEY is stored in the Keychain before the first prompt.
+    # Later tokens must not be. The dotenv is not written until the run finishes.
+    writes = _stdin_writes(tmp_path / "security-stdin.log")
+    assert re.fullmatch(r"[0-9a-f]{40}", writes["com.cgfixit.cyclaw.api-key"])
+    assert "com.cgfixit.cyclaw.telegram-bot-token" not in writes
+    assert "com.cgfixit.cyclaw.grok-api-key" not in writes
+    assert "com.cgfixit.cyclaw.gh-token" not in writes
+    env_file = tmp_path / ".CyClaw" / ".env"
+    if env_file.exists():
+        env_text = env_file.read_text(encoding="utf-8")
+        assert "CYCLAW_API_KEY=" not in env_text
+        assert "TELEGRAM_BOT_TOKEN" not in env_text
+        assert "GROK_API_KEY" not in env_text
 
 
 def test_sigterm_during_prompt_exits_143(fake_security: Path, tmp_path: Path) -> None:
     rc = _run_prompt_and_signal(fake_security, tmp_path, signal.SIGTERM)
     _exited_by(rc, signal.SIGTERM)
-    env_text = (tmp_path / ".CyClaw" / ".env").read_text(encoding="utf-8")
-    assert "TELEGRAM_BOT_TOKEN" not in env_text
-    assert "GROK_API_KEY" not in env_text
+    writes = _stdin_writes(tmp_path / "security-stdin.log")
+    assert "com.cgfixit.cyclaw.telegram-bot-token" not in writes
+    assert "com.cgfixit.cyclaw.grok-api-key" not in writes
 
 
 

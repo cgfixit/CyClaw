@@ -278,10 +278,11 @@ def test_refuses_world_readable_dotenv_and_chains_home_to_repo() -> None:
     mode-check result, not `-f`.
     """
     text = _script_text()
+    helper = (_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh").read_text(encoding="utf-8")
+    assert "cyclaw-keychain-load.sh" in text
     assert "_source_dotenv" in text
-    assert "_dotenv_mode" in text
-    assert "600|400" in text
-    assert "refusing to source $f (mode" in text
-    assert "Fix with: chmod 600 $f" in text
+    assert "600|400" in helper
+    assert "refusing to source $f (mode" in helper
+    assert "Fix with: chmod 600 $f" in helper
     assert '_source_dotenv "$HOME_DIR/.env" || _source_dotenv "$REPO_DIR/.env"' in text
     assert 'if [ -f "$HOME_DIR/.env" ]; then' not in text

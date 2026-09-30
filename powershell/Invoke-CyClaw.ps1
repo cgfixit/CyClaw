@@ -62,61 +62,27 @@ if (-not (Test-Path $VenvPy)) {
 
 $env:CYCLAW_HOME = $Home_
 $env:CYCLAW_REPO = $Repo
-# CYCLAW_API_KEY is inherited from the caller, or loaded below from
-# %USERPROFILE%\.CyClaw\.env then the repo .env (Darwin twin:
-# macos/invoke-cyclaw.sh). Browser paste cannot set the server env.
-
-function Test-CyclawDotenvOwnerOnly([string]$Path) {
-    try {
-        $acl = Get-Acl -LiteralPath $Path
-        $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-    } catch {
-        return $false
-    }
-    if (-not $me) { return $false }
-    $allowCount = 0
-    foreach ($ace in $acl.Access) {
-        if ($ace.AccessControlType -ne 'Allow') { continue }
-        $allowCount++
-        try {
-            $sid = $ace.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier])
-        } catch {
-            return $false
-        }
-        if ($sid -ne $me) { return $false }
-    }
-    return ($allowCount -gt 0)
+# Non-secret dotenv settings, then Credential Manager into THIS process.
+# Secret lines in .env are ignored. Browser paste cannot set the server env.
+# Darwin twin: macos/invoke-cyclaw.sh + macos/cyclaw-keychain-load.sh.
+$secretStore = Join-Path $PSScriptRoot "CyClaw-SecretStore.ps1"
+if (-not (Test-Path -LiteralPath $secretStore)) {
+    $secretStore = Join-Path $Repo "powershell\CyClaw-SecretStore.ps1"
 }
-
-function Import-CyclawDotenv([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return $false }
-    if (-not (Test-CyclawDotenvOwnerOnly $Path)) {
-        Write-Host "[cyclaw] warn    : refusing to source $Path (ACL is not owner-only; want current-user only). Fix with: icacls `"$Path`" /inheritance:r /grant:r `"${env:USERNAME}:(R,W)`"" -ForegroundColor Yellow
-        return $false
-    }
-    Get-Content -LiteralPath $Path | ForEach-Object {
-        $line = $_.Trim()
-        if ($line -eq '' -or $line.StartsWith('#')) { return }
-        if ($line.StartsWith('export ')) { $line = $line.Substring(7).Trim() }
-        $eq = $line.IndexOf('=')
-        if ($eq -lt 1) { return }
-        $name = $line.Substring(0, $eq).Trim()
-        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { return }
-        $val = $line.Substring($eq + 1).Trim()
-        if ($val.Length -ge 2 -and (($val.StartsWith("'") -and $val.EndsWith("'")) -or ($val.StartsWith('"') -and $val.EndsWith('"')))) {
-            $val = $val.Substring(1, $val.Length - 2).Replace("'\''", "'")
-        }
-        Set-Item -Path ("Env:" + $name) -Value $val
-    }
-    return $true
+if (-not (Test-Path -LiteralPath $secretStore)) {
+    throw "CyClaw-SecretStore.ps1 not found beside the launcher or in $Repo\powershell"
 }
+. $secretStore
 
-if (-not $env:CYCLAW_API_KEY) {
-    # Chained on the result, not existence: a refused HOME file must not shadow the repo copy.
-    if (-not (Import-CyclawDotenv (Join-Path $Home_ ".env"))) {
-        Import-CyclawDotenv (Join-Path $Repo ".env") | Out-Null
-    }
+# Chained on the result, not existence: a refused HOME file must not shadow the repo copy.
+$homeEnv = Join-Path $Home_ ".env"
+$repoEnv = Join-Path $Repo ".env"
+if (-not (Import-CyclawDotenv $homeEnv)) {
+    Import-CyclawDotenv $repoEnv | Out-Null
 }
+Import-CyclawCredentialSecrets
+Write-CyclawPlaintextSecretWarning $homeEnv
+Write-CyclawPlaintextSecretWarning $repoEnv
 
 # Follow api.host/api.tls and gate.main()'s CYCLAW_GATE_PORT override. A probe
 # failure keeps the shipped default rather than blocking gateway startup.
@@ -128,7 +94,7 @@ Write-Host "[cyclaw] repo    : $Repo" -ForegroundColor Cyan
 Write-Host "[cyclaw] home    : $Home_" -ForegroundColor Cyan
 Write-Host "[cyclaw] console : $Url  (Ctrl+C to stop)" -ForegroundColor Cyan
 if (-not $env:CYCLAW_API_KEY) {
-    Write-Host "[cyclaw] warn    : CYCLAW_API_KEY not set - Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server; source $Home_\.env or set the env var, then restart." -ForegroundColor Yellow
+    Write-Host "[cyclaw] warn    : CYCLAW_API_KEY is not in Credential Manager (target com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. This launcher does not read that secret from .env." -ForegroundColor Yellow
 }
 
 if (-not $NoBrowser) {

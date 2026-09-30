@@ -116,22 +116,40 @@ def test_uninstall_missing_schtasks_delete_is_noop_under_ps51() -> None:
 
 
 def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
-    """Daily cyclaw / Invoke-CyClaw.ps1 must source ~/.CyClaw/.env when empty."""
+    """Invoke loads non-secrets from .env and secrets from Credential Manager."""
     text = (_PS / "Invoke-CyClaw.ps1").read_text(encoding="utf-8")
+    store = (_PS / "CyClaw-SecretStore.ps1").read_text(encoding="utf-8")
+    install = (_PS / "Install-CyClaw.ps1").read_text(encoding="utf-8")
+    uninstall = (_PS / "Uninstall-CyClaw.ps1").read_text(encoding="utf-8")
     assert 'Join-Path $Home_ ".env"' in text
     assert 'Join-Path $Repo ".env"' in text
-    assert "Test-CyclawDotenvOwnerOnly" in text
-    assert "WindowsIdentity" in text
-    assert "GetCurrent().User" in text
-    assert "SecurityIdentifier" in text
-    assert "BUILTIN\\Users" not in text
-    assert "FileSystemRights]::ReadData" not in text
-    assert "(R,W)" in text
-    assert "refusing to source" in text
-    assert "ACL is not owner-only" in text
-    load_idx = text.index('Join-Path $Home_ ".env"')
+    assert "Import-CyclawDotenv" in text
+    assert "Import-CyclawCredentialSecrets" in text
+    assert "Test-CyclawSecretName" in store
+    assert "CyclawSecretTargets.ContainsKey" in store or "CyclawSecretTargets.ContainsKey($Name)" in store
+    assert "*_API_KEY" in store
+    assert "*_TOKEN" in store
+    assert "*_SECRET" in store
+    assert "*_PASSWORD" in store
+    assert "Test-CyclawDotenvOwnerOnly" in store
+    assert "WindowsIdentity" in store
+    assert "GetCurrent().User" in store
+    assert "SecurityIdentifier" in store
+    assert "BUILTIN\\Users" not in store
+    assert "FileSystemRights]::ReadData" not in store
+    assert "(R,W)" in store
+    assert "refusing to source" in store
+    assert "ACL is not owner-only" in store
+    assert "No backup was written" in store
+    assert "Ensure-CyclawPublicEnvFile" in store
+    assert "-WriteEnvFile" in install or "[switch]$WriteEnvFile" in install
+    assert "Sync-CyclawPlaintextToCredentialManager" in install
+    assert "Sync-CyclawPlaintextToCredentialManager" in uninstall
+    assert "source $Home_\\.env" not in text
+    load_idx = text.index("Import-CyclawDotenv")
+    cred_idx = text.index("Import-CyclawCredentialSecrets")
     start_idx = text.index("& $VenvPy gate.py")
-    assert load_idx < start_idx
+    assert load_idx < cred_idx < start_idx
     warn = "Typing the key in the browser cannot configure the server"
     assert warn in text
     assert load_idx < text.index(warn)
@@ -250,15 +268,16 @@ def test_credman_marshal_sites_carry_devskim_suppression() -> None:
     """
     env_text = (_PS / "CyClaw-CredMan-Env.ps1").read_text(encoding="utf-8")
     set_text = (_PS / "CyClaw-CredMan-Set.ps1").read_text(encoding="utf-8")
+    store_text = (_PS / "CyClaw-SecretStore.ps1").read_text(encoding="utf-8")
     for line in env_text.splitlines():
         if "InteropServices.Marshal" in line or "PtrToStructure" in line:
             assert "DevSkim: ignore DS104456" in line, line
-    for line in set_text.splitlines():
-        if "InteropServices.Marshal" in line:
-            assert "DevSkim: ignore DS104456" in line, line
-        if "Marshal.WriteByte" in line:
-            assert "DevSkim: ignore DS104456" in line, line
+    for blob in (set_text, store_text):
+        for line in blob.splitlines():
+            if "InteropServices.Marshal" in line or "PtrToStructure" in line or "Marshal.WriteByte" in line:
+                assert "DevSkim: ignore DS104456" in line, line
     assert "Dispose()" in set_text
+    assert not re.search(r"(?m)^\s*cmdkey\b", store_text, re.IGNORECASE)
 
 
 def test_credman_set_ps7_ctrl_c_registers_cancel_keypress() -> None:
