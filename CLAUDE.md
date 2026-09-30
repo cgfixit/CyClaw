@@ -821,6 +821,7 @@ python -m retrieval.clear_cache                # dry-run; add --apply to delete
 
 # Invariant / config / deps / doc / retrieval / sanitizer health (skills)
 python3 .claude/skills/invariant-guard/check_invariants.py
+python3 .claude/skills/dotenv-guard/check_dotenv.py     # secrets out of dotenv files; stdlib + git + bash
 python3 .claude/skills/config-guard/check_config.py     # add --strict to lock shipped defaults
 python3 .claude/skills/dep-guard/check_deps.py          # pure stdlib; runs pre-install
 python3 .claude/skills/verify-deps/extract_pins.py      # requirements.txt cross-check; add --json
@@ -868,6 +869,7 @@ flag only gates *model-initiated* `Skill` tool calls, not script execution.
 | Skill | Type | Purpose | Runs pre-install? |
 |---|---|---|---|
 | `/invariant-guard` | check, user-invoked only (`disable-model-invocation: true`) | Static-assert the six invariants + guards against a diff | Yes (stdlib) |
+| `/dotenv-guard` | check, user-invoked only (`disable-model-invocation: true`) | Keep secrets out of dotenv files, gitignored or not: no runtime dotenv load, tracked env files, `.gitignore` coverage, a sandboxed `setup-cyclaw-keys.sh` run (fake Keychain), script/doc line checks; baseline ratchet. Blocking CI job | Yes (stdlib + git + bash) |
 | `/config-guard` | check, user-invoked only (`disable-model-invocation: true`) | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, current shipped provider posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
 | `/dep-guard` | check | Static-validate dependency-pin invariants across pyproject + constraints + environment.yml (pydantic lock-step, numpy<2, torch +cpu, uvicorn no-extras, cross-file agreement) | Yes (stdlib) |
 | `/verify-deps` | check | Extends dep-guard: adds the requirements.txt cross-check dep-guard skips, the non-manifest drift checks E1–E7 (workflow tool pins, Python version, undeclared imports, install-surface scope, the Dockerfile install contract incl. its torch pin vs constraints.txt, docker-compose.yml/.dockerignore/publish-ghcr.yml coherence with the Dockerfile, and runtime pins no first-party module imports), a dry-run of each install surface's actual command, and a PyPI currency + CVE sweep. Reports only — never auto-bumps a runtime pin | extract_pins.py + check_env_drift.py yes (stdlib); currency sweep needs network |

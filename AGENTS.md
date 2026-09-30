@@ -114,6 +114,7 @@ python -m pytest tests/ -q --tb=short
 python -m tests.ci_rag_smoke
 python -m ruff check --select F,B,S .
 python .claude/skills/invariant-guard/check_invariants.py
+python .claude/skills/dotenv-guard/check_dotenv.py
 python .claude/skills/doc-sync/doc_sync.py
 ```
 
