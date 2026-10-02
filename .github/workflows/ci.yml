@@ -196,6 +196,38 @@ jobs:
         # real gate on the six invariants it exists to enforce.
         run: python3 .claude/skills/invariant-guard/check_invariants.py
 
+  dotenv-guard:
+    name: dotenv-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Run dotenv-guard (blocking)
+        # Secrets at rest: no secret-classified name in a dotenv file, gitignored
+        # or not. Stdlib + git + bash, no install. K4/K5 run
+        # macos/setup-cyclaw-keys.sh with a temp HOME, a fake `security`, and a
+        # fake --repo-path checkout; nothing outside the temp dir is written.
+        # baseline.txt holds the by-design findings on main: a new finding or a
+        # stale baseline entry fails. Blocking for the same reason as
+        # invariant-guard above -- the verify-skills matrix is continue-on-error.
+        run: python3 .claude/skills/dotenv-guard/check_dotenv.py
+
+      - name: Self-test dotenv-guard (blocking)
+        # Each rule must trip on its own planted violation, and the negative
+        # controls must stay silent. A detector that quietly stops detecting
+        # would otherwise keep the step above green forever.
+        run: bash .claude/skills/dotenv-guard/verify.sh
+
   packaging:
     # Validates the artifact a REAL USER installs -- the built wheel -- which
     # nothing else in CI touches. python-publish.yml builds it only on
@@ -1337,7 +1369,7 @@ jobs:
               case "$skill" in
                 CyClaw-Sandbox|index-doctor) profile=heavy ;;
                 config-guard|doc-sync|injection-redteam) profile=yaml ;;
-                babysit-github-pr|cyclaw-privacy|cyclaw-gotchas|dep-guard|invariant-guard|otel-hardening|verify-deps) profile=stdlib ;;
+                babysit-github-pr|cyclaw-privacy|cyclaw-gotchas|dep-guard|dotenv-guard|invariant-guard|otel-hardening|verify-deps) profile=stdlib ;;
                 *)
                   # Unknown skills must fail closed: a silent stdlib default can
                   # skip-green when the verifier needs PyYAML/runtime the stdlib
