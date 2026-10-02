@@ -107,18 +107,25 @@ until an arm64 image is verified. `pip install -e .` is what creates the
 `python -m …` works without it.
 
 **Where keys live.** `gate.py` reads the environment. It does not load a
-dotenv file. Native launchers persist `CYCLAW_API_KEY` to the OS store
-**and** to `~/.CyClaw/.env` (mode 600, gitignored) so an interactive shell
-can start the gateway. LaunchAgents and scheduled tasks never read that
-file and never embed a token in a plist or task XML: macOS fetches Keychain
-at exec time (`macos/cyclaw-keychain-env.sh`), Windows uses Credential
-Manager (`powershell/CyClaw-CredMan-Env.ps1`). Both fail closed if the item
-is missing. Secrets are not written into `config.yaml`, not inlined into a
-shell rc file, and not placed on argv. A checkout `.env` is optional; on
-Windows `Invoke-CyClaw.ps1` sources it only when every Allow ACE is the
-current user. Provider keys (`GROK_API_KEY`, `ANTHROPIC_API_KEY`) are env
-vars too — see [`spend/README.md`](spend/README.md#api-keys). The server
-boots without them; that provider then reports unavailable.
+dotenv file. On macOS, `macos/setup-cyclaw-keys.sh` persists
+`CYCLAW_API_KEY` to the Keychain **and** to `~/.CyClaw/.env` (mode 600,
+gitignored) so an interactive shell can start the gateway. Windows has no
+key bootstrap: `Install-CyClaw.ps1` does not write the key, and
+`Invoke-CyClaw.ps1` does not read Credential Manager. It uses a key already
+in the session, else one you put in `%USERPROFILE%\.CyClaw\.env` or a
+checkout `.env`, and sources either file only when every Allow ACE is the
+current user. Persist it yourself ([Windows](#windows--powershell--cmdexe))
+or a new session starts without it and soul/ops routes return 401.
+LaunchAgents and scheduled tasks never read a dotenv file and never embed
+a token in a plist or task XML: macOS fetches Keychain at exec time
+(`macos/cyclaw-keychain-env.sh`), Windows uses Credential Manager
+(`powershell/CyClaw-CredMan-Env.ps1`), which you fill by hand with
+`powershell/CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.api-key`. Both fail
+closed if the item is missing. Secrets are not written into `config.yaml`,
+not inlined into a shell rc file, and not placed on argv. Provider keys
+(`GROK_API_KEY`, `ANTHROPIC_API_KEY`) are env vars too — see
+[`spend/README.md`](spend/README.md#api-keys). The server boots without
+them; that provider then reports unavailable.
 
 **Offline vs hybrid.** Shipped `app.mode` is `hybrid`, which only *allows*
 a paid call. The call still needs `models.grok.enabled` or
@@ -168,7 +175,8 @@ Static policy check, no services:
 no live provider). Retrieval floors, needs the cached models:
 `python -m tests.ci_rag_smoke`.
 
-**Where the records go.** All gitignored, under the repo by default:
+**Where the records go.** Under the repo by default. All gitignored except
+`data/personality/soul.md`:
 
 | Path | What |
 |---|---|
@@ -178,7 +186,7 @@ no live provider). Retrieval floors, needs the cached models:
 | `logs/cyclaw.log` | Application log. Bounded writer; a stalled disk drops lines instead of holding the request |
 | `logs/evals/` | Opt-in dogfood and judge output. Not the production ledger |
 | `index/` | Chroma + `bm25.json`. Rebuild with `python -m retrieval.indexer` |
-| `data/personality/` | `soul.md` and its version DB |
+| `data/personality/` | `soul.md` is **tracked**. An approved soul change rewrites it, so it shows in `git status` and a broad `git add` stages it. The version DB (`cyclaw_soul.db`) and `soul.md.bak` are gitignored |
 
 `python -m metrics` (`cyclaw-metrics`) reads the audit and spend files
 offline, including a Sequences section. That scan skips repeated work on a
