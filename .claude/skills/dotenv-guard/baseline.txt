@@ -1,0 +1,13 @@
+# dotenv-guard baseline: findings that exist on main by design.
+# Format: RULE<TAB>KEY<TAB>REASON (tab-separated, all three required).
+# A finding listed here prints as KNOWN and does not fail CI. An entry that
+# no longer matches any finding FAILS as stale: delete it in the same PR that
+# fixes the violation, so the fix cannot be undone silently. Never add an
+# entry to get a new violation past CI; fix the violation instead.
+
+K4	~/.CyClaw/.env:CYCLAW_API_KEY	main: setup-cyclaw-keys.sh writes secrets to ~/.CyClaw/.env (mode 600) by default. Open draft #1507 proposes Keychain-only storage; delete if it lands.
+K4	~/.CyClaw/.env:GROK_API_KEY	main: same default write (--grok-dummy exercises it). Open draft #1507 proposes Keychain-only storage; delete if it lands.
+K4	<checkout>/.env:CYCLAW_API_KEY	main: --repo-path writes a sibling checkout .env with secrets. Open draft #1507 proposes not writing it; delete if it lands.
+K4	<checkout>/.env:GROK_API_KEY	main: same checkout .env write. Open draft #1507 proposes not writing it; delete if it lands.
+K5	~/.zshrc:$HOME/.CyClaw/.env	main: the rc keys block raw-sources ~/.CyClaw/.env into every new shell. Open draft #1507 proposes a filtered loader; delete if it lands.
+K7	docs/work/online-llm-grok-claude.md:GROK_API_KEY	Pre-existing doc: 'Create or update your .env ... # or put in .env'. Matches main's macOS behavior; not in #1507's file list. Fix with the storage-policy doc pass.

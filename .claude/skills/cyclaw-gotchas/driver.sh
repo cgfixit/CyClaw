@@ -156,6 +156,7 @@ cmd_checks() {
     [ "$rc" -eq 0 ] || failed=1
   }
   run_check invariant-guard python3 .claude/skills/invariant-guard/check_invariants.py
+  run_check dotenv-guard    python3 .claude/skills/dotenv-guard/check_dotenv.py
   run_check doc-sync        python3 .claude/skills/doc-sync/doc_sync.py
   run_check config-guard    python3 .claude/skills/config-guard/check_config.py
   run_check dep-guard       python3 .claude/skills/dep-guard/check_deps.py
