@@ -565,7 +565,7 @@ def check_docker_surface_coherence() -> None:
                          f"agrees across EXPOSE, CMD, and compose")
 
         unmounted = [d for d in _RUNTIME_STATE_DIRS
-                     if not re.search(rf"(?m):/app/{re.escape(d)}(?::|\s|$)", compose_text)]
+                     if not re.search(rf"(?m)(?::|^\s*target:\s*)/app/{re.escape(d)}(?::|\s|$)", compose_text)]
         if unmounted:
             fail("E6", f"docker-compose.yml mounts nothing at /app/{{{', '.join(unmounted)}}} -- .dockerignore "
                        f"keeps these out of the image, so an unmounted one is simply absent at runtime")

@@ -109,12 +109,53 @@ jobs:
           file: ./Dockerfile
           push: false
           load: true
+          tags: ghcr.io/cgfixit/cyclaw:ci-readiness
           platforms: linux/amd64
           cache-from: type=gha
           # cache-to omitted on purpose: mode=max on this torch-heavy image
           # flakes under GHA cache reservation ("failed to reserve cache")
           # and must not fail a pure Dockerfile sanity job. publish-ghcr.yml
           # owns the real cache + push surface.
+      - name: Verify prepared bind mounts as the service user
+        if: steps.changes.outputs.docker_changed == 'true'
+        env:
+          CYCLAW_IMAGE_TAG: ci-readiness
+        run: |
+          probe_dir=$(mktemp -d)
+          cp docker-compose.yml config.yaml "$probe_dir/"
+          compose=(docker compose --project-name cyclaw-readiness --project-directory "$probe_dir" -f "$probe_dir/docker-compose.yml")
+          trap '"${compose[@]}" down --volumes' EXIT
+          "${compose[@]}" config --quiet
+          mkdir "$probe_dir/data" "$probe_dir/index" "$probe_dir/checkpoints"
+          if "${compose[@]}" run --rm --no-deps --pull never --entrypoint python cyclaw -c 'pass' >"$probe_dir/missing.log" 2>&1; then
+            echo "Compose accepted a missing logs bind source"
+            exit 1
+          fi
+          cat "$probe_dir/missing.log"
+          grep -F 'bind source path does not exist' "$probe_dir/missing.log"
+          test ! -e "$probe_dir/logs"
+          mkdir "$probe_dir/logs"
+          sudo chown 1000:1000 "$probe_dir/data" "$probe_dir/index" "$probe_dir/checkpoints" "$probe_dir/logs"
+          sudo chmod 0750 "$probe_dir/data" "$probe_dir/index" "$probe_dir/checkpoints" "$probe_dir/logs"
+          "${compose[@]}" run --rm --no-deps --pull never --entrypoint python cyclaw -c '
+          import logging
+          import os
+          from pathlib import Path
+          from tempfile import TemporaryFile
+          from utils.logger import setup_logging
+          assert (os.getuid(), os.getgid()) == (1000, 1000)
+          for name in ("data", "index", "logs", "checkpoints"):
+              with TemporaryFile(dir=Path("/app") / name) as probe:
+                  probe.write(b"synthetic mount probe")
+                  probe.flush()
+          log_path = Path("/app/logs/readiness.log")
+          setup_logging({"logging": {"log_file": str(log_path)}})
+          logging.getLogger("cyclaw").warning("synthetic logger probe")
+          logging.shutdown()
+          assert "synthetic logger probe" in log_path.read_text()
+          log_path.unlink()
+          print("UID 1000 mount writes and application logger passed")'
+
   # Fast, no-heavy-deps gates that run before the expensive matrix below.
   # Neither needs torch/chromadb/sentence-transformers, so both finish in
   # well under a minute on a cache hit.

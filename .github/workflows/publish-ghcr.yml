@@ -10,7 +10,6 @@
 #   - actions full-SHA-pinned (same style as ci.yml / python-publish.yml)
 #   - checkout persist-credentials: false
 #   - no long-lived registry secrets; GITHUB_TOKEN only
-#   - does not bake config.yaml, data/, index/, or secrets (see .dockerignore)
 #   - linux/amd64 only for now (torch+cpu multi-arch is a follow-up)
 #
 # Operator docs: docs/DOCKER.md

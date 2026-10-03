@@ -29,12 +29,16 @@ dedicated `linux/arm64` image is verified against the torch pin.
 `.dockerignore` + the multi-stage `Dockerfile` keep private / regenerable state out
 of layers:
 
-- `config.yaml` (operator-owned; bind-mount read-only)
 - `data/` corpus vectors, runtime caches
 - `index/` ChromaDB + BM25 state
 - `logs/`, `checkpoints/`
 - `.env`, keys, `*.pem`
 - tests, docs, `.git`, `.github`
+
+The image includes the repository default `config.yaml` through `COPY . .`.
+Compose overrides it with your read-only `./config.yaml` bind mount. Build only
+from a checkout whose config is safe to distribute; keep production settings in
+the operator mount.
 
 The image is the **gate + graph + retrieval runtime** only. `data/` (corpus,
 soul.md, agentic registry) is not baked into layers; compose bind-mounts `./data`
@@ -85,8 +89,46 @@ required for GHCR pull/run.
 1. Docker Engine **23.0+** (for `seccomp:builtin`) + Compose v2
 2. Local dirs / files next to compose:
    - `config.yaml` (from the repo or your hardened copy)
-   - `data/`, `index/`, `logs/`, `checkpoints/` (created empty if needed)
+   - `data/`, `index/`, `logs/`, `checkpoints/` (prepared as below)
 3. Ollama (or LM Studio) **outside** the image — typically on the host
+
+### Prepare host storage
+
+Before either Compose or `docker run`, create the bind directories next to
+`docker-compose.yml` and ensure container UID/GID `1000:1000` can read and write
+them, including existing files the application updates. Image-layer ownership
+is hidden by bind mounts. Compose refuses missing writable sources instead of
+letting rootful Docker create root-owned directories that the app cannot write.
+
+```bash
+mkdir -p data index logs checkpoints
+```
+
+For a **new, empty deployment directory on rootful Linux**, an administrator can
+set ownership on just those directories before adding data:
+
+```bash
+sudo chown 1000:1000 data index logs checkpoints
+sudo chmod 0750 data index logs checkpoints
+```
+
+For existing state, review its ownership and permissions first. Grant UID 1000
+the required access using your host's ownership or ACL policy; do not recursively
+change an existing corpus or deployment tree blindly. `config.yaml` must be a
+regular file readable by the container. Docker Desktop and rootless/user-namespace
+Docker translate host identities differently; verify access under that runtime
+instead of assuming the Linux ownership command applies.
+
+After pulling or building the image, this probe exercises the configured mounts
+as the service user without starting the gateway or calling any model:
+
+```bash
+docker compose run --rm --no-deps --entrypoint python cyclaw -c \
+  'from pathlib import Path; from tempfile import TemporaryFile; [TemporaryFile(dir=Path("/app") / name).close() for name in ("data", "index", "logs", "checkpoints")]'
+```
+
+A successful probe proves new files can be created in these directories. It does
+not establish permission to update every pre-existing file.
 
 ## Quick path: pull + compose
 
@@ -97,7 +139,8 @@ required for GHCR pull/run.
 export CYCLAW_IMAGE_TAG=1.9.0   # or 1.9.1 after that tag is published
 docker pull "ghcr.io/cgfixit/cyclaw:${CYCLAW_IMAGE_TAG}"
 
-# From a checkout that has docker-compose.yml + config.yaml + data mounts
+# First complete "Prepare host storage" above, including the access probe.
+# Run from the directory containing docker-compose.yml and config.yaml.
 docker compose pull
 docker compose up -d
 curl -sS http://127.0.0.1:8787/health
@@ -108,15 +151,18 @@ build can still `docker compose build` without changing the file.
 
 ## Minimal `docker run` (parity with compose hardening)
 
+Complete the host-storage preparation above first. `--mount` refuses a missing
+bind source instead of creating it.
+
 ```bash
 docker run -d \
   --name cyclaw \
   -p 127.0.0.1:8787:8787 \
-  -v "$(pwd)/data:/app/data:rw" \
-  -v "$(pwd)/index:/app/index:rw" \
-  -v "$(pwd)/checkpoints:/app/checkpoints:rw" \
-  -v "$(pwd)/logs:/app/logs:rw" \
-  -v "$(pwd)/config.yaml:/app/config.yaml:ro" \
+  --mount "type=bind,src=$(pwd)/data,dst=/app/data" \
+  --mount "type=bind,src=$(pwd)/index,dst=/app/index" \
+  --mount "type=bind,src=$(pwd)/checkpoints,dst=/app/checkpoints" \
+  --mount "type=bind,src=$(pwd)/logs,dst=/app/logs" \
+  --mount "type=bind,src=$(pwd)/config.yaml,dst=/app/config.yaml,readonly" \
   --read-only \
   --tmpfs /tmp \
   --cap-drop ALL \
