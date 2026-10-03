@@ -399,6 +399,10 @@ def _update_fact_conn(
     existing = _get_fact_conn(conn, fact_id)
     if existing is None:
         raise ValueError(f"fact {fact_id} not found")
+    if not existing.active:
+        limit = _max_active_facts(cfg)
+        if limit is not None and _count_active_facts(conn) >= limit:
+            raise ValueError(f"active fact limit reached ({limit})")
     new_content = content if content is not None else existing.content
     check_content_size(new_content, dict(cfg))
     new_tags = check_tags(tags) if tags is not None else existing.tags
