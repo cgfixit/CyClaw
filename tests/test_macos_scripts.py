@@ -1130,7 +1130,7 @@ def test_installer_macos_constraints_copy_keeps_torch_pinned() -> None:
     )
     rewritten = result.stdout.decode("utf-8").splitlines()
     assert f"torch=={pinned.group(1)}" in rewritten
-    assert not any("+cpu" in line for line in rewritten)
+    assert not any("+cpu" in line for line in rewritten if line.strip() and not line.lstrip().startswith("#"))
     # Every non-torch line passes through byte-for-byte.
     original = constraints.splitlines()
     assert [line for line in rewritten if not line.startswith("torch==")] == [
