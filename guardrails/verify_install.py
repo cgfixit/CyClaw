@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from importlib.metadata import version
 from pathlib import Path
 
 
-def main() -> None:
+def _verify() -> None:
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     network_attempts: list[str] = []
@@ -68,6 +69,14 @@ def main() -> None:
     if network_attempts:
         raise RuntimeError(f"NeMo attempted network access: {network_attempts}")
     print(f"PASS nemoguardrails {installed}: production engine, shipped rules, no audited Python socket calls")
+
+
+def main() -> None:
+    # Windows creates a loopback socketpair for the event loop's self-pipe.
+    # Prepare it before auditing NeMo imports, initialization, and checks.
+    with asyncio.Runner() as runner:
+        runner.get_loop()
+        _verify()
 
 
 if __name__ == "__main__":
