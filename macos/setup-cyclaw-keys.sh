@@ -16,8 +16,10 @@
 #      macos/cyclaw-public-env.sh. This script does not write those names
 #      into .env unless --write-env-file is set.
 #   3. An existing allowlisted secret line is copied into Keychain (if that
-#      item is missing) and then removed. Other lines stay. No backup file
-#      is written. A pattern match with no Keychain service is left in place.
+#      item is missing) and removed only when the value read back is
+#      byte-equal to the plaintext. A mismatch keeps the line and warns.
+#      Other lines stay. No backup file is written. A pattern match with no
+#      Keychain service is left in place.
 #
 # Keychain store never puts a secret on `security`'s argv (same contract as
 # cyclaw-keychain-set.sh): generated / typed values go through a 0600 temp
@@ -34,7 +36,8 @@
 #   --rotate            replace an existing CYCLAW_API_KEY
 #   --skip-prompts      no Telegram/Claude/Grok/GitHub prompts (autogen only)
 #   --grok-dummy        set GROK_API_KEY=dummy (offline / pytest)
-#   --no-keychain       skip Keychain (not recommended; launchd will 401)
+#   --no-keychain       skip Keychain. Requires --write-env-file; otherwise
+#                       the run fails instead of claiming the key was stored.
 #   --write-env-file    OPT-IN: also write secret lines into the dotenv
 #                       (mode 600). Loud warning. Launchers and the rc block
 #                       still do not export those lines. Default is Keychain.
@@ -196,6 +199,10 @@ if [ "$DO_ENV_FILE" -eq 1 ] || [ "$DO_REPO_ENV" -eq 1 ]; then
   warn "The file is mode 600, and it is still plaintext on disk."
   warn "The rc block and invoke-cyclaw.sh do not export those secret lines. Prefer Keychain (the default)."
 fi
+if [ "$DO_KEYCHAIN" -eq 0 ] && [ "$DO_ENV_FILE" -eq 0 ] && [ "$DO_REPO_ENV" -eq 0 ]; then
+  echo "[cyclaw] error: --no-keychain without --write-env-file does not persist the key. Refusing to report it as stored." >&2
+  exit 1
+fi
 
 case "$SCHEDULE_ROTATE" in
   ""|monthly|weekly|never) ;;
@@ -347,40 +354,14 @@ _env_upsert() {
 
 _env_has() {
   local file="$1" key="$2"
-  [ -f "$file" ] || return 1
-  grep -E -q "^[[:space:]]*(export[[:space:]]+)?${key}=" "$file" 2>/dev/null
+  cyclaw_dotenv_file_value "$file" "$key" >/dev/null
 }
 
-# Inverse of _shell_single_quote. Also accepts a bare token or one pair of
-# double quotes (we never write those, but a hand-edited .env might have them).
-_env_unquote() {
-  local raw="$1" inner
-  case "$raw" in
-    \'*\')
-      inner="${raw#\'}"
-      inner="${inner%\'}"
-      # Remaining '\'' is the encoding _shell_single_quote writes for `'`.
-      printf '%s' "$inner" | sed "s/'\\\\''/'/g"
-      ;;
-    \"*\")
-      inner="${raw#\"}"
-      inner="${inner%\"}"
-      printf '%s' "$inner"
-      ;;
-    *)
-      printf '%s' "$raw"
-      ;;
-  esac
-}
-
-# Extract a KEY's value from a dotenv we wrote (export KEY='...').
+# Last unquoted value of KEY, via cyclaw_dotenv_line_assignments.
 # Only used to sync an existing .env into Keychain. Never echoed.
 _env_get() {
-  local file="$1" key="$2" line
-  [ -f "$file" ] || return 1
-  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$file" | tail -n 1)" || return 1
-  line="${line#*=}"
-  _env_unquote "$line"
+  local file="$1" key="$2"
+  cyclaw_dotenv_file_value "$file" "$key"
 }
 
 # -- Keychain -----------------------------------------------------------------
@@ -520,10 +501,6 @@ _keychain_store_value() {
 # Tracks names we actually wrote (never values) for the closing summary.
 _STORED_NAMES=""
 _NOTE() { _STORED_NAMES="${_STORED_NAMES}${_STORED_NAMES:+ }$1"; }
-# Names stored in Keychain on this run. Migration strips their plaintext
-# lines without a second Keychain read.
-_PERSISTED_NAMES=""
-_mark_persisted() { _PERSISTED_NAMES="${_PERSISTED_NAMES} $1"; }
 
 _persist() {
   local env_name="$1" service="$2" value="$3" extra="${4:-}"
@@ -542,10 +519,6 @@ _persist() {
       return 1
     fi
     step "Keychain: stored $env_name (service=$service account=$ACCOUNT)"
-    _mark_persisted "$env_name"
-    if [ -n "$extra" ]; then
-      _mark_persisted "$extra"
-    fi
   fi
 
   if [ "$DO_ENV_FILE" -eq 1 ]; then
@@ -676,54 +649,50 @@ _ensure_keys_rc_blocks() {
   _install_keys_rc_block "$primary"
 }
 
-_name_was_persisted() {
-  case " ${_PERSISTED_NAMES} " in
-    *" $1 "*) return 0 ;;
-    *) return 1 ;;
-  esac
+# Delete KEY only where the unquoted value byte-equals $expect.
+# Non-secret lines and comments stay. Never prints the value. Never writes
+# a backup. The file itself stays: it is the home for ordinary settings.
+_env_remove_key_if_match() {
+  local file="$1" key="$2" expect="$3"
+  cyclaw_dotenv_drop_matching_assignment "$file" "$key" "$expect"
 }
 
-# Delete one KEY= line. Non-secret lines and comments stay. Never prints
-# the value. Never writes a backup. The file itself stays: it is the home
-# for ordinary settings even after the last secret line is removed.
-_env_remove_key() {
-  local file="$1" key="$2" tmp old_umask
-  [ -f "$file" ] || return 0
-  _env_has "$file" "$key" || return 0
-  old_umask="$(umask)"
-  umask 077
-  tmp="$(mktemp "${TMPDIR:-/tmp}/cyclaw.env.XXXXXX")"
-  grep -v -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$file" > "$tmp" || true
-  if ! grep -q '[^[:space:]]' "$tmp"; then
-    cyclaw_public_env_header > "$tmp"
+# Read the stored bytes back and delete the plaintext only on a match.
+# The no-expect store path (cyclaw-keychain-set.sh) is included: a successful
+# store command is not proof the Keychain holds the same bytes.
+_migrate_drop_if_readback_matches() {
+  local file="$1" env_name="$2" service="$3" value="$4" stored=""
+  if ! _keychain_read "$service"; then
+    warn "left plaintext $env_name in $file (Keychain $service could not be read back; the file is still a copy)"
+    return 0
   fi
-  chmod 600 "$tmp"
-  mv "$tmp" "$file"
-  chmod 600 "$file"
-  umask "$old_umask"
+  stored="$_KEYCHAIN_READ_VALUE"
+  _KEYCHAIN_READ_VALUE=""
+  if [ "$stored" != "$value" ]; then
+    warn "left plaintext $env_name in $file (Keychain $service value differs from the file). The line was kept. Values were not printed."
+    stored=""
+    return 0
+  fi
+  stored=""
+  if _env_remove_key_if_match "$file" "$env_name" "$value"; then
+    step "removed plaintext $env_name from $file (Keychain $service holds the same value). No backup was written."
+  fi
 }
 
 _migrate_one_line() {
   local file="$1" env_name="$2" service="$3" value=""
-  _env_has "$file" "$env_name" || return 0
+  value="$(_env_get "$file" "$env_name")" || return 0
   if [ "$DO_KEYCHAIN" -ne 1 ]; then
     warn "left plaintext $env_name in $file (--no-keychain). Launchers will not load it."
     return 0
   fi
-  if _name_was_persisted "$env_name"; then
-    _env_remove_key "$file" "$env_name"
-    step "removed plaintext $env_name from $file (Keychain $service holds it). No backup was written."
-    return 0
-  fi
   if _keychain_read "$service"; then
-    _KEYCHAIN_READ_VALUE=""
-    _env_remove_key "$file" "$env_name"
-    step "removed plaintext $env_name from $file (Keychain $service already holds it). No backup was written."
+    _migrate_drop_if_readback_matches "$file" "$env_name" "$service" "$value"
+    value=""
     return 0
   fi
   case "$_KEYCHAIN_READ_STATE" in
     missing)
-      value="$(_env_get "$file" "$env_name")"
       if ! _validate_secret "$value"; then
         warn "left plaintext $env_name in $file (value empty or multi-line; not stored)"
         value=""
@@ -734,10 +703,8 @@ _migrate_one_line() {
         value=""
         return 0
       fi
+      _migrate_drop_if_readback_matches "$file" "$env_name" "$service" "$value"
       value=""
-      _mark_persisted "$env_name"
-      _env_remove_key "$file" "$env_name"
-      step "moved $env_name from $file into Keychain ($service) and removed the plaintext line. No backup was written."
       ;;
     *)
       warn "left plaintext $env_name in $file (Keychain $service is ${_KEYCHAIN_READ_STATE:-unreadable}; not deleting the only readable copy)"
@@ -748,18 +715,19 @@ _migrate_one_line() {
 # Pattern matches that are not on the Keychain allowlist stay on disk.
 # Deleting them would destroy the only copy. Launchers still do not load them.
 _warn_unmapped_secret_lines() {
-  local file="$1" line name
+  local file="$1" line name op val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    name="$(cyclaw_dotenv_assignment_name "$line" 2>/dev/null)" || continue
-    [ -n "$name" ] || continue
-    cyclaw_is_secret_name "$name" || continue
-    case "$name" in
-      CYCLAW_API_KEY|TELEGRAM_BOT_TOKEN|GROK_API_KEY|ANTHROPIC_API_KEY|GH_TOKEN|GITHUB_TOKEN|CLAUDE_API_KEY)
-        continue
-        ;;
-    esac
-    warn "left plaintext $name in $file (secret-classified, no Keychain service). Launchers do not load it. The value was not printed."
+    while IFS=$'\x1f' read -r name op val; do
+      [ -n "$name" ] || continue
+      cyclaw_is_secret_name "$name" || continue
+      case "$name" in
+        CYCLAW_API_KEY|TELEGRAM_BOT_TOKEN|GROK_API_KEY|ANTHROPIC_API_KEY|GH_TOKEN|GITHUB_TOKEN|CLAUDE_API_KEY)
+          continue
+          ;;
+      esac
+      warn "left plaintext $name in $file (secret-classified, no Keychain service). Launchers do not load it. The value was not printed."
+    done < <(cyclaw_dotenv_line_assignments "$line")
   done < "$file"
 }
 

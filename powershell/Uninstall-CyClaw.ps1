@@ -11,15 +11,23 @@
 .PARAMETER RemoveFsConnect
   Prompt before deleting %USERPROFILE%\CyClaw-FS (the confined read jail).
 
+.PARAMETER RemoveCredentials
+  Delete the five documented Credential Manager targets. Plaintext lines are
+  left in place so the purge is not also the only copy. This switch never
+  writes a credential. Without it, uninstall only removes a plaintext line
+  whose value matches the item already stored.
+
 .EXAMPLE
   .\Uninstall-CyClaw.ps1              # keep ~/.CyClaw data w/ uninstall
   .\Uninstall-CyClaw.ps1 -RemoveHome  # also delete ~/.CyClaw
   .\Uninstall-CyClaw.ps1 -RemoveFsConnect
+  .\Uninstall-CyClaw.ps1 -RemoveCredentials
 #>
 [CmdletBinding()]
 param(
     [switch]$RemoveHome,
-    [switch]$RemoveFsConnect
+    [switch]$RemoveFsConnect,
+    [switch]$RemoveCredentials
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,14 +98,30 @@ function Unschedule-KnownTasks {
 Unschedule-SyncJob
 Unschedule-KnownTasks
 
-# Plaintext secret lines go away only when Credential Manager already holds
-# them. No backup. A missing item leaves the line (the only copy).
+# Never write Credential Manager during uninstall. -RemoveCredentials purges
+# the five documented targets and skips the plaintext strip, so both copies
+# are not destroyed together. Otherwise a line is removed only when the
+# stored value matches. Scope is the home dotenv and the install layout
+# %USERPROFILE%\.CyClaw\repo dotenv. The checkout environment variable is not followed.
 $secretStore = Join-Path $PSScriptRoot "CyClaw-SecretStore.ps1"
 if (Test-Path -LiteralPath $secretStore) {
     . $secretStore
-    $repoForEnv = Join-Path $Home_ "repo"
-    if ($env:CYCLAW_REPO) { $repoForEnv = $env:CYCLAW_REPO }
-    Sync-CyclawPlaintextToCredentialManager -HomeDir $Home_ -RepoDir $repoForEnv
+    if ($RemoveCredentials) {
+        Write-Host "[cyclaw] -RemoveCredentials: leaving plaintext secret lines in place so the Credential Manager purge is not also the only copy."
+        if (Test-CyclawWindowsHost) {
+            foreach ($credName in @("CYCLAW_API_KEY", "TELEGRAM_BOT_TOKEN", "GROK_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN")) {
+                $credTarget = $script:CyclawSecretTargets[$credName]
+                if (Remove-CyclawCredential $credTarget) {
+                    Write-Host "[cyclaw] removed Credential Manager item $credTarget"
+                }
+            }
+        } else {
+            Write-Host "[cyclaw] WARNING: -RemoveCredentials is a no-op off Windows." -ForegroundColor Yellow
+        }
+    } else {
+        $repoForEnv = Join-Path $Home_ "repo"
+        Remove-CyclawPlaintextIfCredentialMatches -HomeDir $Home_ -RepoDir $repoForEnv
+    }
 }
 
 # -- profile block --------------------------------------------------------------

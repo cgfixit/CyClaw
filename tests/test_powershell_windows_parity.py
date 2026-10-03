@@ -144,7 +144,14 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
     assert "Ensure-CyclawPublicEnvFile" in store
     assert "-WriteEnvFile" in install or "[switch]$WriteEnvFile" in install
     assert "Sync-CyclawPlaintextToCredentialManager" in install
-    assert "Sync-CyclawPlaintextToCredentialManager" in uninstall
+    assert "Sync-CyclawPlaintextToCredentialManager" not in uninstall
+    assert "Write-CyclawCredential" not in uninstall
+    assert "Remove-CyclawPlaintextIfCredentialMatches" in uninstall
+    assert "RemoveCredentials" in uninstall
+    assert "$env:CYCLAW_REPO" not in uninstall
+    assert "CredDelete" in store
+    assert "StringComparison]::Ordinal" in store
+    assert "Get-CyclawEnvLineAssignments" in store
     assert "source $Home_\\.env" not in text
     load_idx = text.index("Import-CyclawDotenv")
     cred_idx = text.index("Import-CyclawCredentialSecrets")
@@ -344,3 +351,52 @@ def test_powershell_readme_documents_credman_and_known_task_names() -> None:
     assert "Setup-FsConnect.ps1" in readme
     assert "CyClaw Dropbox Sync" in readme
     assert "wildcard" in readme.lower()
+    assert "never writes a credential" in readme
+    assert "-RemoveCredentials" in readme
+
+
+def test_env_line_parser_matches_the_shell_cases() -> None:
+    """The PowerShell helper sees every assignment the shell helper sees."""
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh is not installed")
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. ./powershell/CyClaw-SecretStore.ps1
+function Dump([string]$Line) {
+  foreach ($row in @(Get-CyclawEnvLineAssignments $Line)) {
+    Write-Output ("{0}|{1}|{2}" -f $row.Name, $row.Op, $row.Value)
+  }
+}
+Dump "FOO=1 BAR=2"
+Dump "FOO+=suffix"
+Dump "export FOO='a b'; GROK_API_KEY=secret"
+Dump "declare -x FOO=1"
+Dump "typeset FOO=1"
+Dump "readonly FOO=1"
+Dump "echo NAME=value"
+$bom = [char]0xFEFF
+Dump ($bom + "CYCLAW_GATE_PORT=8788")
+Dump "FOO='abc'\''def'"
+"""
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", script],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "FOO|=|1",
+        "BAR|=|2",
+        "FOO|+=|suffix",
+        "FOO|=|a b",
+        "GROK_API_KEY|=|secret",
+        "FOO|=|1",
+        "FOO|=|1",
+        "FOO|=|1",
+        "CYCLAW_GATE_PORT|=|8788",
+        "FOO|=|abc'def",
+    ]

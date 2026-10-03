@@ -7,11 +7,14 @@
   ~/.CyClaw/.env stays the home for ordinary settings (ports, paths, mode
   flags, model names, feature toggles). Secret-classified names are not
   imported. A name is secret when it is on the allowlist below, or when it
-  ends in _API_KEY, _TOKEN, _SECRET, or _PASSWORD. Allowlisted secrets are
-  read from Credential Manager into the CyClaw process only, and removed
-  from an existing .env after a confirmed copy. No backup is written.
-  Values are never printed. A pattern match with no Credential Manager
-  target is left in the file.
+  ends in _API_KEY, _TOKEN, _SECRET, or _PASSWORD (PowerShell -like is
+  case-insensitive, so grok_api_key is secret too). Allowlisted secrets are
+  read from Credential Manager into the CyClaw process only. A plaintext
+  line is removed only when the value read back from Credential Manager is
+  ordinal-equal to the file. A mismatch keeps the line and warns. No backup
+  is written. Values are never printed. Install may copy a missing item.
+  Uninstall never writes to Credential Manager. A pattern match with no
+  Credential Manager target is left in the file.
 
   Windows PowerShell 5.1 and PowerShell 7+. Not a launcher.
 #>
@@ -78,21 +81,18 @@ function Import-CyclawDotenv([string]$Path) {
         Write-Host "[cyclaw] warn    : refusing to source $Path (ACL is not owner-only; want current-user only). Fix with: icacls `"$Path`" /inheritance:r /grant:r `"${env:USERNAME}:(R,W)`"" -ForegroundColor Yellow
         return $false
     }
-    Get-Content -LiteralPath $Path | ForEach-Object {
-        $line = $_.Trim()
-        if ($line -eq '' -or $line.StartsWith('#')) { return }
-        if ($line.StartsWith('export ')) { $line = $line.Substring(7).Trim() }
-        $eq = $line.IndexOf('=')
-        if ($eq -lt 1) { return }
-        $name = $line.Substring(0, $eq).Trim()
-        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { return }
-        # Secret-classified names stay out of this process. Credential Manager is the source.
-        if (Test-CyclawSecretName $name) { return }
-        $val = $line.Substring($eq + 1).Trim()
-        if ($val.Length -ge 2 -and (($val.StartsWith("'") -and $val.EndsWith("'")) -or ($val.StartsWith('"') -and $val.EndsWith('"')))) {
-            $val = $val.Substring(1, $val.Length - 2).Replace("'\''", "'")
+    foreach ($raw in @(Get-Content -LiteralPath $Path)) {
+        foreach ($row in @(Get-CyclawEnvLineAssignments $raw)) {
+            # Secret-classified names stay out of this process. Credential Manager is the source.
+            if (Test-CyclawSecretName $row.Name) { continue }
+            if ($row.Op -eq "+=") {
+                $cur = [Environment]::GetEnvironmentVariable($row.Name)
+                if ($null -eq $cur) { $cur = "" }
+                Set-Item -Path ("Env:" + $row.Name) -Value ($cur + [string]$row.Value)
+            } else {
+                Set-Item -Path ("Env:" + $row.Name) -Value ([string]$row.Value)
+            }
         }
-        Set-Item -Path ("Env:" + $name) -Value $val
     }
     return $true
 }
@@ -132,6 +132,9 @@ public static class CyClawSecretStoreNative {
 
     [DllImport("advapi32.dll", SetLastError = true)]
     public static extern void CredFree(IntPtr buffer);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CredDelete(string target, int type, int flags);
 }
 "@
 }
@@ -215,6 +218,23 @@ function Write-CyclawCredential([string]$Target, [string]$Secret) {
     }
 }
 
+function Remove-CyclawCredential([string]$Target) {
+    # True when the item is gone (deleted or already absent). False off
+    # Windows, on an empty target, or when CredDelete fails for another reason.
+    # Never prints a secret. Uninstall's -RemoveCredentials is the only caller.
+    if ([string]::IsNullOrEmpty($Target)) { return $false }
+    if (-not (Test-CyclawWindowsHost)) { return $false }
+    Initialize-CyclawSecretStoreNative
+    if ([CyClawSecretStoreNative]::CredDelete($Target, [CyClawSecretStoreNative]::CRED_TYPE_GENERIC, 0)) {
+        return $true
+    }
+    $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()  # DevSkim: ignore DS104456 — CredDelete last-error; not a secret
+    # 1168 ERROR_NOT_FOUND, 2 ERROR_FILE_NOT_FOUND: already absent.
+    if ($err -eq 1168 -or $err -eq 2) { return $true }
+    Write-Host "[cyclaw] WARNING: CredDelete failed for target $Target (win32=$err)." -ForegroundColor Yellow
+    return $false
+}
+
 function Import-CyclawCredentialSecrets {
     if (-not (Test-CyclawWindowsHost)) {
         Write-Host "[cyclaw] warn    : Credential Manager is unavailable. Plaintext .env secrets are not used." -ForegroundColor Yellow
@@ -252,49 +272,172 @@ function Import-CyclawCredentialSecrets {
     }
 }
 
+function Get-CyclawEnvLineAssignments([string]$Line) {
+    # One env-line parser for the Windows loaders. Same cases as
+    # cyclaw_dotenv_line_assignments in macos/cyclaw-public-env.sh:
+    # every NAME= / NAME+= token, lowercase names, a leading UTF-8 BOM,
+    # and export / declare -x / typeset / readonly (optional flag words).
+    # Returns objects with Name, Op ("=" or "+="), and Value. A command
+    # word stops the scan. An unquoted semicolon starts another command.
+    $rows = New-Object System.Collections.Generic.List[object]
+    if ($null -eq $Line) { return @() }
+    $s = $Line
+    if ($s.Length -gt 0 -and [int][char]$s[0] -eq 0xFEFF) { $s = $s.Substring(1) }
+    $n = $s.Length
+    $i = 0
+    while ($i -lt $n -and [char]::IsWhiteSpace($s[$i])) { $i++ }
+    while ($i -lt $n) {
+        while ($i -lt $n -and [char]::IsWhiteSpace($s[$i])) { $i++ }
+        if ($i -ge $n) { break }
+        $c = $s[$i]
+        if ($c -eq '#') { break }
+        if ($c -eq ';' -or $c -eq '|' -or $c -eq '&') { $i++; continue }
+        $start = $i
+        $word = ""
+        $scanning = $true
+        while ($scanning -and $i -lt $n) {
+            $c = $s[$i]
+            if ([char]::IsWhiteSpace($c) -or $c -eq ';' -or $c -eq '|' -or $c -eq '&') { $scanning = $false; continue }
+            if ($c -eq '\') {
+                $i++
+                if ($i -lt $n) { $word += $s[$i]; $i++ }
+                continue
+            }
+            if ($c -eq "'") {
+                $i++
+                while ($i -lt $n -and $s[$i] -ne "'") { $word += $s[$i]; $i++ }
+                if ($i -lt $n) { $i++ }
+                continue
+            }
+            if ($c -eq '"') {
+                $i++
+                while ($i -lt $n -and $s[$i] -ne '"') {
+                    if ($s[$i] -eq '\' -and ($i + 1) -lt $n) { $i++; $word += $s[$i]; $i++; continue }
+                    $word += $s[$i]
+                    $i++
+                }
+                if ($i -lt $n) { $i++ }
+                continue
+            }
+            $word += $c
+            $i++
+        }
+        if ($word -eq 'export' -or $word -eq 'declare' -or $word -eq 'typeset' -or $word -eq 'readonly') {
+            while ($i -lt $n -and [char]::IsWhiteSpace($s[$i])) { $i++ }
+            while ($i -lt $n -and $s[$i] -eq '-') {
+                $flagStart = $i
+                $flag = ""
+                while ($i -lt $n -and -not [char]::IsWhiteSpace($s[$i]) -and $s[$i] -ne ';' -and $s[$i] -ne '|' -and $s[$i] -ne '&') {
+                    $flag += $s[$i]
+                    $i++
+                }
+                if (-not $flag.StartsWith('-')) { $i = $flagStart; break }
+                while ($i -lt $n -and [char]::IsWhiteSpace($s[$i])) { $i++ }
+            }
+            continue
+        }
+        $i = $start
+        if ($i -ge $n -or -not ($s[$i] -match '[A-Za-z_]')) { break }
+        $name = ""
+        while ($i -lt $n -and ($s[$i] -match '[A-Za-z0-9_]')) { $name += $s[$i]; $i++ }
+        $op = ""
+        if (($i + 1) -lt $n -and $s[$i] -eq '+' -and $s[$i + 1] -eq '=') { $op = "+="; $i += 2 }
+        elseif ($i -lt $n -and $s[$i] -eq '=') { $op = "="; $i++ }
+        else { break }
+        $val = ""
+        $reading = $true
+        while ($reading -and $i -lt $n) {
+            $c = $s[$i]
+            if ([char]::IsWhiteSpace($c) -or $c -eq ';' -or $c -eq '|' -or $c -eq '&') { $reading = $false; continue }
+            if ($c -eq '\') {
+                $i++
+                if ($i -lt $n) { $val += $s[$i]; $i++ }
+                continue
+            }
+            if ($c -eq "'") {
+                $i++
+                while ($i -lt $n -and $s[$i] -ne "'") { $val += $s[$i]; $i++ }
+                if ($i -lt $n) { $i++ }
+                continue
+            }
+            if ($c -eq '"') {
+                $i++
+                while ($i -lt $n -and $s[$i] -ne '"') {
+                    if ($s[$i] -eq '\' -and ($i + 1) -lt $n) { $i++; $val += $s[$i]; $i++; continue }
+                    $val += $s[$i]
+                    $i++
+                }
+                if ($i -lt $n) { $i++ }
+                continue
+            }
+            $val += $c
+            $i++
+        }
+        $rows.Add((New-Object psobject -Property @{ Name = $name; Op = $op; Value = $val }))
+    }
+    return @($rows.ToArray())
+}
+
 function Get-CyclawDotenvAssignments([string]$Path) {
-    # Name -> value. Caller must not print values.
+    # Name -> value (last assignment wins). Caller must not print values.
     $map = @{}
     if (-not (Test-Path -LiteralPath $Path)) { return $map }
     foreach ($raw in @(Get-Content -LiteralPath $Path)) {
-        $line = $raw.Trim()
-        if ($line -eq '' -or $line.StartsWith('#')) { continue }
-        if ($line.StartsWith('export ')) { $line = $line.Substring(7).Trim() }
-        $eq = $line.IndexOf('=')
-        if ($eq -lt 1) { continue }
-        $name = $line.Substring(0, $eq).Trim()
-        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { continue }
-        $val = $line.Substring($eq + 1).Trim()
-        if ($val.Length -ge 2 -and (($val.StartsWith("'") -and $val.EndsWith("'")) -or ($val.StartsWith('"') -and $val.EndsWith('"')))) {
-            $val = $val.Substring(1, $val.Length - 2).Replace("'\''", "'")
+        foreach ($row in @(Get-CyclawEnvLineAssignments $raw)) {
+            $map[$row.Name] = $row.Value
         }
-        $map[$name] = $val
     }
     return $map
 }
 
-function Remove-CyclawSecretLines([string]$Path, [string[]]$Names) {
+function Remove-CyclawSecretLines([string]$Path, [hashtable]$Expected) {
+    # Expected maps a name to the unquoted value that must match ordinally.
+    # Other assignments on the same line are rewritten. Comments stay.
+    # A file that would become blank keeps the public header.
     if (-not (Test-Path -LiteralPath $Path)) { return }
-    if (-not $Names -or $Names.Count -eq 0) { return }
+    if (-not $Expected -or $Expected.Count -eq 0) { return }
     $kept = New-Object System.Collections.Generic.List[string]
     $removed = New-Object System.Collections.Generic.List[string]
     $assignLeft = $false
     foreach ($raw in @(Get-Content -LiteralPath $Path)) {
-        $line = $raw.Trim()
-        $body = $line
-        if ($body.StartsWith('export ')) { $body = $body.Substring(7).Trim() }
-        $eq = $body.IndexOf('=')
-        $drop = $false
-        if ($eq -gt 0 -and -not $line.StartsWith('#')) {
-            $n = $body.Substring(0, $eq).Trim()
-            if ($Names -contains $n) {
-                $drop = $true
-                if (-not $removed.Contains($n)) { $removed.Add($n) }
-            } elseif ($n -match '^[A-Za-z_][A-Za-z0-9_]*$') {
-                $assignLeft = $true
+        $rows = @(Get-CyclawEnvLineAssignments $raw)
+        if ($rows.Count -eq 0) {
+            $kept.Add($raw)
+            continue
+        }
+        $rebuilt = New-Object System.Collections.Generic.List[string]
+        $droppedHere = $false
+        foreach ($row in $rows) {
+            $match = $false
+            if ($Expected.ContainsKey($row.Name)) {
+                $want = [string]$Expected[$row.Name]
+                if ([string]::Equals([string]$row.Value, $want, [StringComparison]::Ordinal)) {
+                    $match = $true
+                }
+            }
+            if ($match) {
+                $droppedHere = $true
+                if (-not $removed.Contains($row.Name)) { $removed.Add($row.Name) }
+                continue
+            }
+            # Shell-style single quotes so a later macOS read of a copied file
+            # round-trips an apostrophe the same way setup writes it.
+            $escaped = ([string]$row.Value).Replace("'", "'\''")
+            if ($row.Op -eq "+=") {
+                $rebuilt.Add("$($row.Name)+='$escaped'")
+            } else {
+                $rebuilt.Add("$($row.Name)='$escaped'")
             }
         }
-        if (-not $drop) { $kept.Add($raw) }
+        if (-not $droppedHere) {
+            $assignLeft = $true
+            $kept.Add($raw)
+            continue
+        }
+        if ($rebuilt.Count -gt 0) {
+            $assignLeft = $true
+            $kept.Add(($rebuilt -join " "))
+        }
     }
     if ($removed.Count -eq 0) { return }
     if (-not $assignLeft) {
@@ -381,28 +524,46 @@ function Sync-CyclawPlaintextToCredentialManager {
                 Write-Host "[cyclaw] WARNING: GH_TOKEN and GITHUB_TOKEN differ in $file; the Credential Manager copy follows GH_TOKEN. Values were not printed." -ForegroundColor Yellow
             }
         }
-        $drop = New-Object System.Collections.Generic.List[string]
+        $drop = @{}
         foreach ($name in @("CYCLAW_API_KEY", "TELEGRAM_BOT_TOKEN", "GROK_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN")) {
             if (-not $assignments.ContainsKey($name)) { continue }
             $target = $script:CyclawSecretTargets[$name]
+            $fileVal = [string]$assignments[$name]
             $read = Read-CyclawCredential $target
             $secret = $null
             if ($read.Status -eq "readable") {
+                $stored = [string]$read.Secret
                 $read.Secret = $null
-                $drop.Add($name)
+                # GITHUB_TOKEN shares com.cgfixit.cyclaw.gh-token with GH_TOKEN.
+                # A different file value is kept; the stored bytes are not overwritten.
+                if ([string]::Equals($stored, $fileVal, [StringComparison]::Ordinal)) {
+                    $drop[$name] = $fileVal
+                } else {
+                    Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target value differs from the file). The line was kept. Values were not printed." -ForegroundColor Yellow
+                }
+                $stored = $null
                 continue
             }
             $read.Secret = $null
             if ($read.Status -eq "missing") {
-                $secret = $assignments[$name]
+                $secret = $fileVal
                 if ([string]::IsNullOrEmpty($secret)) {
                     Write-Host "[cyclaw] WARNING: left plaintext $name in $file (value empty; not stored)." -ForegroundColor Yellow
                     $secret = $null
                     continue
                 }
                 if (Write-CyclawCredential $target $secret) {
-                    $drop.Add($name)
-                    Write-Host "[cyclaw] moved $name from $file into Credential Manager ($target)."
+                    $readBack = Read-CyclawCredential $target
+                    $readBackVal = $null
+                    if ($readBack.Status -eq "readable") { $readBackVal = [string]$readBack.Secret }
+                    $readBack.Secret = $null
+                    if ([string]::Equals($readBackVal, $secret, [StringComparison]::Ordinal)) {
+                        $drop[$name] = $secret
+                        Write-Host "[cyclaw] moved $name from $file into Credential Manager ($target)."
+                    } else {
+                        Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target could not be read back). The line was kept. Values were not printed." -ForegroundColor Yellow
+                    }
+                    $readBackVal = $null
                 }
                 $secret = $null
                 continue
@@ -421,7 +582,55 @@ function Sync-CyclawPlaintextToCredentialManager {
             Write-Host "[cyclaw] WARNING: left plaintext $name in $file (secret-classified, no Credential Manager target). Launchers do not load it. The value was not printed." -ForegroundColor Yellow
         }
         if ($drop.Count -gt 0) {
-            Remove-CyclawSecretLines $file $drop.ToArray()
+            Remove-CyclawSecretLines $file $drop
+        }
+        foreach ($key in @($assignments.Keys)) { $assignments[$key] = $null }
+    }
+}
+
+function Remove-CyclawPlaintextIfCredentialMatches {
+    # Read-only. Never calls Write-CyclawCredential. Uninstall uses this so
+    # tearing the integration down cannot create Credential Manager items.
+    param(
+        [string]$HomeDir = "",
+        [string]$RepoDir = ""
+    )
+    $files = @()
+    if ($HomeDir) { $files += (Join-Path $HomeDir ".env") }
+    if ($RepoDir) {
+        $repoEnv = Join-Path $RepoDir ".env"
+        if ($files -notcontains $repoEnv) { $files += $repoEnv }
+    }
+    foreach ($file in $files) {
+        if (-not (Test-Path -LiteralPath $file)) { continue }
+        $assignments = Get-CyclawDotenvAssignments $file
+        $expected = @{}
+        foreach ($name in @("CYCLAW_API_KEY", "TELEGRAM_BOT_TOKEN", "GROK_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN")) {
+            if (-not $assignments.ContainsKey($name)) { continue }
+            $target = $script:CyclawSecretTargets[$name]
+            $fileVal = [string]$assignments[$name]
+            if (-not (Test-CyclawWindowsHost)) {
+                Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager is unavailable on this host)." -ForegroundColor Yellow
+                continue
+            }
+            $read = Read-CyclawCredential $target
+            if ($read.Status -ne "readable") {
+                $read.Secret = $null
+                Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager target $target is $($read.Status); not deleting the only readable copy)." -ForegroundColor Yellow
+                continue
+            }
+            $stored = [string]$read.Secret
+            $read.Secret = $null
+            if (-not [string]::Equals($stored, $fileVal, [StringComparison]::Ordinal)) {
+                Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target value differs from the file). The line was kept. Values were not printed." -ForegroundColor Yellow
+                $stored = $null
+                continue
+            }
+            $expected[$name] = $fileVal
+            $stored = $null
+        }
+        if ($expected.Count -gt 0) {
+            Remove-CyclawSecretLines $file $expected
         }
         foreach ($key in @($assignments.Keys)) { $assignments[$key] = $null }
     }
@@ -430,14 +639,11 @@ function Sync-CyclawPlaintextToCredentialManager {
 function Write-CyclawPlaintextSecretWarning([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
     foreach ($raw in @(Get-Content -LiteralPath $Path)) {
-        $line = $raw.Trim()
-        if ($line.StartsWith('export ')) { $line = $line.Substring(7).Trim() }
-        $eq = $line.IndexOf('=')
-        if ($eq -lt 1) { continue }
-        $name = $line.Substring(0, $eq).Trim()
-        if ($script:CyclawSecretTargets.ContainsKey($name)) {
-            Write-Host "[cyclaw] warn    : $name is in $Path but launchers do not load secrets from dotenv." -ForegroundColor Yellow
-            Write-Host "[cyclaw] warn    : re-run Install-CyClaw.ps1 to copy it into Credential Manager and remove the plaintext line." -ForegroundColor Yellow
+        foreach ($row in @(Get-CyclawEnvLineAssignments $raw)) {
+            if ($script:CyclawSecretTargets.ContainsKey($row.Name)) {
+                Write-Host "[cyclaw] warn    : $($row.Name) is in $Path but launchers do not load secrets from dotenv." -ForegroundColor Yellow
+                Write-Host "[cyclaw] warn    : re-run Install-CyClaw.ps1 to copy it into Credential Manager and remove the plaintext line." -ForegroundColor Yellow
+            }
         }
     }
 }

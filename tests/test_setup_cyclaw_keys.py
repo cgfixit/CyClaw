@@ -150,6 +150,21 @@ case "$cmd" in
     if [ "$read_value" -eq 0 ] && [ -n "${FAKE_SECURITY_PROBE_RC:-}" ]; then
       exit "${FAKE_SECURITY_PROBE_RC}"
     fi
+    if [ -n "${FAKE_SECURITY_STORE:-}" ] && [ -f "${FAKE_SECURITY_STORE}" ]; then
+      stored=""
+      while IFS=$'\\t' read -r key val; do
+        if [ "$key" = "$service" ]; then stored="$val"; fi
+      done < "${FAKE_SECURITY_STORE}"
+      if [ -n "$stored" ]; then
+        if [ "$read_value" -eq 1 ] && [ -n "${FAKE_SECURITY_READ_RC:-}" ]; then
+          exit "${FAKE_SECURITY_READ_RC}"
+        fi
+        if [ "$read_value" -eq 1 ]; then
+          printf '%s' "$stored"
+        fi
+        exit 0
+      fi
+    fi
     items_raw="${FAKE_SECURITY_ITEMS:-}"
     [ -n "$items_raw" ] || exit 44
     IFS='|' read -ra items <<< "$items_raw"
@@ -179,8 +194,9 @@ case "$cmd" in
           shift 2
           ;;
         -w)
+          IFS= read -r secret_from_stdin || true
+          saw_secret=1
           if [ -n "${FAKE_SECURITY_STDIN_LOG:-}" ]; then
-            IFS= read -r secret_from_stdin || true
             # One line per write, keyed by service, so --grok-dummy cannot
             # clobber the generated API key assertion.
             printf '%s\\t%s\\n' "$service" "$secret_from_stdin" >> "${FAKE_SECURITY_STDIN_LOG}"
@@ -198,6 +214,9 @@ case "$cmd" in
     fi
     if [ -n "${FAKE_SECURITY_WRITE_RC:-}" ]; then
       exit "${FAKE_SECURITY_WRITE_RC}"
+    fi
+    if [ "${saw_secret:-0}" -eq 1 ] && [ -n "${FAKE_SECURITY_STORE:-}" ]; then
+      printf '%s\\t%s\\n' "$service" "$secret_from_stdin" >> "${FAKE_SECURITY_STORE}"
     fi
     exit 0
     ;;
@@ -236,6 +255,7 @@ def _base_env(
     env["CYCLAW_SETUP_KEYS_SKIP_PLATFORM"] = "1"
     env["CYCLAW_SETUP_KEYS_STDIN_STORE"] = "1"
     env["FAKE_SECURITY_ITEMS"] = items
+    env["FAKE_SECURITY_STORE"] = str(home / "fake-security-store")
     if stdin_log is not None:
         env["FAKE_SECURITY_STDIN_LOG"] = str(stdin_log)
     if argv_log is not None:
@@ -700,14 +720,19 @@ def test_rotate_replaces_existing(fake_security: Path, tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     text = (home_env / ".env").read_text(encoding="utf-8")
-    assert existing not in text
-    assert "CYCLAW_API_KEY=" not in text
+    # Rotate replaces the Keychain item. The old plaintext is a different
+    # value, so it stays and is not printed.
+    assert existing in text
+    assert "differs from the file" in result.stderr
+    assert "Values were not printed" in result.stderr
     generated = _stdin_writes(stdin_log)["com.cgfixit.cyclaw.api-key"]
     assert re.fullmatch(r"[0-9a-f]{40}", generated)
     assert generated != existing
     assert generated not in text
     assert generated not in result.stdout
     assert generated not in result.stderr
+    assert existing not in result.stdout
+    assert existing not in result.stderr
 
 
 def test_upsert_preserves_unrelated_keys(fake_security: Path, tmp_path: Path) -> None:
@@ -727,7 +752,9 @@ def test_upsert_preserves_unrelated_keys(fake_security: Path, tmp_path: Path) ->
     assert result.returncode == 0, result.stderr
     text = (home_env / ".env").read_text(encoding="utf-8")
     assert "export OTHER_THING='keep-me'" in text
-    assert "CYCLAW_API_KEY=" not in text
+    # The rotated Keychain value does not match this line, so the line stays.
+    assert "export CYCLAW_API_KEY='oldoldoldoldoldoldoldoldoldoldoldoldold1'" in text
+    assert "differs from the file" in result.stderr
 
 
 def test_refuses_non_tty_without_skip_prompts(fake_security: Path, tmp_path: Path) -> None:
@@ -1073,3 +1100,84 @@ def test_copy_key_restores_the_umask_it_sets() -> None:
     # already created the file by the time a later `umask 077` runs.
     assert code.index("umask 077") < code.index("mktemp"), \
         "umask must be set before mktemp creates the file"
+
+
+def test_mismatch_keeps_plaintext_and_does_not_print_values(
+    fake_security: Path, tmp_path: Path
+) -> None:
+    secret = "a" * 40
+    stored = "b" * 40
+    env_file = tmp_path / ".CyClaw" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(
+        f"export CYCLAW_GATE_PORT=8788\nexport CYCLAW_API_KEY='{secret}'\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+    result = _run(
+        "--skip-prompts",
+        "--no-print-key",
+        fake_security_bin=fake_security,
+        home=tmp_path,
+        items=f"com.cgfixit.cyclaw.api-key={stored}",
+    )
+    assert result.returncode == 0, result.stderr
+    text = env_file.read_text(encoding="utf-8")
+    assert "CYCLAW_GATE_PORT" in text
+    assert secret in text
+    assert "differs from the file" in result.stderr
+    assert "Values were not printed" in result.stderr
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+    assert stored not in result.stdout
+    assert stored not in result.stderr
+
+
+def test_github_token_mismatch_keeps_the_different_line(
+    fake_security: Path, tmp_path: Path
+) -> None:
+    gh = "c" * 40
+    other = "d" * 40
+    env_file = tmp_path / ".CyClaw" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(
+        f"export GH_TOKEN='{gh}'\nexport GITHUB_TOKEN='{other}'\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+    stdin_log = tmp_path / "security-stdin.log"
+    result = _run(
+        "--skip-prompts",
+        "--no-print-key",
+        fake_security_bin=fake_security,
+        home=tmp_path,
+        stdin_log=stdin_log,
+    )
+    assert result.returncode == 0, result.stderr
+    text = env_file.read_text(encoding="utf-8")
+    assert f"export GITHUB_TOKEN='{other}'" in text
+    assert f"GH_TOKEN='{gh}'" not in text
+    assert "differ" in result.stderr
+    assert "Values were not printed" in result.stderr
+    assert gh not in result.stdout
+    assert gh not in result.stderr
+    assert other not in result.stdout
+    assert other not in result.stderr
+    assert _stdin_writes(stdin_log)["com.cgfixit.cyclaw.gh-token"] == gh
+
+
+def test_no_keychain_without_write_env_file_refuses_to_report_stored(
+    fake_security: Path, tmp_path: Path
+) -> None:
+    result = _run(
+        "--skip-prompts",
+        "--no-print-key",
+        "--no-keychain",
+        fake_security_bin=fake_security,
+        home=tmp_path,
+    )
+    assert result.returncode == 1
+    assert "does not persist the key" in result.stderr
+    assert "Refusing to report it as stored" in result.stderr
+    env_file = tmp_path / ".CyClaw" / ".env"
+    assert not env_file.exists()

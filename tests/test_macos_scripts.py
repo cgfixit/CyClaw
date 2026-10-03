@@ -870,6 +870,125 @@ def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: P
 
 
 @_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_dotenv_parser_sees_every_assignment_form(tmp_path: Path) -> None:
+    """Every NAME= / NAME+= token is classified, including keywords and a BOM."""
+    dotenv = tmp_path / ".env"
+    bom = b"\xef\xbb\xbf"
+    dotenv.write_bytes(
+        b"CYCLAW_GATE_PORT=87\n"
+        b"CYCLAW_GATE_PORT+=88\n"
+        b"export OLLAMA_MODEL=qwen\n"
+        b"declare -x CYCLAW_MODE=hybrid\n"
+        b"typeset CYCLAW_HOST=127.0.0.1\n"
+        b"readonly CYCLAW_BIND=loopback\n"
+        + bom + b"CYCLAW_NOTE=frombom\n"
+        b"export CYCLAW_LABEL='a b'; GROK_API_KEY=second-secret\n"
+        b"grok_api_key=lower-secret\n"
+        b"DB_PASSWORD=pattern-secret\n"
+        b"echo NAME=not-an-assignment\n"
+        b"FOO='abc'\\''def'\n"
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT OLLAMA_MODEL CYCLAW_MODE CYCLAW_HOST CYCLAW_BIND "
+        "CYCLAW_NOTE CYCLAW_LABEL GROK_API_KEY grok_api_key DB_PASSWORD FOO NAME\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'cyclaw_source_public_env "{dotenv}"\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'printf "model:%s\\n" "$OLLAMA_MODEL"\n'
+        'printf "mode:%s\\n" "$CYCLAW_MODE"\n'
+        'printf "host:%s\\n" "$CYCLAW_HOST"\n'
+        'printf "bind:%s\\n" "$CYCLAW_BIND"\n'
+        'printf "note:%s\\n" "$CYCLAW_NOTE"\n'
+        'printf "label:%s\\n" "$CYCLAW_LABEL"\n'
+        'printf "foo:%s\\n" "$FOO"\n'
+        'if [ -n "${GROK_API_KEY:-}" ]; then printf "grok:set\\n"; else printf "grok:unset\\n"; fi\n'
+        'if [ -n "${grok_api_key:-}" ]; then printf "lower:set\\n"; else printf "lower:unset\\n"; fi\n'
+        'if [ -n "${DB_PASSWORD:-}" ]; then printf "db:set\\n"; else printf "db:unset\\n"; fi\n'
+        'if [ -n "${NAME:-}" ]; then printf "name:set\\n"; else printf "name:unset\\n"; fi\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    assert "second-secret" not in blob
+    assert "lower-secret" not in blob
+    assert "pattern-secret" not in blob
+    assert result.stdout.splitlines()[-12:] == [
+        "port:8788",
+        "model:qwen",
+        "mode:hybrid",
+        "host:127.0.0.1",
+        "bind:loopback",
+        "note:frombom",
+        "label:a b",
+        "foo:abc'def",
+        "grok:unset",
+        "lower:unset",
+        "db:unset",
+        "name:unset",
+    ]
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_source_dotenv_scrubs_later_and_declared_secrets(tmp_path: Path) -> None:
+    """Sourcing still executes the file, then unsets every secret assignment."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788 GROK_API_KEY=second-secret\n"
+        "declare -x DB_PASSWORD=pattern-secret\n"
+        "grok_api_key=lower-secret\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT GROK_API_KEY grok_api_key DB_PASSWORD\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh"}"\n'
+        f'_source_dotenv "{dotenv}"\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'if [ -n "${GROK_API_KEY:-}" ]; then printf "grok:set\\n"; else printf "grok:unset\\n"; fi\n'
+        'if [ -n "${grok_api_key:-}" ]; then printf "lower:set\\n"; else printf "lower:unset\\n"; fi\n'
+        'if [ -n "${DB_PASSWORD:-}" ]; then printf "db:set\\n"; else printf "db:unset\\n"; fi\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    assert "second-secret" not in blob
+    assert "lower-secret" not in blob
+    assert "pattern-secret" not in blob
+    assert result.stdout.splitlines()[-4:] == [
+        "port:8788",
+        "grok:unset",
+        "lower:unset",
+        "db:unset",
+    ]
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_drop_matching_assignment_keeps_a_different_value(tmp_path: Path) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "export CYCLAW_GATE_PORT=8788 GROK_API_KEY=keep-me\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'if cyclaw_dotenv_drop_matching_assignment "{dotenv}" GROK_API_KEY other; then exit 31; fi\n'
+        f'cyclaw_dotenv_drop_matching_assignment "{dotenv}" GROK_API_KEY keep-me\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    text = dotenv.read_text(encoding="utf-8")
+    assert "CYCLAW_GATE_PORT" in text
+    assert "8788" in text
+    assert "GROK_API_KEY" not in text
+    assert "keep-me" not in text
+
+
+@_BASH_EXECUTION_REQUIRED
 def test_installer_macos_constraints_copy_keeps_torch_pinned() -> None:
     """The Darwin branch must keep a torch pin in its constraints copy.
 

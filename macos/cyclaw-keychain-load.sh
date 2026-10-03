@@ -61,18 +61,19 @@ _remember_secret_preset() {
 # Pattern matches in the file (DB_PASSWORD, *_API_KEY, ...) join the scrub
 # list before the file is sourced. Allowlist names are already on it.
 _remember_secret_presets_in_file() {
-  local file="$1" line name
+  local file="$1" line name op val
   [ -f "$file" ] || return 0
   command -v cyclaw_is_secret_name >/dev/null 2>&1 || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    name="$(cyclaw_dotenv_assignment_name "$line" 2>/dev/null)" || continue
-    [ -n "$name" ] || continue
-    cyclaw_is_secret_name "$name" || continue
-    case " ${_CYCLAW_SCRUB_NAMES} " in
-      *" ${name} "*) ;;
-      *) _CYCLAW_SCRUB_NAMES="${_CYCLAW_SCRUB_NAMES} ${name}" ;;
-    esac
-    _remember_one_secret_preset "$name"
+    while IFS=$'\x1f' read -r name op val; do
+      [ -n "$name" ] || continue
+      cyclaw_is_secret_name "$name" || continue
+      case " ${_CYCLAW_SCRUB_NAMES} " in
+        *" ${name} "*) ;;
+        *) _CYCLAW_SCRUB_NAMES="${_CYCLAW_SCRUB_NAMES} ${name}" ;;
+      esac
+      _remember_one_secret_preset "$name"
+    done < <(cyclaw_dotenv_line_assignments "$line")
   done < "$file"
 }
 
@@ -200,18 +201,19 @@ _load_one_keychain_secret() {
 }
 
 _warn_dotenv_secret_lines() {
-  local file="$1" line name
+  local file="$1" line name op val
   [ -n "$file" ] || return 0
   [ -f "$file" ] || return 0
   if ! command -v cyclaw_dotenv_assignment_name >/dev/null 2>&1; then
     return 0
   fi
   while IFS= read -r line || [ -n "$line" ]; do
-    name="$(cyclaw_dotenv_assignment_name "$line" 2>/dev/null)" || continue
-    [ -n "$name" ] || continue
-    cyclaw_is_secret_name "$name" || continue
-    echo "[cyclaw] warn : $name is in $file but launchers do not load secrets from dotenv." >&2
-    echo "[cyclaw] warn : re-run macos/setup-cyclaw-keys.sh to copy an allowlisted key into the Keychain and remove that plaintext line." >&2
+    while IFS=$'\x1f' read -r name op val; do
+      [ -n "$name" ] || continue
+      cyclaw_is_secret_name "$name" || continue
+      echo "[cyclaw] warn : $name is in $file but launchers do not load secrets from dotenv." >&2
+      echo "[cyclaw] warn : re-run macos/setup-cyclaw-keys.sh to copy an allowlisted key into the Keychain and remove that plaintext line." >&2
+    done < <(cyclaw_dotenv_line_assignments "$line")
   done < "$file"
 }
 
@@ -244,12 +246,12 @@ _load_os_secrets() {
   return 0
 }
 
-# Drop secret lines from one dotenv only when Keychain already has a
-# non-empty copy. Never prints values. Never writes a backup. A missing
-# Keychain item leaves the line in place so uninstall cannot destroy the
-# only copy; setup-cyclaw-keys.sh is what copies then deletes.
+# Drop one secret assignment only when the Keychain value read back is
+# byte-equal to the plaintext. A mismatch, a missing item, or an unreadable
+# item leaves the line. Never prints values. Never writes a backup.
+# setup-cyclaw-keys.sh is what copies a missing item, then deletes on match.
 _strip_plaintext_if_keychain() {
-  local file="$1" bin="" name service value="" rc=0 tmp old_umask
+  local file="$1" bin="" name service value="" file_value="" rc=0
   [ -n "$file" ] || return 0
   [ -f "$file" ] || return 0
   case "$-" in
@@ -263,8 +265,12 @@ _strip_plaintext_if_keychain() {
     echo "[cyclaw] WARNING: security(1) is unavailable; left plaintext lines in $file" >&2
     return 0
   fi
+  if ! command -v cyclaw_dotenv_file_value >/dev/null 2>&1; then
+    echo "[cyclaw] WARNING: env-line parser is unavailable; left $file unchanged" >&2
+    return 0
+  fi
   for name in CYCLAW_API_KEY TELEGRAM_BOT_TOKEN GROK_API_KEY ANTHROPIC_API_KEY GH_TOKEN GITHUB_TOKEN; do
-    grep -E -q "^[[:space:]]*(export[[:space:]]+)?${name}=" "$file" 2>/dev/null || continue
+    file_value="$(cyclaw_dotenv_file_value "$file" "$name")" || continue
     case "$name" in
       CYCLAW_API_KEY) service="com.cgfixit.cyclaw.api-key" ;;
       TELEGRAM_BOT_TOKEN) service="com.cgfixit.cyclaw.telegram-bot-token" ;;
@@ -282,44 +288,32 @@ _strip_plaintext_if_keychain() {
       else
         echo "[cyclaw] WARNING: left plaintext $name in $file (Keychain query failed, security exit $rc)." >&2
       fi
+      file_value=""
       continue
     fi
     if ! value="$("$bin" find-generic-password -a "$(id -un)" -s "$service" -w 2>/dev/null)"; then
       echo "[cyclaw] WARNING: left plaintext $name in $file (Keychain item exists but could not be read)." >&2
       value=""
+      file_value=""
       continue
     fi
     if [ -z "$value" ]; then
       echo "[cyclaw] WARNING: left plaintext $name in $file (Keychain item is empty)." >&2
       value=""
+      file_value=""
+      continue
+    fi
+    if [ "$value" != "$file_value" ]; then
+      echo "[cyclaw] WARNING: left plaintext $name in $file (Keychain $service value differs from the file). The line was kept. Values were not printed." >&2
+      value=""
+      file_value=""
       continue
     fi
     value=""
-    old_umask="$(umask)"
-    umask 077
-    tmp="$(mktemp "${TMPDIR:-/tmp}/cyclaw.env.XXXXXX")"
-    grep -v -E "^[[:space:]]*(export[[:space:]]+)?${name}=" "$file" > "$tmp" || true
-    if grep -E -q "^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=" "$tmp"; then
-      chmod 600 "$tmp"
-      mv "$tmp" "$file"
-      chmod 600 "$file"
-    elif grep -q '[^[:space:]]' "$tmp"; then
-      # Comments and blanks are the rest of the file. Keep them.
-      chmod 600 "$tmp"
-      mv "$tmp" "$file"
-      chmod 600 "$file"
-    else
-      if command -v cyclaw_public_env_header >/dev/null 2>&1; then
-        cyclaw_public_env_header > "$tmp"
-      else
-        printf '%s\n' "# CyClaw non-secret settings. Secrets are not stored here." > "$tmp"
-      fi
-      chmod 600 "$tmp"
-      mv "$tmp" "$file"
-      chmod 600 "$file"
+    if cyclaw_dotenv_drop_matching_assignment "$file" "$name" "$file_value"; then
+      echo "[cyclaw] removed plaintext $name from $file (Keychain $service holds the same value). No backup was written."
     fi
-    umask "$old_umask"
-    echo "[cyclaw] removed plaintext $name from $file (Keychain $service holds it). No backup was written."
+    file_value=""
   done
   return 0
 }
