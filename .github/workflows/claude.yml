@@ -54,6 +54,30 @@ jobs:
       issues: write
 
     steps:
+      # Same-repo gate, matching codex-apply-fixes.yml and pr-review.yml. An
+      # issue_comment payload carries no head repo, so the job `if:` above
+      # cannot check it; look the PR up instead. Without this, an owner
+      # @claude on an outside contributor's fork PR hands that PR's title,
+      # body and diff to an agent holding pull-requests/issues write (#1526 F8).
+      - name: Refuse fork PRs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            if (pr.state !== "open") {
+              core.setFailed("PR is not open.");
+              return;
+            }
+            const full = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+            if ((pr.head.repo?.full_name || "").toLowerCase() !== full) {
+              core.setFailed("Refusing @claude on fork PRs.");
+              return;
+            }
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
