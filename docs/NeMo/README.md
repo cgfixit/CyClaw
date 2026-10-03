@@ -1,164 +1,203 @@
-# NeMo Guardrails — current-state matrix
+# NeMo Guardrails current reference
 
-This matrix describes the implemented guardrails paths. `guardrails.enabled`
-ships `false`; enabling it adds offline checks and, when installed, NeMo
-`check()` around generation. The graph remains the routing authority.
-Engine failures pass through and are recorded as `guardrail_degraded`.
+`guardrails.enabled: true` ships in `config.yaml`. The layer adds deterministic
+checks and, when the optional dependency is installed, NeMo `check()` around
+each existing model call. The graph remains the routing authority.
 
-Read this matrix with `guardrails/broker.py`, `guardrails/integration.py`,
-`utils/guardrail_bridge.py`, and `graph.py`. The phase plans below preserve
-historical decisions; their completion labels do not establish current
-runtime coverage. The enabled-overlay CI lane exercises the installed NeMo
-runtime with a loopback mock, not a live provider.
+Missing, failed, or unsupported NeMo verdicts fall back to deterministic
+checks and record `guardrail_degraded`. A fallback refusal records both
+`guardrail_blocked` and `guardrail_degraded`. Explicit `false`, or an absent
+`guardrails` block, disables the request-path layer.
 
-## Authoritative rule
+The implementation is in `guardrails/broker.py`, `guardrails/integration.py`,
+`guardrails/rails.py`, `utils/guardrail_bridge.py`, and `graph.py`.
+[Issue #1486 Track B](https://github.com/cgfixit/CyClaw/issues/1486#issuecomment-5969523503)
+sets the rollout scope. The [verification record](../audits/2026-10-03-nemo-track-b.md)
+separates deterministic checks, real NeMo tests, local model trials, Computer
+Use, and hosted CI. Historical phase plans below use the older issue #1134
+phase numbering.
 
-Deterministic identity, capability, routing, path, network, schema, approval,
-and sandbox policy **grant or deny**. NeMo may only deny / redact / quarantine /
-require approval. It must never select an online route, expand a tool registry,
-or override a deterministic denial.
+## Configuration and authority
 
-`utils/guardrail_bridge.py` is the only request-path seam (I6).
-The core six (`gate.py` / `gate_ops.py` / `gate_auth.py` / `gate_memory.py` / `graph.py` / `mcp_hybrid_server.py`) never import `guardrails`.
+Deterministic routing, network, identity, schema, approval, and sandbox policy
+grant or deny access. Guardrails can deny a request or replace an answer.
+They cannot select an online route, expand a tool registry, or override a
+deterministic denial.
 
-Shipped default: `guardrails.enabled: false` (literal bool `True` required to
-arm). The bridge uses `is True`, and gate.py refuses to boot on any
-non-boolean value (`"true"`, `"false"`, `1`) through
-`utils.config_validation.validate_guardrails_config`: a quoted `"true"` used
-to leave every guard silently off. An unknown name in `input_rails`,
-`output_rails` or `topical_rails` is refused when the layer loads. Tests pin
-the tracked file stays false
-(`test_shipped_config_yaml_guardrails_enabled_is_literal_false`). CI may overlay `true`
-under `CYCLAW_NEMO_RUNTIME=1` (`.github/workflows/nemo-guardrails.yml`).
+The request path reaches this package through `utils/guardrail_bridge.py`.
+The core six modules never import `guardrails` directly. They are `gate.py`,
+`gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, and
+`mcp_hybrid_server.py`. The graph remains 12 nodes, with no `safe_generate`
+call on its generation path.
 
-## Path × stage × engine (today)
+The bridge activates only for literal boolean `True`. Startup rejects
+non-booleans such as `"true"`, `"false"`, and `1` through
+`utils.config_validation.validate_guardrails_config`. Unknown names in
+`input_rails`, `output_rails`, or `topical_rails` fail when the layer loads.
+The loader's absent-key default remains disabled for compatibility.
+`test_shipped_config_yaml_guardrails_enabled_is_literal_true` pins the
+tracked configuration to enabled.
 
-The former harness console rows (`:8790` `/api/chat`, `/api/web`, `/api/agent/run`) left with PR #1367 (2026-09-11); their ToolBroker call sites no longer exist.
+## Request paths
 
-| Path | Provider / model | Input | Retrieval | Output | Tool | Failure mode | Actual engine |
-|---|---|---|---|---|---|---|---|
-| `POST /query` high-score | local Qwen via Ollama (`models.local_llm`) | `guardrail_input` → offline `check_input` (injection + soul-mutation) when enabled; pass-through when disabled | untrusted chunks; provenance IDs; **no** NeMo retrieval rail | `guardrail_output` → offline `check_output` (token-overlap grounding vs `answer_sources` **and** `detect_soul_leak`) when enabled. With NeMo installed, the `check()` output rails ground against the same text | none | disabled = pass-through; live NeMo missing/error = **degrade** (`guardrail_skipped`, and `guardrail_degraded` in `audit.jsonl`), offline floor still ran | **Python offline floor** on graph nodes. When enabled+NeMo installed, `GuardrailBroker` runs NVIDIA `check()` around the **existing** `client.generate` (`_generate_or_error`). No 13th node. No `generate_async`. |
-| `POST /query` low-score offline | same local model, `offline_best_effort` | same `guardrail_input` | same | **no** `check_output` (4a is `local_llm` only). With NeMo installed, the `check()` output rails run with grounding out of scope, so soul leak is the one output check | none | same degrade | offline floor on input; with NeMo installed, `check()` around the generate as in the row above |
-| `POST /query` Grok / Claude | allowlisted `api.x.ai` / `api.anthropic.com` after I3 | gateway sanitizer, then `pre_action_hook_*`; this route bypasses `guardrail_input`. With NeMo installed, the `check()` input rails run before the provider call | local context **not** forwarded by default | **no** grounding (out of scope). With NeMo installed, the `check()` output rails run after the call, so soul leak is checked | none | I3 deny → audit; hook deny → audit; `check()` unavailable → degrade, the answer goes out unchecked and is audited as `guardrail_degraded` | NeMo `check()` around the provider call when enabled+installed; otherwise none |
-| MCP retrieval | embeddings + BM25 | sanitizer only | retrieval-only, `sampling: None` | n/a | n/a | fail closed on sanitizer | no NeMo |
-| `safe_generate` | optional `LLMRails.generate_async` | offline floor then NeMo | context-role `relevant_chunks` | token-overlap after generate | none | degrade on load/provider error | not on the `/query` graph. `python -m guardrails.cli check` calls it, and with NeMo installed its `generate_async` runs NeMo's intent generation, which calls the model. Wiring it into the graph would double-generate. **Do not.** |
-| `agentic/executor` | n/a | n/a | n/a | n/a | argv-list inside `production_sandbox()` | **Windows** Job Object (`KILL_ON_JOB_CLOSE`; sockets still work). **Darwin** `sandbox-exec` profile (deny network + off-cwd writes). **Linux** `unshare --net`. Missing binary / EPERM → `HardSandboxUnavailable` (no `ArgvListSandbox` in production). Approve is digest-bound; `prove_disposable_copy` before finalize. | no NeMo |
+With the layer enabled, the broker checks input before the existing
+`client.generate` and checks output afterward. The active NeMo flows execute
+Python actions. They add no model calls and never call `generate_async`.
+If a live check fails or lacks a supported `PASSED` or `BLOCKED` verdict,
+the broker applies the configured deterministic checks for that stage.
 
-MCP `tools/call` is **not** wrapped (I6).
+| Path | Input | Output |
+|---|---|---|
+| `POST /query`, retrieved local answer | Gateway sanitizer, offline `guardrail_input`, then broker input check | Broker checks and offline `guardrail_output` enforce soul-leak markers and token-overlap grounding against `answer_sources` |
+| `POST /query`, `offline_best_effort` | Gateway sanitizer, offline `guardrail_input`, then broker input check | Broker enforces soul-leak checks. Grounding is out of scope |
+| `POST /query`, Grok or Claude | Gateway sanitizer, external consent and provider gates, pre-action hook, then broker input check. This route bypasses the graph's `guardrail_input` node | Broker enforces soul-leak checks. Grounding is out of scope. Local context is not forwarded by default |
+| MCP retrieval | Sanitizer | Retrieval only. No generation or NeMo checks; `sampling: None` |
 
-## Brokers (do not confuse)
+The broker retains the input and soul-leak checks on every answer route when
+NeMo is absent or fails. `None` as grounding context disables only grounding.
+An empty string still means that grounding is in scope, with no evidence.
+Retrieval chunks are untrusted data, and no NeMo retrieval rail is active.
 
-| Module | Job |
+An unexpected exception escaping the generation wrapper returns a generic
+`GUARDRAIL_ERROR` and records degradation. The graph does not retry
+`client.generate`, because a failed wrapper may already have generated or
+billed an answer. All graph paths still converge on `audit_logger`.
+
+## Other entry points
+
+`safe_generate` is a separate diagnostic path used by
+`python -m guardrails.cli check`. It applies offline input checks and can
+call NeMo `generate_async` when the engine is available. That call can invoke
+the model for intent generation. It is not the gateway broker and must not
+be wired into `/query`, where it would duplicate generation.
+
+`agentic/executor` has its own platform sandbox and approval contracts. It
+has no NeMo call. The former harness console routes were removed in PR #1367.
+MCP `tools/call` remains unwrapped.
+
+| Module | Role |
 |---|---|
-| `guardrails.broker.GuardrailBroker` | NVIDIA `LLMRails.check` around existing generation. Never `generate_async`. Never grants I3. |
-| `utils.tool_broker` | Provider-neutral **name-gate**. Callers pass an allowlist. Empty/unknown deny. Audit: tool name + argv digest, never raw argv/URLs/prompts. |
-| `guardrails.tool_broker` | Re-export of `utils.tool_broker` for guardrails-side tests. Out-of-band callers must import `utils`. |
+| `guardrails.broker.GuardrailBroker` | NeMo `check()` and deterministic fallback around existing generation. Never grants external access |
+| `utils.tool_broker` | Provider-neutral tool-name allowlist. Unknown or empty names deny. Audit stores a tool name and argv digest, not raw arguments |
+| `guardrails.tool_broker` | Re-export for guardrails-side tests. Out-of-band callers import `utils.tool_broker` |
 
 `python -m guardrails.call_inventory` fails closed on unregistered
-`ChatOpenAI` / `ChatXAI` / `ChatAnthropic` / `generate_async` call sites.
+`ChatOpenAI`, `ChatXAI`, `ChatAnthropic`, or `generate_async` call sites.
 
-## Profile matrix (machine-readable)
+## Rail coverage
 
-See [`guardrails/profiles.yaml`](../../guardrails/profiles.yaml). Loader:
-`guardrails.profiles.load_profiles`. Unknown / duplicate / empty / `enforced`
-but unimplemented rail names **fail load**.
+[`guardrails/profiles.yaml`](../../guardrails/profiles.yaml) describes the
+profiles. Its loader rejects unknown, duplicate, empty, or unimplemented
+rail names that a profile claims to enforce.
 
-Implemented offline rails: `check_injection`, `check_soul_mutation`,
-`check_grounding`, `check_soul_leak` (`detect_soul_leak`, not `scan_injection`).
+The deterministic floor implements `check_injection`, `check_soul_mutation`,
+`check_grounding`, and `check_soul_leak`. The output soul-leak check uses
+`detect_soul_leak`, not the input injection scanner.
 
-Configured but **not** enforced on the offline floor (must stay public):
+The configured `check_jailbreak` name is not a separate offline classifier.
+The live Colang `check cyclaw jailbreak` flow repeats CyClaw's injection
+marker action. A differently worded persona prompt can pass. The topical
+rails `stay_in_local_knowledge` and `no_unauthed_external_advice` are not
+enforced offline and are absent from the active NeMo flow list.
 
-- `check_jailbreak` / Colang `check cyclaw jailbreak` — CyClaw bool `check_injection`; not NVIDIA 0.24 `check jailbreak`
-- topical rails `stay_in_local_knowledge`, `no_unauthed_external_advice`
+### Model-assisted rails declined
 
-## Route grounding labels
+Track B phase 4 declines NVIDIA's model-assisted `self_check_input`,
+`self_check_output`, and `self_check_facts` rails. They are inactive and add
+no calls to `/query`. The retained input and facts prompt templates in
+`guardrails/config/config.yml` are inert historical material. Activating
+model-assisted rails requires a separate policy, privacy, latency, and
+model-call review.
 
-- `local_llm`: token-overlap on `answer_sources` (graph `guardrail_output`). The NeMo `check()` output rails ground against the same text.
-- `grok` / `claude`: **no** grounding claim; destination allowlisted. The NeMo `check()` output rails run with grounding out of scope.
-- `offline_best_effort`: still **no** `check_output`. Do not silently widen. The NeMo `check()` output rails run with grounding out of scope.
-
-Retrieval chunks are untrusted `SourceProvenance`. IDs only (`source:chunk_id`) — never raw text in metrics.
-
-Qwen asset registry: `guardrails/qwen_manifest.yaml` (tag, optional sha256). Strict digest default **off**. No CI weight download.
-
-## How audit.jsonl records a guardrail refusal
-
-Every guardrail refusal on `POST /query` sets `guardrail_blocked: true`, and
-`guardrail_rails` names what refused. `model_used` says whether a model ran:
-
-- `model_used: "guardrail-blocked"`: the refusal came before any model ran,
-  so nothing was generated or sent (`online_escalated: false`). The offline
-  input rail (`guardrail_input`) and the NeMo `check()` input rails both
-  record a refusal this way.
-- `model_used` names a model (`local`, `grok`, `claude`,
-  `offline-best-effort`): that model answered and a rail replaced its answer.
-  A Grok or Claude call was made and billed, and any docs forwarded to it stay
-  in `sources`. The offline output rail (`guardrail_output`) and the NeMo
-  `check()` output rails both record a refusal this way.
-
-Offline rails appear under their configured names (`check_injection`,
-`check_grounding`, …). A NeMo `check()` refusal appears as
-`nemo_check:<flow>`, after the Colang flow in `guardrails/config/rails.co`
-(for example `nemo_check:check soul leak`).
-
-A failed generation is not a refusal. When the model call errors,
-`guardrail_output` leaves the error answer alone, so an Ollama outage shows up
-as the response's `error`, not as a grounding block.
+The active `check cyclaw facts` flow uses the same deterministic grounding
+action as `check grounding`. Its name does not mean that NVIDIA
+`self_check_facts` runs. This implementation provides neither a general
+jailbreak classifier nor claim-level fact verification.
 
 ## Grounding
 
-`guardrails/rails.py::grounding_score` is **token overlap**
-(`len(answer ∩ context) / len(answer)`). Threshold
-`hallucination_threshold` default **0.18**. Live graph grounding uses
-`answer_sources`. This is a cheap anomaly feature, not claim-level NLI.
+`guardrails/rails.py::grounding_score` computes token overlap as
+`len(answer ∩ context) / len(answer)`. `hallucination_threshold` is `0.18`.
+The local answer's `answer_sources` supply the evidence. The broker passes
+an explicit scope flag so external and best-effort answers skip grounding
+while retaining soul-leak checks.
 
-## Optional dependency
+Each live engine captures its own threshold when its actions are registered.
+The threshold also belongs to the engine cache key. Constructing another
+engine with a different threshold does not change an existing engine's floor.
+Token overlap is an anomaly heuristic, not claim-level NLI. Corpus-specific
+false-positive measurements are needed before tuning the floor.
 
-`nemoguardrails==0.24.0` in the `guardrails` extra (and `constraints.txt`).
-IORails stays refused: with `NEMO_GUARDRAILS_IORAILS_ENGINE` truthy the engine refuses to
-build, so `check()` degrades (skipped, and audited as `guardrail_degraded`). It does not
-stop the gateway from starting.
-Not in `full`. Soft-imported.
+## Audit and metrics
 
-Real engine construction is proven by `.github/workflows/nemo-guardrails.yml`
-(`CYCLAW_NEMO_RUNTIME=1`), loopback OpenAI-compatible mock, loopback socket
-jail, plus `tests/nemo_runtime/test_enabled_check.py` (overlay `enabled: true`).
+A refusal sets `guardrail_blocked: true` and names its rails in
+`guardrail_rails`. `model_used` distinguishes the stage:
 
-### Engine construction (0.24 hygiene)
+- `guardrail-blocked` means no model ran. Input blocks clear answer sources
+  and keep `online_escalated: false`.
+- `local`, `grok`, `claude`, or `offline-best-effort` means that model
+  generated an answer and a rail replaced it. A blocked external output
+  retains the call's billing metadata and any context already forwarded to the provider.
 
-- `_apply_guardrails_config` overrides **`type: main` only**.
-- `rails.output.streaming.enabled: false` and `stream_first: false`.
-- Engine keyed by `(policy_fingerprint, provider, model, endpoint)`.
-- `nemo_config_dir` contained, no `..` / symlink escape / `agentic/` roots / unexpected executables.
-- Init lock, bounded semaphore, and a circuit breaker per engine key: after 3 failed builds
-  that key waits 60 s before one more try, and a built engine is always served. Telemetry
-  kill before import.
+Offline refusals use configured names such as `check_grounding`.
+Live refusals use `nemo_check:<flow>` for recognized Colang flows, or the
+bounded fallback label `nemo_check`. Unknown engine-provided text is not
+copied into audit rail names.
 
-## Metrics
+`guardrail_degraded` records a missing or failed live check. It can coexist
+with a refusal when the deterministic fallback blocks. A normal model error
+is not itself a guardrail refusal; `guardrail_output` preserves its error.
 
-`logs/guardrails.jsonl` is a **separate** stream from `logs/audit.jsonl`.
-Events are allowlisted; nested `prompt` / `response` / `tool_arguments` /
-secret-shaped keys are dropped. Persistence failure cannot change a block
-verdict.
+`logs/guardrails.jsonl` is separate from authoritative `logs/audit.jsonl`.
+Its events are allowlisted and use query hashes. Nested prompt, response,
+tool-argument, and secret-shaped keys are dropped. Metrics persistence failure
+cannot change a block verdict. No raw retrieved text belongs in either stream.
 
-## Historical plans (superseded for status)
+Before importing NeMo, the package suppresses its SDK log propagation to
+application handlers, including payload-bearing events and exception logs.
+CyClaw's bounded diagnostics remain visible under `cyclaw.guardrails`.
+Increasing the application's third-party log level does not expose the
+NeMo event stream through the root logger.
 
-| File | Use today |
-|---|---|
-| [`later_development_guideline.md`](./later_development_guideline.md) | Decision log. Banner: superseded for status. |
-| [`phase2_implementation_plan.md`](./phase2_implementation_plan.md) | Input-rail contract. **SHIPPED.** |
-| [`phase3_implementation_plan.md`](./phase3_implementation_plan.md) | Scanner redirect. **SHIPPED** for 3A; 3C still operator decision. |
-| [`!phase4_implementation_plan.md`](./!phase4_implementation_plan.md) | Output-rail design. **4a and 4b SHIPPED** (offline). |
-| [`phase4b_soul_leak.md`](./phase4b_soul_leak.md) | **SHIPPED** offline `detect_soul_leak` + `check_output`. |
-| [`phase5_agent_run_broker.md`](./phase5_agent_run_broker.md) | **SHIPPED** (#1163). Decision log for the wrap. |
+## Optional dependency and engine construction
 
-## Isolation
+The `guardrails` extra pins `nemoguardrails==0.24.0`, also constrained in
+`constraints.txt`. The extra is not in `full`, and imports remain optional.
+See [installation and offline launch](../../setup-guide.md#install-the-optional-nemo-runtime).
 
-`tests/test_guardrails_isolation.py` + invariant-guard. Graph remains
-**12-node**. No `safe_generate` on the graph. `guardrails.enabled` stays false
-in the shipped file.
+`HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` constrain supported loaders
+after retrieval models have been cached. They are not a network firewall
+and do not cover every fastembed CDN path. The active `check()` flows need
+neither an embedding download nor an extra model call.
 
-## Try it (no NeMo package required)
+Truthy `NEMO_GUARDRAILS_IORAILS_ENGINE` refuses engine construction. The
+gateway still starts and uses deterministic fallback, with degradation
+recorded in audit. Engine construction also enforces these constraints:
+
+- `_apply_guardrails_config` overrides only `type: main`.
+- `rails.output.streaming.enabled` and `stream_first` stay false.
+- The cache key is `(policy_fingerprint, provider, model, endpoint, hallucination_threshold)`.
+- `nemo_config_dir` cannot escape through parent paths or symlinks, select
+  `agentic/` roots, or include unexpected executable files.
+- An init lock, bounded semaphore, and per-key circuit breaker bound builds.
+  Three failed builds delay the next attempt for 60 seconds. Existing engines
+  remain available. Telemetry suppression runs before NeMo imports.
+
+The Qwen asset registry in `guardrails/qwen_manifest.yaml` records tags and
+optional digests. Strict digest checking is off by default. CI does not
+download model weights.
+
+## Verification commands
+
+The real-engine lane in
+[`.github/workflows/nemo-guardrails.yml`](../../.github/workflows/nemo-guardrails.yml)
+sets `CYCLAW_NEMO_RUNTIME=1` and runs `tests/nemo_runtime`. It uses the pinned
+NeMo engine, a loopback OpenAI-compatible mock, and a socket boundary that
+rejects non-loopback traffic. Gateway acceptance covers enabled, disabled,
+and forced-degraded modes on all four answer routes, with audit convergence
+and model-call accounting. It does not call live cloud providers.
+
+These diagnostics do not require the NeMo package:
 
 ```bash
 python -m guardrails.cli status
@@ -167,3 +206,21 @@ python -m guardrails.cli test
 python -m guardrails.cli metrics
 python -m guardrails.call_inventory
 ```
+
+`tests/test_guardrails_isolation.py` and invariant-guard check import isolation.
+The [Track B record](../audits/2026-10-03-nemo-track-b.md) records the revision,
+commands, actual runtime results, and remaining limits.
+
+## Historical plans
+
+These plans preserve the older issue #1134 decisions. Their phase numbers
+are separate from issue #1486 Track B.
+
+| File | Historical subject |
+|---|---|
+| [Later development guideline](./later_development_guideline.md) | Original roadmap and decisions |
+| [Phase 2](./phase2_implementation_plan.md) | Input-rail node contract |
+| [Phase 3](./phase3_implementation_plan.md) | Shared scanners and the retired harness redirect |
+| [Phase 4](./!phase4_implementation_plan.md) | Local output grounding design |
+| [Phase 4b](./phase4b_soul_leak.md) | Soul-leak heuristic and offline output check |
+| [Phase 5](./phase5_agent_run_broker.md) | ToolBroker use in the retired harness |

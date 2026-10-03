@@ -2266,7 +2266,7 @@ class TestGenerateGuardDegradedInAudit:
         assert event["guardrail_degraded"] is True
         assert event["guardrail_blocked"] is False
 
-    def test_a_guard_that_raises_falls_back_once_and_is_audited_as_degraded(self, tmp_path):
+    def test_a_guard_that_raises_returns_error_and_is_audited_as_degraded(self, tmp_path):
         llm = MockLocalLLM()
 
         def _broken_guard(client, prompt, **kwargs):
@@ -2338,3 +2338,76 @@ def test_local_nodes_endpoint_trust(node, model, url, hosts, allowed):
         assert "error" not in out
     else:
         assert out["error"].startswith("ENDPOINT_TRUST")
+
+
+@pytest.mark.parametrize("generate_first", [False, True])
+def test_guard_exception_never_replays_generation(generate_first, caplog):
+    from graph import _generate_or_error
+
+    calls = []
+
+    class Client:
+        def generate(self, prompt, **kwargs):
+            calls.append(prompt)
+            return "PRIVATE_ANSWER_SECRET"
+
+    def guard(client, prompt, **kwargs):
+        if generate_first:
+            client.generate(prompt)
+        raise RuntimeError("PRIVATE_EXCEPTION_SECRET")
+
+    answer, error, block = _generate_or_error(
+        Client(), "PRIVATE_PROMPT_SECRET", label="Grok", generate_guard=guard,
+    )
+    assert len(calls) == int(generate_first)
+    assert error == "GUARDRAIL_ERROR: guard execution failed"
+    assert block == {"stage": "degraded", "rails": []}
+    assert "PRIVATE_" not in answer + error + caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
+@pytest.mark.parametrize("stage,sent_sources,expected_sources", [
+    ("input", True, []), ("input", False, []),
+    ("output", True, ["forwarded"]), ("output", False, []),
+])
+def test_guard_block_and_degradation_are_independent(stage, sent_sources, expected_sources):
+    from graph import _record_guard_block
+
+    out = {"answer_model": "grok", "answer_sources": ["forwarded"]}
+    _record_guard_block(out, {"stage": stage, "rails": ["check_soul_leak"], "degraded": True},
+                        sent_sources=sent_sources)
+    assert out["guardrail_blocked"] is True
+    assert out["guardrail_degraded"] is True
+    assert out["answer_sources"] == expected_sources
+    assert out["answer_model"] == ("guardrail-blocked" if stage == "input" else "grok")
+
+
+@pytest.mark.parametrize("stage,expected_calls", [("input", 0), ("output", 1)])
+def test_offline_guard_failure_returns_safe_error_without_replay(monkeypatch, stage, expected_calls):
+    from graph import _generate_or_error
+    from guardrails.broker import guarded_generate
+    from guardrails.config import GuardrailsConfig
+    from guardrails.metrics import GuardrailMetrics
+
+    calls = []
+
+    class Client:
+        def generate(self, prompt, **kwargs):
+            calls.append(prompt)
+            return "safe answer"
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("PRIVATE_FALLBACK_SECRET")
+
+    monkeypatch.setattr("guardrails.broker.get_cyclaw_guardrails", lambda cfg: None)
+    monkeypatch.setattr(f"guardrails.broker.check_{stage}", fail)
+
+    def guard(client, prompt, **kwargs):
+        return guarded_generate(client, prompt, **kwargs, cfg=GuardrailsConfig(enabled=True),
+                                metrics=GuardrailMetrics("unused.jsonl", persist=False))
+
+    answer, error, block = _generate_or_error(Client(), "hello", label="Grok", generate_guard=guard)
+    assert len(calls) == expected_calls
+    assert error == "GUARDRAIL_ERROR: guard execution failed"
+    assert "PRIVATE_" not in answer
+    assert block == {"stage": "degraded", "rails": []}

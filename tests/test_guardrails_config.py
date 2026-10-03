@@ -147,22 +147,21 @@ def test_repo_config_yaml_block_is_valid():
     # The guardrails: block shipped in the repo config.yaml must load cleanly.
     reset_config_cache()
     gc = load_guardrails_config("config.yaml")
-    assert gc.enabled is False  # ships disabled by default
+    assert gc.enabled is True  # shipped configuration enables the offline floor and live checks
     assert gc.nemo_config_present is True
     reset_config_cache()
 
 
-def test_shipped_config_yaml_guardrails_enabled_is_literal_false():
-    """Tracked config.yaml must keep guardrails.enabled as a YAML boolean false.
+def test_shipped_config_yaml_guardrails_enabled_is_literal_true():
+    """Tracked config.yaml enables guardrails with a literal YAML boolean.
 
-    Parse the file directly (not only via load_guardrails_config) so a quoted
-    ``"false"`` or accidental ``true`` cannot hide behind the loader defaults.
-    Do not flip the shipped default in this PR.
+    Parse the file directly (not only via load_guardrails_config) so quoted
+    values cannot hide behind the loader defaults.
     """
     path = Path(__file__).resolve().parent.parent / "config.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     enabled = (data or {}).get("guardrails", {}).get("enabled")
-    assert enabled is False
+    assert enabled is True
     assert type(enabled) is bool
 
 

@@ -14,8 +14,7 @@ import logging
 from typing import Any
 
 from guardrails.config import GuardrailsConfig
-from guardrails.errors import GuardrailsDependencyError, RailsLoadError
-from guardrails.integration import get_cyclaw_guardrails
+from guardrails.integration import check_input, check_output, get_cyclaw_guardrails
 from guardrails.metrics import GuardrailMetrics
 from guardrails.rails import GROUNDING_SCOPE_KEY
 from utils.errors import RAGError
@@ -23,126 +22,118 @@ from utils.errors import RAGError
 logger = logging.getLogger("cyclaw.guardrails.broker")
 
 
-def _status_blocked(result: object) -> bool:
+_KNOWN_FLOWS = frozenset({
+    "check soul mutation", "check injection", "check cyclaw jailbreak",
+    "handle identity question", "block prompt extraction", "check grounding",
+    "check soul leak", "check cyclaw facts", "stay in local knowledge",
+    "no unauthed external advice",
+})
+
+
+def _status_name(result: object) -> str | None:
     status = getattr(result, "status", None)
-    return "BLOCKED" in str(getattr(status, "name", status)).upper()
+    name = getattr(status, "name", status)
+    return name.upper() if isinstance(name, str) else None
+
+
+def _status_blocked(result: object) -> bool:
+    return _status_name(result) == "BLOCKED"
 
 
 def _blocking_rail(result: object) -> str:
-    """Audit name for the rail that blocked: ``nemo_check:<flow>``.
-
-    NeMo 0.24's ``RailsResult.rail`` names the Colang flow that stopped the
-    content; plain ``nemo_check`` when it names none.
-    """
     rail = getattr(result, "rail", None)
-    return f"nemo_check:{rail}" if isinstance(rail, str) and rail else "nemo_check"
+    return f"nemo_check:{rail}" if isinstance(rail, str) and rail in _KNOWN_FLOWS else "nemo_check"
 
 
 def _live_check(rails: object, messages: list[dict[str, Any]], *, input_only: bool = False) -> object | None:
-    """Call NVIDIA ``check(messages=...)``. None on degrade."""
+    """Invoke the pinned NeMo check signature once; a failure may have side effects."""
     check = getattr(rails, "check", None)
-    if check is None:
+    if not callable(check):
         return None
     kwargs: dict[str, object] = {"messages": messages}
     if input_only:
-        try:
-            from nemoguardrails.rails.llm.options import RailType
-        except ImportError:
-            RailType = None  # type: ignore[misc, assignment]
-        if RailType is not None:
-            kwargs["rail_types"] = [RailType.INPUT]
-    try:
-        return check(**kwargs)
-    except TypeError:
-        return check(messages)
+        from nemoguardrails.rails.llm.options import RailType
+
+        kwargs["rail_types"] = [RailType.INPUT]
+    return check(**kwargs)
 
 
 class GuardrailBroker:
-    """Maps NVIDIA ``RailsResult`` to a block/allow decision. Never grants a route."""
+    """Own live checks and deterministic fallback around one generation."""
 
     def __init__(self, cfg: GuardrailsConfig, metrics: GuardrailMetrics) -> None:
         self.cfg = cfg
         self.metrics = metrics
         self._rails: object | None = None
-        # Set when a check blocks; guarded_generate reads it after a True.
+        self._engine_attempted = False
         self.blocked_rail: str | None = None
-        # Set when a check could not run (no engine, or check() raised), so
-        # the answer went out unchecked; guarded_generate reports it.
+        self.blocked_rails: list[str] = []
         self.degraded = False
 
+    def _mark_degraded(self, reason: str, *, query: str = "") -> None:
+        logger.warning("NeMo check degraded (%s)", reason)
+        self.metrics.record_skipped(reason=reason, query=query)
+        self.degraded = True
+
     def _engine(self) -> object | None:
-        if self._rails is not None:
+        if self._rails is not None or self._engine_attempted:
             return self._rails
+        self._engine_attempted = True
         try:
             self._rails = get_cyclaw_guardrails(self.cfg)
-        except Exception as exc:  # noqa: BLE001 - any engine failure degrades; none may escape
-            # Not only the two expected errors: anything that escaped here
-            # (an unreadable file while fingerprinting the config dir, say)
-            # left guarded_generate, and graph._generate_or_error then called
-            # the model again with no check at all -- a second, billed call
-            # to Grok or Claude when it came from the output check.
-            expected = isinstance(exc, (GuardrailsDependencyError, RailsLoadError))
-            logger.warning("NeMo check engine unavailable (%s); degrade", type(exc).__name__, exc_info=not expected)
-            self.metrics.record_skipped(reason=type(exc).__name__)
-            self.degraded = True
-            return None
+        except Exception:
+            self._mark_degraded("engine_error")
         return self._rails
 
     def check_user(self, query: str) -> bool:
-        """True when live input rails BLOCK. False = allow or degrade."""
-        rails = self._engine()
-        if rails is None:
-            return False
+        """Run the offline input floor whenever the live verdict is unavailable."""
         try:
+            rails = self._engine()
             result = _live_check(rails, [{"role": "user", "content": query}], input_only=True)
+            if _status_name(result) not in {"PASSED", "BLOCKED"}:
+                self._mark_degraded("check_input_unavailable", query=query)
+            elif _status_blocked(result):
+                self.blocked_rail = _blocking_rail(result)
+                self.blocked_rails = [self.blocked_rail]
+                self.metrics.record_blocked(stage="input", rail=self.blocked_rail, reason="blocked", query=query)
+                return True
+            else:
+                return False
         except Exception:
-            logger.warning("NeMo check() input failed; degrade", exc_info=True)
-            self.metrics.record_skipped(reason="check_input_error", query=query)
-            self.degraded = True
-            return False
-        if result is not None and _status_blocked(result):
-            self.blocked_rail = _blocking_rail(result)
-            self.metrics.record_blocked(stage="input", rail=self.blocked_rail, reason="blocked", query=query)
-            return True
-        return False
+            self._mark_degraded("check_input_error", query=query)
+        fallback = check_input(query, cfg=self.cfg, metrics=self.metrics)
+        self.blocked_rails = fallback["rails"]
+        self.blocked_rail = next(iter(self.blocked_rails), None)
+        return fallback["blocked"]
 
     def check_assistant(self, query: str, answer: str, *, grounding_context: str | None) -> bool:
-        """True when live output rails BLOCK. False = allow or degrade.
-
-        ``grounding_context`` is the retrieved text the model was given, and
-        the grounding rail judges the answer against it. None means the answer
-        is not held to the vault (a Grok, Claude or offline best-effort
-        answer), so grounding stands down and the other output rails still run.
-        """
-        rails = self._engine()
-        if rails is None:
-            return False
-        # A context-role message is the only way to set NeMo's relevant_chunks
-        # (see integration.safe_generate). Without it the grounding rail
-        # scored every answer against nothing and blocked it.
+        """Fallback keeps soul-leak protection; None excludes only grounding."""
         if grounding_context is None:
             context: dict[str, object] = {GROUNDING_SCOPE_KEY: False}
         else:
             context = {"relevant_chunks": grounding_context, GROUNDING_SCOPE_KEY: True}
         try:
-            result = _live_check(
-                rails,
-                [
-                    {"role": "context", "content": context},
-                    {"role": "user", "content": query},
-                    {"role": "assistant", "content": answer},
-                ],
-            )
+            rails = self._engine()
+            result = _live_check(rails, [
+                {"role": "context", "content": context},
+                {"role": "user", "content": query},
+                {"role": "assistant", "content": answer},
+            ])
+            if _status_name(result) not in {"PASSED", "BLOCKED"}:
+                self._mark_degraded("check_output_unavailable", query=query)
+            elif _status_blocked(result):
+                self.blocked_rail = _blocking_rail(result)
+                self.blocked_rails = [self.blocked_rail]
+                self.metrics.record_blocked(stage="output", rail=self.blocked_rail, reason="blocked", query=query)
+                return True
+            else:
+                return False
         except Exception:
-            logger.warning("NeMo check() output failed; degrade", exc_info=True)
-            self.metrics.record_skipped(reason="check_output_error", query=query)
-            self.degraded = True
-            return False
-        if result is not None and _status_blocked(result):
-            self.blocked_rail = _blocking_rail(result)
-            self.metrics.record_blocked(stage="output", rail=self.blocked_rail, reason="blocked", query=query)
-            return True
-        return False
+            self._mark_degraded("check_output_error", query=query)
+        fallback = check_output(answer, grounding_context, query=query, cfg=self.cfg, metrics=self.metrics)
+        self.blocked_rails = fallback["rails"]
+        self.blocked_rail = next(iter(self.blocked_rails), None)
+        return fallback["blocked"]
 
 
 def guarded_generate(
@@ -164,14 +155,18 @@ def guarded_generate(
     input refusal means the model never ran, an output refusal replaced its
     answer. When a check could not run (no engine, or ``check()`` raised) and
     none refused, ``block`` is ``{"stage": "degraded", "rails": []}``: the
-    answer went out unchecked. The graph records all three, so the audit
-    shows what actually ran. ``grounding_context`` is passed to
+    answer passed the deterministic fallback checks. A refusal also includes
+    ``degraded=True`` when a live check was unavailable. The graph records
+    both facts. ``grounding_context`` is passed to
     :meth:`GuardrailBroker.check_assistant`.
     """
     broker = GuardrailBroker(cfg, metrics)
     degraded: dict[str, Any] = {"stage": "degraded", "rails": []}
     if broker.check_user(query or prompt):
-        return cfg.block_message, None, {"stage": "input", "rails": [broker.blocked_rail or "nemo_check"]}
+        return cfg.block_message, None, {
+            "stage": "input", "rails": broker.blocked_rails,
+            **({"degraded": True} if broker.degraded else {}),
+        }
     try:
         if spend_context is None:
             answer = client.generate(prompt)
@@ -180,5 +175,8 @@ def guarded_generate(
     except RAGError as exc:
         return f"[{label} Error: {exc.message}]", f"{exc.code}: {exc.message}", degraded if broker.degraded else None
     if broker.check_assistant(query or prompt, answer, grounding_context=grounding_context):
-        return cfg.block_message, None, {"stage": "output", "rails": [broker.blocked_rail or "nemo_check"]}
+        return cfg.block_message, None, {
+            "stage": "output", "rails": broker.blocked_rails,
+            **({"degraded": True} if broker.degraded else {}),
+        }
     return answer, None, degraded if broker.degraded else None

@@ -1,5 +1,10 @@
 # Remaining work
 
+> Historical snapshot, 2026-09-02. The statuses below are not a current checklist.
+> Guardrails now ships enabled with deterministic fallback when NeMo is unavailable.
+> Read [the NeMo reference](../NeMo/README.md), current `config.yaml`, and live
+> GitHub issues before using this snapshot to plan work.
+
 Live checklist as of **2026-09-02**, verified against `origin/main` `8baea94f`.
 
 Code and `config.yaml` win. Re-list GitHub issues before acting.

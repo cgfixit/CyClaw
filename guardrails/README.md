@@ -1,12 +1,13 @@
-# `guardrails/` — opt-in content-safety layer
+# `guardrails/` content-safety layer
 
 Defense-in-depth rails on top of LangGraph. The graph stays the **only**
 routing authority (topology = policy). This package adds input checks and
 output grounding; it does not decide vault-hit vs fallback.
 
-Ships **off**: `guardrails.enabled: false` in `config.yaml`. When the flag is
-the boolean `false`, both graph nodes are pass-through and this package is
-never imported. Any non-boolean value (`"true"`, `"false"`, `1`) stops boot
+Ships enabled through `guardrails.enabled: true` in `config.yaml`. The NeMo
+dependency remains optional. Explicit boolean `false`, or an absent block,
+leaves both graph nodes as pass-through and prevents the bridge from importing
+this package. Any non-boolean value (`"true"`, `"false"`, `1`) stops boot
 with a `ConfigError`, and an unknown rail name in `input_rails`,
 `output_rails` or `topical_rails` is refused when the layer loads.
 
@@ -26,7 +27,15 @@ The output grounding check applies to the **`local_llm` answer path only**,
 in both the offline rail and the NeMo `check()` output rails
 (`build_generate_guard`). The other answers are not held to the vault.
 
-`nemoguardrails` is a **soft** import. Offline heuristic rails run without it.
+`nemoguardrails` is a soft import. Missing or failed live checks use the
+broker's deterministic input and soul-leak checks on all four answer routes.
+Grounding remains local-only. `None` context skips grounding, while an empty
+string means that grounding is in scope but no evidence was supplied.
+
+A degraded check records `guardrail_degraded`. If its fallback refuses, audit
+also records `guardrail_blocked`. An unexpected generation-wrapper exception
+returns a generic error without retrying the model call. Raw NeMo SDK logs
+are suppressed before import; CyClaw's bounded diagnostics remain visible.
 
 ## CLI
 
@@ -61,21 +70,26 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 
 | Phase | Status |
 |---|---|
-| Skeleton + CLI | Shipped |
+| Configuration + CLI | Shipped |
 | Input rail via bridge | Shipped |
 | Shared offline scanner helpers | Shipped |
 | Output grounding (`local_llm` only) | Shipped |
-| Soul-leak output rail | **Shipped** — `detect_soul_leak` on `check_output` (#1155). Not `scan_injection`. Graph still skips non-`local_llm`. |
-| `check()` wrap around existing generate | **Shipped** when enabled+NeMo installed (`GuardrailBroker`): input rails before the model call, output rails after. Output grounding judges the answer against the chunks the model saw, for the `local_llm` answer only. Until 2026-09-26 the output check was sent no context and blocked every answer. Disabled path stays pass-through. |
+| Soul-leak output rail | `detect_soul_leak` on all four answer routes through live NeMo or deterministic broker fallback. The graph output node remains local-only |
+| `check()` wrap around existing generate | Enabled by default. With NeMo installed, the broker checks input before generation and output afterward. Missing or failed verdicts use deterministic checks. Grounding uses the chunks seen by `local_llm` only. Explicitly disabled configurations stay pass-through |
 | ToolBroker name-gate | **Shipped** in `utils.tool_broker` (fail-closed allowlist + argv-digest audit). **No production caller as of PR #1367** — the harness console that gated `web_fetch`/`web_search`/`harness_loop`/`agent_run` was removed; only tests exercise it today. Kept as the canonical gate a future tool caller adopts. |
 | Generate-call inventory | **Shipped** — fail-closed AST (`python -m guardrails.call_inventory`). |
 | `check_jailbreak` input rail | **Not enforced as a rail of its own** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. With NeMo installed, the Colang flow `check cyclaw jailbreak` runs the same injection-marker action as `check_injection`, and no LLM-backed rail (`self_check_input`) is active. So no layer has a jailbreak classifier: a persona prompt is caught only when it matches those markers (`you are now …`, `from now on you are …`), and one worded differently passes. |
 | Topical rails (`stay_in_local_knowledge`, `no_unauthed_external_advice`) | **Not enforced offline** — configured but not referenced in `integration.py`. |
 
-When `nemoguardrails` is absent (shipped posture: soft import, `enabled: false`)
-the offline floor, once armed, enforces `check_injection`, `check_soul_mutation`,
-`check_grounding`, and `check_soul_leak`. `check_jailbreak` and the topical rails
-still skip. Do not read a rail's presence in config as evidence it runs.
+When `nemoguardrails` is absent, the enabled floor enforces `check_injection`,
+`check_soul_mutation`, `check_grounding`, and `check_soul_leak` within their
+route scopes. `check_jailbreak` and the topical rails still skip. A configured
+name alone is not evidence that a rail runs.
 
-Issue #1134 is closed; residuals (NLI, sockets on Job Object, live
-Seatbelt/netns, enabling shipped `enabled`) are follow-ups.
+Issue #1486 Track B declines model-assisted `self_check_input`,
+`self_check_output`, and `self_check_facts`. No such flow is active. The retained
+prompt templates are inert. Active `/query` flows add no model calls.
+
+See the [Track B verification record](../docs/audits/2026-10-03-nemo-track-b.md)
+for phase acceptance and remaining limits. The older #1134 history includes
+separate follow-ups for NLI and platform sandbox acceptance.

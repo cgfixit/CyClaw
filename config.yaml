@@ -845,20 +845,21 @@ netconnect:
   command_timeout_sec: 5         # (0, 30]
   max_neighbors: 512             # 1..4096
 
-# === NeMo Guardrails (out-of-band content-safety layer) [default off] ===
-# Opt-in defense in depth; graph edges stay the sole source of routing. Reached
+# === NeMo Guardrails (out-of-band content-safety layer) [default on] ===
+# Defense in depth; graph edges stay the sole source of routing. Reached
 # only through utils/guardrail_bridge.py; gate.py, graph.py and mcp_hybrid_server.py
 # never import this package. CLI: `python -m guardrails.cli`. nemoguardrails is
 # optional: without it the offline heuristic rails run, and a skipped check() is
 # audited as guardrail_degraded. See docs/NeMo/README.md.
 guardrails:
-  enabled: false                 # false = pure pass-through on /query. true arms:
+  enabled: true                 # false = pure pass-through on /query. true arms:
                                   # - guardrail_input: injection markers + soul-mutation
                                   #   regex, no LLM, before local_llm and offline_best_effort;
                                   # - guardrail_output: grounding + soul leak, local_llm answer only;
-                                  # - with nemoguardrails installed, NeMo check() around every
-                                  #   /query model call incl. Grok and Claude. Its flows
-                                  #   (guardrails/config/config.yml) run the same Python checks.
+                                  # - NeMo check() around every /query model call, including
+                                  #   Grok and Claude. Missing/failed checks use the offline
+                                  #   input and soul-leak floor; grounding stays local_llm-only.
+                                  #   Active flows use Python checks, never extra LLM calls.
   engine: "openai"               # Ollama exposes an OpenAI-compatible API
   base_url: "http://127.0.0.1:11434/v1"  # DevSkim: ignore DS162092,DS137138 - loopback Ollama, offline-only
   model: "qwen3.8:27b-mlx"           # keep in sync with models.local_llm.model
@@ -875,9 +876,9 @@ guardrails:
     - check_soul_mutation
   output_rails:                  # offline rails guardrail_output runs (NeMo flows: config.yml)
     - check_grounding
-    - check_soul_leak           # offline floor (detect_soul_leak) on local_llm answers only;
-                                # with NeMo installed, the "check soul leak" flow also covers
-                                # the external and offline_best_effort answers.
+    - check_soul_leak           # detect_soul_leak covers every answer route, through live
+                                # NeMo or the broker's deterministic fallback. The graph's
+                                # guardrail_output node remains local_llm-only.
   topical_rails:                 # display-only (CLI status); nothing enforces them
     - stay_in_local_knowledge
     - no_unauthed_external_advice

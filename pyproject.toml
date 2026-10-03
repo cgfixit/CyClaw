@@ -57,9 +57,11 @@ dependencies = [
 # include fastembed, onnxruntime, and pandas. fastembed's documented default
 # behavior is to fetch ONNX embedding models from a remote CDN on first use —
 # real friction against CyClaw's offline-first, no-egress posture even though
-# this extra is opt-in and guardrails.enabled stays false by default.
-# Installing it is a deliberate choice; nothing here constrains fastembed to
-# a local-only embedder yet.
+# the dependency extra remains optional. guardrails.enabled ships true;
+# installs without this extra use deterministic checks and audit degradation.
+# Active check() flows use Python actions, not embeddings or extra LLM calls.
+# Offline launch flags and the runtime socket-jail checks are documented in
+# docs/NeMo/README.md; the flags are not a general network firewall.
 guardrails = [
     "nemoguardrails==0.24.0",
 ]

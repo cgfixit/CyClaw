@@ -31,7 +31,7 @@ env:
 
 jobs:
   nemo-runtime:
-    name: nemoguardrails 0.24 construct + actions
+    name: nemoguardrails 0.24 actions + gateway HTTP acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -93,7 +93,7 @@ jobs:
           pip check
           python -c "import nemoguardrails; assert nemoguardrails.__version__ == '0.24.0', nemoguardrails.__version__"
 
-      - name: Runtime tests against loopback mock (no unexpected DNS)
+      - name: Real NeMo runtime and in-process gateway HTTP acceptance (loopback only)
         run: |
           python -m pytest tests/nemo_runtime -q --tb=short
 

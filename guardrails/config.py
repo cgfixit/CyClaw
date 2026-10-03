@@ -8,7 +8,7 @@ server.
 
 Hardened defaults (conservative, matching CyClaw's offline-first posture):
 
-  - enabled:       False     the whole layer is opt-in; absent key => disabled
+  - enabled:       False     absent key => disabled; shipped config.yaml sets True
   - engine:        "openai"  Ollama exposes an OpenAI-compatible endpoint
   - base_url:      loopback Ollama endpoint   intentional (offline-first)
   - metrics_path:  logs/guardrails.jsonl   SEPARATE from logs/audit.jsonl
@@ -144,7 +144,7 @@ class GuardrailsConfig:
 
     def _validate_enabled(self) -> None:
         # YAML can load enabled: "false" as a string; truthy strings would turn
-        # the opt-in layer ON. Same fail-closed pattern as sqlconnect/sync bools.
+        # the layer ON. Same fail-closed pattern as sqlconnect/sync bools.
         if not isinstance(self.enabled, bool):
             raise GuardrailsConfigError(
                 f"guardrails.enabled must be a boolean true/false, got: {self.enabled!r}",
@@ -271,9 +271,9 @@ def load_guardrails_config(config_path: str = "config.yaml") -> GuardrailsConfig
     """Read config.yaml's ``guardrails:`` block and return a validated config.
 
     Absence of the block is NOT an error -- it returns a disabled default config
-    (the layer is conservatively opt-in, and absence must mean "off", never a
-    crash that could ripple into anything that imports this loader). A present
-    block that is malformed *does* raise :class:`GuardrailsConfigError`.
+    for compatibility with configurations that omit the layer. The shipped
+    config.yaml explicitly enables it. A malformed present block raises
+    :class:`GuardrailsConfigError`.
     Unknown keys are collected on a non-fatal ``_unknown_keys`` attribute for
     typo visibility.
     """
@@ -281,7 +281,7 @@ def load_guardrails_config(config_path: str = "config.yaml") -> GuardrailsConfig
 
     block = cfg.get("guardrails")
     if block is None:
-        # Absent -> disabled defaults. Opt-in by construction.
+        # An absent block preserves the disabled compatibility default.
         gc = GuardrailsConfig(enabled=False)
         gc._unknown_keys = []  # type: ignore[attr-defined]
         return gc

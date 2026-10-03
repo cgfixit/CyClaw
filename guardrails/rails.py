@@ -34,7 +34,7 @@ try:  # pragma: no cover - exercised only when the optional dep is installed
     from nemoguardrails.actions import action as _nemo_action
 
     NEMO_AVAILABLE = True
-except ImportError:  # pragma: no cover - default offline path
+except ImportError:  # pragma: no cover - optional dependency absent
     NEMO_AVAILABLE = False
 
     def _nemo_action(*_args: object, **_kwargs: object):  # type: ignore[no-redef]
@@ -308,29 +308,34 @@ async def _action_get_grounding_score(context: dict | None = None) -> float:
 # Absent means grounding applies, which keeps safe_generate's behavior.
 GROUNDING_SCOPE_KEY = "cyclaw_check_grounding"
 
-# Floor used by :func:`_action_is_ungrounded`. Set at engine build via
-# :func:`register_actions` so live Colang matches config.yaml's
-# guardrails.hallucination_threshold (default 0.18 matches GuardrailsConfig).
+# Default for standalone action calls. Each engine captures its own floor at
+# registration so cached engines cannot change one another's policy.
 _active_hallucination_threshold: float = 0.18
 
 
-def set_hallucination_threshold(threshold: float) -> None:
-    """Update the live-rail grounding floor (call from engine build / tests)."""
-    global _active_hallucination_threshold
+def _validated_hallucination_threshold(threshold: float) -> float:
     if not isinstance(threshold, (int, float)) or not (0.0 <= float(threshold) <= 1.0):
         raise ValueError(
             f"hallucination_threshold must be a float in [0.0, 1.0], got: {threshold!r}"
         )
-    _active_hallucination_threshold = float(threshold)
+    return float(threshold)
+
+
+def set_hallucination_threshold(threshold: float) -> None:
+    """Update the standalone action default without changing registered engines."""
+    global _active_hallucination_threshold
+    _active_hallucination_threshold = _validated_hallucination_threshold(threshold)
 
 
 def get_hallucination_threshold() -> float:
-    """Return the threshold currently applied by :func:`_action_is_ungrounded`."""
+    """Return the default for standalone :func:`_action_is_ungrounded` calls."""
     return _active_hallucination_threshold
 
 
 @_nemo_action(name="is_ungrounded")
-async def _action_is_ungrounded(context: dict | None = None) -> bool:
+async def _action_is_ungrounded(
+    context: dict | None = None, *, hallucination_threshold: float | None = None,
+) -> bool:
     """NeMo action: True when the bot answer is below the configured floor.
 
     Used by the ``check grounding`` Colang flow so the refuse decision shares
@@ -344,7 +349,7 @@ async def _action_is_ungrounded(context: dict | None = None) -> bool:
     return is_possible_hallucination(
         ctx.get("bot_message", ""),
         ctx.get("relevant_chunks", ""),
-        _active_hallucination_threshold,
+        _active_hallucination_threshold if hallucination_threshold is None else hallucination_threshold,
     )
 
 
@@ -355,23 +360,29 @@ def register_actions(
 ) -> int:
     """Register the soul/personality actions on a live ``LLMRails`` instance.
 
-    When ``hallucination_threshold`` is provided it becomes the floor for the
-    live ``is_ungrounded`` action (wired from ``config.yaml`` at engine build).
+    Each engine captures its own ``hallucination_threshold`` for the live
+    ``is_ungrounded`` action. Omitting it captures the standalone action default.
 
     Returns the number of actions registered. A no-op returning 0 when
     ``nemoguardrails`` is not installed (the decorators above are already shims),
     so callers can invoke it unconditionally.
     """
-    if hallucination_threshold is not None:
-        set_hallucination_threshold(hallucination_threshold)
+    threshold = _validated_hallucination_threshold(
+        get_hallucination_threshold() if hallucination_threshold is None else hallucination_threshold
+    )
     if not NEMO_AVAILABLE:
         return 0
     register = getattr(rails, "register_action", None)
     if register is None:  # pragma: no cover - defensive
         return 0
+
+    @_nemo_action(name="is_ungrounded")
+    async def engine_is_ungrounded(context: dict | None = None) -> bool:
+        return await _action_is_ungrounded(context, hallucination_threshold=threshold)
+
     register(_action_check_soul_mutation, name="check_soul_mutation")
     register(_action_check_injection, name="check_injection")
     register(_action_check_soul_leak, name="check_soul_leak")
     register(_action_get_grounding_score, name="get_grounding_score")
-    register(_action_is_ungrounded, name="is_ungrounded")
+    register(engine_is_ungrounded, name="is_ungrounded")
     return 5

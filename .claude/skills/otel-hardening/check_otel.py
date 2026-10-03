@@ -294,7 +294,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "nemoguardrails usage stats", "category": 1,
         "controls": {"NEMO_GUARDRAILS_NO_USAGE_STATS": "1", "DO_NOT_TRACK": "1"},
         "url": "https://github.com/NVIDIA-NeMo/Guardrails",
-        "versions": "==0.24.0 (guardrails extra; off by default)",
+        "versions": "==0.24.0 (optional guardrails extra; layer enabled by default)",
         "enforcement": "env before import (guardrails/__init__.py and guardrails/integration.py both apply "
                        "ahead of the soft nemoguardrails import)",
         "scope": "optional guardrails engine", "reviewed": "2026-08-27",
@@ -531,7 +531,8 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "https://github.com/qdrant/fastembed",
         "versions": "transitive of nemoguardrails (guardrails extra) -- UNBOUNDED, see T13 warning",
         "enforcement": "no telemetry mechanism found; its documented first-use remote-CDN model fetch is "
-                       "functional egress under the guardrails opt-in, not telemetry. Do not invent a control",
+                       "functional egress under the optional guardrails dependency, not telemetry. "
+                       "Do not invent a control",
         "scope": "live NeMo only", "reviewed": "2026-08-27",
         "evidence": "negative finding; ONNX sessions it builds are covered by the onnxruntime row",
     },

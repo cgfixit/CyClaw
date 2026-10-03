@@ -1,16 +1,16 @@
 # =============================================================================
-# CyClaw NeMo Guardrails -- RailsConfig  [v0.1 skeleton]
+# CyClaw NeMo Guardrails -- active RailsConfig
 # =============================================================================
 # Loaded by guardrails/integration.py via RailsConfig.from_path("guardrails/config").
 # Points at the LOCAL Ollama OpenAI-compatible endpoint -- no cloud dependency,
-# consistent with CyClaw's offline-first posture. config.yaml's guardrails: block is
-# authoritative for the MODEL CONNECTION ONLY: guardrails/integration.py overrides
-# engine/model/base_url from GuardrailsConfig at engine-build time, so edit those
-# THERE. Rail BEHAVIOUR -- the active flows, thresholds, and prompt templates --
-# is defined by THIS file (and rails.co). config.yaml's input_rails / output_rails
-# lists select which offline rails the graph's guardrail_input and
-# guardrail_output nodes run (and what CLI status shows). Its topical_rails list
-# is display-only: no offline rail implements it, and rails.co's two topical
+# consistent with CyClaw's offline-first posture. config.yaml's guardrails: block
+# supplies the model connection. guardrails/integration.py overrides
+# engine/model/base_url from GuardrailsConfig at engine-build time.
+# This file and rails.co define the active flows and prompt templates.
+# config.yaml also supplies hallucination_threshold, captured per engine at
+# action registration. Its input_rails / output_rails lists select the offline
+# graph rails and broker fallback checks (and what CLI status shows).
+# Its topical_rails list is display-only: no offline rail implements it, and rails.co's two topical
 # flows are not in the active set below. The live Colang flows below are the
 # engine's active set, whatever those lists say. Every
 # active flow executes a Python action from guardrails/rails.py; none of them
@@ -19,8 +19,7 @@
 # is_ungrounded action (register_actions at engine build) — same floor as
 # offline safe_generate.
 #
-# NOTE: This is a starting template. The flows referenced below are defined in
-# rails.co.
+# The flows referenced below are defined in rails.co.
 # =============================================================================
 
 models:
@@ -98,9 +97,10 @@ rails:
 # Deprecated global switch (NVIDIA: prefer rails.output.streaming). Keep False.
 streaming: False
 
-# Self-check prompts for NeMo's model-assisted rails. No flow in rails: above
-# uses them today, so they stay inert until a self check flow is added there.
-# They are deliberately conservative; refine alongside the corpus.
+# DECLINED in issue #1486 Track B: model-assisted self_check_input,
+# self_check_output, and self_check_facts. No active flow uses those rails.
+# The retained input/facts prompt templates are inert historical material;
+# do not activate them without a separate policy and model-call review.
 prompts:
   - task: self_check_input
     content: |

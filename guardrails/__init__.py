@@ -1,10 +1,12 @@
-"""CyClaw NeMo Guardrails layer -- opt-in, soul-aware, defense-in-depth.
+"""CyClaw NeMo Guardrails layer with optional NeMo and deterministic checks.
 
 A content-safety layer that complements (never replaces) the LangGraph
 topology. The graph keeps owning routing/policy; these rails add input
 sanitization and output grounding on the local-LLM path, and (with
 ``nemoguardrails`` installed) NeMo ``check()`` around every answer node's
-model call, the Grok and Claude calls included.
+model call, the Grok and Claude calls included. Missing or failed live checks
+fall back to deterministic input and soul-leak checks on every answer route.
+Grounding remains scoped to local retrieval answers. The shipped switch is on.
 
 STATUS: input rail and local-LLM output grounding are wired. ``gate.py``,
 ``graph.py``, and ``mcp_hybrid_server.py`` must not import this package (I6;
@@ -42,6 +44,15 @@ Usage from the CLI:
 from utils.telemetry_kill import apply_telemetry_kill
 
 apply_telemetry_kill()
+
+import logging
+
+# NeMo logs raw prompts, retrieved context, answers and exceptions, even at
+# INFO. Keep its event stream out of application handlers and lastResort.
+# CyClaw's fixed diagnostics use the separate cyclaw.guardrails namespace.
+_nemo_logger = logging.getLogger("nemoguardrails")
+_nemo_logger.addHandler(logging.NullHandler())
+_nemo_logger.propagate = False
 
 from guardrails.config import GuardrailsConfig, load_guardrails_config
 from guardrails.errors import (

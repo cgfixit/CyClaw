@@ -1,11 +1,11 @@
 """Operator-facing pre-flight self-test for ``python -m guardrails.cli test``.
 
 NOT the pytest suite. A fast, no-mocking smoke test confirming the guardrails
-skeleton will work in this environment. It exercises the config loader, the
+configuration and deterministic checks work in this environment. It exercises the config loader, the
 NeMo-config presence check, the soul/personality heuristics, the grounding
 check, and the metrics recorder -- WITHOUT a running LLM. A missing
 ``nemoguardrails`` package is reported as SKIP (counts as pass), because the
-layer is opt-in and degrades gracefully without it.
+dependency is optional and the enabled layer falls back to deterministic checks.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def run_self_test(config_path: str = "config.yaml") -> tuple[int, int, list[str]
     if NEMO_AVAILABLE:
         results.append(ok("07. nemoguardrails installed (live rails available)"))
     else:
-        results.append(skip("07. nemoguardrails installed", "not installed (skeleton degrades gracefully)"))
+        results.append(skip("07. nemoguardrails installed", "not installed (deterministic fallback available)"))
 
     return finalize(results)
 
