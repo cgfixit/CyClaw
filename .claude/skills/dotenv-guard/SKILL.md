@@ -14,8 +14,14 @@ or from an AI coding agent reading the workspace. You do not review the six
 invariants (invariant-guard), committed secret values (gitleaks), or config
 numbers (config-guard).
 
-A name is secret-classified when it matches
-`^[A-Z][A-Z0-9_]*_(API_KEY|TOKEN|SECRET|PASSWORD)$` (case-sensitive).
+A name is secret-classified by `.claude/skills/dotenv-guard/envline.py`,
+case-insensitively, when it starts with a letter and ends in `_API_KEY`,
+`_TOKEN`, `_SECRET`, `_PASSWORD`, `_KEY`, `_PAT`, `_DSN`, or `_CREDENTIALS`.
+Gitleaks owns secret values. This guard owns these names. `_KEY` also
+classifies non-secret locals such as `PRINT_KEY` when they are assigned in a
+dotenv file; that cost is accepted so an access key cannot hide behind a
+narrower suffix. The normative rules and the shared vector table are
+`ENVLINE_SPEC.md` and `envline_vectors.tsv` beside this skill.
 
 ## Run
 
@@ -28,15 +34,17 @@ python3 .claude/skills/dotenv-guard/check_dotenv.py
 | Check | What it enforces | How |
 |---|---|---|
 | K1 | Python outside `tests/` loads no dotenv file (`dotenv` import, `load_dotenv`/`dotenv_values`/`find_dotenv`, pydantic-settings `env_file`) | AST |
-| K2 | Tracked `.env` / `*.env` / `.env.*` files assign no secret name, even with an empty value | `git ls-files` |
+| K2 | Tracked dotenv files assign no secret name, even with an empty value. Basenames: `.env`, `*.env`, `.env.*`, `*.env.example`, `.envrc`, `*.envrc`, `.env-*` (for example `config/app.env.example`, `.env-local`) | `git ls-files` plus the envline tokenizer |
 | K3 | `.gitignore` still ignores dotenv files at any depth | `git check-ignore` on probe paths |
 | K4 | `macos/setup-cyclaw-keys.sh`, run with a throwaway `HOME`, a fake `security`, and a fake `--repo-path` checkout, writes no secret into any dotenv file | runs the script (POSIX only) |
-| K5 | The rc file that run writes neither assigns a secret nor `.`/`source`s a dotenv file | same run |
+| K5 | The rc file that run writes neither assigns a secret (every assignment word on the line) nor loads a dotenv: `.` / `source` of a dotenv basename or any `$` operand, including after `&&` or `;`, and `eval` of `$(cat ...)`, `` `cat ...` ``, or `$(< ...)` | same run |
 | K6 | No tracked shell/PowerShell/cmd line writes a literal secret assignment to a dotenv path | line heuristic |
 | K7 | No tracked Markdown line pairs a secret assignment with a dotenv file; no ```` ```dotenv ```` block assigns one | line heuristic |
 
 Exit 0: no new finding and no stale baseline entry. Exit 2: a `FAIL`. Exit 3:
-env error (git missing, not a work tree, malformed baseline).
+env error (git missing, not a work tree, malformed baseline, unreadable
+tracked file, syntax error in a non-test Python file). `verify.sh` exits 3
+when no Python interpreter is on `PATH`.
 
 ### Step 2 — Interpret
 
@@ -71,11 +79,23 @@ bash .claude/skills/dotenv-guard/verify.sh
 ```
 
 The live tree must pass with the shipped baseline. Then each rule must trip on
-its own planted violation in a throwaway git tree, and only that rule. The
-clean tree carries negative controls that must stay silent (a `tests/`
-fixture, `>&2` plumbing, `$GITHUB_ENV`, a non-secret setting, a
-`docs/audits/` note). The ratchet tests cover a stale entry, a `KNOWN`
-entry, and a malformed baseline.
+its own planted violation in a throwaway git tree, and only that rule. Plants
+cover every assignment-form bypass (a later `NAME=` / `NAME+=` on the line,
+`declare` / `typeset` / `readonly` / `local`, a leading BOM, lower and mixed
+case), the extra dotenv basenames, the rc load forms (`&&`, `set -a`,
+`eval "$(cat ...)"`, `. "$var"`, a multi-assignment rc line), and the widened
+suffixes. The clean tree carries negative controls that must stay silent (a
+`tests/` fixture, `>&2` plumbing, `$GITHUB_ENV`, a non-secret setting, a
+comment and an `echo` argument inside a tracked env file, a secret-free
+`.envrc`, a `docs/audits/` note). The ratchet tests cover a stale entry, a
+`KNOWN` entry, and a malformed baseline. Syntax errors, unreadable files, and
+a missing Python interpreter must exit 3.
+
+```bash
+python3 -m pytest tests/test_dotenv_envline.py -q
+```
+
+That test reads the same `envline_vectors.tsv` the shell verifier checks.
 
 ## Guardrails
 
@@ -91,5 +111,7 @@ entry, and a malformed baseline.
 - CI runs this as the blocking `dotenv-guard` job next to `invariant-guard`.
   The verify-skills matrix also runs `verify.sh`, but that matrix is
   advisory (`continue-on-error`).
-- The classifier matches the suffix set proposed in open draft PR #1507. If
-  that PR's classification changes, keep the two in step.
+- Draft #1507 should reuse `ENVLINE_SPEC.md` and `envline_vectors.tsv` rather
+  than a second assignment dialect. The K4/K5 baseline entries that name
+  `~/.CyClaw/.env`, the checkout `.env`, and the zshrc source are owned by
+  that PR; do not edit them here.

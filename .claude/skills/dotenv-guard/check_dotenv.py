@@ -22,21 +22,30 @@ It is deliberately NOT a duplicate of its neighbours:
   * tests/test_setup_cyclaw_keys.py pins what setup-cyclaw-keys.sh does today.
     This checker states the policy that behavior is measured against.
 
-A name is secret-classified when it matches
-^[A-Z][A-Z0-9_]*_(API_KEY|TOKEN|SECRET|PASSWORD)$ (case-sensitive; the same
-suffix set proposed in open draft PR #1507).
+A name is secret-classified by envline.py (case-insensitive). The suffixes
+are API_KEY, TOKEN, SECRET, PASSWORD, KEY, PAT, DSN, and CREDENTIALS. The
+same module is the assignment tokenizer: every NAME= / NAME+= word on a
+line, including export / declare / typeset / readonly / local, not only the
+first. ENVLINE_SPEC.md is the language-neutral contract; envline_vectors.tsv
+is the shared table. Draft #1507 can reuse both.
 
 Checks:
   K1  Python outside tests/ loads no dotenv file: no `dotenv` import, no
       load_dotenv/dotenv_values/find_dotenv call, no pydantic-settings
       `env_file`.
-  K2  Tracked dotenv-shaped files (.env, *.env, .env.*) assign no secret name.
+  K2  Tracked dotenv-shaped files assign no secret name. A basename is
+      dotenv-shaped when it is `.env` or `.envrc`, ends with `.env`,
+      `.env.example`, or `.envrc`, or starts with `.env.` or `.env-`
+      (`config/app.env.example`, `.env-local`).
   K3  .gitignore still ignores dotenv files at any depth.
   K4  macos/setup-cyclaw-keys.sh, run in a throwaway HOME with a fake
       `security` and a fake checkout, writes no secret assignment into any
       dotenv file. POSIX only.
-  K5  The shell rc file that same run writes neither assigns a secret nor
-      `.`/`source`s a dotenv file directly. POSIX only.
+  K5  The shell rc file that same run writes neither assigns a secret (any
+      assignment word on the line, not only the first) nor loads a dotenv
+      file. A load is `.` / `source` of a dotenv basename or of any `$`
+      operand (`. "$var"`), including after `&&` or `;`, and `eval` of
+      `$(cat ...)`, `` `cat ...` ``, or `$(< ...)`. POSIX only.
   K6  No tracked shell, PowerShell, or cmd line writes a literal secret
       assignment to a dotenv path (redirect, tee, heredoc body,
       Add-Content/Set-Content/Out-File, [IO.File]::Write*/Append*).
@@ -59,32 +68,27 @@ Keys carry no line numbers, so unrelated edits do not churn the baseline.
 Exit codes (repo convention):
     0  no new finding and no stale baseline entry
     2  a FAIL tripped
-    3  env error (git missing, not a work tree, baseline malformed)
+    3  env error (git missing, not a work tree, baseline malformed,
+       unreadable tracked file, syntax error in a non-test Python file)
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Any, cast
 
-SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]*_(?:API_KEY|TOKEN|SECRET|PASSWORD)$")
-
-# `NAME=` anywhere in a line (script string, doc prose). The lookbehind keeps
-# `$NAME = x` comparisons and longer identifiers out.
-_ASSIGN_ANYWHERE = re.compile(
-    r"(?<![A-Za-z0-9_$])([A-Z][A-Z0-9_]*_(?:API_KEY|TOKEN|SECRET|PASSWORD))\s*="
-)
-# A dotenv assignment line: `NAME=...` or `export NAME=...`.
-_ASSIGN_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
-# `.env`, `x.env`, `.env.local`, `$HOME/.CyClaw/.env`; not `.environ`.
-_DOTENV_TOKEN = re.compile(r"\.env(?![A-Za-z0-9_])")
+# `.env`, `x.env`, `.env.local`, `.env-local`, `.envrc`, `app.env.example`.
+# `.environment` still fails the `(?![A-Za-z0-9_])` look ahead on the `.env` arm.
+_DOTENV_TOKEN = re.compile(r"\.envrc(?![A-Za-z0-9_])|\.env(?![A-Za-z0-9_])")
 # A variable that plainly names a dotenv file: $ENV_FILE, ${env_file}, $envFile.
 _DOTENV_VAR = re.compile(r"\$\{?[A-Za-z_]*(?:ENV_?FILE|DOTENV)[A-Za-z0-9_]*\}?", re.IGNORECASE)
 # Write contexts. `2>` / `>&2` are stream plumbing, not file writes.
@@ -94,8 +98,6 @@ _PS_WRITE = re.compile(
     re.IGNORECASE,
 )
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-# `. "$HOME/.CyClaw/.env"` / `source ~/.env` on a line of its own.
-_RAW_SOURCE = re.compile(r"""^\s*(?:\.|source)\s+(["']?)([^"'\s;&|]+)\1\s*(?:[;&|#].*)?$""")
 _FENCE = re.compile(r"^\s*(```+|~~~+)\s*([A-Za-z0-9_+-]*)")
 
 _SCRIPT_SUFFIXES = {".sh", ".bash", ".zsh", ".ps1", ".psm1", ".cmd", ".bat"}
@@ -149,18 +151,44 @@ class ProbeError(Exception):
 Finding = tuple[str, str]  # (stable key, human detail)
 
 
+def _load_envline() -> Any:
+    path = Path(__file__).with_name("envline.py")
+    spec = importlib.util.spec_from_file_location("cyclaw_dotenv_envline", path)
+    if spec is None or spec.loader is None:
+        raise EnvError(f"cannot load tokenizer: {path}")
+    module = importlib.util.module_from_spec(spec)
+    # Register before exec so the dataclass decorator can see the module.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+envline = _load_envline()
+
+
 def is_dotenv_name(name: str) -> bool:
-    return name == ".env" or name.endswith(".env") or name.startswith(".env.")
+    return cast(bool, envline.is_dotenv_filename(name))
 
 
 def secret_assignments(text: str) -> list[str]:
-    """Secret names assigned by dotenv-style lines, in first-seen order."""
+    """Secret names assigned by shell assignment words, in first-seen order."""
     names: list[str] = []
     for line in text.splitlines():
-        m = _ASSIGN_LINE.match(line)
-        if m and SECRET_NAME.match(m.group(1)) and m.group(1) not in names:
-            names.append(m.group(1))
+        for item in envline.assignments(line):
+            if envline.is_secret_name(item.name) and item.name not in names:
+                names.append(item.name)
     return names
+
+
+def _rc_source_risk(load: Any) -> bool:
+    # eval of cat always loads a file into the shell. A dot/source whose
+    # operand is a dotenv basename, or any unexpanded `$`, does too.
+    # PurePosixPath: the operand is shell text, even when this process is Windows.
+    if load.kind == "eval_cat":
+        return True
+    if "$" in load.operand:
+        return True
+    return cast(bool, envline.is_dotenv_filename(PurePosixPath(load.operand).name))
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -182,8 +210,21 @@ def tracked_files(root: Path) -> list[str]:
 def _read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""  # tracked but absent from the work tree (e.g. a sparse checkout)
+    except OSError as exc:
+        # Missing and unreadable are the same failure: a file the checker
+        # cannot see must not pass as "no secret in it".
+        raise EnvError(f"unreadable file: {path}: {exc.strerror or exc}") from exc
+
+
+def _ensure_readable(root: Path, files: list[str]) -> None:
+    """Every tracked path must open. A skipped unreadable file would hide a secret."""
+    for rel in files:
+        path = root / rel
+        try:
+            with path.open("rb") as fh:
+                fh.read(1)
+        except OSError as exc:
+            raise EnvError(f"unreadable file: {rel}: {exc.strerror or exc}") from exc
 
 
 def _skipped(rel: str) -> bool:
@@ -198,8 +239,11 @@ def check_k1(root: Path, files: list[str]) -> list[Finding]:
             continue
         try:
             tree = ast.parse(_read(root / rel), filename=rel)
-        except (SyntaxError, ValueError):
-            continue  # not ours to parse; ruff reports syntax errors
+        except EnvError:
+            raise
+        except (SyntaxError, ValueError) as exc:
+            # A file we cannot parse could hide `import dotenv`. Fail closed.
+            raise EnvError(f"syntax error in {rel}: {exc}") from exc
         for node in ast.walk(tree):
             what = None
             if isinstance(node, ast.Import):
@@ -252,7 +296,7 @@ def check_k3(root: Path) -> list[Finding]:
 # ── K4 / K5 ─────────────────────────────────────────────────────────────────
 def _redact(text: str) -> str:
     text = re.sub(r"[0-9A-Fa-f]{32,}", "<redacted>", text)
-    return re.sub(r"([A-Z][A-Z0-9_]*_(?:API_KEY|TOKEN|SECRET|PASSWORD)\s*=\s*)\S+", r"\1<redacted>", text)
+    return cast(str, envline.redact_secret_assignments(text))
 
 
 def probe_keys_script(root: Path) -> tuple[list[Finding], list[Finding], list[str]]:
@@ -272,7 +316,7 @@ def probe_keys_script(root: Path) -> tuple[list[Finding], list[Finding], list[st
         stub.write_text(_FAKE_SECURITY, encoding="utf-8")
         stub.chmod(0o755)
 
-        env = {k: v for k, v in os.environ.items() if not SECRET_NAME.match(k)}
+        env = {k: v for k, v in os.environ.items() if not envline.is_secret_name(k)}
         for k in ("CYCLAW_HOME", "CYCLAW_REPO", "CYCLAW_GATE_PORT", "ZDOTDIR", "BASH_ENV", "ENV"):
             env.pop(k, None)
         env.update({
@@ -323,9 +367,21 @@ def probe_keys_script(root: Path) -> tuple[list[Finding], list[Finding], list[st
             for name in secret_assignments(text):
                 k5.append((f"~/{rc_name}:{name}", f"probe wrote {name} into ~/{rc_name}"))
             for line in text.splitlines():
-                m = _RAW_SOURCE.match(line)
-                if m and is_dotenv_name(Path(m.group(2)).name):
-                    k5.append((f"~/{rc_name}:{m.group(2)}", f"~/{rc_name} sources {m.group(2)} into every shell"))
+                for load in envline.source_loads(line):
+                    if not _rc_source_risk(load):
+                        continue
+                    if load.kind == "eval_cat":
+                        k5.append((
+                            f"~/{rc_name}:eval:{load.operand}",
+                            f"~/{rc_name} eval-loads {load.operand} into every shell",
+                        ))
+                    else:
+                        # Key stays `~/.zshrc:$HOME/.CyClaw/.env` so the shipped
+                        # K5 baseline entry still matches this operand.
+                        k5.append((
+                            f"~/{rc_name}:{load.operand}",
+                            f"~/{rc_name} sources {load.operand} into every shell",
+                        ))
         return k4, k5, stores
 
 
@@ -362,7 +418,7 @@ def check_k6(root: Path, files: list[str]) -> list[Finding]:
             line = lines[i]
             writes = _SHELL_WRITE.search(line) or _PS_WRITE.search(line)
             if writes and _names_dotenv_target(line):
-                for name in _ASSIGN_ANYWHERE.findall(line):
+                for name in envline.literal_secret_names(line):
                     hit(rel, i + 1, name, "same line")
                 doc = _HEREDOC.search(line)
                 if doc:
@@ -372,7 +428,7 @@ def check_k6(root: Path, files: list[str]) -> list[Finding]:
                         body = lines[j].lstrip("\t") if strip_tabs else lines[j]
                         if body == term:
                             break
-                        for name in _ASSIGN_ANYWHERE.findall(lines[j]):
+                        for name in envline.literal_secret_names(lines[j]):
                             hit(rel, j + 1, name, "heredoc")
                         j += 1
                     i = j
@@ -401,7 +457,7 @@ def check_k7(root: Path, files: list[str]) -> list[Finding]:
                 first_in_block = False
                 if line.lstrip().startswith("#") and _DOTENV_TOKEN.search(line):
                     dotenv_block = True  # e.g. a block that opens with `# ~/.CyClaw/.env`
-            names = _ASSIGN_ANYWHERE.findall(line)
+            names = envline.literal_secret_names(line)
             if not names:
                 continue
             if (fence is not None and dotenv_block) or _DOTENV_TOKEN.search(line):
@@ -433,16 +489,24 @@ def load_baseline(path: Path) -> dict[tuple[str, str], str]:
 def run(root: Path, baseline_path: Path) -> int:
     baseline = load_baseline(baseline_path)
     files = tracked_files(root)
+    _ensure_readable(root, files)
     # A str result is a skip reason; a ProbeError fails closed.
     results: dict[str, list[Finding] | ProbeError | str] = {}
     probe_note = ""
 
-    for rule, fn in (("K1", lambda: check_k1(root, files)), ("K2", lambda: check_k2(root, files)),
-                     ("K3", lambda: check_k3(root))):
-        try:
-            results[rule] = fn()
-        except ProbeError as exc:
-            results[rule] = exc
+    # Separate calls, not a lambda: a lambda here is untyped under mypy --strict.
+    try:
+        results["K1"] = check_k1(root, files)
+    except ProbeError as exc:
+        results["K1"] = exc
+    try:
+        results["K2"] = check_k2(root, files)
+    except ProbeError as exc:
+        results["K2"] = exc
+    try:
+        results["K3"] = check_k3(root)
+    except ProbeError as exc:
+        results["K3"] = exc
     if os.name == "nt":
         results["K4"] = results["K5"] = "POSIX-only probe; not run on this platform (CI runs it on Linux)"
     else:
