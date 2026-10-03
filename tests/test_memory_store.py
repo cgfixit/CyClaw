@@ -254,6 +254,48 @@ def test_max_active_enforced_on_apply(mem_cfg):
     assert count_active_facts(mem_cfg) == 1
 
 
+@pytest.mark.parametrize("via_proposal", [False, True])
+def test_reactivation_respects_max_active_and_can_retry(mem_cfg, via_proposal):
+    mem_cfg["memory"]["facts"]["max_active"] = 1
+    inactive = insert_fact(mem_cfg, "original content", reason="seed")
+    deactivate_fact(mem_cfg, inactive.id, reason="retire")
+    active = insert_fact(mem_cfg, "active content", reason="fill slot")
+    before = get_fact(mem_cfg, inactive.id)
+    proposal = create_proposal(
+        mem_cfg, "update_fact", {"fact_id": inactive.id, "content": "restored content"}, reason="restore",
+    ) if via_proposal else None
+
+    def reactivate():
+        if proposal is not None:
+            return apply_proposal(mem_cfg, proposal.id, reason="restore")
+        return update_fact(mem_cfg, inactive.id, content="restored content", reason="restore")
+
+    with pytest.raises(ValueError, match="active fact limit reached"):
+        reactivate()
+    assert count_active_facts(mem_cfg) == 1
+    assert get_fact(mem_cfg, inactive.id) == before
+    if proposal is not None:
+        assert get_proposal(mem_cfg, proposal.id).status == "pending"
+
+    deactivate_fact(mem_cfg, active.id, reason="free slot")
+    reactivate()
+    restored = get_fact(mem_cfg, inactive.id)
+    assert restored.active
+    assert restored.content == "restored content"
+    assert count_active_facts(mem_cfg) == 1
+    if proposal is not None:
+        assert get_proposal(mem_cfg, proposal.id).status == "applied"
+
+
+def test_update_active_fact_at_max_active(mem_cfg):
+    mem_cfg["memory"]["facts"]["max_active"] = 1
+    fact = insert_fact(mem_cfg, "original content", reason="seed")
+    updated = update_fact(mem_cfg, fact.id, content="edited content", reason="edit")
+    assert updated.content == "edited content"
+    assert updated.active
+    assert count_active_facts(mem_cfg) == 1
+
+
 def test_update_fact_partial_fields(mem_cfg):
     fact = insert_fact(
         mem_cfg,
