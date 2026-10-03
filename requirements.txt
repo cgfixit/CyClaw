@@ -21,10 +21,10 @@
 # exists only on the PyTorch CPU index, so it cannot be satisfied from PyPI
 # (no dependency-confusion exposure).
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.13.0+cpu
+torch==2.14.1+cpu
 
-fastapi==0.141.1
-uvicorn[standard]==0.53.0
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
 pydantic==2.13.5
 pyyaml==6.0.3
 httpx==0.28.1

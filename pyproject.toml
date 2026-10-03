@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.32.0"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -8,8 +8,8 @@ version = "1.9.0"
 description = "Offline-first RAG server with graph-enforced security routing"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastapi==0.141.1",
-    "uvicorn[standard]==0.53.0",
+    "fastapi==0.142.2",
+    "uvicorn[standard]==0.54.0",
     "pydantic==2.13.5",
     # pydantic-core is intentionally not pinned here: pydantic==2.13.5 hard-pins its
     # exact pydantic-core (2.46.5), and constraints.txt locks that same version. The
@@ -17,7 +17,7 @@ dependencies = [
     "chromadb==1.5.9",  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
     "sentence-transformers==6.1.0",
     # Public release admits the platform build; CPU selection stays in the install recipe.
-    "torch==2.13.0",
+    "torch==2.14.1+cpu",
     # huggingface_hub and starlette are imported directly by first-party source
     # (retrieval/embeddings.py, gate.py) but were, until now,
     # only implicit transitives of sentence-transformers/fastapi respectively --
