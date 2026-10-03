@@ -157,10 +157,10 @@ pushes or opens a GitHub PR on its own: explicit push uses
 none of these coding-loop actions, so `POST /ops/agentic` rejects them with
 422.
 
-On the current base, a failure while saving the first run record can leave the
-new clone without a record that `real-repo-run-discard` can find. Draft
-[#1524](https://github.com/cgfixit/CyClaw/pull/1524) adds cleanup for that
-specific startup failure. The draft does not change the lifecycle of recorded
+Before #1524 merged, a failure while saving the first run record could leave the
+new clone without a record that `real-repo-run-discard` can find. Merged PR
+[#1524](https://github.com/cgfixit/CyClaw/pull/1524) (shipped 2026-10-03) adds cleanup for that
+specific startup failure. It does not change the lifecycle of recorded
 runs.
 
 **Two-stage: plan with cloud, implement locally.** `real-repo-run-plan`

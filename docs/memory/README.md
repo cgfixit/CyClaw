@@ -8,11 +8,10 @@ Optional, **default-off** facts + episodes store with propose/apply governance a
 
 Every switch in `config.yaml` → `memory:` is **false**. With defaults, behavior is identical to pre-memory CyClaw.
 
-`memory.facts.max_active` limits new active facts. On the current base,
-updating an inactive fact reactivates it without checking that limit. Draft
-[#1523](https://github.com/cgfixit/CyClaw/pull/1523) closes that gap for direct
-updates and proposal application. Until it merges, avoid reactivating facts at
-the configured limit.
+`memory.facts.max_active` limits new active facts. Before #1523 merged,
+updating an inactive fact reactivated it without checking that limit. Merged PR
+[#1523](https://github.com/cgfixit/CyClaw/pull/1523) (shipped 2026-10-03) closes that gap for direct
+updates and proposal application.
 
 ## Enable progressively
 
