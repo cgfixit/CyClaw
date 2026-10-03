@@ -15,20 +15,33 @@ contract -- the templates' *executability*, not the uninstaller's label list.
 
 from __future__ import annotations
 
+import importlib.util
 import plistlib
 import re
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _LAUNCHAGENTS = _REPO_ROOT / "macos" / "LaunchAgents"
 _INVOKE = _REPO_ROOT / "macos" / "invoke-cyclaw.sh"
+_ENVLINE_PATH = _REPO_ROOT / ".claude" / "skills" / "dotenv-guard" / "envline.py"
 
 # A token that is a bare interpreter name rather than an absolute path or a
 # REPLACE_* placeholder. Anchored so "/usr/bin/python3" and
 # "REPLACE_WITH_VENV_OR_SYSTEM_PYTHON" are both accepted.
 _BARE_PYTHON_RE = re.compile(r"(?:^|\s|\|\|\s*|&&\s*|;\s*)(python3?)(?=\s|$)")
+
+
+def _envline() -> Any:
+    spec = importlib.util.spec_from_file_location("cyclaw_dotenv_envline", _ENVLINE_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _templates() -> list[Path]:
@@ -68,6 +81,40 @@ def test_every_template_names_an_interpreter_placeholder(template: Path) -> None
         f"{template.name} names no interpreter placeholder, so whatever it invokes "
         "is whatever launchd's minimal PATH happens to resolve."
     )
+
+
+@pytest.mark.parametrize("template", _templates(), ids=lambda p: p.name)
+def test_templates_carry_no_secret_in_environment_variables(template: Path) -> None:
+    """A secret never goes in a plist, not even as a placeholder slot (#1526 F4).
+
+    LaunchAgents are typically world-readable and `launchctl print` shows a
+    job's EnvironmentVariables, so a slot invites the operator to paste a
+    token there. Secrets reach the job through macos/cyclaw-keychain-env.sh,
+    as the generators and the opentweet template already do. Classified with
+    dotenv-guard's own secret-name rule so the two cannot drift.
+    """
+    envline = _envline()
+    with template.open("rb") as fh:
+        parsed = plistlib.load(fh)
+    secret_keys = sorted(k for k in parsed.get("EnvironmentVariables", {}) if envline.is_secret_name(k))
+    assert secret_keys == [], (
+        f"{template.name} declares secret-named EnvironmentVariables {secret_keys}; "
+        "inject them with the Keychain wrapper in ProgramArguments instead."
+    )
+
+
+@pytest.mark.parametrize(
+    "name", ["com.cgfixit.cyclaw.telegram-health.plist", "com.cgfixit.cyclaw.telegram-poll.plist"]
+)
+def test_telegram_templates_fetch_the_token_through_the_keychain_wrapper(name: str) -> None:
+    with (_LAUNCHAGENTS / name).open("rb") as fh:
+        argv = plistlib.load(fh)["ProgramArguments"]
+    assert argv[:4] == [
+        "REPLACE_WITH_KEYCHAIN_WRAPPER",
+        "com.cgfixit.cyclaw.telegram-bot-token",
+        "TELEGRAM_BOT_TOKEN",
+        "--",
+    ]
 
 
 def test_health_template_documents_its_interpreter_placeholder() -> None:

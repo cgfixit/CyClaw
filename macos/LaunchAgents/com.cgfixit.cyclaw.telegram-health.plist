@@ -23,7 +23,12 @@
            /health is already down.
          - the probe URL if api.port is not the default 8787 (the generator
            below derives it from telegram.query.base_url; this template cannot)
-         - TELEGRAM_BOT_TOKEN in EnvironmentVariables (or use a wrapper that sources a root-owned env file)
+         - REPLACE_WITH_KEYCHAIN_WRAPPER: the absolute path to
+           macos/cyclaw-keychain-env.sh. The bot token is read from the
+           Keychain at exec time; store it first with
+           macos/cyclaw-keychain-set.sh com.cgfixit.cyclaw.telegram-bot-token.
+           Never put the token in this file: LaunchAgents are world-readable
+           and `launchctl print` shows a job's EnvironmentVariables.
          - chat id in the send subcommand's chat-id argument
     2. Ensure config.yaml has telegram.enabled: true, mode: notify, allowed_chat_ids set.
     3. launchctl load ~/Library/LaunchAgents/com.cgfixit.cyclaw.telegram-health.plist
@@ -40,6 +45,10 @@
   <string>REPLACE_WITH_CYCLAW_REPO</string>
   <key>ProgramArguments</key>
   <array>
+    <string>REPLACE_WITH_KEYCHAIN_WRAPPER</string>
+    <string>com.cgfixit.cyclaw.telegram-bot-token</string>
+    <string>TELEGRAM_BOT_TOKEN</string>
+    <string>--</string>
     <string>/bin/bash</string>
     <string>-c</string>
     <string>curl -sf --max-time 5 http://127.0.0.1:8787/health &gt;/dev/null || REPLACE_WITH_VENV_OR_SYSTEM_PYTHON -m telegram.cli send --chat-id REPLACE_CHAT_ID --text "CyClaw /health failed $(date -u +%Y-%m-%dT%H:%MZ)"</string>
@@ -52,10 +61,5 @@
   <string>/Users/REPLACE_USER/Library/Logs/CyClaw/telegram-health.log</string>
   <key>StandardErrorPath</key>
   <string>/Users/REPLACE_USER/Library/Logs/CyClaw/telegram-health.log</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>TELEGRAM_BOT_TOKEN</key>
-    <string>REPLACE_OR_USE_KEYCHAIN_WRAPPER</string>
-  </dict>
 </dict>
 </plist>

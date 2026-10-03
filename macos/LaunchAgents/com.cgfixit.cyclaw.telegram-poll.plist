@@ -16,7 +16,15 @@
   it directly instead:
     1. CyClaw server + Ollama already running on loopback.
     2. config.yaml: telegram.enabled true, mode: chat, allowed_chat_ids set.
-    3. Copy/edit this plist (WorkingDirectory, paths, token).
+    3. Copy/edit this plist (WorkingDirectory, paths, and
+       REPLACE_WITH_KEYCHAIN_WRAPPER = absolute path to
+       macos/cyclaw-keychain-env.sh). Store the token first with
+       macos/cyclaw-keychain-set.sh com.cgfixit.cyclaw.telegram-bot-token.
+       If /query needs CYCLAW_API_KEY, chain a second wrapper layer for
+       com.cgfixit.cyclaw.api-key before the interpreter, as the generator's
+       api-key-service flag does. Never put either secret in this file:
+       LaunchAgents are world-readable and `launchctl print` shows a job's
+       EnvironmentVariables.
     4. mkdir -p ~/Library/Logs/CyClaw
     5. launchctl load ~/Library/LaunchAgents/com.cgfixit.cyclaw.telegram-poll.plist
 
@@ -32,6 +40,10 @@
   <string>REPLACE_WITH_CYCLAW_REPO</string>
   <key>ProgramArguments</key>
   <array>
+    <string>REPLACE_WITH_KEYCHAIN_WRAPPER</string>
+    <string>com.cgfixit.cyclaw.telegram-bot-token</string>
+    <string>TELEGRAM_BOT_TOKEN</string>
+    <string>--</string>
     <string>REPLACE_WITH_VENV_OR_SYSTEM_PYTHON</string>
     <string>-m</string>
     <string>telegram.cli</string>
@@ -47,12 +59,5 @@
   <string>/Users/REPLACE_USER/Library/Logs/CyClaw/telegram-poll.log</string>
   <key>StandardErrorPath</key>
   <string>/Users/REPLACE_USER/Library/Logs/CyClaw/telegram-poll.log</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>TELEGRAM_BOT_TOKEN</key>
-    <string>REPLACE_OR_USE_KEYCHAIN_WRAPPER</string>
-    <key>CYCLAW_API_KEY</key>
-    <string></string>
-  </dict>
 </dict>
 </plist>
