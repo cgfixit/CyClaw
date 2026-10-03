@@ -1,0 +1,60 @@
+# envline test vectors. Tab-separated. See ENVLINE_SPEC.md for escapes and column meanings.
+# A case is one or more rows sharing `id` and `line`. Assignment rows fill name/op/value/classified.
+# Source rows fill source_kind/source_operand. A line with neither still has one empty row.
+id	line	seq	name	op	value	classified	source_kind	source_operand
+plain	GROK_API_KEY=x	0	GROK_API_KEY	=	x	1		
+empty	GROK_API_KEY=	0	GROK_API_KEY	=		1		
+multi	CYCLAW_GATE_PORT=8788 GROK_API_KEY=x	0	CYCLAW_GATE_PORT	=	8788	0		
+multi	CYCLAW_GATE_PORT=8788 GROK_API_KEY=x	1	GROK_API_KEY	=	x	1		
+export_multi	export A=1 GROK_API_KEY=x	0	A	=	1	0		
+export_multi	export A=1 GROK_API_KEY=x	1	GROK_API_KEY	=	x	1		
+declare_x	declare -x GROK_API_KEY=x	0	GROK_API_KEY	=	x	1		
+declare_flags	declare -xr -- GROK_API_KEY=x	0	GROK_API_KEY	=	x	1		
+typeset	typeset GROK_API_KEY=x	0	GROK_API_KEY	=	x	1		
+readonly	readonly GROK_API_KEY=x	0	GROK_API_KEY	=	x	1		
+local_x	local -x GROK_API_KEY=x	0	GROK_API_KEY	=	x	1		
+plus	GROK_API_KEY+=x	0	GROK_API_KEY	+=	x	1		
+plus_spaced	GROK_API_KEY += x	0	GROK_API_KEY	+=	x	1		
+plus_split	GROK_API_KEY + = x	0	GROK_API_KEY	+=	x	1		
+spaced_eq	export GROK_API_KEY = x	0	GROK_API_KEY	=	x	1		
+eq_stuck	GROK_API_KEY =value	0	GROK_API_KEY	=	value	1		
+bom	\uFEFFGROK_API_KEY=x	0	GROK_API_KEY	=	x	1		
+lower	grok_api_key=x	0	grok_api_key	=	x	1		
+mixed	Grok_Api_Key=x	0	Grok_Api_Key	=	x	1		
+comment	# GROK_API_KEY=x							
+echo_bare	echo GROK_API_KEY=x							
+echo_quoted	echo "GROK_API_KEY=x"							
+comment_tail	GROK_API_KEY=x # keep	0	GROK_API_KEY	=	x	1		
+quoted_pair	GROK_API_KEY="a b" OTHER_TOKEN=c	0	GROK_API_KEY	=	a b	1		
+quoted_pair	GROK_API_KEY="a b" OTHER_TOKEN=c	1	OTHER_TOKEN	=	c	1		
+single_quotes	GROK_API_KEY='a b'	0	GROK_API_KEY	=	a b	1		
+semicolon	export A=1; GROK_API_KEY=x	0	A	=	1	0		
+semicolon	export A=1; GROK_API_KEY=x	1	GROK_API_KEY	=	x	1		
+command_sub	CYCLAW_API_KEY="$(openssl rand -hex 20)"	0	CYCLAW_API_KEY	=	$(openssl rand -hex 20)	1		
+not_secret	CYCLAW_GATE_PORT=8787	0	CYCLAW_GATE_PORT	=	8787	0		
+print_key	PRINT_KEY=auto	0	PRINT_KEY	=	auto	1		
+pat	GH_PAT=github_pat_x	0	GH_PAT	=	github_pat_x	1		
+dsn	SENTRY_DSN=https://example	0	SENTRY_DSN	=	https://example	1		
+credentials	DB_CREDENTIALS=u:p	0	DB_CREDENTIALS	=	u:p	1		
+access_key	AWS_ACCESS_KEY=AKIA	0	AWS_ACCESS_KEY	=	AKIA	1		
+export_quoted	export "GROK_API_KEY=x"	0	GROK_API_KEY	=	x	1		
+multi_plus	A=1 GROK_API_KEY+=z	0	A	=	1	0		
+multi_plus	A=1 GROK_API_KEY+=z	1	GROK_API_KEY	+=	z	1		
+hash_in_value	GROK_API_KEY="a # b" OTHER_API_KEY=c	0	GROK_API_KEY	=	a # b	1		
+hash_in_value	GROK_API_KEY="a # b" OTHER_API_KEY=c	1	OTHER_API_KEY	=	c	1		
+comment_hides_source	FOO=1 # && . "$HOME/.CyClaw/.env"	0	FOO	=	1	0		
+dot_home	. "$HOME/.CyClaw/.env"						dot	$HOME/.CyClaw/.env
+and_source	[ -f "$HOME/.CyClaw/.env" ] && . "$HOME/.CyClaw/.env"						dot	$HOME/.CyClaw/.env
+set_a_source	set -a; . "$HOME/.CyClaw/.env"						dot	$HOME/.CyClaw/.env
+eval_cat	eval "$(cat ~/.CyClaw/.env)"						eval_cat	~/.CyClaw/.env
+eval_cat_quoted	eval "$(cat "$HOME/.CyClaw/.env")"						eval_cat	$HOME/.CyClaw/.env
+eval_backtick	eval `cat .env`						eval_cat	.env
+eval_redir	eval "$(< .env)"						eval_cat	.env
+dot_var	. "$var"						dot	$var
+source_word	source ~/.CyClaw/.env						source	~/.CyClaw/.env
+pipe_source	echo x | . "$HOME/.CyClaw/.env"						dot	$HOME/.CyClaw/.env
+if_test_not_source	if [ -f "$HOME/.CyClaw/.env" ]; then							
+helper_not_source	cyclaw_source_public_env "$HOME/.CyClaw/.env"							
+assign_and_source	export A=1 GROK_API_KEY=x; . "$var"	0	A	=	1	0		
+assign_and_source	export A=1 GROK_API_KEY=x; . "$var"	1	GROK_API_KEY	=	x	1		
+assign_and_source	export A=1 GROK_API_KEY=x; . "$var"						dot	$var
