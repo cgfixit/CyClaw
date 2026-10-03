@@ -80,7 +80,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if NEMO_AVAILABLE:
         _ok("nemoguardrails installed (live rails available)")
     else:
-        _err("nemoguardrails NOT installed (skeleton degrades to offline heuristics)")
+        _err("nemoguardrails NOT installed (deterministic fallback available)")
     if getattr(cfg, "_unknown_keys", None):
         _err(f"unknown guardrails keys (typos?): {cfg._unknown_keys}")
     return EXIT_OK
@@ -120,7 +120,7 @@ def cmd_test(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m guardrails.cli",
-        description="CyClaw NeMo guardrails layer -- out-of-band, opt-in, soul-aware rails.",
+        description="CyClaw NeMo guardrails layer -- enabled by default with optional NeMo.",
     )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml (default: %(default)s)")
     sub = parser.add_subparsers(dest="cmd", required=True)

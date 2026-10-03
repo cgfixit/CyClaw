@@ -9,6 +9,12 @@ related:
   - docs/NeMo/README.md
 ---
 
+> Current status, 2026-10-03: this file preserves a historical plan. The shipped
+> configuration now enables guardrails. Missing or failed NeMo checks use
+> deterministic fallback, with grounding limited to local retrieval answers.
+> Model-assisted self-check rails are declined. Use the [current reference](./README.md)
+> and [Track B verification record](../audits/2026-10-03-nemo-track-b.md).
+
 > **Status update — 2026-09-06 (docs review, Claude Code):** SUPERSEDED by
 > `docs/NeMo/README.md`. Verified: phases 1-5 as sliced in issue #1134 are
 > shipped on `main` (`guardrails/broker.py`, `guardrails/tool_broker.py`,

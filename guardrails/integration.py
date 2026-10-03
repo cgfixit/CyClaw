@@ -57,7 +57,7 @@ try:  # pragma: no cover - exercised only when the optional dep is installed
     from nemoguardrails import LLMRails, RailsConfig
 
     NEMO_AVAILABLE = True
-except ImportError:  # pragma: no cover - default offline path
+except ImportError:  # pragma: no cover - optional dependency absent
     LLMRails = None  # type: ignore[assignment,misc]
     RailsConfig = None  # type: ignore[assignment,misc]
     NEMO_AVAILABLE = False
@@ -75,9 +75,10 @@ class GuardResult(TypedDict, total=False):
     guardrails_active: bool  # False => skipped (disabled / dep missing)
 
 
-# Engine cache keyed by (policy_fingerprint, provider, model, endpoint).
+# Engine identity includes the threshold captured by registered actions.
+RailsCacheKey = tuple[str, str, str, str, float]
 # A process-global unkeyed singleton ignored config drift (issue #1134 Phase 2a).
-_rails_cache: dict[tuple[str, str, str, str], Any] = {}
+_rails_cache: dict[RailsCacheKey, Any] = {}
 _rails_lock = threading.Lock()
 _rails_admit = threading.Semaphore(4)
 # Circuit breaker on engine builds, per cache key: (consecutive failures, when
@@ -88,7 +89,7 @@ _rails_admit = threading.Semaphore(4)
 # (a rails.co syntax error, or fastembed's first-use model fetch failing
 # offline) turned check() off for every key until the process restarted,
 # a fixed file and an already-cached engine included.
-_breaker: dict[tuple[str, str, str, str], tuple[int, float]] = {}
+_breaker: dict[RailsCacheKey, tuple[int, float]] = {}
 _BREAKER_LIMIT = 3
 _BREAKER_COOLDOWN_SEC = 60.0
 _MAIN_MODEL_TYPES = frozenset({"main", "", None})
@@ -160,8 +161,8 @@ def policy_fingerprint(cfg: GuardrailsConfig) -> str:
     return hasher.hexdigest()
 
 
-def _cache_key(cfg: GuardrailsConfig) -> tuple[str, str, str, str]:
-    return (policy_fingerprint(cfg), cfg.engine, cfg.model, cfg.base_url)
+def _cache_key(cfg: GuardrailsConfig) -> RailsCacheKey:
+    return (policy_fingerprint(cfg), cfg.engine, cfg.model, cfg.base_url, cfg.hallucination_threshold)
 
 
 def _refuse_iorails() -> None:
@@ -186,7 +187,7 @@ def get_cyclaw_guardrails(cfg: GuardrailsConfig | None = None) -> Any:
     if not NEMO_AVAILABLE:
         raise GuardrailsDependencyError(
             "nemoguardrails is not installed; install the pinned release to enable live rails "
-            "(the `guardrails` extra: nemoguardrails==0.24.0). The skeleton runs without it.",
+            "(the `guardrails` extra: nemoguardrails==0.24.0). Deterministic checks remain available without it.",
             details={"degraded": True},
         )
     _refuse_iorails()
@@ -306,7 +307,7 @@ def check_input(
 
 def check_output(
     answer: str,
-    context: str,
+    context: str | None,
     *,
     query: str = "",
     cfg: GuardrailsConfig | None = None,
@@ -316,6 +317,7 @@ def check_output(
 
     Mirrors check_input's non-generating guarantee in reverse. Grounding plus
     Phase 4b ``detect_soul_leak`` when that name is in ``output_rails``.
+    None context skips grounding only; an empty context still scopes grounding.
     Does not reuse ``scan_injection`` on the answer.
 
     Returns ``{"blocked": bool, "message": str, "rails": list[str]}``.
@@ -328,8 +330,8 @@ def check_output(
     triggered: list[str] = []
     if "check_soul_leak" in cfg.output_rails and detect_soul_leak(answer):
         triggered.append("check_soul_leak")
-    score = grounding_score(answer, context)
-    if "check_grounding" in cfg.output_rails and is_possible_hallucination(
+    score = grounding_score(answer, context) if context is not None else None
+    if context is not None and "check_grounding" in cfg.output_rails and is_possible_hallucination(
         answer, context, cfg.hallucination_threshold
     ):
         triggered.append("check_grounding")

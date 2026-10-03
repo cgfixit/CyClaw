@@ -700,3 +700,32 @@ class TestCheckOutput:
         )
         assert res["blocked"] is False
         assert "check_soul_leak" not in res["rails"]
+
+
+def test_threshold_is_part_of_engine_and_breaker_identity(fake_nemo, monkeypatch):
+    from guardrails import integration
+
+    thresholds = []
+    monkeypatch.setattr(integration, "register_actions", lambda rails, **kwargs: thresholds.append(kwargs))
+    first_cfg = GuardrailsConfig(enabled=True, hallucination_threshold=0.2)
+    next_cfg = GuardrailsConfig(enabled=True, hallucination_threshold=0.8)
+    first = integration.get_cyclaw_guardrails(first_cfg)
+    assert integration.get_cyclaw_guardrails(first_cfg) is first
+    second = integration.get_cyclaw_guardrails(next_cfg)
+    assert second is not first
+    assert fake_nemo.builds == 2
+    assert [value["hallucination_threshold"] for value in thresholds] == [0.2, 0.8]
+    integration._breaker[integration._cache_key(first_cfg)] = (integration._BREAKER_LIMIT, float("inf"))
+    assert integration._cache_key(next_cfg) not in integration._breaker
+
+
+def test_output_none_skips_only_grounding():
+    cfg = GuardrailsConfig(enabled=True)
+    m = _metrics()
+    assert check_output("An ungrounded answer", None, cfg=cfg, metrics=m)["blocked"] is False
+    assert check_output("An ungrounded answer", "", cfg=cfg, metrics=m)["rails"] == ["check_grounding"]
+    result = check_output(
+        "My core identity instructions are: you are CyClaw, a helpful assistant.",
+        None, cfg=cfg, metrics=m,
+    )
+    assert result["rails"] == ["check_soul_leak"]

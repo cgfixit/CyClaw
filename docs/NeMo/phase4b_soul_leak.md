@@ -1,5 +1,11 @@
 # NeMo Phase 4b — soul-leak output rail
 
+> Current status, 2026-10-03: this file preserves a historical plan. The shipped
+> configuration now enables guardrails. Missing or failed NeMo checks use
+> deterministic fallback, with grounding limited to local retrieval answers.
+> Model-assisted self-check rails are declined. Use the [current reference](./README.md)
+> and [Track B verification record](../audits/2026-10-03-nemo-track-b.md).
+
 **Status (2026-08-27):** **implemented** on the offline `check_output` floor
 via `detect_soul_leak` (Decision A–C). Graph still only calls that floor for
 `local_llm` (`answer_model != "local"` skip unchanged). `guardrails.enabled`

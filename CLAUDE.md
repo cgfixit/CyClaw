@@ -54,7 +54,7 @@ HTTP POST /query   (or MCP tools/call: hybrid_search)
               │  AND, when models.reranker is on and min_rerank_score is set,
               │  best cross-encoder logit ≥ min_rerank_score (a veto: it only
               │  turns a hit into a miss; shipped null = shadow, audited only)
-              │                       → guardrail_input (offline input rail; opt-in,
+              │                       → guardrail_input (offline input rail; default on,
               │                       pass-through when guardrails.enabled=false)
               │                       ├─ blocked → audit_logger
               │                       └─ passed  → local_llm
@@ -64,13 +64,14 @@ HTTP POST /query   (or MCP tools/call: hybrid_search)
                                      │      claude_fallback (NOT railed by guardrail_input —
                                      │      their gate is the triple gate; the pre-action hook
                                      │      can only shrink this reachable space, not expand
-                                     │      it. With NeMo installed, the Phase 3 check() still
-                                     │      wraps the provider call, and it too can only deny)
+                                     │      it. The broker wraps the call with NeMo check(),
+                                     │      or deterministic input/output checks on degradation.
+                                     │      Both can only deny; grounding stays local-only)
                                      └─ declined / offline / no key → guardrail_input
                                             ├─ blocked → audit_logger
                                             └─ passed  → offline_best_effort
               ↓ (all four answer nodes converge)
-              guardrail_output (offline output rail; opt-in, pass-through when
+              guardrail_output (offline output rail; default on, pass-through when
                                  guardrails.enabled=false; grounding check applies
                                  only to the local_llm answer, see Phase 4)
               ↓
@@ -228,7 +229,7 @@ Module docstrings are the detailed reference; this table is the index.
 | `agentic/real_repo_loop.py` | Plan → patch → verify → (human decides) → commit against a jailed clone. CLI-only (`real-repo-run*` subcommands; `OpsAgenticRequest.action` rejects them, so no HTTP route). `real-repo-run-plan` is the one-shot cloud-planner recipe; `--provider` means something different per subcommand (`docs/agentic/AGENTIC_README.md` §9). Push/PR gated (`allow_git_write_tools` and `agentic.enabled` ship false) — `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` |
 | `agentic/executor/` | Sandboxed verification of caller-declared checks in a jailed worktree with scrubbed env and per-check timeout, always through `hard_sandbox.production_sandbox()` (Windows Job Object, Darwin `sandbox-exec`, Linux `unshare --net`); a missing capability raises `HardSandboxUnavailable`, never a silent fallback (`run_verification`'s `sandbox=` is test-only). Not a kernel boundary (no microVM; Windows kills the process tree but keeps sockets) — see `docs/THREAT_MODEL.md` |
 | `agentic/deepagent_github/` | Live: `RepoWorkspaceTools` (jailed clone/read/write/commit/push) and the cloud planner `real_repo_loop.py` uses. **Retired** 2026-07-31: `builder.py`'s DeepAgents subgraph (kept, not developed). Both gated off by default |
-| `guardrails/` | Optional NeMo Guardrails, soft-imported, off by default: offline input rail (`guardrail_input`), output grounding rail scoped to `local_llm` (`guardrail_output`), and with `nemoguardrails` installed, `check()` around every answer node's model call (`guardrails/broker.py`). No LLM-backed rail is active |
+| `guardrails/` | Enabled by default, with optional soft-imported NeMo. Offline graph rails guard local input and output. The broker wraps every answer node with `check()`, or deterministic input and soul-leak checks on degradation. Grounding remains `local_llm` only. A refusal can also be audited as degraded. No LLM-backed rail is active |
 | `telegram/` | Out-of-band Telegram channel (`python -m telegram.cli`), ships off. Inbound text reaches the RAG only via loopback `POST /query`; only `/online on <grok|claude>` (with `allow_hybrid_confirm`) can set `user_confirmed_online`. See `docs/channels/TELEGRAM_DESIGN.md` |
 | `opentweet/` | Out-of-band OpenTweet X channel (`python -m opentweet.cli`), ships off. Generation is loopback `POST /query` with `user_confirmed_online: false`; default write is a draft. See `docs/channels/OPENTWEET_DESIGN.md` |
 

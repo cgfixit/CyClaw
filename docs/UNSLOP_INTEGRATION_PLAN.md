@@ -300,11 +300,12 @@ twice in this codebase (`graph.py` for the input and output rails):
 
 ## Config: the `unslop` Block
 
-Modeled directly on the existing `guardrails:` block's opt-in discipline
-(`utils/guardrail_bridge.py`: enabled only when the value is the *literal*
-boolean `True`, since a YAML `enabled: "false"` typo is a non-empty, and therefore
-truthy, string). The v1 top-level block ships disabled like every other optional
-subsystem in this repository (`guardrails:`, `memory:`, `telegram:`):
+Uses the same literal-boolean enablement contract as `guardrails:`
+(`utils/guardrail_bridge.py`): only boolean `True` enables the layer, and startup
+rejects strings such as `enabled: "false"`. Unslop v1 remains disabled, like
+`memory:` and `telegram:`. NeMo Guardrails now ships enabled with an optional
+engine dependency; that default does not change Unslop
+([current NeMo reference](NeMo/README.md)).
 
 ```yaml
 unslop:

@@ -25,8 +25,9 @@ Current contracts that old guidance often misses:
   host receives local context/soul; cloud-provider confirmation is separate.
 - Auth Stage 3 is wired to `/query` only when auth is enabled; same-origin is
   always enforced. API-key optional bypass has peer/proxy/origin conditions.
-- Hybrid and both providers ship enabled, while auth/memory/agentic/guardrails
-  master switches ship off. Read actual config before changing or reporting them.
+- Hybrid, both providers, and guardrails ship enabled. Auth, memory, and agentic
+  master switches ship off. NeMo remains an optional dependency with deterministic
+  fallback. Read actual config before changing or reporting these switches.
 - Darwin dotenv loaders pin `/usr/bin/stat`, enforce 600/400, preserve source
   failure status for fallback, and restore the prior allexport state.
 - Core/out-of-band isolation covers all six core modules and the package list

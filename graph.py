@@ -21,7 +21,7 @@ import logging
 import math
 import secrets
 from collections.abc import Callable
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from langgraph.graph import END, StateGraph
 
@@ -53,11 +53,13 @@ class GuardBlock(TypedDict):
     "output" that it replaced an answer the model did produce; ``rails``
     names what refused (``nemo_check:<flow>``). "degraded" means a check
     could not run (no engine, or ``check()`` raised) and nothing refused, so
-    the answer went out unchecked; ``rails`` is empty.
+    deterministic fallback checks remain in force; ``rails`` is empty.
+    An input/output refusal may also set ``degraded`` when a live check failed.
     """
 
     stage: Literal["input", "output", "degraded"]
     rails: list[str]
+    degraded: NotRequired[bool]
 
 
 # (client, prompt, *, query, label, spend_context, grounding_context) ->
@@ -123,10 +125,9 @@ class GraphState(TypedDict, total=False):
     # answer node's model call (Phase 3).
     guardrail_blocked: bool
     guardrail_rails: list[str]
-    # True when a configured guard could not run and the answer went out
-    # unchecked (Decision 3): an offline rail that raised, or a Phase 3 check
-    # with no engine or a check() that raised. Distinct from guardrail_blocked
-    # so audit can tell "passed" from "degraded".
+    # True when a configured guard could not run. Missing live checks use
+    # deterministic fallback checks; an unexpected wrapper failure returns
+    # an error. Independent from blocking so the audit can record both facts.
     guardrail_degraded: bool
 
     # Pre-action hook (issue #963)
@@ -297,12 +298,11 @@ def _generate_or_error(
     When ``generate_guard`` is injected (Phase 3 bridge), NVIDIA ``check()``
     runs around the existing generate, and the third element reports a
     refusal or a check that could not run (see GuardBlock). A guard that
-    raises falls back to the unwrapped generate, reported as degraded. None
+    raises ends the request with a generic error, reported as degraded. None
     (default) is the pre-Phase-3 path.
     ``grounding_context`` is the retrieved text the answer must be grounded
     in, or None when the answer is not held to the vault.
     """
-    unchecked: GuardBlock | None = None
     if generate_guard is not None:
         try:
             return generate_guard(
@@ -314,17 +314,20 @@ def _generate_or_error(
                 grounding_context=grounding_context,
             )
         except Exception:
-            logger.warning("generate_guard raised; falling back to unwrapped generate", exc_info=True)
-            # The answer below is unchecked, so the audit must say degraded.
-            unchecked = {"stage": "degraded", "rails": []}
+            logger.warning("generate_guard failed")
+            return (
+                "[Guardrail Error: guard execution failed]",
+                "GUARDRAIL_ERROR: guard execution failed",
+                {"stage": "degraded", "rails": []},
+            )
     try:
         if spend_context is None:
-            return client.generate(prompt), None, unchecked
+            return client.generate(prompt), None, None
         # Do not catch TypeError and retry without context: generate() may
         # already have billed a 200. Mocks accept **kwargs.
-        return client.generate(prompt, spend_context=spend_context), None, unchecked
+        return client.generate(prompt, spend_context=spend_context), None, None
     except RAGError as e:
-        return f"[{label} Error: {e.message}]", f"{e.code}: {e.message}", unchecked
+        return f"[{label} Error: {e.message}]", f"{e.code}: {e.message}", None
 
 
 def _record_guard_block(out: dict[str, Any], block: GuardBlock | None, *, sent_sources: bool = False) -> None:
@@ -337,12 +340,13 @@ def _record_guard_block(out: dict[str, Any], block: GuardBlock | None, *, sent_s
     guardrail_output_node drops them, except docs already forwarded to an
     external provider (``sent_sources``), which the audit must keep showing.
     A degraded check changes nothing but ``guardrail_degraded``: the answer
-    and its sources are the model's, unchecked, and the audit says so.
+    and its sources are retained; deterministic fallback checks may have run.
     """
     if block is None:
         return
-    if block["stage"] == "degraded":
+    if block["stage"] == "degraded" or block.get("degraded", False):
         out["guardrail_degraded"] = True
+    if block["stage"] == "degraded":
         return
     out["guardrail_blocked"] = True
     out["guardrail_rails"] = list(block["rails"])
@@ -497,7 +501,7 @@ def guardrail_input_node(
     try:
         result = input_guard(state["query"])
     except Exception:
-        logger.warning("input_guard raised; failing open (query answered normally)", exc_info=True)
+        logger.warning("input_guard failed; query proceeds to generation guard")
         return {"guardrail_degraded": True}
 
     if not result.get("blocked"):
@@ -520,7 +524,7 @@ def guardrail_output_node(
     exists, so a block here REPLACES it rather than skipping a call. Every
     inbound edge still reaches audit_logger next regardless of verdict: there is
     no conditional edge here because the verdict changes what the next node
-    LOGS, never WHICH node runs next. See docs/NeMo/phase4_implementation_plan.md
+    LOGS, never WHICH node runs next. See docs/NeMo/!phase4_implementation_plan.md
     Decision 3.
     """
     if output_guard is None or state.get("answer_model") != "local":
@@ -539,7 +543,7 @@ def guardrail_output_node(
     try:
         result = output_guard(state.get("query", ""), state.get("answer", ""), context)
     except Exception:
-        logger.warning("output_guard raised; failing open (answer returned as generated)", exc_info=True)
+        logger.warning("output_guard failed; answer retained")
         return {"guardrail_degraded": True}
 
     if not result.get("blocked"):

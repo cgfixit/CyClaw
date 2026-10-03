@@ -251,7 +251,7 @@ Agentic, Filesystem, and SQL panels, plus Users and Audit when auth is on.
 |---|---|---|
 | [Per-user auth](#per-user-authentication) | Passwords, sessions, device tokens, and roles | off |
 | [Memory](docs/memory/README.md) | SQLite/FTS5 facts and episodes, propose/apply, optional retrieval fusion and HTML export. Consolidation remains an inert stub | off |
-| [NeMo Guardrails](#optional-layers) | Deny-only input/output checks, audited fail-open behavior | off |
+| [NeMo Guardrails](#optional-layers) | Deny-only input/output checks, deterministic fallback on NeMo failure | on; NeMo dependency optional |
 | [Dropbox sync](docs/SYNC_README.md) | Out-of-band `rclone` corpus pull | CLI |
 | [Connectors](agentic/README.md) | Scoped filesystem, SELECT-only SQL, passive LAN inventory | off |
 | [Agentic loop](docs/agentic/AGENTIC_README.md) | GitHub context, skills, clone/plan/patch/verify, human decisions | off |
@@ -288,7 +288,7 @@ flowchart TD
     subgraph GRAPH ["graph.py — LangGraph 12-node State Machine"]
         F(["retrieve\nChroma + BM25 + RRF"])
         F --> G["route_by_score\nbest cosine ≥ 0.30?\n(RRF ≥ 0.028 if no cosine)"]
-        G -->|"YES — local context"| X["guardrail_input\noffline rail · opt-in\npass-through when disabled"]
+        G -->|"YES — local context"| X["guardrail_input\noffline rail · enabled by default\npass-through when disabled"]
         X -->|"blocked"| L
         X -->|"passed · high score"| H["local_llm\nOllama :11434\nqwen3.8:27b-mlx"]
         G -->|"NO — vault miss"| I["user_gate\nneeds_confirm = true"]
@@ -299,7 +299,7 @@ flowchart TD
         I -->|"declined or offline"| X
         X -->|"passed · vault miss"| K["offline_best_effort\nlocal LLM · no RAG gate"]
         I -->|"confirmed=None — pause"| L
-        H --> Y["guardrail_output\noffline rail · opt-in\ngrounding check: local_llm only"]
+        H --> Y["guardrail_output\noffline rail · enabled by default\ngrounding check: local_llm only"]
         J --> Y
         W --> Y
         K --> Y
@@ -490,7 +490,7 @@ As of 2026-10-03, these changes have **merged and shipped** (#1521, #1522, #1523
 
 ## Optional layers
 
-Master switches default off except the local Numbat stream and spend ledger.
+Master switches default off except NeMo Guardrails, the local Numbat stream, and the spend ledger.
 
 **Dropbox sync.** `rclone` pulls into `data/corpus/` outside the request
 path. `max_delete`, `max_transfer`, and a single-instance lock bound each
@@ -563,22 +563,31 @@ The browser calls subprocess shims at `/ops/fsconnect` and `/ops/sqlconnect`.
 [SQL](agentic/README.md#6-sql-connector-read-only), and
 [passive network](agentic/README.md#7-passive-network-connector).
 
-**NeMo Guardrails.** Only literal `guardrails.enabled: true` activates the
-layer; boot rejects non-booleans. `utils/guardrail_bridge.py` supplies three
-callables or `None`, preserving core import isolation and graph routing.
+**NeMo Guardrails.** `guardrails.enabled: true` ships in `config.yaml`.
+Explicit `false`, or an absent block, disables the layer. Boot rejects
+non-booleans. `utils/guardrail_bridge.py` supplies three callables or `None`,
+preserving core import isolation and graph routing.
 
 | Guard | Scope and refusal |
 |---|---|
-| Offline input | Local and best-effort paths only. Returns `block_message` through `audit_logger` without a model call |
-| Offline output | `local_llm` only. Replaces answers below `hallucination_threshold` (0.18) or leaking soul text |
-| NeMo `check()` | All four answer nodes with `pip install -e ".[guardrails]" -c constraints.txt` (`nemoguardrails==0.24.0`). Input refusal skips generation; output refusal replaces the answer |
+| Offline graph input | Local and best-effort paths. Returns `block_message` through `audit_logger` without a model call |
+| Offline graph output | `local_llm` only. Replaces answers below `hallucination_threshold` (0.18) or matching soul-leak markers |
+| NeMo `check()` | Wraps all four answer nodes when the optional `nemoguardrails==0.24.0` dependency is installed. Input refusal skips generation; output refusal replaces the answer |
+| Broker fallback | Missing, failed, or unsupported live verdicts run deterministic input and soul-leak checks on every answer route. Grounding remains `local_llm` only |
 
-Rails run Python checks, not LLM calls; CI enforces that. Engine, package,
-or rail failures leave the answer intact and audit `guardrail_degraded`.
-With the layer enabled but the extra absent, every answered query is
-degraded. Blocked events also write hashes to unrotated
-`logs/guardrails.jsonl`. Inspect `python -m guardrails.cli status`.
-[Guardrails](guardrails/README.md) and [NeMo reference](docs/NeMo/README.md).
+Active `/query` rails call Python checks and add no model calls. The real
+NeMo CI lane checks that contract. NVIDIA model-assisted `self_check_input`,
+`self_check_output`, and `self_check_facts` are declined and inactive.
+NeMo failures audit `guardrail_degraded`; a fallback refusal also records
+`guardrail_blocked`. An unexpected generation-wrapper failure returns a
+safe error without retrying generation. `logs/guardrails.jsonl` records
+allowlisted metrics and query hashes separately from the authoritative audit.
+
+Install the optional extra using the platform constraints in the
+[setup guide](setup-guide.md#install-the-optional-nemo-runtime).
+Inspect `python -m guardrails.cli status`. See the
+[package guide](guardrails/README.md), [NeMo reference](docs/NeMo/README.md),
+and [Track B verification record](docs/audits/2026-10-03-nemo-track-b.md).
 
 **Numbat.** CyClaw calls the external CLI pinned at 0.2.0, schema 0.3.0;
 it never vendors or imports it.
@@ -649,7 +658,7 @@ network firewall. [Security policy](SECURITY.md) and
 | API key | Fail closed. Bearer key, the browser's console cookie, or (with `auth.enabled`) an admin login; cookie writes need CSRF. The loopback bypass is `security.api_key_optional` plus three more conditions ([API Key Setup](#api-key-setup-soul-mutations)) |
 | Agentic writes | `agentic.enabled` ships `false`. Git writes also need `allow_git_write_tools`, which ships `false`. `real-repo-run*` is CLI-only |
 | Connectors | fsconnect scoped; sqlconnect SELECT/WITH-only; netconnect passive. All off |
-| Guardrails | Opt-in, deny-only, fail open with `guardrail_degraded` audited. Not a router |
+| Guardrails | Enabled by default, deny-only. NeMo failures use deterministic checks and audit `guardrail_degraded`. Never grants routes |
 | Channels | Off by default. Loopback `POST /query` only. OpenTweet cannot confirm a paid call |
 | launchd / tasks | No tokens in the plist or task XML. Supervised-service generators require `--confirm` and `--reason` |
 | `/ops/*` | Operator access, rate limit, audit. Subprocess argv lists preserve core import isolation |
@@ -681,7 +690,7 @@ CyClaw/
 ├── memory/                 # optional facts + episodes (default off)
 ├── agentic/                # GitHub context, real-repo loop, executor,
 │                           # fsconnect / sqlconnect / netconnect
-├── guardrails/             # opt-in rails, reached only via guardrail_bridge
+├── guardrails/             # default-on rails, reached only via guardrail_bridge
 ├── telegram/  opentweet/   # optional channels, shipped off
 ├── sync/                   # optional Dropbox pull
 ├── utils/                  # sanitizer, logger, personality, spend,

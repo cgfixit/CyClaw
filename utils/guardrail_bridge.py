@@ -21,7 +21,7 @@ def _guardrails_enabled(cfg: dict[str, Any]) -> bool:
 
     A YAML typo ``enabled: "false"`` is a non-empty string (truthy in Python).
     Using bare ``if enabled`` would import and arm the layer; require ``is True``
-    so only an explicit boolean opt-in turns the seam on.
+    so only literal True turns the seam on; the shipped config sets True.
     """
     return (cfg.get("guardrails") or {}).get("enabled", False) is True
 

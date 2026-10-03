@@ -1,5 +1,11 @@
 # NeMo Phase 5 — wrap `POST /api/agent/run` through ToolBroker
 
+> Current status, 2026-10-03: this file preserves a historical plan. The shipped
+> configuration now enables guardrails. Missing or failed NeMo checks use
+> deterministic fallback, with grounding limited to local retrieval answers.
+> Model-assisted self-check rails are declined. Use the [current reference](./README.md)
+> and [Track B verification record](../audits/2026-10-03-nemo-track-b.md).
+
 > **Status update — 2026-09-11 (doc-sync, PR #1367):** HISTORICAL. The Python coding-harness console (`harness/`, `static/harness.html`, `:8790`, every `/api/*` route named below) was removed from CyClaw; the coding console now lives in the sibling Rust project CG-agent-harness. Nothing below is a live claim.
 
 > **Status update — 2026-09-06 (docs review, Claude Code):** COMPLETE.

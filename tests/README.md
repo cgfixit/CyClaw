@@ -1,6 +1,6 @@
 # `tests/` — the CyClaw test suite
 
-Pytest suite for this directory (217 `test_*.py` files, auto-collected
+Pytest suite for this directory (219 `test_*.py` files, auto-collected
 via `testpaths = ["tests"]` in `pyproject.toml`). Test trees outside `tests/` —
 notably `tools/lora_finetune/tests/`, whose CI is `.github/workflows/lora-finetune.yml` —
 are NOT collected by `pytest tests/`; see `CLAUDE.md` §8. Ordinary tests avoid
@@ -89,7 +89,7 @@ auto-discovered and need no coverage-source entry.
 | `judge_calibrate.py` | Runs the selected judge over 36 labeled fixture answers without generating contestant answers; reports agreement, not a CI gate. |
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
-| `nemo_runtime/` | NeMo-guardrails runtime tests plus their own harness (`network_jail.py`, `mock_openai.py`); collected with the main suite and skipped unless the runtime lane is enabled. |
+| `nemo_runtime/` | Real NeMo engine, gateway HTTP acceptance, and logging privacy checks with a loopback-only harness (`network_jail.py`, `mock_openai.py`); collected with the main suite and skipped unless `CYCLAW_NEMO_RUNTIME=1`. |
 | `executor_sandbox_double.py`, `spend_live_probe.py` | Helper doubles/probes, not `test_*`-named, so not collected. |
 | `numbat_shaped_events.py` | Drives one representative event per producer family (mainline audit projection, pre-action hook verdicts, CEL monitor, ops/fsconnect/sqlconnect; not the executor or `real_repo_loop`) into a throwaway stream; `python -m tests.numbat_shaped_events --frozen --out ...` regenerates `fixtures/numbat/cyclaw-shaped-*.ndjson`. Not collected; `test_numbat_cyclaw_shaped.py` and `numbat-rules.yml`'s `numbat-stream-contract` job hold its output to the pinned Numbat CLI and schema (issue #1458). |
 

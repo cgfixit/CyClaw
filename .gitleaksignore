@@ -42,3 +42,8 @@ ce3b318e33b064035449921ba50cf203b9586d04:docs/TEST_SUITE_ANALYSIS_2026-06-20.md:
 # .gitleaksignore — intermediate fix commit that briefly re-quoted the
 # assignment-form fixture in a comment (self-match on this file).
 2c864ecbb98a9b43343b33f66e6875fcb46c5332:.gitleaksignore:generic-api-key:31
+
+# tests/nemo_runtime/test_gateway_acceptance.py — synthetic privacy canary,
+# never a credential. Renamed the constant; retain the introducing fingerprint
+# because the PR and scheduled scans include commit history.
+d3054e5cf39dfee1adecef01f87270a9c6a65b60:tests/nemo_runtime/test_gateway_acceptance.py:generic-api-key:33

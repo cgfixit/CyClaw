@@ -1,5 +1,11 @@
 # NeMo Phase 4 — query-path output rail (`guardrail_output`) design
 
+> Current status, 2026-10-03: this file preserves a historical plan. The shipped
+> configuration now enables guardrails. Missing or failed NeMo checks use
+> deterministic fallback, with grounding limited to local retrieval answers.
+> Model-assisted self-check rails are declined. Use the [current reference](./README.md)
+> and [Track B verification record](../audits/2026-10-03-nemo-track-b.md).
+
 > **Status update — 2026-09-06 (docs review, Claude Code):** SUPERSEDED by
 > `docs/NeMo/README.md`. Verified live: `check_output()` exists at
 > `guardrails/integration.py:296` and `detect_soul_leak()` at

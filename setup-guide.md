@@ -1009,17 +1009,56 @@ sampling capability by design.
 
 ## Beyond the core RAG gateway
 
-This guide only covers `gate.py` + the retrieval pipeline. CyClaw also ships
-optional layers that no step above needs, each shipped disabled and each a
-no-op until you edit `config.yaml`: a GitHub-context/governed-skills **agentic
-layer** and its real-repo coding loop, a local/SMB **filesystem connector**, a
-read-only **SQL connector**, an explicitly scoped passive **network
-connector**, a **NeMo Guardrails** content-safety layer (input rail plus an
-output grounding check when enabled), a facts + episodes **memory store**, and
-the out-of-band **Telegram** (`python -m telegram.cli`) and **OpenTweet**
-(`python -m opentweet.cli`) channels. Two subsystems do ship **on** and write
-local files only: the Numbat NDJSON projection of the audit trail, and the
-Grok/Claude spend ledger.
+### Install the optional NeMo runtime
+
+Use the Python 3.12 environment prepared above. The `guardrails` extra pins
+`nemoguardrails==0.24.0` and is not part of `full`.
+
+On Linux or Windows, after the platform's Torch installation, run:
+
+```bash
+python -m pip install -e '.[guardrails]' -c constraints.txt
+```
+
+On Apple Silicon, use the plain macOS Torch wheel and the adjusted
+constraints from [the macOS setup](#macos-apple-silicon):
+
+```bash
+python -m pip install -e '.[guardrails]' -c /tmp/constraints-macos.txt
+```
+
+Cache the retrieval models during the explicit indexing step. For an
+offline launch, set the supported model-download flags before startup:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python gate.py
+```
+
+Those flags constrain supported model loaders. They do not block all socket
+access or every fastembed CDN path. The active NeMo `check()` flows use
+Python actions and do not need an embedding download or another model call.
+The [real-engine CI lane](.github/workflows/nemo-guardrails.yml) checks that
+behavior with a loopback-only socket boundary.
+
+`python -m guardrails.cli status` reports configuration and package presence.
+The CLI `check` command is a separate diagnostic and can call NeMo's model
+through `safe_generate`; it does not exercise the gateway broker. For the
+request behavior and acceptance evidence, read the [NeMo reference](docs/NeMo/README.md)
+and [Track B verification record](docs/audits/2026-10-03-nemo-track-b.md).
+
+### Other layers
+
+CyClaw also ships a GitHub-context/governed-skills **agentic layer** and its
+real-repo coding loop, a local/SMB **filesystem connector**, a read-only **SQL
+connector**, an explicitly scoped passive **network connector**, a facts +
+episodes **memory store**, and the out-of-band **Telegram** and **OpenTweet**
+channels. Those layers ship disabled until you edit `config.yaml`.
+
+**NeMo Guardrails** ships enabled. Its dependency extra remains optional.
+Without NeMo, deterministic input and soul-leak checks still run, and the
+audit records degradation. Grounding checks apply only to retrieved local
+answers. The Numbat NDJSON projection and the Grok/Claude spend ledger also
+ship enabled and write local files.
 
 README's optional-layer table is the canonical list of what each one adds and
 what it ships as; [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) is the

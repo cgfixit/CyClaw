@@ -1,13 +1,14 @@
 """NeMo check() with guardrails.enabled true via a TEMP overlay only.
 
 Gated on CYCLAW_NEMO_RUNTIME=1 like test_nemo_runtime.py. Never mutates the
-shipped config.yaml — that file must keep guardrails.enabled boolean false.
+shipped config.yaml. The shipped flag is a literal boolean true.
 """
 
 from __future__ import annotations
 
 import copy
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -47,8 +48,7 @@ def _write_enabled_overlay(
 ) -> Path:
     """Copy repo config.yaml with guardrails.enabled: true (literal bool) only."""
     data = yaml.safe_load(SHIPPED_CONFIG.read_text(encoding="utf-8"))
-    assert data["guardrails"]["enabled"] is False
-    data["guardrails"]["enabled"] = True
+    assert data["guardrails"]["enabled"] is True
     if base_url is not None:
         data["guardrails"]["base_url"] = base_url
     if metrics_path is not None:
@@ -90,7 +90,7 @@ def test_overlay_loads_enabled_true_without_touching_shipped(tmp_path: Path) -> 
     assert gc.enabled is True
 
     shipped = yaml.safe_load(SHIPPED_CONFIG.read_text(encoding="utf-8"))
-    assert shipped["guardrails"]["enabled"] is False
+    assert shipped["guardrails"]["enabled"] is True
     assert type(shipped["guardrails"]["enabled"]) is bool
     reset_config_cache()
 
@@ -139,6 +139,38 @@ def test_get_cyclaw_guardrails_loads_through_enabled_overlay(tmp_path: Path) -> 
             rails = get_cyclaw_guardrails(cfg)
         assert rails is not None
     finally:
+        reset_rails_singleton()
+        reset_config_cache()
+
+
+def test_cached_engines_keep_independent_grounding_thresholds(tmp_path: Path) -> None:
+    from guardrails.integration import get_cyclaw_guardrails
+
+    mock = LoopbackOpenAIMock()
+    mock.start()
+    path = _write_enabled_overlay(tmp_path, base_url=mock.base_url)
+    cfg = load_guardrails_config(str(path))
+    lenient_cfg = replace(cfg, hallucination_threshold=0.2)
+    strict_cfg = replace(cfg, hallucination_threshold=0.8)
+    messages = [
+        {"role": "context", "content": {"relevant_chunks": "alpha beta"}},
+        {"role": "user", "content": "Which tokens are listed?"},
+        {"role": "assistant", "content": "alpha beta gamma delta"},
+    ]
+    reset_rails_singleton()
+    try:
+        with loopback_only():
+            lenient = get_cyclaw_guardrails(lenient_cfg)
+            assert lenient.check(messages=messages).status.name == "PASSED"
+            strict = get_cyclaw_guardrails(strict_cfg)
+            assert strict is not lenient
+            assert strict.check(messages=messages).status.name == "BLOCKED"
+            cached_lenient = get_cyclaw_guardrails(lenient_cfg)
+            assert cached_lenient is lenient
+            assert cached_lenient.check(messages=messages).status.name == "PASSED"
+        assert mock.posts == 0
+    finally:
+        mock.stop()
         reset_rails_singleton()
         reset_config_cache()
 
