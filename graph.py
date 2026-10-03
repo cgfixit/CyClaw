@@ -30,7 +30,7 @@ from retrieval.hybrid_search import HybridRetriever
 from utils.endpoint_trust import EndpointTrustError, assert_local_destination, assert_online_destination
 from utils.errors import RAGError
 from utils.external_pre_hook import run_pre_action_hook
-from utils.logger import audit_log, hash_query
+from utils.logger import audit_log, hash_query, include_query_hash
 from utils.personality import PersonalityManager
 
 logger = logging.getLogger("cyclaw.graph")
@@ -267,13 +267,8 @@ def _fallback_spend_context(state: GraphState, cfg: dict, provider: str) -> dict
             f"{provider}_fallback",
         ]
     }
-    logging_cfg = cfg.get("logging") if isinstance(cfg, dict) else None
-    audit_fields = logging_cfg.get("audit_fields") if isinstance(logging_cfg, dict) else None
-    include_hash = True
-    if isinstance(audit_fields, dict):
-        include_hash = bool(audit_fields.get("include_query_hash", True))
     query = state.get("query")
-    if include_hash and isinstance(query, str):
+    if include_query_hash(cfg) and isinstance(query, str):
         ctx["query_hash"] = hash_query(query)
     return ctx
 
