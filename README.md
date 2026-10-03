@@ -263,7 +263,7 @@ Agentic, Filesystem, and SQL panels, plus Users and Audit when auth is on.
 |---|---|---|
 | [Per-user auth](#per-user-authentication) | Passwords, sessions, device tokens, and roles | off |
 | [Memory](docs/memory/README.md) | SQLite/FTS5 facts and episodes, propose/apply, optional retrieval fusion and HTML export. Consolidation remains an inert stub | off |
-| [NeMo Guardrails](#optional-layers) | Deny-only input/output checks, deterministic fallback on NeMo failure | on; NeMo dependency optional |
+| [NeMo Guardrails](#nemo-guardrails) | Deny-only input/output checks, deterministic fallback on NeMo failure | on; NeMo dependency optional |
 | [Dropbox sync](docs/SYNC_README.md) | Out-of-band `rclone` corpus pull | CLI |
 | [Connectors](agentic/README.md) | Scoped filesystem, SELECT-only SQL, passive LAN inventory | off |
 | [Agentic loop](docs/agentic/AGENTIC_README.md) | GitHub context, skills, clone/plan/patch/verify, human decisions | off |
@@ -580,7 +580,9 @@ The browser calls subprocess shims at `/ops/fsconnect` and `/ops/sqlconnect`.
 [SQL](agentic/README.md#6-sql-connector-read-only), and
 [passive network](agentic/README.md#7-passive-network-connector).
 
-**NeMo Guardrails.** `guardrails.enabled: true` ships in `config.yaml`.
+### NeMo Guardrails
+
+`guardrails.enabled: true` ships in `config.yaml`.
 Explicit `false`, or an absent block, disables the layer. Boot rejects
 non-booleans. `utils/guardrail_bridge.py` supplies three callables or `None`,
 preserving core import isolation and graph routing.
@@ -606,32 +608,45 @@ Inspect `python -m guardrails.cli status`. See the
 [package guide](guardrails/README.md), [NeMo reference](docs/NeMo/README.md),
 and [Track B verification record](docs/audits/2026-10-03-nemo-track-b.md).
 
-**Numbat.** CyClaw calls the external CLI pinned at 0.2.0, schema 0.3.0;
+### Numbat
+
+CyClaw calls the external CLI pinned at 0.2.0, schema 0.3.0;
 it never vendors or imports it.
 
 | Piece | Switch | Default and behavior |
 |---|---|---|
 | Stream | `numbat.enabled` | On. `utils/numbat_emitter.py` writes redacted audit/out-of-band events to `logs/numbat-events.ndjsonl`, rolling at 50 MiB to one `.1`. Its bounded writer cannot hold requests |
-| Pre-action hook | `policy.fallback.pre_action_hook.enabled` | Off. Deny-only after external consent. `engine: command` uses exit 0 for allow, 2 for deny; `engine: numbat` runs `rules test --no-builtin-rules`. Missing explicit allow, including failure, denies |
-| CEL monitor | `numbat.cel.enabled`, extra `numbat-cel` | Off. Requires the stream. Records matches after HTTP `/query`; never blocks |
-| Offline scoring | None | Operator CLI and `numbat-rules.yml`. Fixture checks are advisory; stream-contract checks block CI |
+| Pre-action hook | `policy.fallback.pre_action_hook.enabled` | Off. Prepared with `engine: numbat` and maintained monitor-only rules in `config/numbat/gate/`. After external consent, `rules test --no-builtin-rules` allows monitor matches, denies enforcing matches, and denies every engine failure |
+| CEL monitor | `numbat.cel.enabled`, extra `numbat-cel` | Off. Two structured-field rules observe weak-retrieval cloud answers and hook/guardrail refusals after HTTP `/query`. Evaluation is independent of the stream switch; recording matches needs the stream. Never blocks |
+| Offline scoring | None | Operator CLI and `numbat-rules.yml`. Fixture, stream-contract, and CEL checks block CI |
 
 Nothing scores the live file during a request. Avoid `numbat hook` as the
-command engine: it drops provider/URL and exits 0 on errors. No gate rules
-ship; examples are in `tests/fixtures/numbat/gate-rules/`. Events include
+command engine: it drops provider/URL and exits 0 on errors. The maintained
+rules observe all external calls and unlisted model tags. Trial them locally
+before promoting selected rules with `enforce: true`. The CLI and CEL extra
+are absent from standard installs, so their switches remain off: enabling
+the CLI without its binary would deny every confirmed external call. Events include
 hostname, user, and uid (`N/A` on Windows). Audit and metrics preserve
 `hook_allowed`, `hook_denied`, `hook_timeout`, `hook_error`, `hook_failure`,
 and `hook_misconfigured` reason codes.
 
-`/health` reports readiness. Operator-gated `/audit/summary` exposes
+`/health` reports `pre_action_hook` readiness and, when CEL is enabled,
+`numbat_cel` dependency and rule-compilation readiness. CEL readiness does
+not promise every runtime expression succeeds or that alerts reach disk.
+Missing CEL or invalid rules degrade health while queries continue.
+Operator-gated `/audit/summary` exposes
 `pre_action_hook_last_verdict`: this process's latest codes, provider,
 engine, and timestamp, or `null` before its first verdict. Public health
 contains no decision history.
 [Pre-action gate](docs/security-philosophy/numbat_pre_action_gate.md),
 [stream](docs/security-philosophy/numbat_secondary_evaluator.md), and
-[phase status](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md).
+[phase status](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md). The combined
+[Track A acceptance record](docs/audits/2026-10-03-numbat-track-a.md) covers
+real CLI/CEL/NeMo behavior, browser checks, and the limits of the local trial.
 
-**Telegram and OpenTweet.** Disabled by default, both call loopback
+### Telegram and OpenTweet
+
+Disabled by default, both call loopback
 `POST /query` outside the core graph imports. Credentials come from the
 environment variable named in config, never YAML.
 

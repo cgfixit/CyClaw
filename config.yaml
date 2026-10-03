@@ -246,7 +246,7 @@ policy:
     #   numbat: the pinned Numbat CLI (numbat 0.2.0 / schema 0.3.0, installed
     #     separately) evaluates the call as a network.indicator event against
     #     the rules_dirs key below. A matching rule with enforce: true denies; other
-    #     matches only report. Example rules: tests/fixtures/numbat/gate-rules/.
+    #     matches only report. Starter rules: config/numbat/gate/ (monitor-only).
     # Never set command to `numbat hook ...`: it cannot see the provider or URL,
     # and it exits 0 (read as allow) on errors and most denies.
     # Guide: docs/security-philosophy/numbat_pre_action_gate.md
@@ -254,11 +254,11 @@ policy:
     # cannot run); `cyclaw-metrics` counts verdicts by reason.
     pre_action_hook:
       enabled: false
-      engine: command      # command | numbat
+      engine: numbat       # command | numbat; install the pinned CLI before enabling
       command: []          # argv list, used by engine: command
       numbat:
         binary: "numbat"   # bare name = PATH lookup; a path with a separator is a file (relative = repo root)
-        rules_dirs: []     # e.g. ["/etc/numbat/cyclaw-gate"]; required by engine: numbat
+        rules_dirs: ["config/numbat/gate"]  # maintained monitor-only starter rules
       timeout_sec: 5       # clamped to [1, 30]
       # "enforce" (a deny blocks) is the only mode; boot rejects anything else.
       # Old name fail_mode is read when this is absent. Hook failure is always
@@ -541,16 +541,15 @@ numbat:
   # to rag_query) when include_query_hash is on. answer_model is the ROLE:
   # local, offline-best-effort, grok, claude, hook-denied, guardrail-blocked,
   # external-unavailable, or "" (the confirm pause). model_provider is "" when
-  # no model ran. Two vetted samples (tests/test_numbat_cel.py runs them): the
-  # first flags an online escalation on a near-total vault miss, the second any
-  # request a control refused.
-  #   rules:
-  #     - 'answer_model in ["grok", "claude"] && top_score < 0.05'
-  #     - 'answer_model == "hook-denied" || guardrail_blocked'
+  # no model ran. The two rules below observe near-total-vault-miss cloud
+  # answers and actual control refusals. They are signals, not attack verdicts.
+  # /health reports numbat_cel readiness only when enabled.
   cel:
     enabled: false          # true/false only; boot refuses a quoted "true"
-    rules: []               # list of CEL expression strings
-    max_rule_ms: 20         # per-rule budget; log warning if exceeded
+    rules:
+      - 'answer_model in ["grok", "claude"] && top_score < 0.05'
+      - 'answer_model == "hook-denied" || guardrail_blocked'
+    max_rule_ms: 20         # warns AFTER evaluation; not an execution timeout
 
 security:
   # Opt-out from the CYCLAW_API_KEY Bearer gate (gate.py require_api_key) on

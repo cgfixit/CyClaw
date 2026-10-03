@@ -1021,3 +1021,49 @@ class TestPreActionHookReadiness:
         hook = next(s for s in statuses if s.name == "pre_action_hook")
         assert hook.healthy is False
         assert hook.error == "readiness check failed: RuntimeError"
+
+
+class TestCelReadiness:
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_missing_dependency_only_reports_when_enabled(self, tmp_path, monkeypatch, enabled):
+        import sys
+
+        monkeypatch.setitem(sys.modules, "celpy", None)
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+        path = _write_cfg(tmp_path)
+        with open(path, encoding="utf-8") as stream:
+            cfg = yaml.safe_load(stream)
+        cfg["numbat"] = {"cel": {"enabled": enabled, "rules": ["true"]}}
+        statuses = {s.name: s for s in health.check_all(path, cfg=cfg)}
+        if enabled:
+            assert asdict(statuses["numbat_cel"]) == {
+                "name": "numbat_cel", "healthy": False,
+                "latency_ms": None, "error": "CEL dependency unavailable",
+            }
+        else:
+            assert "numbat_cel" not in statuses
+
+    def test_readiness_errors_do_not_disclose_exception(self, monkeypatch):
+        def fail(cfg):
+            raise RuntimeError("secret-fixture-path")
+
+        monkeypatch.setattr("utils.numbat_cel.cel_readiness", fail)
+        status = health._cel_status({"numbat": {"cel": {"enabled": True}}})
+        assert status.healthy is False
+        assert status.error == "CEL readiness check failed"
+
+    def test_enabled_results_use_configuration_specific_cache(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: _OKResp())
+        monkeypatch.setattr("utils.numbat_cel.cel_readiness", lambda cfg: (
+            (True, None) if cfg["numbat"]["cel"]["rules"] == ["true"]
+            else (False, "CEL rules are empty or invalid")
+        ))
+        path = _write_cfg(tmp_path)
+        with open(path, encoding="utf-8") as stream:
+            cfg = yaml.safe_load(stream)
+        cfg["numbat"] = {"cel": {"enabled": True, "rules": ["true"]}}
+        first = next(s for s in health.check_all(path, cfg=cfg) if s.name == "numbat_cel")
+        cfg["numbat"]["cel"]["rules"] = []
+        second = next(s for s in health.check_all(path, cfg=cfg) if s.name == "numbat_cel")
+        assert first.healthy is True
+        assert second.healthy is False

@@ -920,7 +920,11 @@ projection writes a local NDJSON stream (`logs/numbat-events.ndjsonl`) whose
 every event carries hostname/username/uid endpoint metadata — a second
 sensitive *local* log, not telemetry (file sink only, no HTTP anywhere).
 Disable it with `numbat.enabled: false` in `config.yaml`; it never belongs in
-the env kill map.
+the env kill map. The CLI pre-action gate and the optional `numbat-cel`
+extra remain separate, disabled switches. Shipped config selects the Numbat
+engine and supplies monitor-only rules, ready for an operator trial after
+installing the pinned binary. Follow the [gate and CEL enablement guide](docs/security-philosophy/numbat_pre_action_gate.md#enabling-the-numbat-engine-for-the-pre-action-gate)
+and inspect both enabled services in `/health`.
 
 **Homebrew (macOS) is not covered by the telemetry-kill block, and is on by default.**
 Homebrew reports its own install and usage counts, independently of CyClaw.

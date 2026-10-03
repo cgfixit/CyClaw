@@ -896,7 +896,7 @@ def _readiness(cfg: dict[str, Any] | None, timeout: float) -> tuple[bool, str | 
     if check.returncode != 0:
         return False, "numbat rules check failed on the configured rules_dirs, so every external call is denied"
     try:
-        known, enforcing, active = _classify(dirs)
+        known, _enforcing, active = _classify(dirs)
     except _RulesTooLarge:
         return False, "rules_dirs is too large for the gate to read, so every external call is denied"
     except _RulesDeadline:
@@ -910,8 +910,6 @@ def _readiness(cfg: dict[str, Any] | None, timeout: float) -> tuple[bool, str | 
         return False, f"a rule uses the reserved id {CANARY_RULE_ID}, so every external call is denied"
     if not active:
         return False, "no enabled rule in rules_dirs, so every external call is denied"
-    if not enforcing:
-        return False, "no enabled enforce: true rule, so the gate cannot deny anything"
     # The checks above each have their own bound, not the hook's timeout_sec.
     # One real decision within timeout_sec shows calls can be decided in it:
     # on a slow disk, or with a short timeout_sec, every call can time out

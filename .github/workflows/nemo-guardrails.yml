@@ -1,4 +1,4 @@
-# Real NeMo 0.24 runtime proof (issue #1134 Phase 2b).
+# Real NeMo 0.24 and Numbat gateway acceptance (issues #1134 and #1486).
 # Isolated from ci.yml so later engine-hygiene PRs do not restack this file.
 # Default pytest on the main test job must keep skipping these tests.
 
@@ -38,6 +38,9 @@ jobs:
       contents: read
     env:
       CYCLAW_NEMO_RUNTIME: "1"
+      CYCLAW_REQUIRE_NUMBAT: "1"
+      CYCLAW_REQUIRE_CELPY: "1"
+      NUMBAT: /usr/local/bin/numbat
       GROK_API_KEY: dummy
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
@@ -64,6 +67,17 @@ jobs:
             constraints.txt
             pyproject.toml
 
+      - name: Install pinned Numbat 0.2.0
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-all-errors -o /tmp/numbat.tgz \
+            https://github.com/perplexityai/numbat/releases/download/v0.2.0/numbat_0.2.0_linux_amd64.tar.gz
+          echo "6513d8cec69ea4a55667b0a764b93b7cef8fe814c2ef9e2535aaf438f11f1548  /tmp/numbat.tgz" | sha256sum -c -
+          mkdir -p /tmp/cyclaw-numbat
+          tar -xzf /tmp/numbat.tgz -C /tmp/cyclaw-numbat
+          sudo install -m 0755 /tmp/cyclaw-numbat/numbat /usr/local/bin/numbat
+          test "$(numbat version)" = "numbat 0.2.0 (schema 0.3.0)"
+
       - name: Cache torch CPU wheel
         # Same pin/index as ci.yml. constraints.txt names torch==2.13.0+cpu,
         # which is not on PyPI — pip install -e ".[guardrails,test]" -c
@@ -85,15 +99,16 @@ jobs:
             --index-url https://download.pytorch.org/whl/cpu \
             --no-deps -d .torch-wheels
 
-      - name: Install torch CPU then cyclaw[guardrails,test]
+      - name: Install torch CPU then cyclaw[guardrails,numbat-cel,test]
         run: |
           python -m pip install --upgrade "pip==26.2.1"
           pip install --no-index --no-deps --find-links .torch-wheels "torch==2.13.0+cpu"
-          pip install -e ".[guardrails,test]" -c constraints.txt
+          pip install -e ".[guardrails,numbat-cel,test]" -c constraints.txt
           pip check
           python -c "import nemoguardrails; assert nemoguardrails.__version__ == '0.24.0', nemoguardrails.__version__"
+          python -c "from importlib.metadata import version; assert version('cel-python') == '0.5.0'"
 
-      - name: Real NeMo runtime and in-process gateway HTTP acceptance (loopback only)
+      - name: Real NeMo and Numbat gateway HTTP acceptance (loopback only)
         run: |
           python -m pytest tests/nemo_runtime -q --tb=short
 

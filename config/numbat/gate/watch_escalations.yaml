@@ -1,0 +1,8 @@
+id: cyclaw.gate.watch_escalations
+version: "1.0"
+title: Confirmed external LLM call (observe only)
+severity: info
+expr: |-
+  event.event_type == "network.indicator" &&
+  "pre_action_hook" in event.tags
+tags: [cyclaw_gate, egress]

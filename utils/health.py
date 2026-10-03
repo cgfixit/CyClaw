@@ -297,6 +297,9 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
         hook_status = _pre_action_hook_status(cfg)
         if hook_status is not None:
             results.append(hook_status)
+        cel_status = _cel_status(cfg)
+        if cel_status is not None:
+            results.append(cel_status)
         snapshot = tuple(results)
         with _status_lock:
             _status_cache[key] = (snapshot, time.monotonic())
@@ -309,6 +312,20 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
         with _status_lock:
             if _status_inflight.get(key) is future:
                 del _status_inflight[key]
+
+
+def _cel_status(cfg: dict[str, object]) -> HealthStatus | None:
+    """Enabled CEL evaluator readiness, independent of NDJSON projection."""
+    try:
+        from .numbat_cel import cel_readiness
+
+        verdict = cel_readiness(cfg)
+    except Exception:
+        return HealthStatus(name="numbat_cel", healthy=False, error="CEL readiness check failed")
+    if verdict is None:
+        return None
+    ready, problem = verdict
+    return HealthStatus(name="numbat_cel", healthy=ready, error=problem)
 
 
 def _pre_action_hook_status(cfg: dict[str, object]) -> HealthStatus | None:
