@@ -150,6 +150,41 @@ class TestAuditLogSerializationFailure:
         assert record["detail"] == "fine"
 
 
+class TestAuditFieldsShape:
+    """Commenting out the only key under logging.audit_fields makes YAML read
+    the block as null. audit_log used to call .get on it inside its try, so
+    every event carrying a query (rag_query, prompt_injection_blocked,
+    graph_error, ...) was dropped with a warning: an I4 hole. A malformed
+    block now keeps the hash on, as the derived streams already did."""
+
+    @pytest.mark.parametrize("audit_fields", [None, "x", []])
+    def test_malformed_block_still_writes_hashed_query(self, tmp_path, audit_fields):
+        cfg = {"logging": {"audit_file": str(tmp_path / "audit.jsonl"), "audit_fields": audit_fields}}
+        logger.audit_log({"event": "rag_query", "query": "what is RRF?"}, cfg=cfg)
+        logger.close_audit_handles()
+        record = json.loads((tmp_path / "audit.jsonl").read_text().splitlines()[0])
+        assert record["event"] == "rag_query"
+        assert record["query_hash"] == logger.hash_query("what is RRF?")
+        assert "query" not in record
+
+    @pytest.mark.parametrize(
+        ("cfg", "expected"),
+        [
+            (None, True),
+            ({}, True),
+            ({"logging": None}, True),
+            ({"logging": "x"}, True),
+            ({"logging": {}}, True),
+            ({"logging": {"audit_fields": None}}, True),
+            ({"logging": {"audit_fields": {}}}, True),
+            ({"logging": {"audit_fields": {"include_query_hash": True}}}, True),
+            ({"logging": {"audit_fields": {"include_query_hash": False}}}, False),
+        ],
+    )
+    def test_include_query_hash(self, cfg, expected):
+        assert logger.include_query_hash(cfg) is expected
+
+
 @pytest.mark.real_log_anchor
 class TestSetupLoggingPathAnchoring:
     @pytest.mark.usefixtures("isolated_logging")
