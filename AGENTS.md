@@ -176,7 +176,8 @@ prompts live under `.codex/checklists/` and `.codex/prompts/`.
 ## Git, reviews, and completion
 
 Develop on `<driver>/<topic>` (the `codex/` prefix is the Codex convention;
-any driver's prefix satisfies `.githooks` naming). Use
+`.githooks` accepts only `grok/`, `claude/`, `codex/`, `kimi/`, `agent/`,
+`CyClaw/`, or `cyclaw/`). Use
 `utils/agent_identity.py`'s driver-agnostic commit identity defaults or explicit
 environment overrides. Preserve an existing PR's remote branch when applying its
 review fixes, even if another driver created it. Never commit/push main or merge
