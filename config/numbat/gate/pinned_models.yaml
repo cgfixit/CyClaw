@@ -1,0 +1,12 @@
+id: cyclaw.gate.pinned_models
+version: "1.0"
+title: External LLM call outside the reviewed model list (observe only)
+description: |-
+  Observe a confirmed Grok/Claude call whose configured model tag is not on the
+  operator's vetted list.
+severity: high
+expr: |-
+  event.event_type == "network.indicator" &&
+  "pre_action_hook" in event.tags &&
+  !(event.model in ["grok-4.5", "claude-sonnet-5"])
+tags: [cyclaw_gate, egress]

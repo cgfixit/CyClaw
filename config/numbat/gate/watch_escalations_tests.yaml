@@ -1,0 +1,13 @@
+rule_id: cyclaw.gate.watch_escalations
+cases:
+  - name: gate-event
+    expect: match
+    events:
+      - event_type: network.indicator
+        tags: [cyclaw, pre_action_hook, claude]
+        model: claude-sonnet-5
+  - name: stream-event
+    expect: no_match
+    events:
+      - event_type: network.indicator
+        tags: [cyclaw, cel_monitor]

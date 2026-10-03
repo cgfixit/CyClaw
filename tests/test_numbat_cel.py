@@ -11,22 +11,20 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
-from utils.numbat_cel import evaluate_cel_monitor, model_provider_for_role, monitor_request
+from utils.numbat_cel import cel_readiness, evaluate_cel_monitor, model_provider_for_role, monitor_request
 from utils.numbat_emitter import _KNOWN_FIELDS, CONTENT_PREVIEW_MAX_CHARS, close_numbat_handles
 
 _REPO = Path(__file__).resolve().parent.parent
 _QUERY_HASH = "c" * 64
 
-# The two sample rules config.yaml's numbat.cel comment documents. Kept
-# verbatim here so test_sample_rules_are_the_documented_ones catches either
-# side drifting.
+# The two configured rules are opt-in; keep their contract tied to YAML.
 SAMPLE_ESCALATION_ON_MISS = 'answer_model in ["grok", "claude"] && top_score < 0.05'
 SAMPLE_CONTROL_REFUSED = 'answer_model == "hook-denied" || guardrail_blocked'
 
@@ -223,11 +221,9 @@ def test_malformed_budget_never_raises(tmp_path: Path, max_rule_ms):
     assert evaluate_cel_monitor(query_hash="abc", cfg=cfg) == [0]
 
 
-def test_sample_rules_are_the_documented_ones():
-    text = (_REPO / "config.yaml").read_text(encoding="utf-8")
-    block = text[text.index("\n  cel:\n") - 2500:text.index("\n  cel:\n")]
-    documented = re.findall(r"^\s*#\s+- '(.+)'$", block, flags=re.MULTILINE)
-    assert documented == [SAMPLE_ESCALATION_ON_MISS, SAMPLE_CONTROL_REFUSED]
+def test_sample_rules_are_the_configured_ones():
+    cfg = yaml.safe_load((_REPO / "config.yaml").read_text(encoding="utf-8"))
+    assert cfg["numbat"]["cel"]["rules"] == [SAMPLE_ESCALATION_ON_MISS, SAMPLE_CONTROL_REFUSED]
 
 
 @pytest.mark.parametrize(
@@ -276,3 +272,47 @@ def test_model_provider_for_role_uses_the_configured_local_provider():
                                  {"models": {"local_llm": {"provider": ""}}}])
 def test_model_provider_for_role_survives_malformed_config(cfg):
     assert model_provider_for_role("local", cfg) == "ollama"
+
+
+@pytest.mark.parametrize("enabled", [False, "true", 1, None])
+def test_readiness_disabled_does_not_import(tmp_path, monkeypatch, enabled):
+    monkeypatch.setitem(sys.modules, "celpy", None)
+    cfg = _cel_cfg(tmp_path, enabled=enabled, rules=["true"])
+    assert cel_readiness(cfg) is None
+
+
+def test_readiness_missing_dependency_is_visible_and_fail_open(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "celpy", None)
+    cfg = _cel_cfg(tmp_path, enabled=True, rules=["true"])
+    assert cel_readiness(cfg) == (False, "CEL dependency unavailable")
+    assert evaluate_cel_monitor(cfg=cfg) == []
+
+
+@pytest.mark.parametrize("rules", [[], None, "true"])
+def test_readiness_requires_rules(tmp_path, rules):
+    cfg = _cel_cfg(tmp_path, enabled=True, rules=rules)
+    assert cel_readiness(cfg) == (False, "CEL rules are empty or invalid")
+
+
+def test_readiness_partial_compilation_is_degraded_but_valid_rule_runs(tmp_path):
+    _need_celpy()
+    cfg = _cel_cfg(tmp_path, enabled=True, rules=["true", "secret-fixture ? !", 123])
+    assert cel_readiness(cfg) == (False, "CEL rule compilation failed")
+    assert evaluate_cel_monitor(cfg=cfg) == [0]
+
+
+def test_readiness_does_not_evaluate_context_dependent_rules(tmp_path):
+    _need_celpy()
+    cfg = _cel_cfg(tmp_path, enabled=True, rules=['source_hashes[3] == "x"'])
+    assert cel_readiness(cfg) == (True, None)
+    assert evaluate_cel_monitor(cfg=cfg, source_hashes=["a", "b", "c", "x"]) == [0]
+
+
+def test_readiness_is_independent_of_projection(tmp_path):
+    _need_celpy()
+    cfg = _cel_cfg(tmp_path, enabled=True, rules=[SAMPLE_ESCALATION_ON_MISS, SAMPLE_CONTROL_REFUSED])
+    cfg["numbat"]["enabled"] = False
+    assert cel_readiness(cfg) == (True, None)
+    assert evaluate_cel_monitor(cfg=cfg, answer_model="hook-denied") == [1]
+    monitor_request(cfg=cfg, answer_model="hook-denied")
+    assert not Path(cfg["numbat"]["output_path"]).exists()

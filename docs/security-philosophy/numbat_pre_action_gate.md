@@ -6,7 +6,8 @@ win** over this page: the engine is `utils/numbat_gate.py`, the hook runner is
 `utils/external_pre_hook.py`, and the settings live under
 `policy.fallback.pre_action_hook` in `config.yaml`. Background on Numbat in
 CyClaw: [numbat_secondary_evaluator.md](numbat_secondary_evaluator.md).
-Tracking issue: [#1458](https://github.com/cgfixit/CyClaw/issues/1458).
+Tracking issues: [#1458](https://github.com/cgfixit/CyClaw/issues/1458) and
+[Track A of #1486](https://github.com/cgfixit/CyClaw/issues/1486).
 
 ## What the CyClaw pre-action gate is
 
@@ -22,8 +23,8 @@ Two engines decide, selected by `pre_action_hook.engine`:
 
 | Engine | What decides | Deny signal |
 |---|---|---|
-| `command` (default) | the operator's argv, given JSON on stdin (`action`, `provider`, `model`, `query_hash`) | exit code 2; any other non-zero exit, crash, or timeout also denies |
-| `numbat` | the pinned Numbat CLI evaluating the proposed call against operator rules | a match of a rule marked `enforce: true`; any engine failure also denies |
+| `command` (fallback when `engine` is absent) | the operator's argv, given JSON on stdin (`action`, `provider`, `model`, `query_hash`) | exit code 2; any other non-zero exit, crash, or timeout also denies |
+| `numbat` (selected in shipped config) | the pinned Numbat CLI evaluating the proposed call against operator rules | a match of a rule marked `enforce: true`; any engine failure also denies |
 
 Once the gate is enabled, nothing but an explicit allow from the engine lets a
 call through. Enabled with an empty `command` also denies: before issue #1458
@@ -122,8 +123,10 @@ Every failure denies:
 
 Each evaluation spawns the binary twice (the version check, then `rules
 test`) within one `timeout_sec` budget. Measured end to end at a median of
-17 ms (p90 19 ms; Linux x86_64, the two example rules), against a default
-`timeout_sec` of 5.
+25.60 ms for 39 warm evaluations of the two maintained rules on macOS
+arm64, against a default `timeout_sec` of 5. The
+[2026-10-03 trial](../audits/2026-10-03-numbat-track-a.md) records cold cost,
+range, workload, and limits; this is an observation, not a performance SLA.
 
 ## Enabling the Numbat engine for the pre-action gate
 
@@ -133,8 +136,10 @@ test`) within one `timeout_sec` budget. Measured end to end at a median of
    (`.github/workflows/numbat-rules.yml`). CyClaw never vendors or imports
    Numbat; it is an external Go binary. `numbat version` must print
    `numbat 0.2.0 (schema 0.3.0)`.
-2. Copy `tests/fixtures/numbat/gate-rules/` to a directory the operator
-   controls and edit the rules. Check them, including their companion tests:
+2. The shipped `config/numbat/gate/` directory contains two monitor-only
+   rules and their companion tests, included in wheel and source packages.
+   Copy it to a directory the operator controls before customizing a policy.
+   Check it, including companion tests:
    `numbat rules check --no-builtin-rules --rules-dir <dir>`.
 3. Set the block in `config.yaml` and restart (config is read once at boot):
 
@@ -155,7 +160,8 @@ test`) within one `timeout_sec` budget. Measured end to end at a median of
    (binary missing, wrong version, rules that fail `rules check`, no enabled
    rule, a rule using the reserved id `cyclaw.gate.canary`, a rules file or
    directory it cannot read, rule directories past the read limits, a probe decision that fails or does not finish within
-   `timeout_sec`) or could never deny one (no `enforce: true` rule). The
+   `timeout_sec`). A monitor-only set is healthy: policy matches may all be
+   advisory while engine failures still deny. The
    check ends with one probe decision, a real `rules test` run within the
    hook's own `timeout_sec`, so a setup that passes every other check but is
    too slow to decide a call is not reported ready. The whole check runs
@@ -163,17 +169,43 @@ test`) within one `timeout_sec` budget. Measured end to end at a median of
    for example `enabled: "true"` as a string, an unknown engine,
    `verdict_mode: monitor`, or an enabled engine with nothing to run.
 
+## Enabling the independent CEL monitor
+
+Install the optional `numbat-cel` extra in the prepared CyClaw environment,
+using the platform-specific constraints described in the
+[setup guide](../../setup-guide.md#option-b--by-hand-step-by-step). It pins
+`cel-python==0.5.0`; neither the CLI nor CEL is included in the `full` extra.
+Set `numbat.cel.enabled: true` and restart. The shipped rules observe cloud
+answers with `top_score < 0.05`, plus hook or guardrail refusals. They consume
+structured fields after the existing HTTP `/query` graph/audit call and add
+no model calls. They never change an answer, routing, or regex sanitization.
+
+`GET /health` exposes `numbat_cel` only when enabled. Missing dependencies,
+an empty rule list, and incomplete compilation report fixed, public-safe
+errors. This is evaluator readiness, not a trial of every expression on every
+possible request: runtime evaluation errors remain fail-soft. A health check
+does not certify disk delivery. `max_rule_ms` logs slow evaluations after
+they finish; it is not an execution timeout. Keep operator expressions small.
+
+The CLI hook, CEL evaluator, and stream switches are independent. To record
+CEL matches, retain `numbat.enabled: true`; matches then appear as allowed
+`tool.result` events from `cel_monitor` in the local NDJSON file. Disabling
+the stream suppresses those events while the evaluator can remain ready.
+This local file is Track A's alert destination. No notification service or
+continuous stream consumer is installed.
+
 ## Writing rules for the CyClaw pre-action gate
 
 Gate rules are ordinary Numbat operator rules (one YAML object per file; see
 Numbat's `docs/rules.md` in the release archive). The event they see is the
 `network.indicator` described in "How the Numbat engine decides a proposed
-call". Two examples ship in `tests/fixtures/numbat/gate-rules/`, each with a
+call". Two maintained rules ship in `config/numbat/gate/`, each with a
 companion `*_tests.yaml` that `numbat rules check` runs:
 
-- `cyclaw.gate.pinned_models` (`enforce: true`) denies a call whose model tag
-  is not on a vetted list. It still holds if `config.yaml` is edited to a new
-  model: the call is denied until the tag is added to the rule too.
+- `cyclaw.gate.pinned_models` (no `enforce`) observes a call whose model tag
+  is not on the configured list. After reviewing matches and vetting the list,
+  add `enforce: true` to deny those calls. An enforcing example remains in
+  `tests/fixtures/numbat/gate-rules/` for regression coverage.
 - `cyclaw.gate.watch_escalations` (no `enforce`) matches every gated call and
   only reports it.
 

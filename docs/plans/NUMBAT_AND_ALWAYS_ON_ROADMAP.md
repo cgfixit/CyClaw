@@ -1,6 +1,6 @@
 # CyClaw × Numbat × Always-On Roadmap
 
-> **Status update — 2026-09-26, revised 2026-09-27 as #1466, #1468 and #1467 landed (issue [#1458](https://github.com/cgfixit/CyClaw/issues/1458)):**
+> **Status update — 2026-10-03, after #1466, #1468 and #1467 landed (issue [#1458](https://github.com/cgfixit/CyClaw/issues/1458)):**
 > the 2026-09-06 note that stood here was stale on two counts. Step 2 Slice A
 > (hook-verdict emission) and Step 3 Slice B (the CEL monitor) are both
 > **shipped and gated off**, and `numbat.enabled: true` means far less than it
@@ -12,7 +12,7 @@
 > | Pre-action hook before Grok/Claude (`utils/external_pre_hook.py`, `utils/numbat_gate.py`) | `policy.fallback.pre_action_hook.enabled` | off. Since #1467, `engine: numbat` has the pinned CLI evaluate each proposed call (`numbat rules test`): a matching `enforce: true` rule, or any failure, denies. The `command:` example that `config.yaml` used to suggest (`numbat hook pre-tool --agent cyclaw`) never worked: the pinned 0.2.0 CLI exits 0, which the hook reads as allow |
 > | Hook-verdict emission (Slice A) | `pre_action_hook.emit_verdict` | ships `true` since #1467, but inert while the hook is off |
 > | CEL monitor (Slice B, `utils/numbat_cel.py`) | `numbat.cel.enabled` | off; monitor-only |
-> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures, one live executor-jail run, and, since #1466, representative events from each producer family, mainline `/query` and `/ops/*` included, written by the real emitter code. Only the executor-jail run exercises a real call site end to end: `tests/numbat_shaped_events.py` feeds the emitters inputs modeled on `graph.py`, `gate.py`, `ops_runner` and the connectors, so an emit site whose arguments drift from those, or one it skips (`real_repo_loop`'s two), is not scored. Nothing scores the live stream |
+> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures, one live executor-jail run, and, since #1466, representative events from each producer family, mainline `/query` and `/ops/*` included, written by the real emitter code. The combined NeMo/Numbat runtime lane now also exercises actual gateway HTTP calls with counted synthetic providers and real evaluators. The shaped-event lane remains narrower: `tests/numbat_shaped_events.py` feeds the emitters inputs modeled on `graph.py`, `gate.py`, `ops_runner` and the connectors, so an emit site whose arguments drift from those, or one it skips (`real_repo_loop`'s two), is not scored. Nothing scores the live stream |
 >
 > Checking the live stream against the pinned CLI (Phase 4 of #1458) found that
 > the CLI **rejected** it. Every mainline `/query` event carried a
@@ -29,6 +29,14 @@
 > | 3 + 4 | Stream contract fixes (200-char previews, shell-safe commands), CEL matches recorded as allowed `tool.result` events, CI scoring of CyClaw's own emitter output (representative events per producer family) against the pinned CLI and schema, and a CEL lane with cel-python installed | [#1466](https://github.com/cgfixit/CyClaw/pull/1466), **merged 2026-09-26** |
 > | 1 + 2 | A pre-action hook engine that can gate: `engine: numbat` (`numbat rules test` over the proposed call, `enforce: true` rules deny, every failure denies), fail-closed empty command, `verdict_mode`, `/health` readiness, verdict reasons in metrics, allow verdicts in the stream | [#1467](https://github.com/cgfixit/CyClaw/pull/1467), **merged 2026-09-27** |
 > | 5 | Scoring the rolling stream out of band, and any enforce from it | not started; needs its own dual-run observation issue |
+
+Track A of [#1486](https://github.com/cgfixit/CyClaw/issues/1486) adds maintained
+monitor-only gate rules, prepared CEL observations, evaluator readiness in
+`/health`, and combined gateway acceptance. The
+[2026-10-03 verification record](../audits/2026-10-03-numbat-track-a.md) records
+the local trial and Computer Use checks. Both optional evaluators remain off
+in shipped config because their dependencies are not installed by default.
+The NDJSON file is the selected alert destination; Phase 5 remains separate.
 
 Status: living plan
 Related PR: feat/numbat-audit-ndjson-v1 (mainline audit-trail projection)

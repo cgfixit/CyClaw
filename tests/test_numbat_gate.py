@@ -1413,13 +1413,18 @@ class TestAgainstThePinnedCli:
     def test_readiness_passes_with_the_example_rules(self, tmp_path, numbat_bin):
         assert numbat_gate.readiness(self._cfg(tmp_path, numbat_bin)) == (True, None)
 
-    def test_readiness_flags_a_rule_set_that_cannot_deny(self, tmp_path, numbat_bin):
+    def test_readiness_accepts_a_monitor_only_trial(self, tmp_path, numbat_bin):
         monitor_only = tmp_path / "monitor-only"
         monitor_only.mkdir()
         shutil.copy(GATE_RULES / "watch_escalations.yaml", monitor_only)
         ready, problem = numbat_gate.readiness(self._cfg(tmp_path, numbat_bin, [str(monitor_only)]))
-        assert ready is False
-        assert "enforce" in problem
+        assert (ready, problem) == (True, None)
+        result = numbat_gate.evaluate(
+            "grok", "grok-4.5", "a" * 64,
+            self._cfg(tmp_path, numbat_bin, [str(monitor_only)]), timeout=5,
+        )
+        assert result["verdict"] == "allow"
+        assert result["monitor_matches"] == ["cyclaw.gate.watch_escalations"]
 
     def test_numbat_hook_cannot_gate_cyclaw_calls(self, tmp_path, numbat_bin):
         """Why config.yaml says never to set ``command`` to ``numbat hook ...``.

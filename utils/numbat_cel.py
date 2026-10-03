@@ -62,7 +62,8 @@ def model_provider_for_role(answer_model: str | None, cfg: dict[str, Any] | None
 def _cel_cfg(cfg: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(cfg, dict):
         return {}
-    block = (cfg.get("numbat") or {}).get("cel") or {}
+    numbat = cfg.get("numbat")
+    block = numbat.get("cel") if isinstance(numbat, dict) else None
     return block if isinstance(block, dict) else {}
 
 
@@ -90,6 +91,32 @@ def _compile_rules(rules: list[Any]) -> list[tuple[int, Any]]:
         except Exception as exc:  # noqa: BLE001 - one bad rule must not break others
             logger.warning("numbat.cel.rules[%d] failed to compile: %s", idx, exc)
     return compiled
+
+
+def cel_readiness(cfg: dict[str, Any] | None) -> tuple[bool, str | None] | None:
+    """Report enabled evaluator availability and compilation of every rule.
+
+    Does not evaluate synthetic inputs: valid rules can depend on populated
+    request fields. Runtime evaluation and asynchronous alert delivery are
+    separate; disabling the Numbat projection does not disable this evaluator.
+    """
+    block = _cel_cfg(cfg)
+    if block.get("enabled") is not True:
+        return None
+    rules = block.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return False, "CEL rules are empty or invalid"
+    try:
+        import celpy  # noqa: F401 - distinguish missing dependency from bad rules
+    except Exception:
+        return False, "CEL dependency unavailable"
+    try:
+        compiled = _compile_rules(rules)
+    except Exception:
+        return False, "CEL rule compilation failed"
+    if len(compiled) != len(rules):
+        return False, "CEL rule compilation failed"
+    return True, None
 
 
 def _max_rule_ms(raw: Any) -> float:
