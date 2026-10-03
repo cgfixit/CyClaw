@@ -1022,23 +1022,32 @@ sampling capability by design.
 
 ## Beyond the core RAG gateway
 
-### Install the optional NeMo runtime
+### Verify the installed NeMo runtime
 
-Use the Python 3.12 environment prepared above. The `guardrails` extra pins
-`nemoguardrails==0.24.0` and is not part of `full`.
+`nemoguardrails==0.24.0` is a required base dependency for pip, editable and
+wheel installations, the requirements recipe, Conda, and Docker. The empty
+`guardrails` extra keeps existing `.[guardrails]` commands valid. `full` and
+`all` include NeMo through the base dependency.
 
-On Linux or Windows, after the platform's Torch installation, run:
+Existing environments must rerun their platform's dependency installation
+from this guide. On macOS, retain the plain Torch wheel and adjusted
+constraints. For Conda, update from `environment.yml` before registering
+CyClaw again. Rebuild container images and recreate running containers.
+Changing `guardrails.enabled` alone never installs the engine.
+
+Verify the resulting environment without adding any extra:
 
 ```bash
-python -m pip install -e '.[guardrails]' -c constraints.txt
+python -m pip check
+python -m guardrails.verify_install
 ```
 
-On Apple Silicon, use the plain macOS Torch wheel and the adjusted
-constraints from [the macOS setup](#macos-apple-silicon):
-
-```bash
-python -m pip install -e '.[guardrails]' -c /tmp/constraints-macos.txt
-```
+The second command constructs the production NeMo engine and checks benign
+and injection inputs plus grounded and ungrounded outputs against the shipped
+rules. It fails on missing packages, initialization errors, unexpected verdicts,
+or attempted Python socket access. Deterministic fallback cannot pass this check.
+Runtime engine failure still retains deterministic protection and records
+degradation. It does not refuse gateway startup.
 
 Cache the retrieval models during the explicit indexing step. For an
 offline launch, set the supported model-download flags before startup:
@@ -1067,7 +1076,7 @@ connector**, an explicitly scoped passive **network connector**, a facts +
 episodes **memory store**, and the out-of-band **Telegram** and **OpenTweet**
 channels. Those layers ship disabled until you edit `config.yaml`.
 
-**NeMo Guardrails** ships enabled. Its dependency extra remains optional.
+**NeMo Guardrails** ships enabled and its engine is a required base dependency.
 Without NeMo, deterministic input and soul-leak checks still run, and the
 audit records degradation. Grounding checks apply only to retrieved local
 answers. The Numbat NDJSON projection and the Grok/Claude spend ledger also

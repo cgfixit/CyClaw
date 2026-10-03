@@ -45,37 +45,34 @@ dependency-install `RUN` that redirects stderr or branches on `||`.
 This is the distinction most reviews get wrong, and getting it wrong produces
 *false* drift findings — "package X is in `constraints.txt` but not
 `requirements.txt`, that's drift" is usually the checker being wrong, not the
-tree. Verified against the repo, 2026-09-28:
+tree:
 
 | Surface | What it installs | Extras? |
 |---|---|---|
-| `pip install -r requirements.txt -c constraints.txt` | Base runtime + torch CPU. 18 requirement lines (test tools live in `requirements-test.txt`, kept out of the Docker image). Header declares itself a **legacy compatibility surface**, kept in sync with `pyproject.toml`/`constraints.txt` for the Dockerfile and legacy CI/tools | **None.** Zero extras, by design |
-| `pip install -e ".[<extra>]" -c constraints.txt` | The 16 base deps in `pyproject.toml` `[project.dependencies]`, plus whichever of the 11 extras are named | **Yes — the only surface that can install one** |
+| `pip install -r requirements.txt -c constraints.txt` | Base runtime, NeMo, and torch CPU (test tools live in `requirements-test.txt`, kept out of the Docker image). Header declares itself a **legacy compatibility surface**, kept in sync with `pyproject.toml`/`constraints.txt` for the Dockerfile and legacy CI/tools | **None.** Zero extras, by design |
+| `pip install -e ".[<extra>]" -c constraints.txt` | The base dependencies in `pyproject.toml` `[project.dependencies]`, plus whichever extras are named | **Yes — the only surface that can install one** |
 | `Dockerfile` (+ `docker-compose.yml`, `.dockerignore`, `.github/workflows/publish-ghcr.yml`) | Runs `pip install --upgrade pip==<ci pin>`, then the CPU torch wheel, then `pip install --no-cache-dir -r requirements.txt -c constraints.txt` — one path, no `||` branch, no stderr redirect. Compose runs the image (loopback publish, runtime-state mounts), `.dockerignore` shapes the build context, `publish-ghcr.yml` ships the image compose pulls — E5/E6 pin the four files to each other | **None** — it *is* surface #1, containerized |
-| `conda env create -f environment.yml` | Base runtime + test/dev tools from conda-forge, plus a 5-package `pip:` tail (`langgraph`, `rank-bm25`, `websockets`, `onnxruntime`, `sqlite-vec`) | **None** |
+| `conda env create -f environment.yml` | Base runtime + test/dev tools from conda-forge, plus a `pip:` tail for NeMo, Chroma/FastAPI/Starlette, and the remaining PyPI packages | **None** |
 
 Two consequences that drive every judgement in this skill:
 
 **`constraints.txt` is not an install surface.** It is a version ceiling applied
 *to* the other three. It legitimately pins packages that **no** surface installs
-by default — every extras-only package (`deepagents`, `nemoguardrails`,
+by default — every extras-only package (`deepagents`,
 `psycopg`, `pgvector`, `langchain-openai`, `langchain-anthropic`,
 `langchain-xai`) plus pinned transitives. A package present in `constraints.txt`
 and absent from `requirements.txt` is the **designed** state, not drift. The
 drift-shaped question is the reverse: a package installed by a surface but
 *unpinned* in `constraints.txt`.
 
-**`environment.yml` deliberately diverges from the pip pins.** Two of those
-divergences are packaging constraints `dep-guard` already knows:
-`fastapi=0.115.9` where the pip path is `0.141.1`, and
-`opentelemetry-exporter-otlp-proto-grpc>=1.42` where the pip path has no such
-line. Both are conda-forge constraints (chromadb=1.5.9's conda build
-hard-pins fastapi; its OTel floor is a 2022-era range that solves into a
-protobuf-incompatible exporter), documented inline at the pin. Further
-exceptions (FastAPI, Starlette, setuptools) are commented on their
-pins in that file. Do **not** "reconcile" the fastapi or exporter lines
-toward the pip values — that reds the conda lane. `dep-guard` already knows
-about those two; re-flagging them is noise.
+**Conda installs Chroma, FastAPI, Starlette, and NeMo from PyPI.**
+Their pins match the base metadata. The older conda-forge Chroma build forced
+an incompatible FastAPI pin, so this trio now lives in the `pip:` subsection.
+The exporter floor and Conda PyTorch/setuptools packaging limits remain
+documented in `environment.yml`. Verify the installed environment with
+`python -m pip check` and `python -m guardrails.verify_install` without adding
+an extra. The smoke requires the real engine, shipped rules, exact allow/refuse
+verdicts, and no audited Python socket calls. Fallback success is not NeMo verification.
 
 ---
 
@@ -88,7 +85,7 @@ python3 .claude/skills/dep-guard/check_deps.py
 ```
 
 Run this first — it's the fast, authoritative check for pyproject.toml
-`<->` constraints.txt `<->` environment.yml agreement (D1-D10) and the
+`<->` constraints.txt `<->` environment.yml agreement (D1-D11) and the
 load-bearing pin invariants (pydantic lock-step, numpy `<2`, torch `+cpu`,
 uvicorn no-extras). Don't re-implement any of this; if it fails, fix that
 first — the rest of this skill assumes clean pins to start from.
@@ -187,13 +184,10 @@ warnings, 2 on a failure; `--strict` promotes warnings to a failure.
 directly; both survived only as hard transitives of `sentence-transformers`/
 `fastapi`) and have since been promoted to explicit pins in
 `pyproject.toml`/`constraints.txt`/`requirements.txt` — real resolved
-versions from a fresh-venv install, not guessed. `huggingface_hub` is also
-mirrored into `environment.yml`; `starlette` deliberately is not, because
-`environment.yml`'s `fastapi` is pinned older (`0.115.9`, forced by
-conda-forge's `chromadb` build — see the comment there) than the pip path's
-`0.141.1`, and forcing the pip-resolved `starlette==1.6.0` alongside it could
-easily demand a pairing `fastapi==0.115.9` was never built against. Any name
-this check reports going forward is a new finding, not a known one.
+versions from a fresh-venv install, not guessed. Both pins also appear in
+`environment.yml`. FastAPI and Starlette now come from PyPI with Chroma so
+Conda matches the base package metadata. Any new name this check reports
+requires investigation.
 
 `pyodbc` is a *third* undeclared import and is **intentional**, so it lives in
 `_IMPORT_ALLOWLIST` with its reason rather than being reported:

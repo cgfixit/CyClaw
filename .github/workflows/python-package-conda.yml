@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -79,7 +78,8 @@ jobs:
       shell: bash -leo pipefail {0}
       run: |
         python -m pip install -e ".[test,dev]" --no-deps
-        # If heavy deps live in environment.yml, they are already resolved by mamba
+        python -m pip check
+        python -m guardrails.verify_install
 
     - name: Prepare hermetic test env
       shell: bash -leo pipefail {0}

@@ -17,7 +17,7 @@
 #     file parser treats a project as PEP 621 when either `project.dependencies`
 #     or `project.optional-dependencies` is present, and parses both
 #     (python/lib/dependabot/python/file_parser/pyproject_files_parser.rb).
-#     So every optional extra — guardrails (nemoguardrails), postgres, pgvector,
+#     So every optional extra — postgres, pgvector,
 #     agentic-deepagents (deepagents + langchain + the Claude SDK),
 #     agentic-deepagents-cloud (the Grok SDK), dev, test — is in scope for
 #     version updates via the pip-all group below. No extra config is needed.

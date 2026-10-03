@@ -371,19 +371,6 @@ def run_ci_pin_checks(root: Path, torch_pin: str | None) -> None:
 _ENV_YML_FILE = "environment.yml"
 # Not pip packages -- the manifests have nothing to compare them against.
 _ENV_SKIP = {"python", "pip"}
-# Documented, deliberate environment.yml/pip divergences -- advisory, never a
-# failure, but ONLY for the exact (env_version, manifest_version) pair named
-# here. A name-only exception would keep matching after an unrelated future
-# edit -- e.g. a further pip-side bump, or a conda pin accidentally
-# downgraded -- silently reporting "intentional" for a pair nobody signed off
-# on. Each entry is (env_version, manifest_version, reason); any other pair
-# for that name falls through to the normal mismatch check below.
-# - fastapi: conda-forge's chromadb=1.5.9 build hard-pins fastapi==0.115.9 (a
-#   packaging constraint documented in environment.yml itself, not a CyClaw
-#   choice).
-_ENV_DOCUMENTED_DIVERGENCE = {
-    "fastapi": ("0.115.9", "0.141.1", "conda-forge chromadb build pins it"),
-}
 # Two pin forms in the file: conda deps ("  - name=1.2.3", single '=') and the
 # pip: sublist ("      - name==1.2.3"). The conda pattern anchors the version
 # on a leading digit so it cannot half-match a pip '==' line.
@@ -417,15 +404,6 @@ def run_environment_pin_check(root: Path, py_reqs: list[Req], con_reqs: list[Req
         manifest_version = manifest_pin.get(name)
         if manifest_version is None:
             continue
-        divergence = _ENV_DOCUMENTED_DIVERGENCE.get(name)
-        if divergence is not None:
-            documented_env, documented_manifest, reason = divergence
-            if env_version == documented_env and manifest_version == documented_manifest:
-                info("D9", f"{name}={env_version} diverges on purpose "
-                           f"({reason}; documented in {_ENV_YML_FILE})")
-                continue
-            # Same name, but the versions moved past what was signed off on --
-            # treat as an ordinary mismatch instead of silently re-approving it.
         compared += 1
         if env_version != manifest_version:
             mismatches.append(f"{name}: environment.yml={env_version} "
@@ -501,6 +479,46 @@ def run_coverage_source_check(root: Path, pyproject: dict) -> None:
             ok("D10", f"{rel} measures every pyproject coverage source ({len(source)} entries)")
 
 
+def run_nemo_base_check(root: Path, pyproject: dict) -> None:
+    """D11: normal installations carry the pinned engine, including Conda's pip tail."""
+    print("D11 NeMo is a required base dependency")
+    expected = "nemoguardrails==0.24.0"
+    project = pyproject.get("project", {})
+    surfaces = {"pyproject.toml base": project.get("dependencies", [])}
+    for filename in ("requirements.txt", "requirements-test.txt"):
+        path = root / filename
+        surfaces[filename] = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    environment = root / "environment.yml"
+    pip_requirements: list[str] = []
+    in_pip = False
+    if environment.exists():
+        for line in environment.read_text(encoding="utf-8").splitlines():
+            if line.strip() == "- pip:":
+                in_pip = True
+                continue
+            if in_pip and line.strip() and not line.lstrip().startswith("#"):
+                if not line.startswith("      "):
+                    in_pip = False
+                else:
+                    pip_requirements.append(line.strip().removeprefix("- "))
+    surfaces["environment.yml pip"] = pip_requirements
+    for label, lines in surfaces.items():
+        nemo_lines = [line for line in lines if (req := _parse_req(line)) and req.name == "nemoguardrails"]
+        nemo = [_parse_req(line) for line in nemo_lines]
+        if label == "requirements-test.txt":
+            if nemo:
+                fail("D11", "nemoguardrails belongs in base requirements, not requirements-test.txt")
+        elif (
+            len(nemo) != 1 or nemo[0].spec != "==0.24.0" or nemo[0].extras
+            or ";" in nemo_lines[0].split("#", 1)[0]
+        ):
+            fail("D11", f"{label} must install {expected} exactly once")
+        else:
+            ok("D11", f"{label} installs {expected}")
+    if project.get("optional-dependencies", {}).get("guardrails") != []:
+        fail("D11", "guardrails must remain an empty compatibility extra")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--repo-root", type=Path, default=None)
@@ -544,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
     run_ci_pin_checks(root, torch_pin)
     run_environment_pin_check(root, py_reqs, con_reqs)
     run_coverage_source_check(root, pyproject)
+    run_nemo_base_check(root, pyproject)
 
     strict_fail = args.strict and _warns
     print(f"\n{len(_fails)} failure(s), {len(_warns)} warning(s)"

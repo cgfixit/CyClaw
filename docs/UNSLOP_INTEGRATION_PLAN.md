@@ -303,7 +303,7 @@ twice in this codebase (`graph.py` for the input and output rails):
 Uses the same literal-boolean enablement contract as `guardrails:`
 (`utils/guardrail_bridge.py`): only boolean `True` enables the layer, and startup
 rejects strings such as `enabled: "false"`. Unslop v1 remains disabled, like
-`memory:` and `telegram:`. NeMo Guardrails now ships enabled with an optional
+`memory:` and `telegram:`. NeMo Guardrails ships enabled with a required base
 engine dependency; that default does not change Unslop
 ([current NeMo reference](NeMo/README.md)).
 

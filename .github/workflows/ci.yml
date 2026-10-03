@@ -42,7 +42,6 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
 
 # Cancel superseded runs: when new commits are pushed to the same PR/branch,
 # in-progress runs for that ref are cancelled instead of running to completion
@@ -109,7 +108,9 @@ jobs:
           file: ./Dockerfile
           push: false
           load: true
-          tags: ghcr.io/cgfixit/cyclaw:ci-readiness
+          tags: |
+            cyclaw:ci
+            ghcr.io/cgfixit/cyclaw:ci-readiness
           platforms: linux/amd64
           cache-from: type=gha
           # cache-to omitted on purpose: mode=max on this torch-heavy image
@@ -155,6 +156,12 @@ jobs:
           assert "synthetic logger probe" in log_path.read_text()
           log_path.unlink()
           print("UID 1000 mount writes and application logger passed")'
+
+      - name: Verify the final runtime image without network access
+        if: steps.changes.outputs.docker_changed == 'true'
+        run: |
+          docker run --rm --network none cyclaw:ci python -m pip check
+          docker run --rm --network none cyclaw:ci python -m guardrails.verify_install
 
   # Fast, no-heavy-deps gates that run before the expensive matrix below.
   # Neither needs torch/chromadb/sentence-transformers, so both finish in
@@ -306,12 +313,9 @@ jobs:
     # consult the packaging list), which is why this job builds and inspects
     # the wheel itself rather than doing an editable install.
     #
-    # Ubuntu-only and dependency-free by design: the wheel is pure Python, so
-    # its contents do not vary by OS, and unzipping it answers "is the module
-    # present at the path the entry point names" without installing torch.
-    name: Wheel packaging (entry points resolvable)
+    name: Wheel packaging (entry points + NeMo runtime)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -338,6 +342,7 @@ jobs:
         run: |
           python - <<'PY'
           import sys, tomllib, zipfile
+          from email.parser import BytesParser
           from pathlib import Path
 
           pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
@@ -345,7 +350,15 @@ jobs:
           wheels = sorted(Path("dist").glob("*.whl"))
           if len(wheels) != 1:
               sys.exit(f"expected exactly one wheel in dist/, found {[w.name for w in wheels]}")
-          names = set(zipfile.ZipFile(wheels[0]).namelist())
+          with zipfile.ZipFile(wheels[0]) as wheel:
+              names = set(wheel.namelist())
+              metadata_path = next(name for name in names if name.endswith(".dist-info/METADATA"))
+              metadata = BytesParser().parsebytes(wheel.read(metadata_path))
+          requirements = metadata.get_all("Requires-Dist", [])
+          assert "nemoguardrails==0.24.0" in requirements, requirements
+          assert "guardrails" in metadata.get_all("Provides-Extra", [])
+          for required in ("guardrails/verify_install.py", "guardrails/config/config.yml", "guardrails/config/rails.co", "config.yaml"):
+              assert required in names, required
 
           missing = []
           for script, target in sorted(scripts.items()):
@@ -370,6 +383,16 @@ jobs:
               )
           print(f"\nall {len(scripts)} entry points present in {wheels[0].name}")
           PY
+
+      - name: Install and verify the wheel outside the source checkout
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-install"
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --upgrade "pip==26.2.1"
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install dist/*.whl -c constraints.txt
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip check
+          "$RUNNER_TEMP/wheel-install/bin/python" -m guardrails.verify_install
 
   dependency-review:
     name: dependency-review

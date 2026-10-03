@@ -33,7 +33,7 @@ fi
 # Helper: fresh temp with both pin files, so the checker has what it needs.
 _mktree() {
   local d; d="$(mktemp -d)"
-  cp "$repo_root/pyproject.toml" "$repo_root/constraints.txt" "$d/"
+  cp "$repo_root/pyproject.toml" "$repo_root/constraints.txt" "$repo_root/requirements.txt" "$repo_root/requirements-test.txt" "$repo_root/environment.yml" "$d/"
   echo "$d"
 }
 
@@ -182,5 +182,32 @@ for stale_pin in sentence-transformers=6.0.1 ruff=0.16.7; do
   fi
   echo "mutation stale $stale_pin: PASS"
 done
+for surface in pyproject.toml requirements.txt environment.yml; do
+  d="$(_mktree)"
+  sed -i.bak '/nemoguardrails==0.24.0/d' "$d/$surface"
+  out="$(python3 "$checker" --repo-root "$d" 2>&1)"; rc=$?
+  rm -rf "$d"
+  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q 'FAIL  \[D11\]'; then
+    echo "NeMo missing from $surface: FAIL" >&2; echo "$out" >&2; exit 1
+  fi
+  echo "NeMo missing from $surface: PASS (D11 rejects constraint-only installation)"
+done
 
-echo "== dep-guard verify: OK =="
+d="$(_mktree)"
+printf '\nnemoguardrails==0.24.0\n' >> "$d/requirements-test.txt"
+out="$(python3 "$checker" --repo-root "$d" 2>&1)"; rc=$?
+rm -rf "$d"
+if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q 'FAIL  \[D11\]'; then
+  echo 'NeMo in test-only requirements: FAIL' >&2; echo "$out" >&2; exit 1
+fi
+echo 'NeMo in test-only requirements: PASS (D11 rejects runtime dependency)'
+
+d="$(_mktree)"
+sed -i.bak "s/^nemoguardrails==0.24.0$/nemoguardrails==0.24.0; sys_platform == 'linux'/" "$d/requirements.txt"
+out="$(python3 "$checker" --repo-root "$d" 2>&1)"; rc=$?
+rm -rf "$d"
+if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q 'FAIL  \[D11\]'; then
+  echo 'Conditional NeMo requirement: FAIL' >&2; echo "$out" >&2; exit 1
+fi
+echo 'Conditional NeMo requirement: PASS (D11 rejects a platform-only install)'
+echo '== dep-guard verify: OK =='

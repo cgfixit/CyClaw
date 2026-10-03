@@ -848,7 +848,7 @@ netconnect:
 # Defense in depth; graph edges stay the sole source of routing. Reached
 # only through utils/guardrail_bridge.py; gate.py, graph.py and mcp_hybrid_server.py
 # never import this package. CLI: `python -m guardrails.cli`. nemoguardrails is
-# optional: without it the offline heuristic rails run, and a skipped check() is
+# a required base dependency. If it fails, offline heuristic rails run; a skipped check() is
 # audited as guardrail_degraded. See docs/NeMo/README.md.
 guardrails:
   enabled: true                 # false = pure pass-through on /query. true arms:

@@ -26,7 +26,7 @@ Current contracts that old guidance often misses:
 - Auth Stage 3 is wired to `/query` only when auth is enabled; same-origin is
   always enforced. API-key optional bypass has peer/proxy/origin conditions.
 - Hybrid, both providers, and guardrails ship enabled. Auth, memory, and agentic
-  master switches ship off. NeMo remains an optional dependency with deterministic
+  master switches ship off. NeMo is a required base dependency with deterministic
   fallback. Read actual config before changing or reporting these switches.
 - Darwin dotenv loaders pin `/usr/bin/stat`, enforce 600/400, preserve source
   failure status for fallback, and restore the prior allexport state.

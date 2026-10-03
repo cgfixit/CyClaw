@@ -110,7 +110,7 @@ echo "env drift mutation (E1 split tool pin): PASS (exit 2)"
 #    the BASE surface. Also asserts the comment-vs-requirement distinction —
 #    requirements.txt mentions extras in prose and must not trip on that.
 d="$(mktemp -d)"
-printf '# nemoguardrails lives in the guardrails extra, not here\nhttpx==0.28.1\n' > "$d/requirements.txt"
+printf '# deepagents lives in its optional extra, not here\nhttpx==0.28.1\n' > "$d/requirements.txt"
 printf 'pytest==9.1.1\n' > "$d/requirements-test.txt"
 printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nRUN pip install --no-cache-dir torch==1 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt -c constraints.txt\n' > "$d/Dockerfile"
 out="$(python3 "$drift" --repo-root "$d" 2>&1)"; rc=$?
@@ -118,7 +118,7 @@ if [ "$rc" -ne 0 ]; then
   echo "env drift mutation (E4 comment is not an install): FAIL — a commented package must not trip E4, got rc=$rc" >&2
   echo "$out" >&2; rm -rf "$d"; exit 1
 fi
-printf 'nemoguardrails==0.19.0\n' >> "$d/requirements.txt"
+printf 'deepagents==0.6.12\n' >> "$d/requirements.txt"
 out="$(python3 "$drift" --repo-root "$d" 2>&1)"; rc=$?
 rm -rf "$d"
 if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "installs extras-only package"; then

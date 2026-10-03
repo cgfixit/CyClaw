@@ -19,13 +19,17 @@ These are selected profiles, not three files that must contain identical text:
 | `requirements.txt` + `constraints.txt` | Legacy and base container runtime: CPU Torch and core dependencies including load-bearing `websockets`; no test tools or opt-in extras. |
 | `requirements-test.txt` + `constraints.txt` | Test tools installed alongside the runtime profile for CI/development; excluded from the base Docker image. |
 | `Dockerfile` | Consumes the legacy constrained surface above; it is not an independent dependency manifest. |
-| `environment.yml` | Conda base/test/dev profile with documented Conda-only FastAPI and Starlette exceptions. |
+| `environment.yml` | Conda base/test/dev profile; Chroma, FastAPI, Starlette, and NeMo come from PyPI at the base metadata pins. |
 | Platform installers | Linux/Windows install `torch==...+cpu` from the PyTorch CPU index; macOS installs plain Torch then filters Linux-only Torch/index lines from copied manifests. |
 
 The root `environment.yml` is the Conda profile. The same basename under
 `.github/workflows/` is a workflow_dispatch no-op and is included in actionlint.
 `constraints.txt` is a version ceiling, not an install list. Do not add a fake
 `torch-cpu` extra or require all profiles to be byte-for-byte equal.
+
+NeMo is a required base dependency. Verify normal installs with `python -m pip check`
+and `python -m guardrails.verify_install` without adding an extra. The latter
+requires a real engine and shipped-rule allow/refuse results; fallback cannot pass.
 
 ## Workflow
 

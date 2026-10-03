@@ -19,7 +19,7 @@ server binds to `127.0.0.1:8787`.
   an enabled admin's login also works when per-user auth is on.
 - Audit records hash questions by default. The spend ledger records tokens
   and computes dollars at read time. `cyclaw-metrics` joins both offline.
-- Guardrails ship enabled. The optional NeMo package adds live `check()`
+- Guardrails ship enabled. Every base installation includes NeMo for live `check()`
   execution; missing or failed checks retain deterministic protection and
   record degradation. Auth, memory, connectors, the agentic loop, and
   Telegram/X channels ship disabled. The Numbat stream and spend ledger ship on.
@@ -79,10 +79,10 @@ and [Linux](setup-guide.md#linux-bash).
 Confirm: `curl http://127.0.0.1:8787/health`, then open
 `http://127.0.0.1:8787/`.
 
-These base installs use the enabled deterministic guardrails. To add the
-NeMo engine, follow the [optional runtime install](setup-guide.md#install-the-optional-nemo-runtime).
-It is separate from the base requirements and the `full` extra. Missing NeMo
-records `guardrail_degraded` in audit while the fallback checks remain active.
+These base installs include the enabled NeMo engine. Follow the
+[installation verification](setup-guide.md#verify-the-installed-nemo-runtime)
+after updating existing environments. Missing or failed NeMo checks record
+`guardrail_degraded` in audit while deterministic protection remains active.
 
 > **Manual macOS install differs in one step.** There is no `+cpu` torch
 > wheel for macOS. Install plain `torch==2.13.0` from stripped copies of
@@ -263,7 +263,7 @@ Agentic, Filesystem, and SQL panels, plus Users and Audit when auth is on.
 |---|---|---|
 | [Per-user auth](#per-user-authentication) | Passwords, sessions, device tokens, and roles | off |
 | [Memory](docs/memory/README.md) | SQLite/FTS5 facts and episodes, propose/apply, optional retrieval fusion and HTML export. Consolidation remains an inert stub | off |
-| [NeMo Guardrails](#nemo-guardrails) | Deny-only input/output checks, deterministic fallback on NeMo failure | on; NeMo dependency optional |
+| [NeMo Guardrails](#nemo-guardrails) | Deny-only input/output checks, deterministic fallback on NeMo failure | on; NeMo installed with base dependencies |
 | [Dropbox sync](docs/SYNC_README.md) | Out-of-band `rclone` corpus pull | CLI |
 | [Connectors](agentic/README.md) | Scoped filesystem, SELECT-only SQL, passive LAN inventory | off |
 | [Agentic loop](docs/agentic/AGENTIC_README.md) | GitHub context, skills, clone/plan/patch/verify, human decisions | off |
@@ -591,7 +591,7 @@ preserving core import isolation and graph routing.
 |---|---|
 | Offline graph input | Local and best-effort paths. Returns `block_message` through `audit_logger` without a model call |
 | Offline graph output | `local_llm` only. Replaces answers below `hallucination_threshold` (0.18) or matching soul-leak markers |
-| NeMo `check()` | Wraps all four answer nodes when the optional `nemoguardrails==0.24.0` dependency is installed. Input refusal skips generation; output refusal replaces the answer |
+| NeMo `check()` | Wraps all four answer nodes using the required `nemoguardrails==0.24.0` engine. Input refusal skips generation; output refusal replaces the answer |
 | Broker fallback | Missing, failed, or unsupported live verdicts run deterministic input and soul-leak checks on every answer route. Grounding remains `local_llm` only |
 
 Active `/query` rails call Python checks and add no model calls. The real
@@ -602,9 +602,9 @@ NeMo failures audit `guardrail_degraded`; a fallback refusal also records
 safe error without retrying generation. `logs/guardrails.jsonl` records
 allowlisted metrics and query hashes separately from the authoritative audit.
 
-Install the optional extra using the platform constraints in the
-[setup guide](setup-guide.md#install-the-optional-nemo-runtime).
-Inspect `python -m guardrails.cli status`. See the
+Rerun the platform dependency installation for existing environments, then run
+`python -m pip check` and `python -m guardrails.verify_install`. See the
+[setup guide](setup-guide.md#verify-the-installed-nemo-runtime),
 [package guide](guardrails/README.md), [NeMo reference](docs/NeMo/README.md),
 and [Track B verification record](docs/audits/2026-10-03-nemo-track-b.md).
 

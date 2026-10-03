@@ -31,7 +31,7 @@ grepping.
 | `m5-48gb-coding-expectations.md` | Local-model doctrine for the shipped Ollama tag: context budget, timeouts, and the no-stall arithmetic. The only doc `doc-sync`'s D7 check cross-references against `config.yaml` + `macos/ollama-mlx.env`. |
 | `ARCHIVE_AND_ROADMAP.md` | Where moved documents went, and the forward-looking roadmap. |
 | [`online-llm/readme.md`](online-llm/readme.md) | Provider contracts, consent, and billing. |
-| [`NeMo/README.md`](NeMo/README.md), [`../guardrails/README.md`](../guardrails/README.md) | Default-enabled guardrails, optional NeMo installation, deterministic fallback, route scope, and inactive model-assisted rails. The dated [Track B record](audits/2026-10-03-nemo-track-b.md) separates runtime, Computer Use, and CI evidence. |
+| [`NeMo/README.md`](NeMo/README.md), [`../guardrails/README.md`](../guardrails/README.md) | Default-enabled guardrails, required NeMo installation, deterministic fallback, route scope, and inactive model-assisted rails. The dated [Track B record](audits/2026-10-03-nemo-track-b.md) separates runtime, Computer Use, and CI evidence. |
 | [`security-philosophy/numbat_pre_action_gate.md`](security-philosophy/numbat_pre_action_gate.md), [`security-philosophy/numbat_secondary_evaluator.md`](security-philosophy/numbat_secondary_evaluator.md) | The default-off deny-only external-call hook and the separate default-on observation stream. |
 | [`../retrieval/README.md`](../retrieval/README.md), [`audits/2026-09-26-reranker-bakeoff.md`](audits/2026-09-26-reranker-bakeoff.md) | Token chunking, paired index generations, context-window gating, and the evidence for leaving reranker scores in shadow mode. |
 

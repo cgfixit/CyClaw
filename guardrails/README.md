@@ -5,7 +5,7 @@ routing authority (topology = policy). This package adds input checks and
 output grounding; it does not decide vault-hit vs fallback.
 
 Ships enabled through `guardrails.enabled: true` in `config.yaml`. The NeMo
-dependency remains optional. Explicit boolean `false`, or an absent block,
+engine is installed with the base dependencies. Explicit boolean `false`, or an absent block,
 leaves both graph nodes as pass-through and prevents the bridge from importing
 this package. Any non-boolean value (`"true"`, `"false"`, `1`) stops boot
 with a `ConfigError`, and an unknown rail name in `input_rails`,
@@ -40,10 +40,13 @@ are suppressed before import; CyClaw's bounded diagnostics remain visible.
 
 ## Install and CLI
 
-The base requirements and `full` extra omit `nemoguardrails`. Install the
-pinned `guardrails` extra with the platform-specific constraints in the
-[setup guide](../setup-guide.md#install-the-optional-nemo-runtime) to use the
-NeMo engine. Without it, the enabled deterministic floor still runs.
+Base requirements install `nemoguardrails==0.24.0` on pip, Conda, and Docker.
+The empty `guardrails` extra keeps old install commands valid. Existing
+environments must rerun their dependency installation. Follow the platform
+constraints and [offline startup instructions](../setup-guide.md#verify-the-installed-nemo-runtime).
+Run `python -m pip check` and `python -m guardrails.verify_install` to require
+a real engine and exact allow/refuse results from the shipped rules.
+Runtime failures still retain the deterministic floor and record degradation.
 
 ```bash
 python -m guardrails.cli status

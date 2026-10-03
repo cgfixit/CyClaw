@@ -50,7 +50,7 @@ reset an unknown or dirty checkout to match remote.
 Check live switches before describing availability. Shipped mode is hybrid with
 both external providers enabled, but each external answer still needs
 confirmation. Auth, memory, and agentic master switches ship off. Guardrails
-ships on; NeMo is an optional dependency, with deterministic checks on degradation.
+ships on; NeMo is a required base dependency, with deterministic checks on runtime degradation.
 The Numbat NDJSON projection ships on, and that is all of Numbat that does: its
 pre-action hook and CEL monitor ship off, and nothing scores the stream at
 runtime. The Numbat CLI runs in CI and, only when the hook's opt-in

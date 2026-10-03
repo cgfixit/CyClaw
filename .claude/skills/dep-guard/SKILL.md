@@ -52,8 +52,9 @@ It checks (severity in brackets):
 | D6 | FAIL | every exact metadata pin has a matching constraint; only Torch adds the `+cpu` local tag |
 | D7 | INFO | `chromadb` pin is CVE-2026-45829 risk-accepted, embedded `PersistentClient` only (SECURITY.md) — do not "fix" it |
 | D8 | FAIL/WARN | every CI workflow and install script that hardcodes a torch version agrees with the manifest pin (FAIL); stale doc / `.osv-scanner.toml` references are WARN |
-| D9 | FAIL | `environment.yml` (conda CI lane) pins agree with the pip manifests — `fastapi` exempt (conda-forge's chromadb build pins it; documented in the file itself) |
+| D9 | FAIL | `environment.yml` (conda CI lane) pins agree with the pip manifests |
 | D10 | FAIL | every workflow `--cov=` flag set covers every `[tool.coverage.run] source` entry — the check that catches a coverage source added to pyproject but not to `ci.yml`/the conda lane (or a stale doc count of the sources) |
+| D11 | FAIL | NeMo 0.24.0 is unconditional in all three base manifests, absent from test-only requirements, and `guardrails` remains an empty compatibility extra |
 
 ### Step 2 — Interpret failures
 

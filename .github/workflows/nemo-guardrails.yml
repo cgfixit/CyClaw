@@ -80,7 +80,7 @@ jobs:
 
       - name: Cache torch CPU wheel
         # Same pin/index as ci.yml. constraints.txt names torch==2.13.0+cpu,
-        # which is not on PyPI — pip install -e ".[guardrails,test]" -c
+        # which is not on PyPI — pip install -e ".[numbat-cel,test]" -c
         # constraints.txt fails ResolutionImpossible without this wheel first
         # (run 33070991796).
         id: torch-wheel-cache
@@ -99,13 +99,13 @@ jobs:
             --index-url https://download.pytorch.org/whl/cpu \
             --no-deps -d .torch-wheels
 
-      - name: Install torch CPU then cyclaw[guardrails,numbat-cel,test]
+      - name: Install torch CPU then cyclaw[numbat-cel,test]
         run: |
           python -m pip install --upgrade "pip==26.2.1"
           pip install --no-index --no-deps --find-links .torch-wheels "torch==2.13.0+cpu"
-          pip install -e ".[guardrails,numbat-cel,test]" -c constraints.txt
+          pip install -e ".[numbat-cel,test]" -c constraints.txt
           pip check
-          python -c "import nemoguardrails; assert nemoguardrails.__version__ == '0.24.0', nemoguardrails.__version__"
+          python -m guardrails.verify_install
           python -c "from importlib.metadata import version; assert version('cel-python') == '0.5.0'"
 
       - name: Real NeMo and Numbat gateway HTTP acceptance (loopback only)

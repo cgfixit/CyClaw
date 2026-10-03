@@ -144,6 +144,8 @@ ENV GH_NO_UPDATE_NOTIFIER=1 \
     POWERSHELL_UPDATECHECK=Off \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+RUN --network=none python -m pip check && python -m guardrails.verify_install
+
 EXPOSE 8787
 
 # Simple healthcheck (assumes /health in gate.py)

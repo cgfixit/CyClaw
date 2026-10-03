@@ -42,6 +42,7 @@ onnxruntime==1.30.0
 rank-bm25==0.2.2
 numpy==1.26.4
 nltk==3.10.3
+nemoguardrails==0.24.0
 # Optional Postgres / pgvector / mssql backends (NOT installed by default — the base
 # install stays SQLite + ChromaDB, offline-first). Enable via the pyproject extras instead:
 #   pip install 'cyclaw[postgres]' -c constraints.txt   # soul DB + rate limiter over Postgres (CYCLAW_DB_URL)

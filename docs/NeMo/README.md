@@ -1,7 +1,7 @@
 # NeMo Guardrails current reference
 
 `guardrails.enabled: true` ships in `config.yaml`. The layer adds deterministic
-checks and, when the optional dependency is installed, NeMo `check()` around
+checks and NeMo `check()` around
 each existing model call. The graph remains the routing authority.
 
 Missing, failed, or unsupported NeMo verdicts fall back to deterministic
@@ -159,11 +159,13 @@ CyClaw's bounded diagnostics remain visible under `cyclaw.guardrails`.
 Increasing the application's third-party log level does not expose the
 NeMo event stream through the root logger.
 
-## Optional dependency and engine construction
+## Required installation and engine construction
 
-The `guardrails` extra pins `nemoguardrails==0.24.0`, also constrained in
-`constraints.txt`. The extra is not in `full`, and imports remain optional.
-See [installation and offline launch](../../setup-guide.md#install-the-optional-nemo-runtime).
+Every base installation includes `nemoguardrails==0.24.0`, including `full`
+and `all`. The empty `guardrails` extra remains a compatibility alias.
+Imports stay soft so engine failure retains deterministic protection and
+records degradation. Required installation does not make engine availability
+a startup requirement. See [installation and offline launch](../../setup-guide.md#verify-the-installed-nemo-runtime).
 
 `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` constrain supported loaders
 after retrieval models have been cached. They are not a network firewall
@@ -188,6 +190,14 @@ optional digests. Strict digest checking is off by default. CI does not
 download model weights.
 
 ## Verification commands
+
+Run `python -m pip check` and `python -m guardrails.verify_install` after the
+normal platform install. The strict smoke constructs the production engine
+and requires exact input and output verdicts from the shipped rules without
+audited Python socket calls. Fallback checks cannot satisfy it. CI runs this on Linux,
+Windows, macOS, Conda, the installed wheel outside the checkout, and Docker.
+The Dockerfile runs it in the final stage before GHCR can publish an image.
+
 
 The real-engine lane in
 [`.github/workflows/nemo-guardrails.yml`](../../.github/workflows/nemo-guardrails.yml)

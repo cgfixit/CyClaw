@@ -8,12 +8,14 @@ on:
       - 'requirements.txt'
       - 'requirements-test.txt'
       - 'constraints.txt'
-      # pyproject.toml (and commented out in requirements) is where EVERY optional extra lives (guardrails,
-      # postgres, pgvector, agentic-deepagents, agentic-deepagents-cloud, dev,
+      # pyproject.toml declares every optional extra (postgres, pgvector,
+      # agentic-deepagents, agentic-deepagents-cloud, dev,
       # test). Without it here, adding or bumping an optional dependency
       # changed no triggering path and this workflow never ran on the change.
       - 'pyproject.toml'
       - '.github/workflows/pip-audit.yml'
+      - 'guardrails/**'
+      - 'config.yaml'
   pull_request:
     paths:
       - 'requirements.txt'
@@ -21,6 +23,8 @@ on:
       - 'constraints.txt'
       - 'pyproject.toml'
       - '.github/workflows/pip-audit.yml'
+      - 'guardrails/**'
+      - 'config.yaml'
   workflow_dispatch:
 
 permissions:
@@ -40,13 +44,14 @@ env:
 
 jobs:
   verify-install:
-    name: verify-install (${{ matrix.os }})
+    name: verify-install (${{ matrix.os }}, ${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        profile: [requirements, editable]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -105,13 +110,21 @@ jobs:
             --no-deps -d .torch-wheels
 
       - name: Install with constraints (reproducible gate)
+        env:
+          INSTALL_PROFILE: ${{ matrix.profile }}
         if: runner.os != 'macOS'
         shell: bash
         run: |
           pip install --no-index --no-deps --find-links .torch-wheels "torch==2.13.0+cpu"
-          pip install -r requirements.txt -r requirements-test.txt -c constraints.txt
+          if [ "$INSTALL_PROFILE" = requirements ]; then
+            pip install -r requirements.txt -c constraints.txt
+          else
+            pip install -e . -c constraints.txt
+          fi
 
       - name: Install with constraints (macOS -- plain torch, no +cpu suffix)
+        env:
+          INSTALL_PROFILE: ${{ matrix.profile }}
         if: runner.os == 'macOS'
         shell: bash
         # torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu for
@@ -127,16 +140,19 @@ jobs:
           pip install "torch==2.13.0"
           grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > /tmp/requirements-macos.txt
           sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
-          pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt
+          if [ "$INSTALL_PROFILE" = requirements ]; then
+            pip install -r /tmp/requirements-macos.txt -c /tmp/constraints-macos.txt
+          else
+            pip install -e . -c /tmp/constraints-macos.txt
+          fi
 
       - name: Verify dependency consistency + smoke imports
         shell: bash
         run: |
           python -m pip check
-          mkdir -p data/personality index logs
-          echo '# Soul' > data/personality/soul.md
           echo 'GROK_API_KEY=dummy' >> "$GITHUB_ENV"
-          python -c "import chromadb, langgraph, fastapi; print('Core imports OK on ${{ matrix.os }}')"
+          python -c "import chromadb, langgraph, fastapi; print('Core imports OK')"
+          python -m guardrails.verify_install
 
   scan:
     needs: verify-install
@@ -273,11 +289,11 @@ jobs:
     # -- that is the declared scope contract, enforced by
     # .claude/skills/verify-deps/check_env_drift.py check E4. Every optional
     # capability therefore had zero CVE coverage:
-    # NeMo Guardrails, the deepagents agentic-coding stack, the Grok and Claude
+    # The deepagents agentic-coding stack, the Grok and Claude
     # cloud SDKs, and the Postgres/pgvector backends. This job closes that.
     #
     # Deliberately NOT merged into the `scan` job: the extras are opt-in and
-    # some (nemoguardrails, deepagents) drag large transitive trees, so keeping
+    # deepagents pulls a large transitive tree, so keeping
     # them separate means a resolution problem in an optional stack cannot mask
     # or block the base-runtime audit that actually gates every install.
     name: scan-optional (extras CVE scan)

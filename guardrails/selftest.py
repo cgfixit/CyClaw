@@ -5,7 +5,8 @@ configuration and deterministic checks work in this environment. It exercises th
 NeMo-config presence check, the soul/personality heuristics, the grounding
 check, and the metrics recorder -- WITHOUT a running LLM. A missing
 ``nemoguardrails`` package is reported as SKIP (counts as pass), because the
-dependency is optional and the enabled layer falls back to deterministic checks.
+enabled layer falls back to deterministic checks. This diagnostic does not
+verify the required engine installation; use ``python -m guardrails.verify_install`` for that.
 """
 
 from __future__ import annotations

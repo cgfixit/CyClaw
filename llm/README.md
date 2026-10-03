@@ -31,7 +31,7 @@ recorded to `logs/spend.jsonl` — see [`spend/README.md`](../spend/README.md).
 The gateway ships with `guardrails.enabled: true`. `graph.py` calls these
 clients through the callable injected by `utils/guardrail_bridge.py`, which
 checks input before generation and output afterward on all four answer
-routes. Missing or failed optional NeMo checks use deterministic input and
+routes. Missing or failed NeMo checks use deterministic input and
 soul-leak checks and audit `guardrail_degraded`. Grounding applies only to
 retrieved local answers. Active rails add no model calls. An unexpected
 wrapper failure returns `GUARDRAIL_ERROR` without replaying generation;
