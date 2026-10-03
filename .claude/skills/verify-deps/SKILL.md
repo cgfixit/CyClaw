@@ -72,7 +72,7 @@ divergences are packaging constraints `dep-guard` already knows:
 line. Both are conda-forge constraints (chromadb=1.5.9's conda build
 hard-pins fastapi; its OTel floor is a 2022-era range that solves into a
 protobuf-incompatible exporter), documented inline at the pin. Further
-exceptions (sentence-transformers, starlette, ruff) are commented on their
+exceptions (FastAPI, Starlette, setuptools) are commented on their
 pins in that file. Do **not** "reconcile" the fastapi or exporter lines
 toward the pip values — that reds the conda lane. `dep-guard` already knows
 about those two; re-flagging them is noise.

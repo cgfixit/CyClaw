@@ -407,7 +407,16 @@ is installed (`pip install -e .`). The install above installs
 following this guide exactly they are `command not found`. Every `python -m …`
 form in this guide is chosen because it needs no self-install; add
 `pip install -e . -c constraints.txt` after step 3 if you want the short names
-(use `-c /tmp/constraints-macos.txt` on macOS).
+(use `-c /tmp/constraints-macos.txt` on macOS). Package metadata pins Torch's
+public release to `2.13.0`; it cannot select the CPU wheel index. Keep the
+platform's Torch pre-install and constraints steps for editable and wheel installs.
+
+The `all` aggregate adds guardrails, cloud SDKs, and CEL to `full`. Both exclude
+`mssql`, which is an explicit native-driver opt-in. Before installing `.[mssql]`
+with the same platform constraints, install the native unixODBC driver manager
+on macOS/Linux and Microsoft's SQL Server ODBC driver for your platform.
+Windows uses its system ODBC driver manager. Installing the Python `pyodbc`
+package alone does not provide these native prerequisites.
 
 Use `python gate.py` (or `cyclaw-server`) for normal startup: `gate.main()`
 applies the bind guard, TLS configuration, port override, and

@@ -16,6 +16,8 @@ dependencies = [
     # dep-guard D1 lock-step check reads the pair from constraints.txt, not pyproject.
     "chromadb==1.5.9",  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
     "sentence-transformers==6.1.0",
+    # Public release admits the platform build; CPU selection stays in the install recipe.
+    "torch==2.13.0",
     # huggingface_hub and starlette are imported directly by first-party source
     # (retrieval/embeddings.py, gate.py) but were, until now,
     # only implicit transitives of sentence-transformers/fastapi respectively --
@@ -72,6 +74,7 @@ postgres = [
 pgvector = [
     "pgvector==0.5.0",
 ]
+# Native ODBC prerequisites are operator-installed; excluded from full and all.
 mssql = [
     "pyodbc==5.3.0",
 ]
@@ -135,13 +138,9 @@ full = [
     "cyclaw[test]",
     "cyclaw[agentic-deepagents]",
 ]
-# Literally every optional extra, for exercising every gated feature in one
-# install (manual smoke-testing, a from-scratch dev box). NOT what CI/dev boxes
-# install -- that's `full` above, which deliberately excludes the two extras
-# added here for the documented reasons on each: `guardrails` because
-# fastembed's default remote-CDN model fetch cuts against the offline-first
-# posture, `agentic-deepagents-cloud` because a machine that never touches
-# cloud providers shouldn't carry their SDK. Choosing `all` opts into both.
+# Broad optional-feature aggregate for manual smoke testing. Extends full with
+# guardrails, cloud SDKs, and the CEL backend. MSSQL remains a separate opt-in
+# because it requires an operator-installed ODBC driver manager and SQL Server driver.
 all = [
     "cyclaw[full]",
     "cyclaw[guardrails]",

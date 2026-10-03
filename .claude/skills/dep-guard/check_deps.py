@@ -173,18 +173,17 @@ def run_checks(py_reqs: list[Req], con_reqs: list[Req]) -> None:
         else:
             ok("D2", f"numpy held < 2 ({', '.join(sorted({r.spec for r in numpy_reqs}))})")
 
-    # ── D3 torch is the CPU build ───────────────────────────────────────────
-    print("D3 torch pinned to a +cpu build")
-    torch_reqs = [r for r in all_reqs if r.name == "torch"]
-    if not torch_reqs:
-        info("D3", "torch not pinned in these files (optional torch-cpu extra may live elsewhere)")
+    print("D3 torch public release in metadata, +cpu build in constraints")
+    py_torch = py_by_name.get("torch")
+    con_torch = con_by_name.get("torch")
+    py_torch_v = _pin(py_torch.spec) if py_torch else None
+    con_torch_v = _pin(con_torch.spec) if con_torch else None
+    if py_torch_v is None or not re.fullmatch(r"\d+\.\d+\.\d+", py_torch_v):
+        fail("D3", "pyproject must pin torch to an exact public release without a local build tag")
+    elif con_torch_v != f"{py_torch_v}+cpu":
+        fail("D3", f"constraints.txt must pin torch=={py_torch_v}+cpu to match the public release")
     else:
-        bad = [r.spec for r in torch_reqs if "+cpu" not in r.spec]
-        if bad:
-            fail("D3", "torch pin(s) missing the +cpu local build tag: " + ", ".join(bad)
-                       + " — the default index pulls a CUDA wheel (CLAUDE.md §4)")
-        else:
-            ok("D3", f"torch pinned CPU-only ({', '.join(sorted({r.spec for r in torch_reqs}))})")
+        ok("D3", f"torch=={py_torch_v} metadata matches the {con_torch_v} CPU constraint")
 
     # ── D4 uvicorn carries no extras in constraints.txt ─────────────────────
     print("D4 uvicorn has no [extra] in constraints.txt (pip >= 26.1.2 rejects it)")
@@ -223,13 +222,14 @@ def run_checks(py_reqs: list[Req], con_reqs: list[Req]) -> None:
             mismatches.append(f"{name}: pyproject=={py_v} missing from constraints.txt")
             continue
         con_v = _pin(con_req.spec)
-        if con_v != py_v:
+        expected = f"{py_v}+cpu" if name == "torch" else py_v
+        if con_v != expected:
             mismatches.append(f"{name}: pyproject=={py_v} vs constraints=={con_req.spec or 'unversioned'}")
     if mismatches:
         fail("D6", "constraints.txt contradicts pyproject (its header says they MUST match): "
                    + "; ".join(mismatches))
     else:
-        ok("D6", "every exact pyproject pin is constrained at the same version")
+        ok("D6", "every exact pyproject pin matches its constraint (Torch adds only +cpu)")
 
     # ── D7 chromadb CVE posture (advisory) ──────────────────────────────────
     print("D7 chromadb pin (risk-accepted CVE, advisory)")
@@ -381,24 +381,8 @@ _ENV_SKIP = {"python", "pip"}
 # - fastapi: conda-forge's chromadb=1.5.9 build hard-pins fastapi==0.115.9 (a
 #   packaging constraint documented in environment.yml itself, not a CyClaw
 #   choice).
-# - sentence-transformers: an upstream-availability gap, not a design choice
-#   -- conda-forge's feedstock has not published a build past 6.0.1 yet
-#   (confirmed 2026-09-21 as a live mamba solve failure in the conda CI lane
-#   the moment the pip pin moved to 6.1.0). Drop this entry once conda-forge
-#   catches up and environment.yml's pin is bumped back in step.
-# - ruff: an upstream-availability gap, not a design choice -- conda-forge's
-#   feedstock has not published a build past 0.16.7 yet (confirmed 2026-09-21
-#   as a live mamba solve failure in this exact CI lane the moment the pip
-#   pin moved to 0.16.8). Drop this entry once conda-forge catches up.
 _ENV_DOCUMENTED_DIVERGENCE = {
-    # NOTE: the pip-side fastapi pin here (0.141.1) has already moved past the
-    # 0.139.2 environment.yml's own comment still names -- a drift the old
-    # name-only exception was silently swallowing. Re-verify conda-forge's
-    # chromadb=1.5.9 build still hard-pins fastapi==0.115.9 (this PR did not
-    # re-check that) before trusting this pair long-term.
     "fastapi": ("0.115.9", "0.141.1", "conda-forge chromadb build pins it"),
-    "sentence-transformers": ("6.0.1", "6.1.0", "conda-forge feedstock has no build past 6.0.1 yet"),
-    "ruff": ("0.16.7", "0.16.8", "conda-forge feedstock has no build past 0.16.7 yet"),
 }
 # Two pin forms in the file: conda deps ("  - name=1.2.3", single '=') and the
 # pip: sublist ("      - name==1.2.3"). The conda pattern anchors the version
@@ -544,6 +528,9 @@ def main(argv: list[str] | None = None) -> int:
     py_reqs = _load_pyproject_reqs(pyproject)
     con_reqs = _load_constraints_reqs(constraints_text)
     run_checks(py_reqs, con_reqs)
+    base_reqs = [_parse_req(line) for line in pyproject.get("project", {}).get("dependencies", [])]
+    if not any(req is not None and req.name == "torch" for req in base_reqs):
+        fail("D3", "torch must be a base dependency, not only an optional extra")
 
     # D8 needs the resolved torch pin (constraints.txt wins; D6 above already
     # enforces it agrees with pyproject when both pin it).

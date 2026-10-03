@@ -100,7 +100,8 @@ the Linux Quick Start, or [Docker](docs/DOCKER.md). The GHCR image targets
 `linux/amd64`; publish only on host `127.0.0.1`. Use native Apple Silicon
 until an arm64 image is verified.
 
-`pip install -e .` creates `cyclaw-server`, `cyclaw-index`, `cyclaw-mcp`,
+A self-install using the [constrained platform recipe](setup-guide.md)
+creates `cyclaw-server`, `cyclaw-index`, `cyclaw-mcp`,
 `cyclaw-metrics`, `cyclaw-user`, `cyclaw-gen-cert`, and `cyclaw-clear-cache`.
 Without it, use the corresponding `python -m …` commands.
 
