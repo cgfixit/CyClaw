@@ -18,6 +18,7 @@ import csv
 import io
 import os
 import re
+from contextlib import suppress
 from typing import Any, Literal
 
 from agentic.sqlconnect.config import SqlConnectConfig
@@ -551,7 +552,10 @@ class SqlClient:
             # SET statement_timeout cannot take a bind parameter; set_config can.
             cur.execute("SELECT set_config('statement_timeout', %s, false)", (str(timeout_ms),))
         else:  # mssql / pyodbc: query timeout is in seconds on the connection
-            with suppress_attr_error():
+            # Best-effort knob: a driver without a settable timeout keeps its
+            # default. The read-only session is enforced fail-closed separately
+            # (_enforce_read_only).
+            with suppress(AttributeError):
                 conn.timeout = max(1, timeout_ms // 1000)
 
     def _enforce_read_only(self, driver: Any, conn: Any) -> None:
@@ -673,20 +677,6 @@ class SqlClient:
         # ident is allow-list-validated + driver-quoted; no untrusted text reaches SQL.
         sql = f"SELECT count(*) AS row_count FROM {ident}"  # noqa: S608
         return {"op": "row_count", "table": table, **self._execute(sql)}
-
-
-class suppress_attr_error:  # pragma: no cover - trivial helper used only in live path
-    """Context manager: ignore AttributeError when a driver lacks a conn attr.
-
-    Only for best-effort knobs (e.g. ``conn.timeout``); the read-only session
-    itself is enforced fail-closed by :meth:`SqlClient._enforce_read_only`.
-    """
-
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, exc_type: object, *_: object) -> bool:
-        return exc_type is AttributeError
 
 
 __all__ = ["SqlClient", "_rows_to_csv", "assert_read_only_sql", "validate_identifier", "quote_identifier"]
