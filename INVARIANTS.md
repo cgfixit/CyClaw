@@ -10,8 +10,10 @@ holds only by convention so you do not mistake a comment for an enforcement.
 Authority order (from `CLAUDE.md`): running code wins over `config.yaml` wins over
 docs. This file describes the code as it actually behaves, cross-checked against
 `docs/audits/2026-07-08-due-diligence-invariants.md` (the original findings) and
-resynced against the tree on 2026-09-28. Every "proven by" reference is a test in
-`tests/test_due_diligence_invariants.py` unless another file is named.
+resynced against the tree on 2026-10-03 (every claim and named test re-checked;
+no rule changed since 2026-09-28). Every "proven by" reference is a test in
+`tests/test_due_diligence_invariants.py` unless another file is named. `CLAUDE.md`
+§2 summarizes Rule 6's API-key bypass and defers to this file for the detail.
 
 Before editing any of the three surfaces, run:
 
