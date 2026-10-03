@@ -1315,7 +1315,9 @@ class TestAuditSummaryEndpoint:
         test_client, _ = client
         import gate
         monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
+        # expanduser reads HOME on POSIX and USERPROFILE on Windows.
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         (tmp_path / "audit_home.jsonl").write_text(
             json.dumps({"event": "rag_query", "top_score": 0.9,
                         "retrieval_mode": "hybrid", "model_used": "local"}) + "\n"
