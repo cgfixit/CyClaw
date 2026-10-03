@@ -467,7 +467,7 @@ Ollama produces `unverified`. Dogfood is not a GitHub Actions job.
 
 ## Current development
 
-Documentation follows [`origin/main` at `43fe809b`](https://github.com/cgfixit/CyClaw/commit/43fe809bc39e49e7d8476fb54a0bbe149521aaf8).
+Documentation follows [`origin/main` at `ba74653`](https://github.com/cgfixit/CyClaw/commit/ba7465354754a554cb7bd6b3fa711709dbf47fce).
 As of 2026-10-03, these changes have **merged and shipped** (#1521, #1522, #1523, #1524):
 
 | PR (merged) | Change |
