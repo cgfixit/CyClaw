@@ -111,7 +111,7 @@ That test reads the same `envline_vectors.tsv` the shell verifier checks.
 - CI runs this as the blocking `dotenv-guard` job next to `invariant-guard`.
   The verify-skills matrix also runs `verify.sh`, but that matrix is
   advisory (`continue-on-error`).
-- Draft #1507 should reuse `ENVLINE_SPEC.md` and `envline_vectors.tsv` rather
-  than a second assignment dialect. The K4/K5 baseline entries that name
-  `~/.CyClaw/.env`, the checkout `.env`, and the zshrc source are owned by
-  that PR; do not edit them here.
+- The shell loaders and this checker share `ENVLINE_SPEC.md` and
+  `envline_vectors.tsv`. The five K4/K5 baseline rows for the default
+  plaintext write and the raw zshrc source were removed with that behavior.
+  Do not put them back.
