@@ -197,6 +197,46 @@ def _git_env() -> dict[str, str]:
     return {name: os.environ[name] for name in _GIT_ENV_ALLOWLIST if name in os.environ}
 
 
+# write_file refuses `.git`, but it is not the only writer: real-repo verification
+# runs model-proposed checks (pytest etc.) with cwd at the clone root, and the
+# macOS Seatbelt profile allows writes to that whole subtree while Linux confines
+# only the network. A check could therefore plant `.git/hooks/post-commit` or a
+# `core.fsmonitor`/`diff.external`/`filter.*` entry in `.git/config`, and the next
+# `git status`/`diff`/`commit`/`push` here would run it unsandboxed -- before
+# human approval in real-repo-run-status's case (#1526 F1). Two controls, both
+# applied on every _run_git:
+#   1. Command-scope overrides (GIT_CONFIG_COUNT outranks repo config) that point
+#      hooksPath at a fresh empty directory and turn fsmonitor off, so a planted
+#      hook never runs (--no-verify alone does not skip post-commit/pre-push).
+#   2. An allowlist over the clone's own `.git/config` keys. A fresh `gh repo
+#      clone` plus this module's checkout/push only ever produce these keys; any
+#      other key (a command-bearing driver, include.path, pushurl, url rewrites,
+#      extensions.worktreeConfig, ...) means something outside this module
+#      wrote the file, so every git operation is refused rather than guessing
+#      which keys are dangerous. Operator-owned global/system config stays
+#      trusted -- push needs its credential helper -- the same posture as
+#      _GIT_ENV_ALLOWLIST keeping HOME.
+_LOCAL_CONFIG_ALLOWED_RE = re.compile(
+    r"core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|"
+    r"precomposeunicode|symlinks|quotepath)"
+    r"|extensions\.objectformat"
+    r"|remote\.origin\.(url|fetch|gh-resolved)"
+    r"|branch\.[^\x00\n]+\.(remote|merge)"
+    r"|lfs\.repositoryformatversion"
+)
+
+
+def _hardened_git_env(hooks_dir: str) -> dict[str, str]:
+    """Command-scope config that disables hooks and fsmonitor for one git call."""
+    return {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "core.hooksPath",
+        "GIT_CONFIG_VALUE_0": hooks_dir,
+        "GIT_CONFIG_KEY_1": "core.fsmonitor",
+        "GIT_CONFIG_VALUE_1": "false",
+    }
+
+
 def _resolve_git_binary() -> str:
     binary = shutil.which("git")
     if not binary:
@@ -560,16 +600,21 @@ class RepoWorkspaceTools:
             # nothing here widens _GIT_ENV_ALLOWLIST itself.
             env.update(extra_env)
         try:
-            completed = subprocess.run(  # noqa: S603 -- argv list, no shell, fixed binary
-                [binary, *argv],
-                cwd=str(self._dest),
-                env=env,
-                capture_output=True,
-                text=True,
-                encoding=output_encoding,
-                timeout=timeout_sec,
-                check=False,
-            )
+            # A fresh empty directory per call: nothing a check wrote earlier
+            # can be sitting in it.
+            with tempfile.TemporaryDirectory(prefix="cyclaw-git-nohooks-") as hooks_dir:
+                env.update(_hardened_git_env(hooks_dir))
+                self._check_local_git_config(tool, binary, env)
+                completed = subprocess.run(  # noqa: S603 -- argv list, no shell, fixed binary
+                    [binary, *argv],
+                    cwd=str(self._dest),
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    encoding=output_encoding,
+                    timeout=timeout_sec,
+                    check=False,
+                )
         except subprocess.TimeoutExpired as exc:
             self._audit("agentic_repo_workspace_git_failed", op=tool, reason="timeout")
             raise AgenticError(f"git {tool} timed out after {timeout_sec}s", details={"tool": tool}) from exc
@@ -587,6 +632,38 @@ class RepoWorkspaceTools:
             )
         self._audit("agentic_repo_workspace_git_ok", op=tool, exit_code=completed.returncode)
         return completed.stdout
+
+    def _check_local_git_config(self, tool: str, binary: str, env: dict[str, str]) -> None:
+        """Refuse the git call if the clone's ``.git/config`` holds a non-allowlisted key.
+
+        Parsed by git itself (``--file``, ``--no-includes``) so this check and
+        the git call it guards cannot disagree about the file's syntax; reading
+        a config file executes nothing. See _LOCAL_CONFIG_ALLOWED_RE.
+        """
+        config_path = self._dest / ".git" / "config"
+        if config_path.is_symlink() or not config_path.is_file():
+            self._deny_git(tool, "the clone's .git/config is missing or not a regular file")
+        completed = subprocess.run(  # noqa: S603 -- argv list, no shell, fixed binary
+            [binary, "config", "--file", str(config_path), "--no-includes", "--null", "--name-only", "--list"],
+            cwd=str(self._dest),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=DEFAULT_GIT_WRITE_TIMEOUT_SEC,
+            check=False,
+        )
+        if completed.returncode != 0:
+            self._deny_git(tool, "the clone's .git/config could not be parsed")
+        unexpected = sorted(
+            {key for key in completed.stdout.split("\x00") if key and not _LOCAL_CONFIG_ALLOWED_RE.fullmatch(key)}
+        )
+        if unexpected:
+            self._deny_git(
+                tool,
+                "the clone's .git/config was modified outside this tool; refusing to run git",
+                unexpected_keys=unexpected[:20],
+            )
 
     def read_file(self, target: str) -> str:
         """Read one text file from the clone, decoded as UTF-8."""
