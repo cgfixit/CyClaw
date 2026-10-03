@@ -619,9 +619,8 @@ def test_shipped_pre_action_hook_block_validates():
     shipped = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
     validate_pre_action_hook_config(shipped)
     block = shipped["policy"]["fallback"]["pre_action_hook"]
-    # The shipped posture this issue settled: off, command engine, enforce, verdicts on.
     assert (block["enabled"], block["engine"], block["verdict_mode"], block["emit_verdict"]) == (
-        False, "command", "enforce", True,
+        False, "numbat", "enforce", True,
     )
     assert "fail_mode" not in block
 
