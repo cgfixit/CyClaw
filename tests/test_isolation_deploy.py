@@ -165,6 +165,18 @@ def test_compose_forces_builtin_seccomp_and_stage_one_baseline() -> None:
     assert not list((REPO_ROOT / "deploy" / "seccomp").glob("*.json"))
 
 
+def test_compose_requires_prepared_writable_bind_sources() -> None:
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    volumes = compose["services"]["cyclaw"]["volumes"]
+    binds = {volume["target"]: volume for volume in volumes if isinstance(volume, dict)}
+    for name in ("data", "index", "logs", "checkpoints"):
+        mount = binds[f"/app/{name}"]
+        assert mount["type"] == "bind"
+        assert mount["source"] == f"./{name}"
+        assert mount.get("read_only", False) is False
+        assert mount["bind"]["create_host_path"] is False
+
+
 def test_container_healthchecks_reject_http_error_statuses() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))

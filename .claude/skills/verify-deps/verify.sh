@@ -292,7 +292,7 @@ _expect_docker_fail "$k" "E6 non-loopback publish" "host exposure must stay"
 
 # 15. E6: compose drops the ./index mount (503 INDEX_NOT_FOUND, healthcheck green).
 l="$(_mkdockertree)"
-sed -i.bak '/^[[:space:]]*- \.\/index:/d' "$l/docker-compose.yml"
+sed -i.bak 's#/app/index#/app/missing-index#g' "$l/docker-compose.yml"
 _expect_docker_fail "$l" "E6 unmounted runtime state" "mounts nothing at /app/{index}"
 
 # 16. E6: a version bump that skips the compose default tag.

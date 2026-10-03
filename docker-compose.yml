@@ -19,15 +19,32 @@ services:
     container_name: cyclaw-prod
     ports:
       - "127.0.0.1:8787:8787"
+    # Prepare writable host directories for UID 1000 first (docs/DOCKER.md).
     volumes:
-      - ./data:/app/data:rw
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: false
       # Generated ChromaDB + BM25 state (config.yaml indexing.chroma_path /
       # bm25_path → index/*). Keep it out of image layers (.dockerignore) and
       # available under the read-only root filesystem so /query can load the
       # hybrid index without baking private corpus-derived vectors into the image.
-      - ./index:/app/index:rw
-      - ./checkpoints:/app/checkpoints:rw
-      - ./logs:/app/logs:rw
+      - type: bind
+        source: ./index
+        target: /app/index
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./checkpoints
+        target: /app/checkpoints
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./logs
+        target: /app/logs
+        bind:
+          create_host_path: false
       - ./config.yaml:/app/config.yaml:ro
       # Regenerable embedding query/LRU cache (models.embeddings.cache_dir).
       # A named volume keeps the root fs read-only without re-downloading on boot.
