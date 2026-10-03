@@ -468,9 +468,9 @@ Ollama produces `unverified`. Dogfood is not a GitHub Actions job.
 ## Current development
 
 Documentation follows [`origin/main` at `43fe809b`](https://github.com/cgfixit/CyClaw/commit/43fe809bc39e49e7d8476fb54a0bbe149521aaf8).
-As of 2026-10-03, these changes remain **open drafts, not shipped**:
+As of 2026-10-03, these changes have **merged and shipped** (#1521, #1522, #1523, #1524):
 
-| Draft | Proposed change |
+| PR (merged) | Change |
 |---|---|
 | [#1521](https://github.com/cgfixit/CyClaw/pull/1521) | Give both sandbox emulators the terminal's query timeout allowance instead of 10 seconds |
 | [#1522](https://github.com/cgfixit/CyClaw/pull/1522) | Preserve existing indexes when an empty or whitespace-only corpus produces no chunks |
