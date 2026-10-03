@@ -881,6 +881,44 @@ class TestSoulAndErrorPaths:
         assert "version" in body
         assert "source" in body
 
+    def test_soul_version_is_read_once_off_the_event_loop(self, client, monkeypatch):
+        """get_version takes the lock record_interaction holds on every /query,
+        so GET /soul and POST /soul/reload read it in a worker thread, and GET
+        /soul reads it once, so the audited and returned versions agree."""
+        test_client, _ = client
+        import asyncio
+
+        import gate
+        monkeypatch.setenv("CYCLAW_API_KEY", "correct-key-xyz")
+        on_loop: list[bool] = []
+
+        def _get_version():
+            try:
+                asyncio.get_running_loop()
+                on_loop.append(True)
+            except RuntimeError:
+                on_loop.append(False)
+            return 7
+
+        fake = MagicMock()
+        fake.get_version.side_effect = _get_version
+        fake.get_system_prompt_additive.return_value = "# Soul"
+        fake.soul_path = "soul.md"
+        monkeypatch.setattr(gate, "personality", fake)
+        headers = {"Authorization": "Bearer correct-key-xyz"}
+
+        with patch("gate._audit", new=AsyncMock()) as audit:
+            resp = test_client.get("/soul", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["version"] == 7
+        assert audit.await_args.args[0] == {"event": "soul_read", "version": 7}
+        assert on_loop == [False]
+
+        resp = test_client.post("/soul/reload", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "reloaded", "version": 7}
+        assert on_loop == [False, False]
+
     # ------------------------------------------------------------------
     # security.api_key_optional bypass (config.yaml flag, default false)
     # ------------------------------------------------------------------
@@ -1242,29 +1280,52 @@ class TestAuditSummaryEndpoint:
         assert "query" not in data
         assert "raw-secret-text" not in resp.text
 
-    def test_relative_audit_file_anchored_to_base_dir_not_cwd(self, client, monkeypatch, tmp_path):
-        """A relative logging.audit_file must resolve via _BASE_DIR, not the
-        process cwd -- the same "launched from elsewhere" scenario _BASE_DIR
-        already exists to prevent for config.yaml/static/ (see gate.py's
-        _BASE_DIR comment)."""
+    @pytest.mark.real_log_anchor
+    def test_relative_audit_file_anchored_like_the_writer_not_cwd(self, client, monkeypatch, tmp_path):
+        """A relative logging.audit_file must resolve the way audit_log
+        resolves it to write (utils.logger._anchor, the repo root), not via the
+        process cwd -- the "launched from elsewhere" scenario."""
+        test_client, _ = client
+        import json
+
+        import gate
+        import utils.logger as logger_mod
+        monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
+
+        # Point the writer's repo root at an isolated tmp dir so a *relative*
+        # audit_file resolves there regardless of where the process cwd ends up.
+        monkeypatch.setattr(logger_mod, "_REPO_ROOT", tmp_path)
+        (tmp_path / "audit_relative.jsonl").write_text(
+            json.dumps({"event": "rag_query", "top_score": 0.9,
+                        "retrieval_mode": "hybrid", "model_used": "local"}) + "\n"
+        )
+        monkeypatch.setitem(gate.cfg["logging"], "audit_file", "audit_relative.jsonl")
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        resp = test_client.get(
+            "/audit/summary", headers={"Authorization": "Bearer audit-key-456"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total_events"] == 1
+
+    @pytest.mark.real_log_anchor
+    def test_home_relative_audit_file_is_expanded(self, client, monkeypatch, tmp_path):
+        """audit_log expands ~ when it writes; the summary used to join the raw
+        value onto the repo root and read <repo>/~/..., an empty trail."""
         test_client, _ = client
         import json
 
         import gate
         monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
-
-        # Point _BASE_DIR at an isolated tmp dir so a *relative* audit_file
-        # resolves there regardless of where the process cwd ends up.
-        monkeypatch.setattr(gate, "_BASE_DIR", tmp_path)
-        (tmp_path / "audit_relative.jsonl").write_text(
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / "audit_home.jsonl").write_text(
             json.dumps({"event": "rag_query", "top_score": 0.9,
                         "retrieval_mode": "hybrid", "model_used": "local"}) + "\n"
         )
-        gate.cfg["logging"]["audit_file"] = "audit_relative.jsonl"
-
-        elsewhere = tmp_path / "elsewhere"
-        elsewhere.mkdir()
-        monkeypatch.chdir(elsewhere)
+        monkeypatch.setitem(gate.cfg["logging"], "audit_file", "~/audit_home.jsonl")
 
         resp = test_client.get(
             "/audit/summary", headers={"Authorization": "Bearer audit-key-456"}

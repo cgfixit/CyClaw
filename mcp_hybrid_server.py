@@ -214,12 +214,15 @@ def handle_message(msg: dict, retriever: HybridRetriever) -> dict | None:
         if tool_name == "hybrid_search":
             return _handle_search(msg_id, args, retriever)
         return _error(msg_id, -32601, f"Unknown tool: {tool_name}")
-    elif method == "notifications/initialized":
+    elif isinstance(method, str) and method.startswith("notifications/"):
         # JSON-RPC notifications (no "id" field) are fire-and-forget by spec —
         # the caller isn't waiting for a reply, so sending one back would just
-        # be a stray line on stdout the client never expects. Returning None
-        # here is what main()'s "if response is not None" check relies on to
-        # skip writing anything for this method.
+        # be a stray line on stdout the client never expects. MCP names every
+        # notification under notifications/ (initialized, cancelled, progress,
+        # roots/list_changed); matching only "initialized" answered the rest
+        # with an "Unknown method" error carrying id null. Returning None here
+        # is what main()'s "if response is not None" check relies on to skip
+        # writing anything.
         return None
     return _error(msg_id, -32601, f"Unknown method: {method}")
 

@@ -9,7 +9,7 @@ depends on:
   * tools/call dispatches correctly across hybrid / semantic / keyword modes
   * Unknown methods return JSON-RPC error code -32601
   * RAGError from the retriever maps to JSON-RPC error code -32000
-  * notifications/initialized returns None (no response for notifications)
+  * every notifications/* method returns None (no response for notifications)
 
 All tests are hermetic: the HybridRetriever is replaced with
 unittest.mock.MagicMock — no live ChromaDB, BM25 pickle, or network.
@@ -411,6 +411,18 @@ def test_notifications_initialized_returns_none(retriever):
     result = handle_message(msg, retriever)
 
     assert result is None
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["notifications/cancelled", "notifications/progress", "notifications/roots/list_changed"],
+)
+def test_other_notifications_return_none(retriever, method):
+    """Every MCP notification is fire-and-forget, not only initialized: a client
+    cancelling a slow search used to get an "Unknown method" error line with
+    id null back on stdout."""
+    msg = {"jsonrpc": "2.0", "method": method, "params": {"requestId": 7}}
+    assert handle_message(msg, retriever) is None
 
 
 # ---------------------------------------------------------------------------
