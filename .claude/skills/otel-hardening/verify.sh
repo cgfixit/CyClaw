@@ -20,24 +20,32 @@ AS_OF="2026-08-27"
 
 echo "== otel-hardening verify =="
 
+# Unique capture files, never a fixed name under the world-writable /tmp: a
+# predictable path can be pre-created as a symlink by another local user and
+# the `>` redirection would follow it and truncate the target. CodeQL flagged
+# exactly this on the harness port (cgfixit/CG-agent-harness#295); same fix.
+live_out="$(mktemp)"
+strict_out="$(mktemp)"
+trap 'rm -f "$live_out" "$strict_out"' EXIT INT TERM
+
 # 1. Clean tree, default severity, live date: must exit 0.
-if python3 "$checker" --repo-root "$repo_root" >/tmp/otelguard_live.txt 2>&1; then
+if python3 "$checker" --repo-root "$repo_root" >"$live_out" 2>&1; then
   echo "clean tree (default): PASS (exit 0)"
 else
   echo "clean tree (default): FAIL — the shipped kill-switch contract is broken" >&2
-  cat /tmp/otelguard_live.txt >&2
+  cat "$live_out" >&2
   exit 1
 fi
 
 # 2. Clean tree, --strict, pinned date: zero warnings allowed at the review date.
-if python3 "$checker" --repo-root "$repo_root" --strict --as-of "$AS_OF" >/tmp/otelguard_strict.txt 2>&1; then
+if python3 "$checker" --repo-root "$repo_root" --strict --as-of "$AS_OF" >"$strict_out" 2>&1; then
   echo "clean tree (--strict @ $AS_OF): PASS (exit 0)"
 else
   echo "clean tree (--strict @ $AS_OF): FAIL — a WARN-class regression landed" >&2
-  cat /tmp/otelguard_strict.txt >&2
+  cat "$strict_out" >&2
   exit 1
 fi
-if grep -q 'conda (environment.yml): onnxruntime pinned 1.30.0' /tmp/otelguard_strict.txt; then
+if grep -q 'conda (environment.yml): onnxruntime pinned 1.30.0' "$strict_out"; then
   echo "T13 conda pip-subsection pin: PASS"
 else
   echo "T13 conda pip-subsection pin: FAIL — environment.yml pin was not recognized" >&2
