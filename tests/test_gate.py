@@ -1286,15 +1286,12 @@ class TestAuditSummaryEndpoint:
         resolves it to write (utils.logger._anchor, the repo root), not via the
         process cwd -- the "launched from elsewhere" scenario."""
         test_client, _ = client
-        import json
-
         import gate
-        import utils.logger as logger_mod
         monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
 
         # Point the writer's repo root at an isolated tmp dir so a *relative*
         # audit_file resolves there regardless of where the process cwd ends up.
-        monkeypatch.setattr(logger_mod, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr("utils.logger._REPO_ROOT", tmp_path)
         (tmp_path / "audit_relative.jsonl").write_text(
             json.dumps({"event": "rag_query", "top_score": 0.9,
                         "retrieval_mode": "hybrid", "model_used": "local"}) + "\n"
@@ -1316,8 +1313,6 @@ class TestAuditSummaryEndpoint:
         """audit_log expands ~ when it writes; the summary used to join the raw
         value onto the repo root and read <repo>/~/..., an empty trail."""
         test_client, _ = client
-        import json
-
         import gate
         monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
         monkeypatch.setenv("HOME", str(tmp_path))
