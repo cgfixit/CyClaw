@@ -15,10 +15,9 @@ v1 — even if flipped, `run_consolidation` returns disabled.
 
 ## Isolation
 
-No top-level `import memory` in `gate.py`, `graph.py`, `mcp_hybrid_server.py`,
-`retrieval/hybrid_search.py`, `gate_memory.py`, or `gate_ops.py`
-(`tests/test_memory_isolation.py`). Routes live in `gate_memory.py` and
-lazy-import this package.
+The seven modules in `tests/test_memory_isolation.py`, including all six core
+modules and `retrieval/hybrid_search.py`, do not import `memory` at module load.
+Routes live in `gate_memory.py` and lazy-import this package.
 
 ## Package map
 

@@ -1,8 +1,8 @@
 # `opentweet/` — out-of-band X posting channel
 
 Optional OpenTweet adapter, shipped `enabled: false`. Runs strictly as a
-separate process (`python -m opentweet.cli`); `gate.py`, `graph.py`, and
-`mcp_hybrid_server.py` never import it (invariant I6). Generation only
+separate process (`python -m opentweet.cli`). The six core modules never
+import it (invariant I6). Generation only
 ever happens through HTTP `POST /query` on loopback with
 `user_confirmed_online: false`. Default write is an OpenTweet **draft**;
 `scheduled_date` is opt-in via `opentweet.schedule_enabled`. Schedulers

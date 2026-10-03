@@ -1,9 +1,4 @@
-# CyClaw Memory Subsystem
-
-> **Status update — 2026-09-06 (docs review, Claude Code):** COMPLETE — this is the current operator-facing reference for a shipped feature, not a stale plan. Verified against the live tree: `config.yaml`'s `memory:` block matches every default/route claim here, the `memory/` package (including `flags.py`, which backs the `facts.retrieval_enabled` rename this doc describes) exists, `gate_memory.py` implements the `/memory/*` + `/query/export/html` routes, and `memory/selftest.py` is runnable.
->
-> **What's left:**
-> - Nothing outstanding as documentation — keep this file in sync if `memory/policy.py`'s injection-scan source or the route table in `gate_memory.py` changes. Not a deletion candidate; it is live operator documentation.
+# CyClaw memory subsystem
 
 Optional, **default-off** facts + episodes store with propose/apply governance and optional retrieval fusion.
 
@@ -12,6 +7,12 @@ Optional, **default-off** facts + episodes store with propose/apply governance a
 ## Defaults
 
 Every switch in `config.yaml` → `memory:` is **false**. With defaults, behavior is identical to pre-memory CyClaw.
+
+`memory.facts.max_active` limits new active facts. On the current base,
+updating an inactive fact reactivates it without checking that limit. Draft
+[#1523](https://github.com/cgfixit/CyClaw/pull/1523) closes that gap for direct
+updates and proposal application. Until it merges, avoid reactivating facts at
+the configured limit.
 
 ## Enable progressively
 
@@ -34,9 +35,12 @@ one-time warning — see `memory/flags.py`.)
 
 ## Invariants
 
-- No top-level `import memory` in `gate.py` / `graph.py` / `mcp_hybrid_server.py` / `hybrid_search.py` / `gate_memory.py` / `gate_ops.py`.
+- No top-level `import memory` in the seven modules listed by
+  `tests/test_memory_isolation.py`, including all six core modules and
+  `retrieval/hybrid_search.py`.
 - Memory failures never fail `/query` (non-fatal hooks).
-- Mutating routes require Bearer API key + non-empty reason.
+- Mutating routes must pass `require_api_key` and include a non-empty reason.
+  Cookie-based credentials also require their CSRF header.
 - Apply scans normalized text against the enforced soul patterns plus configured
   `policy.prompt_filter.banned_patterns` before fact write. Invalid regexes are
   skipped with a warning; config-pattern warnings identify the original list

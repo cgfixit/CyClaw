@@ -1,8 +1,8 @@
 # `telegram/` — out-of-band notify/chat channel
 
 Optional Telegram Bot API adapter, shipped `enabled: false`. Runs strictly as
-a separate process (`python -m telegram.cli`); `gate.py`, `graph.py`, and
-`mcp_hybrid_server.py` never import it (invariant I6). Inbound chat text only
+a separate process (`python -m telegram.cli`). The six core modules never
+import it (invariant I6). Inbound chat text only
 ever becomes an answer through HTTP `POST /query` on loopback — never a
 direct call into `graph.py` — so every core gate (sanitizer, rate limit,
 graph topology, audit) applies to Telegram traffic unchanged.
