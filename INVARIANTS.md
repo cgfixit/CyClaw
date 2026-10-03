@@ -208,8 +208,9 @@ refuses a non-loopback `api.host` while the flag is `true`
 
 **What is *not* behind the API key, on purpose:**
 
-- `POST /index/build` is gated by loopback peer + same-origin, not the key — an
-  unset `CYCLAW_API_KEY` would otherwise brick first-run.
+- `POST /index/build` is gated by loopback peer + same-origin + no reverse-proxy
+  forwarding header, not the key — an unset `CYCLAW_API_KEY` would otherwise
+  brick first-run.
 - The `/auth/*` routes and the Stage 3 credential on `POST /query`
   (`require_session_or_token`, attached only when `auth.enabled` is the literal
   `true`) are the separate session/RBAC system governed by `auth.enabled`;

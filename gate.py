@@ -926,10 +926,16 @@ async def index_build(request: Request) -> dict[str, Any]:
     unset key fails CLOSED (401), so key-gating this route would brick exactly
     the flow it exists to unblock. The peer check is on the socket, which a
     Host or Origin header cannot forge.
+
+    Like /auth/bootstrap-password, a request carrying any forwarding header is
+    refused too: behind a same-host reverse proxy or tunnel every caller's
+    socket peer IS loopback, so the peer check alone would open this route to
+    whoever can reach the proxy (#1526 F7).
     """
     client_host = request.client.host if request.client else ""
-    if not _is_loopback_host(client_host):
-        await _audit({"event": "index_build_rejected", "reason": "non_loopback", "ip": client_host})
+    if not _is_loopback_host(client_host) or _looks_proxied(request):
+        reason = "proxied" if _is_loopback_host(client_host) else "non_loopback"
+        await _audit({"event": "index_build_rejected", "reason": reason, "ip": client_host})
         raise HTTPException(
             status_code=403,
             detail={"error": "Index builds must be started from this machine",

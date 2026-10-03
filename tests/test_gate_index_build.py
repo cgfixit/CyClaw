@@ -93,6 +93,29 @@ class TestIndexStatus:
 
 
 class TestIndexBuildGates:
+    @pytest.mark.parametrize("header", [
+        "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP", "Forwarded",
+    ])
+    def test_loopback_peer_behind_a_reverse_proxy_is_refused(self, idle_client, header):
+        """Behind a same-host proxy or tunnel every caller's socket peer is
+        loopback, so the peer check alone would let anyone who can reach the
+        proxy start a build (#1526 F7). Same refusal /auth/bootstrap-password
+        makes; the build runner is patched so a regression fails on the status
+        code, not on a real build. Own loopback IP, like
+        test_status_survives_more_than_the_per_ip_budget: five parametrized
+        requests on idle_client's shared 127.0.0.1 bucket starve later tests."""
+        proxied = TestClient(
+            gate.app,
+            base_url="http://localhost",  # DevSkim: ignore DS162092,DS137138 - test loopback host
+            client=("127.0.0.9", 51234),  # DevSkim: ignore DS162092,DS137138
+        )
+        with patch.object(gate, "_run_index_build") as run:
+            resp = proxied.post("/index/build", headers={header: "198.51.100.9"})
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["code"] == "INDEX_BUILD_LOOPBACK_ONLY"
+        assert gate._index_build["state"] == "idle"
+        run.assert_not_called()
+
     def test_non_loopback_peer_is_refused(self):
         """The gate is the SOCKET peer, which a Host or Origin header cannot
         forge. Deliberately not the API key: on a genuine first run
