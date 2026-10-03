@@ -104,6 +104,18 @@ def _anchor(path_str: str) -> Path:
     return path if path.is_absolute() else _REPO_ROOT / path
 
 
+def audit_file_path(cfg: dict) -> Path:
+    """The audit trail's path, resolved exactly as audit_log resolves it to write.
+
+    For readers (gate.py's /audit/summary, gate_auth.py's /auth/audit/summary):
+    joining the configured value onto a root by hand skipped expanduser, so an
+    ``audit_file: ~/...`` made both views read ``<repo>/~/...`` and report an
+    empty trail. Looks _anchor up at call time, so tests that redirect it
+    redirect readers and writer together.
+    """
+    return _anchor(cfg["logging"]["audit_file"])
+
+
 def setup_logging(cfg: dict | None = None, *, background_console: bool = False) -> None:
     global _logging_initialized
     if _logging_initialized:

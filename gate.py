@@ -76,7 +76,7 @@ from llm.client import (
 from schemas.api import (
     QueryRequest, QueryResponse, SourceInfo, HealthResponse, SoulEvolutionRequest,
 )
-from utils.logger import audit_log, hash_query, setup_logging
+from utils.logger import audit_file_path, audit_log, hash_query, setup_logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from utils.sanitizer import check_input
@@ -1112,10 +1112,13 @@ async def query_endpoint(request: Request, req: QueryRequest):
 async def get_soul(request: Request):
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
-    await _audit({"event": "soul_read", "version": personality.get_version()})
+    # get_version takes the lock record_interaction holds on every /query (and
+    # waits out a busy DB under it), so read it once, off the event loop.
+    version = await asyncio.to_thread(personality.get_version)
+    await _audit({"event": "soul_read", "version": version})
     return {
         "soul": personality.get_system_prompt_additive(),
-        "version": personality.get_version(),
+        "version": version,
         "source": str(personality.soul_path)
     }
 
@@ -1161,7 +1164,7 @@ async def reload_soul(request: Request):
     if personality is None:
         raise HTTPException(status_code=404, detail="Personality system not enabled")
     await asyncio.to_thread(personality.reload)
-    return {"status": "reloaded", "version": personality.get_version()}
+    return {"status": "reloaded", "version": await asyncio.to_thread(personality.get_version)}
 
 @app.post("/soul/restore", dependencies=[Depends(_enforce_rate_limit), Depends(require_api_key)])
 async def restore_soul(request: Request):
@@ -1225,11 +1228,7 @@ async def audit_summary(request: Request):
     either. This is operational evidence, not a formal compliance artifact or
     certification.
     """
-    # _BASE_DIR / value resolves correctly whether the configured path is
-    # relative or already absolute (Path.__truediv__ discards the left side
-    # for an absolute right-hand operand) -- same cwd-independence _BASE_DIR
-    # already guarantees for config.yaml/static/ above.
-    audit_file = str(_BASE_DIR / cfg.get("logging", {}).get("audit_file", "audit.jsonl"))
+    audit_file = str(audit_file_path(cfg))
     # Single off-loop pass: summarize_audit streams the JSONL through
     # compute_metrics without materializing the (unbounded) file in memory.
     return await asyncio.to_thread(summarize_audit, audit_file)

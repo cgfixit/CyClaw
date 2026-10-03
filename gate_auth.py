@@ -25,7 +25,6 @@ import asyncio
 import hmac
 import logging
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response
@@ -53,6 +52,7 @@ from utils.errors import (
     AuthUserExists,
     AuthUserNotFound,
 )
+from utils.logger import audit_file_path
 
 logger = logging.getLogger("cyclaw.gate_auth")
 
@@ -824,8 +824,7 @@ def register_auth_routes(
                 status_code=_HTTP_FORBIDDEN,
                 detail={_CODE_KEY: "AUTH_PERMISSION_DENIED", _MESSAGE_KEY: "audit view denied", _DETAILS_KEY: {}},
             )
-        repo_root = Path(__file__).resolve().parent
-        audit_file = str(repo_root / (cfg.get("logging") or {}).get("audit_file", "logs/audit.jsonl"))
+        audit_file = str(audit_file_path(cfg))
         return await asyncio.to_thread(summarize_audit, audit_file)
 
     return require_session_or_token
