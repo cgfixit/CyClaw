@@ -16,7 +16,6 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from re import Match
 
 BOM = "\ufeff"
 
@@ -126,7 +125,7 @@ def literal_secret_names(text: str) -> list[str]:
 def redact_secret_assignments(text: str) -> str:
     """Replace values of secret NAME= / NAME+= tokens with `<redacted>`."""
 
-    def repl(match: Match[str]) -> str:
+    def repl(match: re.Match[str]) -> str:
         name = match.group(1)
         if not is_secret_name(name):
             return match.group(0)
