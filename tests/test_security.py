@@ -47,7 +47,12 @@ def test_generated_index_is_not_baked_into_the_image_and_is_writable_at_runtime(
     )["services"]["cyclaw"]["volumes"]
 
     assert all(f"{root}/" in ignored for root in index_roots)
-    assert all(f"./{root}:/app/{root}:rw" in volumes for root in index_roots)
+    binds = {volume["target"]: volume for volume in volumes if isinstance(volume, dict)}
+    for root in index_roots:
+        mount = binds[f"/app/{root}"]
+        assert mount["type"] == "bind"
+        assert mount["source"] == f"./{root}"
+        assert mount.get("read_only", False) is False
 
 
 def _dockerignore_covers_path(ignored: set[str], rel: str) -> bool:
@@ -88,7 +93,10 @@ def test_operator_corpus_is_not_baked_into_the_image():
         f".dockerignore must exclude {corpus_path} via data/ or data/corpus/, "
         f"not only nested siblings; patterns={sorted(ignored)}"
     )
-    assert "./data:/app/data:rw" in volumes
+    data_mount = next(volume for volume in volumes if isinstance(volume, dict) and volume.get("target") == "/app/data")
+    assert data_mount["type"] == "bind"
+    assert data_mount["source"] == "./data"
+    assert data_mount.get("read_only", False) is False
 
 
 def test_dockerignore_directory_prefix_rejects_nested_siblings() -> None:
