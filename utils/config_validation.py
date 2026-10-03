@@ -636,3 +636,36 @@ def validate_tls_config(cfg: dict[str, Any]) -> None:
                 f"api.tls.{key} is not readable: {path}",
                 details={"key": key, "path": str(path), "error": str(exc)},
             ) from exc
+
+
+# Bounds for the console operator session (utils/console_session.py). A
+# cookie cannot be revoked one at a time before it expires, so its lifetime
+# is capped at a week; the pairing code only has to outlive a browser launch.
+CONSOLE_SESSION_TTL_DEFAULT = 43200
+CONSOLE_SESSION_TTL_BOUNDS = (60, 604800)
+CONSOLE_PAIRING_TTL_DEFAULT = 300
+CONSOLE_PAIRING_TTL_BOUNDS = (30, 3600)
+
+
+def validate_console_session_config(cfg: dict[str, Any]) -> tuple[int, int]:
+    """Validate and return ``(console_session_ttl_sec, console_pairing_ttl_sec)``.
+
+    Both live under ``security`` and are optional; a missing key takes the
+    default. A present value must be a whole number of seconds inside its
+    bounds (bool is refused, since YAML ``true`` is an int in Python).
+    """
+    security = cfg.get("security")
+    security = security if isinstance(security, dict) else {}
+    resolved: list[int] = []
+    for key, default, (low, high) in (
+        ("console_session_ttl_sec", CONSOLE_SESSION_TTL_DEFAULT, CONSOLE_SESSION_TTL_BOUNDS),
+        ("console_pairing_ttl_sec", CONSOLE_PAIRING_TTL_DEFAULT, CONSOLE_PAIRING_TTL_BOUNDS),
+    ):
+        raw = security.get(key, default)
+        if isinstance(raw, bool) or not isinstance(raw, int) or not low <= raw <= high:
+            raise ConfigError(
+                f"security.{key} must be a whole number of seconds from {low} to {high}",
+                details={"key": key, "received": raw},
+            )
+        resolved.append(raw)
+    return resolved[0], resolved[1]

@@ -581,6 +581,15 @@ security:
   # Docker: inert. NAT makes the peer the bridge gateway, so the routes stay
   # key-gated. Set CYCLAW_API_KEY in the container (docker-compose.yml sets none).
   api_key_optional: false
+  # Console operator session (utils/console_session.py). The console trades
+  # CYCLAW_API_KEY, or the launcher's one-time pairing code, for an HttpOnly
+  # SameSite=Strict cookie that satisfies the API-key routes, so the key never
+  # stays in the page. The cookie is signed with the key: rotating the key
+  # revokes every cookie, and none can be revoked one by one before it
+  # expires. With auth.enabled, an enabled admin's login does the same.
+  # Seconds; session 60-604800, pairing 30-3600. Boot refuses others.
+  console_session_ttl_sec: 43200
+  console_pairing_ttl_sec: 300
   # A request whose declared Content-Length exceeds this gets 413 before the body
   # is buffered. Pydantic's per-field caps (largest 65536 chars, schemas/api.py)
   # apply only after Starlette buffers the whole body. 1 MiB covers the largest

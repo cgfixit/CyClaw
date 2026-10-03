@@ -99,6 +99,9 @@ decision.
 | POST | `/soul/reload` | **API key** | |
 | POST | `/soul/restore` | **API key** | from `.bak` |
 | GET | `/audit/summary` | **API key** | rate-limited; aggregates only, no raw queries |
+| GET | `/console/session` | none (same-origin) | rate-limited; whether this browser can use the API-key routes and how (`via`: `console_key`/`admin_session`/`api_key_optional`), plus the console CSRF token after a reload; cross-site 403 |
+| POST | `/console/session` | **Bearer key or one-time pairing code** | rate-limited, same-origin, audited; sets the HttpOnly `cyclaw_console` cookie that satisfies `require_api_key` (`utils/console_session.py`); 401 when `CYCLAW_API_KEY` is unset |
+| POST | `/console/session/end` | none (same-origin) | rate-limited, audited; deletes this browser's console cookie (cannot revoke a copy elsewhere: rotate the key for that) |
 | POST | `/ops/sync` | **API key** | rate-limited; subprocess shim |
 | POST | `/ops/agentic` | **API key** | rate-limited; subprocess shim |
 | POST | `/ops/fsconnect` | **API key** | rate-limited; subprocess shim |
@@ -157,6 +160,25 @@ pair. `CYCLAW_ALLOW_NON_LOOPBACK_BIND` still outranks the bind guard (explicit
 "I front this with my own auth"), but never the peer check. Note the flag is
 inert under Docker: NAT rewrites the source, so the peer is the bridge gateway
 and the routes stay key-gated — set `CYCLAW_API_KEY` in the container.
+
+**Credentials, not bypasses.** Besides Bearer `CYCLAW_API_KEY`,
+`require_api_key` accepts two cookies. Each is refused on a cross-site request
+and needs its CSRF token on a state-changing one; a bad token is a 403, never a
+fall-through to another credential:
+- the console cookie `cyclaw_console`, which `POST /console/session` mints
+  for the key or the launchers' one-time pairing code
+  (`utils/console_session.py`). It is a stateless HMAC under a key derived
+  from `CYCLAW_API_KEY`, so it validates nothing while the key is unset, and
+  rotating the key revokes every cookie. Its CSRF header is
+  `X-CyClaw-Console-CSRF`;
+- with `auth.enabled`, an **enabled admin**'s login session, with its usual
+  `X-CyClaw-CSRF`. It is the one credential that works with the key unset;
+  `operator` and `audit` sessions never pass.
+
+The console no longer keeps the key in the page, and the daily launchers
+generate a missing key into the OS keystore (`gate.py` never does).
+`docs/THREAT_MODEL.md` (eighteenth amendment) and `INVARIANTS.md` Rule 6 hold
+the boundary.
 
 The original three `/auth/*` endpoints (`/auth/login`, `/auth/logout`,
 `/auth/whoami`) were Stage 2 of `docs/AUTHENTICATION_DESIGN.md`
@@ -218,6 +240,7 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `utils/authn_store.py` | SQLite/Postgres backend for `users`/`sessions`/`device_tokens`, mirroring `utils/personality_db.py`'s `connect()` pattern; own `CYCLAW_AUTH_DB_URL` env var, deliberately not shared with personality's `CYCLAW_DB_URL` |
 | `utils/authn_manager.py` | `AuthManager` — ties `utils/authn.py` + `utils/authn_store.py` together: bootstrap, login/logout, session validation, device-token CRUD. No HTTP awareness; `gate_auth.py` is the only caller that knows about cookies/headers/status codes |
 | `utils/authn_cli.py` | `cyclaw-user` console script (`add`/`list`/`role`/`disable`/`enable`/`passwd`/`token create`/`token list`/`token revoke`), local-only by construction (no HTTP route reaches it) |
+| `utils/console_session.py` | Console operator session: stateless HMAC cookie (`v1.<expiry>.<nonce>.<mac>`, key derived from `CYCLAW_API_KEY`) that `POST /console/session` mints for the key or the launchers' one-time pairing code (`CYCLAW_CONSOLE_PAIRING_CODE`, popped from the env at gate import, single-use, `security.console_pairing_ttl_sec`), plus its derived CSRF token. Stdlib only; `gate.py`'s `require_api_key` is the only consumer. Lifetime `security.console_session_ttl_sec` |
 | `utils/gen_cert.py` | `cyclaw-gen-cert` — openssl wrapper that writes a self-signed cert + key with hostname/LAN SAN; no new runtime dep |
 | `schemas/api.py` | Pydantic models (`extra='forbid', strict=True`) |
 | `metrics.py` | `audit.jsonl` analyzer (`cyclaw-metrics`); also prints a Spend section from `logs/spend.jsonl` (tokens as ground truth, dollars at read time, `source` `query` or `agentic`; no query text on the ledger) and an offline Sequences section (`utils/sequence_detect.py`) joining hashed audit events to `source=query` spend. Forensic/CLI only — not imported by `gate.py`/`graph.py`/MCP and not a `/query` policy point |
@@ -379,8 +402,10 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   **Rule:** a missing index is **fail-soft** — `/query` returns 503
   `INDEX_NOT_FOUND`. Build it explicitly: `python -m retrieval.indexer`.
 - **Trap:** assuming no `CYCLAW_API_KEY` means soul endpoints are open.
-  **Rule:** unset key = **fail closed (401)**, not open. Uses
-  `hmac.compare_digest`.
+  **Rule:** unset key = **fail closed (401)** for every key-based credential
+  (Bearer, console cookie), not open. Uses `hmac.compare_digest`. The one
+  exception is deliberate: with `auth.enabled`, an enabled admin's login
+  satisfies `require_api_key` without the key (`INVARIANTS.md` Rule 6).
 - **Trap:** reordering imports in `gate.py` "to tidy them."
   **Rule:** the `_TELEMETRY_KILL` env block MUST stay above the heavy imports
   (`graph`, `retrieval`, `langchain`, `chromadb`). Setting the env after they

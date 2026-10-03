@@ -78,7 +78,163 @@ function authHeaders() {
   const key = apiKeyInput ? apiKeyInput.value.trim() : '';
   const h = { 'Content-Type': 'application/json' };
   if (key) h['Authorization'] = `Bearer ${key}`;
+  // The cookie that unlocks these routes rides on its own (same-origin
+  // fetch); a state-changing call must also carry the matching CSRF token.
+  if (operatorVia === 'console_key' && consoleCsrf) h['X-CyClaw-Console-CSRF'] = consoleCsrf;
+  if (operatorVia === 'admin_session' && csrfToken) h['X-CyClaw-CSRF'] = csrfToken;
   return h;
+}
+
+// ── OPERATOR ACCESS ──
+// Soul / ops / memory / audit routes need CYCLAW_API_KEY. The console no
+// longer keeps the key: the unlock dialog (or the launcher's one-time
+// #pair= code, or the macOS autofill) trades it once for an HttpOnly cookie
+// via POST /console/session, and GET /console/session reports the state on
+// every load. With auth.enabled, an admin's login unlocks the same routes and
+// no key is needed. See utils/console_session.py.
+let operatorVia = null;   // 'console_key' | 'admin_session' | 'api_key_optional' | null
+let consoleCsrf = null;
+let operatorExpiresAt = null;
+let operatorAuthEnabled = false;
+const operatorStatus = document.getElementById('operatorStatus');
+const operatorUnlockBtn = document.getElementById('operatorUnlockBtn');
+const operatorLockBtn = document.getElementById('operatorLockBtn');
+const operatorDialog = document.getElementById('operatorDialog');
+const operatorKeyInput = document.getElementById('operatorKeyInput');
+const operatorDialogError = document.getElementById('operatorDialogError');
+
+function hasOperatorAccess() {
+  return Boolean(operatorVia) || Boolean(apiKeyInput && apiKeyInput.value.trim());
+}
+
+function paintOperatorAccess() {
+  if (operatorStatus) {
+    let text = '';
+    if (operatorVia === 'console_key') {
+      const until = operatorExpiresAt ? new Date(operatorExpiresAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+      text = 'operator tools unlocked' + (until ? ' until ' + until : '');
+    } else if (operatorVia === 'admin_session') {
+      text = 'operator tools unlocked (admin login)';
+    } else if (operatorVia === 'api_key_optional') {
+      text = 'operator tools open (api_key_optional)';
+    }
+    operatorStatus.textContent = text;
+  }
+  if (operatorUnlockBtn) operatorUnlockBtn.hidden = Boolean(operatorVia);
+  if (operatorLockBtn) operatorLockBtn.hidden = operatorVia !== 'console_key';
+  const adminNote = document.getElementById('operatorDialogAdmin');
+  if (adminNote) adminNote.hidden = !operatorAuthEnabled;
+}
+
+function applyConsoleSession(data) {
+  operatorVia = data && data.active ? (data.via || null) : null;
+  consoleCsrf = operatorVia === 'console_key' ? (data.csrf || null) : null;
+  operatorExpiresAt = operatorVia === 'console_key' ? (data.expires_at || null) : null;
+  operatorAuthEnabled = Boolean(data && data.auth_enabled);
+  paintOperatorAccess();
+}
+
+async function refreshOperatorAccess() {
+  try {
+    const resp = await fetchWithTimeout(`${API}/console/session`, { cache: 'no-store' }, 5000);
+    if (resp.ok) applyConsoleSession(await resp.json());
+  } catch {
+    // Leave the last-known state; /health already reports reachability.
+  }
+}
+
+// Returns null on success, else a sentence for the operator.
+async function openConsoleSession(body, key) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (key) headers['Authorization'] = `Bearer ${key}`;
+  try {
+    const resp = await fetchWithTimeout(`${API}/console/session`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body || {}),
+    }, 15000);
+    if (!resp.ok) {
+      return describeApiKeyError(await resp.json().catch(() => ({})), 'unlock failed (' + resp.status + ')');
+    }
+    applyConsoleSession(await resp.json());
+    return null;
+  } catch (e) {
+    return 'network error: could not unlock (' + e.message + ')';
+  }
+}
+
+async function lockOperatorTools() {
+  try {
+    await fetchWithTimeout(`${API}/console/session/end`, { method: 'POST', headers: { 'Content-Type': 'application/json' } }, 15000);
+  } catch {
+    // Best-effort; the refresh below shows what the server still accepts.
+  }
+  await refreshOperatorAccess();
+}
+
+function openOperatorDialog(message) {
+  if (!operatorDialog) return;
+  if (operatorDialogError) operatorDialogError.textContent = message || '';
+  if (operatorKeyInput) operatorKeyInput.value = '';
+  paintOperatorAccess();
+  if (typeof operatorDialog.showModal === 'function') {
+    if (!operatorDialog.open) operatorDialog.showModal();
+  } else {
+    operatorDialog.setAttribute('open', '');
+  }
+  if (operatorKeyInput) operatorKeyInput.focus();
+}
+
+function closeOperatorDialog() {
+  if (operatorKeyInput) operatorKeyInput.value = '';
+  if (!operatorDialog) return;
+  if (typeof operatorDialog.close === 'function' && operatorDialog.open) operatorDialog.close();
+  else operatorDialog.removeAttribute('open');
+}
+
+async function submitOperatorDialog(event) {
+  if (event) event.preventDefault();
+  const key = operatorKeyInput ? operatorKeyInput.value.trim() : '';
+  if (operatorKeyInput) operatorKeyInput.value = '';
+  if (!key) {
+    if (operatorDialogError) operatorDialogError.textContent = 'Paste CYCLAW_API_KEY first.';
+    return;
+  }
+  const problem = await openConsoleSession({}, key);
+  if (problem) {
+    if (operatorDialogError) operatorDialogError.textContent = problem;
+    return;
+  }
+  closeOperatorDialog();
+}
+
+// The launchers open the console at #pair=<one-time code>. The fragment is
+// never sent to the server; drop it from the address bar (and so from
+// history) before redeeming, so the spent code does not linger.
+async function redeemPairingFromUrl() {
+  const match = /(?:^#|&)pair=([A-Za-z0-9_-]{16,128})(?:&|$)/.exec(window.location.hash || '');
+  if (!match) return;
+  try {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  } catch {
+    window.location.hash = '';
+  }
+  const problem = await openConsoleSession({ pairing_code: match[1] }, null);
+  if (problem) {
+    // A reload or a second tab replays the same link; the code is single-use
+    // and short-lived, so say that rather than echo a key-mismatch message.
+    addEntry('error', 'OPERATOR', "This launcher link's one-time unlock code was already used or has expired. Use \"Unlock operator tools\" in the toolbar.");
+  }
+}
+
+// The macOS launcher's autofill writes the key here and fires change; trade
+// it for the cookie at once and clear the field so the key leaves the page.
+async function tradeAutofilledKey() {
+  const key = apiKeyInput ? apiKeyInput.value.trim() : '';
+  if (!key) return;
+  const problem = await openConsoleSession({}, key);
+  apiKeyInput.value = '';
+  if (problem) openOperatorDialog(problem);
 }
 
 // /query uses the HttpOnly cyclaw_session cookie (same-origin), not the
@@ -106,6 +262,16 @@ function hideAuthBoxes() {
 }
 
 async function refreshAuthUi() {
+  try {
+    await refreshAuthBoxes();
+  } finally {
+    // A login or logout can change whether an admin session unlocks the
+    // operator routes, so re-read that state after every auth refresh.
+    await refreshOperatorAccess();
+  }
+}
+
+async function refreshAuthBoxes() {
   try {
     const resp = await fetchWithTimeout(`${API}/auth/whoami`, { cache: 'no-store' }, 5000);
     if (resp.status === 503) {
@@ -357,10 +523,16 @@ function describeAnswerRoute(modelUsed, llmModel) {
 function describeApiKeyError(err, fallback) {
   const message = extractErrorMessage(err, fallback);
   if (message.indexOf('CYCLAW_API_KEY not set') !== -1 || message.indexOf('Soul mutation disabled') !== -1) {
-    return 'The gateway was started without CYCLAW_API_KEY. Typing the key in this box only works when the server process already has the same key. Source ~/.CyClaw/.env (or set the env var) and restart, then paste it here.';
+    return 'The gateway was started without CYCLAW_API_KEY, so no key can unlock it. Re-run macos/setup-cyclaw-keys.sh (macOS) or powershell\\Install-CyClaw.ps1 (Windows) to store one in the OS keystore, then restart CyClaw with its launcher.';
   }
   if (message === 'Invalid or missing API key' || message.indexOf('Invalid or missing API key') !== -1) {
-    return 'That API key does not match the server. Check the key field, or restart the gateway after sourcing ~/.CyClaw/.env.';
+    return 'Operator tools are locked: use "Unlock operator tools" in the toolbar.';
+  }
+  if (message.indexOf('invalid API key or pairing code') !== -1) {
+    return 'That key does not match the one this gateway was started with.';
+  }
+  if (message.indexOf('missing or invalid CSRF token') !== -1) {
+    return 'This page lost its unlock token. Reload the page.';
   }
   return message;
 }
@@ -779,8 +951,7 @@ async function openAuditPanel() {
   // before: on first open, the literal "Load the Audit panel after login."
   // placeholder, which reads exactly like a panel that loaded successfully.
   try {
-    const key = apiKeyInput ? apiKeyInput.value.trim() : '';
-    const resp = key
+    const resp = hasOperatorAccess()
       ? await fetchWithTimeout(`${API}/audit/summary`, { headers: authHeaders() }, 15000)
       : await fetchWithTimeout(`${API}/auth/audit/summary`, {}, 15000);
     if (!resp.ok) {
@@ -1424,8 +1595,9 @@ async function toggleSyncPanel() {
   syncToggleBtn.textContent = open ? 'Hide Sync' : 'Sync Console';
   // Lazy first status read only when a key is already present (all ops need auth).
   if (open && !syncLoaded) {
-    if (!apiKeyInput.value.trim()) {
-      setSyncStatus('Enter an API key above to load sync status.', 'error');
+    if (!hasOperatorAccess()) {
+      setSyncStatus('Unlock operator tools (toolbar) to load sync status.', 'error');
+      openOperatorDialog();
     } else {
       syncLoaded = await runSync('status');
     }
@@ -1545,8 +1717,9 @@ async function toggleAgenticPanel() {
   agenticToggleBtn.textContent = open ? 'Hide Agentic' : 'Agentic Console';
   if (open) refreshAgenticGates();
   if (open && !agenticLoaded) {
-    if (!apiKeyInput.value.trim()) {
-      setAgenticStatus('Enter an API key above to load agentic status.', 'error');
+    if (!hasOperatorAccess()) {
+      setAgenticStatus('Unlock operator tools (toolbar) to load agentic status.', 'error');
+      openOperatorDialog();
     } else {
       agenticLoaded = await runAgentic('status');
     }
@@ -1635,8 +1808,9 @@ async function toggleFsPanel() {
   const open = fsPanel.classList.contains('open');
   fsToggleBtn.textContent = open ? 'Hide FS' : 'FS Console';
   if (open && !fsLoaded) {
-    if (!apiKeyInput.value.trim()) {
-      setFsStatus('Enter an API key above to load fsconnect status.', 'error');
+    if (!hasOperatorAccess()) {
+      setFsStatus('Unlock operator tools (toolbar) to load fsconnect status.', 'error');
+      openOperatorDialog();
     } else {
       fsLoaded = await runFs('status');
     }
@@ -1710,8 +1884,9 @@ async function toggleSqlPanel() {
   const open = sqlPanel.classList.contains('open');
   sqlToggleBtn.textContent = open ? 'Hide SQL' : 'SQL Console';
   if (open && !sqlLoaded) {
-    if (!apiKeyInput.value.trim()) {
-      setSqlStatus('Enter an API key above to load sqlconnect status.', 'error');
+    if (!hasOperatorAccess()) {
+      setSqlStatus('Unlock operator tools (toolbar) to load sqlconnect status.', 'error');
+      openOperatorDialog();
     } else {
       sqlLoaded = await runSql('status');
     }
@@ -1847,5 +2022,15 @@ if (document.getElementById('advancedToggleBtn')) {
   document.getElementById('advancedToggleBtn').addEventListener('click', () => toggleAdvanced());
 }
 applyAdvancedChrome();
-refreshAuthUi();
+if (operatorUnlockBtn) operatorUnlockBtn.addEventListener('click', () => openOperatorDialog());
+if (operatorLockBtn) operatorLockBtn.addEventListener('click', () => lockOperatorTools());
+if (document.getElementById('operatorForm')) {
+  document.getElementById('operatorForm').addEventListener('submit', submitOperatorDialog);
+}
+if (document.getElementById('operatorDialogCancel')) {
+  document.getElementById('operatorDialogCancel').addEventListener('click', () => closeOperatorDialog());
+}
+if (apiKeyInput) apiKeyInput.addEventListener('change', tradeAutofilledKey);
+// Pairing first, so the auth refresh that follows paints the unlocked state.
+redeemPairingFromUrl().finally(() => refreshAuthUi());
 document.getElementById('agenticConfirm').addEventListener('change', refreshAgenticGates);

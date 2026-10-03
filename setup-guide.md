@@ -670,6 +670,18 @@ the real key.
 | `/memory/reject` | POST | reject a pending proposal; **requires a `reason`** |
 | `/query/export/html` | GET | offline HTML dump of episodes/facts (404 if export off) |
 
+**The browser console unlocks these routes without keeping the key.**
+"Unlock operator tools" (or the launcher's one-time `#pair=` link, or the
+macOS autofill) trades the key once for an HttpOnly `cyclaw_console` cookie.
+With `auth.enabled`, an admin login unlocks them with no key at all. curl
+keeps using the Bearer key. See `INVARIANTS.md` Rule 6.
+
+| Route | Method | What it does |
+|---|---|---|
+| `/console/session` | GET | whether this browser is unlocked, and how; no credential, same-origin only |
+| `/console/session` | POST | trade Bearer `CYCLAW_API_KEY` (or `{"pairing_code": ...}`) for the console cookie |
+| `/console/session/end` | POST | delete this browser's console cookie ("Lock") |
+
 Memory routes ship **default-off** (`memory.enabled: false` in `config.yaml`).
 See `docs/memory/README.md` for progressive enablement. `/memory/status` is the
 safe probe; propose/apply mutate the facts store and need a non-empty `reason`.

@@ -41,6 +41,10 @@ _POST_PATHS = {
     # same-origin rather than the API key -- an unset CYCLAW_API_KEY fails
     # CLOSED, which would brick the very flow the route exists to unblock.
     "/index/build",
+    # Operator access: trade the key or a launcher's one-time pairing code for
+    # the console cookie, and drop it again (utils/console_session.py). The
+    # console also GETs /console/session; that route allows both methods.
+    "/console/session", "/console/session/end",
 }
 
 
@@ -578,7 +582,7 @@ def test_panel_loaders_return_success_and_retry_on_failure():
         assert len(body) == 2, f"{toggle} moved; update this test"
         block = body[1].split("\n}", 1)[0]
         assert f"await {runner}('status')" in block, f"{toggle} does not call {runner}('status')"
-        assert "apiKeyInput.value.trim()" in block, f"{toggle} does not check for an API key"
+        assert "hasOperatorAccess()" in block, f"{toggle} does not check for operator access"
 
 
 def test_audit_panel_fetch_is_wrapped():

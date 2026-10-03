@@ -54,8 +54,10 @@
 #                       the key (default 90; 0 = leave it)
 #   --open-consoles     open the loopback RAG console
 #   --fill-browser      inject the key into #apiKeyInput on
-#                       127.0.0.1 only (never localStorage / never a cookie —
-#                       that is the console contract). Implies --open-consoles
+#                       127.0.0.1 only. The console trades it at once for its
+#                       own signed HttpOnly cookie and clears the field; the
+#                       key itself never reaches localStorage or a cookie
+#                       (utils/console_session.py). Implies --open-consoles
 #                       and --copy-key.
 #   --schedule-rotate monthly|weekly|never
 #                       write (never load) a LaunchAgent that re-runs
@@ -1383,7 +1385,7 @@ fi
 step "this tab    : cyclaw reads Keychain into that process only"
 step "new tabs    : inherit non-secret settings from the rc block, not secrets"
 step "launchd     : still uses Keychain via cyclaw-keychain-env.sh — never .env"
-step "browser     : consoles keep the key in the #apiKey field only (never localStorage)"
+step "browser     : the console trades the filled key for a signed HttpOnly cookie and clears the field (the key never reaches localStorage)"
 if [ "$FILL_BROWSER" -eq 0 ]; then
   step "            : paste once, or re-run with --fill-browser after cyclaw is up"
 fi

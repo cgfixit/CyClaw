@@ -166,8 +166,29 @@ rule deliberately — do not silently delete the tripwire.
 
 **Must never change (auth):** with `CYCLAW_API_KEY` unset, every route behind
 `gate.py`'s `require_api_key` — `/soul/*`, `/ops/*`, `/audit/summary`, `/memory/*`,
-and `/query/export/html` — returns 401, never "open mode." Key comparison uses
-`hmac.compare_digest` (constant-time). Do not reintroduce an unauthenticated fallback.
+and `/query/export/html` — returns 401 to every **key-based** credential, never
+"open mode." Key comparison uses `hmac.compare_digest` (constant-time). Do not
+reintroduce an unauthenticated fallback.
+
+**The four credentials `require_api_key` accepts (any one is enough):**
+
+1. the `security.api_key_optional` bypass below;
+2. Bearer `CYCLAW_API_KEY`;
+3. a console cookie (`cyclaw_console`) that `POST /console/session` minted
+   in exchange for the key or a launcher's one-time pairing code
+   (`utils/console_session.py`): an HMAC under a key derived from
+   `CYCLAW_API_KEY`, so it validates nothing while the key is unset, and
+   rotating the key revokes every cookie;
+4. with `auth.enabled`, a login session of an **enabled `admin`**. This is
+   the one credential that works with the key unset, because a login is a
+   credential of its own. `operator` and `audit` sessions never pass.
+
+Both cookie paths (3 and 4) are refused on a cross-site request, and on a
+state-changing request they also need the cookie's CSRF token
+(`X-CyClaw-Console-CSRF` or `X-CyClaw-CSRF`). A bad token is a 403, never a
+fall-through to another credential. Do not let a non-admin role, a
+cross-site request, or a CSRF-less write through either cookie path.
+`docs/THREAT_MODEL.md`'s eighteenth amendment has the full boundary.
 
 **The one deliberate bypass, and its four conditions:** `security.api_key_optional`
 (ships `false`) lets `_api_key_bypass_allowed` skip the key for a request only when
@@ -205,7 +226,9 @@ relies on this anchoring. `mcp_hybrid_server.py`'s `hybrid_search` runs the same
 **Proven by:** `tests/test_gate.py::TestSoulAndErrorPaths` (401 fail-closed),
 `tests/test_security.py::TestAPIKeyAuth`, `tests/test_gate.py::TestApiKeyOptionalPeer`
 (each of the four bypass conditions is necessary), `tests/test_gate.py::TestLoopbackBindGuard`
-(the bind refusal and its env override), and `TestSanitizerCwdIndependence`
+(the bind refusal and its env override), `tests/test_console_session.py` (console
+cookie and admin session: CSRF, cross-site refusal, non-admin roles, unset-key
+fail-closed, key rotation, single-use pairing), and `TestSanitizerCwdIndependence`
 (injection blocked / clean input passes from a foreign CWD). Also invariant-guard G2.
 
 ---

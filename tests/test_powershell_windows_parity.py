@@ -187,7 +187,9 @@ def test_invoke_starts_gate_through_main_not_bare_uvicorn() -> None:
     probe_idx = text.index('"utils\\gateway_url.py"')
     assert "http://127.0.0.1:8787" in text  # fallback only
     assert probe_idx < text.index("[cyclaw] console : $Url")
-    assert probe_idx < text.index("-ArgumentList $Url")
+    # The browser opens the probed URL (plus the one-time #pair= fragment).
+    assert probe_idx < text.index("$OpenUrl = $Url")
+    assert "-ArgumentList $OpenUrl" in text
 
 
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell")

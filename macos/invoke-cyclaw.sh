@@ -143,6 +143,20 @@ _load_os_secrets "$HOME_DIR/.env" "$REPO_DIR/.env" || exit 1
 # only the child listener to a different port after that URL was resolved.
 export CYCLAW_GATE_PORT="$GATE_PORT"
 
+# First run on this Mac: no key in the Keychain yet. setup-cyclaw-keys.sh
+# generates one (openssl rand -hex 20) and stores it without the value ever
+# being an argv token; it is then loaded into this process like any other
+# secret. It touches no shell profile and writes no dotenv file here.
+if [ -z "${CYCLAW_API_KEY:-}" ] && [ "$(uname -s)" = "Darwin" ] && [ -f "$REPO_DIR/macos/setup-cyclaw-keys.sh" ]; then
+  echo "[cyclaw] key  : no CYCLAW_API_KEY in the Keychain; generating one"
+  if bash "$REPO_DIR/macos/setup-cyclaw-keys.sh" --skip-prompts --no-print-key --no-copy-key \
+       --no-profile-edit --no-env-file --no-repo-env --repo-path "$REPO_DIR" >/dev/null; then
+    _load_os_secrets "$HOME_DIR/.env" "$REPO_DIR/.env" || exit 1
+  else
+    echo "[cyclaw] warn : could not generate CYCLAW_API_KEY; run macos/setup-cyclaw-keys.sh by hand" >&2
+  fi
+fi
+
 if [ -z "${CYCLAW_API_KEY:-}" ]; then
   echo "[cyclaw] warn : CYCLAW_API_KEY is not in the Keychain (service com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. Re-run macos/setup-cyclaw-keys.sh; this launcher does not read that secret from .env." >&2
 fi
@@ -184,8 +198,20 @@ fi
 # loopback bind guard, api.tls certfile/keyfile, and proxy_headers=False.
 # --gate-port / CYCLAW_GATE_PORT still bind because gate._listen_port reads
 # the env this script already exported.
+# One-time pairing code: the browser opens at #pair=<code> and trades it for
+# the console cookie, so operator tools are unlocked without the key ever
+# reaching the page (utils/console_session.py). gate.py takes the code out of
+# its own environment at import; it is unset here once the gateway has it.
+PAIR_CODE=""
+if [ "$NO_BROWSER" -eq 0 ] && [ -n "${CYCLAW_API_KEY:-}" ]; then
+  PAIR_CODE="$("$VENV_PY" -S -E -c 'import secrets; print(secrets.token_urlsafe(24))' 2>/dev/null || true)"
+fi
+if [ -n "$PAIR_CODE" ]; then
+  export CYCLAW_CONSOLE_PAIRING_CODE="$PAIR_CODE"
+fi
 "$VENV_PY" gate.py &
 GATE_PID=$!
+unset CYCLAW_CONSOLE_PAIRING_CODE
 # Poll /health, but check the process is still alive on each pass. gate.py
 # exits fast on a missing retrieval index, an already-bound port, or an
 # invalid config -- polling only the socket let a gate that died on startup
@@ -227,10 +253,14 @@ fi
 if [ "$NO_BROWSER" -eq 0 ]; then
   (
     sleep 1.5
+    OPEN_URL="$CONSOLE_URL"
+    if [ -n "$PAIR_CODE" ]; then
+      OPEN_URL="${CONSOLE_URL%/}/#pair=$PAIR_CODE"
+    fi
     if command -v open >/dev/null 2>&1; then
-      open "$CONSOLE_URL"
+      open "$OPEN_URL"
     elif command -v xdg-open >/dev/null 2>&1; then
-      xdg-open "$CONSOLE_URL" >/dev/null 2>&1
+      xdg-open "$OPEN_URL" >/dev/null 2>&1
     fi
   ) &
   disown 2>/dev/null || true

@@ -657,6 +657,39 @@
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
+  /* Operator access (Soul / ops / memory / audit): the unlock dialog trades
+     CYCLAW_API_KEY for an HttpOnly cookie; see utils/console_session.py. */
+  .operator-dialog {
+    margin: auto;
+    max-width: min(560px, calc(100vw - 32px));
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    font-family: var(--sans);
+    font-size: var(--fs-body);
+  }
+  .operator-dialog::backdrop { background: rgba(0,0,0,0.6); }
+  .operator-dialog h2 { margin: 0 0 8px; font-size: var(--fs-md); color: var(--accent-amber); }
+  .operator-dialog p { margin: 0 0 10px; line-height: 1.5; color: var(--text-secondary); }
+  .operator-dialog code { font-family: var(--mono); font-size: var(--fs-micro); color: var(--text-primary); }
+  .operator-dialog .operator-cmd {
+    display: block;
+    margin: 0 0 8px;
+    padding: 6px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: var(--fs-micro);
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+  .operator-dialog input { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
+  .operator-dialog .operator-error { color: var(--accent-red); min-height: 1.2em; }
+  .operator-dialog .operator-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
   .toolbar-btn {
     min-height: 32px;
     display: inline-flex;
@@ -1068,9 +1101,36 @@
         <span id="authStatus" class="toolbar-hint"></span>
         <button class="toolbar-btn" id="authLogoutBtn" type="button">Log out</button>
       </span>
-      <input class="api-key-input" id="apiKeyInput" type="password" placeholder="CYCLAW_API_KEY (Soul / ops)" autocomplete="off">
+      <span id="operatorBox">
+        <span id="operatorStatus" class="toolbar-hint"></span>
+        <button class="toolbar-btn" id="operatorUnlockBtn" type="button">Unlock operator tools</button>
+        <button class="toolbar-btn" id="operatorLockBtn" type="button" hidden>Lock</button>
+      </span>
+      <!-- Kept (hidden) as the target the macOS launcher's autofill writes to;
+           a value here is traded for the console cookie at once and cleared. -->
+      <input class="api-key-input" id="apiKeyInput" type="password" placeholder="CYCLAW_API_KEY (Soul / ops)" autocomplete="off" hidden>
     </span>
   </div>
+
+  <dialog class="operator-dialog" id="operatorDialog" aria-labelledby="operatorDialogTitle">
+    <form id="operatorForm" method="dialog">
+      <h2 id="operatorDialogTitle">Unlock operator tools</h2>
+      <p>Soul, sync, agentic, FS, SQL, memory and audit tools need CYCLAW_API_KEY. Paste it once: this console trades it for a browser cookie and does not keep the key.</p>
+      <p id="operatorDialogAdmin" hidden>Login is on: logging in as an admin unlocks these tools without the key.</p>
+      <p>Easiest: start CyClaw with its launcher (<code>macos/invoke-cyclaw.sh</code> or <code>powershell\Invoke-CyClaw.ps1</code>), which unlocks this console for you. Or copy the key from your keystore:</p>
+      <span class="toolbar-hint">macOS</span>
+      <code class="operator-cmd">security find-generic-password -a "$(whoami)" -s com.cgfixit.cyclaw.api-key -w | pbcopy</code>
+      <span class="toolbar-hint">Windows (PowerShell, in the CyClaw folder)</span>
+      <code class="operator-cmd">. .\powershell\CyClaw-SecretStore.ps1; (Read-CyclawCredential com.cgfixit.cyclaw.api-key).Secret | Set-Clipboard</code>
+      <label for="operatorKeyInput" class="toolbar-hint">CYCLAW_API_KEY</label>
+      <input class="api-key-input" id="operatorKeyInput" type="password" autocomplete="off" spellcheck="false">
+      <p class="operator-error" id="operatorDialogError" role="alert"></p>
+      <div class="operator-actions">
+        <button class="toolbar-btn" id="operatorDialogCancel" type="button">Cancel</button>
+        <button class="toolbar-btn" id="operatorDialogSubmit" type="submit">Unlock</button>
+      </div>
+    </form>
+  </dialog>
 
   <div class="soul-panel" id="soulPanel">
     <div class="soul-header">

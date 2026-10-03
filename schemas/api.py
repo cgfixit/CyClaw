@@ -253,3 +253,25 @@ class MemoryRejectRequest(BaseModel):
     proposal_id: int = Field(ge=1)
     reason: str = Field(min_length=1, max_length=4096)
 
+
+
+class ConsoleSessionRequest(BaseModel):
+    """POST /console/session body. Empty when the key rides as a Bearer header;
+    pairing_code carries a launcher's one-time code instead."""
+
+    model_config = ConfigDict(extra='forbid', strict=True)
+    pairing_code: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class ConsoleSessionResponse(BaseModel):
+    """GET/POST /console/session. ``via`` names the credential that unlocks
+    operator routes for this browser right now; ``csrf`` is the console
+    cookie's token (an admin session's comes from /auth/whoami)."""
+
+    model_config = ConfigDict(extra='forbid', strict=True)
+    active: bool
+    via: Literal["console_key", "admin_session", "api_key_optional"] | None = None
+    expires_at: int | None = None
+    csrf: str | None = None
+    auth_enabled: bool
+    key_configured: bool

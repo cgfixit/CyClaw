@@ -59,7 +59,7 @@ except PackageNotFoundError:
 
 import logging
 import yaml
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import Cookie, FastAPI, HTTPException, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -75,6 +75,7 @@ from llm.client import (
 )
 from schemas.api import (
     QueryRequest, QueryResponse, SourceInfo, HealthResponse, SoulEvolutionRequest,
+    ConsoleSessionRequest, ConsoleSessionResponse,
 )
 from utils.logger import audit_log, hash_query, setup_logging
 from fastapi.middleware.cors import CORSMiddleware
@@ -88,6 +89,7 @@ from utils.health import check_all, close_http_client
 from utils.numbat_cel import model_provider_for_role, monitor_request
 from utils.personality import PersonalityManager
 from utils.authn_manager import AuthManager, BOOTSTRAP_USERNAME
+from utils import authn, console_session
 from gate_ops import register_ops_routes
 from gate_auth import attach_identity_to_query, register_auth_routes
 from gate_memory import register_memory_routes
@@ -95,31 +97,95 @@ from metrics import summarize_audit
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _bearer_matches_key(credentials: HTTPAuthorizationCredentials | None, api_key: str) -> bool:
+    # Compare bytes so invalid non-ASCII credentials reach the normal 401 path
+    # instead of compare_digest's str TypeError; keep the timing-safe comparison.
+    return bool(api_key) and credentials is not None and hmac.compare_digest(
+        credentials.credentials.encode("utf-8"), api_key.encode("utf-8")
+    )
+
+
+def _csrf_rejected() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={"code": "CSRF_TOKEN_INVALID", "message": "missing or invalid CSRF token"},
+    )
+
+
+def _console_session_for(request: Request, cookie: str | None) -> console_session.ConsoleSession | None:
+    """The request's console cookie, when it is valid now and not cross-site."""
+    if not cookie or _looks_cross_site(request):
+        return None
+    return console_session.verify(os.environ.get("CYCLAW_API_KEY", ""), cookie)
+
+
+def _admin_session_for(request: Request, cookie: str | None):
+    """The request's login session, when auth is on and it belongs to an enabled admin."""
+    if auth_manager is None or not cookie or _looks_cross_site(request):
+        return None
+    session_info = auth_manager.validate_session(cookie)
+    if session_info is None:
+        return None
+    user = auth_manager.get_user(session_info.username)
+    if user is None or user.disabled or user.role != "admin":
+        return None
+    return session_info
+
+
 def require_api_key(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    cyclaw_console: str | None = Cookie(default=None),
+    cyclaw_session: str | None = Cookie(default=None),
 ):
-    # Require a key unless _api_key_bypass_allowed approves the explicit opt-in,
-    # loopback peer, forwarding-header, and cross-site checks. A bind address
-    # or trusted Host header alone cannot authorize this bypass.
+    """Authorize an API-key route. Any ONE of these is enough:
+
+    1. security.api_key_optional's bypass (_api_key_bypass_allowed);
+    2. Bearer CYCLAW_API_KEY (curl, MCP, scripts);
+    3. a console cookie (POST /console/session traded the key, or a
+       launcher's one-time pairing code, for it), plus its
+       X-CyClaw-Console-CSRF token on a state-changing request;
+    4. when auth.enabled is on, a login session belonging to an enabled
+       admin, plus its X-CyClaw-CSRF token on a state-changing request.
+
+    Both cookies are SameSite=Strict and HttpOnly and are refused on a
+    cross-site request. An unset CYCLAW_API_KEY still fails closed for 2 and
+    3; only an admin login (4) works without it, since that is a credential
+    of its own. A cookie whose CSRF check fails is a 403, never a fall-through
+    to another credential.
+    """
     if _api_key_bypass_allowed(request):
         return
     api_key = os.environ.get("CYCLAW_API_KEY", "")
+    if _bearer_matches_key(credentials, api_key):
+        return
+    unsafe = request.method not in _SAFE_METHODS
+    console = _console_session_for(request, cyclaw_console)
+    if console is not None:
+        if unsafe and not console_session.csrf_matches(console, request.headers.get(console_session.CSRF_HEADER)):
+            raise _csrf_rejected()
+        return
+    admin = _admin_session_for(request, cyclaw_session)
+    if admin is not None:
+        if unsafe:
+            supplied = request.headers.get("x-cyclaw-csrf", "")
+            if not hmac.compare_digest(authn.hash_token(supplied).encode("utf-8"), admin.csrf_token.encode("utf-8")):
+                raise _csrf_rejected()
+        return
     if not api_key:
         raise HTTPException(status_code=401,
                             detail="Soul mutation disabled: CYCLAW_API_KEY not set")
-    # Compare bytes so invalid non-ASCII credentials reach the normal 401 path
-    # instead of compare_digest's str TypeError; keep the timing-safe comparison.
-    if not credentials or not hmac.compare_digest(
-        credentials.credentials.encode("utf-8"), api_key.encode("utf-8")
-    ):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 # Shared, synchronized per-IP limiter (utils/ratelimit.py). Persistence is
 # configured below; without a database backend, counters reset on restart.
 from utils.config_validation import (
     validate_auth_config,
     validate_boot_timeout_config,
+    validate_console_session_config,
     validate_guardrails_config,
     validate_numbat_config,
     validate_tls_config,
@@ -143,6 +209,13 @@ validate_retrieval_config(cfg)
 validate_personality_config(cfg)
 validate_auth_config(cfg)
 validate_tls_config(cfg)
+# Console operator session (utils/console_session.py): the cookie lifetime, and
+# the launcher's one-time pairing code, taken out of the environment here so
+# no child process (the /ops/* subprocesses) inherits it.
+_CONSOLE_SESSION_TTL, _CONSOLE_PAIRING_TTL = validate_console_session_config(cfg)
+_console_pairing = console_session.PairingCode.from_env(_CONSOLE_PAIRING_TTL)
+_TLS_ENABLED = isinstance(cfg.get("api"), dict) and isinstance(cfg["api"].get("tls"), dict) \
+    and cfg["api"]["tls"].get("enabled") is True
 # A quoted guardrails.enabled left every guard silently off; refuse it here,
 # before build_input_guard below reads the flag.
 validate_guardrails_config(cfg)
@@ -1210,6 +1283,89 @@ async def health():
         # the server's directory layout to answer "where do my files go?".
         corpus_path=str(cfg.get("corpus", {}).get("path", "") or ""),
     )
+
+
+def _console_status(request: Request, cyclaw_console: str | None, cyclaw_session: str | None) -> ConsoleSessionResponse:
+    api_key = os.environ.get("CYCLAW_API_KEY", "")
+    base = {"auth_enabled": auth_manager is not None, "key_configured": bool(api_key)}
+    console = _console_session_for(request, cyclaw_console)
+    if console is not None:
+        return ConsoleSessionResponse(
+            active=True, via="console_key", expires_at=console.expires_at, csrf=console.csrf, **base
+        )
+    if _admin_session_for(request, cyclaw_session) is not None:
+        return ConsoleSessionResponse(active=True, via="admin_session", **base)
+    if _api_key_bypass_allowed(request):
+        return ConsoleSessionResponse(active=True, via="api_key_optional", **base)
+    return ConsoleSessionResponse(active=False, **base)
+
+
+@app.get("/console/session", dependencies=[Depends(_enforce_rate_limit)])
+async def console_session_status(
+    request: Request,
+    cyclaw_console: str | None = Cookie(default=None),
+    cyclaw_session: str | None = Cookie(default=None),
+) -> ConsoleSessionResponse:
+    """Whether this browser can use the operator (API-key) routes, and how.
+
+    Same-origin only: it hands a same-origin page back its console CSRF token
+    after a reload, the way /auth/whoami does for a login session.
+    """
+    _reject_cross_site_query(request)
+    return await asyncio.to_thread(_console_status, request, cyclaw_console, cyclaw_session)
+
+
+@app.post("/console/session", dependencies=[Depends(_enforce_rate_limit)])
+async def console_session_open(
+    request: Request,
+    response: Response,
+    body: ConsoleSessionRequest | None = None,
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+) -> ConsoleSessionResponse:
+    """Trade CYCLAW_API_KEY (Bearer) or a launcher's one-time pairing code for
+    the HttpOnly console cookie (utils/console_session.py)."""
+    _reject_cross_site_query(request)
+    api_key = os.environ.get("CYCLAW_API_KEY", "")
+    if not api_key:
+        await _audit({"event": "console_session_rejected", "reason": "key_unset"})
+        raise HTTPException(status_code=401, detail="Soul mutation disabled: CYCLAW_API_KEY not set")
+    via = None
+    if _bearer_matches_key(credentials, api_key):
+        via = "api_key"
+    elif body is not None and _console_pairing.redeem(body.pairing_code):
+        via = "pairing_code"
+    if via is None:
+        await _audit({"event": "console_session_rejected", "reason": "bad_credential"})
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "CONSOLE_SESSION_DENIED", "message": "invalid API key or pairing code"},
+        )
+    minted = console_session.mint(api_key, _CONSOLE_SESSION_TTL)
+    response.set_cookie(
+        key=console_session.COOKIE_NAME,
+        value=minted.token,
+        httponly=True,
+        samesite="strict",
+        secure=_TLS_ENABLED,
+        path="/",
+        max_age=_CONSOLE_SESSION_TTL,
+    )
+    await _audit({"event": "console_session_created", "via": via, "expires_at": minted.expires_at})
+    return ConsoleSessionResponse(
+        active=True, via="console_key", expires_at=minted.expires_at, csrf=minted.csrf,
+        auth_enabled=auth_manager is not None, key_configured=True,
+    )
+
+
+@app.post("/console/session/end", dependencies=[Depends(_enforce_rate_limit)])
+async def console_session_end(request: Request, response: Response) -> dict[str, bool]:
+    """Drop this browser's console cookie. Needs no credential: it only
+    deletes the caller's own cookie, and SameSite=Strict plus the cross-site
+    check keep another site from triggering it."""
+    _reject_cross_site_query(request)
+    response.delete_cookie(key=console_session.COOKIE_NAME, path="/", httponly=True, samesite="strict")
+    await _audit({"event": "console_session_ended"})
+    return {"active": False}
 
 
 @app.get("/audit/summary", dependencies=[Depends(_enforce_rate_limit), Depends(require_api_key)])

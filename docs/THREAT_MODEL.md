@@ -1232,3 +1232,69 @@ What issue #1458 changed, and the boundaries that follow:
   unshipped pending a dual-run observation issue), and nothing scores the
   rolling Numbat stream at runtime (#1458 Phase 5). Operator guide:
   `docs/security-philosophy/numbat_pre_action_gate.md`.
+
+### Eighteenth amendment — console operator session and admin-session access to the API-key routes (2026-10-03)
+
+Before this amendment the browser console unlocked the API-key routes
+(`/soul/*`, `/ops/*`, `/memory/*`, `/audit/summary`, `/query/export/html`)
+only by holding `CYCLAW_API_KEY` in a text field and sending it as a Bearer
+header. A reload lost it, and the bearer secret lived in page JavaScript.
+`gate.py`'s `require_api_key` now accepts any **one** of four credentials:
+
+1. the `security.api_key_optional` bypass (fourteenth amendment, unchanged);
+2. Bearer `CYCLAW_API_KEY` (curl, MCP and scripts, unchanged);
+3. a **console cookie**: `POST /console/session` trades the key, or a
+   launcher's one-time pairing code, for `cyclaw_console`
+   (`utils/console_session.py`);
+4. with `auth.enabled`, a login session that belongs to an **enabled admin**.
+
+The boundaries that follow:
+
+- **The key never stays in the page.** The cookie is HttpOnly,
+  `SameSite=Strict`, `Path=/`, and `Secure` under `api.tls`. Page script
+  cannot read it. Its value is not the key: it is `v1.<expiry>.<nonce>.<mac>`,
+  an HMAC-SHA256 under a key derived from `CYCLAW_API_KEY`, and it cannot be
+  turned back into the key.
+- **CSRF is required for writes.** A state-changing request authorized by
+  either cookie must also carry that cookie's CSRF token: the console cookie's
+  is `X-CyClaw-Console-CSRF`, derived from the cookie's nonce; a login's is
+  the existing `X-CyClaw-CSRF`. A missing or wrong token is a 403 and never
+  falls through to another credential. Both cookie paths are also refused on
+  any request `_looks_cross_site` flags, and `GET /console/session`, which
+  hands a same-origin page its CSRF token back after a reload, refuses
+  cross-site requests outright.
+- **Fail-closed still holds for every key-based credential.** With
+  `CYCLAW_API_KEY` unset, Bearer and console cookies validate nothing and
+  `POST /console/session` answers 401. Only an admin login (4) works without
+  the key, because a login is a credential of its own; `operator` and `audit`
+  sessions are refused, as is a disabled admin.
+- **A console cookie cannot be revoked on its own.** It is stateless, so it
+  lives until `security.console_session_ttl_sec` (ships 43200 s, bounded
+  60-604800 at boot) unless `CYCLAW_API_KEY` is rotated, which revokes every
+  cookie at once. "Lock" in the console (`POST /console/session/end`) deletes
+  the browser's copy only. A stolen cookie is therefore usable until expiry,
+  where a stolen key was usable until rotation.
+- **The launcher pairing code is single-use and short-lived.**
+  `macos/invoke-cyclaw.sh` and `powershell/Invoke-CyClaw.ps1` mint a
+  32-character URL-safe code, export it as `CYCLAW_CONSOLE_PAIRING_CODE` to
+  the gateway, and open the console at `#pair=<code>`. The fragment is never
+  sent over the network. `gate.py` pops the variable at import, so no `/ops/*`
+  subprocess inherits it, and keeps only its SHA-256. The code is redeemable
+  once and expires `security.console_pairing_ttl_sec` (ships 300 s) after the
+  gateway starts. The page strips the fragment before redeeming it. The code
+  is visible to same-user processes (the launcher's environment, the browser
+  launch's argv) for that window. Those processes can already read the key
+  from the OS keystore, so this widens nothing for the trusted operator.
+  With uvicorn workers each process holds its own copy, so the code is
+  redeemable once per worker; the shipped launchers run one process.
+- **The launchers generate a missing key.** When the OS keystore holds no
+  `CYCLAW_API_KEY`, `macos/invoke-cyclaw.sh` runs
+  `setup-cyclaw-keys.sh --skip-prompts` (Keychain, never on argv) and
+  `powershell/Invoke-CyClaw.ps1` writes 20 random bytes as hex to Credential
+  Manager through `Write-CyclawCredential`. `gate.py` itself still never
+  generates or stores a secret.
+- **Residual.** Anyone holding a valid console cookie or an admin session
+  has full operator power, the same as holding the key; that is the design.
+  A browser extension with cookie access, or malware running as the
+  operator, can take the cookie, as it could already take the key from the
+  keystore.
