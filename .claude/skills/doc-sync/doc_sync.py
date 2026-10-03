@@ -445,7 +445,7 @@ def _source_lines(path: Path) -> str:
     return "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
 
 
-def _secret_persistence_drift(root: Path, readme: str) -> list[str]:
+def _installer_contract_drift(root: Path, readme: str) -> list[str]:
     rows = _table(readme, "**Secret persistence.**",
                   ("Platform", "Setup", "Operation", "Default secret store", "Plaintext opt-in"))
     expected = {
@@ -1091,7 +1091,7 @@ def main(argv: list[str] | None = None) -> int:
         readme = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
         for check, truth, details in (
             ("D12", "Git index and ignore rules", _local_records_drift(root, readme)),
-            ("D13", "platform installer source wiring", _secret_persistence_drift(root, readme)),
+            ("D13", "platform installer source wiring", _installer_contract_drift(root, readme)),
         ):
             for detail in details:
                 note(check, truth, detail)
