@@ -1240,6 +1240,29 @@ class TestAuditSummaryEndpoint:
         resp = test_client.get("/audit/summary")
         assert resp.status_code == 401
 
+    def test_carries_last_pre_action_hook_verdict(self, client, monkeypatch, tmp_path):
+        """The hook's most recent verdict is served here, behind the API key,
+        and never on the unauthenticated /health."""
+        test_client, _ = client
+        import gate
+        monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")
+        monkeypatch.setitem(gate.cfg["logging"], "audit_file", str(tmp_path / "empty.jsonl"))
+        headers = {"Authorization": "Bearer audit-key-456"}
+
+        monkeypatch.setattr(gate, "last_verdict", lambda: None)
+        resp = test_client.get("/audit/summary", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["pre_action_hook_last_verdict"] is None
+
+        verdict = {"verdict": "deny", "reason_code": "hook_denied", "provider": "grok",
+                   "engine": "command", "at": "2026-10-03T00:00:00+00:00"}
+        monkeypatch.setattr(gate, "last_verdict", lambda: dict(verdict))
+        resp = test_client.get("/audit/summary", headers=headers)
+        assert resp.json()["pre_action_hook_last_verdict"] == verdict
+
+        assert test_client.get("/audit/summary").status_code == 401
+        assert "hook_denied" not in test_client.get("/health").text
+
     def test_429_when_rate_limited(self, client, monkeypatch):
         test_client, _ = client
         monkeypatch.setenv("CYCLAW_API_KEY", "audit-key-456")

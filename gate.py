@@ -80,6 +80,7 @@ from utils.logger import audit_file_path, audit_log, hash_query, setup_logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from utils.sanitizer import check_input
+from utils.external_pre_hook import last_verdict
 from utils.errors import (
     PromptInjectionError, IndexNotFoundError
 )
@@ -1227,11 +1228,19 @@ async def audit_summary(request: Request):
     than the text that fired it, so no raw query or PR content is exposed here
     either. This is operational evidence, not a formal compliance artifact or
     certification.
+
+    Also carries this process's most recent pre-action hook verdict (codes
+    only: verdict, reason_code, provider, engine, timestamp), or null when the
+    hook has not decided anything since start. It lives here rather than on
+    /health because /health is unauthenticated and unrate-limited, and the
+    verdict reveals when an external provider call was last attempted.
     """
     audit_file = str(audit_file_path(cfg))
     # Single off-loop pass: summarize_audit streams the JSONL through
     # compute_metrics without materializing the (unbounded) file in memory.
-    return await asyncio.to_thread(summarize_audit, audit_file)
+    summary = await asyncio.to_thread(summarize_audit, audit_file)
+    summary["pre_action_hook_last_verdict"] = last_verdict()
+    return summary
 
 
 # The four /ops/* endpoints (out-of-band sync/ + agentic/ control surface) live
