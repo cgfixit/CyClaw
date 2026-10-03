@@ -297,6 +297,8 @@ def build_index(config_path: str = "config.yaml") -> None:
             )
 
     logger.info("Total chunks: %d", len(all_chunks))
+    if not all_chunks:
+        raise CorpusEmptyError("Corpus produced no chunks; existing index was left unchanged")
 
     # Semantic (vector) index. The backend is pluggable — ChromaDB by default
     # (embedded, offline-first), or pgvector when indexing.vector_backend=pgvector.
