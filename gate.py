@@ -917,20 +917,27 @@ def _run_index_build() -> None:
 
 
 @app.post("/index/build", dependencies=[Depends(_enforce_rate_limit)])
-async def index_build(request: Request) -> dict[str, Any]:
+async def index_build(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    cyclaw_console: str | None = Cookie(default=None),
+    cyclaw_session: str | None = Cookie(default=None),
+) -> dict[str, Any]:
     """Start a background index build from the configured corpus.
 
-    Auth is the loopback socket peer plus same-origin, NOT the API key --
-    deliberately, and for the same reason /auth/bootstrap-password uses that
-    pair: on a genuine first run CYCLAW_API_KEY may not be set yet, and an
-    unset key fails CLOSED (401), so key-gating this route would brick exactly
-    the flow it exists to unblock. The peer check is on the socket, which a
-    Host or Origin header cannot forge.
+    Always: the loopback socket peer, no reverse-proxy forwarding header, and
+    same-origin. The peer check is on the socket, which a Host or Origin header
+    cannot forge; the forwarding-header refusal matches
+    /auth/bootstrap-password, because behind a same-host proxy or tunnel every
+    caller's peer IS loopback (#1526 F7).
 
-    Like /auth/bootstrap-password, a request carrying any forwarding header is
-    refused too: behind a same-host reverse proxy or tunnel every caller's
-    socket peer IS loopback, so the peer check alone would open this route to
-    whoever can reach the proxy (#1526 F7).
+    Once CYCLAW_API_KEY is set, also require_api_key's credentials (Bearer key,
+    console cookie + CSRF, or an enabled admin login + CSRF). A proxy that
+    strips every forwarding header is indistinguishable from a local caller,
+    so the headers alone cannot close that path; a credential can (#1528
+    review). With the key unset -- a genuine first run -- the route stays
+    usable on the gate above alone, because key-gating it then would fail
+    closed (401) and brick the flow it exists to unblock.
     """
     client_host = request.client.host if request.client else ""
     if not _is_loopback_host(client_host) or _looks_proxied(request):
@@ -947,6 +954,18 @@ async def index_build(request: Request) -> dict[str, Any]:
             status_code=403,
             detail={"error": "Cross-site request rejected", "code": "CROSS_SITE_BLOCKED"},
         )
+    if os.environ.get("CYCLAW_API_KEY", ""):
+        try:
+            require_api_key(request, credentials, cyclaw_console, cyclaw_session)
+        except HTTPException as exc:
+            await _audit({"event": "index_build_rejected", "reason": "credential", "ip": client_host})
+            if exc.status_code != 401:
+                raise
+            raise HTTPException(
+                status_code=401,
+                detail={"error": "Unlock operator access to build the index",
+                        "code": "INDEX_BUILD_AUTH_REQUIRED"},
+            ) from exc
 
     # One build at a time. Two concurrent runs would write the same ChromaDB
     # collection and the same bm25.json, so the loser corrupts the winner.

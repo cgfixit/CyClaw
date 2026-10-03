@@ -219,6 +219,78 @@ class TestIndexBuildGates:
             assert ran.wait(timeout=5), "the worker thread never started"
 
 
+class TestIndexBuildCredentialGate:
+    """Once CYCLAW_API_KEY is set, /index/build also needs require_api_key's
+    credentials (#1528 review): a proxy that strips every forwarding header
+    looks like a local caller, so only a credential closes that path. With the
+    key unset (first run) the loopback/same-origin gate alone still applies.
+
+    Own loopback IP: these requests must not spend idle_client's shared
+    127.0.0.1 budget (see test_status_survives_more_than_the_per_ip_budget).
+    """
+
+    KEY = "index-build-test-key"
+
+    @pytest.fixture
+    def client(self, idle_client):
+        return TestClient(
+            gate.app,
+            base_url="http://localhost",  # DevSkim: ignore DS162092,DS137138 - test loopback host
+            client=("127.0.0.10", 51234),  # DevSkim: ignore DS162092,DS137138
+        )
+
+    def test_key_set_and_no_credential_is_refused(self, client, monkeypatch):
+        monkeypatch.setenv("CYCLAW_API_KEY", self.KEY)
+        with patch.object(gate, "_run_index_build") as run:
+            resp = client.post("/index/build")
+        assert resp.status_code == 401
+        assert resp.json()["detail"]["code"] == "INDEX_BUILD_AUTH_REQUIRED"
+        assert gate._index_build["state"] == "idle"
+        run.assert_not_called()
+
+    def test_key_set_and_wrong_bearer_is_refused(self, client, monkeypatch):
+        monkeypatch.setenv("CYCLAW_API_KEY", self.KEY)
+        with patch.object(gate, "_run_index_build") as run:
+            resp = client.post("/index/build", headers={"Authorization": "Bearer not-the-key"})
+        assert resp.status_code == 401
+        run.assert_not_called()
+
+    def test_key_set_and_bearer_key_starts_a_build(self, client, monkeypatch):
+        monkeypatch.setenv("CYCLAW_API_KEY", self.KEY)
+        ran = threading.Event()
+        with patch.object(gate, "_run_index_build", side_effect=ran.set):
+            resp = client.post("/index/build", headers={"Authorization": f"Bearer {self.KEY}"})
+            assert resp.status_code == 200
+            assert ran.wait(timeout=5), "the worker thread never started"
+
+    def test_console_cookie_needs_its_csrf_header(self, client, monkeypatch):
+        """The console's own path: the HttpOnly cookie plus X-CyClaw-Console-CSRF.
+        A cookie without the header is a 403, never a fall-through."""
+        from utils import console_session
+
+        monkeypatch.setenv("CYCLAW_API_KEY", self.KEY)
+        minted = console_session.mint(self.KEY, 600)
+        client.cookies.set(console_session.COOKIE_NAME, minted.token)
+        with patch.object(gate, "_run_index_build") as run:
+            resp = client.post("/index/build")
+        assert resp.status_code == 403
+        run.assert_not_called()
+
+        ran = threading.Event()
+        with patch.object(gate, "_run_index_build", side_effect=ran.set):
+            resp = client.post("/index/build", headers={console_session.CSRF_HEADER: minted.csrf})
+            assert resp.status_code == 200
+            assert ran.wait(timeout=5), "the worker thread never started"
+
+    def test_key_unset_keeps_the_first_run_gate(self, client, monkeypatch):
+        monkeypatch.delenv("CYCLAW_API_KEY", raising=False)
+        ran = threading.Event()
+        with patch.object(gate, "_run_index_build", side_effect=ran.set):
+            resp = client.post("/index/build")
+            assert resp.status_code == 200
+            assert ran.wait(timeout=5), "the worker thread never started"
+
+
 class TestIndexBuildWorker:
     """gate._run_index_build is the body the thread runs; call it directly."""
 

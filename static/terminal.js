@@ -678,7 +678,10 @@ async function startIndexBuild() {
     // renderFirstRun's running branch draws no button, so there would be no
     // Try again affordance and no error -- just "Building your library"
     // forever. The route only starts a thread and returns, so 15s is generous.
-    const resp = await fetchWithTimeout(`${API}/index/build`, { method: 'POST' }, 15000);
+    // authHeaders(): once CYCLAW_API_KEY is set the route also needs the
+    // operator credential, and the console cookie needs its CSRF header on a
+    // POST (#1528). With the key unset it is ignored.
+    const resp = await fetchWithTimeout(`${API}/index/build`, { method: 'POST', headers: authHeaders() }, 15000);
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       throw new Error(extractErrorMessage(err, `build failed (${resp.status})`));
