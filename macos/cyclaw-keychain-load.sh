@@ -6,9 +6,11 @@
 # macos/cyclaw-keychain-env.sh (repo macos/ or ~/.CyClaw/bin).
 #
 # Contract:
-#   - Non-secret dotenv assignments may still be sourced (mode 600 or 400).
-#   - Secret names are scrubbed after that source. They are never kept from
-#     a file, even when the file is private.
+#   - A fully plain dotenv (mode 600 or 400, no secret names, every line a
+#     plain assignment) may still be sourced.
+#   - A line the parser cannot fully consume is not executed. Secret-classified
+#     names are not exported. They are never kept from a file, even when the
+#     file is private.
 #   - Secrets that are still unset are read from Keychain via
 #     cyclaw-keychain-env.sh. A missing optional item stays unset. A present
 #     item that cannot be read aborts the caller. There is no plaintext fallback.
@@ -16,8 +18,8 @@
 #
 # Secret classification lives in macos/cyclaw-public-env.sh: an allowlist
 # (the names below) plus the suffix pattern *_API_KEY *_TOKEN *_SECRET
-# *_PASSWORD. Non-secret settings in ~/.CyClaw/.env are still sourced.
-# Secret-classified names are scrubbed after that source and filled from
+# *_PASSWORD. Plain non-secret settings in ~/.CyClaw/.env are still loaded.
+# Secret-classified names are not exported from that file and are filled from
 # the Keychain. There is no plaintext fallback.
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
@@ -104,8 +106,10 @@ _dotenv_mode() {
   fi
 }
 
-# Source non-secret assignments. Secret names that the file exports are
-# removed again before this returns, including when the file itself fails.
+# Load non-secret assignments. A line that is not a plain assignment is not
+# executed (a command word can hide GH_TOKEN=... after it). The caller can
+# try the next dotenv when this returns non-zero. A fully plain file with no
+# secret is still sourced so a failing last command keeps the old fallback.
 _source_dotenv() {
   local f="$1"
   local mode=""
@@ -127,6 +131,18 @@ _source_dotenv() {
   local had_allexport=0
   if command -v _remember_secret_presets_in_file >/dev/null 2>&1; then
     _remember_secret_presets_in_file "$f" || true
+  fi
+  if command -v cyclaw_file_has_unparsed_line >/dev/null 2>&1 && cyclaw_file_has_unparsed_line "$f"; then
+    echo "[cyclaw] warn : $f has a line that is not a plain assignment. That line was not executed. Values were not printed." >&2
+    cyclaw_export_nonsecret_assignments "$f"
+    _scrub_dotenv_secrets || true
+    return 1
+  fi
+  if command -v cyclaw_file_has_secret_assignment >/dev/null 2>&1 && cyclaw_file_has_secret_assignment "$f"; then
+    echo "[cyclaw] warn : $f contains secret-classified names. Those lines were not exported." >&2
+    cyclaw_export_nonsecret_assignments "$f"
+    _scrub_dotenv_secrets || true
+    return 0
   fi
   case "$-" in *a*) had_allexport=1 ;; esac
   set -a

@@ -344,6 +344,26 @@ def test_credman_env_validates_env_var_name() -> None:
     assert r"^[A-Za-z_][A-Za-z0-9_]*$" in text
 
 
+def test_remove_credentials_prompts_unless_yes() -> None:
+    """-RemoveCredentials asks y/N; -Yes confirms that purge and nothing else."""
+    text = (_PS / "Uninstall-CyClaw.ps1").read_text(encoding="utf-8")
+    readme = (_PS / "README.md").read_text(encoding="utf-8")
+    assert "[switch]$Yes" in text
+    assert "if ($Yes)" in text
+    assert "kept Credential Manager items" in text
+    call = text.index('Confirm-CyclawDestructive "Delete the five documented CyClaw Credential Manager items?"')
+    kept = text.index("kept Credential Manager items")
+    remove = text.index("Remove-CyclawCredential")
+    assert call < kept < remove
+    confirm = text.split("function Confirm-CyclawDestructive", 1)[1].split("\n}", 1)[0]
+    assert confirm.index("if ($Yes)") < confirm.index("Read-Host")
+    assert "(y/N)" in confirm
+    home = text.split("# -- home directory", 1)[1]
+    assert "$Yes" not in home
+    assert "-Yes" in readme
+    assert "y/N" in readme
+
+
 def test_powershell_readme_documents_credman_and_known_task_names() -> None:
     readme = (_PS / "README.md").read_text(encoding="utf-8")
     assert "CyClaw-CredMan-Set.ps1" in readme

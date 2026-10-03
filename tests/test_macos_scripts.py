@@ -933,7 +933,7 @@ def test_dotenv_parser_sees_every_assignment_form(tmp_path: Path) -> None:
 @_BASH_EXECUTION_REQUIRED
 @pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
 def test_source_dotenv_scrubs_later_and_declared_secrets(tmp_path: Path) -> None:
-    """Sourcing still executes the file, then unsets every secret assignment."""
+    """A secret assignment is not exported, including a later token on the line."""
     dotenv = tmp_path / ".env"
     dotenv.write_text(
         "CYCLAW_GATE_PORT=8788 GROK_API_KEY=second-secret\n"
@@ -986,6 +986,115 @@ def test_drop_matching_assignment_keeps_a_different_value(tmp_path: Path) -> Non
     assert "8788" in text
     assert "GROK_API_KEY" not in text
     assert "keep-me" not in text
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_drop_matching_assignment_keeps_original_token_text(tmp_path: Path) -> None:
+    """Kept tokens stay as written: export, an unquoted $VAR, and the comment."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "export CYCLAW_GATE_PORT=$HOME GROK_API_KEY=secret # port\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'cyclaw_dotenv_drop_matching_assignment "{dotenv}" GROK_API_KEY secret\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    text = dotenv.read_text(encoding="utf-8")
+    assert "export CYCLAW_GATE_PORT=$HOME" in text
+    assert "# port" in text
+    assert "GROK_API_KEY" not in text
+    assert "secret" not in text
+    assert "'$HOME'" not in text
+    assert '"$HOME"' not in text
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_public_env_does_not_execute_hidden_secret_lines(tmp_path: Path) -> None:
+    """Command words, eval, set, braces, if, and alias hide no secret export.
+
+    The scanner stops at the first word it cannot consume. That line is not
+    executed and contributes no exports, including an assignment written
+    before the command word. A plain assignment on its own line still loads.
+    """
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788\n"
+        "true; GH_TOKEN=hidden-b\n"
+        "eval GH_TOKEN=hidden-c\n"
+        "set -a; GH_TOKEN=hidden-g\n"
+        "{ GH_TOKEN=hidden-h; }\n"
+        "if true; then GH_TOKEN=hidden-i; fi\n"
+        "alias x=y; GH_TOKEN=hidden-j\n"
+        "CYCLAW_NOTE=before-command; true\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT CYCLAW_NOTE GH_TOKEN\n"
+        "unalias x 2>/dev/null || true\n"
+        "set +a\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'cyclaw_source_public_env "{dotenv}"\n'
+        "loader_status=$?\n"
+        'case "$-" in *a*) exit 23 ;; esac\n'
+        'alias x >/dev/null 2>&1 && exit 51\n'
+        'case "${GH_TOKEN-}" in hidden-b|hidden-c|hidden-g|hidden-h|hidden-i|hidden-j) exit 41 ;; esac\n'
+        '[ -z "${GH_TOKEN-}" ] || exit 42\n'
+        '[ -z "${CYCLAW_NOTE-}" ] || exit 43\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'printf "status:%s\\n" "$loader_status"\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    for token in ("hidden-b", "hidden-c", "hidden-g", "hidden-h", "hidden-i", "hidden-j"):
+        assert token not in blob
+    assert "GH_TOKEN=" not in result.stderr
+    assert result.stdout.splitlines()[-2:] == ["port:8788", "status:0"]
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_source_dotenv_does_not_execute_hidden_secret_lines(tmp_path: Path) -> None:
+    """The invoke loader refuses the same hidden lines and leaves allexport alone."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788\n"
+        "true; GH_TOKEN=hidden-b\n"
+        "eval GH_TOKEN=hidden-c\n"
+        "set -a; GH_TOKEN=hidden-g\n"
+        "{ GH_TOKEN=hidden-h; }\n"
+        "if true; then GH_TOKEN=hidden-i; fi\n"
+        "alias x=y; GH_TOKEN=hidden-j\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT GH_TOKEN\n"
+        "unalias x 2>/dev/null || true\n"
+        "set +a\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh"}"\n'
+        f'_source_dotenv "{dotenv}"\n'
+        "loader_status=$?\n"
+        'case "$-" in *a*) exit 23 ;; esac\n'
+        'alias x >/dev/null 2>&1 && exit 51\n'
+        '[ -z "${GH_TOKEN-}" ] || exit 42\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'printf "status:%s\\n" "$loader_status"\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    for token in ("hidden-b", "hidden-c", "hidden-g", "hidden-h", "hidden-i", "hidden-j"):
+        assert token not in blob
+    assert "GH_TOKEN=" not in result.stderr
+    assert result.stdout.splitlines()[-2:] == ["port:8788", "status:1"]
 
 
 @_BASH_EXECUTION_REQUIRED
