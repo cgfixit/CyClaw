@@ -272,3 +272,28 @@ def test_pgvector_live_reader_stays_on_its_generation(fresh_store, tmp_path):
 def test_pgvector_reader_rejects_a_table_name_it_did_not_write(fresh_store):
     with pytest.raises(IndexNotFoundError, match="not one this indexer writes"):
         get_vector_reader(_cfg(), "kb_chunks; DROP TABLE users")
+
+
+def test_pgvector_reader_reconnects_after_the_server_drops_the_connection(fresh_store):
+    """A connection the server dropped used to stay cached, so every later
+    query failed and retrieval stayed keyword-only until the process restarted.
+    Only the query that finds the dropped connection fails now."""
+    import psycopg
+
+    from utils.personality_db import _harden_pg_conninfo
+
+    cfg = _cfg()
+    generation = _build(cfg, "survives a reconnect")
+    reader = get_vector_reader(cfg, generation)
+    try:
+        assert _texts(reader) == ["survives a reconnect"]
+        pid = reader._connection().info.backend_pid
+        with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as admin:
+            # The 5000 ms timeout makes the call wait until the backend is gone.
+            admin.execute("SELECT pg_terminate_backend(%s, 5000)", (pid,))
+        with pytest.raises(psycopg.OperationalError):
+            _texts(reader)
+        assert _texts(reader) == ["survives a reconnect"]
+        assert reader._connection().info.backend_pid != pid
+    finally:
+        reader.close()

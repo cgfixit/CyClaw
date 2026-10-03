@@ -311,6 +311,48 @@ class TestPersonalityManager:
             "SELECT COUNT(*) AS c FROM interactions WHERE query_hash IN ('h1','h2','h3')"
         ).fetchone()["c"] == 3
 
+    def test_failed_record_interaction_rolls_back(self, cfg, tmp_paths):
+        """A failed commit must not leave the shared connection in its
+        transaction. On SQLite the open transaction kept its lock and the
+        failed row rode along with the next successful commit; on Postgres
+        every later statement failed until restart (live twin in
+        tests/test_personality_postgres.py)."""
+        soul_path, _, _ = tmp_paths
+        soul_path.parent.mkdir(parents=True, exist_ok=True)
+        soul_path.write_text("# Test", encoding="utf-8")
+
+        with patch("utils.personality.audit_log"):
+            from utils.personality import PersonalityManager
+            pm = PersonalityManager(cfg)
+
+        real_conn = pm.conn
+
+        class CommitFailsOnce:
+            def __init__(self, wrapped):
+                self.wrapped = wrapped
+                self.failed = False
+
+            def execute(self, *args, **kwargs):
+                return self.wrapped.execute(*args, **kwargs)
+
+            def commit(self):
+                if not self.failed:
+                    self.failed = True
+                    raise RuntimeError("simulated commit failure")
+                return self.wrapped.commit()
+
+            def rollback(self):
+                return self.wrapped.rollback()
+
+        pm.conn = CommitFailsOnce(real_conn)
+        with pytest.raises(RuntimeError, match="simulated commit failure"):
+            pm.record_interaction("lost", "local")
+        assert not real_conn.in_transaction
+
+        pm.record_interaction("kept", "local")
+        rows = real_conn.execute("SELECT query_hash FROM interactions").fetchall()
+        assert [r["query_hash"] for r in rows] == ["kept"]
+
 
 class TestApplyEvolutionInjectionGate:
     """S8 regression: apply_evolution ENFORCES the injection scan at the write boundary.

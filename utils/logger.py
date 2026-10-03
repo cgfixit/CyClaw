@@ -809,6 +809,24 @@ def reset_config_cache() -> None:
 def hash_query(query: str) -> str:
     return hashlib.sha256(query.encode("utf-8")).hexdigest()
 
+
+def include_query_hash(cfg: dict[str, Any] | None) -> bool:
+    """logging.audit_fields.include_query_hash, default True, tolerant of any shape.
+
+    The one reader of this opt-out. audit_log and every derived stream
+    (graph.py's fallback spend context, the pre-action hook, the Numbat gate
+    and CEL monitor) must agree, or a stream would carry the hash an operator
+    disabled. A missing, null or non-mapping block keeps the hash on:
+    commenting out the only key under ``audit_fields:`` makes YAML read the
+    block as null, and that previously made audit_log drop every event that
+    carries a query instead of writing it.
+    """
+    logging_cfg = cfg.get("logging") if isinstance(cfg, dict) else None
+    audit_fields = logging_cfg.get("audit_fields") if isinstance(logging_cfg, dict) else None
+    if not isinstance(audit_fields, dict):
+        return True
+    return bool(audit_fields.get("include_query_hash", True))
+
 @lru_cache(maxsize=8)
 def _compiled_redactors(
     redact_emails: bool,
@@ -926,10 +944,9 @@ def audit_log(event: dict, config_path: str = "config.yaml", cfg: dict | None = 
     if cfg is None:
         cfg = _get_config(config_path)
     log_path = _anchor(cfg["logging"]["audit_file"])
-    audit_fields = cfg["logging"].get("audit_fields", {})
     try:
         record = dict(event)  # work on a shallow copy — never mutate the caller's dict
-        if "query" in record and audit_fields.get("include_query_hash", True):
+        if "query" in record and include_query_hash(cfg):
             raw_query = record.pop("query")
             record["query_hash"] = hash_query(raw_query)
         redactors = _resolve_redactors(cfg)

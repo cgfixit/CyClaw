@@ -257,3 +257,27 @@ def test_pg_an_unknown_window_row_survives_a_mixed_policy_rolling_upgrade(clean_
         )
     finally:
         short.close()
+
+
+def test_pg_reconnects_after_the_server_drops_the_connection(clean_table):
+    """A connection the server dropped (a restart, an idle timeout) used to stay
+    cached, so every later request raised and each rate-limited route answered
+    500 until the process restarted. Only the request that finds the dropped
+    connection fails now; the next one reconnects."""
+    import psycopg
+
+    from utils.personality_db import _harden_pg_conninfo
+
+    rl = RateLimiter(max_requests=5, window_seconds=60, clock=lambda: 5000.0, db_url=DSN)
+    try:
+        assert rl.allow("6.6.6.6") is True
+        pid = rl._pg_connection().info.backend_pid
+        with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as admin:
+            # The 5000 ms timeout makes the call wait until the backend is gone.
+            admin.execute("SELECT pg_terminate_backend(%s, 5000)", (pid,))
+        with pytest.raises(psycopg.OperationalError):
+            rl.allow("6.6.6.6")
+        assert rl.allow("6.6.6.6") is True
+        assert rl._pg_connection().info.backend_pid != pid
+    finally:
+        rl.close()

@@ -470,19 +470,6 @@ def _provider_url(provider: str, cfg: dict[str, Any] | None) -> str:
     return url if isinstance(url, str) and url else _DEFAULT_PROVIDER_URLS.get(provider, "")
 
 
-def _include_query_hash(cfg: dict[str, Any] | None) -> bool:
-    """logging.audit_fields.include_query_hash, default True, tolerant of any shape.
-
-    An operator who opted out of the hash keeps it out of the gate's temp
-    fixture too, the same as utils/external_pre_hook.py's verdict events.
-    """
-    logging_cfg = cfg.get("logging") if isinstance(cfg, dict) else None
-    audit_fields = logging_cfg.get("audit_fields") if isinstance(logging_cfg, dict) else None
-    if not isinstance(audit_fields, dict):
-        return True
-    return bool(audit_fields.get("include_query_hash", True))
-
-
 def build_gate_event(provider: str, model: str, query_hash: str, cfg: dict[str, Any] | None) -> dict[str, Any]:
     """The proposed external call as one schema-0.3.0 event, for rules to see.
 
@@ -492,10 +479,11 @@ def build_gate_event(provider: str, model: str, query_hash: str, cfg: dict[str, 
     ever present as its SHA-256, inside ``content_preview``.
     """
     # lazy: keeps this module's import surface stdlib + yaml
+    from utils.logger import include_query_hash
     from utils.numbat_emitter import build_event, redact_url_for_numbat
 
     preview = None
-    if _include_query_hash(cfg) and _QUERY_HASH_RE.fullmatch(query_hash or ""):
+    if include_query_hash(cfg) and _QUERY_HASH_RE.fullmatch(query_hash or ""):
         preview = json.dumps({"query_hash": query_hash}, separators=(",", ":"))
     return build_event(
         "network.indicator",

@@ -482,12 +482,11 @@ logging:
   # path, so this must stay equal to that script's RUNS_PATH.
   eval_runs_file: "logs/evals/eval_runs.jsonl"
   # Only include_query_hash is read; the other audit fields are always written.
+  # A missing or empty block keeps the hash on (utils.logger.include_query_hash).
   # false stores raw query text (PII-redacted) in audit_file, and in the Numbat
   # stream's content_preview when it fits: a privacy regression. model_used
   # holds the answer ROLE ("local"/"grok"/"claude"/"offline-best-effort"),
   # llm_model the concrete tag, llm a summary.
-  # privacy regression. model_used holds the answer ROLE ("local"/"grok"/
-  # "claude"/"offline-best-effort"), llm_model the concrete tag, llm a summary.
   # model_used's vocabulary is frozen: metrics.py buckets on it and detects
   # online escalation from its prefix.
   audit_fields:

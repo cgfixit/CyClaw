@@ -304,7 +304,11 @@ class _PgVectorBase:
         self._conn = None
 
     def _connection(self):
-        if self._conn is None:
+        # Reopen once psycopg reports the cached connection closed, which
+        # includes one the server dropped. Otherwise every later query fails,
+        # semantic_search turns that into EmbeddingServiceError, and retrieval
+        # stays keyword-only until the process restarts.
+        if self._conn is None or self._conn.closed:
             import psycopg  # noqa: PLC0415 -- lazy: ChromaDB installs need no driver
             from pgvector.psycopg import register_vector  # noqa: PLC0415
 

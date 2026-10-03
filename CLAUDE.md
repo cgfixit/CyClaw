@@ -14,12 +14,11 @@ LangGraph security topology (`graph.py`), with hybrid ChromaDB + BM25 retrieval,
 a local LLM via Ollama, and triple-gated optional external fallbacks (Grok
 and/or Claude, selected per-query via `online_provider`). It binds
 **only** to `127.0.0.1:8787`. A separate retrieval-only MCP server
-(`mcp_hybrid_server.py`) exposes search with no LLM path. 
+(`mcp_hybrid_server.py`) exposes search with no LLM path.
 
-# Critical Python Coding Requirement:
-- Never use docstrings as multi-line comments other than when placed at the beginning of a python file OR top of a defined function.
-- When multi-line comments required outside of that context, just use a # at the beginning of each line of the comment
-
+**Critical Python coding requirement.** Never use a docstring as a multi-line
+comment except at the top of a Python file or a function definition. Anywhere
+else, write multi-line comments with `#` at the start of each line.
 
 **Where truth lives.** In priority order:
 1. **Code** — the running behavior. When docs and code disagree, code wins.
@@ -32,7 +31,8 @@ and/or Claude, selected per-query via `online_provider`). It binds
    anything security-related.
 4. This file and `.claude/rules/PROJECT_RULES.md` — the operating rules.
    `AGENTS.md` is the parallel guidance for other agents; keep them consistent.
-5. `README.md` for holistic view of codebase and purpose of application — `docs/changelog.txt` for reference of changes over time.
+5. `README.md` for the holistic view of the codebase; `docs/changelog.txt` for
+   changes over time.
 
 ---
 
@@ -129,110 +129,91 @@ The four `/ops/*` endpoints reach out-of-band subsystems ONLY through
 `utils/ops_runner.py` (a `subprocess.run([...])` shim). They never import those
 subsystems.
 
-Every route marked **API key** above is gated by `gate.py`'s
-`require_api_key`. `config.yaml`'s
-`security.api_key_optional` (default `false`) is the one deliberate bypass. It
-does **not** touch the separate session/RBAC `/auth/*` system below, which
-stays governed by `auth.enabled` regardless. Two controls bound it:
+Every route marked **API key** is gated by `gate.py`'s `require_api_key`;
+unset `CYCLAW_API_KEY` fails closed (401). `security.api_key_optional` (ships
+`false`) is the one deliberate bypass, and `_api_key_bypass_allowed` grants it
+only when **all four** hold: the flag is set, the **socket peer is loopback**,
+**no reverse-proxy forwarding header** is present, and the request is **not
+cross-site**. Each condition closes a hole the previous ones left, so never
+collapse it to "loopback" alone; it is keyed on the peer, never the `Host`
+header or `security.allowed_hosts`/`allowed_origins`. A remote caller always
+needs the real key, including under `uvicorn gate:app --host 0.0.0.0` (the
+container `CMD`, no bind guard). Defence in depth: `_require_loopback_bind`
+refuses a non-loopback `api.host` while the flag is `true` (config-guard C13
+warns on the pair); `CYCLAW_ALLOW_NON_LOOPBACK_BIND` outranks the bind guard,
+never the peer check. Under Docker NAT the peer is the bridge gateway, so set
+`CYCLAW_API_KEY` in the container. The full contract and its tests are
+`INVARIANTS.md` Rule 6.
 
-**Per-request (the primary one):** `gate.py`'s `_api_key_bypass_allowed` requires
-**four** conditions, every one necessary — the flag is set; the request's
-**socket peer is loopback**; **no reverse-proxy forwarding header** is present
-(a proxy on this host makes every remote caller present a loopback peer); and
-the request is **not cross-site** (a page the operator visits is a loopback peer
-too, and a CORS-simple POST executes before CORS withholds the response). Do not
-read the loopback check as the whole control — the function's own docstring notes
-each condition closes a hole the previous ones left. A remote caller always needs
-the real key regardless of how the process was launched, including
-`uvicorn gate:app --host 0.0.0.0` (the container's own `CMD`), which runs no
-bind guard. Keyed on the
-peer, never the `Host` header (`TrustedHostMiddleware` is a DNS-rebinding
-control, not authentication) and never `security.allowed_hosts`/`allowed_origins`
-(those filter headers on requests that already arrived and open no socket).
+The bypass never touches the session/RBAC `/auth/*` system
+(`gate_auth.py`, `docs/AUTHENTICATION_DESIGN.md`), which `auth.enabled`
+governs alone. Every `/auth/*` handler exists regardless of the flag and
+answers 503 (not 404) when it is off, so a route's presence never discloses
+the feature. When `auth.enabled` is the literal boolean `true`, Stage 3
+attaches `require_session_or_token` to `POST /query` (session cookie or named
+device token, no CSRF); the shipped default leaves `/query` unauthenticated.
 
-**At bind (defence in depth):** `gate.py`'s `_require_loopback_bind` refuses a
-non-loopback `api.host` while the flag is `true`, including via the auth+TLS
-route past loopback. `config-guard`'s C13 warns (does not fail) on that same
-pair. `CYCLAW_ALLOW_NON_LOOPBACK_BIND` still outranks the bind guard (explicit
-"I front this with my own auth"), but never the peer check. Note the flag is
-inert under Docker: NAT rewrites the source, so the peer is the bridge gateway
-and the routes stay key-gated — set `CYCLAW_API_KEY` in the container.
-
-The original three `/auth/*` endpoints (`/auth/login`, `/auth/logout`,
-`/auth/whoami`) were Stage 2 of `docs/AUTHENTICATION_DESIGN.md`
-(`gate_auth.py`, registered the same way `gate_ops.py` registers `/ops/*`).
-Every `/auth/*` handler — including the RBAC/admin routes `gate_auth.py` has
-since grown (`docs/AUTHENTICATION_DESIGN.md` §12 "Roles") — exists regardless
-of `auth.enabled` and checks the flag first, returning 503 rather than 404, so
-a route's mere presence never discloses whether the feature is on. The full
-route set (login/logout/whoami, the `/auth/users*` admin/RBAC routes,
-self-service `/auth/password`, and `/auth/audit/summary`) is in the route
-table above. **Stage 3** attaches `require_session_or_token` to `POST /query`
-when `auth.enabled` is the literal boolean `true` (session cookie or named
-device token; no CSRF on `/query`). The shipped default leaves `/query`
-unauthenticated.
-
-The `/memory/*` and `/query/export/html` endpoints are the optional memory
-subsystem (`gate_memory.py` + package `memory/`, plan in
-`docs/memory/IMPLEMENTATION_PLAN.md`). Every `memory:` switch ships **false** —
-handlers return 404 (or 200 + `enabled: false` for `/memory/status`) until an
-operator enables them. Mutating routes require Bearer `CYCLAW_API_KEY` and a
-non-empty `reason`, with injection scan on apply (parallel to soul I5, not
-overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
+The `/memory/*` and `/query/export/html` routes are the optional memory
+subsystem (`gate_memory.py` + `memory/`, `docs/memory/IMPLEMENTATION_PLAN.md`).
+Every `memory:` switch ships **false**: handlers 404 (or 200 + `enabled: false`
+for `/memory/status`). Mutations need the API key and a non-empty `reason`,
+with an injection scan on apply (parallel to soul I5).
 
 ### Key modules
+
+Module docstrings are the detailed reference; this table is the index.
 
 | Path | Role |
 |---|---|
 | `gate.py` | FastAPI entry, auth, rate limit, sanitizer, security headers, telemetry kill |
-| `utils/telemetry_kill.py` | The canonical maps — `TELEMETRY_KILL` (21 telemetry pairs), a visibly-separate `UPDATE_CHECK_OPT_OUT` (4 ancillary pairs), and `SCRUBBED_ENV_KEYS` (5 tracing credentials + the 2 declarative-OTel config names, removed outright) — plus `apply_telemetry_kill()`, the pure child builder `build_telemetry_safe_env(base)`, `scheduler_env_overlay()` for generated jobs, and the launcher CLI `python -m utils.telemetry_kill --export {shell,powershell}`. Applied at import by every maintained chokepoint (invariant-guard G1 pins 14 orderings) and delivered as literal env by Docker/launchers/generators. Stdlib-only on purpose — it loads ahead of everything heavy; the ONNX API half deliberately lives in `utils/onnx_telemetry.py` instead. Deliberately excludes `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` — see `retrieval/embeddings.py` |
-| `utils/onnx_telemetry.py` | `suppress_onnx_telemetry()` — the post-import ONNX Runtime API suppression (`disable_telemetry_events()`), getattr-guarded, idempotent, absent-safe; called at the two load seams (`retrieval/vector_store.py`, `guardrails/integration.py` with `force_import=True` before `LLMRails`). Env half (`ORT_DISABLE_TELEMETRY=1`) rides the kill map |
+| `utils/telemetry_kill.py` | Canonical maps: `TELEMETRY_KILL` (21 pairs), separate `UPDATE_CHECK_OPT_OUT` (4), `SCRUBBED_ENV_KEYS` (5 tracing credentials/endpoints + 2 declarative-OTel config names, removed outright); `apply_telemetry_kill()`, `build_telemetry_safe_env(base)`, `scheduler_env_overlay()`, and `python -m utils.telemetry_kill --export {shell,powershell}`. Applied at import by every chokepoint (invariant-guard G1 pins 14 orderings). Stdlib-only; deliberately excludes `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` (§4) |
+| `utils/onnx_telemetry.py` | `suppress_onnx_telemetry()`: post-import `disable_telemetry_events()`, idempotent and absent-safe, called at `retrieval/vector_store.py` and `guardrails/integration.py`. The env half (`ORT_DISABLE_TELEMETRY=1`) rides the kill map |
 | `gate_ops.py` | The four `/ops/*` endpoints, registered onto gate.py's app with its auth/rate-limit/audit callables injected; never imports `sync`/`agentic` |
-| `gate_auth.py` | The `/auth/*` endpoint set — Stage 2's login/logout/whoami plus the RBAC/admin routes it has since grown (`docs/AUTHENTICATION_DESIGN.md`; the full list is in the route table above) — registered onto gate.py's app the same way `gate_ops.py` registers `/ops/*`. Session cookie + CSRF for browsers, bearer device tokens for programmatic clients; Stage 3 attaches `require_session_or_token` to `/query` by name (`_AUTH_DEPENDENCY_NAME`) only when `auth_manager` is not None |
-| `gate_memory.py` | Optional default-off memory admin surface (`/memory/*` + `/query/export/html`), registered onto gate.py's app the same way `gate_ops.py`/`gate_auth.py` register their routes. Lazy-imports package `memory` only inside handlers; never OOB. See `docs/memory/README.md` |
-| `memory/` | Optional facts + episodes SQLite+FTS5 store with propose/apply governance and optional retrieval fusion (all switches false in shipped `config.yaml`) |
+| `gate_auth.py` | The `/auth/*` endpoint set (login/logout/whoami + RBAC/admin), registered like `gate_ops.py`. Session cookie + CSRF for browsers, bearer device tokens for programs; Stage 3 attaches `require_session_or_token` to `/query` by name (`_AUTH_DEPENDENCY_NAME`) only when `auth_manager` is not None |
+| `gate_memory.py` | Default-off memory admin surface (`/memory/*` + `/query/export/html`), registered the same way; lazy-imports `memory` inside handlers only. See `docs/memory/README.md` |
+| `memory/` | Optional facts + episodes SQLite+FTS5 store with propose/apply governance and optional retrieval fusion (all switches false) |
 | `graph.py` | 12-node LangGraph topology; all security policy lives in the edges |
-| `retrieval/hybrid_search.py` | RRF fusion (k=60) over ChromaDB + BM25. The BM25 leg's top-k selection is vectorized with numpy (`argpartition`, cutoff ties taken in corpus order, then a stable sort) when the score array is finite, with the `heapq.nlargest` path kept as the fallback (#1491); this is why the module imports numpy directly, see the §4 numpy trap |
+| `retrieval/hybrid_search.py` | RRF fusion (k=60) over ChromaDB + BM25. BM25 top-k is vectorized with numpy `argpartition` + stable sort when scores are finite, `heapq.nlargest` otherwise (#1491) — hence the direct numpy import (§4 numpy trap) |
 | `retrieval/indexer.py` | Corpus ingestion, chunk sanitization (`cyclaw-index`) |
-| `retrieval/embeddings.py` | Local embeddings, device hardcoded to CPU (`EMBED_DEVICE` — cross-platform determinism; see the constant's own comment for why); triple `lru_cache`; `embedding_fingerprint()` for index-staleness detection |
-| `retrieval/rerank.py` | Local cross-encoder (`models.reranker`, shipped `cross-encoder/ms-marco-MiniLM-L6-v2`, CPU, raw logits) behind the vault-hit gate's veto (Phase 3 of #1456). `graph.retrieve_node` scores the `LOCAL_CONTEXT_CHUNKS` window through `HybridRetriever.rerank_scores`; `route_by_score_node` compares the best logit to `retrieval.min_rerank_score` (shipped `null`: shadow mode, logits audited as `rerank_best`, nothing vetoed). Fail-soft: off returns `None`, unavailable raises `RerankerError`, and either way the cosine rule decides alone (the audit record says `rerank_degraded`). Not called by `hybrid_search`, so MCP never pays for it. The model loads through the same offline discipline as the embedder: it shares `models.embeddings`' `cache_dir` and `offline_after_index`, and `local_files_only` is set only when the pinned snapshot is already on disk or that flag is on with a built index (the same `_index_or_bm25_present` probe) |
+| `retrieval/embeddings.py` | Local embeddings, device hardcoded to CPU (`EMBED_DEVICE`, cross-platform determinism); triple `lru_cache`; `embedding_fingerprint()` for index staleness |
+| `retrieval/rerank.py` | Local cross-encoder (`models.reranker`, shipped `cross-encoder/ms-marco-MiniLM-L6-v2`, CPU, raw logits) behind the vault-hit veto (#1456). `graph.retrieve_node` scores the `LOCAL_CONTEXT_CHUNKS` window; `route_by_score_node` compares the best logit to `retrieval.min_rerank_score` (shipped `null` = shadow, audited as `rerank_best`). Fail-soft (`rerank_degraded`); not called by `hybrid_search`, so MCP never pays for it. Loads under the embedder's offline rule (same `cache_dir`, `offline_after_index`, index probe) |
 | `retrieval/stemmer.py` | Porter stemmer + custom vocab; avoids NLTK punkt (CVE) |
 | `retrieval/vector_store.py` | Pluggable reader/writer: embedded ChromaDB (default) or pgvector |
 | `retrieval/clear_cache.py` | Dry-run-by-default embedding-cache cleaner (`cyclaw-clear-cache`) |
-| `llm/client.py` | `LocalLLMClient` + `GrokClient` + `ClaudeClient`; shared bounded-retry `_post_with_retry`, which honors `Retry-After` and reads a per-request graph-deadline ContextVar (`set_graph_deadline`, set by `gate.py`'s `/query`) so every POST is capped at the remaining `api.graph_timeout_sec` budget and a retry whose backoff would overrun it is refused (#1359) |
+| `llm/client.py` | `LocalLLMClient` + `GrokClient` + `ClaudeClient`; shared bounded-retry `_post_with_retry` honors `Retry-After` and caps every POST at the remaining `api.graph_timeout_sec` budget via the `set_graph_deadline` ContextVar (#1359) |
 | `utils/sanitizer.py` | Injection filter; patterns in `config.yaml` |
 | `utils/personality.py` | Soul versioning, SHA-256 drift detection, injection gate on write |
 | `utils/personality_db.py` | Soul DB backend: SQLite default, Postgres via `CYCLAW_DB_URL` |
-| `utils/logger.py` | Audit JSONL; SHA-256 query hashing, recursive PII redaction. Since the Numbat mainline plane landed, `audit_log` also projects each **already-redacted** record into the derived NDJSON stream via a lazy, fail-soft `utils/numbat_emitter` call — `audit.jsonl` stays authoritative. `setup_logging` writes the application log (`logging.log_file`) from one bounded writer thread (`_BackgroundFileHandler`: `logging.max_queued_records`, `logging.drain_wait_sec`), so a stalled log disk cannot hold a thread that logs; a full queue drops and counts. Notes about that go to stderr from their own thread. The gateway's console is written the same way (`setup_logging(..., background_console=True)` from `gate.py`); an agentic CLI's stays synchronous, since tools read its stderr after it exits. Like `FileHandler`, a closed handler reopens on its next line, because `uvicorn.run()`'s `dictConfig` closes every handler when `python gate.py` starts serving. `audit.jsonl` is still written on the caller's thread (I4) |
-| `utils/numbat_emitter.py` | Derived Numbat NDJSON stream (`logs/numbat-events.ndjsonl`, `numbat:` block ships **enabled** -- and that switch is this file only, not Numbat enforcement: the pre-action hook (`policy.fallback.pre_action_hook`) and CEL monitor (`numbat.cel`) ship off, and nothing scores this file at runtime: the Numbat CLI runs in CI and, only when the hook's opt-in `engine: numbat` is on, on each proposed external call, issue #1458). Two producer planes: the out-of-band **action** plane (`emit_numbat_event`/`emit_numbat_command` from `agentic/*` + `ops_runner`, plus the pre-action hook's verdicts and CEL matches) and the **mainline** plane (`project_audit_record`, every audit record). Events that already emit directly are listed in `_AUDIT_ACTION_PLANE_EVENTS` so they aren't written twice — keep that set in step with the emit sites. Stdlib-only and fail-soft on purpose: it is lazy-imported *inside* gate/graph processes on every `audit_log`, so it must never raise. One writer thread does every append (`_StreamWriter`): a caller waits at most `numbat.write_wait_sec` for its event, then stops waiting while the writer is stuck, and a full queue (`numbat.max_queued_writes`) drops and counts, so a stalled `numbat.output_path` cannot hold a request; tests read the stream straight after writing because the healthy path still writes before returning |
+| `utils/logger.py` | Audit JSONL (written on the caller's thread, I4): SHA-256 query hashing, recursive PII redaction, then a lazy fail-soft projection of the **already-redacted** record into the Numbat stream. `setup_logging` writes the app log (and gateway console, `background_console=True`) from one bounded writer thread (`logging.max_queued_records`, `logging.drain_wait_sec`; full queue drops and counts); closed handlers reopen after uvicorn's `dictConfig` |
+| `utils/numbat_emitter.py` | Derived NDJSON stream `logs/numbat-events.ndjsonl` (`numbat:` ships **enabled** — this file only; the pre-action hook and CEL monitor ship off, and nothing scores it at runtime, #1458). Action plane (`emit_numbat_event`/`emit_numbat_command` from `agentic/*`, `ops_runner`, hook verdicts, CEL) + mainline plane (`project_audit_record`); keep `_AUDIT_ACTION_PLANE_EVENTS` in step with the emit sites. Stdlib-only, never raises; one bounded writer thread (`numbat.write_wait_sec`, `numbat.max_queued_writes`) |
 | `utils/ratelimit.py` | Per-IP rate limiting; in-memory / SQLite / Postgres |
-| `utils/health.py` | `check_all()` behind `/health`; probes Grok/Claude only when `api.health_probe_external_providers` is true (ships **false** — `/health` is unauthenticated and unrate-limited, so probing there is operator-triggerable third-party egress), and even then skips a provider whose key is unset. Concurrent `/health` calls share one in-flight probe set per configuration (keyed by config path plus a digest of an explicitly supplied config), and a completed snapshot is served from a short module-level cache (`_status_ttl_sec`, 2 s, a constant rather than a config key) so a polling console cannot fan out into parallel Ollama/provider probes (#1490, Codex P2 on #1451). Probe failures reach the unauthenticated response only as fixed public strings (`_public_probe_error`: connection failed/timed out, `HTTP <code>`, or a generic failure), never the exception text, since that can carry URLs or credential values (#1492) |
+| `utils/health.py` | `check_all()` behind `/health`. Probes Grok/Claude only when `api.health_probe_external_providers` (ships **false**) and the key is set. Concurrent calls share one in-flight probe set, snapshots cache 2 s (`_status_ttl_sec`, #1490); probe errors surface only as fixed strings (`_public_probe_error`, #1492) |
 | `utils/errors.py` | Typed exception hierarchy rooted at `RAGError` |
 | `utils/config_validation.py` | Boot-time config validation; fails fast |
 | `utils/ops_runner.py` | Subprocess shim behind the four `/ops/*` endpoints |
-| `utils/guardrail_bridge.py` | Inversion shim: builds the `guardrail_input` and `guardrail_output` nodes' callables and the Phase 3 `generate_guard` (NeMo `check()` around each answer node's model call), or `None` for each when disabled; the only module through which `graph.py` reaches `guardrails/` (never a direct import) |
-| `utils/endpoint_trust.py` | Destination allowlist for the generation clients, imported directly by `graph.py` (three call sites) and `utils/health.py`. `assert_local_destination` permits loopback or an exact-match host from `models.local_llm.trusted_hosts` (ships `[]`) before local context + soul text leave the process; `assert_online_destination` pins Grok to `api.x.ai` and Claude to `api.anthropic.com` and re-refuses an explicit `confirmed is False`, a backstop to I3 rather than a replacement for it. Denials and malformed URLs become a typed `ENDPOINT_TRUST:` error, never a parser traceback |
-| `utils/external_pre_hook.py` | The pre-action hook `graph.py`'s `pre_action_hook_grok`/`_claude` nodes run after the I3 triple gate allowed a confirmed call (`policy.fallback.pre_action_hook`, ships `enabled: false`); it can only deny. Engine `command` (argv, JSON on stdin, exit 0 allow / 2 deny) or `numbat` (`utils/numbat_gate.py`). Once enabled, anything but an explicit allow denies, including an empty `command`, and every verdict carries a fixed `reason_code` that lands on the audit record as `pre_action_hook_reason`, in `cyclaw-metrics`, and (with `emit_verdict`) in the Numbat stream. `hook_readiness()` feeds `/health`'s `pre_action_hook` entry. `verdict_mode` (old name `fail_mode`) accepts only `enforce`; boot validation refuses anything else (issue #1458) |
-| `utils/numbat_gate.py` | The hook's `numbat` engine: builds the proposed call as a schema-0.3.0 `network.indicator` event and has the pinned `numbat 0.2.0` CLI evaluate it with `rules test --no-builtin-rules` against `numbat.rules_dirs`; an `enforce: true` rule match denies, other matches only report, and every engine failure denies. Exists because `numbat hook ...` cannot gate CyClaw: it drops the provider/URL and exits 0 on errors (verified; `tests/test_numbat_gate.py`). Subprocess only, never imports Numbat. Guide: `docs/security-philosophy/numbat_pre_action_gate.md` |
-| `utils/authn.py` | Per-user authentication primitives (`docs/AUTHENTICATION_DESIGN.md`): scrypt password hash/verify, per-account lockout arithmetic, session/CSRF/device-token id generation. Pure functions, no DB, no HTTP |
-| `utils/authn_store.py` | SQLite/Postgres backend for `users`/`sessions`/`device_tokens`, mirroring `utils/personality_db.py`'s `connect()` pattern; own `CYCLAW_AUTH_DB_URL` env var, deliberately not shared with personality's `CYCLAW_DB_URL` |
-| `utils/authn_manager.py` | `AuthManager` — ties `utils/authn.py` + `utils/authn_store.py` together: bootstrap, login/logout, session validation, device-token CRUD. No HTTP awareness; `gate_auth.py` is the only caller that knows about cookies/headers/status codes |
-| `utils/authn_cli.py` | `cyclaw-user` console script (`add`/`list`/`role`/`disable`/`enable`/`passwd`/`token create`/`token list`/`token revoke`), local-only by construction (no HTTP route reaches it) |
-| `utils/gen_cert.py` | `cyclaw-gen-cert` — openssl wrapper that writes a self-signed cert + key with hostname/LAN SAN; no new runtime dep |
+| `utils/guardrail_bridge.py` | Builds the `guardrail_input`/`guardrail_output` callables and Phase 3 `generate_guard`, or `None` when disabled; the only path from `graph.py` to `guardrails/` |
+| `utils/endpoint_trust.py` | Generation-client destination allowlist (`graph.py`, `utils/health.py`): `assert_local_destination` (loopback or `models.local_llm.trusted_hosts`, ships `[]`); `assert_online_destination` pins `api.x.ai`/`api.anthropic.com` and re-refuses `confirmed is False` — an I3 backstop, not a replacement. Denials are typed `ENDPOINT_TRUST:` errors |
+| `utils/external_pre_hook.py` | Pre-action hook after the I3 gate allows a call (`policy.fallback.pre_action_hook`, ships off); deny-only. Engines `command` (JSON on stdin, exit 0 allow / 2 deny) or `numbat`. Enabled, anything but an explicit allow denies; each verdict carries a `reason_code` (audit `pre_action_hook_reason`). `verdict_mode` accepts only `enforce` (#1458) |
+| `utils/numbat_gate.py` | The hook's `numbat` engine: a schema-0.3.0 `network.indicator` event through the pinned `numbat 0.2.0` CLI (`rules test --no-builtin-rules`, `numbat.rules_dirs`); an `enforce: true` match or any engine failure denies. Subprocess only. Guide: `docs/security-philosophy/numbat_pre_action_gate.md` |
+| `utils/authn.py` | Auth primitives: scrypt hash/verify, lockout arithmetic, session/CSRF/device-token ids. Pure functions |
+| `utils/authn_store.py` | SQLite/Postgres `users`/`sessions`/`device_tokens`; own `CYCLAW_AUTH_DB_URL`, not shared with `CYCLAW_DB_URL` |
+| `utils/authn_manager.py` | `AuthManager`: bootstrap, login/logout, sessions, device tokens. No HTTP awareness |
+| `utils/authn_cli.py` | `cyclaw-user` (`add`/`list`/`role`/`disable`/`enable`/`passwd`/`token …`), local-only by construction |
+| `utils/gen_cert.py` | `cyclaw-gen-cert` — openssl wrapper for a self-signed cert with hostname/LAN SAN |
 | `schemas/api.py` | Pydantic models (`extra='forbid', strict=True`) |
-| `metrics.py` | `audit.jsonl` analyzer (`cyclaw-metrics`); also prints a Spend section from `logs/spend.jsonl` (tokens as ground truth, dollars at read time, `source` `query` or `agentic`; no query text on the ledger) and an offline Sequences section (`utils/sequence_detect.py`) joining hashed audit events to `source=query` spend. Forensic/CLI only — not imported by `gate.py`/`graph.py`/MCP and not a `/query` policy point |
+| `metrics.py` | `cyclaw-metrics`: `audit.jsonl` analyzer, Spend section from `logs/spend.jsonl` (tokens as ground truth, no query text), offline Sequences section (`utils/sequence_detect.py`). Forensic only — not imported by the core six |
 | `mcp_hybrid_server.py` | MCP server: `hybrid_search` only, no LLM, `sampling: None` |
 | `sync/` | Out-of-band Dropbox corpus sync (`python -m sync.cli`) |
 | `agentic/` | Out-of-band GitHub context + governed skills registry (`python -m agentic.cli`) |
-| `agentic/fsconnect/` | Out-of-band local/SMB filesystem connector; POSIX held-fd security core; macOS installer enables list/stat/read only for `~/CyClaw-FS` while writes/indexing stay off |
+| `agentic/fsconnect/` | Out-of-band local/SMB filesystem connector; POSIX held-fd core; macOS installer enables list/stat/read for `~/CyClaw-FS` only |
 | `agentic/sqlconnect/` | Out-of-band SQL connector; SELECT/WITH-only guard |
-| `agentic/netconnect/` | Out-of-band passive LAN inventory; explicit RFC1918/loopback CIDRs; local host + existing neighbor cache only, with no active probes |
-| `agentic/real_repo_loop.py` | Plan → patch → verify → (human decides) → commit against a real jailed clone; the first live caller of `agentic/executor`. Wired to `agentic.cli`'s `real-repo-run`/`real-repo-run-status`/`real-repo-run-decide`; CLI-only (`utils/ops_runner.py` allowlists the actions, but `OpsAgenticRequest.action` does not accept them, so no HTTP route reaches the pipeline). `real-repo-run-plan` is a separate one-shot subcommand for the optional cloud-planner recipe (`ChatModelProposerClient` behind `--provider`/`--confirm-online`) — `--provider` means something different on each subcommand (one-shot plan call vs. every iteration of the whole loop); see `docs/agentic/AGENTIC_README.md` §9 for the two-stage "cloud plans, local implements" recipe and the gotcha of passing `--provider` to both. GitHub writes (push, PR) reachable via `real-repo-run-decide --push`/`--publish` (one-shot) or the standalone `real-repo-run-push`/`real-repo-run-publish` subcommands (each its own decision) — push/PR still gated (`allow_git_write_tools` ships false; `EXECUTION_ENABLED` is True but `agentic.enabled` ships false) — see `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` |
-| `agentic/executor/` | Sandboxed verification: runs caller-declared checks (pytest/ruff/etc.) as argv-list subprocesses against a jailed worktree, scrubbed env, disposable `HOME`/`USERPROFILE`, per-check timeout. Every non-empty check list goes through `hard_sandbox.py`'s `production_sandbox()` (issue #1134 Phase 4) — Windows Job Object (`KILL_ON_JOB_CLOSE`), Darwin `sandbox-exec` (network and off-cwd writes denied), Linux `unshare --net` — and a missing binary or failed capability probe raises `HardSandboxUnavailable`. There is **no** silent fallback to unconstrained `subprocess.run`; `run_verification`'s `sandbox=` parameter is test-only. Still not a kernel boundary: no microVM, and Windows is a process-tree kill rather than a netns, so sockets keep working there — see `docs/THREAT_MODEL.md`'s executor amendments for the residual limits |
-| `agentic/deepagent_github/` | Two subsystems: the live one (`RepoWorkspaceTools`: clone/read/write_file/commit/push, jailed via `agentic/fsconnect/pathsafe.ScopedRoots`; `chat_client.py`/`model_adapter.py`, the cloud-provider planner `real_repo_loop.py` uses) and the **retired** one (`builder.py`'s DeepAgents subgraph — owner decision 2026-07-31, no further development planned, superseded by `real_repo_loop.py`; code/tests/CI kept, not deleted — see `docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md`'s retirement note). Both gated `false`/disarmed by default |
-| `guardrails/` | Optional NeMo Guardrails; soft-imported, disabled by default. Phase 2 wires an offline input rail into `graph.py`'s `guardrail_input` node when `enabled: true`; Phase 4 adds an offline output (grounding) rail via `guardrail_output`, scoped to the `local_llm` answer only — both via `utils/guardrail_bridge.py`, still opt-in, still never imported directly by `gate.py`/`graph.py`. With `nemoguardrails` installed, Phase 3 also runs NeMo `check()` (`guardrails/broker.py`) around every answer node's model call, Grok and Claude included; its flows run the same Python checks, and no LLM-backed rail (e.g. a jailbreak classifier) is active |
-| `telegram/` | Out-of-band Telegram channel (`python -m telegram.cli`), shipped `enabled: false`. Outbound notify (`mode: notify`) and, when configured, long-poll inbound chat (`mode: chat`) via the Telegram Bot API; inbound text only ever becomes an answer through HTTP `POST /query` on loopback — never a direct call into `graph.py`. `gate.py`/`graph.py`/`mcp_hybrid_server.py` never import it (I6). T3 hybrid-confirm consent (`allow_hybrid_confirm`, default off) is the only way chat text can set `user_confirmed_online`, and only via the exact `/online on <grok|claude>` command — core's triple gate remains the final authority. T4 media staging (default off) writes only through the existing `agentic/fsconnect` write path. See `docs/channels/TELEGRAM_DESIGN.md` and `docs/THREAT_MODEL.md`'s seventh amendment |
-| `opentweet/` | Out-of-band OpenTweet X channel (`python -m opentweet.cli`), shipped `enabled: false`. Weekly generate-don't-load LaunchAgent / generate-don't-register Windows task. Generation is loopback `POST /query` with `user_confirmed_online: false`; default write is an OpenTweet draft; `scheduled_date` is opt-in. Never a graph node, never X/Tweepy, never hosted OpenTweet MCP. See `docs/channels/OPENTWEET_DESIGN.md` |
+| `agentic/netconnect/` | Out-of-band passive LAN inventory; explicit RFC1918/loopback CIDRs, no active probes |
+| `agentic/real_repo_loop.py` | Plan → patch → verify → (human decides) → commit against a jailed clone. CLI-only (`real-repo-run*` subcommands; `OpsAgenticRequest.action` rejects them, so no HTTP route). `real-repo-run-plan` is the one-shot cloud-planner recipe; `--provider` means something different per subcommand (`docs/agentic/AGENTIC_README.md` §9). Push/PR gated (`allow_git_write_tools` and `agentic.enabled` ship false) — `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` |
+| `agentic/executor/` | Sandboxed verification of caller-declared checks in a jailed worktree with scrubbed env and per-check timeout, always through `hard_sandbox.production_sandbox()` (Windows Job Object, Darwin `sandbox-exec`, Linux `unshare --net`); a missing capability raises `HardSandboxUnavailable`, never a silent fallback (`run_verification`'s `sandbox=` is test-only). Not a kernel boundary (no microVM; Windows kills the process tree but keeps sockets) — see `docs/THREAT_MODEL.md` |
+| `agentic/deepagent_github/` | Live: `RepoWorkspaceTools` (jailed clone/read/write/commit/push) and the cloud planner `real_repo_loop.py` uses. **Retired** 2026-07-31: `builder.py`'s DeepAgents subgraph (kept, not developed). Both gated off by default |
+| `guardrails/` | Optional NeMo Guardrails, soft-imported, off by default: offline input rail (`guardrail_input`), output grounding rail scoped to `local_llm` (`guardrail_output`), and with `nemoguardrails` installed, `check()` around every answer node's model call (`guardrails/broker.py`). No LLM-backed rail is active |
+| `telegram/` | Out-of-band Telegram channel (`python -m telegram.cli`), ships off. Inbound text reaches the RAG only via loopback `POST /query`; only `/online on <grok|claude>` (with `allow_hybrid_confirm`) can set `user_confirmed_online`. See `docs/channels/TELEGRAM_DESIGN.md` |
+| `opentweet/` | Out-of-band OpenTweet X channel (`python -m opentweet.cli`), ships off. Generation is loopback `POST /query` with `user_confirmed_online: false`; default write is a draft. See `docs/channels/OPENTWEET_DESIGN.md` |
 
 ### Load-bearing numbers (all from `config.yaml`/`pyproject.toml` — do not invent)
 
@@ -241,28 +222,27 @@ overloading soul). Episode staging and FTS fusion hooks are lazy and non-fatal.
 | `127.0.0.1:8787` | `api.host`/`api.port` | loopback only, never a public interface |
 | `0.028` | `retrieval.min_score` | **RRF scale**, not cosine. Gates only when no hit has a cosine (keyword-only degrade). Dual rank-0 ceiling is `2/60 ≈ 0.0333` |
 | `0.30` | `retrieval.min_semantic_score` | Cosine floor on the **best** semantic hit; the vault-hit gate whenever cosines are present |
-| `null` | `retrieval.min_rerank_score` | Shadow mode: the cross-encoder's best **logit** over the context window is audited, nothing is vetoed. A number turns on a veto that can only turn a cosine hit into a miss. The pre-registered `0.0` was measured and rejected in PR #1463: it removed every look-alike and 10 answerable questions whose answer was in the window. A five-model bake-off (PR #1464, `docs/audits/2026-09-26-reranker-bakeoff.md`) found no model and threshold that passed its held-out probes either |
+| `null` | `retrieval.min_rerank_score` | Shadow mode (logit audited, nothing vetoed). `0.0` was measured and rejected (PR #1463: it dropped 10 answerable questions); a five-model bake-off found no passing threshold (`docs/audits/2026-09-26-reranker-bakeoff.md`) |
 | `60` | `retrieval.rrf_k` | RRF fusion constant |
 | `780` | `api.graph_timeout_sec` | must exceed `local_llm.timeout_sec` (720) |
-| `720` / `4096` | `local_llm.timeout_sec` / `max_tokens` | sized for dense ~27B MLX on M5 Pro class 307 GB/s (48 GB unified) — match the shipped default. Decode tok/s is **not** a config value; measure with `scripts/measure_local_llm_throughput.py` |
+| `720` / `4096` | `local_llm.timeout_sec` / `max_tokens` | sized for dense ~27B MLX on M5 Pro class (307 GB/s, 48 GB). Decode tok/s is not config; measure with `scripts/measure_local_llm_throughput.py` |
 | `8000` | `personality.soul_max_chars` | soul is capped |
-| `16000` | `retrieval.max_context_tokens` | prompt context budget; floor formula 16000+4096+~1500 = 21,596 ≤ Ollama num_ctx 32768 |
-| `256` / `32` | `indexing.chunk_size` / `chunk_overlap` | in **embedder tokens** (`chunk_unit: tokens`); 256 = all-MiniLM-L6-v2's `max_seq_length` incl. 2 special tokens, so every chunk is embedded whole. Overlap must stay `< chunk_size`. `chunk_unit` absent = the old whitespace-word windows |
+| `16000` | `retrieval.max_context_tokens` | 16000+4096+~1500 = 21,596 ≤ Ollama num_ctx 32768 |
+| `256` / `32` | `indexing.chunk_size` / `chunk_overlap` | **embedder tokens** (`chunk_unit: tokens`); 256 = all-MiniLM-L6-v2's `max_seq_length`, so every chunk embeds whole. Overlap `< chunk_size` |
 | `60` per `60`s | `api.rate_limit` | per-IP |
 | `40` | `banned_patterns` length | **documentary count**; the *phrases* are contractual (see §4) |
 | `80` | `coverage fail_under` | in `pyproject.toml`, not `ci.yml` |
 | `qwen3.8:27b-mlx` | `local_llm.model` | Ollama |
-| `grok-4.5` | `grok.model` | `grok.enabled: true` since 2026-08-07 (armed; see `docs/THREAT_MODEL.md` eighth amendment) — still triple-gated (I3), `user_confirmed_online` is per-request and cannot be pre-set |
-| `claude-sonnet-5` | `claude.model` | `claude.enabled: true` since 2026-08-07 (armed, same amendment); second external fallback (PR #441), same triple-gate |
+| `grok-4.5` | `grok.model` | `grok.enabled: true` since 2026-08-07 (`docs/THREAT_MODEL.md` eighth amendment); still triple-gated, `user_confirmed_online` is per-request |
+| `claude-sonnet-5` | `claude.model` | `claude.enabled: true` since 2026-08-07 (same amendment); same triple gate |
 
 ---
 
 ## 3. The Six Invariants
 
-These define CyClaw. Five are enforced by graph topology; the sixth by import
-structure. They are not prompts or runtime checks — they are wiring.
-`python3 .claude/skills/invariant-guard/check_invariants.py` verifies all six
-statically; run it after any change to the core files.
+Five are enforced by graph topology, the sixth by import structure — wiring,
+not prompts. `python3 .claude/skills/invariant-guard/check_invariants.py`
+verifies all six statically; run it after any change to the core files.
 
 | # | Invariant | Enforced in | Locked by test | You violate it if you… |
 |---|---|---|---|---|
@@ -274,98 +254,65 @@ statically; run it after any change to the core files.
 | I6 | **Module isolation** — `gate.py`/`gate_ops.py`/`gate_auth.py`/`gate_memory.py`/`graph.py`/`mcp_hybrid_server.py` never import `agentic`/`sync`/`guardrails`/`telegram`/`opentweet`, and those never import the core six | import graph | invariant-guard I6; `test_agentic_isolation` (AST, both directions) | `import agentic` (etc.) anywhere in the core six to "reuse" something |
 
 Supporting guards (also checked by `invariant-guard`): telemetry-kill ordering
-across 14 files — gate.py's `_TELEMETRY_KILL` anchor precedes its heavy
-imports; every out-of-band package `__init__.py` (agentic, guardrails,
-telegram, opentweet, sync) applies the kill before ANY other import; and the
-eight module-level appliers (MCP server, metrics, vector_store, indexer,
-clear_cache, guardrails/integration, gen_cert, authn_cli) apply it before
-any third-party import — so no entry point
-inherits an ambient telemetry env;
-unset `CYCLAW_API_KEY` fails auth **closed** (401);
-the sanitizer contract phrases stay caught; BM25 stays JSON (pickle = RCE); MCP
-declares `sampling: None`.
+across 14 files (G1 — gate.py's `_TELEMETRY_KILL` anchor precedes its heavy
+imports; each out-of-band package `__init__.py` — agentic, guardrails,
+telegram, opentweet, sync — applies the kill before any other import; the eight
+module-level appliers — MCP server, metrics, vector_store, indexer,
+clear_cache, guardrails/integration, gen_cert, authn_cli — apply it before any
+third-party import); unset `CYCLAW_API_KEY` fails **closed** (G2); the sanitizer contract
+phrases stay caught (G3); BM25 stays JSON — pickle = RCE (G4); MCP declares
+`sampling: None` (G5).
 
 **Before touching `gate.py`, `soul.md` handling, or the scanner, read
-`INVARIANTS.md`** (repo root). It records which of these guarantees are enforced by
-code vs. by convention (e.g. two of the three external-provider gates live in
-`gate.py` construction, not the graph; the soul injection scan is write-path-only),
-and names the test that pins each. `tests/test_due_diligence_invariants.py` is the
+`INVARIANTS.md`** (repo root). It records which guarantees are enforced by code
+vs. by convention (two of the three external-provider gates live in `gate.py`
+construction, not the graph; the soul injection scan is write-path-only), and
+names the test that pins each. `tests/test_due_diligence_invariants.py` is the
 regression harness.
-
 
 ## 4. Mistakes You Will Make Here (and the rule that prevents each)
 
-These are real traps in *this* codebase, verified against the code. Each pairs a
-mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
+Real traps in *this* codebase, verified against the code, each paired with the
+rule that prevents it.
 
 ### Environment & install
 - **Trap:** `pip install -r requirements.txt` fails or pulls a CUDA torch.
   **Rule:** install `torch==2.13.0+cpu` from the PyTorch CPU index **first**,
   then `pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML`.
-- **Trap:** running that same torch line on macOS, or "fixing" the `+cpu` pin in
-  the manifests when it 404s there. **Rule:** macOS needs **plain**
-  `torch==2.13.0` — Apple Silicon publishes one arm64 wheel, so there is no
-  CPU/CUDA build to disambiguate and no `+cpu` local version exists on the
-  PyTorch index. Both manifests hardcode `+cpu` **by design** (dependency-
-  confusion-proof reproducibility on Linux/Windows); install plain torch first,
-  then feed pip a copy of `requirements.txt` with the `torch==`/
-  `--extra-index-url` lines stripped and a copy of `constraints.txt` with only
-  the `+cpu` suffix dropped from the torch pin. Do **not** strip the torch
-  line from the constraints copy: `--ignore-installed` is a bare flag (the
-  `PyYAML` after it is just one more requirement), so pip reinstalls every
-  package including torch, and with no constraint the plain `2.13.0` you just
-  installed is replaced by PyPI's newest torch (reproduced 2026-09-06: 2.14.0).
-  `ci.yml`'s `macos-latest` leg and `macos/install-cyclaw.sh`'s `Darwin` branch
-  both do this — see §8.
+- **Trap:** running that torch line on macOS, or "fixing" the `+cpu` pin when
+  it 404s there. **Rule:** macOS needs **plain** `torch==2.13.0` (no `+cpu`
+  wheel exists for Apple Silicon); both manifests hardcode `+cpu` **by design**
+  (dependency-confusion-proof on Linux/Windows). Use the §8 macOS block, which
+  strips torch from the requirements copy but only drops `+cpu` in the
+  constraints copy. Do **not** strip torch from constraints:
+  `--ignore-installed` reinstalls everything, and unconstrained torch floats to
+  PyPI's newest (reproduced 2026-09-06: 2.14.0). `ci.yml`'s `macos-latest` leg
+  and `macos/install-cyclaw.sh` do the same.
 - **Trap:** moving the torch pin and touching only `requirements.txt`/
-  `constraints.txt`. **Rule:** conda is a fourth install surface —
-  `environment.yml` pins `pytorch=2.13.0=cpu*` (conda-forge names the package
-  `pytorch`, not `torch`, and has no `+cpu` local tag), CI-gated by
-  `python-package-conda.yml` and cross-checked by dep-guard D9. Bump
-  `environment.yml` in the same commit as any torch pin move or the two
-  surfaces silently diverge.
+  `constraints.txt`. **Rule:** `environment.yml` (conda, `pytorch=2.13.0=cpu*`)
+  is a fourth surface, CI-gated by `python-package-conda.yml` and dep-guard D9.
+  Bump it in the same commit.
 - **Trap:** running `cyclaw-server`/`cyclaw-index`/`cyclaw-metrics` after only
-  `pip install -r requirements.txt`. **Rule:** those are `[project.scripts]`
-  console scripts; pip writes the shims only when the **project itself** is
-  installed (`pip install -e .`). `requirements.txt` is a third-party pin list
-  with no self-install line, so the short names are `command not found` after
-  it. The `python -m …` forms always work and are what both shipped launchers use.
-- **Trap:** running `pytest` in a fresh container — no deps are installed.
-  **Rule:** a freshly-cloned container has NO Python deps. Install first
-  (`/CyClaw-Sandbox` — Quick Mode for a fast check, or the full audit for a
-  Python 3.12 runtime gate) before any test/run step.
-- **Trap:** assuming a fresh coding-agent sandbox's `python3`/`pip3` already
-  target 3.12, or reflexively `apt install`ing a 3.12 you don't need. **Rule:**
-  verified on the default Claude Code cloud sandbox image
-  (`sandbox-ccr-default`, Ubuntu 24.04): Python 3.10/3.11/3.12/3.13 are **all
-  already present** at `/usr/bin/python3.NN`, but `update-alternatives --list
-  python3` registers only 3.11 — so bare `python3`/`pip3`/`pytest` silently run
-  under 3.11 against a project whose `pyproject.toml` requires `>=3.12,<3.13`.
-  (An earlier revision of this trap said CyClaw's deps were pre-installed into
-  3.11's `dist-packages`; on 2026-09-06 no interpreter on the image had torch,
-  chromadb, langgraph or pytest, so treat the venv below as mandatory. The
-  `cyclaw-gotchas` skill's `driver.sh venv` does it, including the fallback
-  for when the egress proxy denies `download.pytorch.org`.)
-  This is invisible until a version-gated stdlib call fails: `test_agentic_*`
-  (`agentic/deepagent_github/repo_workspace.py`'s `shutil.rmtree(onexc=...)`,
-  a 3.12+ parameter) fails 142 tests with no other symptom, and it is easy to
-  mistake for a red `main`. **Do not `apt install`/build a new Python** — it
-  is already on disk. Point at it explicitly instead:
-  `python3.12 -m venv /root/.venv-cyclaw-312 && /root/.venv-cyclaw-312/bin/pip
-  install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-  && /root/.venv-cyclaw-312/bin/pip install -r requirements.txt -r
-  requirements-test.txt -c constraints.txt --ignore-installed PyYAML` (outside the repo tree so it
-  never needs a `.gitignore` entry), then always invoke tests via
-  `/root/.venv-cyclaw-312/bin/python -m pytest ...`. This venv does **not**
-  survive session end — the container is reclaimed and rebuilt from the same
-  generic image, not from anything in this repo — so treat it as a
-  per-session setup step, not a one-time fix. Do not change the container's
-  system-wide `python3` default (`update-alternatives`): the session
-  runtime's own hook scripts (`~/.claude/*.py`) shebang `#!/usr/bin/env python3` and resolve
-  through it.
+  `pip install -r requirements.txt`. **Rule:** those `[project.scripts]` shims
+  exist only after `pip install -e .`. The `python -m …` forms always work and
+  are what both launchers use.
+- **Trap:** running `pytest` in a fresh container. **Rule:** a fresh clone has
+  NO Python deps. Install first (`/CyClaw-Sandbox` Quick Mode, or the
+  `cyclaw-gotchas` skill's `driver.sh venv`).
+- **Trap:** assuming the cloud sandbox's `python3` is 3.12, or `apt install`ing
+  one. **Rule:** on `sandbox-ccr-default` (Ubuntu 24.04) Python 3.10–3.13 are
+  all at `/usr/bin/python3.NN`, but bare `python3`/`pip3`/`pytest` resolve to
+  3.11, and no interpreter has the deps. Under 3.11, `test_agentic_*` fails 142
+  tests (`shutil.rmtree(onexc=...)` is 3.12+) — easy to mistake for a red
+  `main`. Build a venv outside the repo each session (the container is
+  reclaimed): `python3.12 -m venv /root/.venv-cyclaw-312`, install with that
+  venv's `pip` (torch line, then requirements as above), and run tests via
+  `/root/.venv-cyclaw-312/bin/python -m pytest ...`. `driver.sh venv` also
+  handles a proxy-denied `download.pytorch.org`. Never change the system
+  `python3` (`update-alternatives`): the runtime's own hooks resolve through it.
 - **Trap:** assuming the server refuses to boot without `GROK_API_KEY`.
-  **Rule:** The server boots without the key; Grok reports unavailable. Tests only need
-  `GROK_API_KEY=dummy` (any non-empty value).
+  **Rule:** it boots; Grok reports unavailable. Tests only need
+  `GROK_API_KEY=dummy`.
 - **Trap:** treating `status: degraded` in `/health` or `TELEMETRY KILL` on
   startup as errors. **Rule:** both are normal (no Ollama; intentional env
   blocking).
@@ -373,180 +320,137 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
 ### Boot semantics
 - **Trap:** adding a hard failure when `data/personality/soul.md` is missing.
   **Rule:** it **self-heals** — `PersonalityManager._load_soul` writes a default
-  and records a version. Do not add a boot crash. (There is no `soul_hash`
-  constant; the baseline is the newest `soul_versions` DB row.)
+  and records a version. The baseline is the newest `soul_versions` DB row
+  (there is no `soul_hash` constant).
 - **Trap:** expecting the server to build the index on first run.
-  **Rule:** a missing index is **fail-soft** — `/query` returns 503
-  `INDEX_NOT_FOUND`. Build it explicitly: `python -m retrieval.indexer`.
+  **Rule:** a missing index is fail-soft — `/query` returns 503
+  `INDEX_NOT_FOUND`. Build it with `python -m retrieval.indexer`.
 - **Trap:** assuming no `CYCLAW_API_KEY` means soul endpoints are open.
-  **Rule:** unset key = **fail closed (401)**, not open. Uses
-  `hmac.compare_digest`.
+  **Rule:** unset key = **fail closed (401)**, compared with `hmac.compare_digest`.
 - **Trap:** reordering imports in `gate.py` "to tidy them."
   **Rule:** the `_TELEMETRY_KILL` env block MUST stay above the heavy imports
-  (`graph`, `retrieval`, `langchain`, `chromadb`). Setting the env after they
-  load lets telemetry escape. `test_telemetry_kill` locks this. The same rule
-  applies to `mcp_hybrid_server.py`'s `apply_telemetry_kill()` call — the
-  `# noqa: E402` on the imports below it is load-bearing, not clutter.
-- **Trap:** "simplifying" `gate.py` to `apply_telemetry_kill()` without keeping
-  the `_TELEMETRY_KILL = ...` assignment. **Rule:** `invariant-guard`'s G1 check
-  finds that name by **AST** and compares its line number to the first heavy
-  import; drop the binding and G1 reports `kill at None` and fails.
-- **Trap:** assuming `Settings(anonymized_telemetry=False)` covers ChromaDB
-  telemetry. **Rule:** it governs only the PostHog product-telemetry path. OTel
-  is separate and driven by `CHROMA_OTEL_GRANULARITY` — chromadb's `otel_init()`
-  early-returns only when that is `"none"`, otherwise it builds a
-  TracerProvider + BatchSpanProcessor + OTLPSpanExporter. Both defenses are in
-  `utils/telemetry_kill.py`; neither is redundant.
-- **Trap:** "completing" `utils/telemetry_kill.py`'s `TELEMETRY_KILL` dict by
-  adding `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` — they're documented in
-  `docs/security-philosophy/cyclaw_telemetry_kill.env` and look like an
-  omission. **Rule:** they are excluded on purpose. `huggingface_hub` latches
-  `HF_HUB_OFFLINE` at its own import time, so forcing it unconditionally would
-  turn `retrieval/embeddings.py`'s documented cache-miss bootstrap fetch into a
-  guaranteed failure on any machine that has never run CyClaw before.
-  `_load_model` sets both, but only after `_model_offline_eligible` confirms
-  the model is already on disk via `huggingface_hub.try_to_load_from_cache`
-  (network-free), **or** the opt-in `models.embeddings.offline_after_index`
-  flag (#1255 Phase B, default `false`) is `true` **and** a completed
-  retrieval index already exists on disk (`_index_or_bm25_present` — the
-  BM25 sidecar file specifically, not the Chroma directory, since
-  `_ChromaWriter.reset()` creates that directory before any embedding is
-  ever fetched) — never unconditionally, and never by clearing an operator's
-  own stricter choice if they sourced the `.env` file by hand. The env vars
-  alone do NOT enforce this in-process (the probe's own `huggingface_hub`
-  import latches the offline constant before the vars are set) — the actual
-  gate is `local_files_only=eligible` passed to `SentenceTransformer(...)`.
-  `retrieval/rerank.py` applies the identical rule to the cross-encoder (same
-  `cache_dir`, same `offline_after_index`, same index probe), so "cache both
-  retrieval models" is the operator-facing statement, not "cache the embedder".
-- **Trap:** treating ONNX Runtime's `ORT_TELEMETRY_OPT_OUT` env var as a real
-  kill switch — or, since issue #1135, assuming ORT telemetry is still
-  Windows-only. **Rule:** `ORT_TELEMETRY_OPT_OUT` isn't read by onnxruntime at
-  all (zero references in the installed package; kept only as an inert legacy
-  marker for reference-`.env` parity — tests and the otel-hardening checker
-  must never count it as protection). The platform story changed at v1.29.0
-  (2025-08-12): non-Windows official builds carry 1DS telemetry too, and the
-  documented pre-init env control is `ORT_DISABLE_TELEMETRY=1` — now in
-  `TELEMETRY_KILL`. The runtime API `onnxruntime.disable_telemetry_events()`
-  IS wired since #1135 (`utils/onnx_telemetry.py`, called at both load
-  seams), but it is the post-import second layer: it cannot undo an
-  init-time event, which is why the env var must come first. On Windows
-  (ETW/TraceLogging, collected only by an external trace session) absolute
-  suppression needs a `--no_telemetry` private build — never claim it.
+  (`graph`, `retrieval`, `langchain`, `chromadb`); `test_telemetry_kill` locks
+  it. Same for `mcp_hybrid_server.py`'s `apply_telemetry_kill()` — its
+  `# noqa: E402` imports are load-bearing.
+- **Trap:** "simplifying" `gate.py` to `apply_telemetry_kill()` without the
+  `_TELEMETRY_KILL = ...` assignment. **Rule:** G1 finds that name by **AST**;
+  drop it and G1 reports `kill at None` and fails.
+- **Trap:** assuming `Settings(anonymized_telemetry=False)` covers ChromaDB.
+  **Rule:** it covers only PostHog. OTel is separate: chromadb's `otel_init()`
+  early-returns only when `CHROMA_OTEL_GRANULARITY` is `"none"`. Both defenses
+  live in `utils/telemetry_kill.py`; neither is redundant.
+- **Trap:** "completing" `TELEMETRY_KILL` with `HF_HUB_OFFLINE`/
+  `TRANSFORMERS_OFFLINE` (they appear in
+  `docs/security-philosophy/cyclaw_telemetry_kill.env`). **Rule:** excluded on
+  purpose: `huggingface_hub` latches `HF_HUB_OFFLINE` at import, so forcing it
+  breaks the first-run model fetch. `retrieval/embeddings.py`'s `_load_model`
+  goes offline only when `_model_offline_eligible` finds the model cached
+  (`try_to_load_from_cache`, network-free), **or** `models.embeddings.offline_after_index`
+  (default `false`) is on and the BM25 sidecar exists (`_index_or_bm25_present`;
+  not the Chroma dir, which `_ChromaWriter.reset()` creates early). The real gate
+  is `local_files_only=eligible` on `SentenceTransformer(...)`, not the env vars.
+  `retrieval/rerank.py` applies the identical rule, so "cache both retrieval
+  models" is the operator statement.
+- **Trap:** treating `ORT_TELEMETRY_OPT_OUT` as a kill switch, or ORT telemetry
+  as Windows-only. **Rule:** onnxruntime never reads `ORT_TELEMETRY_OPT_OUT`
+  (an inert legacy marker; never count it as protection). Since v1.29.0
+  non-Windows builds carry 1DS telemetry too; the pre-init control is
+  `ORT_DISABLE_TELEMETRY=1` (in `TELEMETRY_KILL`), with
+  `disable_telemetry_events()` as the post-import second layer (#1135). On
+  Windows (ETW) absolute suppression needs a `--no_telemetry` build — never
+  claim it.
 
 ### Retrieval & config
 - **Trap:** "fixing" `min_score: 0.028` upward toward a cosine-like 0.5, or
-  above the hybrid ceiling ~0.033.
-  **Rule:** it is on the **RRF scale** (ranks are zero-based: dual rank-0
-  with `rrf_k=60` is `2/60 ≈ 0.0333`), and it only gates when no hit carries
-  a cosine, i.e. the keyword-only degrade. Hybrid queries are decided by
-  `min_semantic_score` on the **best** semantic hit. Do not reinstate "a
-  chunk must rank in both legs' top-k": measured, it rejected answerable
-  paraphrases, more of them the larger the corpus (see `graph.py`'s
+  above the hybrid ceiling ~0.033. **Rule:** it is on the **RRF scale**
+  (zero-based ranks: dual rank-0 with `rrf_k=60` is `2/60`), and gates only the
+  keyword-only degrade. Hybrid queries are decided by `min_semantic_score` on
+  the best semantic hit. Do not reinstate "a chunk must rank in both legs'
+  top-k": measured, it rejected answerable paraphrases (see `graph.py`'s
   `route_by_score_node`).
-- **Trap:** raising `min_semantic_score` to stop look-alikes ("the plot of
-  the horror film *The Medium*" matches the McLuhan chunk at cosine 0.46).
-  **Rule:** measured, no cosine floor separates them from real paraphrases;
-  that is the cross-encoder veto's job (`retrieval/rerank.py`,
-  `retrieval.min_rerank_score`, on the **logit** scale, shipped `null` = shadow). The veto can only
-  turn a hit into a miss, so tuning it can never add a false hit, but it can
-  drop real ones: `tests/ci_rag_smoke.py` fails if it vetoes an asserted
+- **Trap:** raising `min_semantic_score` to stop look-alikes (*The Medium*
+  horror film matches the McLuhan chunk at cosine 0.46). **Rule:** no cosine
+  floor separates them from real paraphrases; that is the cross-encoder veto's
+  job (`retrieval.min_rerank_score`, **logit** scale, shipped `null`). The veto
+  can only drop hits; `tests/ci_rag_smoke.py` fails if it vetoes an asserted
   answerable probe.
 - **Trap:** unifying the test mock's `min_score` (0.75) with production (0.028).
-  **Rule:** they are intentionally different and both load-bearing. The mock
-  high/low scores straddle 0.75; production RRF scores straddle 0.028.
-- **Trap:** setting a config key to change the embedding cache size.
-  **Rule:** the size is fixed at import via `lru_cache`; only the env var
-  `CYCLAW_EMBED_CACHE_SIZE` changes it.
+  **Rule:** both are load-bearing: mock scores straddle 0.75, production RRF
+  scores straddle 0.028.
+- **Trap:** a config key for the embedding cache size. **Rule:** fixed at
+  import via `lru_cache`; only `CYCLAW_EMBED_CACHE_SIZE` changes it.
 - **Trap:** editing `config.yaml` in a running process and expecting new
-  patterns. **Rule:** the sanitizer `lru_cache`s by config path. Re-run the
-  process. (`enabled: true` + zero patterns silently degrades to length-only.)
+  patterns. **Rule:** the sanitizer `lru_cache`s by config path; restart.
+  (`enabled: true` + zero patterns silently degrades to length-only.)
 
 ### Testing
 - **Trap:** changing conftest `test_config` to a shallow `.copy()`.
-  **Rule:** it MUST stay a deepcopy — a shallow copy leaks mutations across
-  tests (order-dependent flakes). `test_conftest_fixtures` guards it.
+  **Rule:** it MUST stay a deepcopy (shallow leaks mutations across tests);
+  `test_conftest_fixtures` guards it.
 - **Trap:** `import gate` at a test module's top level.
-  **Rule:** importing gate triggers full app init (FastAPI + ChromaDB +
-  retriever). Use a subprocess (`test_telemetry_kill`) or module-level patching
-  (`test_gate`).
-- **Trap:** running `pytest` locally, seeing green, assuming coverage passed.
-  **Rule:** bare `pytest` runs **no** coverage (`addopts` has no `--cov`). The
-  80% gate is `fail_under` in `pyproject.toml`, applied only with the CI-style
-  explicit `--cov=` flags. Both lanes pass one flag per
-  `[tool.coverage.run] source` entry at **package** granularity, so a new module
-  inside an already-listed package (`utils/`, `retrieval/`, `sync/`, …) is
-  measured the moment it lands — no workflow edit. Only a new **top-level
-  package or module** needs an entry, and it needs it in all three places:
-  `pyproject.toml`'s source list and both lanes.
-  `tests/test_ci_coverage_flag_contract.py` asserts the three match exactly and
-  fails if they drift. New **test files** auto-discover.
-- **Trap:** `GROK_API_KEY=dummy pytest tests/ -q` going green and assuming
-  `tools/lora_finetune/tests/` ran. **Rule:** pyproject `testpaths = ["tests"]`
-  does not collect that tree. Kit CI is `.github/workflows/lora-finetune.yml`
-  (`pytest tests/` from `working-directory: tools/lora_finetune`, plus
-  `dryrun_finetune.py`). When that directory is in the diff, run
+  **Rule:** that triggers full app init (FastAPI + ChromaDB + retriever). Use a
+  subprocess (`test_telemetry_kill`) or module-level patching (`test_gate`).
+- **Trap:** seeing local `pytest` green and assuming coverage passed.
+  **Rule:** bare `pytest` runs **no** coverage; the 80% `fail_under` applies
+  only with CI's explicit `--cov=` flags, one per `[tool.coverage.run] source`
+  entry at package granularity. A new module in a listed package is measured
+  automatically; a new **top-level** package/module must be added to
+  `pyproject.toml` and both CI lanes —
+  `tests/test_ci_coverage_flag_contract.py` fails on drift. New test files
+  auto-discover.
+- **Trap:** assuming `pytest tests/` ran `tools/lora_finetune/tests/`.
+  **Rule:** `testpaths = ["tests"]` excludes it; its CI is
+  `.github/workflows/lora-finetune.yml`. When that tree is in the diff, run
   `GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short`.
 - **Trap:** renaming `ci_rag_smoke.py` to `test_ci_rag_smoke.py`.
-  **Rule:** it is deliberately NOT `test_*`-named so pytest ignores it; it runs
-  as a separate CI step. Renaming double-runs it and drags ChromaDB into the
-  unit lane.
+  **Rule:** it is deliberately not `test_*`-named; it runs as its own CI step.
+  Renaming double-runs it and drags ChromaDB into the unit lane.
 - **Trap:** a fresh `MockGrokClient` to simulate "no API key."
-  **Rule:** it defaults `available=True`. Pass `available=False` for that path.
-- **Trap:** a unit test that builds a real `HybridRetriever` from the
-  **shipped** `config.yaml` and runs the graph. **Rule:** the shipped config
-  enables `models.reranker`, so `graph.retrieve_node` loads the real
-  cross-encoder, a ~91MB Hugging Face download in CI. Fake
-  `retrieval.rerank._load_cross_encoder` or turn the reranker off, as
-  `tests/test_rag_integration.py` does. `tests/conftest.py`'s `TEST_CONFIG`
-  and `MockRetriever` leave it off (`rerank=None`) by default.
-- **Trap:** trimming `banned_patterns` and assuming a count test catches it.
-  **Rule:** no test asserts `== 40`. But `TestShippedConfigContract` runs
-  specific **phrases** against the real config — deleting a documented phrase
-  fails tests. Adding patterns is safe; removing coverage is not.
+  **Rule:** it defaults `available=True`; pass `available=False`.
+- **Trap:** a unit test building a real `HybridRetriever` from the **shipped**
+  `config.yaml` and running the graph. **Rule:** the shipped config enables
+  `models.reranker`, so `retrieve_node` downloads the real cross-encoder
+  (~91MB). Fake `retrieval.rerank._load_cross_encoder` or turn the reranker off
+  (as `tests/test_rag_integration.py` does); conftest's `TEST_CONFIG` and
+  `MockRetriever` leave it off.
+- **Trap:** trimming `banned_patterns` and expecting a count test to catch it.
+  **Rule:** no test asserts `== 40`, but `TestShippedConfigContract` runs
+  specific **phrases** against the real config. Adding patterns is safe;
+  removing coverage is not.
 - **Trap:** adding a state-changing POST route without touching the console
   contract. **Rule:** `test_terminal_contract` extracts routes from
-  `terminal.html`; new POST endpoints must be added to its `_POST_PATHS`.
-- **Trap:** assuming `mypy --strict --python-version 3.12 .` runs clean, or is
-  a CI gate. **Rule:** it is neither. Only `lint.yml` runs `ruff`: its F/B/S
-  logic, likely-bug, and security classes block merges, while its broader Ruff
-  set and WPS remain advisory. `ci.yml` does not run ruff at all, and mypy is
-  not wired into any CI workflow. The bare repo-root invocation errors
-  out immediately on `utils/errors.py` ("Source file found twice under
-  different module names") because `utils/` has no `__init__.py`; add
-  `--explicit-package-bases` to get past discovery, and even then the tree
-  carries pre-existing untyped legacy code and missing third-party stubs (found
-  during Phase 2 verification, 2026-07-09). Treat it as a best-effort check
-  scoped to the lines you actually wrote, not a pass/fail gate on the whole
-  repo or even a whole file you only partly touched.
+  `terminal.html`; add new POST endpoints to its `_POST_PATHS`.
+- **Trap:** treating `mypy --strict` as clean or as a CI gate. **Rule:** it is
+  neither. Only `lint.yml` runs ruff (F/B/S blocks; the broader set and WPS are
+  advisory); `ci.yml` runs no ruff and no workflow runs mypy. The bare
+  repo-root run errors on `utils/errors.py` ("found twice") because `utils/`
+  has no `__init__.py` — add `--explicit-package-bases` — and legacy untyped
+  code remains. Check only the lines you wrote.
 
 ### Code conventions
 - **Trap:** `raise Exception(...)` or a bare `except:`.
   **Rule:** raise a typed error from `utils/errors.py` (rooted at `RAGError`
-  with `.code`/`.message`/`.details`). Out-of-band subsystems use their own
+  with `.code`/`.message`/`.details`); out-of-band subsystems use their own
   subtrees. (`RcloneTimeoutError` deliberately bypasses its parent `__init__` to
   keep its sub-code — do not "simplify" it.)
-- **Trap:** changing an error `code` string or the `"{code}: {message}"` stamp
-  format. **Rule:** these are asserted verbatim in `test_graph`. Also: success
-  paths must NOT emit an `error` key (it would clobber an upstream error).
-- **Trap:** returning generic `sys.exit(1)` from a CLI.
+- **Trap:** changing an error `code` string or the `"{code}: {message}"` stamp.
+  **Rule:** asserted verbatim in `test_graph`. Success paths must NOT emit an
+  `error` key (it would clobber an upstream error).
+- **Trap:** a generic `sys.exit(1)` from a CLI.
   **Rule:** exit codes are an API. Agentic: `0` ok · `2` failed · `3` env/config
   · `4` write refused. Sync uses `10` = corpus-changed → reindex. `clear_cache`:
-  `0`/`2`/`3`. Match them.
+  `0`/`2`/`3`.
 - **Trap:** "optimizing" the BM25 store to pickle.
-  **Rule:** BM25 stays JSON (`index/bm25.json`). Pickle is an RCE vector;
-  `test_security` guards it.
+  **Rule:** BM25 stays JSON (`index/bm25.json`); pickle is RCE. `test_security`
+  guards it.
 - **Trap:** logging raw query text "for debugging."
-  **Rule:** the audit log stores SHA-256 hashes only; raw text is never
-  persisted. `test_gate` enforces it.
+  **Rule:** the audit log stores SHA-256 hashes only; `test_gate` enforces it.
 - **Trap:** treating MCP `hybrid_search` as unsanitized.
-  **Rule:** E3 (`#974`) runs `check_input` before retrieval (same
-  `banned_patterns` / `max_input_chars` as HTTP `/query`) and audits
-  `prompt_injection_blocked`. `sampling: None` is unchanged.
-- **Trap:** re-reading `config.yaml` inside a module, or using cwd-relative
-  paths. **Rule:** config is loaded once and passed down as a `cfg` dict. Paths
-  anchor to `_BASE_DIR`/`_REPO_ROOT`, never cwd (Windows double-click breaks
-  cwd assumptions).
+  **Rule:** it runs `check_input` before retrieval (E3, #974; same patterns and
+  `max_input_chars` as `/query`) and audits `prompt_injection_blocked`.
+- **Trap:** re-reading `config.yaml` inside a module, or cwd-relative paths.
+  **Rule:** config is loaded once and passed down as `cfg`. Paths anchor to
+  `_BASE_DIR`/`_REPO_ROOT`, never cwd (Windows double-click breaks cwd).
 
 ### Dependencies
 - **Trap:** bumping `pydantic-core` alone, or adding `[standard]` to the uvicorn
@@ -554,11 +458,10 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   (2.13.5 ↔ 2.46.5); the `uvicorn` constraint carries no extras (pip ≥26.1.2
   rejects extras in a constraints file).
 - **Trap:** letting numpy float to 2.x. **Rule:** numpy is pinned `<2`
-  (dependabot ignores `numpy>=2.0.0`) — numpy 2 removes `np.float_` and breaks
-  chromadb/onnxruntime. Since #1491 numpy is also a **direct** first-party
-  import (`retrieval/hybrid_search.py`'s vectorized BM25 top-k), so
-  `verify-deps`' E7 no longer exempts it as a transitive-only pin; the `<2`
-  ceiling is unchanged.
+  (dependabot ignores `numpy>=2.0.0`; numpy 2 removes `np.float_` and breaks
+  chromadb/onnxruntime). It is also a direct import since #1491
+  (`retrieval/hybrid_search.py`), so `verify-deps` E7 no longer treats it as
+  transitive-only.
 - **Trap:** "fixing" the chromadb CVE. **Rule:** it is risk-accepted,
   embedded-`PersistentClient`-only per the threat model. Do not switch to the
   HTTP client or file a fix PR.
@@ -568,31 +471,23 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
   exist. **Rule:** never — it creates add/add rebase conflicts. Branch → draft
   PR → human merges.
 - **Trap:** force-pushing after a rebase without asking.
-  **Rule:** a force-push (`--force-with-lease`) needs explicit user sign-off
-  first (the session runtime blocks it otherwise).
+  **Rule:** `--force-with-lease` needs explicit user sign-off (the session
+  runtime blocks it otherwise).
 - **Trap:** two branches editing the same shared file (`ci.yml`, `config.yaml`,
-  manifests, `CLAUDE.md`) cut from the same base. **Rule:** trial-merge the pair
-  locally before opening PRs; a careless conflict resolution drops one side.
+  manifests, `CLAUDE.md`) from the same base. **Rule:** trial-merge the pair
+  locally before opening PRs.
 - **Trap:** diagnosing a child PR's red CI as the PR's fault.
-  **Rule:** a red `main` poisons every branch cut from it. Check `main`'s own
-  state first.
-- **Trap:** opening a draft PR and going dark — never watching its CI, so it
-  sits silently red until the human trips over it (the bottleneck lands on the
-  operator). **Rule:** subscribe to the PR's activity events at creation when
-  the session runtime offers it (e.g. `subscribe_pr_activity`) and drive it to
-  green until merged or closed; a red check on a PR you opened is your work,
-  not the reviewer's discovery. Runtimes without event delivery (e.g. Kimi via
-  `gh`) check CI once after push, then hand the watch to the operator
-  *explicitly* — never silently.
-- **Trap:** the opposite over-correction — a recurring poll (an hourly
-  "re-check the PR" timer, re-armed forever) beside a live event subscription.
-  **Rule:** events are the signal: near-zero cost when quiet, and the
-  operator's own resync at the next session start reconciles anything a
-  dropped event hid. No polling loop duplicates a subscription. At most ONE
-  long-fuse (4–6h), non-re-arming safety sweep across all open PRs per
-  session — and in a multi-agent fleet, exactly one agent owns that sweep
-  while every agent dedups against open PRs (`list_pull_requests`) before
-  scanning or implementing, or two models will write the same fix twice.
+  **Rule:** a red `main` poisons every branch cut from it. Check `main` first.
+- **Trap:** opening a draft PR and going dark. **Rule:** subscribe to its
+  activity events at creation when the runtime offers it
+  (`subscribe_pr_activity`) and drive it to green until merged or closed.
+  Runtimes without event delivery (e.g. Kimi via `gh`) check CI once after
+  push, then hand the watch to the operator explicitly.
+- **Trap:** the over-correction — a recurring poll beside a live subscription.
+  **Rule:** events are the signal; no polling loop duplicates them. At most one
+  long-fuse (4–6h), non-re-arming safety sweep per session; in a multi-agent
+  fleet one agent owns it, and every agent dedups against open PRs
+  (`list_pull_requests`) before implementing.
 
 ---
 
@@ -602,74 +497,52 @@ mistake a capable-but-unfamiliar agent makes with the rule that prevents it.
 - **Python 3.12** (`requires-python >=3.12`). Fully type-annotated; PEP 604
   unions (`str | None`), builtin generics, `TypedDict`/`Protocol`/`Literal` over
   `Any`. `from __future__ import annotations` in new modules.
-- **Lint:** `lint.yml` blocks on `ruff check --select F,B,S .` (Pyflakes
-  logic errors, likely-bug patterns, and Bandit security checks). Its broader
-  `ruff check --select E,F,I,B,C4,UP,S --ignore E501 .` pass remains advisory,
-  as does WPS; line length is 120, `E501` is ignored in `pyproject.toml`, and
-  `.claude` is excluded. CLI `--select E` alone re-enables E501 (Ruff gives
-  CLI select priority over config ignore) — always pass `--ignore E501` with
-  that select set so local matches CI. Keep the full Ruff set clean locally
-  even though only F/B/S block merge. **Types:**
-  `mypy --strict --python-version 3.12 --explicit-package-bases` as a
-  best-effort discipline on the lines you write — not CI-enforced, and the
-  repo does not pass it clean end-to-end today (see the §4 Testing trap).
-- **No `print`** in library code — use `logging.getLogger("cyclaw.<module>")`
-  with lazy `%s` formatting. Audit is a separate JSONL stream.
-- **No `shell=True`** with user input; always `subprocess.run([...], list-form)`.
-- **No secrets in code** — env vars only. **No TODO/FIXME comments** — this repo
-  has none; encode intent in explanatory comments instead (match the density and
-  "why, with PR reference" style of the surrounding code).
+- **Lint:** `lint.yml` blocks on `ruff check --select F,B,S .`; its broader
+  `--select E,F,I,B,C4,UP,S --ignore E501` pass and WPS are advisory, but keep
+  them clean locally. Line length 120, `.claude` excluded. Always pass
+  `--ignore E501` with `--select E` (CLI select outranks the config ignore).
+  **Types:** `mypy --strict --python-version 3.12 --explicit-package-bases` on
+  the lines you write (best-effort, §4).
+- **No `print`** in library code — `logging.getLogger("cyclaw.<module>")` with
+  lazy `%s` formatting. Audit is a separate JSONL stream.
+- **No `shell=True`** with user input; always `subprocess.run([...])` list-form.
+- **No secrets in code** — env vars only. **No TODO/FIXME comments**; encode
+  intent in explanatory comments ("why, with PR reference", matching the
+  surrounding density).
 - Data-modifying scripts default to a safe dry-run (`--apply` to act).
 
 ### Commits, branches, PRs
 - **Conventional commits:** `feat:`/`fix:`/`perf:`/`chore:`/`test:`/`docs:`/`ci:`
   (`feat(scope):` when scoped).
-- **Branches:** short-lived `agent/<topic>` (or env-overridden prefix; e.g. `claude/`/`codex/` when that agent is driving), deleted after
-  merge. Develop on the assigned feature branch; never on `main`.
-- **PRs are draft.** One reviewable concern each. Body = **What / Why / Risk to
-  monitor**. A human decides when to merge.
-- **Watch what you open — by events, not polls.** Every agent-opened PR gets an
-  activity subscription at creation and is driven to green until merged or
-  closed; no fire-and-forget drafts, and no recurring polling loop beside a
-  live subscription (see the §4 Git & PR traps for the full rule and the
-  multi-agent variant).
+- **Branches:** short-lived, vendor-prefixed (§10 table), deleted after merge;
+  never develop on `main`.
+- **PRs are draft**, one reviewable concern each, body populated from
+  `.github/PULL_REQUEST_TEMPLATE.md`. A human decides when to merge.
+- **Watch what you open — by events, not polls** (§4 Git & PR).
 
 ### Docs
 - Dated audit/report docs go in `docs/audits/`. Live memory lives ONLY in
-  `docs/memories/` (`.claude/memory/` was the legacy location; deleted
-  2026-09-16, issue #1351 — do not re-create it).
+  `docs/memories/` (do not re-create `.claude/memory/`, deleted in #1351).
 - Every `##` section must be self-contained (no pronoun references to earlier
   sections) — the corpus is chunked and searched section-by-section.
 - Don't duplicate another doc's authority; link to it. `config.yaml` owns the
   numbers — cite, don't copy-and-drift.
 
 ### Kimi Code agents
-- This operating manual applies verbatim to Kimi Code sessions — same
-  invariants, same test gate, same draft-PR flow. Kimi reads `CLAUDE.md` /
-  `AGENTS.md` like any other agent.
-- **Branches:** use the `kimi/<topic>` prefix (e.g.
-  `kimi/cyclaw-optimize-<topic>`); everything in §5 "Commits, branches, PRs"
-  otherwise holds.
+- This manual applies verbatim to Kimi Code sessions — same invariants, test
+  gate, and draft-PR flow; branches use `kimi/<topic>`.
 - **`gh` trap (Windows operator machine):** bare `gh` on PATH is a py3dot12
-  shim, NOT GitHub CLI. Always call the real one by full path:
-  `"/c/Program Files/GitHub CLI/gh.exe"` (authenticated as `cgfixit`).
-  The §4 Git-MCP traps apply to `gh pr`/`git push` identically.
-- **No GitHub MCP / stop-hook assumptions:** Kimi has neither the GitHub MCP
-  tools nor the session stop-hook this repo's Claude skills reference — use
-  `gh` for PR list/create and the user's own configured git identity.
+  shim, NOT GitHub CLI. Call `"/c/Program Files/GitHub CLI/gh.exe"`
+  (authenticated as `cgfixit`).
+- Kimi has no GitHub MCP tools and no session stop-hook — use `gh` and the
+  user's own git identity.
 - **Optimize skill:** the Kimi port of `.claude/skills/CyClaw-Optimize/` lives
-  machine-side at `~/.agents/skills/cyclaw-optimize/` (same workflow:
-  bootstrap → 4-minute read-only scan subagent → PR dedup via `gh` → ~5
-  focused draft PRs). The in-repo Claude skill remains canonical; keep the
-  two in step when the workflow changes.
-- **PR body = the template, not an ad hoc shape:** before opening a PR, read
-  `.github/PULL_REQUEST_TEMPLATE.md` and populate its sections. (Root-caused
-  2026-07-28: Kimi's PR bodies were observed using a fixed `What`/`Why`/
-  `Verification`/`Risk to monitor` shape identical to `.codex/`'s pre-fix
-  instructions — Kimi's machine-side prompt likely mirrors that same spec.
-  If so, update `~/.agents/` to point at the template the same way
-  `.codex/Codex_instructions.md` now does, per the "keep the two in
-  step" rule above.)
+  at `~/.agents/skills/cyclaw-optimize/`; the in-repo skill is canonical, keep
+  them in step.
+- **PR body = the template:** read `.github/PULL_REQUEST_TEMPLATE.md` and
+  populate its sections, not an ad hoc What/Why/Verification shape (root-caused
+  2026-07-28; `~/.agents/` should point at the template as
+  `.codex/Codex_instructions.md` does).
 
 ---
 
@@ -679,14 +552,12 @@ A deliverable is done only when its box is fully checked.
 
 **Code change**
 - [ ] `ruff check --select F,B,S .` clean (CI-blocking in `lint.yml`)
-- [ ] `ruff check --select E,F,I,B,C4,UP,S --ignore E501 .` clean (broader Ruff remains advisory — keep it clean locally)
+- [ ] `ruff check --select E,F,I,B,C4,UP,S --ignore E501 .` clean (advisory — keep it clean locally)
 - [ ] `mypy --strict --python-version 3.12 --explicit-package-bases` clean on
-      the lines you actually wrote (best-effort; not CI-enforced, and the repo
-      does not pass it clean end-to-end — see §4 Testing trap)
+      the lines you wrote (best-effort, §4)
 - [ ] `GROK_API_KEY=dummy pytest tests/ -q --tb=short` green
-- [ ] If the diff touches `tools/lora_finetune/`, also
+- [ ] if the diff touches `tools/lora_finetune/`, also
       `GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short`
-      (not collected by `pytest tests/`; CI is `lora-finetune.yml`)
 - [ ] CI-style coverage run ≥ 80% and the gate not lowered
 - [ ] no new dependency without an exact pin in `pyproject.toml` AND
       `constraints.txt`
@@ -702,7 +573,7 @@ A deliverable is done only when its box is fully checked.
 - [ ] discovered by pytest without editing `ci.yml`
 
 **Pull request**
-- [ ] draft; conventional-commit title; body has What / Why / Risk to monitor
+- [ ] draft; conventional-commit title; body follows the PR template
 - [ ] one concern; diff reviewable in one sitting
 - [ ] if it shares a file with another open PR, a local trial-merge was verified
 - [ ] CI green, or each failure explained against `main`'s own state
@@ -744,13 +615,12 @@ the `.claude/skills/*/check_*.py` or `verify.sh` checkers.
 
 **Mid-task ambiguity with two reasonable readings:** state your assumption,
 proceed on the **smallest reversible** interpretation, and flag it in the PR
-body — do not stall. Use `AskUser` only when the readings diverge on something
+body — do not stall. Ask only when the readings diverge on something
 irreversible or a matter of user taste.
 
-**Blocked:** record it in `docs/work/SESSION_NOTES.md`
-and escalate — `#cyclaw-dev` for undefined behavior, a private GitHub security
-issue for security concerns, `/CyClaw-Sandbox` for suspected config drift
-(its Python-3.12 runtime gate phase catches this).
+**Blocked:** record it in `docs/work/SESSION_NOTES.md` and escalate —
+`#cyclaw-dev` for undefined behavior, a private GitHub security issue for
+security concerns, `/CyClaw-Sandbox` for suspected config drift.
 
 Do NOT: re-ask a question already answered; ask the user to reveal a secret;
 change code behavior to make a stale doc "true" (fix the doc, or flag the
@@ -767,44 +637,31 @@ Skills reference this section; keep it as the single canonical copy.
 pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 
-# Install — macOS (Apple Silicon): PLAIN torch, no +cpu suffix, no index override.
-# The +cpu local-version wheel does not exist for macOS and both manifests
-# hardcode that pin, so the generic block above fails twice on a Mac. Strip the
-# torch/index lines from the requirements copy but only drop the +cpu suffix in
-# the constraints copy: --ignore-installed is a bare flag (PyYAML is just one
-# more requirement), so pip reinstalls torch too and an unconstrained copy
-# floats it to PyPI's newest — same thing ci.yml's macos-latest leg runs.
+# Install — macOS (Apple Silicon): PLAIN torch; strip torch/index lines from the
+# requirements copy, drop only the +cpu suffix in the constraints copy (§4).
 pip install "torch==2.13.0"
 grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' \
     requirements.txt > /tmp/requirements-macos.txt
 sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
 pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt --ignore-installed PyYAML
 
-# Install — conda (fourth surface; CI-gated by python-package-conda.yml).
-# conda-forge names the torch package `pytorch` (pinned 2.13.0=cpu*) — see the §4 trap.
+# Install — conda (fourth surface; conda-forge names torch `pytorch`)
 conda env create -f environment.yml
 
-# The cyclaw-* console scripts below need the project itself installed —
-# requirements.txt is a third-party pin list with no self-install line, so
-# without this they are `command not found`. The `python -m …` forms always work.
+# Console scripts (cyclaw-*) need the project itself installed
 pip install -e . -c constraints.txt
 
 # Build the retrieval index (required before /query returns hits)
-python -m retrieval.indexer            # or: cyclaw-index (needs pip install -e .)
+python -m retrieval.indexer            # or: cyclaw-index
 
 # Tests (GROK_API_KEY must be any non-empty value)
 GROK_API_KEY=dummy pytest tests/ -q --tb=short
 GROK_API_KEY=dummy pytest tests/test_graph.py -q --tb=short   # single file
 GROK_API_KEY=dummy pytest tests/test_agentic_*.py -q          # agentic only
 GROK_API_KEY=dummy python tests/ci_rag_smoke.py               # real-index RAG smoke
-# Kit tests live under tools/lora_finetune/tests/, outside pyproject
-# testpaths=["tests"], so root pytest tests/ does not collect them.
-# CI for that tree is .github/workflows/lora-finetune.yml (pytest + dryrun).
-GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short
+GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short  # not under testpaths
 
-# Lint / types (Ruff F/B/S is CI-enforced; broader Ruff and WPS are advisory;
-# mypy is a best-effort local check only — see the §4 Testing trap for why
-# the bare "mypy ... ." invocation errors out)
+# Lint / types (Ruff F/B/S blocks in CI; the rest is advisory/best-effort)
 ruff check --select E,F,I,B,C4,UP,S --ignore E501 .
 mypy --strict --python-version 3.12 --explicit-package-bases "<touched files>"
 
@@ -831,170 +688,115 @@ python3 .claude/skills/index-doctor/doctor.py --rebuild
 python3 .claude/skills/injection-redteam/redteam.py
 ```
 
-CI target is Python 3.12 on a three-OS matrix (ubuntu + windows + macos); all
-three `test` legs are release gates (a failing Windows result is not masked).
-Inside `ci.yml` the only job carrying `continue-on-error` is `verify-skills`;
-every other job (including the three `test` legs, `invariant-guard`, and
-packaging) fails the workflow. Advisory lanes elsewhere are
-`numbat-rules.yml`'s original hand-fixture job (its `numbat-stream-contract`
-and `numbat-cel` jobs block, issue #1458), `lint.yml`'s broader-Ruff and WPS
-steps (its F/B/S gate blocks), and best-effort steps in the
-nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources:
-`gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`,
-`utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks
-all external deps — no live services required. The full test-file list is
-discoverable in `tests/` (216 `test_*.py` files including the two under
-`tests/nemo_runtime/`, auto-collected by pytest).
+CI targets Python 3.12 on ubuntu + windows + macos; all three `test` legs are
+release gates. In `ci.yml` only `verify-skills` carries `continue-on-error`.
+Advisory lanes elsewhere: `numbat-rules.yml`'s hand-fixture job (its
+`numbat-stream-contract` and `numbat-cel` jobs block, #1458), `lint.yml`'s
+broader-Ruff and WPS steps, and best-effort steps in the
+nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources: `gate`,
+`gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`,
+`metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`,
+`telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks all
+external deps. `tests/` holds 216 auto-collected `test_*.py` files (including
+two under `tests/nemo_runtime/`).
 
 ---
 
 ## 9. Skills
 
 Skills live at `.claude/skills/<name>/SKILL.md`. When a skill is not present in
-the local sandbox, **check GitHub main before declaring it absent** (via
-`mcp__github__get_file_contents` on `.claude/skills/<name>/SKILL.md`).
+the local sandbox, **check GitHub main before declaring it absent**
+(`mcp__github__get_file_contents` on `.claude/skills/<name>/SKILL.md`).
+
+Skills marked `disable-model-invocation: true` are reachable only as slash
+commands (`.claude/commands/<name>.md`) — Claude never auto-routes to them —
+but CI and other skills still run their scripts directly; the flag gates only
+model-initiated `Skill` calls.
 
 ### CyClaw-specific security & health skills (built on the invariants)
 
-2026-09-22: `/invariant-guard`, `/config-guard`, `/index-doctor`, and
-`/doc-sync` gained `disable-model-invocation: true` — they are cheap and
-side-effect-free, but Claude was auto-routing to them opportunistically
-(e.g. re-running invariant-guard on every gate.py touch) in a way that added
-turns without being asked. All four remain reachable as slash commands
-(`.claude/commands/<name>.md`) for a human to call explicitly, and other
-skills/CI still invoke their underlying scripts directly
-(`check_invariants.py`, `check_config.py`, `doctor.py`, `doc_sync.py`) — the
-flag only gates *model-initiated* `Skill` tool calls, not script execution.
-
 | Skill | Type | Purpose | Runs pre-install? |
 |---|---|---|---|
-| `/invariant-guard` | check, user-invoked only (`disable-model-invocation: true`) | Static-assert the six invariants + guards against a diff | Yes (stdlib) |
-| `/dotenv-guard` | check, user-invoked only (`disable-model-invocation: true`) | Keep secrets out of dotenv files, gitignored or not: no runtime dotenv load, tracked env files, `.gitignore` coverage, a sandboxed `setup-cyclaw-keys.sh` run (fake Keychain), script/doc line checks; baseline ratchet. Blocking CI job | Yes (stdlib + git + bash) |
-| `/config-guard` | check, user-invoked only (`disable-model-invocation: true`) | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, current shipped provider posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
-| `/dep-guard` | check | Static-validate dependency-pin invariants across pyproject + constraints + environment.yml (pydantic lock-step, numpy<2, torch +cpu, uvicorn no-extras, cross-file agreement) | Yes (stdlib) |
-| `/verify-deps` | check | Extends dep-guard: adds the requirements.txt cross-check dep-guard skips, the non-manifest drift checks E1–E7 (workflow tool pins, Python version, undeclared imports, install-surface scope, the Dockerfile install contract incl. its torch pin vs constraints.txt, docker-compose.yml/.dockerignore/publish-ghcr.yml coherence with the Dockerfile, and runtime pins no first-party module imports), a dry-run of each install surface's actual command, and a PyPI currency + CVE sweep. Reports only — never auto-bumps a runtime pin | extract_pins.py + check_env_drift.py yes (stdlib); currency sweep needs network |
+| `/invariant-guard` | check, user-invoked only | Static-assert the six invariants + guards against a diff | Yes (stdlib) |
+| `/dotenv-guard` | check, user-invoked only | Keep secrets out of dotenv files, gitignored or not: no runtime dotenv load, tracked env files, `.gitignore` coverage, a sandboxed `setup-cyclaw-keys.sh` run (fake Keychain), script/doc line checks; baseline ratchet. Blocking CI job | Yes (stdlib + git + bash) |
+| `/config-guard` | check, user-invoked only | Static-validate config.yaml's relational/value/threat-model contract (graph_timeout>llm_timeout, chunk_overlap<chunk_size, RRF-scale min_score, loopback host, shipped provider posture, `api_key_optional` vs. the bind address) | Needs PyYAML |
+| `/dep-guard` | check | Dependency-pin invariants across pyproject + constraints + environment.yml (pydantic lock-step, numpy<2, torch +cpu, uvicorn no-extras, cross-file agreement) | Yes (stdlib) |
+| `/verify-deps` | check | Extends dep-guard: requirements.txt cross-check, non-manifest drift E1–E7 (workflow pins, Python version, undeclared imports, install scope, Dockerfile/compose/GHCR coherence, unused runtime pins), an install dry-run per surface, and a PyPI currency + CVE sweep. Reports only — never auto-bumps | extract_pins.py + check_env_drift.py yes; sweep needs network |
 | `/injection-redteam` | loop | Adversarial probe corpus vs the sanitizer; close bypasses | Needs venv |
-| `/index-doctor` | check, user-invoked only (`disable-model-invocation: true`) | Rebuild + validate ChromaDB/BM25/RRF; probe retrieval health | Needs venv |
-| `/doc-sync` | check, user-invoked only (`disable-model-invocation: true`) | Detect code↔docs drift; reconcile the docs | Needs PyYAML |
-| `/otel-hardening` | check + task | Validate the full telemetry-kill contract: an independent name→value oracle over both canonical maps + the scrub set, staleness (`--as-of`), pin drift, reference-`.env` format/values, Docker/launcher/generator delivery, programmatic-bypass sweep, ONNX seams, and a category-1–5 egress classification of every dependency/executable/connector/launcher (strict mode fails on an unclassified one); then the live vendor-doc sweep. Mutation self-test in `verify.sh` (a scenario per rule that can fail or warn, T9's shared-helper-wiring check included since 2026-09-28; T6 is info-only and needs none; the count grows with the rules, so it is not pinned here). External binaries are swept only when named in `check_otel.py`'s `KNOWN_EXTERNAL_COMPONENTS`, so a new `subprocess` spawn site must add its binary there | Yes (stdlib) for the static half; live sweep needs network |
+| `/index-doctor` | check, user-invoked only | Rebuild + validate ChromaDB/BM25/RRF; probe retrieval health | Needs venv |
+| `/doc-sync` | check, user-invoked only | Detect code↔docs drift; reconcile the docs | Needs PyYAML |
+| `/otel-hardening` | check + task | Telemetry-kill contract: independent oracle over both maps + scrub set, staleness, pin drift, reference-`.env`, Docker/launcher/generator delivery, bypass sweep, ONNX seams, and a category-1–5 egress classification (strict fails on an unclassified component); then a live vendor-doc sweep. Mutation self-test in `verify.sh`. A new `subprocess` spawn site must add its binary to `check_otel.py`'s `KNOWN_EXTERNAL_COMPONENTS` | Static half yes; sweep needs network |
 
 ### Operational & workflow skills
 
 | Skill | Type | Purpose |
 |---|---|---|
-| `/babysit-github-pr` | loop, user-invoked only (`disable-model-invocation: true`) | Watch a GitHub PR end-to-end — triage CI/review, stop on rebase conflicts, and require explicit `ALLOW_FORCE_WITH_LEASE=true` authorization before rewriting a behind branch. It starts an extended loop against live GitHub state and pushes commits, so it needs an explicit ask |
-| `/CyClaw-Optimize` | task, user-invoked only (`disable-model-invocation: true`) | Scan main for optimizations; open focused draft PRs. Gained the flag 2026-09-16 (issue #1351) — it opens PRs against main on its own, so it should never auto-route |
-| `/CyClaw-Sandbox` | task, user-invoked only (`disable-model-invocation: true`) | Clone/current-checkout audit with six verification ladders, deterministic in-process RAG checks, live gate/platform probes, and JSON/tmp reports. It does not publish or open a PR by itself. `/run` = Quick Mode. Claude never auto-routes here because the full audit's clone/venv/runtime cost requires an explicit ask |
+| `/babysit-github-pr` | loop, user-invoked only | Watch a PR end-to-end — triage CI/review, stop on rebase conflicts, require explicit `ALLOW_FORCE_WITH_LEASE=true` before rewriting a behind branch |
+| `/CyClaw-Optimize` | task, user-invoked only | Scan main for optimizations; open focused draft PRs |
+| `/CyClaw-Sandbox` | task, user-invoked only | Clone/current-checkout audit: six verification ladders, in-process RAG checks, live gate/platform probes, JSON/tmp reports. Opens no PR by itself. `/run` = Quick Mode |
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop | Iterative refactor loops |
 | `/add-comment` | task | Comment-only pass adding ELI5-toned WHY comments to under-documented code |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails: surgical diffs, surfaced assumptions, verifiable success criteria |
-| `/cyclaw-privacy` | mode, user-invoked only (`disable-model-invocation: true`) | "Legal" persona for privacy/DPA/DSR/breach-analysis review of CyClaw changes; Claude never auto-routes here. Renamed from `cyclaw-advisor` 2026-09-11 (issue #1351) to resolve an in-repo name collision with `.codex/skills/cyclaw-advisor` (architecture advice — a different skill, same name). Frontmatter `description` trimmed 2026-09-22 to cut listing-time context cost (full body still loads on explicit invocation) |
-| `/cyclaw-gotchas` | reference + driver | Session-tested traps for Claude Code sandboxes (proxy-denied torch/Hugging Face hosts, the 3.12 venv, the silent pytest summary, PR/check-in/review-bot process) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Load before installing deps, running tests, launching `gate.py`, or driving a PR. Remains model-invocable (unlike the four skills above) since an agent hitting one of its gotchas mid-task needs to self-route to it; frontmatter `description` trimmed 2026-09-22 for the same listing-cost reason |
+| `/cyclaw-privacy` | mode, user-invoked only | "Legal" persona for privacy/DPA/DSR/breach review of CyClaw changes (distinct from `.codex/skills/cyclaw-advisor`) |
+| `/cyclaw-gotchas` | reference + driver | Session-tested sandbox traps (proxy-denied torch/HF hosts, the 3.12 venv, silent pytest summary, PR/review-bot process) plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Model-invocable on purpose: load it before installing deps, running tests, launching `gate.py`, or driving a PR |
 
-### Standalone commands (no skill folder)
+### Standalone commands and agent skills
 
 `/audit`, `/check-soul`, `/conversation-summary`, `/run`, and `/status` are
-short inline procedures wired only as `.claude/commands/*.md`, with no
-`.claude/skills/` directory behind them — deliberate, and tracked as such in
-`.claude/README.md`. They are reachable as slash commands like any skill.
+inline procedures wired only as `.claude/commands/*.md`, with no skill folder
+(tracked in `.claude/README.md`). `/verification-specialist` and
+`/documentation-guide` are `.claude/skills/*/SKILL.md` agent skills.
 
-### Agent skills
-
-`/verification-specialist` and `/documentation-guide` are each a
-`.claude/skills/*/SKILL.md` entry. `/conversation-summary` plays a similar
-session-continuation role but is one of the standalone commands above, not a
-SKILL.md-backed skill.
-
-2026-09-16 (issue #1351): `/code-explorer`, `/next-action-suggestion`,
-`/session-title`, `/tool-summary`, `/ponytail`, `/wrap-up`, and
-`/create-session-notes` were deleted as project skills — thin session-hygiene
-wrappers with no CyClaw-specific logic, per the issue's delete-or-command-only
-list. The memory-lifecycle trio (`/memory-extraction`, `/memory-consolidation`,
-`/memory-orchestrator`) was deleted the same pass; deleting
-`/memory-orchestrator` also retired the `PreCompact`/`SessionEnd` hooks in
-`.claude/settings.json` that invoked its `orchestrate.py` (now unwired rather
-than left dangling — see `.claude/README.md`), so nothing currently persists
-session memory to `docs/memories/` automatically. `/python-coding-agent` was
-deleted too, along with the SessionStart hook that injected its full
-`SKILL.md` body on every session start; the CyClaw-specific grounding it
-carried (library defaults, code scaffolds, planning-mode) no longer
-auto-loads anywhere. `/karpathy-guidelines`, named in the same issue breath as
-`/ponytail`, was kept — narrowing that further is a follow-up, not something
-this pass decided.
-
-`general-purpose` (the project skill, not the Agent tool's identically-named
-built-in subagent type) was removed 2026-09-11 (issue #1351) — it duplicated
-that built-in agent's own description verbatim and added nothing project-
-specific, so it was pure listing tax.
+The session-hygiene wrappers, the memory-lifecycle trio, and
+`/python-coding-agent` were deleted in #1351 (2026-09-16) along with the hooks
+that invoked them, so nothing persists session memory to `docs/memories/`
+automatically.
 
 ### Cross-repo behavioral skill
 
-`/fable-protocol` — reasoning-discipline, epistemic-calibration, AND
+`/fable-protocol` — reasoning-discipline, epistemic-calibration, and
 knowledge-handoff layer (mark speculation, verify stale knowledge, security
-lens on every generated artifact, anti-sycophancy, Sonnet 5 vs Opus 5 routing,
-plus the owner's communication contract, project portfolio, CyClaw facts to
-know cold, settled decisions, and where a smaller model must compensate).
-Scoped to the user, not to CyClaw: it is registered both at
-`.claude/skills/fable-protocol/SKILL.md` in this repo and at the user-level
-`~/.claude/skills/fable-protocol/SKILL.md`, so it activates in any repository,
-not only here. Its later sections do document CyClaw architecture and settled
-decisions as a knowledge base, but carry no independent authority — `CLAUDE.md`
-and `config.yaml` remain the source of truth, and neither this skill's
-discipline layer nor its knowledge layer overrides the six invariants in §3.
-Read at session start in any of the owner's repos; in this repo the
-`fable-protocol-loader.sh` SessionStart hook does that automatically for
-Sonnet-tier models only (§10). 2026-09-16 (issue #1351): the skill itself
-gained `disable-model-invocation: true` — it was the single largest
-always-on listing cost in the whole catalog, and the deterministic hook
-above already covers the one model tier that needs it unasked; every other
-model (Opus, Haiku, Fable) now reaches it only via explicit
-`/fable-protocol`. See the skill file for the
-full protocol (consolidated 2026-09-06 from a separate `fable-5.1-cc`
-companion skill, which no longer exists as its own file — its content is now
-this skill's §8 onward).
+lens on every artifact, anti-sycophancy, model routing, the owner's
+communication contract, and CyClaw facts to know cold). Registered both here and
+at user level (`~/.claude/skills/fable-protocol/SKILL.md`), so it activates in
+any repo. It carries no independent authority: `CLAUDE.md` and `config.yaml`
+remain the source of truth, and nothing in it overrides §3. It is
+`disable-model-invocation: true`; the `fable-protocol-loader.sh` SessionStart
+hook injects it for Sonnet-tier models only (§10), every other model reaches it
+via explicit `/fable-protocol`.
 
 ---
 
 ## 10. Session Protocol
 
-**Start.** Two SessionStart hooks run (a third, injecting the
-Python-coding-agent persona, was removed 2026-09-16 with the skill itself —
-issue #1351). `session-start-sync-check.sh` (wired since 2026-09-04) reports
-local↔remote divergence without ever mutating — it never resets, rebases,
-pushes or deletes, and always exits 0 — and leaves the commit identity to the
-session runtime.
+**Start.** Two SessionStart hooks run. `session-start-sync-check.sh` reports
+local↔remote divergence without mutating anything (never resets, rebases,
+pushes, or deletes; always exits 0). `fable-protocol-loader.sh` injects
+`/fable-protocol` only when the stdin model id contains `sonnet` (an opt-in
+allowlist; Opus, Haiku, Fable, and unknown ids are skipped). A mid-session
+`/model` switch fires no hook — run `/fable-protocol` by hand if wanted.
 
-**Claude Code commits as the runtime's identity, never as CyClaw Agent**
-(owner decision, 2026-09-26). In a cloud session that is
-`Claude <noreply@anthropic.com>`: the runtime signs those commits, so GitHub
-shows them Verified, and its stop hook flags any other committer as
-Unverified. In a local session it is the operator's own git identity. The
-hook used to pin `CyClaw Agent`, which overrode the runtime identity and left
-every cloud commit Unverified. It now removes that old pin (only while it
-still holds the old default) and pins nothing. Before committing, `git var GIT_COMMITTER_IDENT` should show the runtime
-identity; if a stale repo-local pin still shows `CyClaw Agent`, drop it:
+**Commit identity.** Claude Code commits as the runtime's identity, never as
+`CyClaw Agent` (owner decision, 2026-09-26): `Claude <noreply@anthropic.com>`
+in the cloud (runtime-signed, so GitHub shows it Verified; the runtime's stop
+hook flags any other committer as Unverified), the operator's own identity
+locally. The sync-check hook removes the old `CyClaw Agent` pin while it still
+holds the old default and pins nothing. Before committing,
+`git var GIT_COMMITTER_IDENT` should show the runtime identity; if a stale pin
+remains:
 
 ```bash
 git config --local --unset user.email; git config --local --unset user.name
 ```
 
-The second, `fable-protocol-loader.sh` (wired 2026-09-06; re-gated 2026-09-16,
-issue #1351), injects `/fable-protocol` as session context only when the
-session model is Sonnet-tier (`sonnet` in the model id) — switched from an
-opt-out blocklist (inject unless Fable-tier) to an opt-in allowlist, since
-Sonnet is the tier the protocol's discipline layer benefits most for the
-cost. Opus, Haiku, Fable, and any absent/unrecognised model string are all
-skipped now. It reads the model from the SessionStart hook's stdin JSON, the
-only hook event that carries one; a mid-session `/model` switch fires no
-hook, so after switching to Sonnet mid-session (or wanting it on Opus/Haiku
-at all) run `/fable-protocol` by hand.
-
-CyClaw's own agentic loop is different: the single source of truth for its
-identity is `utils/agent_identity.py`, whose committer defaults are
-**driver-agnostic** (not Claude/Anthropic) because that loop is often a local
-model or another coding agent — attribution should not pretend otherwise. Both
-of its write surfaces read the same module: repo_workspace commits and writer
-PR heads. It does not govern Claude Code's own commits.
+CyClaw's own agentic loop is different: its identity source is
+`utils/agent_identity.py`, with **driver-agnostic** defaults (that loop is
+often a local model), read by both repo_workspace commits and writer PR heads.
+`CYCLAW_AGENT_COMMIT_NAME` / `CYCLAW_AGENT_COMMIT_EMAIL` override it (defaults
+`CyClaw Agent` / `cyclaw-agent@users.noreply.github.com`) and never apply to a
+Claude Code session. To commit Claude Code work under another identity, set
+git's own `GIT_AUTHOR_*`/`GIT_COMMITTER_*` for that session (Unverified in the
+cloud).
 
 **Branch namespaces** follow `.github/PULL_REQUEST_TEMPLATE.md` — validation
 accepts every listed vendor (and `agent/`):
@@ -1008,48 +810,28 @@ accepts every listed vendor (and `agent/`):
 | CyClaw direct / MCP | `CyClaw/{feature}-{date}` (also `cyclaw/`) |
 | Unknown / generic | `agent/{feature}` |
 
-Environment overrides (optional, per session):
-
-- `CYCLAW_AGENT_COMMIT_NAME` (agentic-loop default `CyClaw Agent`)
-- `CYCLAW_AGENT_COMMIT_EMAIL` (agentic-loop default `cyclaw-agent@users.noreply.github.com`)
-- `CYCLAW_AGENT_BRANCH_PREFIX` (default `agent` — *preferred* prefix only;
-  does **not** revoke the multi-vendor allowlist above)
-
-The two commit overrides set CyClaw's own agentic-loop identity only; the
-SessionStart hook does not apply them to a Claude Code session. A hook can only
-write repo-local git config, which every session and worktree of the
-repository shares and which the `GIT_AUTHOR_*`/`GIT_COMMITTER_*` environment
-outranks, so it cannot give one session its own identity. To commit Claude
-Code work under another identity, set git's own `GIT_AUTHOR_*` and
-`GIT_COMMITTER_*` variables for that session (in the cloud, that commit is then
-Unverified).
+`CYCLAW_AGENT_BRANCH_PREFIX` (default `agent`) sets only the *preferred*
+prefix; it does not revoke the allowlist.
 
 The cloud **session runtime** applies a stop hook (not wired in repo
-`settings.json`). It flags local commits whose committer email is not
-`noreply@anthropic.com` (the identity its signing key is registered to) as
-Unverified, and blocks `--force-with-lease` without explicit authorization.
-Re-authoring an unpushed commit (`git commit --amend --no-edit --reset-author`)
-is fine; rewriting a published one is a force-push and needs the owner's
-sign-off.
+`settings.json`) that flags commits whose committer email is not
+`noreply@anthropic.com` and blocks `--force-with-lease` without explicit
+authorization. Re-authoring an unpushed commit
+(`git commit --amend --no-edit --reset-author`) is fine; rewriting a published
+one is a force-push and needs the owner's sign-off.
 
 **During.** Track compact memory: Goal, Constraints, Decisions (with one-line
 rationale), Open questions, Verification state. Prefer file-backed facts over
 inference. Expire stale assumptions when new evidence appears.
 
 **End.** Durable project conventions → this file or `.claude/rules/`.
-Session-scoped discoveries → `docs/memories/` (live) — write them by hand;
-the `/wrap-up` skill and the memory-orchestrator trio that used to automate
-this were deleted 2026-09-16 (issue #1351). Reconcile this file against the
-current code state — run `/doc-sync` — before you consider the session done.
+Session-scoped discoveries → `docs/memories/`, written by hand. Run `/doc-sync`
+to reconcile this file against the code before you consider the session done.
 
 ---
 
 ## Reference
 
-- `.claude/patterns/` (behavioral patterns 01–09) and `.claude/utility-prompts/`
-  (coordinator, next-action, session-title, tool-summary) were deleted
-  2026-09-16 (issue #1351); the paragraph below is what survives of the
-  multi-agent pattern that used to live at `08-multi-agent-coordination.md`.
 - Multi-agent work: you (coordinator) own synthesis and final correctness;
   workers gather evidence and produce artifacts, they do not make architectural
   decisions. Dispatch read-only research in parallel; serialize write-heavy work

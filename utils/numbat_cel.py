@@ -176,24 +176,6 @@ def evaluate_cel_monitor(
     return matches
 
 
-def _include_query_hash(cfg: dict[str, Any] | None) -> bool:
-    """logging.audit_fields.include_query_hash, default True.
-
-    Twin of utils/external_pre_hook.py's helper of the same name (two call
-    sites, kept separate on purpose): an operator who opted out of the hash in
-    the audit trail must not get it back through the Numbat stream.
-    """
-    if not isinstance(cfg, dict):
-        return True
-    logging_cfg = cfg.get("logging", {})
-    if not isinstance(logging_cfg, dict):
-        return True
-    audit_fields = logging_cfg.get("audit_fields", {})
-    if not isinstance(audit_fields, dict):
-        return True
-    return bool(audit_fields.get("include_query_hash", True))
-
-
 def _match_preview(
     matches: list[int], query_hash: str | None, cfg: dict[str, Any] | None, cap: int,
 ) -> tuple[str, bool]:
@@ -206,8 +188,10 @@ def _match_preview(
     content_preview_truncated contract as the audit projection's packer, so a
     consumer never mistakes the shortened preview for a complete one.
     """
+    from utils.logger import include_query_hash  # lazy, like this module's other imports
+
     preview: dict[str, Any] = {}
-    if query_hash and _QUERY_HASH_RE.fullmatch(query_hash) and _include_query_hash(cfg):
+    if query_hash and _QUERY_HASH_RE.fullmatch(query_hash) and include_query_hash(cfg):
         preview["query_hash"] = query_hash
     text = json.dumps({**preview, "cel_rules_matched": matches}, separators=(",", ":"))
     if len(text) <= cap:

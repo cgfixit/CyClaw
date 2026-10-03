@@ -220,6 +220,28 @@ def test_execute_applies_query_timeout_mssql(monkeypatch):
     assert not any("statement_timeout" in s.lower() for s, _ in fake.conn.cur.executed)
 
 
+def test_execute_runs_when_the_mssql_driver_has_no_settable_timeout(monkeypatch):
+    """conn.timeout is a best-effort knob: a driver that rejects it keeps its
+    own default and the query still runs (the read-only session is enforced
+    separately, fail-closed)."""
+    sc = SqlConnectConfig(driver="mssql", statement_timeout_ms=8000)
+    monkeypatch.setenv(sc.dsn_env, "Driver=ODBC;")
+    client = SqlClient({}, sc)
+    fake = _FakeDriver()
+
+    class _NoTimeoutConn(_FakeConn):
+        def __setattr__(self, name, value):
+            if name == "timeout" and hasattr(self, "cur"):
+                raise AttributeError("timeout")
+            super().__setattr__(name, value)
+
+    fake.conn = _NoTimeoutConn()
+    monkeypatch.setattr(client, "_import_driver", lambda: fake)
+    client._execute("SELECT 1")
+    assert fake.conn.timeout is None
+    assert fake.conn.cur.executed[0][0] == "SELECT 1"
+
+
 def test_execute_timeout_disabled_when_non_positive(monkeypatch):
     sc = SqlConnectConfig(driver="postgres")
     sc.statement_timeout_ms = 0  # bypass post-init validation to exercise the disabled branch
