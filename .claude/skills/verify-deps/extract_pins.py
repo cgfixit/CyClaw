@@ -8,14 +8,14 @@ Usage:
 
 This is a companion to dep-guard, not a replacement: dep-guard's
 check_deps.py already validates pyproject.toml <-> constraints.txt <->
-environment.yml agreement (D1-D10) with mutation-tested rigor — this script
+environment.yml agreement (D1-D11) with mutation-tested rigor — this script
 imports its parsing helpers directly rather than re-implementing them, so
 there is one source of truth for "how do we parse a pin line."
 
 What this adds that dep-guard does not check:
   - requirements.txt and requirements-test.txt are parsed and cross-checked
-    against constraints.txt too (dep-guard never reads either requirements
-    file — grep the script, it has zero references to them). A stale pin in
+    against constraints.txt too (dep-guard checks only the NeMo installation contract in those
+    files). A stale pin in
     either manifest would pass every dep-guard check silently.
   - Output is a flat, normalized {package: {file: version}} table meant to
     be handed to a currency check (verify-deps/SKILL.md Step 2) or read by a
@@ -43,7 +43,7 @@ _ENV_SKIP = {"python", "pip"}
 def _load_requirements_reqs(text: str) -> list[_dep_guard.Req]:
     """requirements.txt uses the same `name==version  # comment` grammar as
     constraints.txt (both are pip requirements-file format), so the same
-    parser applies — dep-guard just never calls it on this file."""
+    parser applies."""
     return _dep_guard._load_constraints_reqs(text)
 
 

@@ -160,15 +160,6 @@ _IMPORT_ALLOWLIST = {
     # nothing installed. Declaring it would install an MSSQL driver on every
     # box for a connector that ships disabled.
     "pyodbc",
-    # Lazy in-function import at utils/onnx_telemetry.py's suppression seam
-    # (issue #1135): onnxruntime is DELIBERATELY undeclared -- it arrives only
-    # as a transitive of chromadb (and of fastembed under the guardrails
-    # extra), the helper is a getattr-guarded no-op when it is absent, and its
-    # unbounded-transitive status is a standing recorded review finding in
-    # .claude/skills/otel-hardening/check_otel.py (T13). Declaring a pin here
-    # would be a dependency-policy change that finding exists to make
-    # deliberate, not a lint fix.
-    "onnxruntime",
 }
 _FIRST_PARTY = {
     "utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "telegram",
@@ -352,7 +343,7 @@ def check_orphan_runtime_pins(imported: dict[str, list[str]]) -> None:
 # The distinction a reviewer most often gets wrong, and the reason a correct
 # tree can look like drift: constraints.txt pins packages that NO install
 # surface installs by default. It is a version ceiling, not an install list.
-_EXTRA_ONLY_MARKERS = ("deepagents", "nemoguardrails", "psycopg", "pgvector",
+_EXTRA_ONLY_MARKERS = ("deepagents", "psycopg", "pgvector",
                        "langchain-openai", "langchain-anthropic", "langchain-xai")
 
 
@@ -375,6 +366,9 @@ def check_install_surface_scope() -> None:
         lines = [ln.split("#")[0].strip().lower() for ln in text.splitlines()]
         leaked = [m for m in _EXTRA_ONLY_MARKERS
                   if any(re.match(rf"^{re.escape(m)}\b", ln) for ln in lines if ln)]
+        if name == "requirements-test.txt" and any(re.match(r"^nemoguardrails\b", ln) for ln in lines):
+            leaked_any = True
+            fail("E4", "requirements-test.txt installs runtime package nemoguardrails")
         if leaked:
             leaked_any = True
             fail("E4", f"{name} installs extras-only package(s) {leaked} -- runtime "

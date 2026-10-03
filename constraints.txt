@@ -48,7 +48,7 @@ langchain-core==1.6.3
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; risk accepted ONLY for local/offline air-gapped PersistentClient embedded mode). See SECURITY.md + pip-audit.
 sentence-transformers==6.1.0
 # Transitive of chromadb (which asks only for onnxruntime>=1.14.1) and of
-# fastembed under the guardrails extra. Bounded here rather than left to the
+# fastembed in the base NeMo dependency. Bounded here rather than left to the
 # resolver because CyClaw's ONNX telemetry control is version-gated:
 # ORT_DISABLE_TELEMETRY (utils/telemetry_kill.py) only governs the non-Windows
 # 1DS path from onnxruntime v1.29.0 onward (PRs #27379/#29872), so any resolve
@@ -117,13 +117,9 @@ pyodbc==5.3.0
 # scripts/compare_vector_backends.py.
 sqlite-vec==0.1.9
 
-# Optional NeMo Guardrails layer (pyproject extra: guardrails). This is not
-# installed by the default offline runtime; the constraint keeps the opt-in
-# resolve aligned with pyproject.toml.
-# NOTE: this pulls in fastembed/onnxruntime/pandas as nemoguardrails' own base
-# deps (not behind any of its own extras); fastembed fetches ONNX embedding
-# models from a remote CDN by default -- see the caveat next to this extra in
-# pyproject.toml before enabling guardrails.enabled.
+# Required NeMo engine, installed by every base manifest. Keep all pins aligned.
+# NeMo brings fastembed and onnxruntime. Supported offline loader flags and the
+# no-network installation smoke are documented in docs/NeMo/README.md.
 nemoguardrails==0.24.0
 
 # Optional CEL sanitizer backend for Numbat monitor-only rules (pyproject extra:

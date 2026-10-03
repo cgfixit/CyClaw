@@ -294,10 +294,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "nemoguardrails usage stats", "category": 1,
         "controls": {"NEMO_GUARDRAILS_NO_USAGE_STATS": "1", "DO_NOT_TRACK": "1"},
         "url": "https://github.com/NVIDIA-NeMo/Guardrails",
-        "versions": "==0.24.0 (optional guardrails extra; layer enabled by default)",
+        "versions": "==0.24.0 (required base dependency; layer enabled by default)",
         "enforcement": "env before import (guardrails/__init__.py and guardrails/integration.py both apply "
                        "ahead of the soft nemoguardrails import)",
-        "scope": "optional guardrails engine", "reviewed": "2026-08-27",
+        "scope": "required guardrails engine", "reviewed": "2026-08-27",
         "evidence": "telemetry.py:372-374 in installed 0.24.0 honors both names; sink is "
                     "events.telemetry.data.nvidia.com",
     },
@@ -306,7 +306,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "controls": {"ORT_DISABLE_TELEMETRY": "1"},
         "url": "https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md",
         "versions": "transitive (chromadb, which asks only for >=1.14.1; fastembed under the "
-                    "guardrails extra) -- bounded at ==1.30.0 in constraints.txt, at or above "
+                    "base NeMo dependency) -- bounded at ==1.30.0 in constraints.txt, at or above "
                     "the v1.29.0 release that introduced the env control, so it cannot resolve below it",
         "enforcement": "env before import (process-lifetime control for the non-Windows 1DS path added in "
                        "v1.29.0, PRs #27379/#29872) + onnxruntime.disable_telemetry_events() at the load "
@@ -529,9 +529,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "fastembed", "category": 5, "controls": {},
         "url": "https://github.com/qdrant/fastembed",
-        "versions": "transitive of nemoguardrails (guardrails extra) -- UNBOUNDED, see T13 warning",
+        "versions": "transitive of nemoguardrails (base NeMo dependency) -- UNBOUNDED, see T13 warning",
         "enforcement": "no telemetry mechanism found; its documented first-use remote-CDN model fetch is "
-                       "functional egress under the optional guardrails dependency, not telemetry. "
+                       "functional egress under the base guardrails dependency, not telemetry. "
                        "Do not invent a control",
         "scope": "live NeMo only", "reviewed": "2026-08-27",
         "evidence": "negative finding; ONNX sessions it builds are covered by the onnxruntime row",

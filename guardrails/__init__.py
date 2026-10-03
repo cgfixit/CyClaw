@@ -1,4 +1,4 @@
-"""CyClaw NeMo Guardrails layer with optional NeMo and deterministic checks.
+"""CyClaw NeMo Guardrails layer with NeMo and deterministic fallback checks.
 
 A content-safety layer that complements (never replaces) the LangGraph
 topology. The graph keeps owning routing/policy; these rails add input
@@ -19,7 +19,7 @@ its model call in. When the flag is off, those pass through and this
 package is never imported. Operator CLI: ``python -m guardrails.cli``. Phased history:
 ``docs/NeMo/README.md``.
 
-The optional ``nemoguardrails`` dependency is soft-imported: this package imports
+The required ``nemoguardrails`` dependency is soft-imported: this package imports
 and runs (offline heuristic rails only) whether or not it is installed.
 
 Public API:

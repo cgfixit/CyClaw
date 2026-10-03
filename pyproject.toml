@@ -47,6 +47,7 @@ dependencies = [
     "pyyaml==6.0.3",
     "numpy==1.26.4",
     "nltk==3.10.3",
+    "nemoguardrails==0.24.0",
     "langgraph==1.2.11",
     "langchain-core==1.6.3",
     # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
@@ -55,18 +56,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# nemoguardrails' own base dependencies (not gated behind any of its extras)
-# include fastembed, onnxruntime, and pandas. fastembed's documented default
-# behavior is to fetch ONNX embedding models from a remote CDN on first use —
-# real friction against CyClaw's offline-first, no-egress posture even though
-# the dependency extra remains optional. guardrails.enabled ships true;
-# installs without this extra use deterministic checks and audit degradation.
-# Active check() flows use Python actions, not embeddings or extra LLM calls.
-# Offline launch flags and the runtime socket-jail checks are documented in
-# docs/NeMo/README.md; the flags are not a general network firewall.
-guardrails = [
-    "nemoguardrails==0.24.0",
-]
+# Compatibility alias. NeMo is installed by every base installation.
+guardrails = []
 postgres = [
     "psycopg==3.3.6",
     "psycopg-binary==3.3.6",
@@ -139,11 +130,10 @@ full = [
     "cyclaw[agentic-deepagents]",
 ]
 # Broad optional-feature aggregate for manual smoke testing. Extends full with
-# guardrails, cloud SDKs, and the CEL backend. MSSQL remains a separate opt-in
+# cloud SDKs and the CEL backend. MSSQL remains a separate opt-in
 # because it requires an operator-installed ODBC driver manager and SQL Server driver.
 all = [
     "cyclaw[full]",
-    "cyclaw[guardrails]",
     "cyclaw[agentic-deepagents-cloud]",
     "cyclaw[numbat-cel]",
 ]

@@ -29,7 +29,7 @@ from utils.telemetry_kill import apply_telemetry_kill
 # Kill telemetry BEFORE the sibling guardrails imports below, not merely before
 # the nemoguardrails soft import: guardrails/rails.py performs its own soft
 # `import nemoguardrails` at module level, so importing it first would give the
-# optional dependency an unkilled window. The package __init__ already applies
+# dependency an unkilled window. The package __init__ already applies
 # the kill ahead of any submodule on the normal `import guardrails.*` path --
 # this earlier position makes THIS module self-sufficient too (idempotent with
 # guardrails/__init__.py), which is the property invariant-guard's G1 package
@@ -52,12 +52,12 @@ from utils.onnx_telemetry import suppress_onnx_telemetry  # noqa: E402
 
 logger = logging.getLogger("cyclaw.guardrails")
 
-# --- Soft import: nemoguardrails is optional -------------------------------
-try:  # pragma: no cover - exercised only when the optional dep is installed
+# --- Soft import preserves deterministic protection on dependency failure ---
+try:  # pragma: no cover - exercised by the real-engine installation smoke
     from nemoguardrails import LLMRails, RailsConfig
 
     NEMO_AVAILABLE = True
-except ImportError:  # pragma: no cover - optional dependency absent
+except ImportError:  # pragma: no cover - incomplete or broken installation
     LLMRails = None  # type: ignore[assignment,misc]
     RailsConfig = None  # type: ignore[assignment,misc]
     NEMO_AVAILABLE = False
@@ -186,8 +186,8 @@ def get_cyclaw_guardrails(cfg: GuardrailsConfig | None = None) -> Any:
         cfg = load_guardrails_config()
     if not NEMO_AVAILABLE:
         raise GuardrailsDependencyError(
-            "nemoguardrails is not installed; install the pinned release to enable live rails "
-            "(the `guardrails` extra: nemoguardrails==0.24.0). Deterministic checks remain available without it.",
+            "nemoguardrails is not installed; rerun the platform base dependency installation "
+            "to restore nemoguardrails==0.24.0. Deterministic checks remain available without it.",
             details={"degraded": True},
         )
     _refuse_iorails()

@@ -120,7 +120,7 @@ def cmd_test(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m guardrails.cli",
-        description="CyClaw NeMo guardrails layer -- enabled by default with optional NeMo.",
+        description="CyClaw NeMo guardrails layer -- enabled by default with a required NeMo installation.",
     )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml (default: %(default)s)")
     sub = parser.add_subparsers(dest="cmd", required=True)

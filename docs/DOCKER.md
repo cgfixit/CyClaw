@@ -6,6 +6,13 @@ This document is the operator guide for running CyClaw from the published contai
 image. It does **not** replace [`setup-guide.md`](../setup-guide.md) (native install)
 or [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md) (threat scope).
 
+The base image includes `nemoguardrails==0.24.0`. Existing images must be
+rebuilt from the updated dependency manifests, published through the GHCR
+workflow, and pulled before recreating containers. The Dockerfile runs
+`pip check` and `python -m guardrails.verify_install` as the runtime user with
+build network access disabled. A failed engine or allow/refuse check stops
+the build before publication. Existing runtime fallback behavior is unchanged.
+
 ## What is published
 
 | Artifact | Registry | Name |

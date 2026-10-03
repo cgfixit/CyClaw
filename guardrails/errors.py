@@ -33,7 +33,7 @@ class GuardrailsConfigError(GuardrailsError):
 
 
 class GuardrailsDependencyError(GuardrailsError):
-    """The optional ``nemoguardrails`` dependency is not importable.
+    """The required ``nemoguardrails`` dependency is not importable.
 
     The enabled layer retains deterministic checks without it (see
     ``guardrails.integration``); this is raised only when a caller explicitly
