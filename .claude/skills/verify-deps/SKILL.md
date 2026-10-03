@@ -72,7 +72,8 @@ The exporter floor and Conda PyTorch/setuptools packaging limits remain
 documented in `environment.yml`. Verify the installed environment with
 `python -m pip check` and `python -m guardrails.verify_install` without adding
 an extra. The smoke requires the real engine, shipped rules, exact allow/refuse
-verdicts, and no audited Python socket calls. Fallback success is not NeMo verification.
+verdicts, with offline loader flags set. Docker also disables networking.
+Fallback success is not NeMo verification.
 
 ---
 
