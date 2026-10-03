@@ -109,21 +109,24 @@ LaunchAgents still read Keychain through `cyclaw-keychain-env.sh`. They do
 not read `.env`, and this script never writes a token into a plist or the
 `cyclaw` shim.
 
-The terminal console (`#apiKeyInput`) holds the
-operator key **in the input element only** — never `localStorage`, never a
-cookie. `--fill-browser` injects that field only on matching-port HTTP tabs
-at literal `127.0.0.1` or `[::1]`. HTTPS and hostname URLs (including
-`localhost`) require pasting the key manually; resolving the console URL does
-not widen autofill eligibility. A scheduled rotate updates the Keychain. It
-exits nonzero before removing a plaintext line if the Keychain write fails.
-Neither a manual nor scheduled rotate changes an already-running server
-environment: restart `gate.py`, then paste once or re-run `--fill-browser`.
+The terminal console never stores the operator key in `localStorage`.
+`--fill-browser` puts the key into `#apiKeyInput` on a matching-port HTTP tab
+at literal `127.0.0.1` or `[::1]`. The page exchanges it once through
+`POST /console/session`, receives a signed HttpOnly `cyclaw_console` cookie,
+and clears the field. HTTPS and hostname URLs, including `localhost`, require
+manual entry. The launcher path normally avoids the key field by redeeming a
+single-use `#pair=` fragment for the same cookie.
+
+A scheduled rotate updates the Keychain. It exits nonzero before removing a
+plaintext line if the Keychain write fails. A manual or scheduled rotate does
+not change an already-running server environment. Restart `gate.py`, then
+redeem a new pairing code or enter the current key once.
 
 ```bash
 # first run (prompts; skip any; fill the consoles if they are up)
 bash macos/setup-cyclaw-keys.sh --grok-dummy --fill-browser
 
-# rotate now, then refill the in-memory fields
+# rotate now, then open a new console session
 bash ~/.CyClaw/bin/setup-cyclaw-keys.sh --rotate --skip-prompts --fill-browser
 
 # write (do not load) a monthly rotator
@@ -148,11 +151,11 @@ reads.
 
 ## 401 / key drift recovery
 
-Soul routes return `401 bad_credentials` when the Keychain item, the live
-gate process env, and the browser `#apiKeyInput` field disagree — typically
-after `--rotate`, a reinstall, or a leftover listener that still holds the
-old key. CyClaw never stores the operator key in `localStorage`, and it does
-not read that secret from `~/.CyClaw/.env`.
+Soul routes return `401 bad_credentials` when the Keychain item, the live gate
+process environment, and the browser's console cookie disagree. This usually
+follows `--rotate`, a reinstall, an expired cookie, or a leftover listener that
+still holds the old key. CyClaw never stores the operator key in `localStorage`
+and does not read that secret from `~/.CyClaw/.env`.
 
 1. Stop stragglers on the configured loopback port (default 8787).
    `uninstall-cyclaw.sh` does this best-effort before teardown. After a
@@ -163,8 +166,9 @@ not read that secret from `~/.CyClaw/.env`.
    environment. `cyclaw` loads the Keychain item into that process.
 3. Start with `cyclaw`. The startup log must not warn that `CYCLAW_API_KEY`
    is unset.
-4. Paste the current key into the console field, or
-   `bash ~/.CyClaw/bin/setup-cyclaw-keys.sh --skip-prompts --fill-browser`.
+4. Start a new console session. Let `cyclaw` open its one-time `#pair=` URL, or
+   enter the current key once. The page clears the key after it mints the
+   HttpOnly cookie.
 
 To **purge** old Keychain items (the five services in the table above, this
 account only):

@@ -1,14 +1,15 @@
 # `agentic/` — CyClaw Agentic Layer
 
-**Status (2026-08-09):** Experimental, **disabled by default**, out-of-band.
+**Status:** Experimental, **disabled by default**, and out-of-band.
 Primary entry: `python -m agentic.cli` (plus sibling CLIs for filesystem, SQL, and passive network inventory).
 Canonical longer guide: [`docs/agentic/AGENTIC_README.md`](../docs/agentic/AGENTIC_README.md).
 Write-path enablement checklist: [`docs/agentic/GITHUB_WRITE_ENABLEMENT.md`](../docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
 
 An **opt-in** layer for governed tool calls against GitHub, local skills, a
 jailed real-repo coding loop, scoped filesystem roots, and read-only SQL.
-It is **never imported** by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`
-(I6 isolation) — so it cannot affect retrieval, routing, or the MCP surface.
+The six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`,
+`gate_memory.py`, `graph.py`, and `mcp_hybrid_server.py`) never import it
+(I6 isolation), so it cannot affect retrieval, routing, or the MCP surface.
 
 > **Security posture in one line:** every subsystem ships **off**. Reads use
 > audited, argv-list subprocesses (no shell). Writes need multiple independent

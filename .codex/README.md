@@ -21,9 +21,9 @@ When the active Codex surface exposes repo skills as slash commands, keep names
 short and invocation-friendly, for example `/refactor` or
 `/cyclaw-optimize`.
 
-## Available Skills And Routines
+## Available skills and routines
 
-`AGENTS.md`'s "Codex Skills And Routines Map" is authoritative for trigger
+`AGENTS.md`'s "Skills and routines map" is authoritative for trigger
 conditions. This inventory is deliberately duplicated for discovery; update both
 in the same change.
 
@@ -68,12 +68,9 @@ in the same change.
 
 ## Current-source discipline
 
-The skills were reconciled with `origin/main@ef76d7f7` on 2026-09-06. Fetch and
-inspect current code before reusing observations. In particular, local model
-trust now covers both answer paths with explicit trusted-host support; auth
-Stage 3 is wired; macOS dotenv helpers preserve source status and pin BSD stat;
-and actionlint includes all workflow YAML files. See `$cyclaw-project-guidance`
-for the source map instead of copying another runtime snapshot.
+Fetch and inspect current code before reusing a skill's observations. See
+`$cyclaw-project-guidance` for the source map instead of copying another dated
+runtime snapshot here.
 
 All 22 skill entry points have UI metadata. The directory `Cyclaw-Sandbox`
 keeps its historical spelling; its skill/invocation name is `cyclaw-sandbox`.
