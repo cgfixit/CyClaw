@@ -8,6 +8,7 @@ does not claim a live ``sandbox-exec`` run on Windows.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import sys
@@ -214,11 +215,13 @@ def test_argv_list_reaps_a_descendant_left_running_after_a_normal_exit(tmp_path:
             return
         # A killed orphan can linger as a zombie when PID 1 does not reap
         # (containers); a zombie runs nothing, so it counts as gone.
-        try:
-            if "\tZ" in status.read_text(encoding="utf-8").split("State:", 1)[1].split("\n", 1)[0]:
-                return
-        except (OSError, IndexError):
-            pass
+        state = ""
+        # No /proc (macOS) or the pid vanished mid-read: fall through to the
+        # os.kill probe on the next iteration.
+        with contextlib.suppress(OSError, IndexError):
+            state = status.read_text(encoding="utf-8").split("State:", 1)[1].split("\n", 1)[0]
+        if "\tZ" in state:
+            return
         time.sleep(0.05)
     os.kill(pid, 9)
     pytest.fail("a descendant of a finished check was still running")
