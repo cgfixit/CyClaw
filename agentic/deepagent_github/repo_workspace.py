@@ -58,6 +58,7 @@ the same way ``harness_optimizer/mcp/tools.py``'s write-target check does.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -208,22 +209,115 @@ def _git_env() -> dict[str, str]:
 #   1. Command-scope overrides (GIT_CONFIG_COUNT outranks repo config) that point
 #      hooksPath at a fresh empty directory and turn fsmonitor off, so a planted
 #      hook never runs (--no-verify alone does not skip post-commit/pre-push).
-#   2. An allowlist over the clone's own `.git/config` keys. A fresh `gh repo
-#      clone` plus this module's checkout/push only ever produce these keys; any
-#      other key (a command-bearing driver, include.path, pushurl, url rewrites,
-#      extensions.worktreeConfig, ...) means something outside this module
-#      wrote the file, so every git operation is refused rather than guessing
-#      which keys are dangerous. Operator-owned global/system config stays
-#      trusted -- push needs its credential helper -- the same posture as
-#      _GIT_ENV_ALLOWLIST keeping HOME.
+#   2. A check of the clone's own `.git/config`, names AND values, against a
+#      snapshot taken right after the clone (before any model-proposed code
+#      ran), persisted beside the clone so a later attach() process can read it.
+#      Values matter: rewriting `remote.origin.url` alone redirects an approved
+#      push (#1527 review). The only post-clone additions accepted are the
+#      `branch.<b>.remote = origin` / `branch.<b>.merge = refs/heads/<b>` pairs
+#      push --set-upstream writes, plus display/format `core.*` keys. Anything
+#      else -- a command-bearing driver, include.path, pushurl, url rewrites,
+#      extensions.worktreeConfig, a changed URL -- refuses every git operation
+#      rather than guessing which keys are dangerous.
+#   _LOCAL_CONFIG_ALLOWED_RE is a name floor under the snapshot: a snapshot
+#   entry counts only if its name is one gh/git legitimately writes, so a
+#   tampered snapshot still cannot admit a filter or include. On Linux and
+#   Windows the verification sandbox does not confine file writes, so a check
+#   could rewrite the snapshot's values too; closing that needs filesystem
+#   confinement there (#1526 F1 follow-up). Operator-owned global/system config
+#   stays trusted -- push needs its credential helper -- the same posture as
+#   _GIT_ENV_ALLOWLIST keeping HOME.
 _LOCAL_CONFIG_ALLOWED_RE = re.compile(
     r"core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|"
     r"precomposeunicode|symlinks|quotepath)"
     r"|extensions\.objectformat"
-    r"|remote\.origin\.(url|fetch|gh-resolved)"
+    # gh repo clone of a fork adds the parent as an `upstream` remote.
+    r"|remote\.(origin|upstream)\.(url|fetch)"
+    r"|remote\.origin\.gh-resolved"
     r"|branch\.[^\x00\n]+\.(remote|merge)"
     r"|lfs\.repositoryformatversion"
 )
+# Format/display only; git may add or flip these after the clone and none
+# runs anything, so their values are not pinned to the snapshot.
+_LOCAL_CONFIG_FREE_VALUE_RE = re.compile(
+    r"core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|"
+    r"precomposeunicode|symlinks|quotepath)"
+)
+_UPSTREAM_KEY_RE = re.compile(r"branch\.(?P<name>[^\x00\n]+)\.(?P<field>remote|merge)")
+# Beside the clone (dest.parent is the per-clone temp dir), never inside it.
+_CONFIG_BASELINE_NAME = "git-config-baseline.json"
+
+
+def _parse_config_list(raw: str) -> list[tuple[str, str]]:
+    """Parse ``git config --null --list`` output into (name, value) pairs."""
+    pairs = []
+    for record in raw.split("\x00"):
+        if not record:
+            continue
+        name, _, value = record.partition("\n")
+        pairs.append((name, value))
+    return pairs
+
+
+def _read_local_config(binary: str, dest: Path, env: dict[str, str]) -> list[tuple[str, str]] | None:
+    """Every (name, value) in ``dest/.git/config``, parsed by git; None if unreadable.
+
+    ``--file`` plus ``--no-includes`` reads that one file and executes nothing,
+    so the check and the git call it guards agree on the file's syntax.
+    """
+    config_path = dest / ".git" / "config"
+    if config_path.is_symlink() or not config_path.is_file():
+        return None
+    completed = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
+        [binary, "config", "--file", str(config_path), "--no-includes", "--null", "--list"],
+        cwd=str(dest),
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=DEFAULT_GIT_WRITE_TIMEOUT_SEC,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return _parse_config_list(completed.stdout)
+
+
+def _unexpected_config_entries(
+    current: list[tuple[str, str]], baseline: list[tuple[str, str]]
+) -> list[str]:
+    """Names of entries in ``current`` the snapshot and the allowed deltas do not cover."""
+    trusted = {pair for pair in baseline if _LOCAL_CONFIG_ALLOWED_RE.fullmatch(pair[0])}
+    unexpected = set()
+    for name, value in current:
+        if _LOCAL_CONFIG_FREE_VALUE_RE.fullmatch(name) or (name, value) in trusted:
+            continue
+        upstream = _UPSTREAM_KEY_RE.fullmatch(name)
+        if upstream and value == (
+            "origin" if upstream["field"] == "remote" else f"refs/heads/{upstream['name']}"
+        ):
+            continue
+        unexpected.add(name)
+    return sorted(unexpected)
+
+
+def _write_config_baseline(dest: Path) -> None:
+    """Snapshot ``dest/.git/config`` right after the clone, before any check runs.
+
+    Nothing is written when the clone has no readable git config or no git
+    binary is found; every later git call then refuses for a missing snapshot,
+    so a failed snapshot fails closed rather than open.
+    """
+    binary = shutil.which("git")
+    if not binary:
+        return
+    pairs = _read_local_config(binary, dest, _git_env())
+    if pairs is None:
+        return
+    target = dest.parent / _CONFIG_BASELINE_NAME
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps([list(pair) for pair in pairs]), encoding="utf-8")
+    os.replace(tmp, target)
 
 
 def _hardened_git_env(hooks_dir: str) -> dict[str, str]:
@@ -374,6 +468,7 @@ class RepoWorkspaceTools:
                 "failed to jail the cloned repository",
                 details={"repo": agentic_cfg.repo, "error": str(exc)},
             ) from exc
+        _write_config_baseline(dest)
         return cls(
             _scoped=scoped,
             _dest=dest,
@@ -634,36 +729,40 @@ class RepoWorkspaceTools:
         return completed.stdout
 
     def _check_local_git_config(self, tool: str, binary: str, env: dict[str, str]) -> None:
-        """Refuse the git call if the clone's ``.git/config`` holds a non-allowlisted key.
+        """Refuse the git call unless ``.git/config`` matches the post-clone snapshot.
 
-        Parsed by git itself (``--file``, ``--no-includes``) so this check and
-        the git call it guards cannot disagree about the file's syntax; reading
-        a config file executes nothing. See _LOCAL_CONFIG_ALLOWED_RE.
+        See the comment above _LOCAL_CONFIG_ALLOWED_RE for what is compared and
+        which post-clone additions are accepted.
         """
         config_path = self._dest / ".git" / "config"
         if config_path.is_symlink() or not config_path.is_file():
             self._deny_git(tool, "the clone's .git/config is missing or not a regular file")
-        completed = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
-            [binary, "config", "--file", str(config_path), "--no-includes", "--null", "--name-only", "--list"],
-            cwd=str(self._dest),
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=DEFAULT_GIT_WRITE_TIMEOUT_SEC,
-            check=False,
-        )
-        if completed.returncode != 0:
+        current = _read_local_config(binary, self._dest, env)
+        if current is None:
             self._deny_git(tool, "the clone's .git/config could not be parsed")
-        unexpected = sorted(
-            {key for key in completed.stdout.split("\x00") if key and not _LOCAL_CONFIG_ALLOWED_RE.fullmatch(key)}
-        )
+        baseline = self._load_config_baseline()
+        if baseline is None:
+            self._deny_git(tool, "the clone's post-clone git config snapshot is missing or unreadable")
+        unexpected = _unexpected_config_entries(current, baseline)
         if unexpected:
             self._deny_git(
                 tool,
                 "the clone's .git/config was modified outside this tool; refusing to run git",
                 unexpected_keys=unexpected[:20],
             )
+
+    def _load_config_baseline(self) -> list[tuple[str, str]] | None:
+        path = self._dest.parent / _CONFIG_BASELINE_NAME
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(raw, list) or not all(
+            isinstance(pair, list) and len(pair) == 2 and all(isinstance(part, str) for part in pair)
+            for pair in raw
+        ):
+            return None
+        return [(name, value) for name, value in raw]
 
     def read_file(self, target: str) -> str:
         """Read one text file from the clone, decoded as UTF-8."""

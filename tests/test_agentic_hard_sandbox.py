@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from agentic.executor.hard_sandbox import (
+    ArgvListSandbox,
     DarwinSeatbeltSandbox,
     HardSandboxUnavailable,
     LinuxNetnsSandbox,
@@ -188,3 +189,36 @@ def test_job_object_uses_disposable_home_not_operator_home(tmp_path: Path) -> No
         )],
     )
     assert report.ok is True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups; Windows uses the Job Object")
+def test_argv_list_reaps_a_descendant_left_running_after_a_normal_exit(tmp_path: Path) -> None:
+    """#1527 review: a check that backgrounds a child and closes its pipes exits
+    normally, but the child must not outlive it -- it could rewrite .git/config
+    between repo_workspace's snapshot check and the git call that reads it."""
+    import time
+
+    pidfile = tmp_path / "child.pid"
+    script = f"(exec >/dev/null 2>&1 </dev/null; sleep 60) & echo $! > {pidfile}"
+    outcome = ArgvListSandbox().run(["/bin/sh", "-c", script], cwd=tmp_path, env=dict(os.environ), timeout_sec=30)
+    assert outcome.exit_code == 0
+    pid = int(pidfile.read_text(encoding="utf-8").strip())
+    # SIGKILL is delivered before run() returns; the bounded wait only covers
+    # init reaping the orphan so the pid stops existing.
+    deadline = time.monotonic() + 5
+    status = Path(f"/proc/{pid}/status")
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        # A killed orphan can linger as a zombie when PID 1 does not reap
+        # (containers); a zombie runs nothing, so it counts as gone.
+        try:
+            if "\tZ" in status.read_text(encoding="utf-8").split("State:", 1)[1].split("\n", 1)[0]:
+                return
+        except (OSError, IndexError):
+            pass
+        time.sleep(0.05)
+    os.kill(pid, 9)
+    pytest.fail("a descendant of a finished check was still running")

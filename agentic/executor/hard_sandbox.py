@@ -11,6 +11,7 @@ tests only. It is not selected by ``production_sandbox``.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import signal
@@ -125,11 +126,26 @@ class ArgvListSandbox:
                 stderr=f"timed out after {timeout_sec}s",
                 timed_out=True,
             )
+        # A check can leave a descendant running after it exits (it closes the
+        # inherited pipes, so communicate() returns). Left alive, it could
+        # rewrite the clone's .git/config between repo_workspace's snapshot
+        # check and the git call that reads it (#1527 review). Reap the whole
+        # process group on a normal exit too. A descendant that calls setsid()
+        # leaves the group and is not caught here; that needs a PID namespace.
+        _reap_process_group(proc)
         return SandboxOutcome(
             exit_code=proc.returncode if proc.returncode is not None else -1,
             stdout=truncate_output(stdout or ""),
             stderr=truncate_output(stderr or ""),
         )
+
+
+def _reap_process_group(proc: subprocess.Popen[str]) -> None:
+    """SIGKILL anything still in the finished check's process group (POSIX only)."""
+    if sys.platform == "win32":
+        return
+    with contextlib.suppress(OSError):
+        os.killpg(proc.pid, signal.SIGKILL)
 
 
 def _kill_sandbox_tree(proc: subprocess.Popen[str]) -> None:

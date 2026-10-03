@@ -1414,3 +1414,69 @@ def test_write_file_still_accepts_ordinary_paths(tmp_path, monkeypatch):
             worktree = Path(tools.worktree)
             assert (worktree / "real" / "ok.md").read_text(encoding="utf-8") == "overwritten\n"
             assert (worktree / "real" / "brand_new.md").read_text(encoding="utf-8") == "created\n"
+
+
+def test_push_refuses_a_rewritten_origin_url(tmp_path, monkeypatch):
+    """#1527 review: names alone are not enough. A check that repoints
+    remote.origin.url (an allowlisted key) would redirect the approved push;
+    the post-clone snapshot pins the value, so the push is refused and the
+    decoy remote receives nothing."""
+    remote = tmp_path / "origin.git"
+    decoy = tmp_path / "decoy.git"
+    _git("git", "init", "--bare", "-q", str(decoy))
+    fake = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            tools.checkout_branch("agent/redirect")
+            # Written the way a sandboxed check would: straight to the file,
+            # not through any RepoWorkspaceTools method.
+            _git("git", "config", "--file", str(Path(tools.worktree) / ".git" / "config"),
+                 "remote.origin.url", str(decoy))
+            with pytest.raises(AgenticError, match="modified outside this tool"):
+                tools.push_branch("agent/redirect")
+    assert _git("git", "--git-dir", str(decoy), "branch", "--list") == ""
+
+
+def test_a_fork_clones_upstream_remote_is_accepted(tmp_path, monkeypatch):
+    """#1527 review: `gh repo clone` of a fork adds the parent as `upstream`.
+    Present at clone time, it is in the snapshot and must not block git."""
+    remote = tmp_path / "origin.git"
+    parent = tmp_path / "parent.git"
+    base = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+
+    def fake(op, repo, **kwargs):
+        result = base(op, repo, **kwargs)
+        _git("git", "remote", "add", "upstream", str(parent), cwd=result["dest"])
+        return result
+
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            tools.checkout_branch("agent/fork")
+            assert tools.diff() == ""
+            tools.push_branch("agent/fork")
+    assert "agent/fork" in _git("git", "--git-dir", str(remote), "branch", "--list")
+
+
+def test_git_refuses_when_the_post_clone_snapshot_is_missing(tmp_path, monkeypatch):
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            (Path(tools.worktree).parent / repo_workspace._CONFIG_BASELINE_NAME).unlink()
+            with pytest.raises(AgenticError, match="snapshot is missing"):
+                tools.diff()
+
+
+def test_attach_checks_git_against_the_snapshot_the_clone_wrote(tmp_path, monkeypatch):
+    """real-repo-run-status runs in a later process via attach(); the snapshot
+    lives beside the clone so that process enforces the same baseline."""
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
+    with patch.object(repo_workspace, "run_read", side_effect=fake) as mrun:
+        original = RepoWorkspaceTools.clone(cfg)
+        dest = Path(mrun.call_args.kwargs["dest"])
+        original.release()
+    with (dest / ".git" / "config").open("a", encoding="utf-8") as fh:
+        fh.write("[core]\n\tsshCommand = false\n")
+    with RepoWorkspaceTools.attach(cfg, dest) as reattached:
+        with pytest.raises(AgenticError, match="modified outside this tool"):
+            reattached.diff()
