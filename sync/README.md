@@ -3,9 +3,9 @@
 Optional rclone wrapper that keeps `data/corpus/` in step with a Dropbox
 folder. Ships one-way (`direction: pull` → `rclone copy`, never deletes);
 `direction: bisync` is opt-in and discouraged. Runs **strictly out-of-band** (`python -m sync.cli`);
-`gate.py`, `graph.py`, and `mcp_hybrid_server.py` never import it, and it
-never imports them (invariant I6). The core server reaches it only through
-the `/ops/sync` subprocess shim (`utils/ops_runner.py`).
+the six core modules never import it, and it never imports them (invariant
+I6). The core server reaches it only through the `/ops/sync` subprocess shim
+(`utils/ops_runner.py`).
 
 The full design, setup walkthrough, and threat-model notes live in
 [`docs/SYNC_README.md`](../docs/SYNC_README.md) — that document is the
