@@ -156,6 +156,17 @@ flags alone do not prevent every network path. Grok and Claude acceptance
 uses counted test clients; no live cloud-provider acceptance is claimed.
 Raw runtime logs, indexes, and private environment files are not committed.
 
+## Hosted verification follow-up
+
+The first broad CI profiles without the optional NeMo package exposed a test
+fixture error: fake engines still depended on the real `RailType` import.
+The unit tests now supply that narrow type stub while exercising the production
+check adapter. The 35 broker cases pass both with NeMo installed and with its
+import blocked. The real-engine lane continues to cover the actual SDK types.
+The test inventory was also updated from 217 to 219 files, and its executable
+README count check passed. These corrections change tests and documentation,
+not application behavior. Final hosted results are recorded on the PR.
+
 ## Invariants and remaining work
 
 The 12-node graph, retrieval-first entry, external consent gates, audit
