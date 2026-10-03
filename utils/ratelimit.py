@@ -125,8 +125,15 @@ class RateLimiter:
 
     # ------------------------------------------------------------------ backends
     def _pg_connection(self):
-        """Lazily open + cache the single hardened Postgres connection."""
-        if self._pg_conn is None:
+        """Lazily open + cache the single hardened Postgres connection.
+
+        Reopened once psycopg reports it closed, which includes a connection
+        the server dropped (a restart, an idle timeout): ``closed`` is true for
+        a broken connection too. Without that, the failed persist is raised to
+        every later request, so each rate-limited route answers 500 until the
+        process restarts.
+        """
+        if self._pg_conn is None or self._pg_conn.closed:
             import psycopg  # noqa: PLC0415 -- lazy: in-memory/sqlite installs need no driver
 
             from utils.personality_db import _harden_pg_conninfo

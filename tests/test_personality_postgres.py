@@ -127,3 +127,24 @@ def test_pg_connection_hardening(clean_soul_db, tmp_path):
         "AND indexname = 'idx_interactions_ts'"
     ).fetchone()
     assert idx is not None
+
+
+def test_pg_failed_statement_does_not_wedge_the_connection(clean_soul_db, tmp_path):
+    """A failed statement used to leave the shared connection in an aborted
+    transaction, so every later statement raised InFailedSqlTransaction until
+    the process restarted: each query's record_interaction, GET /soul's
+    get_version, /soul/apply. PersonalityManager._txn rolls it back now."""
+    import psycopg
+
+    with patch("utils.personality.audit_log"):
+        pm = PersonalityManager(_cfg(tmp_path))
+    good_sql = pm._sql_insert_interaction
+    pm._sql_insert_interaction = good_sql.replace("interactions", "no_such_table")
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        pm.record_interaction("lost", "local")
+    pm._sql_insert_interaction = good_sql
+
+    pm.record_interaction("kept", "local")
+    assert pm.get_version() >= 1
+    rows = pm.conn.execute("SELECT query_hash FROM interactions").fetchall()
+    assert [r["query_hash"] for r in rows] == ["kept"]
