@@ -20,6 +20,7 @@ Usage (called from verify.sh while server is running):
 """
 
 import json
+import math
 import os
 import sys
 
@@ -73,13 +74,19 @@ def main() -> int:
     print(f"=== terminal.html API emulation → {base} ===")
     print()
 
-    with httpx.Client(base_url=base, timeout=10.0) as client:
+    query_timeout = 790.0
+    with httpx.Client(base_url=base, timeout=query_timeout) as client:
 
         # ── 1. GET /health (terminal.html uses 3 s timeout) ──────────────────
         print("[1] GET /health (terminal.html status bar)")
         try:
             r = client.get("/health", timeout=3.0)
+            r.raise_for_status()
             d = r.json()
+            graph_timeout = d.get("graph_timeout_sec")
+            if type(graph_timeout) in (int, float) and math.isfinite(graph_timeout) and graph_timeout > 0:
+                query_timeout = graph_timeout + 10.0
+                client.timeout = query_timeout
             idx = d.get("index_ready", False)
             grp = d.get("graph_ready", False)
             sts = d.get("status", "?")
