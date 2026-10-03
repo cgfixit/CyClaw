@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -131,14 +132,26 @@ class TestLoadCanonicalDatasetErrors:
 
 
 class TestCheckUnsloth:
-    def test_missing_unsloth_exits_with_install_instructions(self, ft_module_no_unsloth, monkeypatch):
-        monkeypatch.setitem(sys.modules, "unsloth", None)
-        with pytest.raises(SystemExit) as exc:
-            ft_module_no_unsloth._check_unsloth()
-        msg = str(exc.value)
+    def test_missing_unsloth_cli_reports_blocked_profile(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, "-I", "-S", str(HERE / "finetune_qwen38.py")],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == 1
+        assert result.stdout == ""
+        msg = result.stderr
         assert "not installed" in msg
-        assert "pip install" in msg
-        assert "unsloth" in msg
+        assert "training profile is blocked" in msg
+        assert "patched dependency pins" in msg
+        assert "tools/lora_finetune/requirements.txt" in msg
+        assert "tools/lora_finetune/README.md" in msg
+        assert "pip install" not in msg
+        assert "curl" not in msg
+        assert list(tmp_path.iterdir()) == []
 
     def test_present_unsloth_does_not_exit(self, ft_module_no_unsloth, monkeypatch):
         fake_unsloth = types.ModuleType("unsloth")
