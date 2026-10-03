@@ -22,6 +22,8 @@ import re
 import stat
 import tempfile
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -161,6 +163,28 @@ class PersonalityManager:
             self.conn.execute(index_ddl)
         self.conn.commit()
 
+    @contextmanager
+    def _txn(self) -> Iterator[None]:
+        """Commit on success; on any failure roll back, then re-raise. Caller holds _lock.
+
+        self.conn is long-lived and shared, so a failed statement or commit
+        would otherwise leave it inside that transaction. On Postgres
+        (autocommit off) every later statement then raises
+        InFailedSqlTransaction until the process restarts: each query's
+        record_interaction, GET /soul's get_version, /soul/apply. On SQLite the
+        open transaction keeps its lock against other processes and folds the
+        failed row into the next commit (utils/ratelimit.py's _sqlite_txn
+        fixes the same thing there). apply_evolution keeps its own rollback,
+        because it must also put the soul files back.
+        """
+        try:
+            yield
+            self.conn.commit()
+        except Exception:
+            with suppress(Exception):
+                self.conn.rollback()
+            raise
+
     def _sha256(self, content: str) -> str:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -178,12 +202,11 @@ class PersonalityManager:
             with os.fdopen(fd, "w", encoding="utf-8") as soul_file:
                 soul_file.write(_DEFAULT_SOUL)
             file_hash = self._sha256(_DEFAULT_SOUL)
-            with self._lock:
+            with self._lock, self._txn():
                 self.conn.execute(
                     self._sql_insert_soul,
                     (file_hash, _DEFAULT_SOUL, "initial_default", datetime.now(UTC).isoformat())
                 )
-                self.conn.commit()
             self.soul_core = _DEFAULT_SOUL
             return
 
@@ -220,23 +243,22 @@ class PersonalityManager:
         with self._lock:
             content = self.soul_path.read_text(encoding="utf-8")
             file_hash = self._sha256(content)
-            row = self.conn.execute(
-                "SELECT sha256 FROM soul_versions ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if row and row["sha256"] != file_hash:
-                drift_expected = row["sha256"]
-                self.conn.execute(
-                    self._sql_insert_soul,
-                    (file_hash, content, "DRIFT_RECOVERY: file hash mismatch on startup",
-                     datetime.now(UTC).isoformat())
-                )
-                self.conn.commit()
-            elif not row:
-                self.conn.execute(
-                    self._sql_insert_soul,
-                    (file_hash, content, "initial_load", datetime.now(UTC).isoformat())
-                )
-                self.conn.commit()
+            with self._txn():
+                row = self.conn.execute(
+                    "SELECT sha256 FROM soul_versions ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                if row and row["sha256"] != file_hash:
+                    drift_expected = row["sha256"]
+                    self.conn.execute(
+                        self._sql_insert_soul,
+                        (file_hash, content, "DRIFT_RECOVERY: file hash mismatch on startup",
+                         datetime.now(UTC).isoformat())
+                    )
+                elif not row:
+                    self.conn.execute(
+                        self._sql_insert_soul,
+                        (file_hash, content, "initial_load", datetime.now(UTC).isoformat())
+                    )
             self.soul_core = self._bounded_soul(content)
         if drift_expected is not None:
             audit_log({
@@ -536,7 +558,7 @@ class PersonalityManager:
         self._load_soul()
 
     def record_interaction(self, query_hash: str, outcome: str) -> None:
-        with self._lock:
+        with self._lock, self._txn():
             self.conn.execute(
                 self._sql_insert_interaction,
                 (query_hash, outcome, datetime.now(UTC).isoformat())
@@ -557,7 +579,6 @@ class PersonalityManager:
                 cutoff = (datetime.now(UTC) - timedelta(days=self.ttl_days)).isoformat()
                 self.conn.execute(self._sql_delete_old_interactions, (cutoff,))
                 self._inserts_since_prune = 0
-            self.conn.commit()
 
     def close(self) -> None:
         """Close the DB connection (SQLite or Postgres).
@@ -577,7 +598,6 @@ class PersonalityManager:
         if ttl_days is None:
             ttl_days = self.ttl_days
         cutoff = (datetime.now(UTC) - timedelta(days=ttl_days)).isoformat()
-        with self._lock:
+        with self._lock, self._txn():
             cursor = self.conn.execute(self._sql_delete_old_interactions, (cutoff,))
-            self.conn.commit()
             return cursor.rowcount

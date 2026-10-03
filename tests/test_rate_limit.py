@@ -536,6 +536,9 @@ class TestPersistence:
 
         class _FakeConnection:
             # Deliberately no executemany here -- psycopg.Connection has none.
+            # It does have closed, which _pg_connection reads before reusing it.
+            closed = False
+
             def cursor(self):
                 return _FakeCursor()
 
