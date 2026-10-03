@@ -192,6 +192,18 @@ def test_run_accepts_and_persists_a_pending_decision(cfg_path, checks_file, monk
     assert Path(record["dest"]).is_dir()
 
 
+def test_run_discards_clone_when_initial_record_cannot_be_saved(cfg_path, checks_file, tmp_path, capsys):
+    workspace = tmp_path / "data" / "workspaces"
+    workspace.mkdir(parents=True)
+    runs_path = workspace / "runs"
+    runs_path.write_text("blocked run store", encoding="utf-8")
+
+    assert _run_start(cfg_path, checks_file) == EXIT_FAIL
+    assert "failed to persist run record" in capsys.readouterr().err
+    assert not list(workspace.glob("*/repo"))
+    assert runs_path.read_text(encoding="utf-8") == "blocked run store"
+
+
 def test_run_threads_planner_limits_into_the_local_client(cfg_path, checks_file, monkeypatch, capsys):
     """Regression for the confirmed 2026-08-02 finding: LocalProposerClient's own
 

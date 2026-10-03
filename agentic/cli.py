@@ -859,11 +859,15 @@ def cmd_real_repo_run(args: argparse.Namespace) -> int:
     # the "running" state agentic/real_repo_run_store.py's own docstring
     # already documents an actual, observable state rather than one nothing
     # ever writes.
-    save_run(
-        runs_dir,
-        RealRepoRunRecord(run_id=run_id, repo=cfg.repo, dest=str(tools.worktree), status="running",
-                          provider=provider, plan_sha256=plan_sha256),
-    )
+    try:
+        save_run(
+            runs_dir,
+            RealRepoRunRecord(run_id=run_id, repo=cfg.repo, dest=str(tools.worktree), status="running",
+                              provider=provider, plan_sha256=plan_sha256),
+        )
+    except AgenticError:
+        tools.close()
+        raise
 
     probe: Callable[[str, Mapping[str, str], int], dict[str, Any]] | None = None
     if provider:
