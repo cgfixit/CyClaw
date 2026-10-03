@@ -51,10 +51,10 @@ def _check_unsloth() -> None:
     except ImportError as e:  # noqa: F841
         sys.exit(
             "Unsloth is not installed in this environment.\n"
-            "Install on a CUDA GPU machine:\n"
-            "  pip install --upgrade --force-reinstall --no-cache-dir "
-            "unsloth unsloth_zoo\n"
-            "or:  curl -fsSL https://unsloth.ai/install.sh | sh\n"
+            "The CUDA training profile is blocked by incompatible patched dependency pins.\n"
+            "See tools/lora_finetune/requirements.txt and tools/lora_finetune/README.md.\n"
+            "Keep the patched pins; do not bypass the resolver with --no-deps "
+            "or an Unsloth-only install.\n"
             "This script requires an NVIDIA GPU with >=24GB VRAM."
         )
     # Version guard: FastModel + offload_embedding + boolean module flags need a
