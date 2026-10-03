@@ -52,8 +52,26 @@ docs/
 .DS_Store
 *.swp
 
-# Secrets / env files must never enter the image
+# Secrets / env files must never enter the image. Docker matches a bare
+# pattern at the build-context root only, so `.env` alone let a nested
+# `sub/.env` or `data/tls/key.pem` through `COPY . .` (#1526); the `**/`
+# forms cover every depth. No tracked file matches any of these.
 .env
 .env.*
+**/.env
+**/.env.*
 *.pem
 *.key
+**/*.pem
+**/*.key
+rclone.conf
+**/rclone.conf
+.rclone-state/
+
+# Local agent/tool state that .gitignore already keeps out of Git:
+# whole-repo worktree copies (with their own .env files) and per-user
+# Claude Code settings.
+.claude/worktrees/
+.claude/settings.local.json
+.venv-tg/
+.torch-wheels/
