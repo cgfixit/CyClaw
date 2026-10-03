@@ -345,6 +345,26 @@ class TestBuildIndexBm25Atomicity:
         assert bm25_path.exists()
         assert not bm25_path.with_suffix(".json.tmp").exists()
 
+    @pytest.mark.parametrize("empty_content", ["", " \n\t "])
+    def test_zero_chunks_preserves_previous_index(self, tmp_path, empty_content):
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        document = corpus / "a.md"
+        document.write_text("hello world cyclaw retrieval fusion", encoding="utf-8")
+        config_path = self._write_config(tmp_path, corpus)
+        self._build(config_path)
+        bm25_path = tmp_path / "bm25.json"
+        previous_content = bm25_path.read_bytes()
+        document.write_text(empty_content, encoding="utf-8")
+
+        with patch("retrieval.indexer.get_vector_writer") as get_writer:
+            with pytest.raises(indexer.CorpusEmptyError):
+                build_index(config_path)
+
+        get_writer.assert_not_called()
+        assert bm25_path.read_bytes() == previous_content
+        assert not bm25_path.with_suffix(".json.tmp").exists()
+
     def test_failure_mid_write_leaves_previous_bm25_json_intact(self, tmp_path):
         corpus = tmp_path / "corpus"
         corpus.mkdir()
