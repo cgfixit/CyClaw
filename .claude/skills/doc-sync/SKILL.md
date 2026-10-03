@@ -32,14 +32,14 @@ semantics and directory-only project trees.
 python3 .claude/skills/doc-sync/doc_sync.py
 ```
 
-Needs only PyYAML. It extracts facts from code/config and flags docs that cite
+Needs PyYAML and Git. It extracts facts from code/config and flags docs that cite
 them wrongly. Exit `0` no drift · `2` drift found · `3` env error.
 
 | ID | Fact (source of truth) | Checks |
 |---|---|---|
 | D1 | `.claude/skills/*/SKILL.md` | Every skill on disk appears in the CLAUDE.md skills table |
 | D2 | `pyproject [project.scripts]` | Every console entry point is named in CLAUDE.md |
-| D3 | `config.yaml` | `port`/`min_score`/`rrf_k`/`graph_timeout_sec`/`soul_max_chars` cited in CLAUDE.md match the real values |
+| D3 | `config.yaml` | Governed keyed Value/Setting table rows and fully qualified numeric assignments in CLAUDE.md agree with their own key; unrelated correct numbers cannot satisfy stale citations. Uncited tunables remain optional |
 | D4 | `banned_patterns` length | The "`<n>` patterns" claim is consistent across CLAUDE.md, config.yaml, guardrails, fsconnect |
 | D5 | `gate.py`/`gate_ops.py`/`gate_auth.py`/`gate_memory.py` `@app` routes | Every API route is named in CLAUDE.md, and `setup-guide.md`'s REST section matches (both directions: undocumented and phantom routes) |
 | D6 | `.claude/settings.json` hooks | A "stop hook" claim is either backed by a wired Stop hook or accurately attributed to the session runtime |
@@ -48,6 +48,20 @@ them wrongly. Exit `0` no drift · `2` drift found · `3` env error.
 | D9 | Files on disk | Every multi-segment repo path cited in any README resolves. Bare filenames are out of scope on purpose (a `falco.yaml` in prose is the container image's own file), as are runtime artifacts (`logs/`, `index/`) and paths the doc itself marks as deleted/excluded/not-yet-generated |
 | D10 | Link targets + headings | Relative markdown links in READMEs resolve, and same-file `#anchor` links match a real heading under **GitHub's** slug rule — spaces become hyphens one-for-one and are never collapsed, so `## macOS launchd & Keychain` is `#macos-launchd--keychain` with a double hyphen |
 | D11 | Modules on disk | Every `python -m <module>` in a README resolves to a real module or package, or is a known external runner (`pytest`, `pip`, `venv`, …) |
+| D12 | Git index and ignore rules | Required README Local records rows declare their real tracked/ignored status; tracked files win over ignore matches. Directory claims check tracked descendants and the documented representative child |
+| D13 | Installer source wiring | Required README Secret persistence rows match reviewed macOS Keychain setup and Windows migration of existing secrets into Credential Manager, including plaintext opt-in flags |
+
+D12/D13 use the named README tables and exact column names; missing, duplicate,
+or malformed contract rows are drift. D12 requires `--repo-root` to be a Git
+repository root. D13 checks anchored source witnesses, excluding comments;
+changed wiring requires source review. It does not execute native installers,
+prove reachability, or validate keystore behavior. Contradictory prose outside
+the bounded tables still needs the manual pass. The dedicated `doc-sync` CI job
+blocks on any checker drift and runs the public-CLI mutation self-tests:
+
+```bash
+python .claude/skills/doc-sync/test_contracts.py
+```
 
 ### Step 2 — Reconcile each mechanical drift item
 

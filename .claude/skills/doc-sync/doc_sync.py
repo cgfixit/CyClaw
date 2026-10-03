@@ -29,6 +29,8 @@ Checks:
                               links match a real heading under GitHub's slug rule
     D11 README modules        every "python -m <module>" in a README resolves to a real
                               module, or is a known external runner
+    D12 README records       declared Git status matches index and ignore rules
+    D13 Secret persistence   bounded README contract matches installer source witnesses
 
 Exit codes (repo convention):
     0  no drift detected
@@ -41,7 +43,10 @@ import argparse
 import ast
 import json
 import re
+import shutil
+import subprocess
 import sys
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -330,7 +335,164 @@ _D11_EXTERNAL = {
 _D11_MODULE = re.compile(r"python3?\s+-m\s+([A-Za-z_][A-Za-z0-9_.]*)")
 
 
+_D3_KEYS = ("api.port", "retrieval.min_score", "retrieval.rrf_k",
+            "api.graph_timeout_sec", "personality.soul_max_chars")
+_RECORDS = {
+    "logs/audit.jsonl": "logs/audit.jsonl",
+    "logs/spend.jsonl": "logs/spend.jsonl",
+    "logs/numbat-events.ndjsonl": "logs/numbat-events.ndjsonl",
+    "logs/cyclaw.log": "logs/cyclaw.log",
+    "logs/evals/": "logs/evals/doc-sync-probe.json",
+    "index/": "index/bm25.json",
+    "data/personality/soul.md": "data/personality/soul.md",
+    "data/personality/cyclaw_soul.db": "data/personality/cyclaw_soul.db",
+    "data/personality/soul.md.bak": "data/personality/soul.md.bak",
+}
+
+
+def _table(text: str, label: str, headers: tuple[str, ...]) -> list[list[str]]:
+    if text.count(label) != 1:
+        return []
+    section = text.split(label, 1)[1]
+    section = re.split(r"(?m)^(?:#{1,6} |\*\*[^*]+\*\*)", section, maxsplit=1)[0]
+    match = re.search(r"(?m)^\|.*(?:\n\|.*)*", section)
+    if not match:
+        return []
+    rows = [[cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+            for line in match.group().splitlines()]
+    if (tuple(rows[0]) != headers or len(rows) < 2
+            or len(rows[1]) != len(headers)
+            or any(not re.fullmatch(r":?-{3,}:?", cell) for cell in rows[1])):
+        return []
+    return rows[2:]
+
+
+def _d3_drift(claude: str, cfg: dict) -> list[str]:
+    drift = []
+    if "### Load-bearing numbers" in claude and not _table(
+        claude, "### Load-bearing numbers", ("Value", "Setting", "Note")
+    ):
+        drift.append("CLAUDE.md Load-bearing numbers requires its Value/Setting/Note table")
+    for key in _D3_KEYS:
+        section, leaf = key.split(".")
+        expected = cfg[section][leaf]
+        if isinstance(expected, bool) or not isinstance(expected, (int, float)):
+            raise ValueError(f"config.yaml {key} is not numeric")
+        truth = Decimal(str(expected))
+        if not truth.is_finite():
+            raise ValueError(f"config.yaml {key} is not finite")
+        citations = []
+        for line in claude.splitlines():
+            if line.lstrip().startswith("|") and re.search(rf"(?<![\w.]){re.escape(key)}(?![\w.])", line):
+                cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+                # Only value/config-key rows; module-map references are prose.
+                if len(cells) >= 2 and key in cells[1].replace("`", "").split("/"):
+                    value = cells[0] if len(cells) == 3 else "malformed table row"
+                    if key == "api.port" and ":" in value:
+                        value = value.rsplit(":", 1)[1]
+                    citations.append(value)
+            citations.extend(re.findall(
+                rf"(?<![\w.]){re.escape(key)}`?\s*[:=]\s*`?([^\s`,;]+)", line))
+        for value in citations:
+            try:
+                actual = Decimal(value)
+            except InvalidOperation:
+                actual = Decimal("NaN")
+            if not actual.is_finite() or actual != truth:
+                drift.append(f"CLAUDE.md {key} cites {value!r}; config.yaml has {expected}")
+    return drift
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    executable = shutil.which("git")
+    if executable is None:
+        raise OSError("Git is required for README Git status checks")
+    result = subprocess.run(  # noqa: S603 - resolved Git and literal commands, no shell
+        [executable, "-C", str(root), *args], capture_output=True, text=True, check=False,
+    )
+    if result.returncode not in (0, 1):
+        raise OSError(f"Git {args[0]} failed: {result.stderr.strip()}")
+    return result
+
+
+def _local_records_drift(root: Path, readme: str) -> list[str]:
+    rows = _table(readme, "**Local records.**", ("Path", "Git status", "Contents and behavior"))
+    if not rows:
+        return ["README.md requires the Local records Path/Git status/Contents and behavior table"]
+    top = _git(root, "rev-parse", "--show-toplevel")
+    if top.returncode or Path(top.stdout.strip()).resolve() != root.resolve():
+        raise OSError("--repo-root must be a Git repository top-level directory")
+    drift = []
+    seen = set()
+    for cells in rows:
+        if len(cells) != 3 or cells[0] not in _RECORDS or cells[0] in seen:
+            drift.append(f"invalid or duplicate Local records row: {cells!r}")
+            continue
+        path, status, _ = cells
+        seen.add(path)
+        tracked = bool(_git(root, "ls-files", "-z", "--", path).stdout)
+        ignored = _git(root, "check-ignore", "--no-index", "-q", "--", _RECORDS[path]).returncode == 0
+        actual = "tracked" if tracked else "ignored" if ignored else "untracked"
+        if status != actual:
+            drift.append(f"README.md {path} declares {status!r}; Git reports {actual}")
+    if missing := _RECORDS.keys() - seen:
+        drift.append(f"README.md Local records missing rows: {sorted(missing)}")
+    return drift
+
+
+def _source_lines(path: Path) -> str:
+    source = re.sub(r"<#.*?#>", "", path.read_text(encoding="utf-8"), flags=re.S)
+    return "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+
+
+def _secret_persistence_drift(root: Path, readme: str) -> list[str]:
+    rows = _table(readme, "**Secret persistence.**",
+                  ("Platform", "Setup", "Operation", "Default secret store", "Plaintext opt-in"))
+    expected = {
+        "macOS": ["macos/setup-cyclaw-keys.sh", "Set up or preserve gateway key", "Keychain", "--write-env-file"],
+        "Windows": ["powershell/Install-CyClaw.ps1", "Migrate existing plaintext secrets",
+                    "Credential Manager", "-WriteEnvFile"],
+    }
+    if not rows:
+        return ["README.md requires the Secret persistence table"]
+    drift = []
+    seen = set()
+    for row in rows:
+        if len(row) != 5 or row[0] not in expected or row[0] in seen:
+            drift.append(f"invalid or duplicate Secret persistence row: {row!r}")
+            continue
+        seen.add(row[0])
+        if row[1:] != expected[row[0]]:
+            drift.append(f"README.md {row[0]} secret persistence disagrees with reviewed source wiring")
+    if seen != expected.keys():
+        drift.append("README.md must document both macOS and Windows secret persistence")
+    witnesses = {
+        "macos/setup-cyclaw-keys.sh": (
+            r"^DO_KEYCHAIN=1$", r"^WRITE_ENV_FILE=0$",
+            r"^\s*--write-env-file\) WRITE_ENV_FILE=1; shift ;;$",
+            r'^spawn -noecho /usr/bin/security add-generic-password .* -w$',
+        ),
+        "powershell/Install-CyClaw.ps1": (
+            r"^\s*\[switch\]\$WriteEnvFile\s*$",
+            r'^\. \(Join-Path \$Repo "powershell\\CyClaw-SecretStore\.ps1"\)$',
+            r"^Sync-CyclawPlaintextToCredentialManager -HomeDir \$Home_ -RepoDir \$Repo -WriteEnvFile:\$WriteEnvFile$",
+        ),
+        "powershell/CyClaw-SecretStore.ps1": (
+            r"^\s*if \(Write-CyclawCredential \$target \$secret\) \{$",
+            r"^\s*if \(-not \[CyClawSecretStoreNative\]::CredWrite\(\[ref\]\$cred, 0\)\) \{$",
+        ),
+    }
+    for relative, patterns in witnesses.items():
+        source = _source_lines(root / relative)
+        for pattern in patterns:
+            if not re.search(pattern, source, flags=re.M):
+                drift.append(f"{relative}: secret persistence source witness changed; review required")
+                break
+    return drift
+
+
 def main(argv: list[str] | None = None) -> int:
+    _drift.clear()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--repo-root", type=Path, default=None)
     p.add_argument("--json", action="store_true")
@@ -377,34 +539,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── D3 Config numbers cited in CLAUDE.md ────────────────────────────────
     print("D3 Config numbers -> CLAUDE.md")
-    facts = {
-        "api.port": cfg["api"]["port"],
-        "retrieval.min_score": cfg["retrieval"]["min_score"],
-        "retrieval.rrf_k": cfg["retrieval"]["rrf_k"],
-        "api.graph_timeout_sec": cfg["api"]["graph_timeout_sec"],
-        "personality.soul_max_chars": cfg["personality"]["soul_max_chars"],
-    }
-    # Only flag a number that CLAUDE.md cites with a WRONG value; absence is fine
-    # (not every tunable is documented). We detect "cited" by the config key's
-    # short name near a number.
-    citation_hints = {
-        "api.port": r"8787",
-        "retrieval.min_score": r"min_score",
-        "retrieval.rrf_k": r"rrf_k|RRF.*\b60\b|k=60",
-        "api.graph_timeout_sec": r"graph_timeout",
-        "personality.soul_max_chars": r"soul_max_chars|8000",
-    }
-    for key, val in facts.items():
-        hint = citation_hints[key]
-        if re.search(hint, claude):
-            # CLAUDE.md talks about this tunable — does the true value appear?
-            if re.search(rf"\b{re.escape(str(val))}\b", claude):
-                ok("D3", f"{key} = {val} consistent with CLAUDE.md")
-            else:
-                note("D3", f"config.yaml {key}={val}",
-                     f"CLAUDE.md discusses {key} but the value {val} is not present (possible stale number)")
-        else:
-            ok("D3", f"{key} = {val} (not cited in CLAUDE.md; nothing to check)")
+    try:
+        numeric_drift = _d3_drift(claude, cfg)
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"env error: {exc}", file=sys.stderr)
+        return 3
+    for detail in numeric_drift:
+        note("D3", "config.yaml", detail)
+    if not numeric_drift:
+        ok("D3", "documented numeric values agree with their config keys")
 
     # ── D7 M5 hardware doctrine numbers ─────────────────────────────────────
     print("D7 M5 doctrine numbers -> config.yaml + macos/ollama-mlx.env")
@@ -942,6 +1085,21 @@ def main(argv: list[str] | None = None) -> int:
              f"`python -m` targets that do not resolve: {sorted(set(mod_drift))}")
     else:
         ok("D11", f"all `python -m` targets resolve across {len(readmes)} README(s)")
+
+    try:
+        readme_path = root / "README.md"
+        readme = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
+        for check, truth, details in (
+            ("D12", "Git index and ignore rules", _local_records_drift(root, readme)),
+            ("D13", "platform installer source wiring", _secret_persistence_drift(root, readme)),
+        ):
+            for detail in details:
+                note(check, truth, detail)
+            if not details:
+                ok(check, "README contract matches source facts")
+    except OSError as exc:
+        print(f"env error: {exc}", file=sys.stderr)
+        return 3
 
     result = {"drift_count": len(_drift), "drift": _drift}
     if args.json:

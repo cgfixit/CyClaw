@@ -196,6 +196,27 @@ jobs:
         # real gate on the six invariants it exists to enforce.
         run: python3 .claude/skills/invariant-guard/check_invariants.py
 
+  doc-sync:
+    name: doc-sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install checker dependency
+        run: python -m pip install -c constraints.txt PyYAML
+      - name: Check documentation contracts (blocking)
+        run: python .claude/skills/doc-sync/doc_sync.py
+      - name: Verify drift detection (blocking)
+        run: bash .claude/skills/doc-sync/verify.sh
+
   dotenv-guard:
     name: dotenv-guard
     runs-on: ubuntu-latest

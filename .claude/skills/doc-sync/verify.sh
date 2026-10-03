@@ -310,4 +310,6 @@ Run `python -m pytest tests/ -q`.'
 
 echo "D9-D11 mutation self-test: PASS ($mut_pass/13 scenarios)"
 
+"$PY" "$here/test_contracts.py" || exit 1
+
 echo "== doc-sync verify: OK =="
