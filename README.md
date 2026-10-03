@@ -7,30 +7,24 @@
 
 [![Local RAG console](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/2026-09-11-local-rag-and-injection-verification.png)](https://github.com/cgfixit/CyClaw/tree/main/docs/screenshots)
 
-CyClaw is an offline-first local RAG server for **your own documents, on your
-own hardware**. A local model answers from a local index. Safety is the
-12-node LangGraph in `graph.py`: retrieval is the entry, every path ends in
-the audit log, and a paid Grok or Claude call is a graph edge you confirm
-per question. It binds to `127.0.0.1:8787`.
+CyClaw answers questions from **your documents on your hardware**. Its
+12-node LangGraph starts with retrieval, ends every path in the audit log,
+and requires per-question consent for paid Grok or Claude fallback. The
+server binds to `127.0.0.1:8787`.
 
-**What that means in practice**
+- Local embeddings, BM25, and the cross-encoder run on CPU. Cache both
+  retrieval models before offline use; downloads are separate from paid-call consent.
+- Soul, ops, memory, and audit routes require [operator access](#api-key-setup-soul-mutations).
+  Bearer and console-cookie credentials fail closed without `CYCLAW_API_KEY`;
+  an enabled admin's login also works when per-user auth is on.
+- Audit records hash questions by default. The spend ledger records tokens
+  and computes dollars at read time. `cyclaw-metrics` joins both offline.
+- Auth, memory, guardrails, connectors, the agentic loop, and Telegram/X
+  channels ship disabled. The local Numbat stream and spend ledger ship on.
 
-- **Offline-first RAG.** Embeddings, BM25, and the cross-encoder run on CPU.
-  Caching those models is separate from consenting to a paid call.
-- **Fail-closed gates.** An unset `CYCLAW_API_KEY` returns 401 on soul, ops,
-  memory, and audit routes. External calls need hybrid mode, that provider
-  enabled, a per-request confirmation, and a usable client.
-- **Spend and audit forensics.** Questions are stored as SHA-256 hashes.
-  Billed calls append token counts to `logs/spend.jsonl`; dollars are priced
-  when you read the ledger. `cyclaw-metrics` joins the two offline.
-- **Everything else ships off.** Per-user auth, memory, guardrails,
-  connectors, the agentic loop, and the Telegram/X channels sit behind
-  master switches that ship disabled. The Numbat stream and the spend ledger
-  ship on, because each only writes a local file.
-
-**Scope.** Trusted-operator, loopback-bound, single-tenant: one operator, or
-a small mutually trusted group once `auth.enabled` is on. Not multi-tenant,
-and not a microVM. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+CyClaw serves one trusted operator or a mutually trusted group with auth
+enabled. It provides neither tenant isolation nor a microVM.
+See the [threat model](docs/THREAT_MODEL.md).
 
 ## Table of Contents
 
@@ -43,6 +37,7 @@ and not a microVM. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 - [Per-User Authentication](#per-user-authentication)
 - [Spend Tracking](#spend-tracking)
 - [Benchmarks and Evals](#benchmarks-and-evals)
+- [Current development](#current-development)
 - [Optional layers](#optional-layers)
 - [Security Model](#security-model)
 - [Project Structure](#project-structure)
@@ -70,7 +65,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 ollama pull qwen3.8:27b-mlx
-export CYCLAW_API_KEY="$(openssl rand -hex 20)"  # /soul/* and /ops/*; /query does not need it
+export CYCLAW_API_KEY="$(openssl rand -hex 20)"  # operator routes; /query uses sessions/tokens when auth is on
 python -m retrieval.indexer                      # once; without this, /query is 503
 python gate.py                                   # http://127.0.0.1:8787
 ```
@@ -91,219 +86,181 @@ Confirm: `curl http://127.0.0.1:8787/health`, then open
 
 ## For newcomers
 
-**Python.** `requires-python` is `>=3.12,<3.13`. On some machines `python3`
-is 3.11; use `python3.12` for the venv. No admin rights are required to
-create `.venv`.
+**Python and install paths.** Use Python 3.12 (`>=3.12,<3.13`), not an
+unversioned `python3` that resolves to 3.11. Creating `.venv` needs no admin
+rights. Choose [native macOS](macos/README.md), [Windows](powershell/README.md),
+the Linux Quick Start, or [Docker](docs/DOCKER.md). The GHCR image targets
+`linux/amd64`; publish only on host `127.0.0.1`. Use native Apple Silicon
+until an arm64 image is verified.
 
-**Which install.** Native macOS: `macos/setup-cyclaw.sh` (launchd + Keychain,
-[`macos/README.md`](macos/README.md)). Native Windows:
-[`powershell/README.md`](powershell/README.md) and Credential Manager for
-scheduled tasks. Linux: the Quick Start above. Container:
-[`docs/DOCKER.md`](docs/DOCKER.md) (`ghcr.io/cgfixit/cyclaw`, `linux/amd64`,
-host publish `127.0.0.1` only). Apple Silicon should use the native path
-until an arm64 image is verified. `pip install -e .` is what creates the
-`cyclaw-server`, `cyclaw-index`, `cyclaw-mcp`, `cyclaw-metrics`,
-`cyclaw-user`, `cyclaw-gen-cert`, and `cyclaw-clear-cache` commands;
-`python -m …` works without it.
+`pip install -e .` creates `cyclaw-server`, `cyclaw-index`, `cyclaw-mcp`,
+`cyclaw-metrics`, `cyclaw-user`, `cyclaw-gen-cert`, and `cyclaw-clear-cache`.
+Without it, use the corresponding `python -m …` commands.
 
-**Where keys live.** `gate.py` reads the environment. It does not load a
-dotenv file. On macOS, `macos/setup-cyclaw-keys.sh` stores allowlisted
-secrets in the Keychain. `~/.CyClaw/.env` (mode 600, gitignored) holds
-ordinary settings; secret lines land there only with `--write-env-file`.
-On Windows, `Install-CyClaw.ps1` stores allowlisted secrets in Credential
-Manager. `Invoke-CyClaw.ps1` loads non-secret settings from the first
-owner-only file found (`%USERPROFILE%\.CyClaw\.env`, then a checkout
-dotenv) and reads secrets from Credential Manager only. Services never
-get secrets from a dotenv file. LaunchAgents and scheduled tasks never
-embed a token in a plist or task XML: macOS fetches Keychain at exec time
-(`macos/cyclaw-keychain-env.sh`), Windows uses Credential Manager
-(`powershell/CyClaw-CredMan-Env.ps1`). The gate scheduled task receives
-the API key only when `windows/generate_service_task.py` is passed
-`--api-key-target`; without that flag the task has no API key. Fill the
-item with `powershell/CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.api-key`.
-Both platforms fail closed if the item is missing. Secrets are not written
-into `config.yaml`, not inlined into a shell rc file, and not placed on
-argv. Provider keys (`GROK_API_KEY`, `ANTHROPIC_API_KEY`) are env vars too
-— see [`spend/README.md`](spend/README.md#api-keys). The server boots
-without them; that provider then reports unavailable.
+**Secrets.** `gate.py` reads environment variables, never dotenv files.
+macOS stores allowlisted secrets in Keychain through
+`macos/setup-cyclaw-keys.sh`. Its owner-only `~/.CyClaw/.env` holds ordinary
+settings; secret lines require explicit `--write-env-file` opt-in. Windows
+`Install-CyClaw.ps1` uses Credential Manager. `Invoke-CyClaw.ps1` reads
+non-secret settings from the first owner-only file found, preferring
+`%USERPROFILE%\.CyClaw\.env` over a checkout dotenv.
 
-**Offline vs hybrid.** Shipped `app.mode` is `hybrid`, which only *allows*
-a paid call. The call still needs `models.grok.enabled` or
-`models.claude.enabled` (both ship `true`), `user_confirmed_online: true`
-on that request (never persisted), `online_provider` selecting one of them,
-and a client that `is_available()` (the key is set). Set `app.mode: offline`,
-or decline the confirm, and the answer stays local. `offline_best_effort`
-can still answer from partial context after a vault miss. Embedding and
-reranker downloads do **not** use `user_confirmed_online`. With a completed
-index, `models.embeddings.offline_after_index: true` forces both loaders
-onto local files. `/health` does not call Grok or Claude
-(`api.health_probe_external_providers` ships `false`).
+Services obtain secrets only at execution through
+`macos/cyclaw-keychain-env.sh` or `powershell/CyClaw-CredMan-Env.ps1`, never
+from dotenv, plist, task XML, `config.yaml`, shell rc files, or argv.
+`windows/generate_service_task.py` injects the gateway key only with
+`--api-key-target`; populate it with
+`powershell/CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.api-key`. Configured
+keystore lookups fail closed when an item is missing. Missing provider
+keys leave the server running with that provider unavailable.
+[Provider keys](spend/README.md#api-keys).
 
-**Ports.** Gateway `127.0.0.1:8787` (`api.port`; launchers honor
-`CYCLAW_GATE_PORT`). Ollama `127.0.0.1:11434`. Optional local failover
-(ships off) is another loopback server, example `127.0.0.1:1234`. The old
-in-tree coding console on `:8790` is gone ([#1367](https://github.com/cgfixit/CyClaw/pull/1367));
-that role is [CG-agent-harness](https://github.com/cgfixit/CG-agent-harness),
-a separate install CyClaw does not start.
+**Offline and hybrid.** Shipped `app.mode: hybrid` permits paid calls only
+when the selected provider is enabled, available, and confirmed for that
+request. Both providers ship enabled. Confirmation is never persisted.
+Set `app.mode: offline` or decline confirmation to keep generation local;
+`offline_best_effort` can use partial context after a vault miss.
 
-**First-run gotchas.**
+Embedding and reranker downloads do not use that consent flag. After a
+completed index, `models.embeddings.offline_after_index: true` forces both
+loaders onto local files. The reranker loads on the first query, not during
+indexing, so cache its roughly 91 MB model before expecting offline use.
 
-- No index yet: `POST /query` returns `503 INDEX_NOT_FOUND`. Run
-  `python -m retrieval.indexer`, or start a build from the browser
-  (`POST /index/build`, then `GET /index/status`).
-- `status: degraded` on `/health` with Ollama down is normal. So is the
-  `TELEMETRY KILL` line at startup.
-- The first query can be slow: the reranker (~91MB) loads then, not at
-  index time. Cache both retrieval models before you expect offline use.
-- `cyclaw-*` names are missing until `pip install -e .`.
-- Soul, ops, memory, and `/audit/summary` 401 until `CYCLAW_API_KEY` is
-  set (or, with `auth.enabled`, until an admin logs in). In the browser,
-  use "Unlock operator tools"; see [API Key Setup](#api-key-setup-soul-mutations).
-  `/auth/*` returns 503 while `auth.enabled` is false, not 404.
-- The rate limit (60/min per IP) is in-memory unless you set
-  `api.rate_limit.persist_path` or its Postgres DSN. A restart clears it.
-  `/health` and `/index/status` are not counted, because the console polls
-  them for the whole of a build.
-- The embedding query-cache size is not a `config.yaml` key. It is fixed
-  at import from `CYCLAW_EMBED_CACHE_SIZE` (default 2048). Editing
-  `config.yaml` in a running process also does not reload the sanitizer;
-  that cache is keyed by config path, so restart the gateway.
+**Ports.** Gateway `127.0.0.1:8787` (`api.port`, launcher override
+`CYCLAW_GATE_PORT`), Ollama `127.0.0.1:11434`, and optional local failover
+(example `127.0.0.1:1234`, disabled by default). The removed `:8790` coding
+console is now the separately installed
+[CG-agent-harness](https://github.com/cgfixit/CG-agent-harness); CyClaw does
+not start it.
 
-**Check the install.** `curl -s http://127.0.0.1:8787/health` (look for
-`index_ready`). Open `/` and ask something that is in `data/corpus/`.
-Static policy check, no services:
-`python3 .claude/skills/invariant-guard/check_invariants.py`. Unit tests:
-`GROK_API_KEY=dummy pytest tests/ -q --tb=short` (any non-empty dummy key;
-no live provider). Retrieval floors, needs the cached models:
-`python -m tests.ci_rag_smoke`.
+**First-run checks and limits.**
 
-**Where the records go.** Under the repo by default. All gitignored except
-`data/personality/soul.md`:
+- Without an index, `/query` returns `503 INDEX_NOT_FOUND`. Run
+  `python -m retrieval.indexer` or use the browser's `POST /index/build`
+  action and poll `GET /index/status`.
+- Check `curl -s http://127.0.0.1:8787/health` for `index_ready`, then ask
+  the browser a question covered by `data/corpus/`. `degraded` usually
+  means Ollama is down, not a server crash. `TELEMETRY KILL` at startup is expected.
+- Soul, ops, memory, and `/audit/summary` require
+  [operator access](#api-key-setup-soul-mutations). `/auth/*` returns 503
+  while auth is disabled.
+- The 60/min per-IP rate limit resets on restart unless
+  `api.rate_limit.persist_path` or its Postgres DSN is configured.
+  `/health` and `/index/status` are unauthenticated and unrate-limited
+  for console polling. Concurrent health calls share probes behind a short cache.
+- External provider probes are absent unless
+  `api.health_probe_external_providers` is enabled; it ships `false`.
+  Browser CORS allows `http://127.0.0.1:8787` and `http://localhost:8787`,
+  not a portless origin. `/query` always rejects cross-site requests.
+- `CYCLAW_EMBED_CACHE_SIZE` fixes the query-cache size at import
+  (default 2048); it is not a YAML key. The sanitizer caches by config
+  path, so restart the gateway after editing its configuration.
 
-| Path | What |
+Verify policy without services with
+`python .claude/skills/invariant-guard/check_invariants.py`. Run unit tests
+with `GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short`; they use no
+live provider. `python -m tests.ci_rag_smoke` checks retrieval floors with
+cached models.
+
+**Local records.** Paths are relative to the repository and gitignored,
+except the tracked soul file.
+
+| Path | Contents and behavior |
 |---|---|
-| `logs/audit.jsonl` | Authoritative audit. Query hash, not the question, while `logging.audit_fields.include_query_hash` is `true` (the shipped default). `false` stores redacted raw query text. Written on the request thread |
-| `logs/spend.jsonl` | Token counts for billed Grok/Claude calls. No query text, no prices |
-| `logs/numbat-events.ndjsonl` | Derived copy of redacted audit records plus out-of-band actions. Observes only |
-| `logs/cyclaw.log` | Application log. Bounded writer; a stalled disk drops lines instead of holding the request |
-| `logs/evals/` | Opt-in dogfood and judge output. Not the production ledger |
-| `index/` | Chroma + `bm25.json`. Rebuild with `python -m retrieval.indexer` |
-| `data/personality/` | `soul.md` is **tracked**. An approved soul change rewrites it, so it shows in `git status` and a broad `git add` stages it. The version DB (`cyclaw_soul.db`) and `soul.md.bak` are gitignored |
+| `logs/audit.jsonl` | Authoritative audit, written synchronously on the request thread. Questions are SHA-256 hashes by default, including when `logging.audit_fields` is absent or empty. Explicit `include_query_hash: false` stores redacted query text |
+| `logs/spend.jsonl` | Tokens for billed Grok/Claude calls, without query text or prices |
+| `logs/numbat-events.ndjsonl` | Derived redacted audit and out-of-band events; observation only |
+| `logs/cyclaw.log` | Application log; a bounded writer drops records rather than holding a request on stalled I/O |
+| `logs/evals/` | Opt-in dogfood and judge output, separate from production billing |
+| `index/` | Chroma and `bm25.json`; rebuild after corpus changes |
+| `data/personality/` | **Tracked `soul.md`** changes appear in `git status` and broad staging. The version DB `cyclaw_soul.db` and `soul.md.bak` are gitignored |
 
-`python -m metrics` (`cyclaw-metrics`) reads the audit and spend files
-offline, including a Sequences section. That scan skips repeated work on a
-query hash it has already walked, so a long ledger stays cheap
-([#1504](https://github.com/cgfixit/CyClaw/pull/1504)).
-
-Once a question has come back with sources, the day-two commands are small:
+Day-two commands:
 
 ```bash
-python -m metrics                              # spend, audit aggregates, sequences
-python -m retrieval.clear_cache                # dry-run; add --apply to delete .emb_cache
-python -m retrieval.indexer                    # rebuild after you edit data/corpus/
-curl -s http://127.0.0.1:8787/index/status     # build progress; not rate-limited
+python -m metrics                           # spend, audit aggregates, sequences
+python -m retrieval.clear_cache             # dry-run; --apply deletes .emb_cache
+python -m retrieval.indexer                 # rebuild after editing data/corpus/
+curl -s http://127.0.0.1:8787/index/status   # build progress
 ```
-
-`/health` is unauthenticated and unrate-limited on purpose (the console
-polls it). `degraded` means a dependency is down, usually Ollama; it is
-not a crash. `index_ready: false` means `/query` will 503 until you build.
-External providers are absent from that payload unless you turn on
-`api.health_probe_external_providers`, which ships `false` so a health
-poll cannot spend your keys. The browser console is the same loopback
-origin as the API (`http://127.0.0.1:8787/` and `http://localhost:8787/`
-are both on the CORS list; a portless origin is not).
 
 ---
 
 ## What It Does
 
-CyClaw answers from your Markdown (and `.txt`) corpus. Graph edges enforce
-retrieval and paid-provider consent. Groundedness is measured in CI; it is
-not a graph node.
+CyClaw retrieves Markdown and `.txt` documents before generation. Groundedness
+is measured in CI, not enforced by another graph node.
 
-> **Cache both retrieval models.** `retrieval/embeddings.py` and the enabled
-> `retrieval/rerank.py` fetch a missing Hugging Face snapshot.
-> `local_files_only` applies once the snapshot is on disk. An unavailable
-> reranker leaves the cosine gate in control and sets `rerank_degraded`.
+1. **Retrieval first.** `retrieve` starts the 12-node graph. A miss can still
+   reach `offline_best_effort` with partial context.
+2. **Hybrid search.** ChromaDB and BM25 fuse through RRF (`retrieval.rrf_k`).
+   A vault hit needs the best cosine in the local context window to clear
+   `retrieval.min_semantic_score`. Without cosines, the top fused score must
+   clear `retrieval.min_score`, which uses the RRF scale. The cross-encoder
+   runs in shadow mode: `retrieval.min_rerank_score: null` audits
+   `rerank_best` without vetoing hits. A numeric threshold can only demote
+   a hit. An unavailable reranker preserves the cosine rule and records
+   `rerank_degraded`. Both retrieval models can download missing snapshots;
+   cache them before offline use. [Retrieval reference](retrieval/README.md).
+3. **Local generation.** Ollama uses `models.local_llm.model`, shipped as
+   `qwen3.8:27b-mlx`. `models.local_llm.fallback` ships disabled. Tunables
+   live in `config.yaml`.
+4. **Governed soul.** `data/personality/soul.md` has SHA-256 drift detection
+   and atomic writes. `POST /soul/apply` requires a human `reason` and the
+   enforced injection scan. Restore reapplies the vetted `.bak` with only
+   advisory scanning. Startup drift recovery and `/soul/reload` adopt
+   on-disk content unscanned; a missing soul self-initializes at boot.
+   [Soul invariants](INVARIANTS.md), Rules 4–5.
+5. **Confirmed external fallback.** Grok (`grok-4.5`, `api.x.ai`) or Claude
+   (`claude-sonnet-5`, `api.anthropic.com`) requires hybrid mode, that
+   provider enabled, `user_confirmed_online: true`, provider selection,
+   and a usable client. Gateway construction enforces mode and enablement;
+   graph routing enforces the per-request decision. The first request can
+   carry confirmation. Calls use the remaining `api.graph_timeout_sec`
+   budget, and `utils/endpoint_trust.py` rejects rewritten provider URLs.
+6. **HTTP and MCP.** FastAPI serves the browser at `/`. The separate MCP
+   server exposes sanitized retrieval only, with `sampling: None` and no
+   generation path. `notifications/*` messages receive no reply.
+7. **Audit convergence.** All eleven upstream nodes reach `audit_logger`
+   before END. `cyclaw-metrics` reads the audit offline.
 
-1. **Retrieval is first.** `retrieve` is the entry of the 12-node graph. No
-   model call precedes it. `offline_best_effort` may still answer from
-   partial context after a vault miss.
-2. **Hybrid search.** ChromaDB (default) plus BM25, fused by RRF
-   (`retrieval.rrf_k`). A query is a vault hit when the best cosine in the
-   local context window clears `retrieval.min_semantic_score`, or, with no
-   cosines, when the top fused hit clears `retrieval.min_score` (RRF scale,
-   not cosine). The cross-encoder scores that window in shadow mode
-   (`retrieval.min_rerank_score` ships `null`): logits are audited as
-   `rerank_best` and nothing is vetoed. A number can only turn a hit into a
-   miss. [`retrieval/README.md`](retrieval/README.md).
-3. **Local model by default.** Ollama, `models.local_llm.model` (shipped
-   `qwen3.8:27b-mlx`). An optional loopback failover ships disabled
-   (`models.local_llm.fallback`). Tunables live in `config.yaml`.
-4. **Governed soul.** `data/personality/soul.md`, SHA-256 drift detection,
-   atomic writes. `POST /soul/apply` needs a human `reason` and the enforced
-   injection scan. `POST /soul/restore` reapplies the vetted `.bak` without
-   that enforced scan (advisory hits are logged, not refused). Startup drift
-   recovery and `POST /soul/reload` adopt the on-disk file unscanned. A
-   missing file self-heals at boot. [`INVARIANTS.md`](INVARIANTS.md) Rules 4–5.
-5. **Online fallback, triple-gated.** Grok (`grok-4.5` at `api.x.ai`) or
-   Claude (`claude-sonnet-5` at `api.anthropic.com`) runs only when **all
-   three** hold: `app.mode: hybrid`, that provider's `enabled` flag, and
-   `user_confirmed_online: true` on this request — plus a usable client.
-   Two of the three are fixed when `gate.py` builds the clients; only the
-   confirmation is decided in the graph. A client can send `true` on the
-   first call; nothing stores it. Outbound calls are also capped by the
-   remaining `api.graph_timeout_sec` budget, and
-   `utils/endpoint_trust.py` refuses a rewritten base URL.
-6. **Two front doors.** FastAPI at `127.0.0.1:8787` (browser console at
-   `/`) and a retrieval-only MCP server (`mcp_hybrid_server.py`,
-   `sampling: None`, same injection filter, no model path).
-7. **Hashed audit.** All eleven nodes upstream of `audit_logger` reach it
-   before END. `cyclaw-metrics` reads `logs/audit.jsonl` offline.
+[The six invariants](INVARIANTS.md) cover retrieval-first entry, topology,
+external consent, audit convergence, soul governance, and import isolation.
+Core modules do not import `agentic`, `sync`, `guardrails`, `telegram`, or
+`opentweet`; the invariant checker enforces that boundary.
 
-The six invariants (I1–I6) are defined in [`INVARIANTS.md`](INVARIANTS.md):
-RAG-first entry, topology as policy, the triple gate, audit convergence,
-soul governance, and import isolation. `gate.py`, `graph.py`, and the MCP
-server never import `agentic`, `sync`, `guardrails`, `telegram`, or
-`opentweet`.
-`python3 .claude/skills/invariant-guard/check_invariants.py` checks them.
-
-**Vector store.** `indexing.vector_backend` ships `chroma` (embedded,
-offline). `pgvector` is optional and needs Postgres. `sqlite-vec` is a
-test-only prototype, not a backend: macOS CI cannot load the extension
-([spike notes](docs/audits/2026-09-21-sqlite-vec-phase-c-spike.md)). BM25
-stays JSON either way. Pickle is not used.
-
-**Browser console** (`static/terminal.html`). Query box, index-build
-progress, Soul / Sync / Agentic / Filesystem / SQL panels, and, when
-per-user auth is on, Users and Audit. It is the RAG console. It is not a
-coding harness.
+**Storage and console.** `indexing.vector_backend` defaults to embedded
+`chroma`; optional `pgvector` requires Postgres. BM25 uses JSON, never
+pickle. `sqlite-vec` remains a test prototype because macOS CI cannot load
+the extension ([spike notes](docs/audits/2026-09-21-sqlite-vec-phase-c-spike.md)).
+`static/terminal.html` provides queries, index progress, Soul, Sync,
+Agentic, Filesystem, and SQL panels, plus Users and Audit when auth is on.
 
 ### Optional layers at a glance
 
-| Layer | What it adds | Ships |
+| Layer | Purpose | Ships |
 |---|---|---|
-| [Per-user auth](#per-user-authentication) | scrypt passwords, session cookie + CSRF, device tokens, roles `admin` / `operator` / `audit`. With `auth.enabled: true`, `/query` requires a session or token | off |
-| [Memory](docs/memory/README.md) | Facts + episodes (SQLite + FTS5), propose/apply, optional retrieval fusion, HTML export. `memory.consolidation` is a stub: `run_consolidation` returns disabled even if the flag is flipped | off |
-| [NeMo Guardrails](#optional-layers) | Offline input/output rails; with the extra, NeMo `check()` around answer-node model calls. Deny-only, fails open (audited), never a router | off |
-| [Dropbox sync](docs/SYNC_README.md) | `rclone` pull into `data/corpus/`, out of band | CLI |
+| [Per-user auth](#per-user-authentication) | Passwords, sessions, device tokens, and roles | off |
+| [Memory](docs/memory/README.md) | SQLite/FTS5 facts and episodes, propose/apply, optional retrieval fusion and HTML export. Consolidation remains an inert stub | off |
+| [NeMo Guardrails](#optional-layers) | Deny-only input/output checks, audited fail-open behavior | off |
+| [Dropbox sync](docs/SYNC_README.md) | Out-of-band `rclone` corpus pull | CLI |
 | [Connectors](agentic/README.md) | Scoped filesystem, SELECT-only SQL, passive LAN inventory | off |
-| [Agentic loop](docs/agentic/AGENTIC_README.md) | `gh` read context, skills registry, clone → plan → patch → verify → human decides | off |
-| [Telegram](docs/channels/TELEGRAM_DESIGN.md) / [OpenTweet](docs/channels/OPENTWEET_DESIGN.md) | Phone remote and weekly X drafts, via loopback `POST /query` only | off |
-| [Numbat stream](docs/security-philosophy/numbat_secondary_evaluator.md) | Derived NDJSON. Observes; enforces nothing | **on** |
-| [Pre-action hook](docs/security-philosophy/numbat_pre_action_gate.md) | Deny-only check after the triple gate, before a confirmed paid call | off |
-| [Spend ledger](#spend-tracking) | Token counts per billed call | **on** |
-| [Fine-tune kit](tools/lora_finetune/README.md) | Offline QLoRA toolkit. Not part of the runtime install | toolkit |
+| [Agentic loop](docs/agentic/AGENTIC_README.md) | GitHub context, skills, clone/plan/patch/verify, human decisions | off |
+| [Telegram](docs/channels/TELEGRAM_DESIGN.md) / [OpenTweet](docs/channels/OPENTWEET_DESIGN.md) | Phone remote and X drafts through loopback `/query` | off |
+| [Numbat stream](docs/security-philosophy/numbat_secondary_evaluator.md) | Derived NDJSON, observation only | on |
+| [Pre-action hook](docs/security-philosophy/numbat_pre_action_gate.md) | Deny-only gate before a confirmed external call | off |
+| [Spend ledger](#spend-tracking) | Billed token counts | on |
+| [Fine-tune kit](tools/lora_finetune/README.md) | Separate QLoRA toolkit | toolkit |
 
 ---
 
 ## Architecture
 
-`gate.py` checks the Host allowlist, rate-limits (**60 req/min per IP,
-before the injection filter**), runs the config-driven filter, inits soul,
-and hands a `GraphState` to the 12-node graph. Routing is edges only. The
-numbered map is [`CLAUDE.md`](CLAUDE.md); the contract is
-[`INVARIANTS.md`](INVARIANTS.md).
+`gate.py` initializes the soul at startup. Requests pass the Host allowlist,
+applicable authentication, a **60/min per-IP limit before injection filtering**,
+and the config-driven filter before entering the graph as `GraphState`.
+Graph edges control routing. [Operating contract](CLAUDE.md) and
+[security invariants](INVARIANTS.md).
 
 ```mermaid
 flowchart TD
@@ -368,20 +325,13 @@ flowchart TD
 The MCP server calls the retriever directly after sanitization. It never
 enters this HTTP gateway or this graph.
 
-What the diagram compresses: `HybridRetriever` fuses ChromaDB
-(`all-MiniLM-L6-v2`, 384-dim cosine, CPU-only) with BM25Okapi (Porter
-stemming) by RRF (`k=60`, equal weights) and keeps per-chunk provenance on
-every hit. The BM25 top-k is a numpy `argpartition` when scores are finite,
-with `heapq.nlargest` as the fallback. The telemetry-kill block runs before
-any SDK import; the MCP server and the indexer apply the same block.
-
-With guardrails enabled and `nemoguardrails` installed, NeMo `check()` also
-wraps the model call inside `local_llm`, `grok_fallback`, `claude_fallback`,
-and `offline_best_effort`: input rails before the call, output rails after.
-It can only deny, and its flows run Python checks, not an LLM. If a guard
-cannot run, the answer goes out and the audit record says
-`guardrail_degraded: true`. The CEL monitor, when `numbat.cel` is enabled,
-runs after the graph returns, records matches, and never blocks.
+`HybridRetriever` uses CPU `all-MiniLM-L6-v2` embeddings (384-dimensional
+cosine), Porter-stemmed BM25Okapi, and equal-weight RRF (`k=60`), retaining
+chunk provenance. Finite BM25 scores use numpy `argpartition` for top-k;
+`heapq.nlargest` handles the fallback. Gateway, MCP, and indexer suppress
+telemetry before SDK imports. The diagram omits per-model NeMo checks and
+the post-graph CEL monitor; [Optional layers](#optional-layers) describes
+their failure and observation semantics.
 
 ---
 
@@ -399,10 +349,10 @@ Windows and Linux use the `+cpu` wheel. Scripts:
 ## API Key Setup (Soul Mutations)
 
 `/soul/*`, `/ops/*`, `/memory/*`, `/query/export/html`, and `/audit/summary`
-need operator access and fail closed (401) without it. `/query` and
-`/health` do not. Any one of these grants it:
+require operator access. `/health` is public; `/query` requires a session
+or device token when `auth.enabled` is true. Operator credentials are:
 
-- **Bearer `CYCLAW_API_KEY`**, for curl, MCP and scripts. Comparison is
+- **Bearer `CYCLAW_API_KEY`**, for HTTP clients and scripts. Comparison is
   `hmac.compare_digest`.
 - **The console cookie.** In the browser, "Unlock operator tools" trades the
   key once for an HttpOnly, `SameSite=Strict` cookie and forgets the key.
@@ -412,17 +362,15 @@ need operator access and fail closed (401) without it. `/query` and
   browser at all. `operator` and `audit` accounts do not get operator
   access.
 
-Writes from the browser also carry a CSRF token, and cross-site requests
-are refused. With `CYCLAW_API_KEY` unset, the Bearer and cookie paths fail
-closed; only an admin login still works.
+Writes authorized by console or admin login cookies require CSRF tokens;
+both cookie credentials reject cross-site requests. Without `CYCLAW_API_KEY`, Bearer and console-cookie access fail
+closed. An enabled admin login still works, as does the explicit loopback
+bypass described below.
 
-**The key is generated and used for you.** `macos/invoke-cyclaw.sh` and
-`powershell\Invoke-CyClaw.ps1` generate a missing `CYCLAW_API_KEY` into the
-macOS Keychain or Windows Credential Manager on first run. They then open
-the console with a one-time unlock link (`#pair=...`, single-use, valid for
-`security.console_pairing_ttl_sec`, 5 min shipped), so the console is
-already unlocked when it appears. If you open the console some other way,
-copy the key from the keystore and paste it into the unlock dialog:
+`macos/invoke-cyclaw.sh` and `powershell\Invoke-CyClaw.ps1` generate a
+missing key into the OS keystore and open a single-use `#pair=...` unlock
+link. Its `security.console_pairing_ttl_sec` defaults to 5 minutes. For
+manual browser access, copy the key into the unlock dialog:
 
 ```bash
 # macOS
@@ -443,9 +391,9 @@ Rotation and the macOS bootstrap:
 
 `security.api_key_optional` ships `false`. When set, a request skips the key
 only if the flag is on, the socket peer is loopback, no forwarding header
-is present, and the request is not cross-site. A remote caller still needs
-the key, including under Docker (NAT makes the peer the bridge gateway, so
-the flag is inert there). [`INVARIANTS.md`](INVARIANTS.md) Rule 6 and
+is present, and the request is not cross-site. Remote callers need another
+accepted operator credential. Docker NAT makes the peer the bridge gateway,
+so the bypass is inert there. [`INVARIANTS.md`](INVARIANTS.md) Rule 6 and
 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (eighteenth amendment) hold
 the full boundary.
 
@@ -464,137 +412,128 @@ First-boot `curl` and `cyclaw-user`:
 
 ## Spend Tracking
 
-A triple-gated Grok or Claude call that actually bills appends one line to
-`logs/spend.jsonl`. **Tokens are stored; dollars are computed at read time**,
-so a rate-card fix re-prices history. The row has no query text, prompt, or
-API key. A full disk logs a warning and drops the row rather than failing
-the answer.
+Billed Grok/Claude calls append tokens to `logs/spend.jsonl`. Dollars are
+computed at read time, so rate-card corrections re-price history. Rows
+exclude queries, prompts, and keys. Write failures warn and drop the row
+without failing the answer.
 
 | `source` | Writer | Covers |
 |---|---|---|
-| `query` | `llm/client.py` | `/query` online fallback a human confirmed |
+| `query` | `llm/client.py` | Confirmed `/query` fallback |
 | `agentic` | `agentic/deepagent_github/chat_client.py` | Out-of-band planner calls |
-| `eval` | `tests/judge_eval.py` | Opt-in judge runs, written under `logs/evals/`, not this ledger |
+| `eval` | `tests/judge_eval.py` | Opt-in judge runs, kept separately under `logs/evals/` |
 
-`python -m metrics` prints `today` / `last_7d` tokens, a derived USD figure,
-per-provider and per-source row counts, and two data-quality counters
-(`usage_missing`, `rate_unknown`). A vendor-reported cost is shown beside
-the table figure (`table_usd` / `vendor_usd` / `delta_usd`) so rate-card
-drift is visible. Pricing follows the vendor's own rules, including Grok's
-long-context band and Claude's cache-write split; `PRICED_AS_OF` is flagged
-stale after 30 days (`utils/spend.py`). The Sequences section joins
-`source: query` rows to `logs/audit.jsonl` on `query_hash` (a blocked
-injection, then a later paid call on another hash, inside a 15-minute
-window on this loopback host). It is forensic only: not imported by
-`gate.py`, `graph.py`, or the MCP server, and not a `/query` policy point.
-The same-hash skip ([#1504](https://github.com/cgfixit/CyClaw/pull/1504))
-keeps that join from re-walking a hash it has already scanned.
+`python -m metrics` reports `today` and `last_7d` tokens, USD, provider/source
+counts, `usage_missing`, and `rate_unknown`. Vendor costs appear beside
+table prices as `table_usd`, `vendor_usd`, and `delta_usd`. Pricing includes
+Grok's long-context band and Claude's cache-write split; `PRICED_AS_OF`
+becomes stale after 30 days.
 
-`CYCLAW_SPEND_LIVE=1 python tests/spend_live_probe.py` spends real money,
-writes a temp ledger, deletes it, and asserts no forbidden field landed.
-Pytest does not collect it.
+The forensic Sequences section joins query rows to audit hashes. It detects
+a blocked injection followed within 15 minutes by a paid call on another
+hash on this host, skipping repeated same-hash escalation runs. Core
+request modules do not import it; it enforces no query policy.
 
-Schema, rate bands, and the probe walkthrough:
-[`spend/README.md`](spend/README.md).
+`CYCLAW_SPEND_LIVE=1 python tests/spend_live_probe.py` **spends real money**,
+checks forbidden fields in a temporary ledger, then deletes it. Pytest does
+not collect it. [Ledger schema, rate bands, and probes](spend/README.md).
 
 ---
 
 ## Benchmarks and Evals
 
-Four planes. Only the first blocks a merge. None of them is a graph node
-or a security control. Detail, thresholds, and what is unmeasured:
-[`docs/EVALS.md`](docs/EVALS.md).
+Only the retrieval gate blocks merges. These four evaluation paths are
+neither graph nodes nor security controls. [Thresholds and limits](docs/EVALS.md).
 
-| Plane | Command | Runs | Measures |
-|---|---|---|---|
-| Retrieval gate | `python -m tests.ci_rag_smoke` | every PR (`ci.yml`), no LLM | Corpus probe matrix through `route_by_score_node`, then hit@5 / Recall@5 / MRR on `tests/fixtures/groundedness/` (8 docs, 52 cases). Floors in that script fail the job ([#1399](https://github.com/cgfixit/CyClaw/pull/1399)). Injected chunks must be sanitized to `[FILTERED]` |
-| Local dogfood | `CYCLAW_EVAL_DOGFOOD=1 python scripts/cyclaw-eval-dogfood.py` | operator, opt-in | One case per category on the real loopback model. Not CI. The published Qwen matrix is [this audit](docs/audits/2026-09-12_Local_Qwen_Dogfood_Matrix.md); recipe in [`DOGFOOD.md`](tests/fixtures/groundedness/DOGFOOD.md) |
-| Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` | operator, spends money | Groundedness, completeness, abstention, graded by Claude |
-| Local judge | same command, `evals.local_judge.enabled: true` | operator, fully local | Same rubric, second loopback model of a different family |
+| Evaluation | Command | Scope |
+|---|---|---|
+| Retrieval gate | `python -m tests.ci_rag_smoke` | Every PR, no LLM. Corpus probes through `route_by_score_node`, then hit@5, Recall@5, and MRR on 8 documents and 52 fixture cases. Metric floors and `[FILTERED]` injection-chunk assertions block CI |
+| Local dogfood | `CYCLAW_EVAL_DOGFOOD=1 python scripts/cyclaw-eval-dogfood.py` | Opt-in real loopback model, one case per category. [Recipe](tests/fixtures/groundedness/DOGFOOD.md) |
+| Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` | Paid opt-in Claude grades groundedness, completeness, and abstention |
+| Local judge | Same command with `evals.local_judge.enabled: true` | Same rubric on a second loopback model from a different family |
 
-A published groundedness run reached hit@5, Recall@5, and MRR of 1.0 on
-that fixture. That does not mean every corpus question is answerable. The
+Published fixture retrieval reached 1.0 for hit@5, Recall@5, and MRR;
+this does not establish arbitrary-corpus accuracy. The
 [reranker bake-off](docs/audits/2026-09-26-reranker-bakeoff.md) found no
-model and threshold that passed its held-out probes, so the veto stays in
-shadow mode. No judge-plane result has been published.
+passing model/threshold combination, so vetoing stays disabled. No
+judge-plane result has been published.
 
-The [#1400](https://github.com/cgfixit/CyClaw/pull/1400) dogfood record is
-one opt-in run, not a standing benchmark: five `generated` rows on
-`qwen3.8:27b-mlx` on an M5 Pro with 48 GB, plus a sanitizer probe that
-never called the model. A down Ollama produces `unverified`, not a green
-matrix. It is not a GitHub Actions job.
+The [Qwen dogfood audit](docs/audits/2026-09-12_Local_Qwen_Dogfood_Matrix.md)
+is one opt-in run on an M5 Pro with 48 GB: five generated rows using
+`qwen3.8:27b-mlx` and a sanitizer probe with no model call. An unavailable
+Ollama produces `unverified`. Dogfood is not a GitHub Actions job.
+
+---
+
+## Current development
+
+Documentation follows [`origin/main` at `43fe809b`](https://github.com/cgfixit/CyClaw/commit/43fe809bc39e49e7d8476fb54a0bbe149521aaf8).
+As of 2026-10-03, these changes remain **open drafts, not shipped**:
+
+| Draft | Proposed change |
+|---|---|
+| [#1521](https://github.com/cgfixit/CyClaw/pull/1521) | Give both sandbox emulators the terminal's query timeout allowance instead of 10 seconds |
+| [#1522](https://github.com/cgfixit/CyClaw/pull/1522) | Preserve existing indexes when an empty or whitespace-only corpus produces no chunks |
+| [#1523](https://github.com/cgfixit/CyClaw/pull/1523) | Enforce `memory.facts.max_active` when reactivating inactive facts |
+| [#1524](https://github.com/cgfixit/CyClaw/pull/1524) | Remove a fresh clone if the initial agentic run record cannot be saved |
 
 ---
 
 ## Optional layers
 
-Master switches ship disabled except the Numbat stream and the spend
-ledger. Each link is the operator guide; this section is the shape.
+Master switches default off except the local Numbat stream and spend ledger.
 
-**Dropbox sync.** Out-of-band `rclone` pull into `data/corpus/`, with
-`max_delete` / `max_transfer` fuses, a single-instance lock, and an
-optional reindex when the corpus changes (exit code 10 means
-"reindex"). `python -m sync.cli setup`, then `test`, `sync --dry-run`,
-`sync`, `status`, `schedule`. The Sync Console calls `POST /ops/sync`
-(API key, audited). Scheduler glue covers cron, Windows Task Scheduler,
-and an opt-in Darwin launchd backend that prints `launchctl bootstrap`
-and does not load the agent.
-[Guide](docs/%21%20How-To-Guides/Dropbox_Sync_Guide.md) ·
-[`docs/SYNC_README.md`](docs/SYNC_README.md).
+**Dropbox sync.** `rclone` pulls into `data/corpus/` outside the request
+path. `max_delete`, `max_transfer`, and a single-instance lock bound each
+run. An optional reindex follows corpus changes; exit code 10 signals
+reindexing. Run `python -m sync.cli setup`, then `test`, `sync --dry-run`,
+`sync`, `status`, or `schedule`. The console uses audited, operator-gated
+`POST /ops/sync`. Schedulers cover cron, Windows tasks, and opt-in launchd;
+the Darwin generator prints `launchctl bootstrap` without loading it.
+[Sync guide](docs/%21%20How-To-Guides/Dropbox_Sync_Guide.md) and
+[CLI reference](docs/SYNC_README.md).
 
-**macOS launchd and Windows tasks.** Generators write a plist or task
-from resolved install paths and print the load command; none of them
-loads it. Token-bearing jobs chain the Keychain or Credential Manager
-wrapper and fail closed if the item is missing. Store a Keychain secret
-with a no-echo prompt (`macos/cyclaw-keychain-set.sh`); the trust is
-pinned with `-T /usr/bin/security`. Scheduled jobs include Dropbox sync,
-Telegram poll/health, fsconnect trash emptying, and OpenTweet.
-`macos/generate_service_plist.py` (and
-`windows/generate_service_task.py`) refuse a KeepAlive gateway without
-`--confirm` and a non-empty `--reason`, because that turns the loopback
-server into a listener that survives reboot. `macos/uninstall-cyclaw.sh`
-unschedules registered jobs and removes landed agents by label.
-[`macos/README.md`](macos/README.md) ·
-[`docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md`](docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md).
+**Native scheduling.** Generators resolve install paths, write plist/task
+files, and print load commands. Token-bearing jobs use the keystore
+wrappers described above. `macos/cyclaw-keychain-set.sh` prompts without
+echo and pins trust with `-T /usr/bin/security`. Jobs cover Dropbox,
+Telegram polling/health, fsconnect trash cleanup, and OpenTweet.
 
-**Fine-tune kit.** `tools/lora_finetune/` is QLoRA for the local model,
-so an operator model stops re-deriving the same invariants. Examples are
-generated from live source and each carries `source_refs`. It is outside
-every runtime install profile. The CUDA training install is currently
-blocked: Unsloth's ranges conflict with the kit's patched Hugging Face
-pins — do not bypass those, and audit that environment on its own (it is
-excluded from this repo's OSV walk). `finetune_qwen38.py` downloads a
-base checkpoint on first run; `local_files_only` is not set, so "offline"
-here means independent of the CyClaw server, not free of network. Seed
-the caches first on a no-egress machine. Dry path, no GPU:
-`python tools/lora_finetune/build_cyclaw_corpus.py` then
+`macos/generate_service_plist.py` and `windows/generate_service_task.py`
+require `--confirm` and non-empty `--reason` for a supervised gateway that
+survives reboot. `macos/uninstall-cyclaw.sh` removes registered jobs and
+landed agents by label. [macOS operations](macos/README.md) and
+[launchd design](docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md).
+
+**Fine-tuning.** The separate QLoRA kit assembles curated examples with
+`source_refs` to repository files. It is excluded from runtime install profiles and the
+repository OSV walk. CUDA installation is blocked by Unsloth's incompatible
+Hugging Face ranges; retain the patched pins and audit this environment
+separately. `finetune_qwen38.py` can download its base checkpoint because it
+does not set `local_files_only`; seed caches before using a no-egress host.
+For a GPU-free dry run, use
+`python tools/lora_finetune/build_cyclaw_corpus.py`, then
 `python tools/lora_finetune/dryrun_finetune.py`.
-[`tools/lora_finetune/README.md`](tools/lora_finetune/README.md).
+[Toolkit](tools/lora_finetune/README.md).
 
-**Agentic layer and coding loop.** Opt-in and out of band (I6).
-`agentic.enabled` ships `false`, and the CLI no-ops while it is false.
-`mode: write` and `writes_enabled: true` have shipped open since
-2026-08-07; a default checkout still cannot open a PR, because the
-master switch, a per-call `reason`, and `confirm` all have to be
-present. `gh` is an argv list (no shell, no token stored or forwarded).
+**Agentic coding.** `agentic.enabled: false` makes the out-of-band CLI
+no-op. Although `mode: write` and `writes_enabled: true` are configured,
+writes still require the master switch, a per-call `reason`, and `confirm`.
+`deepagent_github.enabled` and `allow_git_write_tools` also ship false.
+`gh` uses argv lists without shell evaluation or stored/forwarded tokens.
 The skills registry at `data/agentic/skills_registry.json` ships empty.
 
-The real-repo pipeline (`python -m agentic.cli real-repo-run`) clones
-into a jail, plans, patches, verifies, and stops for a human before it
-commits. Push and a draft PR are separate decisions.
-`deepagent_github.enabled` and `allow_git_write_tools` ship `false`.
-Verification runs caller-declared checks (pytest, ruff, …) through
-`agentic/executor`: Linux `unshare --net`, macOS `sandbox-exec`, Windows
-Job Object. A missing sandbox binary fails closed. There is no silent
-fallback to a plain `subprocess`, and there is no microVM — Windows is
-a process-tree kill, so sockets still work there.
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+`python -m agentic.cli real-repo-run` clones into a jail, plans, patches,
+verifies, then requires a human decision before committing. Push and draft
+PR creation are separate decisions. Caller-declared checks use Linux
+`unshare --net`, macOS `sandbox-exec`, or Windows Job Objects. Missing
+sandbox tools fail closed. Windows kills the process tree but does not
+block sockets; no platform uses a microVM. [Threat model](docs/THREAT_MODEL.md).
 
-`POST /ops/agentic` accepts `status`, `test`, `context`,
-`propose-skill`, and `apply-skill`. It does not accept `real-repo-run*`
-(422). The Agentic Console drives only the actions that route allows.
-An offline prose check (`agentic/unslop_bridge.py`) can run on the loop;
-`unslop.enabled` ships `false`.
+The console's `POST /ops/agentic` accepts `status`, `test`, `context`,
+`propose-skill`, and `apply-skill`; `real-repo-run*` receives 422.
+Optional offline prose checks use `agentic/unslop_bridge.py`, with
+`unslop.enabled: false` by default.
 
 ```bash
 python -m agentic.cli status
@@ -602,101 +541,86 @@ python -m agentic.cli context --repo          # also --pr 123 / --issue 45
 python -m agentic.cli propose-skill --name deploy --desc "..." --body-file s.md --reason "draft"
 ```
 
-[`agentic/README.md`](agentic/README.md#2-real-repo-coding-loop) ·
-[`docs/agentic/AGENTIC_README.md`](docs/agentic/AGENTIC_README.md#9-governed-github-coding-harness) ·
-[write-path rollback](docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
+[Real-repo loop](agentic/README.md#2-real-repo-coding-loop),
+[governed harness](docs/agentic/AGENTIC_README.md#9-governed-github-coding-harness),
+and [write rollback](docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
 
-**Connectors.** Three more switches, all off, all outside the request
-path. `fsconnect` does scoped, capped reads; writes are a second gate
-and ship off (on Windows every write op is refused even then).
-`sqlconnect` allows SELECT/WITH only. `netconnect` reads the local host
-and the existing neighbor cache for explicit RFC1918/loopback CIDRs and
-sends no probes. The browser FS and SQL consoles call the same
-subprocess shim (`POST /ops/fsconnect`, `POST /ops/sqlconnect`).
-[Filesystem](agentic/README.md#5-filesystem-connector) ·
-[SQL](agentic/README.md#6-sql-connector-read-only) ·
+**Connectors.** All three ship off and stay outside the request path.
+`fsconnect` bounds reads; writes need another gate and are always refused
+on Windows. `sqlconnect` permits SELECT/WITH only. `netconnect` reads host
+and neighbor-cache data for explicit RFC1918/loopback CIDRs without probes.
+The browser calls subprocess shims at `/ops/fsconnect` and `/ops/sqlconnect`.
+[Filesystem](agentic/README.md#5-filesystem-connector),
+[SQL](agentic/README.md#6-sql-connector-read-only), and
 [passive network](agentic/README.md#7-passive-network-connector).
 
-**NeMo Guardrails.** `guardrails.enabled: false` is a pass-through; only
-the boolean `true` arms it, and boot refuses a non-boolean. The core
-never imports `guardrails` (I6). `utils/guardrail_bridge.py` builds
-three callables, or `None` while the layer is off, and the graph's own
-edges still pick the route.
+**NeMo Guardrails.** Only literal `guardrails.enabled: true` activates the
+layer; boot rejects non-booleans. `utils/guardrail_bridge.py` supplies three
+callables or `None`, preserving core import isolation and graph routing.
 
-| Guard | Where | On a block |
+| Guard | Scope and refusal |
+|---|---|
+| Offline input | Local and best-effort paths only. Returns `block_message` through `audit_logger` without a model call |
+| Offline output | `local_llm` only. Replaces answers below `hallucination_threshold` (0.18) or leaking soul text |
+| NeMo `check()` | All four answer nodes with `pip install -e ".[guardrails]" -c constraints.txt` (`nemoguardrails==0.24.0`). Input refusal skips generation; output refusal replaces the answer |
+
+Rails run Python checks, not LLM calls; CI enforces that. Engine, package,
+or rail failures leave the answer intact and audit `guardrail_degraded`.
+With the layer enabled but the extra absent, every answered query is
+degraded. Blocked events also write hashes to unrotated
+`logs/guardrails.jsonl`. Inspect `python -m guardrails.cli status`.
+[Guardrails](guardrails/README.md) and [NeMo reference](docs/NeMo/README.md).
+
+**Numbat.** CyClaw calls the external CLI pinned at 0.2.0, schema 0.3.0;
+it never vendors or imports it.
+
+| Piece | Switch | Default and behavior |
 |---|---|---|
-| Offline input rail | `guardrail_input`, local and best-effort paths only (not Grok/Claude) | `block_message`, straight to `audit_logger`, no model call |
-| Offline output rail | `guardrail_output`, `local_llm` answers only (grounding overlap below `hallucination_threshold`, shipped `0.18`, plus a soul-leak check) | answer replaced |
-| NeMo `check()` | around the model call in all four answer nodes, once `pip install -e ".[guardrails]" -c constraints.txt` has installed `nemoguardrails==0.24.0` | input refusal skips the model; output refusal replaces the answer |
+| Stream | `numbat.enabled` | On. `utils/numbat_emitter.py` writes redacted audit/out-of-band events to `logs/numbat-events.ndjsonl`, rolling at 50 MiB to one `.1`. Its bounded writer cannot hold requests |
+| Pre-action hook | `policy.fallback.pre_action_hook.enabled` | Off. Deny-only after external consent. `engine: command` uses exit 0 for allow, 2 for deny; `engine: numbat` runs `rules test --no-builtin-rules`. Missing explicit allow, including failure, denies |
+| CEL monitor | `numbat.cel.enabled`, extra `numbat-cel` | Off. Requires the stream. Records matches after HTTP `/query`; never blocks |
+| Offline scoring | None | Operator CLI and `numbat-rules.yml`. Fixture checks are advisory; stream-contract checks block CI |
 
-No LLM-backed rail is active; CI asserts zero model calls from the
-flows. A rail that raises, an engine that cannot build, or a missing
-package fails open and sets `guardrail_degraded: true` — with the layer
-on and the extra not installed, every answered query is audited as
-degraded. Blocked events also go to `logs/guardrails.jsonl` (hashes
-only, not rotated). `python -m guardrails.cli status`.
-[`guardrails/README.md`](guardrails/README.md) ·
-[`docs/NeMo/README.md`](docs/NeMo/README.md).
+Nothing scores the live file during a request. Avoid `numbat hook` as the
+command engine: it drops provider/URL and exits 0 on errors. No gate rules
+ship; examples are in `tests/fixtures/numbat/gate-rules/`. Events include
+hostname, user, and uid (`N/A` on Windows). Audit and metrics preserve
+`hook_allowed`, `hook_denied`, `hook_timeout`, `hook_error`, `hook_failure`,
+and `hook_misconfigured` reason codes.
 
-**Numbat.** External Go CLI, pinned at 0.2.0 (schema 0.3.0). CyClaw
-never vendors or imports it. Four pieces, four switches:
-
-| Piece | Switch | Ships | Does |
-|---|---|---|---|
-| Stream (`utils/numbat_emitter.py`) | `numbat.enabled` | **on** | Appends redacted audit records and out-of-band actions to `logs/numbat-events.ndjsonl`. Rolls at 50 MiB to one `.1` file. One writer thread; a stall cannot hold the request |
-| Pre-action hook | `policy.fallback.pre_action_hook.enabled` | off | Deny-only, after the triple gate has already allowed the call. `engine: command` (exit 0 allow, 2 deny) or `engine: numbat` (pinned CLI, `rules test --no-builtin-rules`). Anything but an explicit allow denies, including engine failure |
-| CEL monitor | `numbat.cel.enabled` (extra `numbat-cel`) | off | Records matches on HTTP `/query` after the graph returns. Never blocks. Needs the stream on |
-| Offline scoring | none | CI (`numbat-rules.yml`) and an operator-run CLI | Shape and rules. The hand-written fixture job is advisory; the stream-contract jobs block |
-
-Nothing scores the live file at request time. Do not point the command
-engine at `numbat hook`: it drops the provider and URL and exits 0 on
-errors. No rules ship; examples live in
-`tests/fixtures/numbat/gate-rules/`. Events carry the host name, user,
-and uid (`N/A` on Windows). Verdict reason codes (`hook_allowed`,
-`hook_denied`, `hook_timeout`, `hook_error`, `hook_failure`,
-`hook_misconfigured`) land on the audit record and in `cyclaw-metrics`.
-`/health` reports whether an enabled hook could decide a call now.
-[Pre-action gate](docs/security-philosophy/numbat_pre_action_gate.md) ·
-[stream](docs/security-philosophy/numbat_secondary_evaluator.md) ·
+`/health` reports readiness. Operator-gated `/audit/summary` exposes
+`pre_action_hook_last_verdict`: this process's latest codes, provider,
+engine, and timestamp, or `null` before its first verdict. Public health
+contains no decision history.
+[Pre-action gate](docs/security-philosophy/numbat_pre_action_gate.md),
+[stream](docs/security-philosophy/numbat_secondary_evaluator.md), and
 [phase status](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md).
 
-**Telegram and OpenTweet.** Both out of band, both `enabled: false`,
-both reach the pipeline only through loopback `POST /query` — never a
-direct call into `graph.py`. The bot token and OpenTweet credentials
-come from the env var named in config, never from YAML.
+**Telegram and OpenTweet.** Disabled by default, both call loopback
+`POST /query` outside the core graph imports. Credentials come from the
+environment variable named in config, never YAML.
 
-Telegram: `mode: notify` (outbound) or `mode: chat` (long-poll; no
-public webhook). `allowed_chat_ids` must be non-empty when enabled.
-Chat text can set `user_confirmed_online` only via the exact
-`/online on <grok|claude>` command, only when `allow_hybrid_confirm`
-is on (it ships off), and only for that one message (hard cap 300s).
-The triple gate is still the authority. Media staging
-(`media.enabled` ships off) accepts `/save --confirm <reason>` only
-through the fsconnect write path. `python -m telegram.cli status`.
+Telegram supports outbound `notify` or long-poll `chat`, without public
+webhooks. Enabling it requires non-empty `allowed_chat_ids`. Only the exact
+`/online on <grok|claude>` command can confirm a paid call, with
+`allow_hybrid_confirm` enabled (default off), for one message and at most
+300 seconds. The triple gate still applies. Optional media staging uses
+`/save --confirm <reason>` through fsconnect writes. Inspect
+`python -m telegram.cli status`.
 
-OpenTweet generation always posts `user_confirmed_online: false`, so a
-weekly draft cannot bill. The default write is a draft;
-`scheduled_date` is opt-in (`opentweet.schedule_enabled`). Schedulers
-never send `publish_now`. `python -m opentweet.cli status`.
-[`docs/channels/TELEGRAM_DESIGN.md`](docs/channels/TELEGRAM_DESIGN.md) ·
-[`telegram/README.md`](telegram/README.md) ·
-[`docs/channels/OPENTWEET_DESIGN.md`](docs/channels/OPENTWEET_DESIGN.md) ·
-[`opentweet/README.md`](opentweet/README.md).
+OpenTweet generation forces `user_confirmed_online: false`. Writes default
+to drafts; `scheduled_date` requires `opentweet.schedule_enabled`.
+Schedulers never send `publish_now`. Inspect `python -m opentweet.cli status`.
+[Telegram design](docs/channels/TELEGRAM_DESIGN.md),
+[Telegram operations](telegram/README.md),
+[OpenTweet design](docs/channels/OPENTWEET_DESIGN.md), and
+[OpenTweet operations](opentweet/README.md).
 
-**Worth knowing, easy to miss.**
-
-- OpenTweet cannot spend, by construction (confirmation forced off).
-- `netconnect` inventories; it does not scan.
-- The shadow reranker records a logit and changes no route until you set
-  a threshold, and a threshold cannot create a hit.
-- Memory consolidation is not a feature yet. The function ignores the flag.
-- `policy.fallback.enabled` is not read. The triple gate is the control.
-  Boot rejects `require_user_confirm: false`, so that key cannot pose as
-  an off switch.
-- Telemetry env is stripped before heavy imports, and ONNX gets a
-  post-import suppression call. That is not a network firewall.
-  [`SECURITY.md`](SECURITY.md) ·
-  [kill reference](docs/security-philosophy/cyclaw_telemetry_kill.env).
+`policy.fallback.enabled` is unused; the triple gate controls external
+calls. Boot rejects `require_user_confirm: false`. Telemetry suppression
+runs before heavy imports, plus ONNX's post-import call. It is not a
+network firewall. [Security policy](SECURITY.md) and
+[kill reference](docs/security-philosophy/cyclaw_telemetry_kill.env).
 
 ---
 
@@ -710,7 +634,7 @@ never send `publish_now`. `python -m opentweet.cli status`.
 | Rate limit | 60 req/min per IP, before the filter. In-memory unless you set SQLite or Postgres |
 | Proxy bypass | `httpx` clients set `trust_env=False` |
 | Telemetry | Kill maps before any SDK import (invariant-guard G1), plus ONNX's post-import call. Not a network kill switch. [`SECURITY.md`](SECURITY.md) |
-| Audit | SHA-256 query hash + redacted metadata in `logs/audit.jsonl`, then the derived Numbat stream. `include_query_hash: false` stores raw query text |
+| Audit | SHA-256 query hash + redacted metadata in `logs/audit.jsonl`, then the derived Numbat stream. `include_query_hash: false` stores redacted query text |
 | Grok / Claude | [Triple gate](#what-it-does) item 5, then the opt-in pre-action hook (deny-only once enabled) |
 | Soul writes | Human `reason` + enforced scan + atomic replace, on `POST /soul/apply` only. Restore, reload, and drift recovery are the exceptions in [What It Does](#what-it-does) item 4 |
 | API key | Fail closed. Bearer key, the browser's console cookie, or (with `auth.enabled`) an admin login; cookie writes need CSRF. The loopback bypass is `security.api_key_optional` plus three more conditions ([API Key Setup](#api-key-setup-soul-mutations)) |
@@ -719,9 +643,9 @@ never send `publish_now`. `python -m opentweet.cli status`.
 | Guardrails | Opt-in, deny-only, fail open with `guardrail_degraded` audited. Not a router |
 | Channels | Off by default. Loopback `POST /query` only. OpenTweet cannot confirm a paid call |
 | launchd / tasks | No tokens in the plist or task XML. Supervised-service generators require `--confirm` and `--reason` |
-| `/ops/*` | API key, rate limit, audit. `subprocess.run([...])` only — never imports `sync` or `agentic` |
+| `/ops/*` | Operator access, rate limit, audit. Subprocess argv lists preserve core import isolation |
 | `/auth/*` | Present either way; 503 while auth is off. When on, `/query` needs a session or device token. Last `admin` cannot be removed |
-| `/memory/*` | Off unless enabled. Mutations need the API key and a non-empty `reason` |
+| `/memory/*` | Off unless enabled. Mutations need operator access and a non-empty `reason` |
 | Container | Non-root, `no-new-privileges`, dropped caps, read-only rootfs. Optional Falco (`deploy/falco/`) ships off |
 | Dependency risk | `chromadb==1.5.9` carries CVE-2026-45829, accepted only for embedded `PersistentClient`. [`SECURITY.md`](SECURITY.md) |
 
@@ -753,7 +677,7 @@ CyClaw/
 ├── sync/                   # optional Dropbox pull
 ├── utils/                  # sanitizer, logger, personality, spend,
 │                           # sequence_detect, numbat_*, endpoint_trust,
-│                           # authn*, telemetry_kill, onnx_telemetry
+│                           # authn*, console_session, telemetry_kill, onnx_telemetry
 ├── macos/  powershell/  windows/   # native installers and schedulers
 ├── spend/                  # ledger reference
 ├── schemas/  static/  tests/  docs/  deploy/

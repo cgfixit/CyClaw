@@ -99,6 +99,23 @@ def test_dockerignore_directory_prefix_rejects_nested_siblings() -> None:
     assert _dockerignore_covers_path({"data/corpus/"}, "data/corpus")
 
 
+def test_dockerignore_excludes_secret_files_at_every_depth() -> None:
+    """A bare `.env` / `*.pem` pattern matches the build-context root only.
+
+    The Dockerfile's `COPY . .` would bake a nested `sub/.env`, a TLS key, or an
+    rclone.conf into an image layer (issue #1526). Verified against the Docker
+    SDK's own dockerignore matcher when the `**/` forms were added.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    ignored = {
+        line.strip()
+        for line in (repo_root / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    for pattern in ("**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/rclone.conf"):
+        assert pattern in ignored, f".dockerignore is missing {pattern}"
+
+
 def test_git_does_not_track_python_bytecode() -> None:
     """GitHub 'Add files via upload' bypasses .gitignore; CI must catch .pyc."""
     git_bin = shutil.which("git")

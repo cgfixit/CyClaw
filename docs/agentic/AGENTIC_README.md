@@ -1,16 +1,16 @@
 # CyClaw Agentic Layer — User Guide (v0.1, experimental)
 
-**Status (2026-08-04):** Still experimental / default-off. Beyond the original
+**Status:** Experimental and default-off. Beyond the original
 GitHub-context + skills-registry surface, this layer also owns
 `real_repo_loop`, fsconnect/sqlconnect CLIs, and (retired but retained)
-`deepagent_github` subgraph code — see §9 and
+`deepagent_github` subgraph code. See §9 and
 `docs/agentic/GITHUB_WRITE_ENABLEMENT.md`. Primary invocation remains
 `python -m agentic.cli` (or the authenticated `/ops/*` subprocess shim).
 
 An **opt-in, out-of-band** layer that gives CyClaw read-only GitHub context and a
-governed local skills registry. It runs strictly as `python -m agentic.cli` and is
-**never imported** by the gateway, graph, or MCP server — so it cannot affect
-retrieval, routing, or the MCP surface. **Disabled by default.**
+governed local skills registry. It runs as `python -m agentic.cli`. The six
+core modules never import it, so it cannot affect retrieval, routing, or the
+MCP surface. **Disabled by default.**
 
 > Security posture in one line: reads are local metadata via the `gh` CLI
 > (argv-list, no shell, audited, no token forwarded by CyClaw); **GitHub writes
@@ -156,6 +156,12 @@ pushes or opens a GitHub PR on its own: explicit push uses
 `real-repo-run-plan`. `OpsAgenticRequest.action` in `schemas/api.py` accepts
 none of these coding-loop actions, so `POST /ops/agentic` rejects them with
 422.
+
+On the current base, a failure while saving the first run record can leave the
+new clone without a record that `real-repo-run-discard` can find. Draft
+[#1524](https://github.com/cgfixit/CyClaw/pull/1524) adds cleanup for that
+specific startup failure. The draft does not change the lifecycle of recorded
+runs.
 
 **Two-stage: plan with cloud, implement locally.** `real-repo-run-plan`
 (`agentic/real_repo_loop.py`'s `generate_plan`) is a separate, one-shot

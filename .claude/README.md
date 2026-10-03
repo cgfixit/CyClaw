@@ -1,4 +1,4 @@
-# `.claude/` — Project Skills & Workflows
+# `.claude/` — project skills and workflows
 
 Quick reference for Claude Code assistance patterns in CyClaw.
 
@@ -7,8 +7,8 @@ Quick reference for Claude Code assistance patterns in CyClaw.
 The skills directory holds many more skills than the handful below (operational,
 refactor-loop, and agent skills). For the **authoritative, complete list**, see the
 **§9 "Skills"** section of the root [`CLAUDE.md`](../CLAUDE.md) — kept in
-sync there so a second list does not drift. The current tree has **22 project
-skills and 27 slash commands**, including five standalone commands. A few common entry points:
+sync there so a second list does not drift. The current tree has **23 project
+skills and 28 slash commands**, including five standalone commands. A few common entry points:
 
 These are Claude Code slash commands typed into the session, not shell
 commands — the fence below is `text` on purpose, because pasting these into a
@@ -18,6 +18,7 @@ terminal only produces "No such file or directory".
 /invariant-guard         # Static-assert the six security invariants (stdlib)
 /config-guard            # Static-validate config.yaml's relational/value/threat-model contract
 /dep-guard               # Static-validate dependency-pin invariants (pyproject + constraints)
+/dotenv-guard            # Keep secret-classified names out of dotenv files and loaders
 /run                     # Smoke-test the FastAPI server (smoke suite, sections A-G)
 /architecture-refactor   # Start architecture refactor loop
 /tests-refactor          # Start test coverage loop
@@ -29,10 +30,11 @@ terminal only produces "No such file or directory".
 /CyClaw-Optimize         # there are many more, verify folder each time
 ```
 
-The three static guards — `/invariant-guard` (topology & imports), `/config-guard`
-(config.yaml numbers & relations), `/dep-guard` (dependency pins) — are the
-pre-merge/pre-install checks; each ships a `check_*.py` plus a `verify.sh` that
-CI runs automatically. See the authoritative table in [`CLAUDE.md`](../CLAUDE.md) §9.
+The four static guards are `/invariant-guard` for topology and imports,
+`/config-guard` for config values and relations, `/dep-guard` for dependency
+pins, and `/dotenv-guard` for secret-at-rest policy. Each ships a checker and a
+`verify.sh`; CI runs them automatically. See the authoritative table in
+[`CLAUDE.md`](../CLAUDE.md) §9.
 
 ## Refactor Loop Pattern
 
