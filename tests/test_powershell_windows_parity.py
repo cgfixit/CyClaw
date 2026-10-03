@@ -116,22 +116,47 @@ def test_uninstall_missing_schtasks_delete_is_noop_under_ps51() -> None:
 
 
 def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
-    """Daily cyclaw / Invoke-CyClaw.ps1 must source ~/.CyClaw/.env when empty."""
+    """Invoke loads non-secrets from .env and secrets from Credential Manager."""
     text = (_PS / "Invoke-CyClaw.ps1").read_text(encoding="utf-8")
+    store = (_PS / "CyClaw-SecretStore.ps1").read_text(encoding="utf-8")
+    install = (_PS / "Install-CyClaw.ps1").read_text(encoding="utf-8")
+    uninstall = (_PS / "Uninstall-CyClaw.ps1").read_text(encoding="utf-8")
     assert 'Join-Path $Home_ ".env"' in text
     assert 'Join-Path $Repo ".env"' in text
-    assert "Test-CyclawDotenvOwnerOnly" in text
-    assert "WindowsIdentity" in text
-    assert "GetCurrent().User" in text
-    assert "SecurityIdentifier" in text
-    assert "BUILTIN\\Users" not in text
-    assert "FileSystemRights]::ReadData" not in text
-    assert "(R,W)" in text
-    assert "refusing to source" in text
-    assert "ACL is not owner-only" in text
-    load_idx = text.index('Join-Path $Home_ ".env"')
+    assert "Import-CyclawDotenv" in text
+    assert "Import-CyclawCredentialSecrets" in text
+    assert "Test-CyclawSecretName" in store
+    assert "CyclawSecretTargets.ContainsKey" in store or "CyclawSecretTargets.ContainsKey($Name)" in store
+    assert "*_API_KEY" in store
+    assert "*_TOKEN" in store
+    assert "*_SECRET" in store
+    assert "*_PASSWORD" in store
+    assert "Test-CyclawDotenvOwnerOnly" in store
+    assert "WindowsIdentity" in store
+    assert "GetCurrent().User" in store
+    assert "SecurityIdentifier" in store
+    assert "BUILTIN\\Users" not in store
+    assert "FileSystemRights]::ReadData" not in store
+    assert "(R,W)" in store
+    assert "refusing to source" in store
+    assert "ACL is not owner-only" in store
+    assert "No backup was written" in store
+    assert "Ensure-CyclawPublicEnvFile" in store
+    assert "-WriteEnvFile" in install or "[switch]$WriteEnvFile" in install
+    assert "Sync-CyclawPlaintextToCredentialManager" in install
+    assert "Sync-CyclawPlaintextToCredentialManager" not in uninstall
+    assert "Write-CyclawCredential" not in uninstall
+    assert "Remove-CyclawPlaintextIfCredentialMatches" in uninstall
+    assert "RemoveCredentials" in uninstall
+    assert "$env:CYCLAW_REPO" not in uninstall
+    assert "CredDelete" in store
+    assert "StringComparison]::Ordinal" in store
+    assert "Get-CyclawEnvLineAssignments" in store
+    assert "source $Home_\\.env" not in text
+    load_idx = text.index("Import-CyclawDotenv")
+    cred_idx = text.index("Import-CyclawCredentialSecrets")
     start_idx = text.index("& $VenvPy gate.py")
-    assert load_idx < start_idx
+    assert load_idx < cred_idx < start_idx
     warn = "Typing the key in the browser cannot configure the server"
     assert warn in text
     assert load_idx < text.index(warn)
@@ -250,15 +275,16 @@ def test_credman_marshal_sites_carry_devskim_suppression() -> None:
     """
     env_text = (_PS / "CyClaw-CredMan-Env.ps1").read_text(encoding="utf-8")
     set_text = (_PS / "CyClaw-CredMan-Set.ps1").read_text(encoding="utf-8")
+    store_text = (_PS / "CyClaw-SecretStore.ps1").read_text(encoding="utf-8")
     for line in env_text.splitlines():
         if "InteropServices.Marshal" in line or "PtrToStructure" in line:
             assert "DevSkim: ignore DS104456" in line, line
-    for line in set_text.splitlines():
-        if "InteropServices.Marshal" in line:
-            assert "DevSkim: ignore DS104456" in line, line
-        if "Marshal.WriteByte" in line:
-            assert "DevSkim: ignore DS104456" in line, line
+    for blob in (set_text, store_text):
+        for line in blob.splitlines():
+            if "InteropServices.Marshal" in line or "PtrToStructure" in line or "Marshal.WriteByte" in line:
+                assert "DevSkim: ignore DS104456" in line, line
     assert "Dispose()" in set_text
+    assert not re.search(r"(?m)^\s*cmdkey\b", store_text, re.IGNORECASE)
 
 
 def test_credman_set_ps7_ctrl_c_registers_cancel_keypress() -> None:
@@ -318,6 +344,26 @@ def test_credman_env_validates_env_var_name() -> None:
     assert r"^[A-Za-z_][A-Za-z0-9_]*$" in text
 
 
+def test_remove_credentials_prompts_unless_yes() -> None:
+    """-RemoveCredentials asks y/N; -Yes confirms that purge and nothing else."""
+    text = (_PS / "Uninstall-CyClaw.ps1").read_text(encoding="utf-8")
+    readme = (_PS / "README.md").read_text(encoding="utf-8")
+    assert "[switch]$Yes" in text
+    assert "if ($Yes)" in text
+    assert "kept Credential Manager items" in text
+    call = text.index('Confirm-CyclawDestructive "Delete the five documented CyClaw Credential Manager items?"')
+    kept = text.index("kept Credential Manager items")
+    remove = text.index("Remove-CyclawCredential")
+    assert call < kept < remove
+    confirm = text.split("function Confirm-CyclawDestructive", 1)[1].split("\n}", 1)[0]
+    assert confirm.index("if ($Yes)") < confirm.index("Read-Host")
+    assert "(y/N)" in confirm
+    home = text.split("# -- home directory", 1)[1]
+    assert "$Yes" not in home
+    assert "-Yes" in readme
+    assert "y/N" in readme
+
+
 def test_powershell_readme_documents_credman_and_known_task_names() -> None:
     readme = (_PS / "README.md").read_text(encoding="utf-8")
     assert "CyClaw-CredMan-Set.ps1" in readme
@@ -325,3 +371,52 @@ def test_powershell_readme_documents_credman_and_known_task_names() -> None:
     assert "Setup-FsConnect.ps1" in readme
     assert "CyClaw Dropbox Sync" in readme
     assert "wildcard" in readme.lower()
+    assert "never writes a credential" in readme
+    assert "-RemoveCredentials" in readme
+
+
+def test_env_line_parser_matches_the_shell_cases() -> None:
+    """The PowerShell helper sees every assignment the shell helper sees."""
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh is not installed")
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. ./powershell/CyClaw-SecretStore.ps1
+function Dump([string]$Line) {
+  foreach ($row in @(Get-CyclawEnvLineAssignments $Line)) {
+    Write-Output ("{0}|{1}|{2}" -f $row.Name, $row.Op, $row.Value)
+  }
+}
+Dump "FOO=1 BAR=2"
+Dump "FOO+=suffix"
+Dump "export FOO='a b'; GROK_API_KEY=secret"
+Dump "declare -x FOO=1"
+Dump "typeset FOO=1"
+Dump "readonly FOO=1"
+Dump "echo NAME=value"
+$bom = [char]0xFEFF
+Dump ($bom + "CYCLAW_GATE_PORT=8788")
+Dump "FOO='abc'\''def'"
+"""
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", script],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "FOO|=|1",
+        "BAR|=|2",
+        "FOO|+=|suffix",
+        "FOO|=|a b",
+        "GROK_API_KEY|=|secret",
+        "FOO|=|1",
+        "FOO|=|1",
+        "FOO|=|1",
+        "CYCLAW_GATE_PORT|=|8788",
+        "FOO|=|abc'def",
+    ]

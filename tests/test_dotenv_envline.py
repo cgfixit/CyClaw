@@ -17,7 +17,9 @@ _ENVLINE_PATH = _SKILL / "envline.py"
 _VECTORS = _SKILL / "envline_vectors.tsv"
 _BASELINE = _SKILL / "baseline.txt"
 
-# K4/K5 rows owned by draft #1507. A later edit may add lines; these must stay.
+# These five rows described the default plaintext write and the raw rc source.
+# #1507 removed both behaviors and deleted the rows. They must stay gone:
+# a real finding fails dotenv-guard, with no baseline line to hide it.
 _K4_K5_BASELINE = (
     "K4\t~/.CyClaw/.env:CYCLAW_API_KEY\tmain: setup-cyclaw-keys.sh writes secrets to ~/.CyClaw/.env (mode 600) by default. Open draft #1507 proposes Keychain-only storage; delete if it lands.",
     "K4\t~/.CyClaw/.env:GROK_API_KEY\tmain: same default write (--grok-dummy exercises it). Open draft #1507 proposes Keychain-only storage; delete if it lands.",
@@ -86,7 +88,8 @@ def test_literal_scan_sees_quoted_text_the_tokenizer_does_not() -> None:
     assert envline.literal_secret_names(text) == ["grok_api_key"]
 
 
-def test_k4_k5_baseline_entries_are_unchanged() -> None:
+def test_k4_k5_plaintext_baseline_entries_stay_deleted() -> None:
+    """The plaintext-write and raw-source baseline rows do not come back."""
     lines = _BASELINE.read_text(encoding="utf-8").splitlines()
     for entry in _K4_K5_BASELINE:
-        assert entry in lines
+        assert entry not in lines

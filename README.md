@@ -107,25 +107,25 @@ until an arm64 image is verified. `pip install -e .` is what creates the
 `python -m …` works without it.
 
 **Where keys live.** `gate.py` reads the environment. It does not load a
-dotenv file. On macOS, `macos/setup-cyclaw-keys.sh` persists
-`CYCLAW_API_KEY` to the Keychain **and** to `~/.CyClaw/.env` (mode 600,
-gitignored) so an interactive shell can start the gateway. Windows has no
-key bootstrap: `Install-CyClaw.ps1` does not write the key, and
-`Invoke-CyClaw.ps1` does not read Credential Manager. It uses a key already
-in the session, else one you put in `%USERPROFILE%\.CyClaw\.env` or a
-checkout `.env`, and sources either file only when every Allow ACE is the
-current user. Persist it yourself ([Windows](#windows--powershell--cmdexe))
-or a new session starts without it and soul/ops routes return 401.
-LaunchAgents and scheduled tasks never read a dotenv file and never embed
-a token in a plist or task XML: macOS fetches Keychain at exec time
+dotenv file. On macOS, `macos/setup-cyclaw-keys.sh` stores allowlisted
+secrets in the Keychain. `~/.CyClaw/.env` (mode 600, gitignored) holds
+ordinary settings; secret lines land there only with `--write-env-file`.
+On Windows, `Install-CyClaw.ps1` stores allowlisted secrets in Credential
+Manager. `Invoke-CyClaw.ps1` loads non-secret settings from the first
+owner-only file found (`%USERPROFILE%\.CyClaw\.env`, then a checkout
+dotenv) and reads secrets from Credential Manager only. Services never
+get secrets from a dotenv file. LaunchAgents and scheduled tasks never
+embed a token in a plist or task XML: macOS fetches Keychain at exec time
 (`macos/cyclaw-keychain-env.sh`), Windows uses Credential Manager
-(`powershell/CyClaw-CredMan-Env.ps1`), which you fill by hand with
-`powershell/CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.api-key`. Both fail
-closed if the item is missing. Secrets are not written into `config.yaml`,
-not inlined into a shell rc file, and not placed on argv. Provider keys
-(`GROK_API_KEY`, `ANTHROPIC_API_KEY`) are env vars too — see
-[`spend/README.md`](spend/README.md#api-keys). The server boots without
-them; that provider then reports unavailable.
+(`powershell/CyClaw-CredMan-Env.ps1`). The gate scheduled task receives
+the API key only when `windows/generate_service_task.py` is passed
+`--api-key-target`; without that flag the task has no API key. Fill the
+item with `powershell/CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.api-key`.
+Both platforms fail closed if the item is missing. Secrets are not written
+into `config.yaml`, not inlined into a shell rc file, and not placed on
+argv. Provider keys (`GROK_API_KEY`, `ANTHROPIC_API_KEY`) are env vars too
+— see [`spend/README.md`](spend/README.md#api-keys). The server boots
+without them; that provider then reports unavailable.
 
 **Offline vs hybrid.** Shipped `app.mode` is `hybrid`, which only *allows*
 a paid call. The call still needs `models.grok.enabled` or
@@ -422,9 +422,15 @@ the current user and open a new session before `python gate.py`:
 [System.Environment]::SetEnvironmentVariable("CYCLAW_API_KEY", $env:CYCLAW_API_KEY, "User")
 ```
 
-cmd.exe: `set CYCLAW_API_KEY=<value>` for the session, `setx CYCLAW_API_KEY "<value>"`
-to persist. Scheduled-task secrets use Credential Manager
-([`powershell/README.md`](powershell/README.md#scripts)).
+cmd.exe session only: `set CYCLAW_API_KEY=<value>`. To persist for the
+current user without putting the key on argv:
+
+```powershell
+[Environment]::SetEnvironmentVariable('CYCLAW_API_KEY', '<value>', 'User')
+```
+
+Open a new session before `python gate.py`. Scheduled-task secrets use
+Credential Manager ([`powershell/README.md`](powershell/README.md#scripts)).
 
 ## Per-User Authentication
 

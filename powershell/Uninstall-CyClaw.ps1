@@ -11,15 +11,30 @@
 .PARAMETER RemoveFsConnect
   Prompt before deleting %USERPROFILE%\CyClaw-FS (the confined read jail).
 
+.PARAMETER RemoveCredentials
+  Delete the five documented Credential Manager targets. Prompts y/N unless
+  -Yes is also passed (the macOS twin is --remove-keychain / --yes). Plaintext
+  lines are left in place so the purge is not also the only copy. This switch
+  never writes a credential. Without it, uninstall only removes a plaintext
+  line whose value matches the item already stored.
+
+.PARAMETER Yes
+  Confirm -RemoveCredentials without a prompt. Does not by itself delete
+  credentials, the home directory, or the fsconnect jail.
+
 .EXAMPLE
   .\Uninstall-CyClaw.ps1              # keep ~/.CyClaw data w/ uninstall
   .\Uninstall-CyClaw.ps1 -RemoveHome  # also delete ~/.CyClaw
   .\Uninstall-CyClaw.ps1 -RemoveFsConnect
+  .\Uninstall-CyClaw.ps1 -RemoveCredentials
+  .\Uninstall-CyClaw.ps1 -RemoveCredentials -Yes
 #>
 [CmdletBinding()]
 param(
     [switch]$RemoveHome,
-    [switch]$RemoveFsConnect
+    [switch]$RemoveFsConnect,
+    [switch]$RemoveCredentials,
+    [switch]$Yes
 )
 
 $ErrorActionPreference = "Stop"
@@ -89,6 +104,43 @@ function Unschedule-KnownTasks {
 
 Unschedule-SyncJob
 Unschedule-KnownTasks
+
+function Confirm-CyclawDestructive([string]$Prompt) {
+    # -Yes confirms an already-requested destructive switch. It does not
+    # invent one. Empty input is N, matching macos/uninstall-cyclaw.sh.
+    if ($Yes) { return $true }
+    $answer = Read-Host "$Prompt (y/N)"
+    return ($answer -eq "y" -or $answer -eq "Y")
+}
+
+# Never write Credential Manager during uninstall. -RemoveCredentials purges
+# the five documented targets only after a y/N prompt (or -Yes) and skips the
+# plaintext strip, so both copies are not destroyed together. Otherwise a
+# line is removed only when the stored value matches. Scope is the home
+# dotenv and the install layout %USERPROFILE%\.CyClaw\repo dotenv. The
+# checkout environment variable is not followed.
+$secretStore = Join-Path $PSScriptRoot "CyClaw-SecretStore.ps1"
+if (Test-Path -LiteralPath $secretStore) {
+    . $secretStore
+    if ($RemoveCredentials) {
+        Write-Host "[cyclaw] -RemoveCredentials: leaving plaintext secret lines in place so the Credential Manager purge is not also the only copy."
+        if (-not (Confirm-CyclawDestructive "Delete the five documented CyClaw Credential Manager items?")) {
+            Write-Host "[cyclaw] kept Credential Manager items"
+        } elseif (Test-CyclawWindowsHost) {
+            foreach ($credName in @("CYCLAW_API_KEY", "TELEGRAM_BOT_TOKEN", "GROK_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN")) {
+                $credTarget = $script:CyclawSecretTargets[$credName]
+                if (Remove-CyclawCredential $credTarget) {
+                    Write-Host "[cyclaw] removed Credential Manager item $credTarget"
+                }
+            }
+        } else {
+            Write-Host "[cyclaw] WARNING: -RemoveCredentials is a no-op off Windows." -ForegroundColor Yellow
+        }
+    } else {
+        $repoForEnv = Join-Path $Home_ "repo"
+        Remove-CyclawPlaintextIfCredentialMatches -HomeDir $Home_ -RepoDir $repoForEnv
+    }
+}
 
 # -- profile block --------------------------------------------------------------
 $Marker = "# >>> cyclaw harness >>>"

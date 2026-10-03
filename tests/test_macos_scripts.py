@@ -216,24 +216,32 @@ def test_invoke_cyclaw_propagates_a_post_start_child_failure(tmp_path: Path) -> 
     assert "RAG gateway process" in result.stderr
 
 
-def test_invoke_cyclaw_loads_persisted_api_key_from_dotenv() -> None:
-    """Daily cyclaw / invoke must source ~/.CyClaw/.env when CYCLAW_API_KEY is empty.
+def test_invoke_cyclaw_loads_nonsensitive_dotenv_and_keychain_secrets() -> None:
+    """Daily cyclaw / invoke loads ordinary settings from dotenv, secrets from Keychain.
 
     The cyclaw() rc function bypasses the install shim, so the one place all
     launch paths hit is invoke-cyclaw.sh. Browser paste cannot set the server env.
+    Secret lines in .env are scrubbed. A missing Keychain item is not filled
+    from the file.
     """
     text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
+    helper = (_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh").read_text(encoding="utf-8")
+    public = (_REPO_ROOT / "macos" / "cyclaw-public-env.sh").read_text(encoding="utf-8")
+    assert "cyclaw-keychain-load.sh" in text
     assert "$HOME_DIR/.env" in text, "invoke must load HOME_DIR/.env"
     assert "refusing to source .env with xtrace" in text
-    assert "refusing to source $f (mode" in text
-    assert "want 600 or 400" in text
-    assert '/usr/bin/stat -f %Lp' in text
-    assert 'stat -c %a' in text
+    assert "_load_os_secrets" in text
+    assert "does not read that secret from .env" in text
     load_idx = text.index("$HOME_DIR/.env")
     spawn_idx = text.index('"$VENV_PY" gate.py &')
-    assert load_idx < spawn_idx, "dotenv load must run before gate.py is spawned"
-    window = text[text.index("_source_dotenv() {") : load_idx]
-    assert "set -a" in window, "sourced .env assignments must be exported (set -a)"
+    assert load_idx < text.index("_load_os_secrets") < spawn_idx
+    assert "refusing to source $f (mode" in helper
+    assert "want 600 or 400" in helper
+    assert '/usr/bin/stat -f %Lp' in helper
+    assert 'stat -c %a' in helper
+    assert "set -a" in helper
+    assert "*_API_KEY|*_TOKEN|*_SECRET|*_PASSWORD" in public
+    assert "CYCLAW_API_KEY" in public
     warn = "Typing the key in the browser cannot configure the server"
     assert warn in text
     assert load_idx < text.index(warn)
@@ -241,7 +249,7 @@ def test_invoke_cyclaw_loads_persisted_api_key_from_dotenv() -> None:
 
 @pytest.mark.skipif(os.name == "nt", reason="requires POSIX child-process env inheritance")
 def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path: Path) -> None:
-    """A persisted CYCLAW_API_KEY must reach the child; its value must not print."""
+    """Keychain supplies CYCLAW_API_KEY. A dotenv secret must not, and must not print."""
     home = tmp_path / "home"
     fake_python = home / "venv" / "bin" / "python"
     fake_python.parent.mkdir(parents=True)
@@ -251,17 +259,38 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
         "#!/bin/sh\n"
         'case "$1" in -c) exit 0 ;; -S|*/gateway_url.py) exit 1 ;; esac\n'
         f'status="{status_file.as_posix()}"\n'
-        'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "set\\n" > "$status"; else printf "unset\\n" > "$status"; fi\n'
-        'if [ "${CYCLAW_API_KEY:-}" = "from-dotenv" ]; then printf "match\\n" >> "$status"; fi\n'
+        'if [ "${CYCLAW_API_KEY:-}" = "from-keychain" ]; then printf "keychain\\n" > "$status";'
+        ' else printf "other\\n" > "$status"; fi\n'
         'printf "port:%s\\n" "$CYCLAW_GATE_PORT" >> "$status"\n'
+        'printf "marker:%s\\n" "${CYCLAW_LAUNCH_MARKER:-unset}" >> "$status"\n'
         "sleep 4\n"
         "exit 0\n",
         encoding="utf-8",
     )
     fake_python.chmod(0o755)
     dotenv = home / ".env"
-    dotenv.write_text("CYCLAW_API_KEY=from-dotenv\nCYCLAW_GATE_PORT=9001\n", encoding="utf-8")
+    dotenv.write_text(
+        "CYCLAW_API_KEY=from-dotenv\nCYCLAW_GATE_PORT=9001\nCYCLAW_LAUNCH_MARKER=from-dotenv\n",
+        encoding="utf-8",
+    )
     dotenv.chmod(0o600)
+    security = tmp_path / "bin"
+    security.mkdir()
+    stub = security / "security"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  find-generic-password)\n"
+        '    printf "%s\\n" "$*" | grep -q "com.cgfixit.cyclaw.api-key" || exit 44\n'
+        '    printf "%s\\n" "$*" | grep -q -- "-w" || exit 0\n'
+        '    printf "%s" "from-keychain"\n'
+        "    exit 0\n"
+        "    ;;\n"
+        "esac\n"
+        "exit 44\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -269,6 +298,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
 
     env = os.environ.copy()
     env["CYCLAW_HOME"] = str(home)
+    env["CYCLAW_KEYCHAIN_ENV_TEST_MODE"] = "1"
+    env["PATH"] = f"{security}{os.pathsep}{env.get('PATH', '')}"
     env.pop("CYCLAW_API_KEY", None)
     result = subprocess.run(
         [
@@ -290,9 +321,10 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
 
     output = result.stdout + result.stderr
     assert "from-dotenv" not in output
+    assert "from-keychain" not in output
     assert "Typing the key in the browser cannot configure the server" not in result.stderr
     assert "http://127.0.0.1:8999" in result.stdout
-    assert status_file.read_text(encoding="utf-8") == "set\nmatch\nport:8999\n"
+    assert status_file.read_text(encoding="utf-8") == "keychain\nport:8999\nmarker:from-dotenv\n"
 
 
 def test_installer_preserves_patched_config_across_updates() -> None:
@@ -640,11 +672,13 @@ def test_invoke_cyclaw_names_the_file_and_remedy_when_refusing_a_dotenv() -> Non
     """A refused dotenv must name the path and the chmod that fixes it.
 
     The operator otherwise sees a bare mode number, then "CYCLAW_API_KEY not
-    set", with nothing connecting the two.
+    set", with nothing connecting the two. The check lives in the shared loader.
     """
     text = (_REPO_ROOT / "macos" / "invoke-cyclaw.sh").read_text(encoding="utf-8")
-    assert "refusing to source $f (mode" in text
-    assert "Fix with: chmod 600 $f" in text
+    helper = (_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh").read_text(encoding="utf-8")
+    assert "cyclaw-keychain-load.sh" in text
+    assert "refusing to source $f (mode" in helper
+    assert "Fix with: chmod 600 $f" in helper
 
 
 def test_macos_setup_scripts_refuse_world_readable_dotenv_and_chain_home_to_repo() -> None:
@@ -661,13 +695,14 @@ def test_macos_setup_scripts_refuse_world_readable_dotenv_and_chain_home_to_repo
             '_source_dotenv "$ENV_FILE" || _source_dotenv "$REPO_DIR/.env"'
         ),
     }
+    helper = (_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh").read_text(encoding="utf-8")
+    assert "600|400" in helper
+    assert "refusing to source $f (mode" in helper
+    assert "Fix with: chmod 600 $f" in helper
     for name, chain in expected_chain.items():
         text = (_REPO_ROOT / "macos" / name).read_text(encoding="utf-8")
-        assert "_source_dotenv" in text, f"{name} must define _source_dotenv"
-        assert "_dotenv_mode" in text, f"{name} must define _dotenv_mode"
-        assert "600|400" in text, f"{name} must accept only mode 600 or 400"
-        assert "refusing to source $f (mode" in text, f"{name} must name a refused dotenv"
-        assert "Fix with: chmod 600 $f" in text, f"{name} must state the chmod remedy"
+        assert "cyclaw-keychain-load.sh" in text, f"{name} must source the shared loader"
+        assert "_source_dotenv" in text, f"{name} must call _source_dotenv"
         assert chain in text, f"{name} must chain HOME then REPO on the mode-check result"
         assert 'if [ -f "$HOME_DIR/.env" ]; then' not in text
         assert 'if [ -f "$ENV_FILE" ]; then' not in text
@@ -681,6 +716,8 @@ def test_macos_setup_scripts_refuse_world_readable_dotenv_and_chain_home_to_repo
         "setup-cyclaw.sh",
         "setup-cyclaw-keys.sh",
         "uninstall-cyclaw.sh",
+        "cyclaw-keychain-load.sh",
+        "cyclaw-public-env.sh",
     ),
 )
 def test_macos_setup_scripts_bash_n(script: str) -> None:
@@ -710,8 +747,9 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
         "#!/bin/sh\n"
         'case "$1" in -c) exit 0 ;; -S|*/gateway_url.py) exit 1 ;; esac\n'
         f'status="{status_file.as_posix()}"\n'
-        'if [ "${CYCLAW_API_KEY:-}" = "from-repo" ]; then printf "repo\\n" > "$status";'
-        ' else printf "other:${CYCLAW_API_KEY:-unset}\\n" > "$status"; fi\n'
+        'if [ "${CYCLAW_LAUNCH_MARKER:-}" = "from-repo" ]; then printf "repo\\n" > "$status";'
+        ' else printf "other\\n" > "$status"; fi\n'
+        'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "secret\\n" >> "$status"; else printf "nosecret\\n" >> "$status"; fi\n'
         "sleep 4\n"
         "exit 0\n",
         encoding="utf-8",
@@ -720,14 +758,14 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
 
     # Group/world readable: invoke-cyclaw.sh must refuse this one.
     home_dotenv = home / ".env"
-    home_dotenv.write_text("CYCLAW_API_KEY=from-home\n", encoding="utf-8")
+    home_dotenv.write_text("CYCLAW_API_KEY=from-home\nCYCLAW_LAUNCH_MARKER=from-home\n", encoding="utf-8")
     home_dotenv.chmod(0o644)
 
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "gate.py").write_text("# launcher probe\n", encoding="utf-8")
     repo_dotenv = repo / ".env"
-    repo_dotenv.write_text("CYCLAW_API_KEY=from-repo\n", encoding="utf-8")
+    repo_dotenv.write_text("CYCLAW_API_KEY=from-repo\nCYCLAW_LAUNCH_MARKER=from-repo\n", encoding="utf-8")
     repo_dotenv.chmod(0o600)
 
     env = os.environ.copy()
@@ -753,20 +791,24 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
     assert "from-home" not in output, "a refused dotenv's value must never print"
     assert "from-repo" not in output, "a loaded dotenv's value must never print"
     assert "Fix with: chmod 600" in result.stderr, "the refusal must state the remedy"
-    assert status_file.read_text(encoding="utf-8") == "repo\n"
+    assert status_file.read_text(encoding="utf-8") == "repo\nnosecret\n"
 
 
 @pytest.mark.parametrize("script", ["invoke-cyclaw.sh", "setup-cyclaw.sh", "setup-from-clone.sh"])
 def test_dotenv_uses_system_stat_on_darwin(script):
     text = (_REPO_ROOT / "macos" / script).read_text(encoding="utf-8")
-    assert '/usr/bin/stat -f %Lp "$1"' in text
+    helper = (_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh").read_text(encoding="utf-8")
+    assert "cyclaw-keychain-load.sh" in text
+    assert '/usr/bin/stat -f %Lp "$1"' in helper
 
 
 @_BASH_EXECUTION_REQUIRED
 @pytest.mark.parametrize("script", ["invoke-cyclaw.sh", "setup-cyclaw.sh", "setup-from-clone.sh"])
 @pytest.mark.parametrize("allexport", [False, True])
 def test_dotenv_source_failure_falls_back_and_restores_export(script, allexport):
-    text = (_REPO_ROOT / "macos" / script).read_text(encoding="utf-8")
+    caller = (_REPO_ROOT / "macos" / script).read_text(encoding="utf-8")
+    assert "cyclaw-keychain-load.sh" in caller
+    text = (_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh").read_text(encoding="utf-8")
     helper = text[text.index("_source_dotenv() {"):]
     helper = helper[:helper.index("\n}") + 2]
     # Keep permission probing separate: exercise source status and shell state.
@@ -787,6 +829,272 @@ esac
 """
     result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: Path) -> None:
+    """The rc loader classifies secrets by allowlist and by suffix."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788\n"
+        "CYCLAW_API_KEY=allowlist-secret\n"
+        "DB_PASSWORD=pattern-secret\n"
+        "OLLAMA_MODEL=qwen\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    # Drop inherited CI values (verify-skills exports CYCLAW_API_KEY) before
+    # the loader runs, then keep its status. Later printfs must not hide a refuse.
+    program = (
+        "unset CYCLAW_GATE_PORT OLLAMA_MODEL CYCLAW_API_KEY DB_PASSWORD\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'cyclaw_source_public_env "{dotenv}"\n'
+        "loader_status=$?\n"
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'printf "model:%s\\n" "$OLLAMA_MODEL"\n'
+        'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "api:set\\n"; else printf "api:unset\\n"; fi\n'
+        'if [ -n "${DB_PASSWORD:-}" ]; then printf "db:set\\n"; else printf "db:unset\\n"; fi\n'
+        'exit "$loader_status"\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert "allowlist-secret" not in result.stdout + result.stderr
+    assert "pattern-secret" not in result.stdout + result.stderr
+    assert result.stdout.splitlines()[-4:] == [
+        "port:8788",
+        "model:qwen",
+        "api:unset",
+        "db:unset",
+    ]
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_dotenv_parser_sees_every_assignment_form(tmp_path: Path) -> None:
+    """Every NAME= / NAME+= token is classified, including keywords and a BOM."""
+    dotenv = tmp_path / ".env"
+    bom = b"\xef\xbb\xbf"
+    dotenv.write_bytes(
+        b"CYCLAW_GATE_PORT=87\n"
+        b"CYCLAW_GATE_PORT+=88\n"
+        b"export OLLAMA_MODEL=qwen\n"
+        b"declare -x CYCLAW_MODE=hybrid\n"
+        b"typeset CYCLAW_HOST=127.0.0.1\n"
+        b"readonly CYCLAW_BIND=loopback\n"
+        + bom + b"CYCLAW_NOTE=frombom\n"
+        b"export CYCLAW_LABEL='a b'; GROK_API_KEY=second-secret\n"
+        b"grok_api_key=lower-secret\n"
+        b"DB_PASSWORD=pattern-secret\n"
+        b"echo NAME=not-an-assignment\n"
+        b"FOO='abc'\\''def'\n"
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT OLLAMA_MODEL CYCLAW_MODE CYCLAW_HOST CYCLAW_BIND "
+        "CYCLAW_NOTE CYCLAW_LABEL GROK_API_KEY grok_api_key DB_PASSWORD FOO NAME\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'cyclaw_source_public_env "{dotenv}"\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'printf "model:%s\\n" "$OLLAMA_MODEL"\n'
+        'printf "mode:%s\\n" "$CYCLAW_MODE"\n'
+        'printf "host:%s\\n" "$CYCLAW_HOST"\n'
+        'printf "bind:%s\\n" "$CYCLAW_BIND"\n'
+        'printf "note:%s\\n" "$CYCLAW_NOTE"\n'
+        'printf "label:%s\\n" "$CYCLAW_LABEL"\n'
+        'printf "foo:%s\\n" "$FOO"\n'
+        'if [ -n "${GROK_API_KEY:-}" ]; then printf "grok:set\\n"; else printf "grok:unset\\n"; fi\n'
+        'if [ -n "${grok_api_key:-}" ]; then printf "lower:set\\n"; else printf "lower:unset\\n"; fi\n'
+        'if [ -n "${DB_PASSWORD:-}" ]; then printf "db:set\\n"; else printf "db:unset\\n"; fi\n'
+        'if [ -n "${NAME:-}" ]; then printf "name:set\\n"; else printf "name:unset\\n"; fi\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    assert "second-secret" not in blob
+    assert "lower-secret" not in blob
+    assert "pattern-secret" not in blob
+    assert result.stdout.splitlines()[-12:] == [
+        "port:8788",
+        "model:qwen",
+        "mode:hybrid",
+        "host:127.0.0.1",
+        "bind:loopback",
+        "note:frombom",
+        "label:a b",
+        "foo:abc'def",
+        "grok:unset",
+        "lower:unset",
+        "db:unset",
+        "name:unset",
+    ]
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_source_dotenv_scrubs_later_and_declared_secrets(tmp_path: Path) -> None:
+    """A secret assignment is not exported, including a later token on the line."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788 GROK_API_KEY=second-secret\n"
+        "declare -x DB_PASSWORD=pattern-secret\n"
+        "grok_api_key=lower-secret\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT GROK_API_KEY grok_api_key DB_PASSWORD\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh"}"\n'
+        f'_source_dotenv "{dotenv}"\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'if [ -n "${GROK_API_KEY:-}" ]; then printf "grok:set\\n"; else printf "grok:unset\\n"; fi\n'
+        'if [ -n "${grok_api_key:-}" ]; then printf "lower:set\\n"; else printf "lower:unset\\n"; fi\n'
+        'if [ -n "${DB_PASSWORD:-}" ]; then printf "db:set\\n"; else printf "db:unset\\n"; fi\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    assert "second-secret" not in blob
+    assert "lower-secret" not in blob
+    assert "pattern-secret" not in blob
+    assert result.stdout.splitlines()[-4:] == [
+        "port:8788",
+        "grok:unset",
+        "lower:unset",
+        "db:unset",
+    ]
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_drop_matching_assignment_keeps_a_different_value(tmp_path: Path) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "export CYCLAW_GATE_PORT=8788 GROK_API_KEY=keep-me\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'if cyclaw_dotenv_drop_matching_assignment "{dotenv}" GROK_API_KEY other; then exit 31; fi\n'
+        f'cyclaw_dotenv_drop_matching_assignment "{dotenv}" GROK_API_KEY keep-me\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    text = dotenv.read_text(encoding="utf-8")
+    assert "CYCLAW_GATE_PORT" in text
+    assert "8788" in text
+    assert "GROK_API_KEY" not in text
+    assert "keep-me" not in text
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_drop_matching_assignment_keeps_original_token_text(tmp_path: Path) -> None:
+    """Kept tokens stay as written: export, an unquoted $VAR, and the comment."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "export CYCLAW_GATE_PORT=$HOME GROK_API_KEY=secret # port\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'cyclaw_dotenv_drop_matching_assignment "{dotenv}" GROK_API_KEY secret\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    text = dotenv.read_text(encoding="utf-8")
+    assert "export CYCLAW_GATE_PORT=$HOME" in text
+    assert "# port" in text
+    assert "GROK_API_KEY" not in text
+    assert "secret" not in text
+    assert "'$HOME'" not in text
+    assert '"$HOME"' not in text
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_public_env_does_not_execute_hidden_secret_lines(tmp_path: Path) -> None:
+    """Command words, eval, set, braces, if, and alias hide no secret export.
+
+    The scanner stops at the first word it cannot consume. That line is not
+    executed and contributes no exports, including an assignment written
+    before the command word. A plain assignment on its own line still loads.
+    """
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788\n"
+        "true; GH_TOKEN=hidden-b\n"
+        "eval GH_TOKEN=hidden-c\n"
+        "set -a; GH_TOKEN=hidden-g\n"
+        "{ GH_TOKEN=hidden-h; }\n"
+        "if true; then GH_TOKEN=hidden-i; fi\n"
+        "alias x=y; GH_TOKEN=hidden-j\n"
+        "CYCLAW_NOTE=before-command; true\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT CYCLAW_NOTE GH_TOKEN\n"
+        "unalias x 2>/dev/null || true\n"
+        "set +a\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
+        f'cyclaw_source_public_env "{dotenv}"\n'
+        "loader_status=$?\n"
+        'case "$-" in *a*) exit 23 ;; esac\n'
+        'alias x >/dev/null 2>&1 && exit 51\n'
+        'case "${GH_TOKEN-}" in hidden-b|hidden-c|hidden-g|hidden-h|hidden-i|hidden-j) exit 41 ;; esac\n'
+        '[ -z "${GH_TOKEN-}" ] || exit 42\n'
+        '[ -z "${CYCLAW_NOTE-}" ] || exit 43\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'printf "status:%s\\n" "$loader_status"\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    for token in ("hidden-b", "hidden-c", "hidden-g", "hidden-h", "hidden-i", "hidden-j"):
+        assert token not in blob
+    assert "GH_TOKEN=" not in result.stderr
+    assert result.stdout.splitlines()[-2:] == ["port:8788", "status:0"]
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell (bash) and chmod semantics")
+def test_source_dotenv_does_not_execute_hidden_secret_lines(tmp_path: Path) -> None:
+    """The invoke loader refuses the same hidden lines and leaves allexport alone."""
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788\n"
+        "true; GH_TOKEN=hidden-b\n"
+        "eval GH_TOKEN=hidden-c\n"
+        "set -a; GH_TOKEN=hidden-g\n"
+        "{ GH_TOKEN=hidden-h; }\n"
+        "if true; then GH_TOKEN=hidden-i; fi\n"
+        "alias x=y; GH_TOKEN=hidden-j\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    program = (
+        "unset CYCLAW_GATE_PORT GH_TOKEN\n"
+        "unalias x 2>/dev/null || true\n"
+        "set +a\n"
+        f'. "{_REPO_ROOT / "macos" / "cyclaw-keychain-load.sh"}"\n'
+        f'_source_dotenv "{dotenv}"\n'
+        "loader_status=$?\n"
+        'case "$-" in *a*) exit 23 ;; esac\n'
+        'alias x >/dev/null 2>&1 && exit 51\n'
+        '[ -z "${GH_TOKEN-}" ] || exit 42\n'
+        'printf "port:%s\\n" "$CYCLAW_GATE_PORT"\n'
+        'printf "status:%s\\n" "$loader_status"\n'
+    )
+    result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    blob = result.stdout + result.stderr
+    for token in ("hidden-b", "hidden-c", "hidden-g", "hidden-h", "hidden-i", "hidden-j"):
+        assert token not in blob
+    assert "GH_TOKEN=" not in result.stderr
+    assert result.stdout.splitlines()[-2:] == ["port:8788", "status:1"]
 
 
 @_BASH_EXECUTION_REQUIRED

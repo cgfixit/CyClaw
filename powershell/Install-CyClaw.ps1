@@ -34,6 +34,12 @@
   switch the installer refuses rather than silently Remove-Item -Recurse.
   Does not apply with -RepoPath.
 
+.PARAMETER WriteEnvFile
+  OPT-IN. Leave secret lines in an existing .env. The default copies each
+  secret into Credential Manager when that item is missing, then removes the
+  plaintext line. No backup is written. Invoke-CyClaw.ps1 does not load
+  secret lines either way.
+
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\Install-CyClaw.ps1
 
@@ -46,7 +52,8 @@ param(
     [switch]$SkipPythonDeps,
     [switch]$NoProfileEdit,
     [switch]$NoPathEdit,
-    [switch]$ReplaceRepo
+    [switch]$ReplaceRepo,
+    [switch]$WriteEnvFile
 )
 
 $ErrorActionPreference = "Stop"
@@ -171,6 +178,7 @@ if (-not $SkipPythonDeps) {
 $LauncherSrc = Join-Path $Repo "powershell\Invoke-CyClaw.ps1"
 $LauncherDst = Join-Path $Bin "Invoke-CyClaw.ps1"
 Copy-Item $LauncherSrc $LauncherDst -Force
+Copy-Item (Join-Path $Repo "powershell\CyClaw-SecretStore.ps1") (Join-Path $Bin "CyClaw-SecretStore.ps1") -Force
 
 $Shim = Join-Path $Bin "cyclaw.cmd"
 $ShimBody = @"
@@ -233,6 +241,17 @@ function global:cyclaw {
     }
 }
 
+# Existing plaintext .env secrets move into Credential Manager, then the
+# lines are removed. -WriteEnvFile keeps them and warns.
+. (Join-Path $Repo "powershell\CyClaw-SecretStore.ps1")
+if ($WriteEnvFile) {
+    Write-Warn "PLAINTEXT OPT-IN: -WriteEnvFile keeps secrets in dotenv files."
+    Write-Warn "Invoke-CyClaw.ps1 does not load those secret lines."
+}
+Sync-CyclawPlaintextToCredentialManager -HomeDir $Home_ -RepoDir $Repo -WriteEnvFile:$WriteEnvFile
+Ensure-CyclawPublicEnvFile (Join-Path $Home_ ".env")
+
 Write-Host ""
 Write-Step "install complete. Open a NEW PowerShell window and run:  cyclaw"
 Write-Step "the terminal console opens at http://127.0.0.1:8787."
+Write-Step "non-secret settings: $Home_\.env. Secrets: Credential Manager, cyclaw process only."

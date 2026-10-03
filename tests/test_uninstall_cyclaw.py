@@ -63,6 +63,31 @@ case "$cmd" in
     fi
     exit 0
     ;;
+  find-generic-password)
+    service=""
+    read_value=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -s) service="$2"; shift 2 ;;
+        -w) read_value=1; shift ;;
+        *) shift ;;
+      esac
+    done
+    items_raw="${FAKE_SECURITY_ITEMS:-}"
+    [ -n "$items_raw" ] || exit 44
+    IFS='|' read -ra items <<< "$items_raw"
+    for item in "${items[@]}"; do
+      key="${item%%=*}"
+      val="${item#*=}"
+      if [ "$key" = "$service" ]; then
+        if [ "$read_value" -eq 1 ]; then
+          printf '%s' "$val"
+        fi
+        exit 0
+      fi
+    done
+    exit 44
+    ;;
   *)
     echo "fake security: unsupported command $cmd" >&2
     exit 1
@@ -377,3 +402,159 @@ def test_uninstall_stops_loopback_listener_and_survives_if_already_gone(
         if listener.poll() is None:
             listener.kill()
             listener.wait(timeout=2)
+
+
+def test_uninstall_strips_plaintext_when_keychain_holds_it(fake_security: Path, tmp_path: Path) -> None:
+    secret = "f" * 40
+    env_file = tmp_path / ".CyClaw" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(
+        f"export CYCLAW_GATE_PORT=8788\nexport CYCLAW_API_KEY='{secret}'\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+    result = _run(
+        home=tmp_path,
+        fake_security_bin=fake_security,
+        extra_env={"FAKE_SECURITY_ITEMS": f"com.cgfixit.cyclaw.api-key={secret}"},
+    )
+    assert result.returncode == 0, result.stderr
+    text = env_file.read_text(encoding="utf-8")
+    assert "CYCLAW_GATE_PORT=8788" in text
+    assert "CYCLAW_API_KEY=" not in text
+    assert secret not in text
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+    assert "No backup was written" in result.stdout
+
+
+def test_uninstall_leaves_plaintext_when_keychain_item_is_missing(
+    fake_security: Path, tmp_path: Path
+) -> None:
+    secret = "g" * 40
+    env_file = tmp_path / ".CyClaw" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(f"export CYCLAW_API_KEY='{secret}'\n", encoding="utf-8")
+    env_file.chmod(0o600)
+    result = _run(
+        home=tmp_path,
+        fake_security_bin=fake_security,
+    )
+    assert result.returncode == 0, result.stderr
+    text = env_file.read_text(encoding="utf-8")
+    assert f"export CYCLAW_API_KEY='{secret}'" in text
+    assert "left plaintext CYCLAW_API_KEY" in result.stderr
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+
+
+def test_uninstall_mismatch_keeps_plaintext(fake_security: Path, tmp_path: Path) -> None:
+    secret = "h" * 40
+    stored = "i" * 40
+    env_file = tmp_path / ".CyClaw" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(
+        f"export CYCLAW_GATE_PORT=8788\nexport CYCLAW_API_KEY='{secret}'\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+    result = _run(
+        home=tmp_path,
+        fake_security_bin=fake_security,
+        extra_env={"FAKE_SECURITY_ITEMS": f"com.cgfixit.cyclaw.api-key={stored}"},
+    )
+    assert result.returncode == 0, result.stderr
+    text = env_file.read_text(encoding="utf-8")
+    assert f"export CYCLAW_API_KEY='{secret}'" in text
+    assert "differs from the file" in result.stderr
+    assert "The line was kept" in result.stderr
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+    assert stored not in result.stdout
+    assert stored not in result.stderr
+
+
+def test_remove_keychain_leaves_plaintext_while_purge_deletes(
+    fake_security: Path, tmp_path: Path
+) -> None:
+    secret = "j" * 40
+    env_file = tmp_path / ".CyClaw" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(f"export CYCLAW_API_KEY='{secret}'\n", encoding="utf-8")
+    env_file.chmod(0o600)
+    argv_log = tmp_path / "security-calls.log"
+    result = _run(
+        "--remove-keychain",
+        "--yes",
+        home=tmp_path,
+        fake_security_bin=fake_security,
+        extra_env={
+            "FAKE_SECURITY_ITEMS": f"com.cgfixit.cyclaw.api-key={secret}",
+            "FAKE_SECURITY_LOG": str(argv_log),
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"export CYCLAW_API_KEY='{secret}'" in env_file.read_text(encoding="utf-8")
+    assert "leaving plaintext" in result.stdout
+    logged = argv_log.read_text(encoding="utf-8")
+    assert "delete-generic-password" in logged
+    assert "find-generic-password" not in logged
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+
+
+def test_remove_keychain_declined_still_skips_the_strip(
+    fake_security: Path, tmp_path: Path
+) -> None:
+    secret = "k" * 40
+    env_file = tmp_path / ".CyClaw" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(f"export CYCLAW_API_KEY='{secret}'\n", encoding="utf-8")
+    env_file.chmod(0o600)
+    result = _run(
+        "--remove-keychain",
+        home=tmp_path,
+        fake_security_bin=fake_security,
+        extra_env={"FAKE_SECURITY_ITEMS": f"com.cgfixit.cyclaw.api-key={secret}"},
+        input_text="",
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"export CYCLAW_API_KEY='{secret}'" in env_file.read_text(encoding="utf-8")
+    assert "leaving plaintext" in result.stdout
+    assert "kept Keychain items" in result.stdout
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+
+
+def test_uninstall_does_not_follow_cyclaw_repo(fake_security: Path, tmp_path: Path) -> None:
+    secret = "l" * 40
+    home_env = tmp_path / ".CyClaw" / ".env"
+    home_env.parent.mkdir()
+    home_env.write_text(
+        f"export CYCLAW_GATE_PORT=8788\nexport CYCLAW_API_KEY='{secret}'\n",
+        encoding="utf-8",
+    )
+    home_env.chmod(0o600)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    repo_env = elsewhere / ".env"
+    repo_env.write_text(f"export CYCLAW_API_KEY='{secret}'\nexport KEEP_ME=1\n", encoding="utf-8")
+    repo_env.chmod(0o600)
+    result = _run(
+        home=tmp_path,
+        fake_security_bin=fake_security,
+        extra_env={
+            "CYCLAW_REPO": str(elsewhere),
+            "FAKE_SECURITY_ITEMS": f"com.cgfixit.cyclaw.api-key={secret}",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    home_text = home_env.read_text(encoding="utf-8")
+    assert "CYCLAW_GATE_PORT=8788" in home_text
+    assert "CYCLAW_API_KEY=" not in home_text
+    assert secret not in home_text
+    repo_text = repo_env.read_text(encoding="utf-8")
+    assert f"export CYCLAW_API_KEY='{secret}'" in repo_text
+    assert "KEEP_ME=1" in repo_text
+    assert secret not in result.stdout
+    assert secret not in result.stderr
