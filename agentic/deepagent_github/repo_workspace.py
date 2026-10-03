@@ -605,7 +605,7 @@ class RepoWorkspaceTools:
             with tempfile.TemporaryDirectory(prefix="cyclaw-git-nohooks-") as hooks_dir:
                 env.update(_hardened_git_env(hooks_dir))
                 self._check_local_git_config(tool, binary, env)
-                completed = subprocess.run(  # noqa: S603 -- argv list, no shell, fixed binary
+                completed = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
                     [binary, *argv],
                     cwd=str(self._dest),
                     env=env,
@@ -643,7 +643,7 @@ class RepoWorkspaceTools:
         config_path = self._dest / ".git" / "config"
         if config_path.is_symlink() or not config_path.is_file():
             self._deny_git(tool, "the clone's .git/config is missing or not a regular file")
-        completed = subprocess.run(  # noqa: S603 -- argv list, no shell, fixed binary
+        completed = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
             [binary, "config", "--file", str(config_path), "--no-includes", "--null", "--name-only", "--list"],
             cwd=str(self._dest),
             env=env,
