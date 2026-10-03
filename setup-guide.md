@@ -1044,8 +1044,8 @@ python -m guardrails.verify_install
 
 The second command constructs the production NeMo engine and checks benign
 and injection inputs plus grounded and ungrounded outputs against the shipped
-rules. It fails on missing packages, initialization errors, unexpected verdicts,
-or attempted Python socket access. Deterministic fallback cannot pass this check.
+rules. It fails on missing packages, initialization errors, or unexpected
+allow/refuse verdicts. Deterministic fallback cannot pass this check.
 Runtime engine failure still retains deterministic protection and records
 degradation. It does not refuse gateway startup.
 

@@ -193,10 +193,11 @@ download model weights.
 
 Run `python -m pip check` and `python -m guardrails.verify_install` after the
 normal platform install. The strict smoke constructs the production engine
-and requires exact input and output verdicts from the shipped rules without
-audited Python socket calls. Fallback checks cannot satisfy it. CI runs this on Linux,
+and requires exact input and output verdicts from the shipped rules with the
+offline loader flags set. Fallback checks cannot satisfy it. CI runs this on Linux,
 Windows, macOS, Conda, the installed wheel outside the checkout, and Docker.
-The Dockerfile runs it in the final stage before GHCR can publish an image.
+Docker runs it with networking disabled, including in the final build stage
+before GHCR can publish an image.
 
 
 The real-engine lane in
