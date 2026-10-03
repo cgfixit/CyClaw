@@ -99,6 +99,9 @@ decision.
 | POST | `/soul/reload` | **API key** | |
 | POST | `/soul/restore` | **API key** | from `.bak` |
 | GET | `/audit/summary` | **API key** | rate-limited; aggregates only, no raw queries |
+| GET | `/console/session` | none (same-origin) | rate-limited; whether this browser can use the API-key routes and how (`via`: `console_key`/`admin_session`/`api_key_optional`), plus the console CSRF token after a reload; cross-site 403 |
+| POST | `/console/session` | **Bearer key or one-time pairing code** | rate-limited, same-origin, audited; sets the HttpOnly `cyclaw_console` cookie that satisfies `require_api_key` (`utils/console_session.py`); 401 when `CYCLAW_API_KEY` is unset |
+| POST | `/console/session/end` | none (same-origin) | rate-limited, audited; deletes this browser's console cookie (cannot revoke a copy elsewhere: rotate the key for that) |
 | POST | `/ops/sync` | **API key** | rate-limited; subprocess shim |
 | POST | `/ops/agentic` | **API key** | rate-limited; subprocess shim |
 | POST | `/ops/fsconnect` | **API key** | rate-limited; subprocess shim |
@@ -153,6 +156,19 @@ the feature. When `auth.enabled` is the literal boolean `true`, Stage 3
 attaches `require_session_or_token` to `POST /query` (session cookie or named
 device token, no CSRF); the shipped default leaves `/query` unauthenticated.
 
+**Credentials, not bypasses.** Besides Bearer `CYCLAW_API_KEY`,
+`require_api_key` accepts two cookies, each refused cross-site and each needing
+its CSRF token on a write (a bad token is a 403, never a fall-through): the
+console cookie `cyclaw_console` (`POST /console/session` mints it for the key
+or a launcher's one-time pairing code; a stateless HMAC keyed off
+`CYCLAW_API_KEY`, so it validates nothing while the key is unset and rotating
+the key revokes all; header `X-CyClaw-Console-CSRF`), and, with
+`auth.enabled`, an **enabled admin**'s login (`X-CyClaw-CSRF`), the one
+credential that works with the key unset; `operator`/`audit` never pass. The
+console no longer keeps the key in the page, and the daily launchers generate a
+missing key into the OS keystore (`gate.py` never does). See
+`docs/THREAT_MODEL.md` (eighteenth amendment) and `INVARIANTS.md` Rule 6.
+
 The `/memory/*` and `/query/export/html` routes are the optional memory
 subsystem (`gate_memory.py` + `memory/`, `docs/memory/IMPLEMENTATION_PLAN.md`).
 Every `memory:` switch ships **false**: handlers 404 (or 200 + `enabled: false`
@@ -199,6 +215,7 @@ Module docstrings are the detailed reference; this table is the index.
 | `utils/authn_store.py` | SQLite/Postgres `users`/`sessions`/`device_tokens`; own `CYCLAW_AUTH_DB_URL`, not shared with `CYCLAW_DB_URL` |
 | `utils/authn_manager.py` | `AuthManager`: bootstrap, login/logout, sessions, device tokens. No HTTP awareness |
 | `utils/authn_cli.py` | `cyclaw-user` (`add`/`list`/`role`/`disable`/`enable`/`passwd`/`token …`), local-only by construction |
+| `utils/console_session.py` | Console operator session: stateless HMAC cookie keyed off `CYCLAW_API_KEY`, minted by `POST /console/session` for the key or a launcher's one-time pairing code (`CYCLAW_CONSOLE_PAIRING_CODE`, popped at gate import, single-use), plus its CSRF token. Stdlib only; `require_api_key` is the only consumer |
 | `utils/gen_cert.py` | `cyclaw-gen-cert` — openssl wrapper for a self-signed cert with hostname/LAN SAN |
 | `schemas/api.py` | Pydantic models (`extra='forbid', strict=True`) |
 | `metrics.py` | `cyclaw-metrics`: `audit.jsonl` analyzer, Spend section from `logs/spend.jsonl` (tokens as ground truth, no query text), offline Sequences section (`utils/sequence_detect.py`). Forensic only — not imported by the core six |
@@ -326,7 +343,9 @@ rule that prevents it.
   **Rule:** a missing index is fail-soft — `/query` returns 503
   `INDEX_NOT_FOUND`. Build it with `python -m retrieval.indexer`.
 - **Trap:** assuming no `CYCLAW_API_KEY` means soul endpoints are open.
-  **Rule:** unset key = **fail closed (401)**, compared with `hmac.compare_digest`.
+  **Rule:** unset key = **fail closed (401)**, compared with `hmac.compare_digest`, for every key-based credential (Bearer,
+  console cookie). The deliberate exception: with `auth.enabled`, an enabled
+  admin's login satisfies `require_api_key` without the key (`INVARIANTS.md` Rule 6).
 - **Trap:** reordering imports in `gate.py` "to tidy them."
   **Rule:** the `_TELEMETRY_KILL` env block MUST stay above the heavy imports
   (`graph`, `retrieval`, `langchain`, `chromadb`); `test_telemetry_kill` locks
@@ -697,7 +716,7 @@ nemo-guardrails/pr-review/conda/trivy workflows. Coverage sources: `gate`,
 `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`,
 `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`,
 `telegram`, `opentweet`, `memory`, `schemas`. `tests/conftest.py` mocks all
-external deps. `tests/` holds 216 auto-collected `test_*.py` files (including
+external deps. `tests/` holds 217 auto-collected `test_*.py` files (including
 two under `tests/nemo_runtime/`).
 
 ---

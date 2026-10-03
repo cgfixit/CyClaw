@@ -157,7 +157,9 @@ a separate install CyClaw does not start.
   index time. Cache both retrieval models before you expect offline use.
 - `cyclaw-*` names are missing until `pip install -e .`.
 - Soul, ops, memory, and `/audit/summary` 401 until `CYCLAW_API_KEY` is
-  set. `/auth/*` returns 503 while `auth.enabled` is false, not 404.
+  set (or, with `auth.enabled`, until an admin logs in). In the browser,
+  use "Unlock operator tools"; see [API Key Setup](#api-key-setup-soul-mutations).
+  `/auth/*` returns 503 while `auth.enabled` is false, not 404.
 - The rate limit (60/min per IP) is in-memory unless you set
   `api.rate_limit.persist_path` or its Postgres DSN. A restart clears it.
   `/health` and `/index/status` are not counted, because the console polls
@@ -397,40 +399,55 @@ Windows and Linux use the `+cpu` wheel. Scripts:
 ## API Key Setup (Soul Mutations)
 
 `/soul/*`, `/ops/*`, `/memory/*`, `/query/export/html`, and `/audit/summary`
-require a Bearer `CYCLAW_API_KEY` and fail closed (401) when it is unset.
-`/query` and `/health` do not use it. Comparison is `hmac.compare_digest`.
+need operator access and fail closed (401) without it. `/query` and
+`/health` do not. Any one of these grants it:
+
+- **Bearer `CYCLAW_API_KEY`**, for curl, MCP and scripts. Comparison is
+  `hmac.compare_digest`.
+- **The console cookie.** In the browser, "Unlock operator tools" trades the
+  key once for an HttpOnly, `SameSite=Strict` cookie and forgets the key.
+  The cookie lasts `security.console_session_ttl_sec` (12 h shipped);
+  "Lock" deletes it, and rotating the key revokes every cookie at once.
+- **An admin login**, when `auth.enabled` is on. No key is needed in the
+  browser at all. `operator` and `audit` accounts do not get operator
+  access.
+
+Writes from the browser also carry a CSRF token, and cross-site requests
+are refused. With `CYCLAW_API_KEY` unset, the Bearer and cookie paths fail
+closed; only an admin login still works.
+
+**The key is generated and used for you.** `macos/invoke-cyclaw.sh` and
+`powershell\Invoke-CyClaw.ps1` generate a missing `CYCLAW_API_KEY` into the
+macOS Keychain or Windows Credential Manager on first run. They then open
+the console with a one-time unlock link (`#pair=...`, single-use, valid for
+`security.console_pairing_ttl_sec`, 5 min shipped), so the console is
+already unlocked when it appears. If you open the console some other way,
+copy the key from the keystore and paste it into the unlock dialog:
+
+```bash
+# macOS
+security find-generic-password -a "$(whoami)" -s com.cgfixit.cyclaw.api-key -w | pbcopy
+```
+
+```powershell
+# Windows, from the CyClaw folder
+. .\powershell\CyClaw-SecretStore.ps1; (Read-CyclawCredential com.cgfixit.cyclaw.api-key).Secret | Set-Clipboard
+```
+
+Do not persist the key with `setx` or a user environment variable; the
+launchers read it from the keystore into the gateway process only
+([`powershell/README.md`](powershell/README.md#secret-classification)).
+Rotation and the macOS bootstrap:
+[`macos/README.md`](macos/README.md#key-bootstrap)
+([401 recovery](macos/README.md#401--key-drift-recovery)).
 
 `security.api_key_optional` ships `false`. When set, a request skips the key
 only if the flag is on, the socket peer is loopback, no forwarding header
 is present, and the request is not cross-site. A remote caller still needs
 the key, including under Docker (NAT makes the peer the bridge gateway, so
-the flag is inert there). [`INVARIANTS.md`](INVARIANTS.md) Rule 6.
-
-Generate and per-platform persist:
-[`setup-guide.md`](setup-guide.md#cyclawapikey--required-for-the-soul-console-not-for-query).
-macOS Keychain bootstrap:
-[`macos/README.md`](macos/README.md#key-bootstrap)
-([401 recovery](macos/README.md#401--key-drift-recovery)).
-
-### Windows — PowerShell / cmd.exe
-
-Generate the session value in
-[`setup-guide.md`](setup-guide.md#windows-powershell), then persist it for
-the current user and open a new session before `python gate.py`:
-
-```powershell
-[System.Environment]::SetEnvironmentVariable("CYCLAW_API_KEY", $env:CYCLAW_API_KEY, "User")
-```
-
-cmd.exe session only: `set CYCLAW_API_KEY=<value>`. To persist for the
-current user without putting the key on argv:
-
-```powershell
-[Environment]::SetEnvironmentVariable('CYCLAW_API_KEY', '<value>', 'User')
-```
-
-Open a new session before `python gate.py`. Scheduled-task secrets use
-Credential Manager ([`powershell/README.md`](powershell/README.md#scripts)).
+the flag is inert there). [`INVARIANTS.md`](INVARIANTS.md) Rule 6 and
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (eighteenth amendment) hold
+the full boundary.
 
 ## Per-User Authentication
 
@@ -696,7 +713,7 @@ never send `publish_now`. `python -m opentweet.cli status`.
 | Audit | SHA-256 query hash + redacted metadata in `logs/audit.jsonl`, then the derived Numbat stream. `include_query_hash: false` stores raw query text |
 | Grok / Claude | [Triple gate](#what-it-does) item 5, then the opt-in pre-action hook (deny-only once enabled) |
 | Soul writes | Human `reason` + enforced scan + atomic replace, on `POST /soul/apply` only. Restore, reload, and drift recovery are the exceptions in [What It Does](#what-it-does) item 4 |
-| API key | Fail closed. The loopback bypass is `security.api_key_optional` plus three more conditions ([API Key Setup](#api-key-setup-soul-mutations)) |
+| API key | Fail closed. Bearer key, the browser's console cookie, or (with `auth.enabled`) an admin login; cookie writes need CSRF. The loopback bypass is `security.api_key_optional` plus three more conditions ([API Key Setup](#api-key-setup-soul-mutations)) |
 | Agentic writes | `agentic.enabled` ships `false`. Git writes also need `allow_git_write_tools`, which ships `false`. `real-repo-run*` is CLI-only |
 | Connectors | fsconnect scoped; sqlconnect SELECT/WITH-only; netconnect passive. All off |
 | Guardrails | Opt-in, deny-only, fail open with `guardrail_degraded` audited. Not a router |

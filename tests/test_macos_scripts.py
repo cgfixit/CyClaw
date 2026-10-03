@@ -105,7 +105,9 @@ def test_invoke_cyclaw_console_url_follows_tls_scheme() -> None:
     assert '--port "$GATE_PORT"' in text
     assert 'SCHEME="${CONSOLE_URL%%:*}"' in text
     assert probe_idx < text.index("[cyclaw] terminal : $CONSOLE_URL")
-    assert probe_idx < text.index('open "$CONSOLE_URL"')
+    # The browser opens the probed URL (plus the one-time #pair= fragment).
+    assert probe_idx < text.index('OPEN_URL="$CONSOLE_URL"')
+    assert 'open "$OPEN_URL"' in text
     assert 'curl -sf --max-time 2 "$CONSOLE_URL/health"' in text
     assert "curl -sfk" in text
     assert 'open "http://127.0.0.1:$GATE_PORT"' not in text

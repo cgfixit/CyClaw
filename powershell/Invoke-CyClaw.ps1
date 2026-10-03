@@ -93,18 +93,47 @@ $Url = "$Url".Trim()
 Write-Host "[cyclaw] repo    : $Repo" -ForegroundColor Cyan
 Write-Host "[cyclaw] home    : $Home_" -ForegroundColor Cyan
 Write-Host "[cyclaw] console : $Url  (Ctrl+C to stop)" -ForegroundColor Cyan
+# First run on this machine: no key in Credential Manager yet. Generate one
+# (20 random bytes as hex, the shape macos/setup-cyclaw-keys.sh makes with
+# `openssl rand -hex 20`) and store it, so the gateway does not start keyless.
+# Write-CyclawCredential takes it in memory; it is never an argv token.
+if (-not $env:CYCLAW_API_KEY -and (Test-CyclawWindowsHost)) {
+    $keyBytes = New-Object byte[] 20
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+    $newKey = -join ($keyBytes | ForEach-Object { $_.ToString("x2") })
+    if (Write-CyclawCredential "com.cgfixit.cyclaw.api-key" $newKey) {
+        $env:CYCLAW_API_KEY = $newKey
+        Write-Host "[cyclaw] key     : generated CYCLAW_API_KEY and stored it in Credential Manager (target com.cgfixit.cyclaw.api-key)" -ForegroundColor Cyan
+    }
+    $newKey = $null
+}
+
 if (-not $env:CYCLAW_API_KEY) {
     Write-Host "[cyclaw] warn    : CYCLAW_API_KEY is not in Credential Manager (target com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. This launcher does not read that secret from .env." -ForegroundColor Yellow
 }
 
 if (-not $NoBrowser) {
+    # One-time pairing code: the browser opens at #pair=<code> and trades it
+    # for the console cookie, so operator tools are unlocked without the key
+    # ever reaching the page (utils/console_session.py). gate.py inherits the
+    # code below and takes it out of its own environment at import.
+    $OpenUrl = $Url
+    if ($env:CYCLAW_API_KEY) {
+        $pairBytes = New-Object byte[] 24
+        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $rng.GetBytes($pairBytes) } finally { $rng.Dispose() }
+        $pairCode = [Convert]::ToBase64String($pairBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        $env:CYCLAW_CONSOLE_PAIRING_CODE = $pairCode
+        $OpenUrl = $Url.TrimEnd('/') + "/#pair=" + $pairCode
+    }
     # Open the browser slightly after the server starts; the page retries
     # until the API answers, so a race here is harmless.
     Start-Job -ScriptBlock {
         param($url)
         Start-Sleep -Seconds 2
         Start-Process $url
-    } -ArgumentList $Url | Out-Null
+    } -ArgumentList $OpenUrl | Out-Null
 }
 
 Push-Location $Repo

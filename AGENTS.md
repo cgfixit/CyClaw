@@ -66,7 +66,11 @@ Auth Stage 3 is implemented: `/query` uses session/device-token authentication
 when `auth.enabled` is literal true, and always enforces its same-origin check.
 Soul/ops/audit API-key routes normally fail closed on missing keys. The separate
 `security.api_key_optional` opt-in requires loopback peer, no forwarding headers,
-and a non-cross-site request; it does not disable auth/RBAC.
+and a non-cross-site request; it does not disable auth/RBAC. Besides the Bearer
+key, `require_api_key` accepts the browser console's `cyclaw_console` cookie
+(minted by `POST /console/session`, `utils/console_session.py`) and, with
+`auth.enabled`, an enabled admin's login session. Both need their CSRF token on
+writes and are refused cross-site (`INVARIANTS.md` Rule 6).
 
 ## Six security invariants
 
