@@ -98,12 +98,18 @@ until an arm64 image is verified.
 Without it, use the corresponding `python -m …` commands.
 
 **Secrets.** `gate.py` reads environment variables, never dotenv files.
-macOS stores allowlisted secrets in Keychain through
-`macos/setup-cyclaw-keys.sh`. Its owner-only `~/.CyClaw/.env` holds ordinary
-settings; secret lines require explicit `--write-env-file` opt-in. Windows
-`Install-CyClaw.ps1` uses Credential Manager. `Invoke-CyClaw.ps1` reads
-non-secret settings from the first owner-only file found, preferring
-`%USERPROFILE%\.CyClaw\.env` over a checkout dotenv.
+`Invoke-CyClaw.ps1` reads non-secret settings from the first owner-only
+file found, preferring `%USERPROFILE%\.CyClaw\.env` over a checkout dotenv.
+
+**Secret persistence.** The setup paths have different operations:
+
+| Platform | Setup | Operation | Default secret store | Plaintext opt-in |
+|---|---|---|---|---|
+| macOS | `macos/setup-cyclaw-keys.sh` | Set up or preserve gateway key | Keychain | `--write-env-file` |
+| Windows | `powershell/Install-CyClaw.ps1` | Migrate existing plaintext secrets | Credential Manager | `-WriteEnvFile` |
+
+The owner-only dotenv holds ordinary settings. Plaintext secret lines require
+the platform's explicit opt-in; the Windows installer does not generate a missing key.
 
 Services obtain secrets only at execution through
 `macos/cyclaw-keychain-env.sh` or `powershell/CyClaw-CredMan-Env.ps1`, never
@@ -162,18 +168,21 @@ with `GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short`; they use no
 live provider. `python -m tests.ci_rag_smoke` checks retrieval floors with
 cached models.
 
-**Local records.** Paths are relative to the repository and gitignored,
-except the tracked soul file.
+**Local records.** Paths are relative to the repository. Directory ignore checks
+use representative children (`logs/evals/doc-sync-probe.json` and `index/bm25.json`),
+not a guarantee about every possible descendant.
 
-| Path | Contents and behavior |
-|---|---|
-| `logs/audit.jsonl` | Authoritative audit, written synchronously on the request thread. Questions are SHA-256 hashes by default, including when `logging.audit_fields` is absent or empty. Explicit `include_query_hash: false` stores redacted query text |
-| `logs/spend.jsonl` | Tokens for billed Grok/Claude calls, without query text or prices |
-| `logs/numbat-events.ndjsonl` | Derived redacted audit and out-of-band events; observation only |
-| `logs/cyclaw.log` | Application log; a bounded writer drops records rather than holding a request on stalled I/O |
-| `logs/evals/` | Opt-in dogfood and judge output, separate from production billing |
-| `index/` | Chroma and `bm25.json`; rebuild after corpus changes |
-| `data/personality/` | **Tracked `soul.md`** changes appear in `git status` and broad staging. The version DB `cyclaw_soul.db` and `soul.md.bak` are gitignored |
+| Path | Git status | Contents and behavior |
+|---|---|---|
+| `logs/audit.jsonl` | ignored | Authoritative audit, written synchronously on the request thread. Questions are SHA-256 hashes by default, including when `logging.audit_fields` is absent or empty. Explicit `include_query_hash: false` stores redacted query text |
+| `logs/spend.jsonl` | ignored | Tokens for billed Grok/Claude calls, without query text or prices |
+| `logs/numbat-events.ndjsonl` | ignored | Derived redacted audit and out-of-band events; observation only |
+| `logs/cyclaw.log` | ignored | Application log; a bounded writer drops records rather than holding a request on stalled I/O |
+| `logs/evals/` | ignored | Opt-in dogfood and judge output, separate from production billing |
+| `index/` | ignored | Chroma and `bm25.json`; rebuild after corpus changes |
+| `data/personality/soul.md` | tracked | Changes appear in `git status` and broad staging |
+| `data/personality/cyclaw_soul.db` | ignored | Version DB; not yet generated in a clean checkout |
+| `data/personality/soul.md.bak` | ignored | Vetted backup; not yet generated in a clean checkout |
 
 Day-two commands:
 

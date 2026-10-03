@@ -25,7 +25,14 @@ and self-test, preserving the existing Codex command paths.
    It validates skill inventory, console entry points, documented config
    values, sanitizer-pattern counts, route coverage, hook claims, graph
    node-count claims, and README paths, relative links, anchors, and Python
-   module references. Its README discovery covers basenames starting with
+   module references. It also checks required root README Local records against
+   Git and Secret persistence against bounded installer source witnesses. D3
+   binds table values and fully qualified assignments to their own config key;
+   uncited tunables remain optional. Missing contract rows are drift.
+   Requires PyYAML and Git; the dedicated doc-sync CI job blocks on drift.
+   Source witnesses are static evidence, not native keystore execution or
+   reachability proof; prose outside the tables still requires manual review.
+   Its README discovery covers basenames starting with
    `readme` (case-insensitive); include `docs/SYNC_README.md` and
    `docs/agentic/AGENTIC_README.md` manually in a project-wide README pass. Exit 0 means no mechanical drift; it does not prove
    every prose assertion.
@@ -49,6 +56,7 @@ and self-test, preserving the existing Codex command paths.
 
 ```text
 bash .claude/skills/doc-sync/verify.sh
+python .claude/skills/doc-sync/test_contracts.py
 git diff --check
 ```
 
