@@ -96,6 +96,7 @@ let operatorVia = null;   // 'console_key' | 'admin_session' | 'api_key_optional
 let consoleCsrf = null;
 let operatorExpiresAt = null;
 let operatorAuthEnabled = false;
+let operatorExpiryTimer = null;
 const operatorStatus = document.getElementById('operatorStatus');
 const operatorUnlockBtn = document.getElementById('operatorUnlockBtn');
 const operatorLockBtn = document.getElementById('operatorLockBtn');
@@ -131,7 +132,19 @@ function applyConsoleSession(data) {
   consoleCsrf = operatorVia === 'console_key' ? (data.csrf || null) : null;
   operatorExpiresAt = operatorVia === 'console_key' ? (data.expires_at || null) : null;
   operatorAuthEnabled = Boolean(data && data.auth_enabled);
+  scheduleOperatorExpiry();
   paintOperatorAccess();
+}
+
+// The browser stops sending the console cookie at its expiry, so re-read the
+// state then; otherwise a long-lived tab keeps showing "unlocked" (and hides
+// the Unlock button) while every operator call fails.
+function scheduleOperatorExpiry() {
+  if (operatorExpiryTimer) window.clearTimeout(operatorExpiryTimer);
+  operatorExpiryTimer = null;
+  if (!operatorExpiresAt) return;
+  const delayMs = Math.max(0, operatorExpiresAt * 1000 - Date.now()) + 1000;
+  operatorExpiryTimer = window.setTimeout(() => refreshOperatorAccess(), delayMs);
 }
 
 async function refreshOperatorAccess() {
@@ -141,6 +154,16 @@ async function refreshOperatorAccess() {
   } catch {
     // Leave the last-known state; /health already reports reachability.
   }
+}
+
+// Every Soul / ops / audit call goes through here. A 401/403 means the
+// credential behind operatorVia is gone (an expired or revoked admin session,
+// a rotated key) or the CSRF token is stale; re-read the state so the toolbar
+// offers Unlock again instead of showing a stale "unlocked".
+async function operatorFetch(url, options = {}, timeoutMs = 15000) {
+  const resp = await fetchWithTimeout(url, options, timeoutMs);
+  if (resp.status === 401 || resp.status === 403) await refreshOperatorAccess();
+  return resp;
 }
 
 // Returns null on success, else a sentence for the operator.
@@ -227,13 +250,15 @@ async function redeemPairingFromUrl() {
   }
 }
 
-// The macOS launcher's autofill writes the key here and fires change; trade
-// it for the cookie at once and clear the field so the key leaves the page.
+// The macOS autofill (invoke-cyclaw.sh, and setup-cyclaw-keys.sh
+// --fill-browser) writes the key here and fires input and/or change; trade it
+// for the cookie at once. The field is cleared before the await, so the key
+// leaves the page immediately and the second event of a pair finds it empty.
 async function tradeAutofilledKey() {
   const key = apiKeyInput ? apiKeyInput.value.trim() : '';
   if (!key) return;
-  const problem = await openConsoleSession({}, key);
   apiKeyInput.value = '';
+  const problem = await openConsoleSession({}, key);
   if (problem) openOperatorDialog(problem);
 }
 
@@ -952,7 +977,7 @@ async function openAuditPanel() {
   // placeholder, which reads exactly like a panel that loaded successfully.
   try {
     const resp = hasOperatorAccess()
-      ? await fetchWithTimeout(`${API}/audit/summary`, { headers: authHeaders() }, 15000)
+      ? await operatorFetch(`${API}/audit/summary`, { headers: authHeaders() }, 15000)
       : await fetchWithTimeout(`${API}/auth/audit/summary`, {}, 15000);
     if (!resp.ok) {
       box.textContent = describeApiKeyError(
@@ -1357,7 +1382,7 @@ async function toggleSoulPanel() {
 async function loadSoul() {
   setSoulStatus('Loading soul...');
   try {
-    const resp = await fetchWithTimeout(`${API}/soul`, {
+    const resp = await operatorFetch(`${API}/soul`, {
       headers: authHeaders(),
     }, 5000);
     const data = await resp.json().catch(() => ({}));
@@ -1378,7 +1403,7 @@ async function loadSoul() {
 async function reloadSoul() {
   setSoulStatus('Reloading soul from disk...');
   try {
-    const resp = await fetchWithTimeout(`${API}/soul/reload`, {
+    const resp = await operatorFetch(`${API}/soul/reload`, {
       method: 'POST',
       headers: authHeaders()
     }, 10000);
@@ -1413,7 +1438,7 @@ async function proposeSoulEvolution() {
   proposalBox.style.display = 'none';
   setSoulStatus('Creating proposal...');
   try {
-    const resp = await fetchWithTimeout(`${API}/soul/propose`, {
+    const resp = await operatorFetch(`${API}/soul/propose`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ new_soul: newSoul, reason })
@@ -1446,7 +1471,7 @@ async function applySoulEvolution() {
 
   setSoulStatus('Applying soul evolution...');
   try {
-    const resp = await fetchWithTimeout(`${API}/soul/apply`, {
+    const resp = await operatorFetch(`${API}/soul/apply`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(pendingSoulProposal)
@@ -1469,7 +1494,7 @@ async function applySoulEvolution() {
 async function restoreSoul() {
   setSoulStatus('Restoring from .bak...');
   try {
-    const resp = await fetchWithTimeout(`${API}/soul/restore`, {
+    const resp = await operatorFetch(`${API}/soul/restore`, {
       method: 'POST',
       headers: authHeaders()
     }, 10000);
@@ -1512,7 +1537,7 @@ const OPS_CLI_TIMEOUT_MS = 130000;    // 120s ops_runner._TIMEOUT_SEC + 10s marg
 // queryDeadlineMs above.
 let opsSyncDeadlineMs = 7320000;
 async function callOps(path, body, timeoutMs = OPS_CLI_TIMEOUT_MS) {
-  const resp = await fetchWithTimeout(`${API}${path}`, {
+  const resp = await operatorFetch(`${API}${path}`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(body)
@@ -2030,7 +2055,10 @@ if (document.getElementById('operatorForm')) {
 if (document.getElementById('operatorDialogCancel')) {
   document.getElementById('operatorDialogCancel').addEventListener('click', () => closeOperatorDialog());
 }
-if (apiKeyInput) apiKeyInput.addEventListener('change', tradeAutofilledKey);
+if (apiKeyInput) {
+  apiKeyInput.addEventListener('input', tradeAutofilledKey);
+  apiKeyInput.addEventListener('change', tradeAutofilledKey);
+}
 // Pairing first, so the auth refresh that follows paints the unlocked state.
 redeemPairingFromUrl().finally(() => refreshAuthUi());
 document.getElementById('agenticConfirm').addEventListener('change', refreshAgenticGates);

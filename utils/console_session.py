@@ -25,7 +25,9 @@ pass a one-time pairing code through CYCLAW_CONSOLE_PAIRING_CODE and open the
 console at ``#pair=<code>``. The fragment never reaches the server or the
 network. The page redeems the code once for the same cookie, so the operator
 never handles the key at all. A code is single-use and expires
-security.console_pairing_ttl_sec after the gateway starts.
+security.console_pairing_ttl_sec after the gateway starts serving: the clock
+starts in gate.py's lifespan, not at import, so a slow boot (a large index
+load) cannot spend the window before the code is redeemable.
 """
 
 from __future__ import annotations
@@ -111,7 +113,9 @@ def verify(api_key: str, token: str | None, now: float | None = None) -> Console
 
 def csrf_matches(session: ConsoleSession, supplied: str | None) -> bool:
     """Timing-safe check of an X-CyClaw-Console-CSRF header value."""
-    return bool(supplied) and hmac.compare_digest(supplied.encode("utf-8"), session.csrf.encode("utf-8"))
+    if not supplied:
+        return False
+    return hmac.compare_digest(supplied.encode("utf-8"), session.csrf.encode("utf-8"))
 
 
 class PairingCode:
@@ -125,8 +129,12 @@ class PairingCode:
     def __init__(self, code: str | None, ttl_sec: int, now: float | None = None) -> None:
         self._lock = threading.Lock()
         usable = isinstance(code, str) and len(code) >= MIN_PAIRING_CODE_CHARS
-        self._digest = hashlib.sha256(code.encode("utf-8")).digest() if usable else None
-        self._deadline = (time.time() if now is None else now) + ttl_sec
+        self._digest = hashlib.sha256(code.encode("utf-8")).digest() if code is not None and usable else None
+        self._ttl_sec = ttl_sec
+        # The window opens at start() (gate.py's lifespan, once the gateway
+        # serves), or at the first check if nothing called start(). Passing
+        # ``now`` opens it at construction, which is what the tests do.
+        self._deadline: float | None = None if now is None else now + ttl_sec
         self._used = False
 
     @classmethod
@@ -135,10 +143,21 @@ class PairingCode:
         env = os.environ if environ is None else environ
         return cls(env.pop(PAIRING_ENV, None), ttl_sec)
 
+    def start(self, now: float | None = None) -> None:
+        """Open the redemption window. Idempotent: a later call never extends it."""
+        with self._lock:
+            self._open_locked(time.time() if now is None else now)
+
+    def _open_locked(self, now: float) -> float:
+        if self._deadline is None:
+            self._deadline = now + self._ttl_sec
+        return self._deadline
+
     @property
     def available(self) -> bool:
+        current = time.time()
         with self._lock:
-            return self._digest is not None and not self._used and time.time() < self._deadline
+            return self._digest is not None and not self._used and current < self._open_locked(current)
 
     def redeem(self, supplied: str | None, now: float | None = None) -> bool:
         if not supplied:
@@ -146,7 +165,7 @@ class PairingCode:
         digest = hashlib.sha256(supplied.encode("utf-8")).digest()
         current = time.time() if now is None else now
         with self._lock:
-            if self._digest is None or self._used or current >= self._deadline:
+            if self._digest is None or self._used or current >= self._open_locked(current):
                 return False
             if not hmac.compare_digest(digest, self._digest):
                 return False

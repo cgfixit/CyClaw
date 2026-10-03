@@ -71,6 +71,18 @@ def test_pairing_code_is_single_use_and_expires():
     assert not late.redeem(PAIR, now=1300.0)
 
 
+def test_pairing_window_opens_at_start_not_construction():
+    """The TTL counts from start() (gate.py's lifespan, once serving), so a
+    slow import-time boot cannot spend the window; start() never extends it."""
+    code = console_session.PairingCode(PAIR, 300)
+    code.start(now=5000.0)
+    code.start(now=5200.0)
+    assert not code.redeem(PAIR, now=5300.0)
+    fresh = console_session.PairingCode(PAIR, 300)
+    fresh.start(now=5000.0)
+    assert fresh.redeem(PAIR, now=5299.0)
+
+
 def test_pairing_code_refuses_short_or_missing_codes():
     assert not console_session.PairingCode("short", 300).redeem("short")
     assert not console_session.PairingCode(None, 300).redeem(PAIR)
@@ -183,6 +195,15 @@ def test_pairing_code_unlocks_once(gw, monkeypatch, tmp_path):
     test_client.cookies.clear()
     assert test_client.post("/console/session", json={"pairing_code": PAIR}).status_code == 401
     assert '"via": "pairing_code"' in (tmp_path / "audit.jsonl").read_text()
+
+
+def test_lifespan_starts_the_pairing_clock(gw, monkeypatch):
+    test_client, gate = gw
+    code = console_session.PairingCode(PAIR, 300)
+    monkeypatch.setattr(gate, "_console_pairing", code)
+    with test_client:
+        assert code._deadline is not None
+        assert test_client.post("/console/session", json={"pairing_code": PAIR}).status_code == 200
 
 
 def test_ending_the_session_locks_again(gw):

@@ -462,7 +462,10 @@ validate_pre_action_hook_config(cfg)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing extra needed — clients are already initialized at module level.
+    # Startup: clients are already initialized at module level. The launcher's
+    # pairing code gets its TTL from here, once the gateway can serve, so the
+    # import-time boot (index load) does not eat into the window.
+    _console_pairing.start()
     yield
     # Shutdown: close persistent connection pools so the OS reclaims file
     # descriptors and TIME_WAIT sockets promptly on server restart.

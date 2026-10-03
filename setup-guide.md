@@ -639,15 +639,20 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:8787/auth/logout \
   -H "X-CyClaw-CSRF: the-csrf-token-from-whoami" | python3 -m json.tool
 ```
 
-### Authenticated routes (Bearer `CYCLAW_API_KEY`)
+### Authenticated routes (`CYCLAW_API_KEY` or an admin login)
 
-All of these return `401` when the key is missing **or** when `CYCLAW_API_KEY`
-is unset on the server — fail-closed in both directions, **with the shipped
-`security.api_key_optional: false`** (`config.yaml`). Setting that flag true is the
-one deliberate bypass: `gate.py`'s `_api_key_bypass_allowed` then skips the key, but
-only for a request that is simultaneously from a loopback socket peer, carries no
-reverse-proxy forwarding header, and is not cross-site. A remote caller always needs
-the real key.
+These routes accept a key-based credential (Bearer `CYCLAW_API_KEY`, or the
+console cookie traded for it) and, with `auth.enabled`, an enabled admin's
+login session. Key-based credentials fail closed: they return `401` when the
+key is missing, wrong, **or** when `CYCLAW_API_KEY` is unset on the server.
+An admin login is a credential of its own, so with `auth.enabled` it works
+even with the key unset; `operator` and `audit` logins never pass. With login
+off, an unset key leaves these routes closed to everyone, **given the shipped
+`security.api_key_optional: false`** (`config.yaml`). Setting that flag true is
+the one deliberate bypass: `gate.py`'s `_api_key_bypass_allowed` then skips the
+key, but only for a request that is simultaneously from a loopback socket peer,
+carries no reverse-proxy forwarding header, and is not cross-site. A remote
+caller always needs the real key or an admin login. See `INVARIANTS.md` Rule 6.
 
 | Route | Method | What it does |
 |---|---|---|

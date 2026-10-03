@@ -1281,7 +1281,8 @@ The boundaries that follow:
   sent over the network. `gate.py` pops the variable at import, so no `/ops/*`
   subprocess inherits it, and keeps only its SHA-256. The code is redeemable
   once and expires `security.console_pairing_ttl_sec` (ships 300 s) after the
-  gateway starts. The page strips the fragment before redeeming it. The code
+  gateway starts serving (the clock starts in the lifespan hook, after the
+  import-time boot). The page strips the fragment before redeeming it. The code
   is visible to same-user processes (the launcher's environment, the browser
   launch's argv) for that window. Those processes can already read the key
   from the OS keystore, so this widens nothing for the trusted operator.
