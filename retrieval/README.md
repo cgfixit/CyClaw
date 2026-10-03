@@ -60,6 +60,16 @@ before the writer is created.
   (default `2048` in `embeddings.py`), so it is overridable only via the
   `CYCLAW_EMBED_CACHE_SIZE` env var, not `config.yaml`.
 
+## Answer grounding
+
+After retrieval and generation, the default-enabled guardrails compare a
+retrieved local answer against its `answer_sources` using token overlap
+(`guardrails.hallucination_threshold: 0.18`). This is a separate output check
+from the retrieval scores above. It can replace an answer with the refusal
+message even when retrieval cleared the vault-hit gate. Best-effort and
+external answers skip grounding but retain input and soul-leak checks. MCP
+remains retrieval-only. See the [NeMo reference](../docs/NeMo/README.md).
+
 ## Related
 
 - Corpus location and rules: [`data/README.md`](../data/README.md)

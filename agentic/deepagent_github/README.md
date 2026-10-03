@@ -25,7 +25,7 @@ inference:
 
 | Module | Side | Note |
 |---|---|---|
-| `repo_workspace.py` | Live | `RepoWorkspaceTools`; the jailed clone/read/write/commit/push surface |
+| `repo_workspace.py` | Live | `RepoWorkspaceTools`; confined file tools and clone/read/write/commit/push. Git calls disable hooks/fsmonitor and validate clone config against a post-clone snapshot. See the [controls and platform limits](../README.md#c-real-repo-workspace-tools-repoworkspacetools) |
 | `chat_client.py` | Live | Cloud provider client used by `real_repo_loop.py`; owns the single retry policy — 2 bounded retries on transport/5xx/429, never on timeout; SDK retries disabled via `max_retries=0` |
 | `model_adapter.py` | Live | Provider/model shaping for the above |
 | `handoff.py` | Live | `sanitize_handoff` — bounds and redacts every outbound cloud prompt |

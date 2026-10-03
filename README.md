@@ -19,8 +19,10 @@ server binds to `127.0.0.1:8787`.
   an enabled admin's login also works when per-user auth is on.
 - Audit records hash questions by default. The spend ledger records tokens
   and computes dollars at read time. `cyclaw-metrics` joins both offline.
-- Auth, memory, guardrails, connectors, the agentic loop, and Telegram/X
-  channels ship disabled. The local Numbat stream and spend ledger ship on.
+- Guardrails ship enabled. The optional NeMo package adds live `check()`
+  execution; missing or failed checks retain deterministic protection and
+  record degradation. Auth, memory, connectors, the agentic loop, and
+  Telegram/X channels ship disabled. The Numbat stream and spend ledger ship on.
 
 CyClaw serves one trusted operator or a mutually trusted group with auth
 enabled. It provides neither tenant isolation nor a microVM.
@@ -76,6 +78,11 @@ and [Linux](setup-guide.md#linux-bash).
 
 Confirm: `curl http://127.0.0.1:8787/health`, then open
 `http://127.0.0.1:8787/`.
+
+These base installs use the enabled deterministic guardrails. To add the
+NeMo engine, follow the [optional runtime install](setup-guide.md#install-the-optional-nemo-runtime).
+It is separate from the base requirements and the `full` extra. Missing NeMo
+records `guardrail_degraded` in audit while the fallback checks remain active.
 
 > **Manual macOS install differs in one step.** There is no `+cpu` torch
 > wheel for macOS. Install plain `torch==2.13.0` from stripped copies of
@@ -143,7 +150,9 @@ not start it.
 
 - Without an index, `/query` returns `503 INDEX_NOT_FOUND`. Run
   `python -m retrieval.indexer` or use the browser's `POST /index/build`
-  action and poll `GET /index/status`.
+  action and poll `GET /index/status`. The build route requires a loopback
+  peer, rejects forwarding headers and cross-site requests, and requires
+  operator access once `CYCLAW_API_KEY` is set.
 - Check `curl -s http://127.0.0.1:8787/health` for `index_ready`, then ask
   the browser a question covered by `data/corpus/`. `degraded` usually
   means Ollama is down, not a server crash. `TELEMETRY KILL` at startup is expected.
@@ -197,8 +206,10 @@ curl -s http://127.0.0.1:8787/index/status   # build progress
 
 ## What It Does
 
-CyClaw retrieves Markdown and `.txt` documents before generation. Groundedness
-is measured in CI, not enforced by another graph node.
+CyClaw retrieves Markdown and `.txt` documents before generation. The
+enabled output rails enforce a token-overlap floor for retrieved local
+answers. This heuristic does not verify individual factual claims; the
+separate [evals](docs/EVALS.md) measure answer quality.
 
 1. **Retrieval first.** `retrieve` starts the 12-node graph. A miss can still
    reach `offline_best_effort` with partial context.
@@ -476,8 +487,8 @@ Ollama produces `unverified`. Dogfood is not a GitHub Actions job.
 
 ## Current development
 
-Documentation follows [`origin/main` at `ba74653`](https://github.com/cgfixit/CyClaw/commit/ba7465354754a554cb7bd6b3fa711709dbf47fce).
-As of 2026-10-03, these changes have **merged and shipped** (#1521, #1522, #1523, #1524):
+This README was checked against [`origin/main` at `f9c5edae`](https://github.com/cgfixit/CyClaw/commit/f9c5edae84995e7d854110b1ff4a824ee066f1d3)
+on 2026-10-03. Recent merged changes include:
 
 | PR (merged) | Change |
 |---|---|
@@ -485,6 +496,11 @@ As of 2026-10-03, these changes have **merged and shipped** (#1521, #1522, #1523
 | [#1522](https://github.com/cgfixit/CyClaw/pull/1522) | Preserve existing indexes when an empty or whitespace-only corpus produces no chunks |
 | [#1523](https://github.com/cgfixit/CyClaw/pull/1523) | Enforce `memory.facts.max_active` when reactivating inactive facts |
 | [#1524](https://github.com/cgfixit/CyClaw/pull/1524) | Remove a fresh clone if the initial agentic run record cannot be saved |
+| [#1527](https://github.com/cgfixit/CyClaw/pull/1527) | Disable hooks and fsmonitor during workspace Git calls and reject unapproved clone Git configuration changes |
+| [#1528](https://github.com/cgfixit/CyClaw/pull/1528) | Reject proxied index builds and require operator access when the gateway key is set |
+| [#1529](https://github.com/cgfixit/CyClaw/pull/1529), [#1530](https://github.com/cgfixit/CyClaw/pull/1530), [#1531](https://github.com/cgfixit/CyClaw/pull/1531) | Refuse Claude PR-comment automation on forks, load Telegram plist credentials through Keychain, and exclude nested secrets from Docker build context |
+| [#1533](https://github.com/cgfixit/CyClaw/pull/1533) | Block documented config, README storage, and installer-contract drift in doc-sync CI |
+| [#1534](https://github.com/cgfixit/CyClaw/pull/1534) | Enable guardrails by default with deterministic fallback on all four answer routes, real NeMo acceptance checks, and no extra model calls from active rails |
 
 ---
 
@@ -723,7 +739,7 @@ the live soul. `data/agentic/skills_registry.json` ships empty.
 | [`spend/README.md`](spend/README.md) | Ledger schema and live probes |
 | [`docs/memory/README.md`](docs/memory/README.md) | Facts, episodes, propose/apply, and the inert consolidation stub |
 | [`retrieval/README.md`](retrieval/README.md) | Hybrid search, the cosine gate, and the shadow reranker |
-| [`docs/security-philosophy/`](docs/security-philosophy/) | Why telemetry is killed, why offline is the default, Numbat designs |
+| [`docs/security-philosophy/`](docs/security-philosophy/) | Telemetry suppression, offline operation, and Numbat designs |
 | [`guardrails/README.md`](guardrails/README.md) / [`docs/NeMo/README.md`](docs/NeMo/README.md) | Rail semantics and what is display-only |
 | [`docs/agentic/AGENTIC_README.md`](docs/agentic/AGENTIC_README.md) | Real-repo loop, exit codes, and the write gate |
 | [`macos/README.md`](macos/README.md) / [`powershell/README.md`](powershell/README.md) | Keychain, Credential Manager, 401 recovery |
