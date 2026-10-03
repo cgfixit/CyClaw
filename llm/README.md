@@ -26,6 +26,18 @@ are already open. The only remaining gate is the per-request
 `user_confirmed_online`, which cannot be pre-set in config. Billed calls are
 recorded to `logs/spend.jsonl` — see [`spend/README.md`](../spend/README.md).
 
+## Guarded generation
+
+The gateway ships with `guardrails.enabled: true`. `graph.py` calls these
+clients through the callable injected by `utils/guardrail_bridge.py`, which
+checks input before generation and output afterward on all four answer
+routes. Missing or failed optional NeMo checks use deterministic input and
+soul-leak checks and audit `guardrail_degraded`. Grounding applies only to
+retrieved local answers. Active rails add no model calls. An unexpected
+wrapper failure returns `GUARDRAIL_ERROR` without replaying generation;
+the clients' bounded HTTP retry policy below remains separate.
+See the [NeMo reference](../docs/NeMo/README.md) for rail scope and limitations.
+
 ## Shared behavior
 
 - **Bounded retry** (`_post_with_retry`): transport errors, 5xx and 429 retry

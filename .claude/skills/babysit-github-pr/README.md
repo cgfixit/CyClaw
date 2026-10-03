@@ -62,7 +62,9 @@ Before using this skill, ensure:
    - `tox.ini` (envs)
    - `.github/workflows/*.yml` (run: steps)
 
-   If none found, the skill will ask you once (first invocation).
+   If detection finds no command, the helper defaults to `pytest tests/ -q`
+   and `ruff check --select F,B,S .`. Verify the reported commands against
+   the repository before using them.
 
 ## Knobs & Configuration
 
@@ -163,15 +165,16 @@ the deliberate failure.
 ### `gh` not found
 Install GitHub CLI: https://cli.github.com/
 
-### `gh auth status` shows expired token
-Re-authenticate:
-```bash
-gh auth logout
-gh auth login
-```
+### `gh auth status` reports an authentication failure
+Check the active host, account, and execution context first. A restricted
+shell or network failure does not establish that the saved credential is
+invalid. If credentials need renewal, have the operator sign in through
+`gh auth login`; do not automatically log out or reset credentials.
 
 ### Skill can't detect test command
-The skill will ask you once. Provide the exact command used to run tests in your project (e.g., `pytest tests/ -v` or `npm test`).
+The helper falls back to `pytest tests/ -q` and `ruff check --select F,B,S .`
+without prompting. Inspect its reported commands and use the repository's
+actual validation commands if those defaults do not apply.
 
 ### Merge conflict detected
 The skill aborts on every conflict rather than choosing a side. Resolve it manually:
@@ -197,7 +200,7 @@ Address the blocker, then re-invoke.
 ## For Repository Owners
 
 This skill works on any GitHub repository with:
-- Automated checks (GitHub Actions, GitLab CI, etc.)
+- Checks reported on the GitHub PR. Automated retries use GitHub Actions runs
 - A detectable test/lint command (Makefile, package.json, pyproject.toml, or workflows)
 - Branch protection rules (optional but recommended)
 

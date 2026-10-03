@@ -66,8 +66,12 @@ Other lines stay. No backup file is written. If the store fails or the
 item is unreadable or empty, the plaintext line stays, because it is
 still the only copy. A missing optional credential stays unset and the
 gateway still starts. A present item that cannot be read, or is empty,
-aborts that launch. `CYCLAW_API_KEY` missing warns and still starts the
-server; soul and ops routes then fail closed with 401.
+aborts that launch. On Windows, `Invoke-CyClaw.ps1` generates a missing
+`CYCLAW_API_KEY` from 20 random bytes and stores it in Credential Manager
+before launch. If it cannot store the key, it warns and starts without one;
+key-based operator access then fails closed. An enabled admin login and the
+explicit constrained-loopback bypass retain their separate access rules
+([operator access](../README.md#api-key-setup-soul-mutations)).
 
 ## Related
 

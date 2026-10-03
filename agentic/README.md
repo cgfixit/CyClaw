@@ -490,7 +490,13 @@ atomic write + sha256 versioning (soul propose/apply pattern).
 
 Jailed clone under `deepagent_github.workspace_root`. Containment uses
 `fsconnect.pathsafe.ScopedRoots` for reads; git writes use argv-list `git` with
-scrubbed env and `cwd` pinned to the clone.
+scrubbed env and `cwd` pinned to the clone. Every workspace Git call disables
+hooks and fsmonitor and checks local config names and values against the
+post-clone snapshot. Unexpected entries or changed remote URLs refuse the
+operation. Narrow display settings and branch-tracking additions are allowed.
+Operator-owned global/system Git config remains trusted. Linux and Windows
+verification do not confine file writes, so a check can also modify the
+snapshot; this protection does not close that sandbox gap.
 
 | Tool / method | Default | What it does |
 |---|---|---|

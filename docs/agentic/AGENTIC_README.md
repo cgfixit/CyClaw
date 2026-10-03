@@ -157,6 +157,13 @@ pushes or opens a GitHub PR on its own: explicit push uses
 none of these coding-loop actions, so `POST /ops/agentic` rejects them with
 422.
 
+Workspace Git calls disable hooks and fsmonitor and reject unexpected local
+Git config entries or values against a post-clone snapshot, including remote
+URL rewrites. This does not replace executor confinement or human approval.
+Global/system Git config remains operator-trusted, and Linux/Windows checks
+can still write outside the clone and alter that snapshot. See the
+[workspace controls](../../agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
+
 Before #1524 merged, a failure while saving the first run record could leave the
 new clone without a record that `real-repo-run-discard` can find. Merged PR
 [#1524](https://github.com/cgfixit/CyClaw/pull/1524) (shipped 2026-10-03) adds cleanup for that
