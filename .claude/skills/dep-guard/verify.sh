@@ -143,4 +143,44 @@ if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[D8\]"; then
 fi
 echo "mutation H (D8 Docker torch drift): PASS (exit 2, D8 reported)"
 
+for mutation in missing-metadata optional-only wrong-release missing-constraint plain-constraint other-tag metadata-tag; do
+  i="$(_mktree)"
+  case "$mutation" in
+    missing-metadata) sed -i.bak '/"torch==/d' "$i/pyproject.toml" ;;
+    optional-only)
+      sed -i.bak '/"torch==/d' "$i/pyproject.toml"
+      sed -i.bak '/^mssql = \[/a\
+    "torch=='"$real_pin"'",\
+' "$i/pyproject.toml"
+      ;;
+    wrong-release) sed -i.bak -E 's/"torch==[^"]*"/"torch==99.0.0"/' "$i/pyproject.toml" ;;
+    missing-constraint) sed -i.bak '/^torch==/d' "$i/constraints.txt" ;;
+    plain-constraint) sed -i.bak 's/^\(torch==[^+]*\)+cpu$/\1/' "$i/constraints.txt" ;;
+    other-tag) sed -i.bak 's/^\(torch==[^+]*\)+cpu$/\1+cu130/' "$i/constraints.txt" ;;
+    metadata-tag) sed -i.bak -E 's/"torch==([^"]*)"/"torch==\1+cpu"/' "$i/pyproject.toml" ;;
+  esac
+  out="$(python3 "$checker" --repo-root "$i" 2>&1)"; rc=$?
+  rm -rf "$i"
+  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[D3\]"; then
+    echo "mutation torch $mutation: FAIL - expected exit 2 + D3, got $rc" >&2
+    echo "$out" >&2; exit 1
+  fi
+  if [ "$mutation" != missing-metadata ] && [ "$mutation" != optional-only ] && ! echo "$out" | grep -q "FAIL  \[D6\]"; then
+    echo "mutation torch $mutation: FAIL - expected D6" >&2; echo "$out" >&2; exit 1
+  fi
+  echo "mutation torch $mutation: PASS"
+done
+
+for stale_pin in sentence-transformers=6.0.1 ruff=0.16.7; do
+  i="$(_mktree)"
+  printf 'dependencies:\n  - %s\n' "$stale_pin" > "$i/environment.yml"
+  out="$(python3 "$checker" --repo-root "$i" 2>&1)"; rc=$?
+  rm -rf "$i"
+  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[D9\]"; then
+    echo "mutation stale $stale_pin: FAIL - expected exit 2 + D9, got $rc" >&2
+    echo "$out" >&2; exit 1
+  fi
+  echo "mutation stale $stale_pin: PASS"
+done
+
 echo "== dep-guard verify: OK =="

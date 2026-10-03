@@ -46,10 +46,10 @@ It checks (severity in brackets):
 |---|---|---|
 | D1 | FAIL/WARN | `pydantic` and `pydantic-core` are BOTH exact-pinned in `constraints.txt` (FAIL if not); a drift from the documented lock-step pair is a WARN (bump both together) |
 | D2 | FAIL | `numpy` is held below 2.x (exact `<2` pin) — numpy 2 removes `np.float_` and breaks chromadb/onnxruntime |
-| D3 | FAIL | every `torch` pin carries the `+cpu` local build tag (else the default index pulls a CUDA wheel) |
+| D3 | FAIL | Torch metadata pins the public release; constraints pin the same release with exactly `+cpu` |
 | D4 | FAIL/WARN | `constraints.txt` `uvicorn` carries **no** extra (pip ≥26.1.2 rejects extras in a `-c` file); WARN if `pyproject` `uvicorn` is missing `[standard]` |
 | D5 | WARN | every `constraints.txt` entry is an exact `==` pin (its reproducibility purpose) |
-| D6 | FAIL | every package pinned in BOTH files agrees on version (`constraints.txt`'s own header says they MUST match) |
+| D6 | FAIL | every exact metadata pin has a matching constraint; only Torch adds the `+cpu` local tag |
 | D7 | INFO | `chromadb` pin is CVE-2026-45829 risk-accepted, embedded `PersistentClient` only (SECURITY.md) — do not "fix" it |
 | D8 | FAIL/WARN | every CI workflow and install script that hardcodes a torch version agrees with the manifest pin (FAIL); stale doc / `.osv-scanner.toml` references are WARN |
 | D9 | FAIL | `environment.yml` (conda CI lane) pins agree with the pip manifests — `fastapi` exempt (conda-forge's chromadb build pins it; documented in the file itself) |

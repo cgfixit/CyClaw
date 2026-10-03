@@ -3,11 +3,8 @@
 # Install: pip install -r requirements.txt -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
 # (matches CLAUDE.md §8's documented install flow: torch first, then requirements.txt)
 #
-# pyproject.toml currently has NEITHER a `torch-cpu` extra NOR a
-# [tool.uv.sources] CPU-wheel-routing table -- an `uv pip install -e .` flow
-# was previously documented here but would not pull in torch at all today
-# (verified 2026-08-09). Restoring that uv-based path is separate follow-up
-# work, not assumed by this file.
+# Package metadata does not select the CPU index. Keep the CPU-first install
+# recipe on Linux/Windows and the plain-Torch macOS recipe in setup-guide.md.
 #
 # This pins direct dependencies (sourced from pyproject.toml) + critical transitives
 # (pydantic family to avoid resolver explosion, torch for post-CVE-2025-32434 safety).
@@ -35,7 +32,7 @@ pydantic-core==2.46.5
 # pydantic>=2.7.0; pinned pydantic==2.13.5 satisfies that).
 pydantic-settings==2.15.0
 
-# Direct dependencies from pyproject.toml [project.dependencies] -- versions MUST match exactly
+# Direct dependencies from pyproject.toml -- versions MUST match; Torch adds the +cpu build tag.
 fastapi==0.141.1
 # Constraints pin versions only; the `[standard]` extra stays in requirements.txt.
 # pip >= 26.1.2 rejects extras in a -c constraints file ("Constraints cannot have
