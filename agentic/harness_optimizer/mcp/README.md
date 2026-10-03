@@ -4,7 +4,7 @@
 the future MCP *tool boundary*. This package does not import or start
 `mcp_hybrid_server.py` (the actual MCP server module), and it does not speak the MCP protocol.
 
-Public export: `ProposerWorkspaceTools` (also re-exported from
+`tools.py` exports `ProposerWorkspaceTools` (also re-exported from
 `agentic.harness_optimizer`).
 
 Constraints enforced here (same as a future MCP surface would have to):

@@ -18,6 +18,13 @@ precedes it.
 | `stemmer.py` | Porter-based stemmer with custom AI/DevOps/CyClaw vocabulary; avoids NLTK punkt (CVE surface). Pins `nltk==3.10.3` (closes a `PorterStemmer` DoS cluster) and caps every token at 256 chars before stemming as defense in depth (CVE-2026-81722). |
 | `clear_cache.py` | Dry-run-by-default embedding-cache cleaner (`--apply` to delete). The cache is a regenerable artifact; index/audit/soul are untouched. |
 
+On the current base, a corpus made only of empty or whitespace-only files
+produces zero chunks after `load_corpus` succeeds. `build_index` then resets
+the vector store and replaces BM25 with an empty index. Draft
+[#1522](https://github.com/cgfixit/CyClaw/pull/1522) adds a zero-chunk check
+before the writer is created. Until it merges, do not rebuild from an
+empty-only corpus if you need to preserve the existing index.
+
 ## Numbers that trip people
 
 - `retrieval.min_score` (shipped **0.028**) is on the **RRF scale**, not
