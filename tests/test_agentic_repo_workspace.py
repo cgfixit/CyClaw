@@ -947,6 +947,90 @@ def test_commit_does_not_run_repo_hooks(tmp_path, monkeypatch):
     assert not sentinel.exists(), "a repo-local pre-commit hook executed during commit"
 
 
+@pytest.mark.parametrize("hook_name", ["post-commit", "post-checkout", "reference-transaction"])
+def test_planted_hooks_do_not_run_on_any_git_call(tmp_path, monkeypatch, hook_name):
+    """#1526 F1: --no-verify skips pre-commit/commit-msg only.
+
+    post-commit, post-checkout and reference-transaction still run under it, and
+    a verification check (not write_file) is what would plant them -- it runs with
+    cwd at the clone root. Every _run_git pins core.hooksPath at an empty dir.
+    """
+    sentinel = tmp_path / "HOOK_RAN"
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            hook = Path(tools.worktree) / ".git" / "hooks" / hook_name
+            hook.parent.mkdir(parents=True, exist_ok=True)
+            hook.write_text(f"#!/bin/sh\ntouch {sentinel}\n", encoding="utf-8")
+            hook.chmod(0o755)
+            tools.checkout_branch("agent/hooks")
+            tools.write_file("a.txt", "changed\n")
+            tools.add(["a.txt"])
+            tools.commit("test: hooks must not run")
+    assert not sentinel.exists(), f"a planted {hook_name} hook executed"
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "[core]\n\tfsmonitor = touch {sentinel}\n",
+        '[diff]\n\texternal = touch {sentinel}\n',
+        '[filter "pwn"]\n\tclean = touch {sentinel}\n',
+        "[include]\n\tpath = /dev/null\n",
+        '[remote "origin"]\n\tpushurl = file:///tmp/elsewhere.git\n',
+    ],
+)
+def test_git_refuses_a_planted_local_config_key(tmp_path, monkeypatch, planted):
+    """#1526 F1: a check that appends to .git/config must stop every git call.
+
+    write_file refuses `.git`, but a sandboxed check can still write the file
+    directly. The allowlist over the clone's own config keys makes diff/status
+    (run by real-repo-run-status before approval) refuse instead of executing.
+    """
+    sentinel = tmp_path / "CONFIG_RAN"
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n", ".gitattributes": "* filter=pwn\n"})
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            (Path(tools.worktree) / "a.txt").write_text("changed\n", encoding="utf-8")
+            config = Path(tools.worktree) / ".git" / "config"
+            with config.open("a", encoding="utf-8") as fh:
+                # as_posix: a Windows backslash path would be a config parse
+                # error, not the allowlist refusal this test is about.
+                fh.write(planted.format(sentinel=sentinel.as_posix()))
+            with pytest.raises(AgenticError, match="modified outside this tool"):
+                tools.diff()
+            with pytest.raises(AgenticError, match="modified outside this tool"):
+                tools.untracked_files()
+            with pytest.raises(AgenticError, match="modified outside this tool"):
+                tools.add(["a.txt"])
+    assert not sentinel.exists(), "a planted .git/config command executed"
+
+
+def test_git_refuses_a_symlinked_local_config(tmp_path, monkeypatch):
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            config = Path(tools.worktree) / ".git" / "config"
+            real = tmp_path / "elsewhere.config"
+            real.write_text(config.read_text(encoding="utf-8"), encoding="utf-8")
+            config.unlink()
+            config.symlink_to(real)
+            with pytest.raises(AgenticError, match="not a regular file"):
+                tools.diff()
+
+
+def test_push_upstream_keys_stay_within_the_config_allowlist(tmp_path, monkeypatch):
+    """push --set-upstream writes branch.<name>.remote/merge; git must keep working after."""
+    remote = tmp_path / "origin.git"
+    fake = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            tools.checkout_branch("agent/upstream")
+            tools.push_branch("agent/upstream")
+            assert tools.diff() == ""
+            assert tools.untracked_files() == []
+
+
 @pytest.mark.parametrize("target", ["a.txt/nested.txt", "sub"])
 def test_write_file_converts_unwritable_paths_into_agentic_errors(tmp_path, monkeypatch, target):
     """A path that validates but the filesystem refuses must not escape as OSError.
@@ -1134,7 +1218,14 @@ def test_untracked_files_parses_nul_delimited_utf8_paths_without_stripping(tmp_p
     )
     with patch.object(repo_workspace, "run_read", side_effect=fake):
         with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
-            with patch.object(repo_workspace.subprocess, "run", return_value=completed) as mrun:
+            config_keys = subprocess.CompletedProcess(args=[], returncode=0, stdout="core.bare\x00", stderr="")
+
+            def _run(argv, **_kwargs):
+                # The .git/config allowlist read (#1526 F1) runs first; answer it
+                # separately so this mock only stands in for `git status`.
+                return config_keys if argv[1] == "config" else completed
+
+            with patch.object(repo_workspace.subprocess, "run", side_effect=_run) as mrun:
                 assert tools.untracked_files() == [
                     "café.py",
                     " leading.txt",
@@ -1323,3 +1414,69 @@ def test_write_file_still_accepts_ordinary_paths(tmp_path, monkeypatch):
             worktree = Path(tools.worktree)
             assert (worktree / "real" / "ok.md").read_text(encoding="utf-8") == "overwritten\n"
             assert (worktree / "real" / "brand_new.md").read_text(encoding="utf-8") == "created\n"
+
+
+def test_push_refuses_a_rewritten_origin_url(tmp_path, monkeypatch):
+    """#1527 review: names alone are not enough. A check that repoints
+    remote.origin.url (an allowlisted key) would redirect the approved push;
+    the post-clone snapshot pins the value, so the push is refused and the
+    decoy remote receives nothing."""
+    remote = tmp_path / "origin.git"
+    decoy = tmp_path / "decoy.git"
+    _git("git", "init", "--bare", "-q", str(decoy))
+    fake = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            tools.checkout_branch("agent/redirect")
+            # Written the way a sandboxed check would: straight to the file,
+            # not through any RepoWorkspaceTools method.
+            _git("git", "config", "--file", str(Path(tools.worktree) / ".git" / "config"),
+                 "remote.origin.url", str(decoy))
+            with pytest.raises(AgenticError, match="modified outside this tool"):
+                tools.push_branch("agent/redirect")
+    assert _git("git", "--git-dir", str(decoy), "branch", "--list") == ""
+
+
+def test_a_fork_clones_upstream_remote_is_accepted(tmp_path, monkeypatch):
+    """#1527 review: `gh repo clone` of a fork adds the parent as `upstream`.
+    Present at clone time, it is in the snapshot and must not block git."""
+    remote = tmp_path / "origin.git"
+    parent = tmp_path / "parent.git"
+    base = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+
+    def fake(op, repo, **kwargs):
+        result = base(op, repo, **kwargs)
+        _git("git", "remote", "add", "upstream", str(parent), cwd=result["dest"])
+        return result
+
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            tools.checkout_branch("agent/fork")
+            assert tools.diff() == ""
+            tools.push_branch("agent/fork")
+    assert "agent/fork" in _git("git", "--git-dir", str(remote), "branch", "--list")
+
+
+def test_git_refuses_when_the_post_clone_snapshot_is_missing(tmp_path, monkeypatch):
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            (Path(tools.worktree).parent / repo_workspace._CONFIG_BASELINE_NAME).unlink()
+            with pytest.raises(AgenticError, match="snapshot is missing"):
+                tools.diff()
+
+
+def test_attach_checks_git_against_the_snapshot_the_clone_wrote(tmp_path, monkeypatch):
+    """real-repo-run-status runs in a later process via attach(); the snapshot
+    lives beside the clone so that process enforces the same baseline."""
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
+    with patch.object(repo_workspace, "run_read", side_effect=fake) as mrun:
+        original = RepoWorkspaceTools.clone(cfg)
+        dest = Path(mrun.call_args.kwargs["dest"])
+        original.release()
+    with (dest / ".git" / "config").open("a", encoding="utf-8") as fh:
+        fh.write("[core]\n\tsshCommand = false\n")
+    with RepoWorkspaceTools.attach(cfg, dest) as reattached:
+        with pytest.raises(AgenticError, match="modified outside this tool"):
+            reattached.diff()
