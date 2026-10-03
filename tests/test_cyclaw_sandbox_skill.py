@@ -1,4 +1,4 @@
-"""Unit checks for the Codex cyclaw-sandbox-test helper scripts."""
+"""Unit checks for CyClaw sandbox verification scripts."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 import yaml
 
@@ -149,3 +150,70 @@ def test_runner_without_ref_keeps_branch_clone(tmp_path: Path, monkeypatch: pyte
 
     assert len(seen) == 1
     assert seen[0][:5] == ["git", "clone", "--branch", "main", "--single-branch"]
+
+
+@pytest.mark.parametrize("script", [
+    ".claude/skills/CyClaw-Sandbox/terminal_emulation.py",
+    ".codex/skills/Cyclaw-Sandbox/terminal_emulation.py",
+])
+@pytest.mark.parametrize(
+    ("health", "status", "expected_timeout"),
+    [
+        ({"graph_timeout_sec": 780}, 200, 790.0),
+        ({"graph_timeout_sec": 12.5}, 200, 22.5),
+        ({}, 200, 790.0),
+        ({"graph_timeout_sec": None}, 200, 790.0),
+        ({"graph_timeout_sec": "780"}, 200, 790.0),
+        ({"graph_timeout_sec": True}, 200, 790.0),
+        ({"graph_timeout_sec": 0}, 200, 790.0),
+        ({"graph_timeout_sec": -1}, 200, 790.0),
+        ({"graph_timeout_sec": float("inf")}, 200, 790.0),
+        ({"graph_timeout_sec": float("nan")}, 200, 790.0),
+        ({"graph_timeout_sec": 12.5}, 503, 790.0),
+    ],
+)
+def test_query_waits_for_terminal_deadline(script, health, status, expected_timeout, monkeypatch, capsys):
+    spec = importlib.util.spec_from_file_location("terminal_emulation", ROOT / script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(sys, "argv", [script, "http://127.0.0.1:8787"])
+    monkeypatch.setenv("CYCLAW_API_KEY", "dummy")
+    requests = []
+
+    def respond(request):
+        timeout = request.extensions["timeout"]["read"]
+        requests.append((request.url.path, timeout))
+        if request.url.path == "/health":
+            payload = {"index_ready": True, "graph_ready": True, **health}
+            return httpx.Response(status, content=json.dumps(payload))
+        if request.url.path == "/query":
+            # MockTransport does not enforce timeouts. Model a 15-second read explicitly.
+            if timeout < 15.0:
+                raise httpx.ReadTimeout("response needs 15 seconds", request=request)
+            return httpx.Response(200, json={
+                "needs_confirm": False, "hit_count": 1,
+                "model_used": "local", "retrieval_mode": "hybrid", "answer": "fixture",
+            })
+        assert request.url.path == "/soul"
+        if "authorization" not in request.headers:
+            return httpx.Response(401)
+        return httpx.Response(200, json={"version": 1, "soul": "fixture"})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: real_client(
+        **kwargs, transport=httpx.MockTransport(respond),
+    ))
+
+    result = module.main()
+    output = capsys.readouterr().out
+    assert requests == [
+        ("/health", 3.0),
+        ("/query", expected_timeout),
+        ("/query", expected_timeout),
+        ("/query", expected_timeout),
+        ("/soul", 5.0),
+        ("/soul", 5.0),
+    ]
+    assert result == (0 if status == 200 else 1), output
+    assert "FAIL  /query" not in output
