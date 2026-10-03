@@ -17,7 +17,7 @@ the configured limit.
 ## Enable progressively
 
 1. `memory.enabled: true` + `episodes.enabled: true` — stage query episodes (hashed query by default).
-2. `propose_apply.enabled: true` + set `CYCLAW_API_KEY` — use `/memory/propose` then `/memory/apply`.
+2. `propose_apply.enabled: true` + establish [operator access](../../README.md#api-key-setup-soul-mutations) — use `/memory/propose` then `/memory/apply`.
 3. `facts.retrieval_enabled: true` + `retrieval_fusion.enabled: true` — FTS fact hits fuse into `hybrid_search` as `retrieval_mode="memory"`.
 4. `export_html.enabled: true` — `GET /query/export/html` (auth-gated).
 
@@ -51,7 +51,7 @@ one-time warning — see `memory/flags.py`.)
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/memory/status` | Always 200 + flags when keyed |
+| GET | `/memory/status` | Always 200 + flags with operator access |
 | GET | `/memory/facts` | 404 if master off |
 | GET | `/memory/episodes` | 404 if master off |
 | GET | `/memory/proposals` | propose_apply gate |
