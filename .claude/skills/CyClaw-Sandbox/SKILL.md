@@ -381,9 +381,10 @@ report one of these as a new finding.
    runs the same injection markers, and no LLM-backed rail is active, so a
    persona prompt worded off those markers passes. `topical_rails` is
    display-only. `guardrail_output` runs `check_soul_leak` and
-   `check_grounding`, but on the `local_llm` answer only; Grok, Claude and
-   best-effort answers get a soul-leak check only from NeMo `check()`, when
-   NeMo is installed.
+   `check_grounding`, but on the `local_llm` answer only. The generation
+   broker also checks soul-leak markers on all four answer routes through
+   NeMo `check()` or deterministic fallback when a live check is unavailable.
+   Grounding remains scoped to retrieved local answers.
 2. Telegram's T4 media handling is partial and POSIX-only.
 3. `memory/consolidation.py` is a deliberate stub; consolidation stays
    disabled in v1.

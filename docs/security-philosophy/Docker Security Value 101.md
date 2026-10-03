@@ -177,11 +177,11 @@ The common lie in 2026 agent-sandbox marketing is collapsing all of the above in
 
 ---
 
-1. Docker installer: package existing controls (seccomp/AppArmor, Falco, guardrails opt-in). Acceptance: clean install on Windows+Mac, restore story documented.
+1. Docker installer: package existing controls (seccomp/AppArmor, Falco, and [NeMo Guardrails](../NeMo/README.md), which ships enabled with an optional engine dependency). Acceptance: clean install on Windows+Mac, restore story documented.
 2. spend.jsonl: add pre-run cost prediction + PRICED_AS_OF staleness warning.
 3. Pick ONE compliance standard, map existing controls, document gaps.
 4. Legal RAG demo: textract→md corpus, 10-20 biz datasets, 2 adversarial test scenarios, accuracy recorded.
-5. (Parking lot — do not start): guardrails default-on, web SIEM, Chroma alternatives, tokenizer anything, multi-instance dashboard.
+5. (Parking lot — do not start): web SIEM, Chroma alternatives, tokenizer anything, multi-instance dashboard.
 
 --
 

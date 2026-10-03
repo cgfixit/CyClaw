@@ -263,8 +263,9 @@ means many source addresses.
 
 ### 4.5 Ships disabled
 
-`auth.enabled: false` by default, matching every other CyClaw subsystem
-(`agentic`, `telegram`, `guardrails`, `fsconnect`). Nothing changes for an
+`auth.enabled: false` by default, like `agentic`, `telegram`, and `fsconnect`.
+NeMo Guardrails ships enabled independently of auth
+([current reference](NeMo/README.md)). Nothing changes for an
 existing loopback install until the operator turns it on. When enabled,
 `/query` requires a credential **including on loopback** — a bypass for
 `127.0.0.1` would be exactly the shortcut this design was asked to avoid, and

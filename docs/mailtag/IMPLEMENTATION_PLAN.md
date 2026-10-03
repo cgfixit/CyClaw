@@ -112,7 +112,7 @@ Corrections to the original feature request, each grounded in the research above
 - Produce a reviewable **plan** before any provider-side write.
 - Apply an **approved, unexpired** plan by adding exactly one tag (Gmail label / Outlook category / iCloud folder) to each matched message — nothing else.
 - Full local audit trail; every applied change is reversible via an explicit undo path.
-- Ship `enabled: false`, fully disarmed, following the exact convention every other optional subsystem (`memory`, `telegram`, `opentweet`, `guardrails`) already uses.
+- Ship `enabled: false`, fully disarmed, following the default-off convention used by `memory`, `telegram`, and `opentweet`. NeMo Guardrails has an independent enabled default.
 
 ### 2.2 Explicit non-goals
 

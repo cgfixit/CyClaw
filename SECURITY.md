@@ -106,8 +106,9 @@ or launcher lands unclassified:
 5. **No mechanism found (negative findings, dated in the inventory)** — LM
    Studio (no documented telemetry env switch; its updater/model/cloud
    operations remain app-level policy), fastembed (no telemetry of its own;
-   its first-use CDN model fetch is functional egress under the guardrails
-   opt-in), uv, git (documented out of the overlay: it reads none of the
+   its first-use CDN model fetch is functional egress when optional NeMo
+   functionality invokes that loader; active gateway check flows need no
+   embedding fetch), uv, git (documented out of the overlay: it reads none of the
    canonical names), the vendored Unslop scanners, and the core
    web/runtime/dev libraries.
 
