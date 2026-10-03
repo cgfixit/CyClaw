@@ -24,12 +24,18 @@ import gate
 
 
 @pytest.fixture
-def idle_client():
+def idle_client(monkeypatch):
     """A client with the build state reset to idle, restored afterwards.
 
     gate._index_build is module-global, so a test that leaves it "running"
     would make every later test's /index/build return 409. Save and restore.
+
+    CYCLAW_API_KEY is cleared so these tests exercise the first-run gate no
+    matter what the job exports (the CyClaw-Sandbox verify job sets a smoke
+    key for the whole suite). Once the key is set the route also needs a
+    credential (#1528); TestIndexBuildCredentialGate sets it explicitly.
     """
+    monkeypatch.delenv("CYCLAW_API_KEY", raising=False)
     saved = dict(gate._index_build)
     gate._index_build.update({
         "state": "idle", "started_at": None, "finished_at": None,
