@@ -33,8 +33,6 @@ import os
 import re
 import shutil
 import subprocess  # nosec B404 - list-form only, no shell, operator-configured argv
-import threading
-from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("cyclaw.external_pre_hook")
@@ -283,29 +281,6 @@ def _emit_hook_verdict(
         logger.warning("pre_action_hook numbat emit failed: %s", exc)
 
 
-# The last decided verdict, for diagnostics only (never an input to routing).
-_LAST_VERDICT_LOCK = threading.Lock()
-_LAST_VERDICT: dict[str, Any] | None = None
-
-
-def _record_last_verdict(provider: str, engine: str, result: dict[str, Any]) -> None:
-    global _LAST_VERDICT
-    with _LAST_VERDICT_LOCK:
-        _LAST_VERDICT = {
-            "verdict": result.get("verdict"),
-            "reason_code": result.get("reason_code"),
-            "provider": provider,
-            "engine": engine,
-            "at": datetime.now(UTC).isoformat(),
-        }
-
-
-def last_verdict() -> dict[str, Any] | None:
-    """The most recent decided verdict in this process: codes only, no free text."""
-    with _LAST_VERDICT_LOCK:
-        return dict(_LAST_VERDICT) if _LAST_VERDICT else None
-
-
 def run_pre_action_hook(
     provider: str,
     model: str,
@@ -338,7 +313,6 @@ def run_pre_action_hook(
         result = _deny("hook_misconfigured", f"unknown pre_action_hook engine {block.get('engine')!r}")
         engine = "unknown"
 
-    _record_last_verdict(provider, engine, result)
     if emit_verdict:
         # A write can no longer hold the verdict: the stream's writer thread
         # takes it and waits for it at most numbat_emitter._WRITE_WAIT_SEC.

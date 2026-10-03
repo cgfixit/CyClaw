@@ -22,7 +22,6 @@ from utils.external_pre_hook import (
     REASON_CODES,
     _normalize_timeout,
     hook_readiness,
-    last_verdict,
     run_pre_action_hook,
 )
 from utils.numbat_emitter import _StreamWriter, _write_line, close_numbat_handles
@@ -531,22 +530,6 @@ def test_verdict_mode_is_always_enforce(tmp_path, monkeypatch, caplog, block, wa
     # A deny always blocks: no setting turns a deny into an allow.
     assert result["verdict"] == "deny"
     assert any("verdict_mode" in r.getMessage() for r in caplog.records) is warns
-
-
-def test_last_verdict_records_codes_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    cfg = _hook_config(tmp_path)
-
-    def _exit_2(*args, **kwargs):
-        return subprocess.CompletedProcess(args=args[0], returncode=2, stdout=b"", stderr=b"secret stderr text")
-
-    monkeypatch.setattr(subprocess, "run", _exit_2)
-    run_pre_action_hook("claude", "claude-sonnet-5", _TEST_QUERY_HASH, cfg)
-    last = last_verdict()
-    assert last is not None
-    assert {k: last[k] for k in ("verdict", "reason_code", "provider", "engine")} == {
-        "verdict": "deny", "reason_code": "hook_denied", "provider": "claude", "engine": "command",
-    }
-    assert "secret stderr text" not in json.dumps(last)
 
 
 def test_readiness_is_none_when_the_hook_is_off():
