@@ -127,10 +127,24 @@ def register_auth_routes(
     )
     app.state.auth_workers = auth_workers
 
-    async def _password_work(fn, *args):
+    async def _password_work(fn, *args, op: str, request: Request, actor: str | None = None):
         try:
             return await auth_workers.run(fn, *args)
         except WorkCapacityExceeded as exc:
+            # INVARIANTS I4: a shed password op is a rejection and is audited
+            # once, here, for every caller. Only ip, the op name and (on
+            # authenticated admin routes) the acting user are recorded -- never
+            # a password, and never an unauthenticated caller's username guess
+            # (same rule as auth_login_failed). enforce_rate_limit runs before
+            # every route that reaches this, so busy audits are capped per IP.
+            busy_event = {
+                _EVENT_KEY: "auth_busy",
+                "op": op,
+                "ip": request.client.host if request.client else "unknown",
+            }
+            if actor:
+                busy_event["username"] = actor
+            await audit(busy_event)
             raise HTTPException(
                 status_code=503,
                 detail={"code": "AUTH_BUSY", "message": "Password service is busy; try again shortly"},
@@ -445,7 +459,9 @@ def register_auth_routes(
                 },
             )
         try:
-            login_result = await _password_work(manager.bootstrap_set_password, req.password)
+            login_result = await _password_work(
+                manager.bootstrap_set_password, req.password, op="bootstrap_password", request=request,
+            )
         except AuthBootstrapComplete as exc:
             raise HTTPException(
                 status_code=_HTTP_CONFLICT,
@@ -479,7 +495,7 @@ def register_auth_routes(
         manager = _require_enabled()
         client_ip = request.client.host if request.client else "unknown"
         try:
-            login_result = await _password_work(manager.login, req.username, req.password)
+            login_result = await _password_work(manager.login, req.username, req.password, op="login", request=request)
         except AuthLoginFailed as exc:
             await audit({_EVENT_KEY: "auth_login_failed", "ip": client_ip})
             raise HTTPException(
@@ -691,7 +707,10 @@ def register_auth_routes(
         _assert_can_create(actor, role)
         manager = _require_enabled()
         try:
-            created = await _password_work(manager.create_user, req.username, req.password, role)
+            created = await _password_work(
+                manager.create_user, req.username, req.password, role,
+                op="create_user", request=request, actor=actor.username,
+            )
         except Exception as exc:
             _raise_auth_error(exc)
         await audit({_EVENT_KEY: "auth_user_created", "username": actor.username, "target": created, "role": role})
@@ -708,7 +727,10 @@ def register_auth_routes(
         dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)],
     )
     async def auth_set_password(
-        username: str, req: AuthSetPasswordRequest, actor: UserSummary = Depends(_require_write_actor),
+        request: Request,
+        username: str,
+        req: AuthSetPasswordRequest,
+        actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
         manager = _require_enabled()
         target = manager.get_user(username)
@@ -716,7 +738,10 @@ def register_auth_routes(
             _raise_auth_error(AuthUserNotFound(f"unknown user: {username}", details={"username": username}))
         _assert_can_touch(actor, target)
         try:
-            await _password_work(manager.set_password, username, req.password)
+            await _password_work(
+                manager.set_password, username, req.password,
+                op="set_password", request=request, actor=actor.username,
+            )
         except Exception as exc:
             _raise_auth_error(exc)
         await audit({_EVENT_KEY: "auth_password_reset", "username": actor.username, "target": target.username})
@@ -724,11 +749,14 @@ def register_auth_routes(
 
     @app.post("/auth/password", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_set_own_password(
-        req: AuthChangePasswordRequest, actor: UserSummary = Depends(_require_write_actor),
+        request: Request, req: AuthChangePasswordRequest, actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
         manager = _require_enabled()
         try:
-            await _password_work(manager.change_password, actor.username, req.current_password, req.password)
+            await _password_work(
+                manager.change_password, actor.username, req.current_password, req.password,
+                op="change_password", request=request, actor=actor.username,
+            )
         except Exception as exc:
             _raise_auth_error(exc)
         await audit({_EVENT_KEY: "auth_password_self", "username": actor.username, "target": actor.username})

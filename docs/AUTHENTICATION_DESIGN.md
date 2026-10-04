@@ -413,7 +413,7 @@ Each stage is independently reviewable and leaves the tree working.
 
 1. **Username set.** Single account (`operator`), or one per person? One per
    device is handled by named bearer tokens regardless.
-2. **Session lifetime.** **Resolved (2026-08-08):** 12 h idle / 7 d absolute,
+2. **Session lifetime.** **Resolved (2026-08-08):** 1 h (3600 s) idle / 7 d absolute,
    both configurable (`auth.session.idle_timeout_sec` /
    `absolute_timeout_sec` in `config.yaml`, 3600 / 604800 shipped). A session
    dies from either limit, whichever is reached first.

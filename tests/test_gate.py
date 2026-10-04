@@ -282,6 +282,37 @@ class TestQueryEndpoint:
         assert resp.json()["retrieval_mode"] == "none"
 
 
+# Dedicated loopback peer so this request never spends the shared bucket.
+@pytest.mark.parametrize("client", [("127.0.0.47", 51234)], indirect=True)  # DevSkim: ignore DS162092,DS137138 - test loopback peer
+def test_query_graph_busy_is_audited(client, tmp_path, monkeypatch):
+    """INVARIANTS I4 / Rule 3: every /query rejection is audited. A query shed
+    with 503 GRAPH_BUSY (graph worker capacity full) writes exactly one
+    graph_busy audit line, like GRAPH_TIMEOUT/graph_error, and the raw query
+    text never lands in audit.jsonl (audit_log keeps only its fingerprint)."""
+    import json
+
+    import gate
+    from utils.bounded_executor import WorkCapacityExceeded
+
+    class _FullWorkers:
+        async def run(self, _fn, *_args):
+            raise WorkCapacityExceeded("worker capacity is exhausted")
+
+    monkeypatch.setattr(gate, "_graph_workers", _FullWorkers())
+    test_client, mock_graph = client
+    raw_query = "graph busy canary query 7f3a"
+    resp = test_client.post("/query", json={"query": raw_query})
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "GRAPH_BUSY"
+    assert resp.headers.get("retry-after") == "1"
+    mock_graph.invoke.assert_not_called()
+    audit_text = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    events = [json.loads(line) for line in audit_text.splitlines() if line.strip()]
+    assert [e.get("event") for e in events].count("graph_busy") == 1
+    assert raw_query not in audit_text
+
+
 def _need_celpy() -> None:
     """importorskip("celpy"), except where CI promises the evaluator is installed.
 

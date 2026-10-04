@@ -45,7 +45,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 BOOTSTRAP_USERNAME = "admin"
 
 # Default session bounds (docs/AUTHENTICATION_DESIGN.md §10.2, confirmed
-# 2026-08-08): 12h idle, 7d absolute. Both configurable via auth.session.*.
+# 2026-08-08): 3600 s (1 h) idle, 7d absolute. Both configurable via auth.session.*.
 _DEFAULT_IDLE_TIMEOUT_SEC = 3600
 _DEFAULT_ABSOLUTE_TIMEOUT_SEC = 7 * 86400
 

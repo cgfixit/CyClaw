@@ -464,7 +464,7 @@ rule that prevents it.
   **Rule:** BM25 stays JSON (`index/bm25.json`); pickle is RCE. `test_security`
   guards it.
 - **Trap:** logging raw query text "for debugging."
-  **Rule:** the audit log stores keyed HMAC fingerprints by default; `test_gate` enforces it.
+  **Rule:** the audit log stores keyed HMAC fingerprints only (while include_query_hash: true); `test_gate` enforces it.
 - **Trap:** treating MCP `hybrid_search` as unsanitized.
   **Rule:** it runs `check_input` before retrieval (E3, #974; same patterns and
   `max_input_chars` as `/query`) and audits `prompt_injection_blocked`.
