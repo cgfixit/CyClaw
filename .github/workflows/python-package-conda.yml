@@ -23,7 +23,10 @@ env:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # ubuntu-22.04, not -latest: native verification confinement (bubblewrap) is
+    # mandatory and Ubuntu 24.04's stock AppArmor denies its loopback setup. Same
+    # pin and probe as ci.yml's `test` and `real-repo-run-smoke` jobs.
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -35,6 +38,17 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         persist-credentials: false
+
+    - name: Install Linux verification filesystem/PID/network sandbox
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends bubblewrap
+        bwrap --version
+        # Keep stock AppArmor/user-namespace policy; fail if this runner cannot
+        # establish the required confinement.
+        bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+          --ro-bind / / --proc /proc --dev /dev /bin/true
 
     # Env spec is repo-root environment.yml (NOT .github/workflows/environment.yml —
     # that path is a no-op placeholder after c708148; see that workflow's header).

@@ -56,7 +56,7 @@ def test_run_verification_without_injected_sandbox_fails_closed_off_windows(tmp_
     try:
         production_sandbox()
     except HardSandboxUnavailable:
-        with pytest.raises(AgenticError, match="HARD_SANDBOX_UNAVAILABLE|fails closed|no hard-sandbox"):
+        with pytest.raises(AgenticError, match="HARD_SANDBOX_UNAVAILABLE|fails closed|no hard-sandbox|bubblewrap"):
             run_verification(tmp_path, [_py("import sys; sys.exit(0)")])
         return
     report = run_verification(tmp_path, [_py("import sys; sys.exit(0)")])

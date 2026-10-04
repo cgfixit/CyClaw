@@ -242,7 +242,7 @@ def test_macos_volume_path_requires_real_volumes_directory(darwin: None, monkeyp
 
 
 def test_resolved_macos_volume_alias_is_refused_at_runtime(darwin: None, monkeypatch) -> None:
-    monkeypatch.setattr(pathsafe.Path, "resolve", lambda self, *, strict: self)
+    monkeypatch.setattr(pathsafe.Path, "resolve", lambda self, strict=False: self)
     monkeypatch.setattr(pathsafe, "_is_macos_volume_path", lambda _path: True)
     with pytest.raises(FsPathError, match="allow_macos_volume_roots is false"):
         pathsafe.ScopedRoots(
@@ -253,7 +253,7 @@ def test_resolved_macos_volume_alias_is_refused_at_runtime(darwin: None, monkeyp
 
 
 def test_scoped_roots_refuses_macos_volume_by_default(darwin: None, monkeypatch) -> None:
-    monkeypatch.setattr(pathsafe.Path, "resolve", lambda self, *, strict: self)
+    monkeypatch.setattr(pathsafe.Path, "resolve", lambda self, strict=False: self)
     monkeypatch.setattr(pathsafe, "_is_macos_volume_path", lambda _path: True)
     with pytest.raises(FsPathError, match="allow_macos_volume_roots is false"):
         pathsafe.ScopedRoots(["/private/alias"], create=False)

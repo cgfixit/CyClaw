@@ -174,7 +174,17 @@ def test_macos_volumes_sibling_prefix_is_not_refused(monkeypatch, tmp_path):
 
 def test_macos_volume_symlink_alias_is_refused(monkeypatch):
     monkeypatch.setattr(fsconfig.sys, "platform", "darwin")
-    monkeypatch.setattr(fsconfig.os.path, "realpath", lambda _path: "/Volumes/External/share")
+    real_realpath = fsconfig.os.path.realpath
+    # Redirect only the alias under test: validate_root() resolves home/repo
+    # anchors through the same call, and a blanket redirect would make them
+    # all "equal" the mount path.
+    monkeypatch.setattr(
+        fsconfig.os.path,
+        "realpath",
+        lambda path, **kwargs: (
+            "/Volumes/External/share" if str(path) == "/private/mounted-share" else real_realpath(path, **kwargs)
+        ),
+    )
     with pytest.raises(FsConnectConfigError, match="allow_macos_volume_roots is false"):
         fsconfig.FsConnectConfig(allowed_roots=["/private/mounted-share"])
 
