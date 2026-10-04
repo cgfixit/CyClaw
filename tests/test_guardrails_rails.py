@@ -165,14 +165,10 @@ def test_jailbreak_flow_uses_nemo_allow_polarity() -> None:
 
 
 def test_is_ungrounded_uses_configured_threshold() -> None:
-    """Live Colang floor must track set_hallucination_threshold (not a rails.co 0.18 literal)."""
+    """Live Colang floor must track the passed threshold (not a rails.co 0.18 literal)."""
     import asyncio
 
-    from guardrails.rails import (
-        _action_is_ungrounded,
-        get_hallucination_threshold,
-        set_hallucination_threshold,
-    )
+    from guardrails.rails import _action_is_ungrounded
 
     # Barely overlapping answer: score is small but non-zero.
     ctx = {
@@ -180,23 +176,20 @@ def test_is_ungrounded_uses_configured_threshold() -> None:
         "relevant_chunks": "alpha only",
     }
     # With a high floor, one shared token is not enough -> ungrounded.
-    set_hallucination_threshold(0.9)
-    assert get_hallucination_threshold() == pytest.approx(0.9)
-    assert asyncio.run(_action_is_ungrounded(context=ctx)) is True
+    assert asyncio.run(_action_is_ungrounded(context=ctx, hallucination_threshold=0.9)) is True
     # With a near-zero floor, any positive overlap is enough -> grounded.
-    set_hallucination_threshold(0.01)
-    assert asyncio.run(_action_is_ungrounded(context=ctx)) is False
-    # Restore shipped default so later tests / engines are not polluted.
-    set_hallucination_threshold(0.18)
+    assert asyncio.run(_action_is_ungrounded(context=ctx, hallucination_threshold=0.01)) is False
 
 
-def test_set_hallucination_threshold_rejects_out_of_range() -> None:
-    from guardrails.rails import set_hallucination_threshold
+def test_register_actions_rejects_out_of_range_threshold() -> None:
+    # Validation runs before the NeMo-availability check, so it holds with or
+    # without nemoguardrails installed.
+    from guardrails.rails import register_actions
 
     with pytest.raises(ValueError, match="hallucination_threshold"):
-        set_hallucination_threshold(1.5)
+        register_actions(object(), hallucination_threshold=1.5)
     with pytest.raises(ValueError, match="hallucination_threshold"):
-        set_hallucination_threshold(-0.1)
+        register_actions(object(), hallucination_threshold=-0.1)
 
 
 # Labeled *answers* (Decision B). tests/fixtures/ is gitignored.
@@ -259,18 +252,11 @@ def test_is_ungrounded_stands_down_only_when_grounding_is_out_of_scope() -> None
     from guardrails.rails import (
         GROUNDING_SCOPE_KEY,
         _action_is_ungrounded,
-        get_hallucination_threshold,
-        set_hallucination_threshold,
     )
 
-    before = get_hallucination_threshold()
-    set_hallucination_threshold(0.18)
-    try:
-        ungrounded = {"bot_message": "the moon is green cheese", "relevant_chunks": "rrf fuses ranks"}
-        assert asyncio.run(_action_is_ungrounded(context=ungrounded)) is True
-        assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: True})) is True
-        # Only the literal False stands down; a stray string keeps grounding on.
-        assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: "false"})) is True
-        assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: False})) is False
-    finally:
-        set_hallucination_threshold(before)
+    ungrounded = {"bot_message": "the moon is green cheese", "relevant_chunks": "rrf fuses ranks"}
+    assert asyncio.run(_action_is_ungrounded(context=ungrounded)) is True
+    assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: True})) is True
+    # Only the literal False stands down; a stray string keeps grounding on.
+    assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: "false"})) is True
+    assert asyncio.run(_action_is_ungrounded(context={**ungrounded, GROUNDING_SCOPE_KEY: False})) is False

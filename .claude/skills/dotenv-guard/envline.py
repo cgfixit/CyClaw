@@ -521,17 +521,6 @@ def unescape_field(text: str) -> str:
     return "".join(out)
 
 
-def escape_field(text: str) -> str:
-    """Escape a field so it can sit in one TSV column."""
-    return (
-        text.replace("\\", "\\\\")
-        .replace("\t", "\\t")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace(BOM, "\\uFEFF")
-    )
-
-
 def load_vectors(path: Path) -> list[dict[str, str]]:
     """Read envline_vectors.tsv. Blank lines and `#` comments are skipped."""
     rows: list[dict[str, str]] = []
