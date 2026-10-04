@@ -541,6 +541,8 @@ jobs:
           bwrap --version
           # Keep stock AppArmor/user-namespace policy. The native gate below
           # must fail if this runner cannot establish the required confinement.
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: macOS install-script smoke test (layout + shim + profile integration)
         if: runner.os == 'macOS'
@@ -1271,6 +1273,8 @@ jobs:
           bwrap --version
           # Keep stock AppArmor/user-namespace policy. The native gate below
           # must fail if this runner cannot establish the required confinement.
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: Setup Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
