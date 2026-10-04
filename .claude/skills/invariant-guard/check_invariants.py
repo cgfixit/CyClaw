@@ -31,7 +31,6 @@ import re
 import sys
 from pathlib import Path
 
-CORE_FILES = ("gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py", "graph.py", "mcp_hybrid_server.py")
 OUT_OF_BAND_PKGS = ("agentic", "sync", "guardrails", "telegram", "opentweet")
 
 # The full documented graph shape (CLAUDE.md's "12-node LangGraph topology").

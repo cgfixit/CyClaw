@@ -308,9 +308,10 @@ async def _action_get_grounding_score(context: dict | None = None) -> float:
 # Absent means grounding applies, which keeps safe_generate's behavior.
 GROUNDING_SCOPE_KEY = "cyclaw_check_grounding"
 
-# Default for standalone action calls. Each engine captures its own floor at
-# registration so cached engines cannot change one another's policy.
-_active_hallucination_threshold: float = 0.18
+# Default for standalone action calls (guardrails.config's shipped 0.18). Each
+# engine captures its own floor at registration, so a constant is enough; the
+# old module-global setter had no production caller.
+_DEFAULT_HALLUCINATION_THRESHOLD: float = 0.18
 
 
 def _validated_hallucination_threshold(threshold: float) -> float:
@@ -319,17 +320,6 @@ def _validated_hallucination_threshold(threshold: float) -> float:
             f"hallucination_threshold must be a float in [0.0, 1.0], got: {threshold!r}"
         )
     return float(threshold)
-
-
-def set_hallucination_threshold(threshold: float) -> None:
-    """Update the standalone action default without changing registered engines."""
-    global _active_hallucination_threshold
-    _active_hallucination_threshold = _validated_hallucination_threshold(threshold)
-
-
-def get_hallucination_threshold() -> float:
-    """Return the default for standalone :func:`_action_is_ungrounded` calls."""
-    return _active_hallucination_threshold
 
 
 @_nemo_action(name="is_ungrounded")
@@ -349,7 +339,7 @@ async def _action_is_ungrounded(
     return is_possible_hallucination(
         ctx.get("bot_message", ""),
         ctx.get("relevant_chunks", ""),
-        _active_hallucination_threshold if hallucination_threshold is None else hallucination_threshold,
+        _DEFAULT_HALLUCINATION_THRESHOLD if hallucination_threshold is None else hallucination_threshold,
     )
 
 
@@ -361,14 +351,14 @@ def register_actions(
     """Register the soul/personality actions on a live ``LLMRails`` instance.
 
     Each engine captures its own ``hallucination_threshold`` for the live
-    ``is_ungrounded`` action. Omitting it captures the standalone action default.
+    ``is_ungrounded`` action. Omitting it captures the shipped default (0.18).
 
     Returns the number of actions registered. A no-op returning 0 when
     ``nemoguardrails`` is not installed (the decorators above are already shims),
     so callers can invoke it unconditionally.
     """
     threshold = _validated_hallucination_threshold(
-        get_hallucination_threshold() if hallucination_threshold is None else hallucination_threshold
+        _DEFAULT_HALLUCINATION_THRESHOLD if hallucination_threshold is None else hallucination_threshold
     )
     if not NEMO_AVAILABLE:
         return 0

@@ -1152,8 +1152,3 @@ CURATED_QA: list[dict[str, str]] = [
 },
 
 ]
-
-
-def get_curated_dataset() -> list[dict[str, str]]:
-    """Return the curated Q&A dataset."""
-    return CURATED_QA.copy()
