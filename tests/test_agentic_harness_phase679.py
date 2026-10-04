@@ -443,6 +443,25 @@ def test_atomic_json_cleans_up_tmp_file_on_write_failure(tmp_path: Path, monkeyp
     assert list(tmp_path.glob(".*.tmp")) == []
 
 
+def test_workspace_tools_atomic_write_cleans_up_tmp_file_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Same contract for the proposer MCP tools' text writer: a failed replace
+    # must not leave a .{name}.{pid}.cyclaw-tmp file in the workspace.
+    from agentic.harness_optimizer.mcp import tools
+
+    def _raise_replace(*_args: object, **_kwargs: object) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(tools.os, "replace", _raise_replace)
+    target = tmp_path / "proposal.md"
+    with pytest.raises(OSError, match="simulated replace failure"):
+        tools.ProposerWorkspaceTools._atomic_write(target, "body")
+
+    assert not target.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
 # --- loop_driver: plan -> patch -> verify -> review -------------------------
 
 _FIXTURE_REPO = Path(__file__).parent / "fixtures" / "github_coding_repo"

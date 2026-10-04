@@ -88,6 +88,23 @@ def test_save_wraps_an_oserror_as_agentic_error(tmp_path: Path):
         save_run(runs_dir, _record())
 
 
+def test_save_failure_leaves_no_tmp_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # A replace failure after the temp write must not orphan .{name}.{pid}.tmp
+    # in the runs directory; the error still surfaces as AgenticError.
+    from agentic import real_repo_run_store
+
+    def _raise_replace(*_args: object, **_kwargs: object) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(real_repo_run_store.os, "replace", _raise_replace)
+    runs_dir = tmp_path / "runs"
+    record = _record()
+    with pytest.raises(AgenticError, match="failed to persist run record"):
+        save_run(runs_dir, record)
+
+    assert list(runs_dir.iterdir()) == []
+
+
 def test_load_raises_for_a_missing_run(tmp_path: Path):
     with pytest.raises(AgenticError, match="not found"):
         load_run(tmp_path / "runs", new_run_id())
