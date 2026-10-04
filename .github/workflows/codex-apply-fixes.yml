@@ -1,48 +1,23 @@
-# ==============================================================================
-# Codex / OpenAI-code-agent — owner-gated APPLY FIXES on PR bot comments
-#
-# Purpose
-#   When the repository owner *replies* to an automated/AI bot comment on an
-#   open same-repo PR with exactly one of:
-#     @codex apply fixes
-#     @openai-code-agent apply fixes
-#   this workflow runs Codex with workspace write on the PR head, applies the
-#   smallest safe fix for THAT parent bot comment, commits, and pushes.
-#
-# Security posture (non-negotiable)
-#   - Default permissions: none. Job grants contents:write + PR/issue write only
-#     on the apply-fixes path.
-#   - Owner-only: comment author, actor, and triggering_actor must all equal
-#     repository_owner.
-#   - Open same-repo PR only (no forks).
-#   - Parent comment required and must be a bot / known automation author.
-#   - Advisory @codex (without "apply fixes") stays on codex.yml (read-only).
-#   - Codex may edit the PR head checkout only; it never force-pushes and never
-#     targets main.
-# ==============================================================================
-
+# Owner-authorized fixes: untrusted candidate execution and credentialed publication
+# run on separate hosted runners. Publication consumes only a data patch, never
+# candidate .git state, scripts, dependencies, hooks, or local action definitions.
+# Issue comments: @codex apply fixes <full 40-character head SHA> (or
+# @openai-code-agent apply fixes <SHA>). Review replies bind to comment.commit_id
+# and the event PR head; stale review threads require fresh approval.
 name: Codex Apply Fixes (PR Reply)
-
 on:
-  # Inline review-thread replies (Gitleaks, line comments, etc.)
   pull_request_review_comment:
     types: [created]
-  # Conversation-tab replies (when GitHub attaches replyTo)
   issue_comment:
     types: [created]
-
 concurrency:
   group: codex-apply-fixes-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
-
 permissions: {}
-
 jobs:
-  apply_fixes:
-    name: Apply owner-approved bot fixes
+  gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-
+    timeout-minutes: 5
     # Coarse if: event shape + owner + trigger phrase. Parent-bot validation is
     # enforced in the gate step (needs API).
     if: |
@@ -70,22 +45,32 @@ jobs:
       )
 
     permissions:
-      contents: write       # push applied-fix commits to same-repo PR head only
-      pull-requests: write  # post apply-fixes result on the PR
-      issues: write         # PR conversation comments use the Issues API
-
+      contents: read
+      pull-requests: read
+      issues: read
     outputs:
-      final_message: ${{ steps.run_codex.outputs.final-message }}
-      changed: ${{ steps.commit_push.outputs.changed }}
-      skip_reason: ${{ steps.gate.outputs.skip_reason }}
-
+      pr_number: ${{ steps.gate.outputs.pr_number }}
+      head_ref: ${{ steps.gate.outputs.head_ref }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+      base_sha: ${{ steps.gate.outputs.base_sha }}
+      trigger: ${{ steps.gate.outputs.trigger }}
+      parent_json: ${{ steps.gate.outputs.parent_json }}
+      owner_comment: ${{ steps.gate.outputs.owner_comment }}
     steps:
       - name: Gate — resolve PR + parent bot comment
         id: gate
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         with:
           github-token: ${{ github.token }}
           script: |
+            const owner = context.repo.owner;
+            if (context.payload.comment?.user?.login !== owner ||
+                context.actor !== owner || process.env.TRIGGERING_ACTOR !== owner) {
+              core.setFailed("Only the repository owner can authorize apply-fixes.");
+              return;
+            }
             const body = (context.payload.comment?.body || "").trim();
             const triggerCodex = /@codex\s+apply\s+fixes\b/i.test(body);
             const triggerOai = /@openai-code-agent\s+apply\s+fixes\b/i.test(body);
@@ -119,10 +104,8 @@ jobs:
             ]);
             const isBotAuthor = (user) => {
               if (!user) return false;
-              if (user.type === "Bot") return true;
               const login = (user.login || "").toLowerCase();
-              if (knownBots.has(user.login) || knownBots.has(login)) return true;
-              return login.endsWith("[bot]");
+              return knownBots.has(login);
             };
 
             let prNumber;
@@ -196,7 +179,7 @@ jobs:
                   },
                 );
                 const prior = [...comments]
-                  .filter((c) => c.id !== context.payload.comment.id)
+                  .filter((c) => c.id < context.payload.comment.id)
                   .reverse()
                   .find((c) => isBotAuthor(c.user));
                 if (!prior) {
@@ -234,11 +217,29 @@ jobs:
               repo: context.repo.repo,
               pull_number: prNumber,
             });
+            // Bind authorization to an immutable revision, not whichever branch
+            // tip exists when this queued job starts. Git commit dates are
+            // author-controlled and cannot establish approval freshness.
+            const approvedSha = context.eventName === "pull_request_review_comment"
+              ? context.payload.comment?.commit_id
+              : body.match(/@(?:codex|openai-code-agent)\s+apply\s+fixes\s+([0-9a-f]{40})(?=\s|$)/i)?.[1];
+            if (!approvedSha || !/^[0-9a-f]{40}$/i.test(approvedSha)) {
+              core.setFailed(context.eventName === "pull_request_review_comment"
+                ? "Review approval is missing its immutable commit SHA."
+                : "Issue-comment approval requires '@codex apply fixes <full 40-character head SHA>'.");
+              return;
+            }
+            if (pr.head.sha.toLowerCase() !== approvedSha.toLowerCase() ||
+                (context.eventName === "pull_request_review_comment" &&
+                 context.payload.pull_request?.head?.sha !== pr.head.sha)) {
+              core.setFailed("PR head changed since approval; approve the current exact head again.");
+              return;
+            }
             if (pr.state !== "open") {
               core.setFailed("PR is not open.");
               return;
             }
-            if (pr.head.repo.full_name !== context.repo.full_name) {
+            if (pr.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
               core.setFailed("Refusing apply-fixes on fork PRs.");
               return;
             }
@@ -248,6 +249,11 @@ jobs:
               return;
             }
 
+            const { data: repository } = await github.rest.repos.get(context.repo);
+            if (pr.head.ref === repository.default_branch) {
+              core.setFailed("Refusing to push apply-fixes to the default branch.");
+              return;
+            }
             const trigger = triggerCodex ? "@codex apply fixes" : "@openai-code-agent apply fixes";
             core.setOutput("pr_number", String(prNumber));
             core.setOutput("head_ref", pr.head.ref);
@@ -259,18 +265,37 @@ jobs:
             core.setOutput("skip_reason", "");
             core.info(`Apply-fixes gated OK: PR #${prNumber} parent@${parent.author} via ${trigger}`);
 
-      - name: Checkout PR head (writable)
-        # zizmor: ignore[artipacked] intentional: persist-credentials required so the
-        # subsequent commit/push step can fast-forward the same-repo PR head with
-        # GITHUB_TOKEN; no artifacts are uploaded from this job.
+
+  candidate:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
+    steps:
+      - name: Checkout exact approved head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ steps.gate.outputs.head_ref }}
-          fetch-depth: 0
-          # Default token with contents:write can push back to the head ref.
-          persist-credentials: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-
+          ref: ${{ needs.gate.outputs.head_sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Load apply-fixes prompt from default branch (trusted)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .trusted-prompt
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: .codex/prompts/pr-apply-fixes.md
+          sparse-checkout-cone-mode: false
+      - name: Move trusted prompt outside the workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 0444 .trusted-prompt/.codex/prompts/pr-apply-fixes.md "$RUNNER_TEMP/pr-apply-fixes.md"
+          rm -rf .trusted-prompt
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -279,13 +304,13 @@ jobs:
       - name: Write apply-fixes request context
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         env:
-          PARENT_JSON: ${{ steps.gate.outputs.parent_json }}
-          OWNER_COMMENT: ${{ steps.gate.outputs.owner_comment }}
-          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
-          HEAD_REF: ${{ steps.gate.outputs.head_ref }}
-          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
-          BASE_SHA: ${{ steps.gate.outputs.base_sha }}
-          TRIGGER: ${{ steps.gate.outputs.trigger }}
+          PARENT_JSON: ${{ needs.gate.outputs.parent_json }}
+          OWNER_COMMENT: ${{ needs.gate.outputs.owner_comment }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          HEAD_REF: ${{ needs.gate.outputs.head_ref }}
+          HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+          BASE_SHA: ${{ needs.gate.outputs.base_sha }}
+          TRIGGER: ${{ needs.gate.outputs.trigger }}
         with:
           script: |
             const fs = require("fs");
@@ -329,79 +354,178 @@ jobs:
         with:
           openai-api-key: ${{ secrets.CODEX }}
           codex-version: "0.144.6"
-          prompt-file: .codex/prompts/pr-apply-fixes.md
+          prompt-file: ${{ runner.temp }}/pr-apply-fixes.md
           working-directory: ${{ github.workspace }}
           # Allow edits inside the checkout; still drop sudo on the runner.
           permission-profile: ":workspace"
           safety-strategy: drop-sudo
 
-      - name: Commit and push applied fixes
-        id: commit_push
+      - name: Extract untrusted candidate patch
         shell: bash
         env:
-          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
-          HEAD_REF: ${{ steps.gate.outputs.head_ref }}
-          TRIGGER: ${{ steps.gate.outputs.trigger }}
+          ORIGINAL_HEAD: ${{ needs.gate.outputs.head_sha }}
         run: |
           set -euo pipefail
-
-          # Never commit the ephemeral request files.
+          # Everything on this runner remains untrusted after Codex. Its output
+          # is data only; no contents-write token exists in this job.
+          empty_hooks="$(mktemp -d)"
+          git_safe() {
+            /usr/bin/git -c core.hooksPath="$empty_hooks" -c core.fsmonitor=false \
+              -c diff.external= -c core.attributesFile=/dev/null "$@"
+          }
           rm -f .codex-apply-fixes-request.json .codex-apply-fixes-parent.md
+          git_safe add -A
+          mkdir -p "$RUNNER_TEMP/candidate-patch"
+          git_safe diff --cached --binary --no-ext-diff --no-textconv "$ORIGINAL_HEAD" \
+            > "$RUNNER_TEMP/candidate-patch/fixes.patch"
+      - name: Upload data-only patch
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: codex-fixes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate-patch/fixes.patch
+          if-no-files-found: error
+          retention-days: 1
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Stay on the worktree Codex just edited. Do not reset/checkout over it.
-          if git diff --quiet && git diff --cached --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No file changes from Codex; nothing to commit."
-            exit 0
-          fi
-
-          git add -A
-          # Safety: unstage secret-like paths before commit.
-          # Null-delimited read + quoted "$path" (SC2046-safe; spaces OK).
-          # Pipeline form avoids process-substitution /dev/fd edge cases.
-          git diff --cached -z --name-only | while IFS= read -r -d '' path; do
-            case "$path" in
-              .env|.env.*|*/.env|*/.env.*) ;;
-              *.pem) ;;
-              id_rsa|id_rsa.*|*/id_rsa|*/id_rsa.*) ;;
-              *) continue ;;
-            esac
-            git reset -- "$path" || true
-          done
-
-          if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Nothing staged after safety reset."
-            exit 0
-          fi
-
-          git commit -m "$(cat <<COMMIT
-          fix(pr): apply owner-approved bot comment fixes
-
-          Triggered by ${TRIGGER} on PR #${PR_NUMBER}.
-          Scope limited to the parent automated comment the owner replied to.
-          COMMIT
-          )"
-
-          # Fast-forward only. No force-push. If remote tip moved, fail closed.
-          if ! git push origin "HEAD:${HEAD_REF}"; then
-            echo "Push failed (branch may have moved or be protected). Not force-pushing."
-            exit 1
-          fi
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-
-      - name: Comment result on PR
-        if: always() && steps.gate.outputs.pr_number != ''
+  publish:
+    needs: [gate, candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      changed: ${{ steps.publish.outputs.changed }}
+    steps:
+      - name: Recheck PR identity and exact head
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         env:
-          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
-          CHANGED: ${{ steps.commit_push.outputs.changed }}
-          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
-          TRIGGER: ${{ steps.gate.outputs.trigger }}
-          JOB_STATUS: ${{ job.status }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          ORIGINAL_HEAD: ${{ needs.gate.outputs.head_sha }}
+          HEAD_REF: ${{ needs.gate.outputs.head_ref }}
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo, pull_number: Number(process.env.PR_NUMBER),
+            });
+            const { data: repo } = await github.rest.repos.get(context.repo);
+            if (pr.state !== "open" || pr.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}` ||
+                pr.user?.login !== context.repo.owner || pr.head.sha !== process.env.ORIGINAL_HEAD ||
+                pr.head.ref !== process.env.HEAD_REF || pr.head.ref === repo.default_branch) {
+              core.setFailed("PR identity/head changed; refusing publication.");
+            }
+      - name: Fresh checkout of original head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.head_sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+      - name: Download patch outside checkout
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: codex-fixes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate-patch
+      - name: Apply and commit data only
+        id: prepare
+        shell: bash
+        env:
+          ORIGINAL_HEAD: ${{ needs.gate.outputs.head_sha }}
+          GIT_CONFIG_NOSYSTEM: '1'
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_ATTR_NOSYSTEM: '1'
+        run: |
+          set -euo pipefail
+          empty_hooks="$(mktemp -d)"
+          git_safe() {
+            /usr/bin/git -c core.hooksPath="$empty_hooks" -c core.fsmonitor=false \
+              -c diff.external= -c core.attributesFile=/dev/null -c commit.gpgsign=false "$@"
+          }
+          [ "$(git_safe rev-parse HEAD)" = "$ORIGINAL_HEAD" ]
+          patch="$RUNNER_TEMP/candidate-patch/fixes.patch"
+          [ -f "$patch" ] && [ ! -L "$patch" ]
+          [ "$(wc -c < "$patch")" -le 5242880 ]
+          if [ ! -s "$patch" ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Never run code, filters, tests, hooks or local actions from this PR.
+          git_safe apply --check --index -- "$patch"
+          git_safe apply --index -- "$patch"
+          git_safe diff --cached --no-ext-diff --no-textconv --name-only -z > "$RUNNER_TEMP/changed-paths"
+          git_safe ls-files --stage -z > "$RUNNER_TEMP/index-modes"
+          python3 -I - "$RUNNER_TEMP/changed-paths" "$RUNNER_TEMP/index-modes" <<'PYCODE'
+          import pathlib, sys
+          paths = set(pathlib.Path(sys.argv[1]).read_bytes().split(b'\0')) - {b''}
+          for raw in paths:
+              parts = pathlib.PurePosixPath(raw.decode('utf-8')).parts
+              if any(p == '.git' or p == '.env' or p.startswith('.env.') or
+                     p == 'id_rsa' or p.startswith('id_rsa.') for p in parts) or raw.endswith((b'.pem', b'.key')):
+                  raise SystemExit('Refusing secret-like or Git metadata patch path')
+          for entry in pathlib.Path(sys.argv[2]).read_bytes().split(b'\0'):
+              if not entry:
+                  continue
+              meta, name = entry.split(b'\t', 1)
+              if name in paths and meta.split()[0] not in (b'100644', b'100755'):
+                  raise SystemExit('Refusing symlink/submodule patch')
+          PYCODE
+          if git_safe diff --cached --no-ext-diff --no-textconv --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git_safe -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit --no-gpg-sign -m 'fix(pr): apply owner-approved bot comment fixes'
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - name: Push exact approved branch without force
+        id: publish
+        if: steps.prepare.outputs.changed == 'true'
+        shell: bash
+        env:
+          HEAD_REF: ${{ needs.gate.outputs.head_ref }}
+          ORIGINAL_HEAD: ${{ needs.gate.outputs.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+          PUSH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_NOSYSTEM: '1'
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_ATTR_NOSYSTEM: '1'
+        run: |
+          set -euo pipefail
+          empty_hooks="$(mktemp -d)"
+          git_safe() {
+            /usr/bin/git -c core.hooksPath="$empty_hooks" -c core.fsmonitor=false \
+              -c diff.external= -c core.attributesFile=/dev/null -c credential.helper= "$@"
+          }
+          # Credential exists only in this step. URL and ref come from trusted
+          # workflow/gate context, never from candidate .git/config or artifact.
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          tip="$(git_safe ls-remote "https://github.com/$REPOSITORY.git" "refs/heads/$HEAD_REF" | cut -f1)"
+          [ "$tip" = "$ORIGINAL_HEAD" ]
+          # Normal push rejects a concurrent non-fast-forward update; no lease
+          # or force mode can overwrite the owner's newer work.
+          git_safe push "https://github.com/$REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+
+  report:
+    needs: [gate, candidate, publish]
+    if: always() && needs.gate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Comment result on PR
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          CODEX_FINAL_MESSAGE: ${{ needs.candidate.outputs.final_message }}
+          CHANGED: ${{ needs.publish.outputs.changed }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          TRIGGER: ${{ needs.gate.outputs.trigger }}
+          JOB_STATUS: ${{ needs.publish.result }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
