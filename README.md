@@ -14,8 +14,9 @@ server binds to `127.0.0.1:8787`.
 
 - Embeddings, BM25, and the cross-encoder run locally on CPU. Cache both
   retrieval models before going offline.
-- Soul, ops, memory, and audit routes require [operator access](#api-key-setup-soul-mutations),
-  which fails closed without `CYCLAW_API_KEY`.
+- Soul, ops, memory, and audit routes require [operator access](#api-key-setup-soul-mutations).
+  Key-based credentials fail closed without `CYCLAW_API_KEY`; an enabled
+  admin's login also works when per-user auth is on.
 - Audit records hash questions by default; the spend ledger records billed
   tokens. `cyclaw-metrics` reads both offline.
 - Guardrails (with NeMo in every base install), the Numbat stream, and the
@@ -429,16 +430,6 @@ on 2026-10-04, with #1543 and #1544 assumed merged. Recent changes:
 | [#1534](https://github.com/cgfixit/CyClaw/pull/1534), [#1535](https://github.com/cgfixit/CyClaw/pull/1535) | Guardrails on by default with deterministic fallback on all four answer routes; docs synced |
 | [#1527](https://github.com/cgfixit/CyClaw/pull/1527), [#1528](https://github.com/cgfixit/CyClaw/pull/1528) | Harden workspace Git calls; reject proxied index builds and gate them on the key once set |
 
----|---|
-| [#1521](https://github.com/cgfixit/CyClaw/pull/1521) | Give both sandbox emulators the terminal's query timeout allowance instead of 10 seconds |
-| [#1522](https://github.com/cgfixit/CyClaw/pull/1522) | Preserve existing indexes when an empty or whitespace-only corpus produces no chunks |
-| [#1523](https://github.com/cgfixit/CyClaw/pull/1523) | Enforce `memory.facts.max_active` when reactivating inactive facts |
-| [#1524](https://github.com/cgfixit/CyClaw/pull/1524) | Remove a fresh clone if the initial agentic run record cannot be saved |
-| [#1527](https://github.com/cgfixit/CyClaw/pull/1527) | Disable hooks and fsmonitor during workspace Git calls and reject unapproved clone Git configuration changes |
-| [#1528](https://github.com/cgfixit/CyClaw/pull/1528) | Reject proxied index builds and require operator access when the gateway key is set |
-| [#1529](https://github.com/cgfixit/CyClaw/pull/1529), [#1530](https://github.com/cgfixit/CyClaw/pull/1530), [#1531](https://github.com/cgfixit/CyClaw/pull/1531) | Refuse Claude PR-comment automation on forks, load Telegram plist credentials through Keychain, and exclude nested secrets from Docker build context |
-| [#1533](https://github.com/cgfixit/CyClaw/pull/1533) | Block documented config, README storage, and installer-contract drift in doc-sync CI |
-| [#1534](https://github.com/cgfixit/CyClaw/pull/1534) | Enable guardrails by default with deterministic fallback on all four answer routes, real NeMo acceptance checks, and no extra model calls from active rails |
 
 ---
 
@@ -530,8 +521,8 @@ not in standard installs, so keep their switches off until installed:
 enabling the hook without the binary denies every confirmed external call.
 Trial the maintained rules locally before promoting any to `enforce: true`,
 and avoid `numbat hook` as the command engine (it exits 0 on errors).
-`/health` reports hook and CEL readiness; operator-gated `/audit/summary`
-shows `pre_action_hook_last_verdict`.
+Once enabled, the hook and CEL report readiness in `/health` (absent while
+off); operator-gated `/audit/summary` shows `pre_action_hook_last_verdict`.
 [Pre-action gate](docs/security-philosophy/numbat_pre_action_gate.md),
 [stream](docs/security-philosophy/numbat_secondary_evaluator.md), and
 [phase status](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md). The combined
