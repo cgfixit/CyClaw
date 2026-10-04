@@ -136,9 +136,12 @@ measure the configured 80% coverage gate: use the explicit CI `--cov`
 invocation. Ruff F/B/S blocks; broader Ruff/WPS are advisory. Mypy is
 best-effort with `--explicit-package-bases`, not a CI gate.
 
-Testing and verification rules when making code changes: lint GitHub Actions
-workflows rather than running tests where you can. When you verify a local
-change, run only the code tied to that change, not the whole suite.
+Testing and verification rules when making code changes: when you change a
+GitHub Actions workflow, lint it (for example actionlint) rather than running the
+test suite to check it. When you verify a local change, run only the tests and
+code tied to that change, not the whole suite. This does not relax the rule
+above: shared routing, retrieval, auth, and security changes still need broader
+CI-equivalent evidence, and green CI on the exact PR head remains the merge gate.
 
 Use four-space indentation, typed Python, snake_case names, and the existing
 120-column style. Use named logging. Docstrings belong only at the start of a
