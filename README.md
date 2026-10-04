@@ -110,7 +110,8 @@ file found, preferring `%USERPROFILE%\.CyClaw\.env` over a checkout dotenv.
 Plaintext secret lines require the platform's explicit opt-in. Services read
 secrets at execution through `macos/cyclaw-keychain-env.sh` or
 `powershell/CyClaw-CredMan-Env.ps1`, never from dotenv, plist, task XML,
-`config.yaml`, shell rc files, or argv. A missing provider key leaves that
+`config.yaml`, shell rc files, or argv; a configured keystore lookup fails
+closed when its item is missing. A missing provider key leaves that
 provider unavailable, not the server down. [Provider keys](spend/README.md#api-keys).
 
 **Offline and hybrid.** Shipped `app.mode: hybrid` permits a paid call only
@@ -464,7 +465,8 @@ no-op; writes also need a per-call `reason` and `confirm`, and
 clones into a jail, plans, patches, and verifies, then waits for a human
 decision before committing; push and draft PR are separate decisions.
 Checks run under Linux `unshare --net`, macOS `sandbox-exec`, or Windows Job
-Objects and fail closed without them; no platform uses a microVM
+Objects and fail closed without them. Windows kills the process tree but
+does not block sockets, and no platform uses a microVM
 ([threat model](docs/THREAT_MODEL.md)). `real-repo-run*` is CLI-only
 (`POST /ops/agentic` returns 422).
 
@@ -523,6 +525,7 @@ not in standard installs, so keep their switches off until installed:
 enabling the hook without the binary denies every confirmed external call.
 Trial the maintained rules locally before promoting any to `enforce: true`,
 and avoid `numbat hook` as the command engine (it exits 0 on errors).
+Stream events include hostname, user, and uid (`N/A` on Windows).
 Once enabled, the hook and CEL report readiness in `/health` (absent while
 off); operator-gated `/audit/summary` shows `pre_action_hook_last_verdict`.
 [Pre-action gate](docs/security-philosophy/numbat_pre_action_gate.md),
@@ -541,7 +544,9 @@ Telegram supports outbound `notify` or long-poll `chat` (no public
 webhooks) and requires non-empty `allowed_chat_ids`. Only the exact
 `/online on <grok|claude>` command, with `allow_hybrid_confirm` on (default
 off), can confirm one paid call; the triple gate still applies. OpenTweet
-forces `user_confirmed_online: false` and writes drafts by default. Inspect
+forces `user_confirmed_online: false` and writes drafts by default;
+`scheduled_date` needs `opentweet.schedule_enabled`, and schedulers never send
+`publish_now`. Inspect
 either with `python -m telegram.cli status` / `python -m opentweet.cli status`.
 [Telegram design](docs/channels/TELEGRAM_DESIGN.md),
 [Telegram operations](telegram/README.md),
