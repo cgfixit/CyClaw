@@ -97,7 +97,7 @@ class TestSqliteConnect:
 class TestPostgresOptIn:
     def test_database_url_config_key_selects_postgres(self, tmp_path):
         with pytest.raises(ImportError) as excinfo:
-            connect(tmp_path / "unused.db", {"database_url": "postgresql://user:secret@host/db"})
+            connect(tmp_path / "unused.db", {"database_url": "postgresql://user@host/db"})
         assert "psycopg" in str(excinfo.value)
 
     def test_env_var_selects_postgres(self, tmp_path, monkeypatch):
@@ -112,12 +112,13 @@ class TestPostgresOptIn:
         with pytest.raises(ImportError):
             connect(tmp_path / "unused.db", {"database_url": "postgresql://from-config/db"})
 
-    def test_missing_driver_error_never_echoes_the_dsn(self, tmp_path):
+    def test_missing_driver_error_never_echoes_the_dsn(self, tmp_path, monkeypatch):
         """The DSN may carry credentials; the ImportError message must not
         repeat it (same rule utils/personality_db.py's connect() documents)."""
         secret_dsn = "postgresql://alice:hunter2@internal-host/proddb"
+        monkeypatch.setenv("CYCLAW_AUTH_DB_URL", secret_dsn)
         with pytest.raises(ImportError) as excinfo:
-            connect(tmp_path / "unused.db", {"database_url": secret_dsn})
+            connect(tmp_path / "unused.db", {})
         assert "hunter2" not in str(excinfo.value)
         assert "internal-host" not in str(excinfo.value)
 

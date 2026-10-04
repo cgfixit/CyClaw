@@ -151,9 +151,10 @@ def check_input(query: str, config_path: str = "config.yaml", *, max_chars_overr
             details={"length": len(query), "max": max_chars},
         )
 
+    literal_probe = _normalize_for_match(query, fold_separators=False)
     probe = _normalize_for_match(query)
     for pattern in patterns:
-        if pattern.search(query) or pattern.search(probe):
+        if pattern.search(query) or pattern.search(literal_probe) or pattern.search(probe):
             raise PromptInjectionError(
                 "Potential prompt injection detected",
                 details={},
@@ -175,7 +176,8 @@ def sanitize_chunk(text: str, config_path: str = "config.yaml") -> str:
         text = pattern.sub("[FILTERED]", text)
     # Folded offsets do not map to original text. Reject the remaining chunk
     # as a whole if an obfuscated instruction survived raw substitution.
+    literal_probe = _normalize_for_match(text, fold_separators=False)
     probe = _normalize_for_match(text)
-    if any(pattern.search(probe) for pattern in patterns):
+    if any(pattern.search(literal_probe) or pattern.search(probe) for pattern in patterns):
         return "[FILTERED]"
     return text

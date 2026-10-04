@@ -780,7 +780,7 @@ class TestErrorSanitization:
         exc = RuntimeError(f"auth backend failed with key={secret}")
         sanitized = gate._sanitize_error(exc)
         assert secret not in sanitized
-        assert "[REDACTED]" in sanitized
+        assert "[REDACTED_SECRET]" in sanitized
 
     def test_grok_api_key_still_redacted(self, monkeypatch):
         import gate
@@ -810,7 +810,7 @@ class TestErrorSanitization:
         secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
         sanitized = gate._sanitize_error(RuntimeError(f"upstream rejected key {secret}"))
         assert secret not in sanitized
-        assert "[REDACTED]" in sanitized
+        assert "[REDACTED_SECRET]" in sanitized
 
     def test_xai_style_key_pattern_redacted(self):
         # Real xAI Grok keys (xai-...) carry no sk- prefix and no Bearer or
@@ -822,7 +822,7 @@ class TestErrorSanitization:
         secret = "xai-abcdefghijklmnopqrstuvwxyz0123456789abcd"
         sanitized = gate._sanitize_error(RuntimeError(f"upstream rejected key {secret}"))
         assert secret not in sanitized
-        assert "[REDACTED]" in sanitized
+        assert "[REDACTED_SECRET]" in sanitized
 
 
 class TestSoulAndErrorPaths:
@@ -1495,7 +1495,7 @@ class TestApiKeyOptionalPeer:
         # per-IP budget test_gate_index_build.py also spends. Any 127.0.0.0/8
         # address is loopback, so the peer semantics under test are identical.
         browser = TestClient(gate.app, base_url="http://localhost", client=("127.0.0.7", 4321))  # DevSkim: ignore DS162092,DS137138
-        assert browser.post("/soul/reload", headers=headers).status_code == 401
+        assert browser.post("/soul/reload", headers=headers).status_code == 403
 
     @pytest.mark.parametrize("base_url, headers", [
         ("http://localhost", {}),
@@ -1537,7 +1537,7 @@ class TestApiKeyOptionalPeer:
         monkeypatch.delenv("CYCLAW_API_KEY", raising=False)
         gate.cfg.setdefault("security", {})["api_key_optional"] = True
         browser = TestClient(gate.app, base_url="http://localhost:8787", client=("127.0.0.7", 4321))  # DevSkim: ignore DS162092,DS137138
-        assert browser.get("/soul", headers={"Origin": "http://localhost:9999"}).status_code == 401  # DevSkim: ignore DS162092,DS137138 - test loopback host
+        assert browser.get("/soul", headers={"Origin": "http://localhost:9999"}).status_code == 403  # DevSkim: ignore DS162092,DS137138 - test loopback host
 
     def test_a_malformed_origin_port_is_refused_not_a_500(self, client, monkeypatch):
         """urlparse() accepts "http://localhost:notaport"; .port raises on read.
@@ -1551,7 +1551,7 @@ class TestApiKeyOptionalPeer:
         monkeypatch.delenv("CYCLAW_API_KEY", raising=False)
         gate.cfg.setdefault("security", {})["api_key_optional"] = True
         browser = TestClient(gate.app, base_url="http://localhost:8787", client=("127.0.0.7", 4321))  # DevSkim: ignore DS162092,DS137138
-        assert browser.get("/soul", headers={"Origin": "http://localhost:notaport"}).status_code == 401  # DevSkim: ignore DS162092,DS137138 - test loopback host
+        assert browser.get("/soul", headers={"Origin": "http://localhost:notaport"}).status_code == 403  # DevSkim: ignore DS162092,DS137138 - test loopback host
 
     def test_missing_peer_fails_closed(self):
         """An ASGI scope without a client reads as not-loopback. This backs a

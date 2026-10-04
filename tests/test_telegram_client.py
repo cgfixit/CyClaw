@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
+import hmac
 import traceback
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -702,6 +702,13 @@ def test_post_query_transport_error_redacts_api_key(
 def test_post_query_audit_receives_hash_not_plaintext(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     query = "unique telegram plaintext that must not be logged"
+    fingerprint_key = b"telegram-query-fixture-key-32byt"
+    key_file = tmp_path / "query-hmac.key"
+    key_file.write_text(fingerprint_key.hex() + "\n", encoding="ascii")
+    raw = yaml.safe_load(Path(cfg._config_path).read_text(encoding="utf-8"))
+    raw["policy"] = {"privacy": {"query_fingerprint_key_file": str(key_file)}}
+    Path(cfg._config_path).write_text(yaml.safe_dump(raw), encoding="utf-8")
+    cfg = load_telegram_config(cfg._config_path)
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"answer": "local"}
@@ -714,7 +721,7 @@ def test_post_query_audit_receives_hash_not_plaintext(tmp_path: Path) -> None:
         post_query(cfg, query=query)
     event = audit.call_args.args[0]
     assert "query" not in event
-    assert event["query_hash"] == hashlib.sha256(query.encode()).hexdigest()
+    assert event["query_hash"] == hmac.new(fingerprint_key, query.encode(), "sha256").hexdigest()
     assert query not in str(event)
 
 

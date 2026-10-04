@@ -157,12 +157,13 @@ def test_key_trade_unlocks_reads_and_csrf_guards_writes(gw):
 
 
 def test_cookie_is_httponly_and_strict(gw):
-    test_client, _ = gw
+    test_client, gate = gw
     resp = test_client.post("/console/session", headers=_BEARER, json={})
     cookie = resp.headers["set-cookie"].lower()
     assert cookie.startswith(f"{console_session.COOKIE_NAME}=")
     assert "httponly" in cookie and "samesite=strict" in cookie and "path=/" in cookie
-    assert "max-age" not in cookie and "expires=" not in cookie
+    assert f"max-age={gate._CONSOLE_SESSION_TTL}" in cookie
+    assert "expires=" not in cookie
 
 
 def test_wrong_key_is_refused_and_audited(gw, tmp_path):
@@ -201,6 +202,10 @@ def test_pairing_code_unlocks_once(gw, monkeypatch, tmp_path):
 
 def test_lifespan_starts_the_pairing_clock(gw, monkeypatch):
     test_client, gate = gw
+    from utils.bounded_executor import BoundedExecutor
+
+    monkeypatch.setattr(gate, "_graph_workers", BoundedExecutor(1, name="pairing-graph"))
+    monkeypatch.setattr(gate.app.state, "auth_workers", BoundedExecutor(1, name="pairing-auth"))
     code = console_session.PairingCode(PAIR, 300)
     monkeypatch.setattr(gate, "_console_pairing", code)
     with test_client:
@@ -218,7 +223,7 @@ def test_ending_the_session_locks_again(gw):
 def test_cross_site_requests_get_nothing(gw):
     test_client, _ = gw
     _unlock(test_client)
-    assert test_client.get("/soul", headers=_CROSS_SITE).status_code == 401
+    assert test_client.get("/soul", headers=_CROSS_SITE).status_code == 403
     assert test_client.get("/console/session", headers=_CROSS_SITE).status_code == 403
     assert test_client.post("/console/session", headers={**_BEARER, **_CROSS_SITE}, json={}).status_code == 403
 

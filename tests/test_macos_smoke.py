@@ -92,7 +92,12 @@ def test_macos_smoke_loopback_only_and_does_not_print_secrets() -> None:
     assert 'echo "$API_KEY"' not in text
     assert 'echo "$CSRF"' not in text
     assert "echo $API_KEY" not in text
-    assert "Bearer ${API_KEY}" in text
+    assert "AUTH_HEADER_FILE=$(mktemp)" in text
+    assert "chmod 600 \"$AUTH_HEADER_FILE\"" in text
+    assert "printf 'Authorization: Bearer %s\\n' \"$API_KEY\" > \"$AUTH_HEADER_FILE\"" in text
+    assert '--header "@$AUTH_HEADER_FILE"' in text
+    assert 'rm -f "$AUTH_HEADER_FILE"' in text
+    assert 'Bearer ${API_KEY}' not in text
     assert "CYCLAW_API_KEY" in text
 
 

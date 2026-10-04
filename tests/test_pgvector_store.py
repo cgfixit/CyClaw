@@ -46,7 +46,7 @@ def _vec(*nonzero):
 def _cfg(bm25_path=None):
     cfg = {
         "models": {"embeddings": {"dim": DIM}},
-        "indexing": {"vector_backend": "pgvector", "database_url": DSN},
+        "indexing": {"vector_backend": "pgvector", "database_url": None},
     }
     if bm25_path is not None:
         cfg["indexing"]["bm25_path"] = str(bm25_path)
@@ -67,8 +67,9 @@ def _drop_kb_tables():
 
 
 @pytest.fixture
-def fresh_store():
+def fresh_store(monkeypatch):
     """Drop every kb_chunks table before/after so each test starts clean."""
+    monkeypatch.setenv("CYCLAW_VECTOR_DB_URL", DSN)
     _drop_kb_tables()
     yield
     _drop_kb_tables()

@@ -101,6 +101,15 @@ _SERVICES = (
     "com.cgfixit.cyclaw.grok-api-key",
     "com.cgfixit.cyclaw.anthropic-api-key",
     "com.cgfixit.cyclaw.gh-token",
+    "com.cgfixit.cyclaw.sql-dsn",
+    "com.cgfixit.cyclaw.db-url",
+    "com.cgfixit.cyclaw.vector-db-url",
+    "com.cgfixit.cyclaw.ratelimit-db-url",
+    "com.cgfixit.cyclaw.auth-db-url",
+    "com.cgfixit.cyclaw.local-llm-api-key",
+    "com.cgfixit.cyclaw.local-llm-fallback-api-key",
+    "com.cgfixit.cyclaw.query-fingerprint-key",
+    "com.cgfixit.cyclaw.rclone-config-pass",
 )
 
 pytestmark = pytest.mark.skipif(
@@ -236,7 +245,7 @@ def test_remove_keychain_without_yes_on_nontty_keeps_items(
     assert not argv_log.exists()
 
 
-def test_remove_keychain_yes_deletes_five_documented_services(
+def test_remove_keychain_yes_deletes_documented_services(
     fake_security: Path, tmp_path: Path
 ) -> None:
     argv_log = tmp_path / "security-calls.log"
@@ -255,7 +264,7 @@ def test_remove_keychain_yes_deletes_five_documented_services(
         assert f"-s {service}" in logged
         assert f"-a {account}" in logged
         assert f"deleted {service}" in result.stdout
-    assert logged.count("delete-generic-password") == 5
+    assert logged.count("delete-generic-password") == len(_SERVICES)
 
 
 def test_remove_keychain_yes_treats_missing_item_as_success(

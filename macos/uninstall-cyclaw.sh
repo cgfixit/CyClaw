@@ -6,7 +6,7 @@
 # The home directory (sessions, venv, repo clone, .env) is KEPT by default
 # so no data is lost; pass --remove-home to delete it (prompts first).
 # Keychain items are KEPT by default; pass --remove-keychain to delete only
-# the five documented CyClaw services (Darwin / test-mode; prompts y/N).
+# the documented CyClaw services (Darwin / test-mode; prompts y/N).
 #
 # Usage:
 #   bash macos/uninstall-cyclaw.sh                # keep ~/.CyClaw data + Keychain
@@ -26,6 +26,8 @@
 # that script is copied standalone to ~/.CyClaw/bin/.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REMOVE_HOME=0
 REMOVE_FSCONNECT=0

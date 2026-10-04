@@ -9,9 +9,8 @@ SKIPPED unless CYCLAW_DB_URL (or CYCLAW_AUTH_DB_URL) points at a reachable
 Postgres, so the default offline suite stays green with zero extra deps. The
 ``postgres-backend`` CI job runs them for real.
 
-The DSN is passed via ``auth.database_url`` (config takes precedence over
-CYCLAW_AUTH_DB_URL). That is the path with no live coverage today; it also
-means this file does not need a new workflow env key.
+The fixture passes the selected DSN via ``CYCLAW_AUTH_DB_URL``. Passwords
+are forbidden in inline configuration, including credentials supplied by CI.
 
 ``psycopg`` is imported only inside fixtures/tests so collection stays clean
 when the driver is absent. Cleanup uses a *separate autocommit* connection:
@@ -52,17 +51,19 @@ def _auth_cfg(tmp_path: Path) -> dict:
         "auth": {
             "enabled": True,
             "db_path": str(tmp_path / "unused.db"),
-            "database_url": DSN,
+            "database_url": None,
         }
     }
 
 
 @pytest.fixture
-def clean_auth_db():
+def clean_auth_db(monkeypatch):
     """Drop auth tables before and after each test. Separate autocommit conn."""
     import psycopg
 
     from utils.personality_db import _harden_pg_conninfo
+
+    monkeypatch.setenv("CYCLAW_AUTH_DB_URL", DSN)
 
     def _drop() -> None:
         with psycopg.connect(_harden_pg_conninfo(DSN), autocommit=True) as conn:
@@ -76,7 +77,7 @@ def clean_auth_db():
 
 
 def _raw_connect(tmp_path: Path):
-    return connect(tmp_path / "unused.db", {"database_url": DSN})
+    return connect(tmp_path / "unused.db", {})
 
 
 def test_pg_connect_contract(clean_auth_db, tmp_path):

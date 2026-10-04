@@ -1527,13 +1527,14 @@ class TestResolveLocalBackend:
             lambda base_url, **kw: "1234" in base_url,
         )
         monkeypatch.setattr("utils.logger.audit_log", lambda *a, **k: None)
+        monkeypatch.setenv("PRIMARY_LOCAL_KEY", "primary-secret")
         path = _write_config(
             tmp_path,
             local_llm_extra={
                 "provider": "ollama",
                 "base_url": "http://127.0.0.1:11434/v1",  # DevSkim: ignore DS162092
                 "model": "qwen3.8:27b-mlx",
-                "api_key": "primary-secret",
+                "api_key_env": "PRIMARY_LOCAL_KEY",
                 "fallback": {
                     "enabled": True,
                     "provider": "lmstudio",
@@ -1550,12 +1551,13 @@ class TestResolveLocalBackend:
 
     def test_primary_backend_still_uses_its_own_api_key(self, monkeypatch, tmp_path):
         monkeypatch.setattr("llm.client._probe_openai_models", lambda *a, **kw: True)
+        monkeypatch.setenv("PRIMARY_LOCAL_KEY", "primary-secret")
         path = _write_config(
             tmp_path,
             local_llm_extra={
                 "base_url": "http://127.0.0.1:11434/v1",  # DevSkim: ignore DS162092
                 "model": "qwen3.8:27b-mlx",
-                "api_key": "primary-secret",
+                "api_key_env": "PRIMARY_LOCAL_KEY",
                 "fallback": {
                     "enabled": True,
                     "base_url": "http://127.0.0.1:1234/v1",  # DevSkim: ignore DS162092
