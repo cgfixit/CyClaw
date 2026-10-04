@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from gate_auth import register_auth_routes
 from utils.authn_manager import AuthManager
+from utils.errors import AuthLoginFailed
 
 _GOOD_PASSWORD = "correct horse battery staple"
 _ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
@@ -199,15 +200,20 @@ class TestLogin:
         username, password = user
         r = _client(manager).post("/auth/login", json={"username": username, "password": password})
         set_cookie = r.headers.get("set-cookie", "").lower()
+        assert set_cookie.startswith("cyclaw_session=")
         assert "httponly" in set_cookie
         assert "samesite=strict" in set_cookie
+        assert "max-age" not in set_cookie and "expires=" not in set_cookie
 
     def test_cookie_is_secure_when_tls_is_configured(self, manager, user):
         username, password = user
         r = _client(manager, cfg=_cfg(tls_enabled=True)).post(
             "/auth/login", json={"username": username, "password": password}
         )
-        assert "secure" in r.headers.get("set-cookie", "").lower()
+        set_cookie = r.headers.get("set-cookie", "").lower()
+        assert set_cookie.startswith("__host-cyclaw_session=")
+        assert "secure" in set_cookie
+        assert "max-age" not in set_cookie and "expires=" not in set_cookie
 
     def test_cookie_is_not_secure_when_tls_is_not_configured(self, manager, user):
         """The design doc's §5/§7 rule: Secure is not sent over plain HTTP,
@@ -230,7 +236,7 @@ class TestLogin:
         assert r.status_code == 401
         assert r.json()["detail"]["code"] == "AUTH_LOGIN_FAILED"
 
-    def test_locked_account_is_423_with_retry_after(self, manager, user):
+    def test_locked_account_is_401_with_generic_shape(self, manager, user):
         username, password = user
         # Threshold-5 lockout is only _LOCKOUT_BASE_SEC (2.0s). login() snapshots
         # manager._now() before scrypt; on Windows CI five hashes can exceed that
@@ -244,8 +250,12 @@ class TestLogin:
             for _ in range(5):
                 client.post("/auth/login", json={"username": username, "password": "wrong"})
             r = client.post("/auth/login", json={"username": username, "password": password})
-            assert r.status_code == 423
-            assert r.json()["detail"]["details"]["retry_after_sec"] > 0
+            assert r.status_code == 401
+            assert r.json()["detail"] == {
+                "code": "AUTH_LOGIN_FAILED",
+                "message": "invalid username or password",
+                "details": {},
+            }
         finally:
             manager._now = real_now
 
@@ -273,6 +283,52 @@ class TestLogin:
         )
         for event in app.state.audit_events:
             assert "wrong" not in str(event)
+
+
+class TestOwnPasswordChange:
+    def test_current_password_is_required(self, manager, user):
+        username, password = user
+        client = _client(manager)
+        login = client.post("/auth/login", json={"username": username, "password": password})
+        response = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": login.json()["csrf_token"]},
+            json={"password": "a completely new password"},
+        )
+        assert response.status_code == 422
+
+    def test_wrong_current_password_is_generic_and_does_not_change_password(self, manager, user):
+        username, password = user
+        client = _client(manager)
+        login = client.post("/auth/login", json={"username": username, "password": password})
+        response = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": login.json()["csrf_token"]},
+            json={"current_password": "wrong", "password": "a completely new password"},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == {
+            "code": "AUTH_LOGIN_FAILED",
+            "message": "invalid username or password",
+            "details": {},
+        }
+        assert manager.login(username, password).username == username
+
+    def test_correct_current_password_changes_password_and_revokes_sessions(self, manager, user):
+        username, password = user
+        new_password = "a completely new password"
+        client = _client(manager)
+        login = client.post("/auth/login", json={"username": username, "password": password})
+        response = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": login.json()["csrf_token"]},
+            json={"current_password": password, "password": new_password},
+        )
+        assert response.status_code == 200
+        assert client.get("/auth/whoami").status_code == 401
+        with pytest.raises(AuthLoginFailed):
+            manager.login(username, password)
+        assert manager.login(username, new_password).username == username
 
 
 class TestSameOrigin:
@@ -722,5 +778,56 @@ def test_login_and_logout_run_the_blocking_manager_call_on_a_worker_thread():
     from pathlib import Path
 
     src = (Path(__file__).resolve().parent.parent / "gate_auth.py").read_text(encoding="utf-8")
-    assert "await asyncio.to_thread(manager.login" in src
+    assert "await _password_work(manager.login" in src
+    assert "await auth_workers.run(fn, *args)" in src
     assert "await asyncio.to_thread(manager.logout" in src
+
+
+class TestPasswordWorkBusyIsAudited:
+    """INVARIANTS I4: a password op shed with 503 AUTH_BUSY is a rejection, so
+    it is audited -- once, inside _password_work, for every caller. Only ip,
+    the op name and (on authenticated routes) the acting user are recorded."""
+
+    @staticmethod
+    def _shed_all_password_work(app, monkeypatch):
+        from utils.bounded_executor import WorkCapacityExceeded
+
+        async def _full(_fn, *_args):
+            raise WorkCapacityExceeded("worker capacity is exhausted")
+
+        monkeypatch.setattr(app.state.auth_workers, "run", _full)
+
+    def test_busy_login_is_audited_without_username_or_password(self, manager, user, monkeypatch):
+        username, password = user
+        app = _make_app(manager)
+        self._shed_all_password_work(app, monkeypatch)
+        r = TestClient(app, base_url="http://localhost").post(
+            "/auth/login", json={"username": username, "password": password}
+        )
+        assert r.status_code == 503
+        assert r.json()["detail"]["code"] == "AUTH_BUSY"
+        busy = [e for e in app.state.audit_events if e["event"] == "auth_busy"]
+        assert len(busy) == 1
+        assert set(busy[0]) == {"event", "op", "ip"}
+        assert busy[0]["op"] == "login"
+        assert password not in str(app.state.audit_events)
+        assert username not in str(busy[0])
+
+    def test_busy_own_password_change_records_the_authenticated_actor(self, manager, user, monkeypatch):
+        username, password = user
+        app = _make_app(manager)
+        client = TestClient(app, base_url="http://localhost")
+        csrf = client.post("/auth/login", json={"username": username, "password": password}).json()["csrf_token"]
+        self._shed_all_password_work(app, monkeypatch)
+        new_password = "a different long passphrase entirely"
+        r = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": csrf},
+            json={"current_password": password, "password": new_password},
+        )
+        assert r.status_code == 503
+        assert r.json()["detail"]["code"] == "AUTH_BUSY"
+        busy = [e for e in app.state.audit_events if e["event"] == "auth_busy"]
+        assert busy == [{"event": "auth_busy", "op": "change_password", "ip": busy[0]["ip"], "username": username}]
+        assert password not in str(app.state.audit_events)
+        assert new_password not in str(app.state.audit_events)

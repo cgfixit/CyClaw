@@ -154,7 +154,7 @@ not a guarantee about every possible descendant.
 
 | Path | Git status | Contents and behavior |
 |---|---|---|
-| `logs/audit.jsonl` | ignored | Authoritative audit, written synchronously on the request thread. Questions are SHA-256 hashes by default, including when `logging.audit_fields` is absent or empty. Explicit `include_query_hash: false` stores redacted query text |
+| `logs/audit.jsonl` | ignored | Authoritative audit, written synchronously on the request thread. Questions use persistent HMAC-SHA256 fingerprints by default, including when `logging.audit_fields` is absent or empty. Explicit `include_query_hash: false` stores redacted query text |
 | `logs/spend.jsonl` | ignored | Tokens for billed Grok/Claude calls, without query text or prices |
 | `logs/numbat-events.ndjsonl` | ignored | Derived redacted audit and out-of-band events; observation only |
 | `logs/cyclaw.log` | ignored | Application log; a bounded writer drops records rather than holding a request on stalled I/O |
@@ -279,7 +279,7 @@ flowchart TD
         Y --> L
         PG -.->|"deny"| L
         PC -.->|"deny"| L
-        L(["audit_logger\nSHA-256 hash · PII redact\nlogs/audit.jsonl\n+ derived Numbat stream"])
+        L(["audit_logger\nHMAC fingerprint · PII redact\nlogs/audit.jsonl\n+ derived Numbat stream"])
     end
 
     L --> M(["QueryResponse\nanswer · sources · model_used\nretrieval_mode · needs_confirm"])
@@ -331,11 +331,14 @@ or device token when `auth.enabled` is true. Operator credentials are:
   `hmac.compare_digest`.
 - **The console cookie.** "Unlock operator tools" trades the key once for
   an HttpOnly, `SameSite=Strict` cookie (`security.console_session_ttl_sec`,
-  12 h shipped). "Lock" deletes it; rotating the key revokes every cookie.
+  1 h shipped). "Lock" deletes it; rotating the key revokes every cookie.
 - **An admin login**, when `auth.enabled` is on (no key needed).
   `operator` and `audit` accounts do not get operator access.
 
 Cookie writes need CSRF tokens and cookies reject cross-site requests.
+Console tokens bind the request origin; TLS uses `__Host-` cookies. Cookies
+cannot be port-scoped, so use a dedicated hostname plus TLS when other
+services on the same host are untrusted.
 Without `CYCLAW_API_KEY`, Bearer and console-cookie access fail closed.
 
 `macos/invoke-cyclaw.sh` and `powershell\Invoke-CyClaw.ps1` generate a
@@ -383,7 +386,10 @@ First-boot `curl` and `cyclaw-user`:
 Billed Grok/Claude calls append tokens to `logs/spend.jsonl`. Dollars are
 computed at read time, so rate-card corrections re-price history. Rows
 exclude queries, prompts, and keys. Write failures warn and drop the row
-without failing the answer.
+without failing the answer. Core Grok/Claude requests also reserve a durable
+call allowance before each POST attempt, including retries. The default
+combined limits are 100 per UTC day and 1,000 per UTC month; zero denies all.
+These limits exclude optional agentic providers and do not enforce dollar spend.
 
 | `source` | Writer | Covers |
 |---|---|---|
@@ -564,10 +570,10 @@ either with `python -m telegram.cli status` / `python -m opentweet.cli status`.
 | Network | Binds `127.0.0.1:8787`. A non-loopback `api.host` is refused except the documented auth + TLS path, or `CYCLAW_ALLOW_NON_LOOPBACK_BIND` ([bind guard](docs/AUTHENTICATION_DESIGN.md#7-interaction-with-the-main-bind-guard-825)) |
 | Endpoint trust | Local nodes: loopback or an exact host in `models.local_llm.trusted_hosts` (ships `[]`). Online nodes: `api.x.ai` and `api.anthropic.com` only |
 | Input | `policy.prompt_filter`: 40 `banned_patterns`, `max_input_chars` from config. Same filter on MCP search |
-| Rate limit | 60 req/min per IP, before the filter. In-memory unless you set SQLite or Postgres |
+| Rate limit | 60 req/min per IP, after same-origin rejection and before the filter. In-memory unless you set SQLite or Postgres |
 | Proxy bypass | `httpx` clients set `trust_env=False` |
 | Telemetry | Kill maps before any SDK import (invariant-guard G1), plus ONNX's post-import call. Not a network firewall. [`SECURITY.md`](SECURITY.md), [kill reference](docs/security-philosophy/cyclaw_telemetry_kill.env) |
-| Audit | SHA-256 query hash + redacted metadata in `logs/audit.jsonl`, then the derived Numbat stream. `include_query_hash: false` stores redacted query text |
+| Audit | HMAC-SHA256 query fingerprint + redacted metadata in `logs/audit.jsonl`, then the derived Numbat stream. `include_query_hash: false` stores redacted query text |
 | Grok / Claude | [Triple gate](#what-it-does) item 5, then the opt-in pre-action hook (deny-only once enabled) |
 | Soul writes | Human `reason` + enforced scan + atomic replace, on `POST /soul/apply` only. Restore, reload, and drift recovery are the exceptions in [What It Does](#what-it-does) item 4 |
 | API key | Fail closed. Bearer key, the browser's console cookie, or (with `auth.enabled`) an admin login; cookie writes need CSRF. The loopback bypass is `security.api_key_optional` plus three more conditions ([API Key Setup](#api-key-setup-soul-mutations)) |

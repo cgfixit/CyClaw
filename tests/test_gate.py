@@ -282,6 +282,35 @@ class TestQueryEndpoint:
         assert resp.json()["retrieval_mode"] == "none"
 
 
+# Dedicated loopback peer so this request never spends the shared bucket.
+@pytest.mark.parametrize("client", [("127.0.0.47", 51234)], indirect=True)  # DevSkim: ignore DS162092,DS137138 - test loopback peer
+def test_query_graph_busy_is_audited(client, tmp_path, monkeypatch):
+    """INVARIANTS I4 / Rule 3: every /query rejection is audited. A query shed
+    with 503 GRAPH_BUSY (graph worker capacity full) writes exactly one
+    graph_busy audit line, like GRAPH_TIMEOUT/graph_error, and the raw query
+    text never lands in audit.jsonl (audit_log keeps only its fingerprint)."""
+    import gate
+    from utils.bounded_executor import WorkCapacityExceeded
+
+    class _FullWorkers:
+        async def run(self, _fn, *_args):
+            raise WorkCapacityExceeded("worker capacity is exhausted")
+
+    monkeypatch.setattr(gate, "_graph_workers", _FullWorkers())
+    test_client, mock_graph = client
+    raw_query = "graph busy canary query 7f3a"
+    resp = test_client.post("/query", json={"query": raw_query})
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "GRAPH_BUSY"
+    assert resp.headers.get("retry-after") == "1"
+    mock_graph.invoke.assert_not_called()
+    audit_text = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    events = [json.loads(line) for line in audit_text.splitlines() if line.strip()]
+    assert [e.get("event") for e in events].count("graph_busy") == 1
+    assert raw_query not in audit_text
+
+
 def _need_celpy() -> None:
     """importorskip("celpy"), except where CI promises the evaluator is installed.
 
@@ -312,7 +341,7 @@ class TestCelMonitorRequestPath:
         # and emits to a tmp Numbat stream only when source_hashes is populated.
         _need_celpy()
         import gate
-        from utils.logger import hash_query
+        from utils.logger import hash_query, query_fingerprint
         from utils.numbat_emitter import close_numbat_handles
 
         test_client, _ = client
@@ -341,7 +370,10 @@ class TestCelMonitorRequestPath:
         assert records[0]["decision"] == "allowed"
         assert "rules:0" in records[0]["tags"]
         preview = json.loads(records[0]["content_preview"])
-        assert preview == {"query_hash": hash_query("What is Veeam immutability?"), "cel_rules_matched": [0]}
+        assert preview == {
+            "query_hash": query_fingerprint("What is Veeam immutability?", gate.cfg),
+            "cel_rules_matched": [0],
+        }
         # The mock graph answers with the "local" role; the event names the
         # configured local model tag (TEST_CONFIG's), never the role string.
         assert records[0]["model_provider"] == "ollama"
@@ -777,7 +809,7 @@ class TestErrorSanitization:
         exc = RuntimeError(f"auth backend failed with key={secret}")
         sanitized = gate._sanitize_error(exc)
         assert secret not in sanitized
-        assert "[REDACTED]" in sanitized
+        assert "[REDACTED_SECRET]" in sanitized
 
     def test_grok_api_key_still_redacted(self, monkeypatch):
         import gate
@@ -807,7 +839,7 @@ class TestErrorSanitization:
         secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
         sanitized = gate._sanitize_error(RuntimeError(f"upstream rejected key {secret}"))
         assert secret not in sanitized
-        assert "[REDACTED]" in sanitized
+        assert "[REDACTED_SECRET]" in sanitized
 
     def test_xai_style_key_pattern_redacted(self):
         # Real xAI Grok keys (xai-...) carry no sk- prefix and no Bearer or
@@ -819,7 +851,7 @@ class TestErrorSanitization:
         secret = "xai-abcdefghijklmnopqrstuvwxyz0123456789abcd"
         sanitized = gate._sanitize_error(RuntimeError(f"upstream rejected key {secret}"))
         assert secret not in sanitized
-        assert "[REDACTED]" in sanitized
+        assert "[REDACTED_SECRET]" in sanitized
 
 
 class TestSoulAndErrorPaths:
@@ -1232,7 +1264,7 @@ class TestRateLimitAuditThrottle:
 
 class TestAuditSummaryEndpoint:
     """GET /audit/summary is API-key-gated and returns aggregates only — never
-    raw query text (the audit log stores SHA-256 hashes by design)."""
+    raw query text (the audit log stores keyed fingerprints by design)."""
 
     def test_requires_api_key(self, client, monkeypatch):
         test_client, _ = client
@@ -1492,7 +1524,7 @@ class TestApiKeyOptionalPeer:
         # per-IP budget test_gate_index_build.py also spends. Any 127.0.0.0/8
         # address is loopback, so the peer semantics under test are identical.
         browser = TestClient(gate.app, base_url="http://localhost", client=("127.0.0.7", 4321))  # DevSkim: ignore DS162092,DS137138
-        assert browser.post("/soul/reload", headers=headers).status_code == 401
+        assert browser.post("/soul/reload", headers=headers).status_code == 403
 
     @pytest.mark.parametrize("base_url, headers", [
         ("http://localhost", {}),
@@ -1534,7 +1566,7 @@ class TestApiKeyOptionalPeer:
         monkeypatch.delenv("CYCLAW_API_KEY", raising=False)
         gate.cfg.setdefault("security", {})["api_key_optional"] = True
         browser = TestClient(gate.app, base_url="http://localhost:8787", client=("127.0.0.7", 4321))  # DevSkim: ignore DS162092,DS137138
-        assert browser.get("/soul", headers={"Origin": "http://localhost:9999"}).status_code == 401  # DevSkim: ignore DS162092,DS137138 - test loopback host
+        assert browser.get("/soul", headers={"Origin": "http://localhost:9999"}).status_code == 403  # DevSkim: ignore DS162092,DS137138 - test loopback host
 
     def test_a_malformed_origin_port_is_refused_not_a_500(self, client, monkeypatch):
         """urlparse() accepts "http://localhost:notaport"; .port raises on read.
@@ -1548,7 +1580,7 @@ class TestApiKeyOptionalPeer:
         monkeypatch.delenv("CYCLAW_API_KEY", raising=False)
         gate.cfg.setdefault("security", {})["api_key_optional"] = True
         browser = TestClient(gate.app, base_url="http://localhost:8787", client=("127.0.0.7", 4321))  # DevSkim: ignore DS162092,DS137138
-        assert browser.get("/soul", headers={"Origin": "http://localhost:notaport"}).status_code == 401  # DevSkim: ignore DS162092,DS137138 - test loopback host
+        assert browser.get("/soul", headers={"Origin": "http://localhost:notaport"}).status_code == 403  # DevSkim: ignore DS162092,DS137138 - test loopback host
 
     def test_missing_peer_fails_closed(self):
         """An ASGI scope without a client reads as not-loopback. This backs a

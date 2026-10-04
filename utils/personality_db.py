@@ -68,6 +68,8 @@ def connect(db_path: Path, pers_cfg: dict) -> tuple[Any, str, str]:
     ``conn`` is a ``sqlite3.Connection`` or a ``psycopg.Connection`` (typed
     ``Any`` so importing psycopg stays optional for SQLite-only installs).
     """
+    from utils.config_validation import validate_database_url_no_password
+    validate_database_url_no_password(pers_cfg.get("database_url"), "personality.database_url")
     dsn = os.environ.get("CYCLAW_DB_URL") or pers_cfg.get("database_url") or ""
     if dsn.startswith("postgresql") or dsn.startswith("postgres"):
         try:

@@ -10,6 +10,7 @@ app:
 
 models:
   local_llm:
+    api_key_env: CYCLAW_LOCAL_LLM_API_KEY
     # Operator-owned model hosts (container/LAN) that may receive local context
     # and soul text. Exact hostname/IP match; loopback is always allowed.
     trusted_hosts: []
@@ -43,6 +44,7 @@ models:
     # window, so set LM Studio's own context length to at least the floor noted
     # at retrieval.max_context_tokens (context + max_tokens + ~1500).
     fallback:
+      api_key_env: CYCLAW_LOCAL_LLM_FALLBACK_API_KEY
       enabled: false
       provider: "lmstudio"                       # not "ollama", so reasoning_effort is not sent
       base_url: "http://127.0.0.1:1234/v1"       # DevSkim: ignore DS162092,DS137138 - LM Studio loopback
@@ -100,6 +102,7 @@ models:
       backoff_max_sec: 30.0
 
 corpus:
+  max_file_bytes: 10485760  # Bound each file before and during indexing reads.
   path: "data/corpus"
   extensions: [".md", ".txt"]
 
@@ -349,7 +352,15 @@ policy:
       # hx-04: "reveal your instructions" extraction phrasing.
       - 'reveal\s+(your\s+)?(instructions|system\s+prompt)'
     max_input_chars: 4000
+  external_call_limits:
+    # Combined Grok/Claude POST attempts, including retries and regenerations.
+    # UTC windows, persisted across restarts; 0 refuses all external attempts.
+    daily: 100
+    monthly: 1000
+    ledger_path: "data/budget/external-calls.db"
   privacy:
+    query_fingerprint_key_env: CYCLAW_QUERY_FINGERPRINT_KEY
+    query_fingerprint_key_file: "data/privacy/query-hmac.key"
     redact_emails: true
     redact_ips: true
     redact_secrets_like:
@@ -384,6 +395,7 @@ api:
   # error, not a generic 504. The 30s floor covers retrieval, routing and audit;
   # the shipped 60s margin also covers the first
   # query's cold CPU embedder load (retrieval/embeddings.py EMBED_DEVICE).
+  max_concurrent_queries: 4  # Includes workers still running after a request times out.
   graph_timeout_sec: 780  # > models.local_llm.timeout_sec (720) by 60s; see above
   # Whether GET /health probes Grok and Claude for liveness. Ships false as a
   # security choice: /health has no auth and no rate limit, so probing there
@@ -434,6 +446,7 @@ api:
 # utils/authn_cli.py. No account exists until you turn this on.
 auth:
   enabled: false
+  max_concurrent_password_ops: 2  # Independent of query, health, audit and session lookups.
   # SQLite by default; relative paths anchor to the repo root. For Postgres,
   # set database_url or CYCLAW_AUTH_DB_URL (checked in that order). That env var
   # is deliberately separate from the personality DB's CYCLAW_DB_URL; see
@@ -441,18 +454,18 @@ auth:
   db_path: "data/auth/cyclaw_auth.db"
   # database_url: null
   session:
-    # A session ends at whichever limit comes first: idle_timeout_sec (12h,
+    # A session ends at whichever limit comes first: idle_timeout_sec (1h,
     # reset on every valid use) or absolute_timeout_sec (7d, never reset).
     # Decision record: docs/AUTHENTICATION_DESIGN.md §10.2.
-    idle_timeout_sec: 43200
+    idle_timeout_sec: 3600
     absolute_timeout_sec: 604800
 
 logging:
   # Level for CyClaw's own loggers (cyclaw.*). Their DEBUG lines on the request
   # path log counts, budget arithmetic and exception types or tracebacks, never
-  # query text, prompts or answers. The SHA-256-only audit stream (audit_file)
+  # query text, prompts or answers. The HMAC-fingerprinted audit stream (audit_file)
   # is separate and unaffected.
-  # text, prompts or answers. The SHA-256-only audit stream (audit_file) is
+  # text, prompts or answers. The HMAC-fingerprinted audit stream (audit_file) is
   # separate and unaffected.
   level: "DEBUG"
   log_file: "logs/cyclaw.log"
@@ -586,13 +599,10 @@ security:
   # revokes every cookie, and none can be revoked one by one before it
   # expires. With auth.enabled, an enabled admin's login does the same.
   # Seconds; session 60-604800, pairing 30-3600. Boot refuses others.
-  console_session_ttl_sec: 43200
+  console_session_ttl_sec: 3600
   console_pairing_ttl_sec: 300
-  # A request whose declared Content-Length exceeds this gets 413 before the body
-  # is buffered. Pydantic's per-field caps (largest 65536 chars, schemas/api.py)
-  # apply only after Starlette buffers the whole body. 1 MiB covers the largest
-  # real payload. A missing or false Content-Length (e.g. chunked) is not
-  # checked: an accepted gap under docs/THREAT_MODEL.md.
+  # Bound both declared and streamed bodies before JSON parsing or route effects.
+  # 1 MiB covers the largest permitted fields, including chunked requests.
   max_request_body_bytes: 1048576
   allowed_origins:
     # CORS allow-list. Every entry needs an explicit port: a portless row means

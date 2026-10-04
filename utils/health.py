@@ -23,6 +23,7 @@ import yaml
 
 from .endpoint_trust import EndpointTrustError, assert_local_destination
 from .errors import HealthStatus
+from .logger import redact_sensitive
 
 _cfg_cache: dict[str, dict] = {}
 # Keyed by the config path plus a digest of an explicitly supplied config, so
@@ -119,22 +120,10 @@ def _health_cfg(config_path: str) -> dict:
 
 # Best-effort redaction for non-HTTP health diagnostics. HTTP probe failures
 # use the closed vocabulary in _public_probe_error instead.
-_CREDENTIAL_ENVS = ("GROK_API_KEY", "ANTHROPIC_API_KEY", "CYCLAW_API_KEY")
-_MIN_REDACTABLE_LEN = 8
-
-
 def _safe_error(exc: Exception) -> str:
     """Redact URLs and known credential values from non-HTTP health diagnostics."""
     msg = re.sub(r"https?://\S+", "[URL REDACTED]", str(exc))
-    for env_key in _CREDENTIAL_ENVS:
-        val = os.environ.get(env_key, "")
-        # Substring, not equality: the raw (unstripped) value is what lands in
-        # an h11 message, and repr() escaping means the printed form may differ
-        # from the value -- so also sweep the stripped form.
-        for candidate in (val, val.strip()):
-            if len(candidate) > _MIN_REDACTABLE_LEN:
-                msg = msg.replace(candidate, "[REDACTED]")
-    return msg
+    return redact_sensitive(msg)
 
 
 def _status_key(config_path: str, cfg: dict | None) -> tuple[str, str]:

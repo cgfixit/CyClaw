@@ -53,7 +53,7 @@ threading lock so concurrent calls cannot interleave a partial line.
 | `vendor_cost_ticks` | xAI's own `cost_in_usd_ticks`, when the response carries it |
 | `usage_missing` | `true` when the vendor returned a billed response CyClaw could not parse usage from |
 | `source` | One of `query`, `agentic`, `eval`; anything else normalizes to `unknown` |
-| `query_hash` | Optional. The same unsalted SHA-256 content hash the audit log uses, accepted only as 64 lowercase hex characters |
+| `query_hash` | Optional. The same persistent HMAC-SHA256 query fingerprint the audit log uses, accepted only as 64 lowercase hex characters |
 | `route_path` | Optional. Up to 16 graph hops, each matching `^[a-z][a-z0-9_]{0,63}$` |
 | `outcome` | Optional. `failed_after_billing` on the row the agentic proposer writes when Grok returned a billed 2xx and the SDK raised afterwards (usage captured from the wire, so the tokens are real); absent on every ordinary row |
 
@@ -61,7 +61,7 @@ threading lock so concurrent calls cannot interleave a partial line.
 
 `utils/spend.py` never persists query text, prompt text, message content,
 response bodies, API keys, or authorization headers. The optional `query_hash`
-is a content address, not a request identity, and it is the only field that can
+is a pseudonymous correlation key, not a request identity, and it is the only field that can
 be joined back to an audit record. The `route_path` and `query_hash` fields are
 both validated against strict patterns before being written, so a malformed or
 oversized value is dropped rather than stored.
@@ -284,7 +284,7 @@ That detector is forensic and CLI-only. It restricts spend rows to
 mix, and its findings carry only hashes, event names, timestamps, and
 provider/model tags — never query text, IP addresses, soul content, or secrets.
 
-The mixed-hash window rule assumes CyClaw's shipped threat model: a
+The correlation-window rule assumes CyClaw's shipped threat model: a
 single-operator, loopback-bound host where a sequence within the window is the
 operator's own activity. The window is a correlation aid, not an actor
 identifier.

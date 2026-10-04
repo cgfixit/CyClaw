@@ -23,7 +23,7 @@ from memory.policy import (
     require_reason,
     scan_content,
 )
-from utils.logger import hash_query, redact_sensitive
+from utils.logger import query_fingerprint, redact_sensitive
 
 logger = logging.getLogger("cyclaw.memory")
 
@@ -788,7 +788,7 @@ def stage_episode(cfg: Mapping[str, Any], state: Mapping[str, Any]) -> None:
         return
 
     query = str(state.get("query") or "")
-    qh = hash_query(query)
+    qh = query_fingerprint(query, dict(cfg))
     max_sum = int(ep_cfg.get("max_answer_summary_chars", 2000))
     answer = str(state.get("answer") or state.get("final_answer") or "")
     # Prefer a short truncated answer; redact if privacy patterns apply

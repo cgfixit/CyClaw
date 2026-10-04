@@ -10,13 +10,14 @@ would catch.
 from __future__ import annotations
 
 import importlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from utils.authn import PasswordPolicyError, hash_token
 from utils.authn_manager import AuthManager, BOOTSTRAP_USERNAME, _dummy_record
 from utils.errors import (
-    AuthAccountLocked,
     AuthBootstrapComplete,
     AuthLoginFailed,
     AuthTokenLabelExists,
@@ -464,7 +465,7 @@ class TestLoginTransactionAndRaceSafety:
                 manager.login("alice", "wrong")
         calls = []
         monkeypatch.setattr(manager, "_end_read_txn", lambda: calls.append(1))
-        with pytest.raises(AuthAccountLocked):
+        with pytest.raises(AuthLoginFailed):
             manager.login("alice", _GOOD_PASSWORD)
         assert calls == [1]
 
@@ -565,7 +566,7 @@ class TestLoginTransactionAndRaceSafety:
 
             monkeypatch.setattr("utils.authn_manager.authn.verify_password", racing_verify)
 
-            with pytest.raises((AuthLoginFailed, AuthAccountLocked)):
+            with pytest.raises(AuthLoginFailed):
                 manager_a.login("alice", _GOOD_PASSWORD)
         finally:
             manager_a.close()
@@ -640,49 +641,42 @@ class TestLockout:
         for _ in range(5):
             with pytest.raises(AuthLoginFailed):
                 manager.login("alice", "wrong")
-        with pytest.raises(AuthAccountLocked) as excinfo:
+        with pytest.raises(AuthLoginFailed):
             manager.login("alice", _GOOD_PASSWORD)
-        assert excinfo.value.retry_after_sec > 0
+        row = manager.conn.execute(manager._sql_get_user, ("alice",)).fetchone()
+        assert row["locked_until_ts"] > self._now
 
     def test_correct_password_is_still_refused_while_locked(self, manager):
         """The lockout must not be bypassable by finally guessing right --
         that would make the lockout decorative."""
         manager.create_user("alice", _GOOD_PASSWORD)
         for _ in range(6):
-            with pytest.raises((AuthLoginFailed, AuthAccountLocked)):
+            with pytest.raises(AuthLoginFailed):
                 manager.login("alice", "wrong")
-        with pytest.raises(AuthAccountLocked):
+        with pytest.raises(AuthLoginFailed):
             manager.login("alice", _GOOD_PASSWORD)
 
     def test_set_password_clears_an_active_lockout(self, manager):
         """docs/AUTHENTICATION_DESIGN.md §9 names the local `cyclaw-user` CLI
-        as the mitigation for lockout-as-denial-of-service. login() checks
-        is_locked() BEFORE verifying the password, so unless a password reset
-        also clears the lockout that mitigation does not actually work -- the
-        owner keeps getting 423 with their brand-new correct password until
-        the 15-minute ceiling drains."""
+        as the mitigation for lockout-as-denial-of-service. Reset must clear
+        the lockout so the generic credential refusal stops immediately."""
         manager.create_user("alice", _GOOD_PASSWORD)
         for _ in range(5):
             with pytest.raises(AuthLoginFailed):
                 manager.login("alice", "wrong")
-        with pytest.raises(AuthAccountLocked):
+        with pytest.raises(AuthLoginFailed):
             manager.login("alice", _GOOD_PASSWORD)
         manager.set_password("alice", "a completely different password")
         assert manager.login("alice", "a completely different password").username == "alice"
 
-    def test_enable_user_clears_a_lockout_accrued_while_disabled(self, manager):
-        """login() rejects a disabled account through the SAME failure-recording
-        branch as a wrong password (`if row["disabled"] or not ok:`), so a
-        disabled account can accrue its own lockout from attempts made while it
-        was disabled. cyclaw-user enable is a deliberate administrative decision
-        to make the account usable again NOW -- without clearing the lockout, the
-        newly re-enabled account would still return 423 until the ceiling drains,
-        the same bug set_password() closes for the password-reset path above."""
+    def test_disabled_account_is_generic_and_does_not_accrue_failures(self, manager):
+        """Disabled accounts pay dummy hashing but reveal and mutate no account state."""
         manager.create_user("alice", _GOOD_PASSWORD)
         manager.disable_user("alice")
         for _ in range(5):
             with pytest.raises(AuthLoginFailed):
                 manager.login("alice", _GOOD_PASSWORD)
+        assert manager.get_user("alice").failed_count == 0
         manager.enable_user("alice")
         assert manager.login("alice", _GOOD_PASSWORD).username == "alice"
 
@@ -694,6 +688,35 @@ class TestLockout:
         self._now += 3.0  # past the 2s delay at failure #5
         result = manager.login("alice", _GOOD_PASSWORD)
         assert result.username == "alice"
+
+    def test_concurrent_managers_record_every_failed_attempt(self, tmp_path, monkeypatch):
+        """Separate gateway workers must atomically accrue failures in one shared store."""
+        db_path = str(tmp_path / "concurrent-failures.db")
+        first = AuthManager({"auth": {"enabled": True, "db_path": db_path}})
+        second = AuthManager({"auth": {"enabled": True, "db_path": db_path}})
+        barrier = threading.Barrier(2)
+
+        def reject_password(_password, _record):
+            barrier.wait(timeout=5)
+            return False, False
+
+        monkeypatch.setattr("utils.authn_manager.authn.verify_password", reject_password)
+        try:
+            first.create_user("alice", _GOOD_PASSWORD)
+
+            def fail(manager):
+                with pytest.raises(AuthLoginFailed):
+                    manager.login("alice", "wrong")
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(fail, manager) for manager in (first, second)]
+                for future in futures:
+                    future.result(timeout=10)
+
+            assert first.get_user("alice").failed_count == 2
+        finally:
+            first.close()
+            second.close()
 
 class TestSessions:
     def test_validate_session_returns_the_username(self, manager):

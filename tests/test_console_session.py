@@ -30,11 +30,12 @@ _CROSS_SITE = {"Sec-Fetch-Site": "cross-site"}
 
 
 def test_mint_then_verify_round_trips():
-    minted = console_session.mint(KEY, 600, now=1000.0)
-    got = console_session.verify(KEY, minted.token, now=1001.0)
+    minted = console_session.mint(KEY, 600, now=1000.0, audience="https://localhost:8787")
+    got = console_session.verify(KEY, minted.token, now=1001.0, audience="https://localhost:8787")
     assert got is not None
     assert got.expires_at == 1600
     assert got.csrf == minted.csrf
+    assert console_session.verify(KEY, minted.token, now=1001.0, audience="https://localhost:8788") is None
 
 
 def test_verify_refuses_other_key_expiry_tampering_and_garbage():
@@ -99,7 +100,7 @@ def test_pairing_code_leaves_the_environment():
 
 
 def test_config_defaults_and_bounds():
-    assert validate_console_session_config({}) == (43200, 300)
+    assert validate_console_session_config({}) == (3600, 300)
     assert validate_console_session_config(
         {"security": {"console_session_ttl_sec": 3600, "console_pairing_ttl_sec": 60}}
     ) == (3600, 60)
@@ -156,11 +157,13 @@ def test_key_trade_unlocks_reads_and_csrf_guards_writes(gw):
 
 
 def test_cookie_is_httponly_and_strict(gw):
-    test_client, _ = gw
+    test_client, gate = gw
     resp = test_client.post("/console/session", headers=_BEARER, json={})
     cookie = resp.headers["set-cookie"].lower()
     assert cookie.startswith(f"{console_session.COOKIE_NAME}=")
     assert "httponly" in cookie and "samesite=strict" in cookie and "path=/" in cookie
+    assert f"max-age={gate._CONSOLE_SESSION_TTL}" in cookie
+    assert "expires=" not in cookie
 
 
 def test_wrong_key_is_refused_and_audited(gw, tmp_path):
@@ -199,6 +202,10 @@ def test_pairing_code_unlocks_once(gw, monkeypatch, tmp_path):
 
 def test_lifespan_starts_the_pairing_clock(gw, monkeypatch):
     test_client, gate = gw
+    from utils.bounded_executor import BoundedExecutor
+
+    monkeypatch.setattr(gate, "_graph_workers", BoundedExecutor(1, name="pairing-graph"))
+    monkeypatch.setattr(gate.app.state, "auth_workers", BoundedExecutor(1, name="pairing-auth"))
     code = console_session.PairingCode(PAIR, 300)
     monkeypatch.setattr(gate, "_console_pairing", code)
     with test_client:
@@ -216,7 +223,7 @@ def test_ending_the_session_locks_again(gw):
 def test_cross_site_requests_get_nothing(gw):
     test_client, _ = gw
     _unlock(test_client)
-    assert test_client.get("/soul", headers=_CROSS_SITE).status_code == 401
+    assert test_client.get("/soul", headers=_CROSS_SITE).status_code == 403
     assert test_client.get("/console/session", headers=_CROSS_SITE).status_code == 403
     assert test_client.post("/console/session", headers={**_BEARER, **_CROSS_SITE}, json={}).status_code == 403
 

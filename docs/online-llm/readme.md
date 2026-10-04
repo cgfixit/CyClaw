@@ -24,19 +24,22 @@ Local Check" below.)
 
 ## API Keys
 
-Use environment variables for API keys. Do not paste keys into the terminal UI,
-commit them to git, or write them into `config.yaml`.
+Store API keys with the operating system's credential tool. Do not paste keys
+into a shell command, the terminal UI, `config.yaml`, or a tracked file.
 
-For Grok:
+On macOS, run the interactive key bootstrap. The script prompts without putting
+the value in shell history or a child process's arguments:
 
-```powershell
-$env:GROK_API_KEY = "your-grok-api-key"
+```bash
+bash macos/setup-cyclaw-keys.sh
 ```
 
-For Claude:
+On Windows, store each provider key with the interactive Credential Manager
+helper:
 
 ```powershell
-$env:ANTHROPIC_API_KEY = "your-claude-api-key"
+.\powershell\CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.grok-api-key
+.\powershell\CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.anthropic-api-key
 ```
 
 If the key is missing, CyClaw stays local and reports that the online provider

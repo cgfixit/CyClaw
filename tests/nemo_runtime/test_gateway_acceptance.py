@@ -26,7 +26,7 @@ from tests.conftest import MOCK_HIGH_SCORE_RESULTS, MockRetriever  # noqa: E402
 from tests.nemo_runtime.mock_openai import LoopbackOpenAIMock  # noqa: E402
 from tests.nemo_runtime.network_jail import loopback_only  # noqa: E402
 from utils.guardrail_bridge import build_generate_guard, build_input_guard, build_output_guard  # noqa: E402
-from utils.logger import hash_query, reset_config_cache  # noqa: E402
+from utils.logger import query_fingerprint, reset_config_cache  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 ANSWER = "Veeam uses chattr +i to make backups immutable."
@@ -125,7 +125,7 @@ def gateway(tmp_path, monkeypatch, request):
 def audit_once(tmp_path: Path, query: str) -> dict:
     records = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text().splitlines()]
     assert len(records) == 1
-    assert records[0]["query_hash"] == hash_query(query)
+    assert records[0]["query_hash"] == query_fingerprint(query, config_path=str(tmp_path / "config.yaml"))
     for name in ("audit.jsonl", "guardrails.jsonl"):
         path = tmp_path / name
         if path.exists():

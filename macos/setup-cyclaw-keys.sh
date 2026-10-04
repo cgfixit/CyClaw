@@ -723,11 +723,7 @@ _warn_unmapped_secret_lines() {
     while IFS=$'\x1f' read -r name op val; do
       [ -n "$name" ] || continue
       cyclaw_is_secret_name "$name" || continue
-      case "$name" in
-        CYCLAW_API_KEY|TELEGRAM_BOT_TOKEN|GROK_API_KEY|ANTHROPIC_API_KEY|GH_TOKEN|GITHUB_TOKEN|CLAUDE_API_KEY)
-          continue
-          ;;
-      esac
+      cyclaw_secret_service "$name" >/dev/null 2>&1 && continue
       warn "left plaintext $name in $file (secret-classified, no Keychain service). Launchers do not load it. The value was not printed."
     done < <(cyclaw_dotenv_line_assignments "$line")
   done < "$file"
@@ -765,12 +761,10 @@ _migrate_plaintext_secrets() {
       return 0
     fi
     _warn_if_token_pair_differs "$file"
-    _migrate_one_line "$file" "CYCLAW_API_KEY" "$KC_API"
-    _migrate_one_line "$file" "TELEGRAM_BOT_TOKEN" "$KC_TELEGRAM"
-    _migrate_one_line "$file" "GROK_API_KEY" "$KC_GROK"
-    _migrate_one_line "$file" "ANTHROPIC_API_KEY" "$KC_ANTHROPIC"
-    _migrate_one_line "$file" "GH_TOKEN" "$KC_GH"
-    _migrate_one_line "$file" "GITHUB_TOKEN" "$KC_GH"
+    while IFS=$'\t' read -r kind env_name service; do
+      [ "$kind" = "exact" ] && [ -n "$service" ] || continue
+      _migrate_one_line "$file" "$env_name" "$service"
+    done < "$_CYCLAW_SECRET_POLICY"
     if _env_has "$file" "CLAUDE_API_KEY"; then
       warn "left CLAUDE_API_KEY in $file. llm/client.py reads ANTHROPIC_API_KEY; this unused name is not loaded and was not copied."
     fi
@@ -811,6 +805,11 @@ _refresh_installed_launchers() {
       step "updated $dest"
     fi
   done
+  mkdir -p "$HOME_DIR/lib"
+  if [ -f "$_SCRIPT_DIR/../utils/secret-policy.tsv" ]; then
+    cp "$_SCRIPT_DIR/../utils/secret-policy.tsv" "$HOME_DIR/lib/secret-policy.tsv"
+    chmod 644 "$HOME_DIR/lib/secret-policy.tsv"
+  fi
 }
 
 ROTATE_LABEL="com.cgfixit.cyclaw.keys-rotate"

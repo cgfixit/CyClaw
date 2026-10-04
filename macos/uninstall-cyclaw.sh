@@ -6,7 +6,7 @@
 # The home directory (sessions, venv, repo clone, .env) is KEPT by default
 # so no data is lost; pass --remove-home to delete it (prompts first).
 # Keychain items are KEPT by default; pass --remove-keychain to delete only
-# the five documented CyClaw services (Darwin / test-mode; prompts y/N).
+# the documented CyClaw services (Darwin / test-mode; prompts y/N).
 #
 # Usage:
 #   bash macos/uninstall-cyclaw.sh                # keep ~/.CyClaw data + Keychain
@@ -26,6 +26,8 @@
 # that script is copied standalone to ~/.CyClaw/bin/.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REMOVE_HOME=0
 REMOVE_FSCONNECT=0
@@ -149,6 +151,38 @@ remove_keychain_item() {
   return 0
 }
 
+# Every Keychain service purge_cyclaw_keychain deletes, one per line: the five
+# installer services, then each other exact-name service in secret-policy.tsv,
+# de-duplicated. Service names only -- never a secret value. The prompt and the
+# purge both read this, so the count shown can't drift from what is deleted.
+cyclaw_keychain_services() {
+  local seen policy_file kind service
+  seen=""
+  for service in "$KC_API" "$KC_TELEGRAM" "$KC_GROK" "$KC_ANTHROPIC" "$KC_GH"; do
+    seen="$seen
+$service"
+    printf '%s\n' "$service"
+  done
+  policy_file="$SCRIPT_DIR/../utils/secret-policy.tsv"
+  if [ ! -r "$policy_file" ]; then
+    policy_file="$HOME_DIR/lib/secret-policy.tsv"
+  fi
+  if [ -r "$policy_file" ] && [ "$(sed -n '1p' "$policy_file")" = "# cyclaw-secret-policy-v1" ]; then
+    while IFS=$'\t' read -r kind _ service; do
+      [ "$kind" = "exact" ] && [ -n "$service" ] || continue
+      case "$seen
+" in
+        *"
+$service
+"*) continue ;;
+      esac
+      seen="$seen
+$service"
+      printf '%s\n' "$service"
+    done < "$policy_file"
+  fi
+}
+
 purge_cyclaw_keychain() {
   local uname_s
   uname_s="$(uname -s 2>/dev/null || echo unknown)"
@@ -168,11 +202,13 @@ purge_cyclaw_keychain() {
     return 0
   fi
   echo "[cyclaw] removing documented CyClaw Keychain items for account=$ACCOUNT..."
-  remove_keychain_item "$KC_API"
-  remove_keychain_item "$KC_TELEGRAM"
-  remove_keychain_item "$KC_GROK"
-  remove_keychain_item "$KC_ANTHROPIC"
-  remove_keychain_item "$KC_GH"
+  local service
+  # fd 3, so nothing remove_keychain_item runs can consume the service list.
+  while IFS= read -r service <&3; do
+    [ -n "$service" ] && remove_keychain_item "$service"
+  done 3<<EOF_SERVICES
+$(cyclaw_keychain_services)
+EOF_SERVICES
 }
 
 # -- Sync scheduler cleanup ---------------------------------------------------
@@ -388,11 +424,16 @@ if [ "$REMOVE_HOME" -eq 1 ] && [ "$REMOVE_KEYCHAIN" -eq 0 ]; then
   echo "[cyclaw] NOTE: Keychain items were not removed. A later reinstall can revive"
   echo "[cyclaw]       old CYCLAW_API_KEY / provider tokens from services named"
   echo "[cyclaw]       com.cgfixit.cyclaw.* (account=$ACCOUNT). Re-run with --remove-keychain"
-  echo "[cyclaw]       to delete the five documented items, or leave them if you still want them."
+  echo "[cyclaw]       to delete every documented item (the services listed in secret-policy.tsv),"
+  echo "[cyclaw]       or leave them if you still want them."
 fi
 
 if [ "$REMOVE_KEYCHAIN" -eq 1 ]; then
-  if confirm_destructive "Delete the five documented CyClaw Keychain items for $ACCOUNT?"; then
+  keychain_services="$(cyclaw_keychain_services)"
+  keychain_count="$(printf '%s\n' "$keychain_services" | grep -c .)"
+  echo "[cyclaw] --remove-keychain targets these $keychain_count Keychain services (account=$ACCOUNT):"
+  printf '%s\n' "$keychain_services" | sed 's/^/[cyclaw]   /'
+  if confirm_destructive "Delete these $keychain_count CyClaw Keychain items for $ACCOUNT?"; then
     purge_cyclaw_keychain
   else
     echo "[cyclaw] kept Keychain items"

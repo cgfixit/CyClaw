@@ -388,7 +388,14 @@ class TestCloudPayloadsUnchanged:
                     "timeout_sec": 10,
                     "max_tokens": 256,
                 },
-            }
+            },
+            "policy": {
+                "external_call_limits": {
+                    "daily": 10,
+                    "monthly": 10,
+                    "ledger_path": str(tmp_path / "external-calls.db"),
+                }
+            },
         }
         path = tmp_path / "config.yaml"
         with open(path, "w", encoding="utf-8") as f:

@@ -36,6 +36,7 @@ import yaml
 from utils.config_validation import resolve_grok_reasoning_effort, resolve_reasoning_effort
 from utils.errors import ClaudeServiceError, GrokServiceError, LLMServiceError, RAGError
 from utils.spend import record_external_usage
+from utils.external_budget import ExternalCallBudget
 
 log = logging.getLogger(__name__)
 
@@ -402,6 +403,8 @@ def _post_with_retry(
                 service, type(e).__name__, attempt + 1,
             )
             raise on_other(e) from e
+        except RAGError:
+            raise
         except Exception as e:
             # Non-transient (e.g. malformed response body); fail fast, no retry.
             # Log only the exception *type* — its message can echo response content.
@@ -511,6 +514,8 @@ def _cache_key_for_local_llm(llm_cfg: dict) -> str:
             # Part of the key so editing reasoning_effort and reloading actually
             # takes effect instead of returning a backend cached with the old value.
             str(llm_cfg.get("reasoning_effort", "")),
+            str(llm_cfg.get("api_key_env", "CYCLAW_LOCAL_LLM_API_KEY")),
+            str((fb or {}).get("api_key_env", "CYCLAW_LOCAL_LLM_FALLBACK_API_KEY")),
         ]
     )
 
@@ -532,7 +537,10 @@ def resolve_local_backend(llm_cfg: dict, *, force: bool = False) -> ResolvedLoca
     primary_url = str(llm_cfg.get("base_url") or "").strip()
     primary_model = str(llm_cfg.get("model") or "").strip()
     primary_provider = str(llm_cfg.get("provider") or "ollama").strip() or "ollama"
-    primary_key = str(llm_cfg.get("api_key") or "").strip()
+    if str(llm_cfg.get("api_key") or "").strip():
+        raise LLMServiceError("models.local_llm.api_key is forbidden; use api_key_env")
+    primary_key_env = str(llm_cfg.get("api_key_env") or "CYCLAW_LOCAL_LLM_API_KEY").strip()
+    primary_key = (os.environ.get(primary_key_env) or "").strip()
     # model may be empty on minimal test fixtures / availability-only probes;
     # generate still needs a real pin in production config.yaml.
     if not primary_url:
@@ -583,6 +591,8 @@ def resolve_local_backend(llm_cfg: dict, *, force: bool = False) -> ResolvedLoca
             "models.local_llm.fallback.base_url must be loopback (127.0.0.1 / localhost / ::1)",
             details={"hint": "non-loopback local servers must be set as primary base_url explicitly"},
         )
+    if str(fb.get("api_key") or "").strip():
+        raise LLMServiceError("models.local_llm.fallback.api_key is forbidden; use api_key_env")
     # A non-loopback primary base_url is a deliberate operator choice (unlike the
     # fallback, which is validated loopback-only just above); no check is enforced
     # on the primary here.
@@ -596,7 +606,7 @@ def resolve_local_backend(llm_cfg: dict, *, force: bool = False) -> ResolvedLoca
         base_url=fb_url.rstrip("/"),
         model=fb_model,
         source="fallback",
-        api_key=str(fb.get("api_key") or "").strip(),
+        api_key=(os.environ.get(str(fb.get("api_key_env") or "CYCLAW_LOCAL_LLM_FALLBACK_API_KEY").strip()) or "").strip(),
         reasoning_effort=_effort_for(fb_provider),
     )
     if _probe_openai_models(secondary.base_url, timeout_sec=probe_timeout, api_key=secondary.api_key):
@@ -818,6 +828,7 @@ class GrokClient:
             with open(config_path, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
         grok_cfg = cfg["models"]["grok"]
+        self._budget = ExternalCallBudget(cfg)
         self.base_url = grok_cfg["base_url"].rstrip("/")
         self.model = grok_cfg["model"]
         self.max_tokens = grok_cfg["max_tokens"]
@@ -849,6 +860,8 @@ class GrokClient:
                                     details={"required_env": "GROK_API_KEY"})
 
         def do_post() -> httpx.Response:
+            timeout = _call_timeout(self.timeout)
+            self._budget.reserve()
             return self._client.post(
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
@@ -859,7 +872,7 @@ class GrokClient:
                     "temperature": self.temperature,
                     "reasoning_effort": self.reasoning_effort,
                 },
-                timeout=_call_timeout(self.timeout),
+                timeout=timeout,
             )
 
         return _post_with_retry(
@@ -891,6 +904,7 @@ class ClaudeClient:
             with open(config_path, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
         claude_cfg = cfg["models"]["claude"]
+        self._budget = ExternalCallBudget(cfg)
         self.base_url = claude_cfg["base_url"].rstrip("/")
         self.model = claude_cfg["model"]
         self.max_tokens = claude_cfg["max_tokens"]
@@ -918,6 +932,8 @@ class ClaudeClient:
                                      details={"required_env": "ANTHROPIC_API_KEY"})
 
         def do_post() -> httpx.Response:
+            timeout = _call_timeout(self.timeout)
+            self._budget.reserve()
             return self._client.post(
                 f"{self.base_url}/messages",
                 headers={
@@ -930,7 +946,7 @@ class ClaudeClient:
                     "max_tokens": self.max_tokens,
                     "messages": [{"role": "user", "content": prompt}],
                 },
-                timeout=_call_timeout(self.timeout),
+                timeout=timeout,
             )
 
         return _post_with_retry(

@@ -22,7 +22,6 @@ Addresses:
 import asyncio
 import hmac
 import os
-import re
 import sys
 import threading
 import time
@@ -77,7 +76,9 @@ from schemas.api import (
     QueryRequest, QueryResponse, SourceInfo, HealthResponse, SoulEvolutionRequest,
     ConsoleSessionRequest, ConsoleSessionResponse,
 )
-from utils.logger import audit_file_path, audit_log, hash_query, setup_logging
+from utils.logger import audit_file_path, audit_log, hash_query, query_fingerprint, setup_logging
+from utils.public_errors import public_error, source_label
+from utils.config_validation import validate_no_inline_credentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from utils.sanitizer import check_input
@@ -118,13 +119,19 @@ def _csrf_rejected() -> HTTPException:
 
 def _console_session_for(request: Request, cookie: str | None) -> console_session.ConsoleSession | None:
     """The request's console cookie, when it is valid now and not cross-site."""
+    if _TLS_ENABLED:
+        cookie = request.cookies.get(console_session.SECURE_COOKIE_NAME)
     if not cookie or _looks_cross_site(request):
         return None
-    return console_session.verify(os.environ.get("CYCLAW_API_KEY", ""), cookie)
+    return console_session.verify(
+        os.environ.get("CYCLAW_API_KEY", ""), cookie, audience=f"{request.url.scheme}://{request.url.netloc.lower()}"
+    )
 
 
 def _admin_session_for(request: Request, cookie: str | None):
     """The request's login session, when auth is on and it belongs to an enabled admin."""
+    if _TLS_ENABLED:
+        cookie = request.cookies.get("__Host-cyclaw_session")
     if auth_manager is None or not cookie or _looks_cross_site(request):
         return None
     session_info = auth_manager.validate_session(cookie)
@@ -198,6 +205,7 @@ from utils.config_validation import (
     validate_retrieval_config,
 )
 from utils.ratelimit import RateLimiter
+from utils.bounded_executor import BoundedExecutor, WorkCapacityExceeded
 
 # Parse the anchored config once for both rate-limit setup and app initialization.
 with open(_BASE_DIR / "config.yaml", encoding="utf-8") as _cfg_f:
@@ -206,9 +214,11 @@ with open(_BASE_DIR / "config.yaml", encoding="utf-8") as _cfg_f:
 # forces every query to user_gate; top_k <= 0 breaks retrieval). Without this the
 # error would surface as silent mis-routing or a crash deep in a request instead
 # of a clear ConfigError at boot.
+validate_no_inline_credentials(cfg)
 validate_retrieval_config(cfg)
 validate_personality_config(cfg)
 validate_auth_config(cfg)
+_graph_workers = BoundedExecutor(cfg.get("api", {}).get("max_concurrent_queries", 4), name="cyclaw-graph")
 validate_tls_config(cfg)
 # Console operator session (utils/console_session.py): the cookie lifetime, and
 # the launcher's one-time pairing code, taken out of the environment here so
@@ -389,6 +399,7 @@ async def _enforce_rate_limit(request: Request) -> None:
     api.rate_limit values — a hardcoded "(60/min)" here misled operators who
     tuned max_requests/window_seconds away from the defaults.
     """
+    _reject_cross_site_query(request)
     client_ip = request.client.host if request.client else "unknown"
     if not await _check_rate_limit_async(client_ip):
         if _should_audit_rate_limit(client_ip, time.monotonic()):
@@ -401,43 +412,8 @@ async def _enforce_rate_limit(request: Request) -> None:
             },
         )
 
-# Redact sensitive values from exception messages before returning in HTTP responses.
-# Strips Bearer tokens, known secret-like patterns, and any live env var values
-# that look like credentials (length > 8, not a common word).
-_SECRET_PATTERNS = [
-    re.compile(r'Bearer\s+[A-Za-z0-9\-_\.]+', re.IGNORECASE),  # Authorization headers
-    re.compile(r'[Aa][Pp][Ii][_-]?[Kk][Ee][Yy]["\s:=]+[\w\-\.]+'),  # api_key = ...
-    re.compile(r'sk-[A-Za-z0-9]{20,}'),       # OpenAI-style keys
-    # Anthropic keys (sk-ant-api03-...) contain hyphens inside the token body,
-    # so the OpenAI-style sk- pattern above (no hyphens allowed) never matches
-    # them — this is a distinct shape, not a subset of the pattern above.
-    re.compile(r'sk-ant-[A-Za-z0-9_\-]{20,}'),  # Anthropic (Claude) API keys
-    # xAI keys (xai-...) match none of the shapes above: no sk- prefix, no
-    # Bearer/api_key anchor. They were the one integrated provider whose key
-    # shape passed through un-redacted (found in the 2026-07-28 sandbox
-    # verification, anomaly A3).
-    re.compile(r'xai-[A-Za-z0-9]{20,}'),       # xAI (Grok) API keys
-    re.compile(r'ghp_[A-Za-z0-9]{36}'),        # GitHub PATs
-    re.compile(r'xox[baprs]-[0-9a-zA-Z\-]+'), # Slack tokens
-    re.compile(r'AKIA[0-9A-Z]{16}'),           # AWS access keys
-]
-
 def _sanitize_error(exc: Exception) -> str:
-    """Strip credential-like content from exception messages before HTTP response."""
-    msg = str(exc)
-    for pattern in _SECRET_PATTERNS:
-        msg = pattern.sub('[REDACTED]', msg)
-    # Also redact any live env var that looks like a credential (length > 8).
-    # CYCLAW_API_KEY is the server's own auth secret — if it ever surfaced in an
-    # auth-library or middleware traceback it must not be echoed in a 500 body.
-    # ANTHROPIC_API_KEY mirrors the GROK_API_KEY entry below: ClaudeClient
-    # (llm/client.py) reads the same env var, and its failure paths deserve the
-    # identical defense-in-depth this loop already gives Grok.
-    for env_key in ("GROK_API_KEY", "ANTHROPIC_API_KEY", "LANGCHAIN_API_KEY", "LANGSMITH_API_KEY", "SSC_TOKEN", "CYCLAW_API_KEY"):
-        val = os.environ.get(env_key, "")
-        if val and len(val) > 8:
-            msg = msg.replace(val, '[REDACTED]')
-    return msg
+    return public_error(exc, cfg)
 
 # =============================================================================
 # App Init
@@ -468,6 +444,8 @@ async def lifespan(app: FastAPI):
     # import-time boot (index load) does not eat into the window.
     _console_pairing.start()
     yield
+    await asyncio.to_thread(_graph_workers.close)
+    await asyncio.to_thread(app.state.auth_workers.close)
     # Shutdown: close persistent connection pools so the OS reclaims file
     # descriptors and TIME_WAIT sockets promptly on server restart.
     # Each close is isolated so one failure does not skip the rest.
@@ -533,6 +511,20 @@ async def _on_validation_error(_request: Request, exc: RequestValidationError) -
     )
 
 
+@app.exception_handler(HTTPException)
+async def _on_http_error(_request: Request, exc: HTTPException) -> JSONResponse:
+    def clean(value):
+        if isinstance(value, str):
+            return public_error(value, cfg)
+        if isinstance(value, dict):
+            return {key: clean(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [clean(item) for item in value]
+        return value
+
+    return JSONResponse(status_code=exc.status_code, content={"detail": clean(exc.detail)}, headers=exc.headers)
+
+
 app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
 @app.get("/", response_class=FileResponse)
@@ -569,46 +561,68 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 # Pydantic parsing; Starlette buffers the entire raw body into memory first,
 # so an oversized POST costs memory regardless of what the parsed fields turn
 # out to be. See config.yaml security.max_request_body_bytes for the accepted
-# scope of this check (Content-Length only).
+# cap, which applies to declared and streamed request bodies.
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import JSONResponse as _JSONResponse
 
 
-class _MaxBodySizeMiddleware(BaseHTTPMiddleware):
+class _MaxBodySizeMiddleware:
     def __init__(self, app, max_bytes: int):
-        super().__init__(app)
+        if type(max_bytes) is not int or max_bytes < 1:
+            raise ValueError("security.max_request_body_bytes must be a positive integer")
+        self.app = app
         self._max_bytes = max_bytes
 
-    async def dispatch(self, request: StarletteRequest, call_next):  # type: ignore[override]
-        declared = request.headers.get("content-length")
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        declared = dict(scope.get("headers", ())).get(b"content-length")
         if declared is not None:
             try:
                 declared_bytes = int(declared)
             except ValueError:
-                declared_bytes = None
-            if declared_bytes is not None and declared_bytes > self._max_bytes:
-                return _JSONResponse(
-                    status_code=413,
-                    content={
-                        "error": f"request body exceeds {self._max_bytes} bytes",
-                        "code": "PAYLOAD_TOO_LARGE",
-                    },
+                declared_bytes = -1
+            if declared_bytes < 0:
+                return await _JSONResponse(status_code=400, content={"code": "INVALID_CONTENT_LENGTH"})(
+                    scope, receive, send
                 )
-        return await call_next(request)
+            if declared_bytes > self._max_bytes:
+                return await self._refuse(scope, receive, send)
+        # Read at most the configured cap before JSON parsing or route side
+        # effects. Chunked requests and dishonest Content-Length need the same cap.
+        messages = []
+        total = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            total += len(message.get("body", b""))
+            if total > self._max_bytes:
+                return await self._refuse(scope, receive, send)
+            messages.append(message)
+            if not message.get("more_body", False):
+                break
+        pending = iter(messages)
+
+        async def buffered_receive():
+            try:
+                return next(pending)
+            except StopIteration:
+                return await receive()
+
+        return await self.app(scope, buffered_receive, send)
+
+    async def _refuse(self, scope, receive, send):
+        return await _JSONResponse(
+            status_code=413,
+            content={"error": f"request body exceeds {self._max_bytes} bytes", "code": "PAYLOAD_TOO_LARGE"},
+        )(scope, receive, send)
 
 
 _max_body_bytes = cfg.get("security", {}).get("max_request_body_bytes", 1048576)
 app.add_middleware(_MaxBodySizeMiddleware, max_bytes=_max_body_bytes)
 
-# Security response headers middleware: sets defense-in-depth headers on every
-# response (X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
-# Permissions-Policy) and adds Cache-Control: no-store on the root / static paths
-# to prevent browser caching of the Soul Console. Added LAST, so (per Starlette's
-# outside-in add_middleware ordering) it is the OUTERMOST middleware and wraps the
-# TrustedHost check — it therefore stamps these headers on every response,
-# including the 400 a rejected Host produces. That is intentional: defense-in-depth
-# headers belong on error responses too, and they carry no request data.
 from starlette.responses import Response as StarletteResponse
 
 
@@ -620,6 +634,7 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'none'; script-src 'self'; "
@@ -627,10 +642,9 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "connect-src 'self'; font-src 'self'; base-uri 'none'; "
             "form-action 'none'; frame-ancestors 'none'"
         )
-        if request.url.path == "/" or request.url.path.startswith("/static/"):
-            response.headers.setdefault(
-                "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
-            )
+        response.headers.setdefault(
+            "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
+        )
         return response
 
 
@@ -1020,9 +1034,9 @@ async def query_endpoint(request: Request, req: QueryRequest):
     try:
         check_input(req.query)
     except PromptInjectionError as e:
-        # Pass the full query: audit_log() SHA-256-hashes the "query" field, so
-        # truncating here yields a hash of only the first 50 chars that diverges
-        # from the canonical full-query hash written by the graph audit node and
+        # Pass the full query: audit_log() fingerprints the "query" field, so
+        # truncating here yields a fingerprint of only the first 50 chars that diverges
+        # from the canonical full-query fingerprint written by the graph audit node and
         # the MCP path. No raw text is persisted either way.
         await _audit_query(request, {"event": "prompt_injection_blocked", "query": req.query})
         raise HTTPException(
@@ -1045,9 +1059,19 @@ async def query_endpoint(request: Request, req: QueryRequest):
     deadline_token = set_graph_deadline(time.monotonic() + float(graph_timeout))
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(compiled_graph.invoke, initial_state),
+            _graph_workers.run(compiled_graph.invoke, initial_state),
             timeout=graph_timeout,
         )
+    except WorkCapacityExceeded as e:
+        # INVARIANTS I4 / Rule 3: every /query rejection is audited, the
+        # capacity-shed path included. Rate limiting runs before this point,
+        # so busy-path audit writes are already capped per client IP.
+        await _audit_query(request, {"event": "graph_busy", "query": req.query})
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "GRAPH_BUSY", "error": "Query capacity is full; try again shortly"},
+            headers={"Retry-After": "1"},
+        ) from e
     except TimeoutError as e:
         await _audit_query(request, {"event": "graph_timeout", "query": req.query, "timeout_sec": graph_timeout})
         logger.warning("graph invoke exceeded %ss deadline", graph_timeout)
@@ -1100,7 +1124,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
                 served_model = None
             await asyncio.to_thread(
                 monitor_request,
-                query_hash=hash_query(req.query),
+                query_hash=query_fingerprint(req.query, cfg),
                 top_score=result.get("top_score"),
                 answer_model=result.get("answer_model"),
                 guardrail_blocked=result.get("guardrail_blocked"),
@@ -1120,6 +1144,10 @@ async def query_endpoint(request: Request, req: QueryRequest):
         logger.warning("CEL monitor request failed: %s", exc)
 
     needs_confirm = result.get("needs_user_confirm", False)
+    if result.get("error"):
+        result["error"] = public_error(result["error"], cfg)
+        if result.get("answer"):
+            result["answer"] = public_error(result["answer"], cfg)
     answer_model = result.get("answer_model", "")
     # Same mapping graph.py's audit_logger_node uses for audit.jsonl, reused
     # here so the console's model badge and the audit trail can never disagree
@@ -1178,7 +1206,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
     for d in docs:
         if isinstance(d, dict):
             sources.append(SourceInfo(
-                source=d.get("source", ""),
+                source=source_label(str(d.get("source", "")), str(cfg.get("corpus", {}).get("path", ""))),
                 score=d.get("score", 0.0),
                 chunk_id=d.get("chunk_id", -1),
                 source_sha256=d.get("source_sha256", ""),
@@ -1221,7 +1249,7 @@ async def get_soul(request: Request):
     return {
         "soul": personality.get_system_prompt_additive(),
         "version": version,
-        "source": str(personality.soul_path)
+        "source": Path(personality.soul_path).name
     }
 
 @app.post("/soul/propose", dependencies=[Depends(_enforce_rate_limit), Depends(require_api_key)])
@@ -1313,7 +1341,7 @@ async def health():
         # documents in. The configured value verbatim (relative as written in
         # config.yaml), NOT the absolute resolved path -- no reason to publish
         # the server's directory layout to answer "where do my files go?".
-        corpus_path=str(cfg.get("corpus", {}).get("path", "") or ""),
+        corpus_path=source_label(str(cfg.get("corpus", {}).get("path", "") or ""), ""),
     )
 
 
@@ -1372,9 +1400,11 @@ async def console_session_open(
             status_code=401,
             detail={"code": "CONSOLE_SESSION_DENIED", "message": "invalid API key or pairing code"},
         )
-    minted = console_session.mint(api_key, _CONSOLE_SESSION_TTL)
+    minted = console_session.mint(
+        api_key, _CONSOLE_SESSION_TTL, audience=f"{request.url.scheme}://{request.url.netloc.lower()}"
+    )
     response.set_cookie(
-        key=console_session.COOKIE_NAME,
+        key=console_session.SECURE_COOKIE_NAME if _TLS_ENABLED else console_session.COOKIE_NAME,
         value=minted.token,
         httponly=True,
         samesite="strict",
@@ -1395,7 +1425,7 @@ async def console_session_end(request: Request, response: Response) -> dict[str,
     deletes the caller's own cookie, and SameSite=Strict plus the cross-site
     check keep another site from triggering it."""
     _reject_cross_site_query(request)
-    response.delete_cookie(key=console_session.COOKIE_NAME, path="/", httponly=True, samesite="strict")
+    response.delete_cookie(key=console_session.SECURE_COOKIE_NAME if _TLS_ENABLED else console_session.COOKIE_NAME, path="/", httponly=True, samesite="strict")
     await _audit({"event": "console_session_ended"})
     return {"active": False}
 
@@ -1407,7 +1437,7 @@ async def audit_summary(request: Request):
     Returns aggregates only — query volume, score distribution, retrieval-mode
     and model-usage breakdowns, external-LLM escalation count, and counts of
     injection findings over GitHub-sourced context text (by code, field, repo,
-    and matched pattern rule). The audit log persists only SHA-256 query hashes
+    and matched pattern rule). The audit log persists only keyed HMAC-SHA256 query fingerprints
     (never plaintext), and an injection finding names the rule that fired rather
     than the text that fired it, so no raw query or PR content is exposed here
     either. This is operational evidence, not a formal compliance artifact or

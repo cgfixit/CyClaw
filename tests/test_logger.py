@@ -164,7 +164,7 @@ class TestAuditFieldsShape:
         logger.close_audit_handles()
         record = json.loads((tmp_path / "audit.jsonl").read_text().splitlines()[0])
         assert record["event"] == "rag_query"
-        assert record["query_hash"] == logger.hash_query("what is RRF?")
+        assert record["query_hash"] == logger.query_fingerprint("what is RRF?", cfg)
         assert "query" not in record
 
     @pytest.mark.parametrize(

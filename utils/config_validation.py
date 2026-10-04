@@ -14,6 +14,7 @@ import math
 import threading
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from utils.errors import ConfigError
 
@@ -22,6 +23,38 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 # Tunables that must be positive integers (they index ranked result lists and
 # appear in the RRF weight denominator ``1 / (rrf_k + rank)``).
 _POSITIVE_INT_KEYS = ("top_k_semantic", "top_k_keyword", "rrf_k")
+
+_DATABASE_URL_PATHS = (("indexing", "database_url"), ("personality", "database_url"),
+                       ("api", "rate_limit", "database_url"), ("auth", "database_url"))
+
+
+def validate_database_url_no_password(value: object, field: str) -> None:
+    if value in (None, ""):
+        return
+    if not isinstance(value, str):
+        raise ConfigError(f"{field} must be a string or null", details={"field": field})
+    try:
+        password = urlsplit(value).password
+    except ValueError as exc:
+        raise ConfigError(f"{field} is not a valid URL", details={"field": field}) from exc
+    if password is not None:
+        raise ConfigError(f"{field} must not contain a password; use its environment variable/keystore entry",
+                          details={"field": field})
+
+
+def validate_no_inline_credentials(cfg: dict[str, Any]) -> None:
+    for path in _DATABASE_URL_PATHS:
+        node: object = cfg
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        validate_database_url_no_password(node, ".".join(path))
+    models = cfg.get("models")
+    local = models.get("local_llm") if isinstance(models, dict) else None
+    if isinstance(local, dict):
+        for label, block in (("models.local_llm", local), ("models.local_llm.fallback", local.get("fallback"))):
+            if isinstance(block, dict) and str(block.get("api_key") or "").strip():
+                raise ConfigError(f"{label}.api_key must be empty; use api_key_env and an OS keystore",
+                                  details={"field": f"{label}.api_key"})
 
 
 def _is_real_number(value: Any) -> bool:
@@ -433,7 +466,7 @@ def validate_auth_config(cfg: dict[str, Any]) -> None:
             details={"received_type": type(session).__name__},
         )
 
-    idle = session.get("idle_timeout_sec", 43200)
+    idle = session.get("idle_timeout_sec", 3600)
     absolute = session.get("absolute_timeout_sec", 604800)
     for name, val in (("idle_timeout_sec", idle), ("absolute_timeout_sec", absolute)):
         # math.isfinite, not just `val <= 0`: NaN and +/-inf are real floats,
@@ -641,7 +674,7 @@ def validate_tls_config(cfg: dict[str, Any]) -> None:
 # Bounds for the console operator session (utils/console_session.py). A
 # cookie cannot be revoked one at a time before it expires, so its lifetime
 # is capped at a week; the pairing code only has to outlive a browser launch.
-CONSOLE_SESSION_TTL_DEFAULT = 43200
+CONSOLE_SESSION_TTL_DEFAULT = 3600
 CONSOLE_SESSION_TTL_BOUNDS = (60, 604800)
 CONSOLE_PAIRING_TTL_DEFAULT = 300
 CONSOLE_PAIRING_TTL_BOUNDS = (30, 3600)

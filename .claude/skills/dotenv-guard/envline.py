@@ -17,22 +17,18 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from utils.secret_policy import SECRET_POLICY  # noqa: E402
+
 BOM = "\ufeff"
 
 # Longer suffixes first so a reader comparing by eye sees API_KEY before KEY.
 # is_secret_name accepts a name when the uppercased form ends in _<suffix>
 # and has at least one character before that tail. KEY also matches
 # AWS_ACCESS_KEY and, as a known cost, non-secrets such as PRINT_KEY.
-SECRET_SUFFIXES = (
-    "API_KEY",
-    "CREDENTIALS",
-    "PASSWORD",
-    "SECRET",
-    "TOKEN",
-    "PAT",
-    "DSN",
-    "KEY",
-)
+SECRET_SUFFIXES = SECRET_POLICY.suffixes
 
 _KEYWORDS = frozenset({"export", "declare", "typeset", "readonly", "local"})
 _ASSIGN_WORD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(\+?=)(.*)$", re.DOTALL)
@@ -88,12 +84,7 @@ def is_secret_name(name: str) -> bool:
     for ch in name:
         if not (ch == "_" or "A" <= ch <= "Z" or "a" <= ch <= "z" or "0" <= ch <= "9"):
             return False
-    upper = name.upper()
-    for suffix in SECRET_SUFFIXES:
-        tail = "_" + suffix
-        if len(upper) > len(tail) and upper.endswith(tail):
-            return True
-    return False
+    return SECRET_POLICY.is_secret_name(name)
 
 
 def is_dotenv_filename(name: str) -> bool:

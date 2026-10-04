@@ -28,6 +28,7 @@ from utils.errors import SqlConnectError
         ("SELECT pg_stat_file('/etc/passwd')", "stats a DB host path"),
         ("SELECT lo_import('/etc/passwd')", "imports a DB host file"),
         ("SELECT lo_export(16384, '/tmp/out')", "writes to the DB host filesystem"),
+        ("SELECT lo_get(16384)", "reads large-object data outside the preview boundary"),
         ("SELECT dblink('dbname=x', 'select 1')", "outbound connection / SSRF"),
         ("SELECT dblink_connect('host=169.254.169.254')", "outbound connection / SSRF"),
         ("SELECT dblink_send_query('c', 'select 1')", "outbound connection / SSRF"),
@@ -57,8 +58,6 @@ def test_guard_rejects_side_effect_functions(bad, why):
         "SELECT * FROM pg_stat_user_tables",
         "SELECT datname FROM pg_database",
         "SELECT * FROM pg_tables WHERE schemaname = 'public'",
-        # Large-object accessors that move bytes inside the database only.
-        "SELECT lo_get(16384)",
         # Ordinary reads that merely contain a substring of a blocked name.
         "SELECT sleeper_id FROM t",
         "SELECT * FROM readings",

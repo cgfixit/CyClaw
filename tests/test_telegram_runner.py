@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +13,7 @@ from telegram.ratelimit import SlidingWindowLimiter, get_limiter, reset_limiters
 from telegram.runner import _extract_answer, handle_inbound_text, poll_forever, poll_once, send_notify
 from telegram.state import load_offset, save_offset
 from utils.errors import TelegramRefused, TelegramRuntimeError
-from utils.logger import reset_config_cache
+from utils.logger import query_fingerprint, reset_config_cache
 
 
 @pytest.fixture(autouse=True)
@@ -141,7 +140,7 @@ def test_handle_inbound_audit_receives_hash_not_plaintext(tmp_path: Path) -> Non
         handle_inbound_text(cfg, chat_id=42, text=text, update_id=9)
     event = audit.call_args.args[0]
     assert "query" not in event
-    assert event["query_hash"] == hashlib.sha256(text.encode()).hexdigest()
+    assert event["query_hash"] == query_fingerprint(text, config_path=cfg._config_path)
     assert text not in str(event)
 
 

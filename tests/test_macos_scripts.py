@@ -242,8 +242,9 @@ def test_invoke_cyclaw_loads_nonsensitive_dotenv_and_keychain_secrets() -> None:
     assert '/usr/bin/stat -f %Lp' in helper
     assert 'stat -c %a' in helper
     assert "set -a" in helper
-    assert "*_API_KEY|*_TOKEN|*_SECRET|*_PASSWORD" in public
-    assert "CYCLAW_API_KEY" in public
+    assert "utils/secret-policy.tsv is authoritative" in public
+    assert "cyclaw_is_secret_name" in public
+    assert "CYCLAW_API_KEY" in Path("utils/secret-policy.tsv").read_text(encoding="utf-8")
     warn = "Typing the key in the browser cannot configure the server"
     assert warn in text
     assert load_idx < text.index(warn)

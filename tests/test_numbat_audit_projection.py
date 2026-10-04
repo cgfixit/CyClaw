@@ -330,7 +330,7 @@ def test_rag_query_preview_fits_the_schema_and_keeps_the_join_key(proj_cfg) -> N
     """Issue #1458 Phase 4: the preview used to allow 2000 characters, and
     the pinned CLI rejects anything over 200 ("content_preview exceeds 200
     runes"), so every realistic rag_query projection broke the stream."""
-    from utils.logger import hash_query
+    from utils.logger import query_fingerprint
     from utils.numbat_emitter import CONTENT_PREVIEW_MAX_CHARS
 
     cfg, _, out = proj_cfg
@@ -356,7 +356,7 @@ def test_rag_query_preview_fits_the_schema_and_keeps_the_join_key(proj_cfg) -> N
     preview = json.loads(rec["content_preview"])
     # Priority order: identity and join key first, then the routing facts.
     assert list(preview)[:6] == ["cyclaw_event", "query_hash", "model_used", "top_score", "retrieval_mode", "hit_count"]
-    assert preview["query_hash"] == hash_query("what does the immutability flag do")
+    assert preview["query_hash"] == query_fingerprint("what does the immutability flag do", cfg)
     # False flags are omitted, not spent on characters; the tags and
     # audit.jsonl keep the full record.
     assert "guardrail_blocked" not in preview

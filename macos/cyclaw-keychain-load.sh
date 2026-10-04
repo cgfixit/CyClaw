@@ -33,7 +33,7 @@ if [ -f "$_CYCLAW_LOAD_DIR/cyclaw-public-env.sh" ]; then
   . "$_CYCLAW_LOAD_DIR/cyclaw-public-env.sh"
 fi
 
-_CYCLAW_SECRET_NAMES="CYCLAW_API_KEY TELEGRAM_BOT_TOKEN GROK_API_KEY ANTHROPIC_API_KEY GH_TOKEN GITHUB_TOKEN CLAUDE_API_KEY"
+_CYCLAW_SECRET_NAMES="$(awk -F '\t' '$1=="exact" {printf "%s%s", sep, $2; sep=" "}' "$_CYCLAW_SECRET_POLICY")"
 _CYCLAW_SCRUB_NAMES="$_CYCLAW_SECRET_NAMES"
 
 _remember_one_secret_preset() {
@@ -247,11 +247,10 @@ _load_os_secrets() {
   if [ -z "$bin" ]; then
     echo "[cyclaw] warn : security(1) is unavailable. Keychain secrets were not loaded, and plaintext .env lines are not used." >&2
   else
-    _load_one_keychain_secret "com.cgfixit.cyclaw.api-key" "CYCLAW_API_KEY" "$helper" "$bin" || return 1
-    _load_one_keychain_secret "com.cgfixit.cyclaw.telegram-bot-token" "TELEGRAM_BOT_TOKEN" "$helper" "$bin" || return 1
-    _load_one_keychain_secret "com.cgfixit.cyclaw.grok-api-key" "GROK_API_KEY" "$helper" "$bin" || return 1
-    _load_one_keychain_secret "com.cgfixit.cyclaw.anthropic-api-key" "ANTHROPIC_API_KEY" "$helper" "$bin" || return 1
-    _load_one_keychain_secret "com.cgfixit.cyclaw.gh-token" "GH_TOKEN" "$helper" "$bin" || return 1
+    while IFS=$'\t' read -r kind var service; do
+      [ "$kind" = "exact" ] && [ -n "$service" ] || continue
+      _load_one_keychain_secret "$service" "$var" "$helper" "$bin" || return 1
+    done < "$_CYCLAW_SECRET_POLICY"
     if [ -n "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then
       export "GITHUB_TOKEN=$GH_TOKEN"
     fi
@@ -285,16 +284,9 @@ _strip_plaintext_if_keychain() {
     echo "[cyclaw] WARNING: env-line parser is unavailable; left $file unchanged" >&2
     return 0
   fi
-  for name in CYCLAW_API_KEY TELEGRAM_BOT_TOKEN GROK_API_KEY ANTHROPIC_API_KEY GH_TOKEN GITHUB_TOKEN; do
+  while IFS=$'\t' read -r kind name service; do
+    [ "$kind" = "exact" ] && [ -n "$service" ] || continue
     file_value="$(cyclaw_dotenv_file_value "$file" "$name")" || continue
-    case "$name" in
-      CYCLAW_API_KEY) service="com.cgfixit.cyclaw.api-key" ;;
-      TELEGRAM_BOT_TOKEN) service="com.cgfixit.cyclaw.telegram-bot-token" ;;
-      GROK_API_KEY) service="com.cgfixit.cyclaw.grok-api-key" ;;
-      ANTHROPIC_API_KEY) service="com.cgfixit.cyclaw.anthropic-api-key" ;;
-      GH_TOKEN|GITHUB_TOKEN) service="com.cgfixit.cyclaw.gh-token" ;;
-      *) continue ;;
-    esac
     if "$bin" find-generic-password -a "$(id -un)" -s "$service" >/dev/null 2>&1; then
       :
     else
@@ -330,6 +322,6 @@ _strip_plaintext_if_keychain() {
       echo "[cyclaw] removed plaintext $name from $file (Keychain $service holds the same value). No backup was written."
     fi
     file_value=""
-  done
+  done < "$_CYCLAW_SECRET_POLICY"
   return 0
 }

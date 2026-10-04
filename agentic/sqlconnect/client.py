@@ -1,9 +1,9 @@
 """Read-only SQL client scaffold (Postgres / MSSQL), disabled-by-default.
 
-Read-only is enforced three ways: (1) a SELECT-only query guard rejects anything
-that is not a single ``SELECT``/``WITH`` statement (no DDL/DML/multi-statement);
-(2) the session is opened read-only at connect time; (3) ``allow_write`` is hard
-False in v0.1. The DSN comes from an environment variable only -- never hardcoded.
+A SELECT-only guard rejects DDL/DML and stacked statements; ``allow_write`` is
+hard False in v0.1. PostgreSQL transactions are read-only; MSSQL ODBC access mode
+is advisory. A least-privilege server role is mandatory for both drivers. The
+DSN comes from an environment variable only -- never hardcoded.
 
 Driver modules (``psycopg`` / ``pyodbc``) are imported lazily, so a disabled
 connector never requires them. The actual connect/execute paths need a live DB and
@@ -75,18 +75,17 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 #     filesystem -- a file-disclosure primitive dressed as a SELECT. The
 #     prefixes are wildcarded because the family keeps growing; ``pg_stat_file``
 #     is spelled out rather than ``pg_stat_\w+`` so the harmless catalog views
-#     (``pg_stat_activity`` and friends) stay readable. ``lo_get``/``lo_put`` are
-#     likewise left alone -- they move bytes within the database, not to disk.
+#     (``pg_stat_activity`` and friends) stay readable. Large-object functions
+#     are blocked as a family, including ``lo_get`` and ``lo_put``.
 #   * ``dblink*`` opens an outbound connection from the DB host: SSRF plus a
 #     second session this connector's read-only enforcement never touches.
 #   * ``pg_sleep`` (and the ``pg_terminate_backend``/``pg_cancel_backend`` pair)
 #     is the availability argument the MSSQL lock hints above are already
 #     blocked for, one line over.
 #
-# All of these need superuser or an installed extension, so on a correctly
-# provisioned read-only role they fail anyway -- this is defense in depth for the
-# case where the DSN points at an over-privileged account, which is exactly the
-# case a read-only connector exists to contain. ``\w*`` on the prefixes catches
+# Some of these are available to ordinary roles. The lexical guard is defense
+# in depth, not a replacement for server privileges: arbitrary user-defined
+# functions can have effects that their names do not reveal. ``\w*`` on the prefixes catches
 # the family members (``dblink_connect``, ``dblink_send_query``) that a bare
 # ``\b`` would let through, since ``_`` is a word character.
 #
@@ -130,7 +129,9 @@ _FORBIDDEN_RE = re.compile(
 # over-privileged-role threat model, so they get the same defense-in-depth entry.
 _FORBIDDEN_FN_RE = re.compile(
     r"\b(pg_read_\w+|pg_ls_\w+|pg_stat_file|"
-    r"lo_import|lo_export|dblink\w*|pg_sleep|"
+    r"lo_\w+|dblink\w*|pg_sleep|"
+    r"query_to_xml\w*|table_to_xml\w*|cursor_to_xml|xpath|"
+    r"pg_advisory\w*|set_config|pg_reload_conf|pg_rotate_logfile|"
     r"pg_terminate_backend|pg_cancel_backend|"
     r"pg_file_write|pg_file_rename|pg_file_unlink|pg_logdir_ls)\b",
     re.IGNORECASE,
@@ -553,20 +554,17 @@ class SqlClient:
             cur.execute("SELECT set_config('statement_timeout', %s, false)", (str(timeout_ms),))
         else:  # mssql / pyodbc: query timeout is in seconds on the connection
             # Best-effort knob: a driver without a settable timeout keeps its
-            # default. The read-only session is enforced fail-closed separately
-            # (_enforce_read_only).
+            # default. A read-only mode request is made separately; MSSQL
+            # requires server-side permissions (_enforce_read_only).
             with suppress(AttributeError):
                 conn.timeout = max(1, timeout_ms // 1000)
 
     def _enforce_read_only(self, driver: Any, conn: Any) -> None:
-        """Fail closed: the read-only session must actually take effect.
+        """Request read-only mode, refusing drivers without that mechanism.
 
-        psycopg exposes a settable ``read_only`` property; pyodbc does not --
-        it enforces read-only via ``SQL_ATTR_ACCESS_MODE = SQL_MODE_READ_ONLY``
-        on the connection. Silently ignoring ``AttributeError`` here would mean
-        a driver without the property runs on a *read-write* session while the
-        connector claims to be read-only (fail-open), so a driver that
-        supports neither mechanism raises instead of executing the query.
+        PostgreSQL enforces transaction read-only. ODBC access mode is only a
+        driver hint, so MSSQL requires server-side least-privilege permissions;
+        successfully setting the attribute does not prove write prevention.
         """
         try:
             conn.read_only = True

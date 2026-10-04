@@ -84,9 +84,10 @@ reject_shell_metachars() {
 # -- 1. Home layout ------------------------------------------------------------
 HOME_DIR="$HOME/.CyClaw"
 BIN_DIR="$HOME_DIR/bin"
+LIB_DIR="$HOME_DIR/lib"
 REPO_DIR="$HOME_DIR/repo"
 VENV_DIR="$HOME_DIR/venv"
-for d in "$HOME_DIR" "$BIN_DIR"; do
+for d in "$HOME_DIR" "$BIN_DIR" "$LIB_DIR"; do
   [ -d "$d" ] || mkdir -p "$d"
 done
 step "home layout ready at $HOME_DIR"
@@ -198,6 +199,8 @@ else
 fi
 
 # -- 5. Launcher + shim -----------------------------------------------------------
+cp "$REPO_DIR/utils/secret-policy.tsv" "$LIB_DIR/secret-policy.tsv"
+chmod 644 "$LIB_DIR/secret-policy.tsv"
 cp "$REPO_DIR/macos/invoke-cyclaw.sh" "$BIN_DIR/invoke-cyclaw.sh"
 cp "$REPO_DIR/macos/cyclaw-keychain-load.sh" "$BIN_DIR/cyclaw-keychain-load.sh"
 cp "$REPO_DIR/macos/cyclaw-keychain-env.sh" "$BIN_DIR/cyclaw-keychain-env.sh"

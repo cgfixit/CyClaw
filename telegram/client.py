@@ -20,7 +20,7 @@ import httpx
 from telegram.config import TelegramConfig
 from telegram.ratelimit import RateLimitReservation, get_limiter
 from utils.errors import TelegramRefused, TelegramRuntimeError
-from utils.logger import audit_log, hash_query
+from utils.logger import audit_log, query_fingerprint
 
 # Pooled module-level client (same pattern as llm/client.py's persistent
 # clients): a forever-poll loop otherwise pays a fresh TCP+TLS handshake per
@@ -795,7 +795,7 @@ def post_query(
                 "ok": False,
                 "http_status": None,
                 "latency_ms": int((time.monotonic() - started) * 1000),
-                "query_hash": hash_query(text),
+                "query_hash": query_fingerprint(text, config_path=cfg._config_path),
                 "query_len": len(text),
                 "error_type": type(exc).__name__,
             },
@@ -825,7 +825,7 @@ def post_query(
         "latency_ms": latency_ms,
         # Telegram text is never handed to the audit layer in plaintext,
         # even if the global audit hash toggle is intentionally disabled.
-        "query_hash": hash_query(text),
+        "query_hash": query_fingerprint(text, config_path=cfg._config_path),
         "query_len": len(text),
         "answer_model": answer_model,
         "user_confirmed_online": user_confirmed_online,

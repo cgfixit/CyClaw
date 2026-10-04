@@ -29,6 +29,9 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 FAILURES=0
 SOUL_BACKUP=""
 SERVER_PID=""
+AUTH_HEADER_FILE=$(mktemp)
+chmod 600 "$AUTH_HEADER_FILE"
+printf 'Authorization: Bearer %s\n' "$CYCLAW_API_KEY" > "$AUTH_HEADER_FILE"
 
 note()   { echo "[verify] $*"; }
 pass()   { echo "  PASS  $1"; REPORT_ROWS+=("| $1 | PASS | $2 |"); }
@@ -50,6 +53,7 @@ _stop_pid() {
 }
 
 cleanup() {
+  rm -f "$AUTH_HEADER_FILE"
   _stop_pid "$SERVER_PID"
   if [ -n "$SOUL_BACKUP" ] && [ -f "$SOUL_BACKUP" ]; then
     mv "$SOUL_BACKUP" data/personality/soul.md
@@ -229,7 +233,7 @@ else
   # soul payload. Both halves mirror static/terminal.html's authHeaders() flow.
   HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/soul")
   [ "$HTTP" = "401" ] || SMOKE_FAILS=$((SMOKE_FAILS+1))
-  R=$(curl -sf "$BASE/soul" -H "Authorization: Bearer $CYCLAW_API_KEY" || true)
+  R=$(curl -sf "$BASE/soul" --header "@$AUTH_HEADER_FILE" || true)
   VER=$(echo "$R" | jget "d.get('version','')" 2>/dev/null || echo "")
   [ -n "$VER" ] || SMOKE_FAILS=$((SMOKE_FAILS+1))
 

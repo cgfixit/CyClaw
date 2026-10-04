@@ -20,6 +20,9 @@ LOG="/tmp/cyclaw-server.log"
 REPORT_DIR=".claude"
 REPORT="$REPORT_DIR/sandbox-test.txt"
 SOUL_BACKUP=""
+AUTH_HEADER_FILE=$(mktemp)
+chmod 600 "$AUTH_HEADER_FILE"
+printf 'Authorization: Bearer %s\n' "$CYCLAW_API_KEY" > "$AUTH_HEADER_FILE"
 FAILURES=0
 PASSES=0
 SKIPS=0
@@ -35,6 +38,7 @@ jget() { "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print($1)"; }
 section() { echo ""; echo "══════════════════════════════════════════════"; echo "  $1"; echo "══════════════════════════════════════════════"; }
 
 cleanup() {
+  rm -f "$AUTH_HEADER_FILE"
   [ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null || true
   if [ -n "$SOUL_BACKUP" ] && [ -f "$SOUL_BACKUP" ]; then
     mv "$SOUL_BACKUP" data/personality/soul.md
@@ -128,7 +132,7 @@ HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/query" \
   || fail "POST /query injection HTTP $HTTP (expected 400)"
 
 # 5. Soul endpoint — authenticated
-R=$(curl -sf "$BASE/soul" -H "Authorization: Bearer $CYCLAW_API_KEY")
+R=$(curl -sf "$BASE/soul" --header "@$AUTH_HEADER_FILE")
 VER=$(echo "$R" | jget "d['version']")
 [ -n "$VER" ] \
   && pass "GET /soul  (version=$VER — authenticated)" \

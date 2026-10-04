@@ -412,7 +412,9 @@ def _claude_client_config(root_cfg: dict[str, object]) -> dict[str, object]:
     claude_retry = _optional_mapping(claude.get("retry"))
     claude_retry["max_retries"] = 0
     claude["retry"] = claude_retry
-    return {"models": {"claude": claude}}
+    policy = _mapping(root_cfg.get("policy"), label="policy")
+    limits = copy.deepcopy(_mapping(policy.get("external_call_limits"), label="policy.external_call_limits"))
+    return {"models": {"claude": claude}, "policy": {"external_call_limits": limits}}
 
 
 def _client_configs(root_cfg: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:

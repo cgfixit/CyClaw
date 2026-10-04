@@ -22,7 +22,7 @@ from telegram.media import MediaAttachment, attachment_from_message, save_confir
 from telegram.ratelimit import get_limiter
 from telegram.state import claim_hybrid_confirm, grant_hybrid_confirm, load_offset, save_offset
 from utils.errors import TelegramRefused, TelegramRuntimeError
-from utils.logger import audit_log, hash_query
+from utils.logger import audit_log, query_fingerprint
 
 # Reserved commands. BotFather may append @BotName.
 _CMD_RE = re.compile(r"^/(help|status|id|online|save)(?:@\S+)?(?:\s|$)", re.IGNORECASE)
@@ -214,7 +214,7 @@ def handle_inbound_text(
             "update_id": update_id,
             # Telegram text never reaches audit_log in plaintext, regardless
             # of the global include_query_hash opt-out.
-            "query_hash": hash_query(text),
+            "query_hash": query_fingerprint(text, config_path=cfg._config_path),
             "query_len": len(text),
             "mode": cfg.mode,
         },
@@ -255,7 +255,7 @@ def handle_inbound_text(
                 "chat_type": "private",
                 "update_id": update_id,
                 "provider": online_provider,
-                "query_hash": hash_query(text),
+                "query_hash": query_fingerprint(text, config_path=cfg._config_path),
                 "query_len": len(text),
             },
             config_path=cfg._config_path,
@@ -287,7 +287,7 @@ def handle_inbound_text(
                     "chat_type": "private",
                     "update_id": update_id,
                     "provider": online_provider,
-                    "query_hash": hash_query(text),
+                    "query_hash": query_fingerprint(text, config_path=cfg._config_path),
                 },
                 config_path=cfg._config_path,
             )
@@ -340,7 +340,7 @@ def handle_inbound_media(
             "update_id": update_id,
             "kind": attachment.kind,
             "declared_size": attachment.declared_size,
-            "caption_hash": hash_query(caption_text) if caption_text else None,
+            "caption_hash": query_fingerprint(caption_text, config_path=cfg._config_path) if caption_text else None,
             "caption_len": len(caption_text),
             "explicit_confirm": confirmation is not None,
         },

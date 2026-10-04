@@ -389,7 +389,7 @@ def compute_metrics(events) -> dict:
     materialized list, so cost and memory grew with audit history.
 
     Returns aggregates only — never raw query text. The audit log stores
-    SHA-256 query hashes (not plaintext) by design, so this summary is safe to
+    keyed HMAC-SHA256 query fingerprints (not plaintext) by design, so this summary is safe to
     expose over the API-key-gated ``GET /audit/summary`` endpoint for regulated
     SMBs that need audit evidence (query volume, external-LLM usage, score
     distribution) without leaking the underlying queries.

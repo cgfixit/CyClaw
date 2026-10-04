@@ -1,6 +1,6 @@
 # ============================================================================
 # TEST STATUS (verified 2026-06-19 against HEAD f5934db):
-# All 7 tests pass. audit_log(), hash_query(), redact_sensitive(), and
+# audit_log(), hash_query(), query_fingerprint(), redact_sensitive(), and
 # reset_config_cache() signatures match utils/logger.py at HEAD exactly.
 # ============================================================================
 """Unit tests for audit logging — hashing, redaction, JSONL format."""
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from utils.logger import audit_log, hash_query, redact_sensitive, reset_config_cache
+from utils.logger import audit_log, hash_query, query_fingerprint, redact_sensitive, reset_config_cache
 
 
 @pytest.fixture(autouse=True)
@@ -168,7 +168,7 @@ class TestAuditLog:
         event = json.loads(Path(audit_file).read_text().strip())
         assert "query" not in event
         assert "query_hash" in event
-        assert event["query_hash"] == hash_query("secret query")
+        assert event["query_hash"] == query_fingerprint("secret query", config_path=config_path)
 
     def test_multiple_events_appended(self, audit_config):
         config_path, audit_file = audit_config

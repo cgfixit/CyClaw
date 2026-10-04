@@ -227,6 +227,7 @@ def test_429_detail_reflects_configured_limits(monkeypatch):
     monkeypatch.setattr(gate, "_audit", AsyncMock())
     request = MagicMock()
     request.client.host = "203.0.113.9"
+    request.headers = {}
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(gate._enforce_rate_limit(request))

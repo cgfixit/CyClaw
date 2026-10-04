@@ -9,7 +9,7 @@ github.com/CGFixIT/CyClaw main on 2026-09-07:
                             stdlib-only constraint)
   - utils/errors.py         (RAGError code+details hierarchy, SoulPersistenceError,
                             SyncError sub-code bypass, AgenticError OOB mirror)
-  - utils/sanitizer.py      (NFKC + invisible-char strip, lru_cache per-path,
+  - utils/sanitizer.py      (Unicode/Tag/confusable probe folding, lru_cache per-path,
                             DOTALL for newline straddling, warn-on-degrade)
   - graph.py                (GraphState, _GeneratingClient Protocol, _format_context_chunks)
 
@@ -120,31 +120,24 @@ EXTRA_QA: list[dict] = [
             "fullwidth characters, zero-width splits, and homoglyphs?"
         )},
         {"role": "assistant", "content": (
-            "In utils/sanitizer.py, _normalize_for_match(text) produces a "
-            "normalized COPY that the patterns match against, without mutating "
-            "the user's original query. Two transforms, both folding TOWARD the "
-            "ASCII the patterns are written in:\n\n"
-            "1. unicodedata.normalize('NFKC', text) — folds compatibility "
-            "forms back to ASCII. So fullwidth "
-            "'ｉｇｎｏｒｅ ａｌｌ ｐｒｅｖｉｏｕｓ ｉｎｓｔｒｕｃｔｉｏｎｓ' collapses onto the plain "
-            "form the patterns already catch.\n\n"
-            "2. _INVISIBLE_CHARS.sub('', ...) — strips zero-width "
-            "space/non-joiner/joiner, LTR/RTL marks, word joiner, BOM, and soft "
-            "hyphen (\\u200b-\\u200f, \\u2060, \\ufeff, \\u00ad). Deleting them "
-            "(not replacing with a space) is what rejoins a split word: "
-            "'ig<ZWSP>nore all previous instructions' matches no pattern as "
-            "raw text, yet tokenizes back to the instruction it spells.\n\n"
-            "This only ever matches a SUPERSET of what the raw string would, so "
-            "it cannot silently stop catching something that used to be caught. "
-            "Caveat: it is NOT a complete homoglyph defense — a Cyrillic 'і' "
-            "substituted for Latin 'i' is a distinct codepoint that NFKC does not "
-            "fold, so 'іgnore' bypasses the ASCII pattern. That homoglyph gap is "
-            "explicitly out of scope per the threat model; the layered defense "
-            "(untrusted-context framing in graph.py + output grounding + audit) "
-            "is what contains it, not the regex."
+            "In utils/sanitizer.py, _normalize_for_match(text) produces an "
+            "inspection copy without mutating accepted text. It decodes ASCII "
+            "Tags, strips Unicode Cf, remaining Tags and variation selectors, "
+            "applies NFKD, drops Mn marks, applies NFKC and case-folding, then "
+            "uses a generated Unicode 17.0.0 TR39-data-derived confusable fold. "
+            "Runs of underscore, hyphen, period and middle dot become spaces. "
+            "The fold preserves the ASCII regex vocabulary; it is not the full "
+            "TR39 skeleton algorithm, which changes ASCII m to rn. The official "
+            "mapping, digest and generator live under utils/unicode_data.\n\n"
+            "Query, soul and memory scans check raw and folded text. Corpus "
+            "sanitization replaces raw matches, then replaces the entire chunk "
+            "with [FILTERED] if an obfuscated match remains. Benign corpus "
+            "text stays unchanged. Accent/confusable folding may increase "
+            "false positives and does not detect every injection: regexes are "
+            "one layer alongside capability controls and untrusted-context framing."
         )},
     ],
-    "source_refs": ["utils/sanitizer.py:_normalize_for_match,_INVISIBLE_CHARS", "graph.py:UNTRUSTED_NOTE"],
+    "source_refs": ["utils/sanitizer.py:_normalize_for_match,sanitize_chunk", "graph.py:UNTRUSTED_NOTE"],
 },
 
 {

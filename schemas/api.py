@@ -217,6 +217,10 @@ class AuthSetPasswordRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class AuthChangePasswordRequest(AuthSetPasswordRequest):
+    current_password: str = Field(min_length=1, max_length=1024)
+
+
 class AuthSetupStatusResponse(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     enabled: bool

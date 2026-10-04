@@ -177,6 +177,9 @@ if (-not $SkipPythonDeps) {
 # -- 4. Launcher + shim ---------------------------------------------------------
 $LauncherSrc = Join-Path $Repo "powershell\Invoke-CyClaw.ps1"
 $LauncherDst = Join-Path $Bin "Invoke-CyClaw.ps1"
+$Lib = Join-Path $Home_ "lib"
+if (-not (Test-Path $Lib)) { New-Item -ItemType Directory -Path $Lib | Out-Null }
+Copy-Item (Join-Path $Repo "utils\secret-policy.tsv") (Join-Path $Lib "secret-policy.tsv") -Force
 Copy-Item $LauncherSrc $LauncherDst -Force
 Copy-Item (Join-Path $Repo "powershell\CyClaw-SecretStore.ps1") (Join-Path $Bin "CyClaw-SecretStore.ps1") -Force
 

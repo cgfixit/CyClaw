@@ -75,16 +75,18 @@ After editing, **restart the server** (`uvicorn gate:app` or via docker-compose)
 
 **Never put keys in `config.yaml` or source code.**
 
-Create or update your `.env` (already gitignored) or export before starting the server:
+Use the operating system's interactive secret store. The prompt keeps the key
+out of shell history and child process arguments.
 
 ```bash
-# Grok (xAI)
-export GROK_API_KEY="xai-..."          # or put in .env
+# macOS Keychain
+bash macos/setup-cyclaw-keys.sh
+```
 
-# Claude (Anthropic)
-export ANTHROPIC_API_KEY="sk-ant-..."  # preferred name
-# or
-export CLAUDE_API_KEY="sk-ant-..."     # also accepted by client
+```powershell
+# Windows Credential Manager
+.\powershell\CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.grok-api-key
+.\powershell\CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.anthropic-api-key
 ```
 
 - Keys are read **only** via `os.environ.get(...)` in `llm/client.py`.

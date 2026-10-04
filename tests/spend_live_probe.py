@@ -54,6 +54,10 @@ def _client_cfg() -> dict:
         retry["max_retries"] = 0
         copied["retry"] = retry
         cfg["models"][name] = copied
+    policy = raw.get("policy")
+    if not isinstance(policy, dict) or not isinstance(policy.get("external_call_limits"), dict):
+        raise SystemExit("config.yaml missing policy.external_call_limits")
+    cfg["policy"] = {"external_call_limits": dict(policy["external_call_limits"])}
     return cfg
 
 

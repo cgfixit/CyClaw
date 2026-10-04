@@ -190,8 +190,9 @@ verification that succeeds against outdated parameters transparently re-hashes.
 ### 4.2 Account store
 
 Follows the same pattern as `utils/personality_db.py`: **SQLite by default**,
-Postgres via either `auth.database_url` in `config.yaml` or the
-`CYCLAW_AUTH_DB_URL` env var, `CREATE TABLE IF NOT EXISTS`, umask-safe file
+Postgres via a passwordless `auth.database_url` in `config.yaml` or the
+`CYCLAW_AUTH_DB_URL` OS-keystore environment value. Inline URL passwords are
+rejected before connecting. The store uses `CREATE TABLE IF NOT EXISTS`, umask-safe file
 creation. No new storage technology. One deliberate deviation from an exact
 mirror: the env var is `CYCLAW_AUTH_DB_URL`, not the shared `CYCLAW_DB_URL`
 personality uses — auth data (password hashes, session ids, device-token
@@ -254,6 +255,13 @@ in the database.
 
 ### 4.4 Lockout
 
+Unknown, disabled, locked, stale, and incorrect credentials return the same
+401 response and perform password-hash work. Password verification runs outside
+the manager lock in a dedicated pool, limited by `auth.max_concurrent_password_ops`
+(default 2). A full pool returns 503 without queuing another hash. Short SQL
+transactions use the latest counter and a credential revision, so password
+rotation or disable/enable cannot revive a stale verification.
+
 Per-account exponential backoff on consecutive failures, recorded in
 `failed_count`/`locked_until_ts`, cleared on success. This is *in addition to*
 the existing per-IP rate limiter, which already runs before auth — the limiter
@@ -301,7 +309,9 @@ an enhancement.
 - A `cyclaw-gen-cert` helper producing a self-signed cert with the machine's
   LAN IP and hostname in `subjectAltName` (browsers reject CN-only certs). The
   operator installs it as trusted on each client device once.
-- The session cookie is issued `Secure` when TLS is on. **`Secure` is not sent
+- The session cookie is named `__Host-cyclaw_session` and issued `Secure` when TLS is on.
+  Cookies have no persistent Max-Age; the server enforces a one-hour idle default.
+  Browsers can retain session cookies when restoring a session. **`Secure` is not sent
   over plain HTTP**, so enabling auth without TLS on a non-loopback bind must be
   refused rather than silently downgrading the cookie — see §7.
 - `security.allowed_origins` gains the `https://` forms; the console's CSP
@@ -403,9 +413,9 @@ Each stage is independently reviewable and leaves the tree working.
 
 1. **Username set.** Single account (`operator`), or one per person? One per
    device is handled by named bearer tokens regardless.
-2. **Session lifetime.** **Resolved (2026-08-08):** 12 h idle / 7 d absolute,
+2. **Session lifetime.** **Resolved (2026-08-08):** 1 h (3600 s) idle / 7 d absolute,
    both configurable (`auth.session.idle_timeout_sec` /
-   `absolute_timeout_sec` in `config.yaml`, 43200 / 604800 shipped). A session
+   `absolute_timeout_sec` in `config.yaml`, 3600 / 604800 shipped). A session
    dies from either limit, whichever is reached first.
 3. **Should `/health` stay open?** **Resolved: yes** (§6). It reports status,
    mode, and timeouts — no corpus content — and stays unauthenticated even
@@ -451,8 +461,11 @@ Three canonical lowercase roles on `users.role`. Bootstrap `admin` is
 
 HTTP admin lives on `gate_auth.py` (`/auth/users*`,
 `/auth/audit/summary`, plus the self-service `POST /auth/password`, which any
-authenticated role can call for its own account **over a session cookie + CSRF** — the
-bearer path requires an admin token (`_require_write_actor`)); `/auth/whoami` returns
+authenticated role can call for its own account with `current_password` and the new
+`password`, **over a session cookie + CSRF** — the
+bearer path requires an admin token (`_require_write_actor`)). A successful change
+revokes all existing sessions. Device tokens retain their separate revocation controls. Admin password reset is a separate
+route and retains its role checks; `/auth/whoami` returns
 `username` + `role`, and — on the session-cookie path only, never for a device token —
 a freshly rotated `csrf_token`; the response is sent `Cache-Control: no-store`. The
 rotate is load-bearing: without it a reload leaves logout and Users writes 403.

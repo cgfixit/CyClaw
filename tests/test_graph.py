@@ -29,7 +29,7 @@ from tests.conftest import (
     MOCK_HIGH_SCORE_RESULTS, MOCK_LOW_SCORE_RESULTS, MOCK_EMPTY_RESULTS,
     TEST_CONFIG
 )
-from utils.logger import hash_query, reset_config_cache
+from utils.logger import query_fingerprint, reset_config_cache
 from utils.errors import RAGError, LLMServiceError, GrokServiceError, ClaudeServiceError
 
 
@@ -353,7 +353,7 @@ class TestPreActionHook:
         assert payload["action"] == "external_llm_call"
         assert payload["provider"] == "claude"
         assert payload["model"] == cfg["models"]["claude"]["model"]
-        assert payload["query_hash"] == hash_query(query)
+        assert payload["query_hash"] == query_fingerprint(query, cfg)
         assert "query" not in payload
 
 
@@ -794,7 +794,9 @@ class TestFallbackSpendContext:
             cfg={"policy": {"fallback": {"send_local_context_to_grok": False}}},
         )
         assert grok.last_spend_context is not None
-        assert grok.last_spend_context["query_hash"] == hash_query(query)
+        assert grok.last_spend_context["query_hash"] == query_fingerprint(
+            query, {"policy": {"fallback": {"send_local_context_to_grok": False}}}
+        )
         assert grok.last_spend_context["route_path"] == [
             "retrieve",
             "route_by_score",
@@ -814,7 +816,9 @@ class TestFallbackSpendContext:
             "pre_action_hook_claude",
             "claude_fallback",
         ]
-        assert claude.last_spend_context["query_hash"] == hash_query("q")
+        assert claude.last_spend_context["query_hash"] == query_fingerprint(
+            "q", {"policy": {"fallback": {"send_local_context_to_claude": False}}}
+        )
 
     def test_omits_query_hash_when_audit_hashing_disabled(self):
         grok = MockGrokClient()
