@@ -1,7 +1,7 @@
 # CyClaw Reproducible Dependency Constraints (Python 3.12 verified)
 #
-# Install: pip install -r requirements.txt -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
-# (matches CLAUDE.md §8's documented install flow: torch first, then requirements.txt)
+# Normal install: install the platform Torch build first, then install
+# the matching requirements-lock-*.txt with --require-hashes. See setup-guide.md.
 #
 # Package metadata does not select the CPU index. Keep the CPU-first install
 # recipe on Linux/Windows and the plain-Torch macOS recipe in setup-guide.md.

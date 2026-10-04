@@ -381,10 +381,10 @@ def check_install_surface_scope() -> None:
                "version ceiling, not drift")
 
 
-# --- E5: Docker consumes the legacy constrained install surface ----------------
+# --- E5: Docker consumes the hashed runtime lock -------------------------------
 def check_docker_install_contract() -> None:
-    """Keep Docker on the documented requirements.txt + constraints.txt path."""
-    print("E5 Docker build uses the constrained legacy install surface")
+    """Keep Docker on the generated Linux runtime lock."""
+    print("E5 Docker build uses the hashed Linux runtime lock")
     dockerfile = REPO / "Dockerfile"
     if not dockerfile.is_file():
         fail("E5", "Dockerfile not found; CyClaw's container install surface is unverifiable")
@@ -392,17 +392,16 @@ def check_docker_install_contract() -> None:
 
     text = dockerfile.read_text(encoding="utf-8")
     required = {
-        "copies dependency manifests": "COPY pyproject.toml constraints.txt requirements.txt ./",
-        "uses constrained pip install": "pip install --no-cache-dir -r requirements.txt -c constraints.txt",
+        "copies dependency manifests and lock":
+            "COPY pyproject.toml constraints.txt requirements.txt requirements-lock-linux.txt "
+            "requirements-torch-lock-linux.txt ./",
+        "enforces hashes from the Linux Torch lock":
+            "pip install --no-cache-dir --require-hashes --no-deps "
+            "-r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu",
+        "enforces hashes from the Linux lock":
+            "pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt",
     }
     missing = [label for label, fragment in required.items() if fragment not in text]
-    cpu_torch = re.search(
-        r"pip\s+install\s+--no-cache-dir\s+torch==(\S+)\s+--index-url\s+"
-        r"https://download\.pytorch\.org/whl/cpu",
-        text,
-    )
-    if not cpu_torch:
-        missing.append("pre-installs CPU torch from the PyTorch CPU index")
     if missing:
         fail("E5", "Dockerfile dependency contract missing: " + "; ".join(missing))
         return
@@ -410,7 +409,7 @@ def check_docker_install_contract() -> None:
         fail("E5", "Dockerfile must not copy or install requirements-test.txt -- "
                    "the production image stays test-tool-free")
         return
-    ok("E5", "Docker copies manifests and installs requirements.txt under constraints.txt")
+    ok("E5", "Docker copies manifests and enforces hashes from requirements-lock-linux.txt")
 
     # The install used to read `uv pip install ... 2>/dev/null || ( pip ... )`.
     # uv could not resolve it (constraints.txt pins setuptools, the PyTorch CPU
@@ -420,19 +419,19 @@ def check_docker_install_contract() -> None:
     # kept that invisible. A dependency install is load-bearing: it must fail
     # the build loudly rather than quietly resolve a different tree.
     # Join backslash continuations first: the real install RUN spans several
-    # lines, and its FIRST line need not mention requirements.txt -- scanning
+    # lines, and its FIRST line need not mention the lock -- scanning
     # raw lines finds no install at all and passes this guard vacuously.
     joined = text.replace("\\\n", " ")
     install_runs = [
         line for line in joined.splitlines()
-        if line.startswith("RUN ") and "requirements.txt" in line
+        if line.startswith("RUN ") and "requirements-lock-linux.txt" in line
     ]
     if not install_runs:
-        fail("E5", "no RUN line installs requirements.txt -- the image's dependency install is unreadable "
+        fail("E5", "no RUN line installs requirements-lock-linux.txt -- the image's dependency install is unreadable "
                    "to this check, so none of the guards below mean anything")
         return
     if len(install_runs) > 1:
-        fail("E5", f"{len(install_runs)} separate RUN lines install requirements.txt -- keep one install "
+        fail("E5", f"{len(install_runs)} separate RUN lines install requirements-lock-linux.txt -- keep one install "
                    f"path so there is a single reviewed dependency tree")
         return
     install_run = install_runs[0]
@@ -445,24 +444,28 @@ def check_docker_install_contract() -> None:
     else:
         ok("E5", "the dependency-install RUN fails loudly (no stderr redirect, no '||' fallback branch)")
 
-    # The explicit CPU-torch pre-install and constraints.txt's torch pin must
+    # The hashed CPU-torch lock and constraints.txt's torch pin must
     # move together. The Dockerfile's own comment records the miss this guards:
     # constraints moved 2.12.1 -> 2.13.0, the pre-install line stayed behind,
     # and the build installed the old wheel and then failed the constrained
     # resolve. A check that only asks "is there some torch==" is exactly the
     # check that passed that tree.
     constraints = REPO / "constraints.txt"
-    if not constraints.is_file():
-        info("E5", "no constraints.txt beside the Dockerfile; torch lock-step not checked")
+    torch_lock = REPO / "requirements-torch-lock-linux.txt"
+    if not constraints.is_file() or not torch_lock.is_file():
+        info("E5", "constraints.txt or Linux Torch lock missing; torch lock-step not checked")
         return
     pin = re.search(r"(?m)^torch==(\S+)", constraints.read_text(encoding="utf-8"))
+    locked_torch = re.search(r"(?m)^torch==(\S+)\s*\\", torch_lock.read_text(encoding="utf-8"))
     if not pin:
         fail("E5", "constraints.txt carries no torch== pin to hold the Dockerfile pre-install to")
-    elif pin.group(1) != cpu_torch.group(1):
-        fail("E5", f"Dockerfile pre-installs torch=={cpu_torch.group(1)} but constraints.txt "
+    elif not locked_torch:
+        fail("E5", "requirements-torch-lock-linux.txt carries no hashed torch pin")
+    elif pin.group(1) != locked_torch.group(1):
+        fail("E5", f"Linux Torch lock pins torch=={locked_torch.group(1)} but constraints.txt "
                    f"pins torch=={pin.group(1)} -- keep the two in lock-step on every torch bump")
     else:
-        ok("E5", f"Dockerfile pre-installed torch=={pin.group(1)} matches the constraints.txt pin")
+        ok("E5", f"hashed Linux torch=={pin.group(1)} matches the constraints.txt pin")
 
 
 # --- E6: the rest of the Docker surface must agree with the Dockerfile --------

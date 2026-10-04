@@ -3,9 +3,9 @@
 # Still consumed by the Dockerfile and legacy CI/tools.
 # Pins below are synced with pyproject.toml [project.dependencies].
 # Test tools now live in requirements-test.txt (kept out of the Docker image).
-# Always install with constraints for full alignment:
-#   pip install -r requirements.txt -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
-# (matches CLAUDE.md §8's documented install flow: torch first, then this file)
+# This file is the human-maintained lock input. Normal installations consume
+# the platform requirements-lock-*.txt with --require-hashes after installing
+# Torch alone.
 #
 # Package metadata does not select the CPU index. Keep the CPU-first install
 # recipe on Linux/Windows and the plain-Torch macOS recipe in setup-guide.md.
@@ -14,14 +14,10 @@
 # Docker support added in feature/CyClaw-Agent for production reproducibility.
 # constraints.txt now expanded with all direct pins + pydantic family + torch for hermetic gate.
 #
-# torch is the CPU build, pinned here so that `pip install -r requirements.txt`
-# AND GitHub's Automatic Dependency Submission resolve the CPU wheel from the
-# PyTorch index instead of the default CUDA build — keeping spurious nvidia-*
-# CUDA packages out of the dependency graph. The +cpu local-version wheel
-# exists only on the PyTorch CPU index, so it cannot be satisfied from PyPI
-# (no dependency-confusion exposure).
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.13.0+cpu
+# Torch is deliberately absent. Linux and Windows install torch==2.13.0+cpu
+# from the exclusive PyTorch CPU index; macOS installs plain torch==2.13.0
+# from PyPI. Keeping the alternate index out of this file prevents every other
+# dependency from being resolved against it.
 
 fastapi==0.141.1
 uvicorn[standard]==0.53.0

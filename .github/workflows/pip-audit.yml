@@ -68,6 +68,12 @@ jobs:
           # wheels from a previous run instead of a cold cache.
           cache-dependency-path: |
             requirements.txt
+            requirements-lock-linux.txt
+            requirements-lock-macos.txt
+            requirements-lock-windows.txt
+            requirements-torch-lock-linux.txt
+            requirements-torch-lock-macos.txt
+            requirements-torch-lock-windows.txt
             requirements-test.txt
             constraints.txt
             pyproject.toml
@@ -115,9 +121,13 @@ jobs:
         if: runner.os != 'macOS'
         shell: bash
         run: |
-          pip install --no-index --no-deps --find-links .torch-wheels "torch==2.13.0+cpu"
+          case "${{ runner.os }}" in
+            Linux) torch_lock=requirements-torch-lock-linux.txt ;;
+            Windows) torch_lock=requirements-torch-lock-windows.txt ;;
+          esac
+          pip install --no-index --no-deps --require-hashes --find-links .torch-wheels -r "$torch_lock"
           if [ "$INSTALL_PROFILE" = requirements ]; then
-            pip install -r requirements.txt -c constraints.txt
+            pip install --require-hashes -r requirements-lock-linux.txt
           else
             pip install -e . -c constraints.txt
           fi
@@ -137,13 +147,12 @@ jobs:
         # installed plain build against the +cpu-suffixed pin, and a
         # constraints.txt copy that keeps torch pinned minus the +cpu suffix.
         run: |
-          pip install "torch==2.13.0"
-          grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > /tmp/requirements-macos.txt
-          sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
+          pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
           if [ "$INSTALL_PROFILE" = requirements ]; then
-            pip install -r /tmp/requirements-macos.txt -c /tmp/constraints-macos.txt
+            pip install --require-hashes -r requirements-lock-macos.txt
           else
-            pip install -e . -c /tmp/constraints-macos.txt
+            sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > "$RUNNER_TEMP/constraints-macos.txt"
+            pip install -e . -c "$RUNNER_TEMP/constraints-macos.txt"
           fi
 
       - name: Verify dependency consistency + smoke imports
@@ -206,12 +215,13 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/audit-venv"
           "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.2.1
-          "$RUNNER_TEMP/audit-venv/bin/pip" install -r requirements.txt -r requirements-test.txt -c constraints.txt
+          "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r requirements-lock-linux.txt
+          "$RUNNER_TEMP/audit-venv/bin/pip" install -r requirements-test.txt -c constraints.txt
 
       - name: Run pip-audit (ignore only mitigated chromadb + nltk CVEs)
         run: |
           AUDIT_PATH="$("$RUNNER_TEMP/audit-venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-597 --ignore-vuln PYSEC-2026-3740
+          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-3740
         # CVE-2026-45829 (Critical pre-auth RCE) — risk accepted under v1.4.0 invariants.
         # Actual controls:
         #   - chromadb.PersistentClient (local embedded mode, path from config.yaml["indexing"]["chroma_path"])

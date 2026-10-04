@@ -100,9 +100,8 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          # Release builds do not restore or publish mutable GHA build caches.
+          # The image is rebuilt from the pinned base and hashed dependency lock.
           # Provenance attestation (build-push default). No secrets in build args.
-          cache-to: type=gha,mode=max,ignore-error=true
-          # ^ to avoid issues when flakey cache causes github actions to fail; change if this becomes primary method
           provenance: true
           sbom: true

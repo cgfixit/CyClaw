@@ -114,9 +114,9 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha
           # cache-to omitted on purpose: mode=max on this torch-heavy image
-          # flakes under GHA cache reservation ("failed to reserve cache")
-          # and must not fail a pure Dockerfile sanity job. publish-ghcr.yml
-          # owns the real cache + push surface.
+          # flakes under GHA cache reservation ("failed to reserve cache").
+          # This job checks that the Dockerfile builds without coupling the
+          # check to registry publication or a persistent build cache.
       - name: Verify prepared bind mounts as the service user
         if: steps.changes.outputs.docker_changed == 'true'
         env:
@@ -388,7 +388,8 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/wheel-install"
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --upgrade "pip==26.2.1"
-          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --require-hashes --no-deps \
+            -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install dist/*.whl -c constraints.txt
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip check
@@ -737,6 +738,12 @@ jobs:
           # a normal install, never a broken one.
           cache-dependency-path: |
             requirements.txt
+            requirements-lock-linux.txt
+            requirements-lock-macos.txt
+            requirements-lock-windows.txt
+            requirements-torch-lock-linux.txt
+            requirements-torch-lock-macos.txt
+            requirements-torch-lock-windows.txt
             requirements-test.txt
             constraints.txt
             pyproject.toml
@@ -783,8 +790,19 @@ jobs:
           # Install torch from the per-version local wheel (no network fetch when
           # cache hits). --no-index / --find-links keeps pip from querying the
           # PyTorch index on cache-hit runs, speeding up the step significantly.
-          pip install --no-index --no-deps --find-links .torch-wheels "torch==2.13.0+cpu"
-          pip install -r requirements.txt -r requirements-test.txt -c constraints.txt
+          case "${{ runner.os }}" in
+            Linux)
+              torch_lock=requirements-torch-lock-linux.txt
+              runtime_lock=requirements-lock-linux.txt
+              ;;
+            Windows)
+              torch_lock=requirements-torch-lock-windows.txt
+              runtime_lock=requirements-lock-windows.txt
+              ;;
+          esac
+          pip install --no-index --no-deps --require-hashes --find-links .torch-wheels -r "$torch_lock"
+          pip install --require-hashes -r "$runtime_lock"
+          pip install -r requirements-test.txt -c constraints.txt
 
       - name: Install the numbat-cel extra (Linux leg only)
         if: runner.os == 'Linux'
@@ -807,19 +825,11 @@ jobs:
           # plain (non "+cpu"-suffixed) versions there instead, because Apple
           # Silicon has no separate CPU/CUDA build to disambiguate (this was
           # flagged as an unverified gap in the macOS launcher docs; this is the
-          # fix it named). requirements.txt/constraints.txt both hardcode the
-          # +cpu pin by design (dependency-confusion-proof reproducibility on
-          # Linux/Windows), so this leg installs plain torch directly, then
-          # everything else from a requirements.txt copy with the torch/
-          # extra-index-url lines stripped -- so pip never tries to reconcile
-          # the installed plain build against the +cpu-suffixed pin -- and a
-          # constraints.txt copy that keeps torch pinned minus the +cpu suffix
-          # (dropping the line entirely leaves torch unconstrained; see
-          # macos/install-cyclaw.sh's Darwin branch for the reinstall case).
-          pip install "torch==2.13.0"
-          grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > /tmp/requirements-macos.txt
-          sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
-          pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt
+          # fix it named). The generated macOS lock omits Torch and contains no
+          # alternate index directive.
+          pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
+          pip install --require-hashes -r requirements-lock-macos.txt
+          pip install -r requirements-test.txt -c constraints.txt
 
       - name: Prepare hermetic test env
         shell: bash
@@ -1555,7 +1565,8 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade "pip==26.2.1"
-          pip install --no-index --no-deps --find-links .torch-wheels "torch==2.13.0+cpu"
+          pip install --no-index --no-deps --require-hashes --find-links .torch-wheels \
+            -r requirements-torch-lock-linux.txt
           pip install -r requirements.txt -c constraints.txt
           # Some skill scripts invoke `python3.12` explicitly; ensure it resolves.
           command -v python3.12 >/dev/null 2>&1 || sudo ln -sf "$(command -v python)" /usr/local/bin/python3.12
