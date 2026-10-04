@@ -170,37 +170,15 @@ if [ "$SKIP_PYTHON_DEPS" -eq 0 ]; then
   "$VENV_PY" -m pip install --upgrade "pip==26.2.1" >/dev/null
   if [ "$(uname -s)" = "Darwin" ]; then
     # Apple Silicon has no separate CPU/CUDA torch build to disambiguate, so
-    # (unlike Linux) PyTorch publishes a PLAIN torch==2.13.0 for macOS --
-    # confirmed against download.pytorch.org/whl/cpu's own version listing,
-    # which 404s on the "+cpu"-suffixed pin requirements.txt/constraints.txt
-    # hardcode for Linux/Windows reproducibility. Install torch directly, then
-    # strip the torch/extra-index-url lines from a copy of requirements.txt so
-    # pip never tries to reconcile the installed plain build against that pin.
-    # The constraints copy KEEPS the torch line, minus the +cpu suffix:
-    # `--ignore-installed` below is a bare flag (PyYAML is just one more
-    # requirement), so pip re-resolves and reinstalls every package, torch
-    # included -- with no torch constraint, the plain 2.13.0 installed here
-    # was silently replaced by PyPI's newest torch (reproduced 2026-09-06).
-    "$VENV_PY" -m pip install "torch==2.13.0"
-    TMP_REQ="$(mktemp)"
-    TMP_CONSTRAINTS="$(mktemp)"
-    grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' "$REPO_DIR/requirements.txt" > "$TMP_REQ"
-    sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' "$REPO_DIR/constraints.txt" > "$TMP_CONSTRAINTS"
-    "$VENV_PY" -m pip install -r "$TMP_REQ" -c "$TMP_CONSTRAINTS" --ignore-installed PyYAML
-    rm -f "$TMP_REQ" "$TMP_CONSTRAINTS"
+    # macOS uses the plain arm64 Torch wheel from PyPI. The separate hashed
+    # Torch lock keeps that source choice out of the non-Torch runtime graph.
+    "$VENV_PY" -m pip install --require-hashes --no-deps -r "$REPO_DIR/requirements-torch-lock-macos.txt"
+    "$VENV_PY" -m pip install --require-hashes -r "$REPO_DIR/requirements-lock-macos.txt"
   else
-    # Linux: requirements.txt already carries the correct
-    # --extra-index-url/torch==2.13.0+cpu pair (unlike macOS, which has no
-    # separate CPU/CUDA build to disambiguate -- see the Darwin branch above),
-    # so no manifest-stripping workaround is needed here. A bare `pip install
-    # torch==2.13.0` with no index override -- what this script did
-    # unconditionally before this branch existed -- resolves PyPI's default
-    # CUDA-bundled build instead of the pinned CPU-only one, silently
-    # discarding the +cpu pin's reproducibility/security guarantee
-    # (constraints.txt: pinned post-CVE-2025-32434). Matches CLAUDE.md's
-    # documented two-step install order exactly.
-    "$VENV_PY" -m pip install "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
-    "$VENV_PY" -m pip install -r "$REPO_DIR/requirements.txt" -c "$REPO_DIR/constraints.txt" --ignore-installed PyYAML
+    # Linux uses the +cpu wheel from the exclusive PyTorch CPU index. The
+    # separate hashed runtime lock supplies the reviewed non-Torch graph.
+    "$VENV_PY" -m pip install --require-hashes --no-deps -r "$REPO_DIR/requirements-torch-lock-linux.txt" --index-url https://download.pytorch.org/whl/cpu
+    "$VENV_PY" -m pip install --require-hashes -r "$REPO_DIR/requirements-lock-linux.txt"
   fi
   step "dependencies installed"
 fi

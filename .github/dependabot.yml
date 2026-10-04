@@ -8,7 +8,8 @@
 #
 # Ecosystems:
 #   1. pip  – updates requirements*.txt / pyproject.toml in repo root
-#   2. GitHub Actions – bumps versions in .github/workflows/*
+#   2. Docker – bumps the digest-pinned Dockerfile base
+#   3. GitHub Actions – bumps versions in .github/workflows/*
 # (npm ecosystem removed with the unused root package.json scaffolding.)
 #
 # WHAT THE pip ECOSYSTEM BELOW ACTUALLY COVERS (verified 2026-08-02 against
@@ -62,9 +63,18 @@ updates:
       - dependency-name: "numpy"
         versions: [">=2.0.0"]
 
-  # ?) what about pyproject and or docker? docker is tessted separate i believe
-  
-  # 2) GitHub Actions
+  # 2) Docker
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+
+  # 3) GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"                 # Dependabot scans .github/workflows/**
     schedule:

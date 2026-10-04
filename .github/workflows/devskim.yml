@@ -85,7 +85,21 @@ jobs:
           # anywhere in this codebase -- this exclusion turns off noise, not a
           # real detector for an API surface CyClaw doesn't use.
           exclude-rules: 'DS137138,DS162092,DS106863'
-          ignore-globs: "**/.git/**,**/bin/**,**/*.md,**/*.json"
+          #
+          # Path-scoped exclusions (DevSkim-Action@v1 has no per-rule/path input,
+          # so these globs skip the whole file; rationale for each):
+          #   utils/unicode_data/**  -- vendored, SHA-256-pinned Unicode TR39
+          #     confusables data plus its generator. generate.py's SOURCE_SHA256 is
+          #     a public integrity digest of that data file, not a credential (the
+          #     "token or key in source" rule matches any hex-digest assignment),
+          #     and the data file's "TODO"-style notices are upstream Unicode text
+          #     that cannot be edited without breaking the pinned digest.
+          #   scripts/refresh-runtime-lock.sh -- its only matches are grep guards
+          #     that REFUSE a generated lock containing --extra-index-url /
+          #     --index-url; the script selects Torch only through uv's
+          #     --torch-backend, so the "additional package index" rule is
+          #     matching the detection pattern, not an actual extra index.
+          ignore-globs: "**/.git/**,**/bin/**,**/*.md,**/*.json,**/utils/unicode_data/**,**/scripts/refresh-runtime-lock.sh"
 
       # Upload SARIF to GitHub Security tab
       - name: Publish findings to Security tab
