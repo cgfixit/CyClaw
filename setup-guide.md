@@ -177,6 +177,46 @@ runner. A missing backend or host policy that prevents isolation must fail this
 check; do not disable AppArmor or kernel restrictions to make it pass. Use a host
 with an administrator-approved bubblewrap policy instead.
 
+#### Stock Ubuntu 24.04 and newer: load the bubblewrap AppArmor profile
+
+Stock Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor, so
+bubblewrap cannot create its sandbox there. `scripts/verify_agentic_sandbox.py`
+then fails with `HardSandboxUnavailable: bubblewrap namespaces unavailable`, and
+CyClaw refuses agentic repository verification. That refusal fails closed: no
+check runs unconfined. The gateway and retrieval are not affected.
+
+The supported fix is the repository's bubblewrap-scoped AppArmor profile,
+[`deploy/apparmor/cyclaw-bwrap`](deploy/apparmor/README.md). It attaches only to
+`/usr/bin/bwrap` (the path the `bubblewrap` package installs) and grants that
+one binary user namespaces; every other program keeps the stock restriction.
+Because the profile is unconfined, bubblewrap itself runs without AppArmor
+confinement; the sandbox it builds is the boundary.
+
+Install and load it from the repository root, then rerun the probe:
+
+```bash
+sudo install -m 0644 deploy/apparmor/cyclaw-bwrap /etc/apparmor.d/cyclaw-bwrap
+sudo apparmor_parser -r /etc/apparmor.d/cyclaw-bwrap
+python scripts/verify_agentic_sandbox.py
+```
+
+A profile in `/etc/apparmor.d/` is reloaded at boot. To remove it:
+
+```bash
+sudo apparmor_parser -R /etc/apparmor.d/cyclaw-bwrap
+sudo rm /etc/apparmor.d/cyclaw-bwrap
+```
+
+This profile lets any local user start bubblewrap in a user namespace, which is
+fine on a single-user CyClaw workstation. On a shared or multi-user host, load
+Ubuntu's stricter `bwrap-userns-restrict` profile instead, as described in
+[`deploy/apparmor/README.md`](deploy/apparmor/README.md). Never load both;
+they attach to the same binary.
+
+Do not turn off the system-wide user-namespace restriction to make the probe
+pass; that removes the protection for every program on the host, not just
+bubblewrap.
+
 macOS uses its Seatbelt backend and can run the same probe. Windows currently
 refuses agentic repository verification before launching a check: a Job Object
 does not provide the required filesystem/network boundary. The probe confirms
