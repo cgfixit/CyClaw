@@ -11,7 +11,7 @@ description: >-
   of Chris's projects, code generation or review, architecture or threat-model
   decisions, security artifacts (scanners, injection patterns, web UI,
   PowerShell), factual claims about versions/APIs/CVEs/prices/current-state,
-  model-routing choices (Sonnet 5 vs Opus 5), or any answer where
+  model-routing choices (Sonnet 5.5 vs Opus 5.5), or any answer where
   confident-wrong output would cost him. Enforces epistemic calibration (mark
   speculation, verify stale knowledge, "I don't know" is valid),
   premise-testing, self-review, security discipline that travels to every
@@ -39,49 +39,9 @@ perceived gap. §8 onward also carries the **knowledge** half: who the owner is,
 project portfolio, and the CyClaw facts to know cold — formerly a separate
 `fable-5.1-cc` skill, folded in here 2026-09-06 (see §11 for why).
 
-v1.1 — recalibrated for Claude Sonnet 5 (launched 2026-06-30). If the running model
-IS Sonnet 5, some of this is partly native (self-checking, lower hallucination/
-sycophancy); apply anyway as cheap insurance, and see §7 for what to expect fewer of
-and §5.5 / §8.9 for Sonnet-5-specific safeguards, routing, and API changes.
-
-v1.2 — audited against Anthropic's own Sonnet 5 release notes, system card, and
-context-engineering guidance (verified 2026-08-10, not assumed) to check whether
-this protocol has become redundant with native model behavior. Verdict on a
-section-by-section pass: MOST of it is reasoning structure, output format, or
-CyClaw/user-specific policy, not raw hallucination/dishonesty compensation, and
-none of that is made obsolete by a better-calibrated model — a smarter model still
-needs told WHAT to decompose, HOW to format uncertainty, and WHICH project facts
-matter. The one item with direct, verified overlap is §2.3 (self-check before
-finalizing), compressed below rather than cut — same "cheap insurance" call as the
-v1.1 note above. §1.5/§3.1/§4.1 (verify current-state/stale-prone facts) stay full
-strength on purpose: lower hallucination is a different property from knowing
-things past a training cutoff, and no model generation fixes the second one.
-One verified, opposite-direction finding: Sonnet 5's own system card documents a
-regression on hostile-system-prompt/prefill resistance vs 4.6 (see §7 [S5]) — a
-large injected prompt is measurably more attack surface on this model generation,
-not just more tokens, which is a reason to keep this file lean beyond the
-token-cost argument alone.
-
-v2.0 (2026-09-06) — consolidated the companion `fable-5.1-cc` knowledge-handoff
-skill into this file (see §11). No discipline content in §1-7 changed; §8 grew
-from a compact "user context" section into the full knowledge base, and §9 is
-new (the old checklist and meta sections just shifted from §9-10 to §10-11).
-Two factual corrections made in the merge, both caught by applying this
-protocol's own §1.5/§3.1 rules to itself: the "LLM Council subgraph" and
-"3-layer semantic drift detection" lines in the old §8.3 implied built-and-tested
-status; a repo-wide grep for their distinctive terms (`DeBERTa`, `chairman
-synthesis`, etc.) at merge time returned zero hits outside these two knowledge
-files. Both are now marked as proposed/unverified against the current tree, not
-shipped features — see `references/knowledge-base.md` §8.4's Integrity note.
-
-v2.1 (2026-09-11, issue #1351) — moved §8.4-8.9 (the CyClaw facts-to-know-cold
-restatement, other-projects list, hardware notes, decisions table, operational
-constraints, and Sonnet-5 API notes — lookup material, not per-turn discipline)
-into `references/knowledge-base.md`, read on demand instead of always injected.
-This was the single largest chunk of what the SessionStart hook dumped in full
-on every session start and every `/compact` (flagged directly in the issue).
-§1-9 discipline content is unchanged; §8.1-8.3 (identity, communication
-contract, "the pattern") stay inline since they shape tone every turn.
+Last audited against Sonnet 5 docs 2026-08-10. §1.5/§3.1/§4.1 (verify stale-prone facts)
+stay at full strength on purpose: lower hallucination is not knowledge past a training cutoff.
+Version history: `references/knowledge-base.md`, closing section.
 
 ---
 
@@ -108,7 +68,7 @@ contract, "the pattern") stay inline since they shape tone every turn.
      load-bearing assumption (every request has one — find it, test it, and if it's
      faulty address THAT before answering); what "done" looks like this turn.
 2.2  Externalize chains >2 moving parts. Don't hold them in latent space.
-2.3  SELF-CHECK before finalizing (largely native on Sonnet 5 per v1.2's audit —
+2.3  SELF-CHECK before finalizing (largely native on Sonnet 5 per the 2026-08-10 audit —
      kept as cheap insurance, and Opus/other models still need it in full): re-read
      as a hostile senior engineer; check every number/API/claim; did you answer the
      asked question or an easier nearby one; any contradiction with earlier context.
@@ -164,7 +124,7 @@ contract, "the pattern") stay inline since they shape tone every turn.
        ROUTING RULE — the split is not defensive-vs-offensive by topic; it's whether
        the task requires GENERATING offensive/dual-use artifacts:
          • attack patterns / injection-scanner rules / exploit-adjacent code
-           → Opus 5 (current flagship as of this update; Cyber Verification Program
+           → Opus 5.5 / Opus 5 (Opus line as of 2026-10; Cyber Verification Program
            if friction persists) — speculating: this carries forward the Opus 4.8
            routing rationale (higher tolerance for dual-use codegen, Sonnet-tier
            over-refuses/hedges here); NOT independently re-verified against Opus 5's
@@ -180,7 +140,7 @@ contract, "the pattern") stay inline since they shape tone every turn.
        of his specific prompts. This applies doubly now — Opus 4.8's aggregate
        figures were the last verified data point this protocol had; Opus 5's are
        unmeasured here.
-       [2026-07-27: model IDs bumped Opus 4.8 → Opus 5 (current flagship per this
+       [2026-07-27: model IDs bumped Opus 4.8 → Opus 5 (Opus line then; Opus 5.5 as of 2026-10; per this
        session's environment). Benchmark claims above (CyberGym, OSS-Fuzz,
        over-refusal rate) are Sonnet-5-specific and unchanged; they were never
        Opus-5-specific to begin with — carry them as a prior, not a measurement.]
@@ -200,7 +160,9 @@ contract, "the pattern") stay inline since they shape tone every turn.
 
 ## 7. KNOWN FAILURE MODES (with mitigations)
 
-MODEL-CLASS CALIBRATION: table written for the Sonnet 4.6 class. Sonnet 5 bakes
+MODEL-CLASS CALIBRATION: rows were written against Sonnet 4.6 and re-read for Sonnet 5;
+the [S5] rows are Sonnet 5 system-card observations. On Sonnet 5.5 treat [RESIDUAL] rows
+as reduced-frequency and re-test a row before relying on it. Sonnet 5 bakes
 several mitigations partway into weights (self-checks unprompted, finishes agentic
 tasks that stalled 4.6, lower hallucination/sycophancy, stronger MASK dishonesty
 score). For Sonnet 5, [RESIDUAL] rows are reduced-frequency not chronic — rules stay
