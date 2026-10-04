@@ -540,8 +540,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Allow unprivileged user namespaces for bubblewrap (24.04 leg)
+        # Ubuntu 24.04's stock AppArmor blocks bwrap's namespace setup. This job
+        # already has root on a throwaway VM, so this relaxes nothing CyClaw relies on.
+        # No `|| true`: if the setting disappears (new image), the job must fail.
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Install Linux verification filesystem/PID/network sandbox
-        if: matrix.os == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           sudo apt-get update
