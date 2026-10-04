@@ -50,7 +50,14 @@ def validate_root(root: str) -> None:
     """Require a purpose-specific directory, outside secret/config subtrees."""
     path = Path(os.path.expandvars(root)).expanduser().resolve()
     anchors = (Path.home().resolve(), Path(__file__).resolve().parents[2])
-    if path == Path(path.anchor) or any(anchor == path or path in anchor.parents for anchor in anchors):
+    # A UNC share root (\\host\share) equals its own anchor, so the bare-root test
+    # below would refuse the one root allow_unc_roots exists to permit. Only a
+    # real filesystem root (C:\, /) is refused here; UNC roots still face the
+    # home/repo/system/protected-component checks.
+    is_unc_share = path.drive.startswith("\\\\")
+    if (path == Path(path.anchor) and not is_unc_share) or any(
+        anchor == path or path in anchor.parents for anchor in anchors
+    ):
         raise ValueError("filesystem root, home, repository and their ancestors cannot be connector roots")
     system_roots = [Path(value).resolve() for value in ("/etc", "/dev", "/proc", "/sys")]
     if os.name == "nt":
