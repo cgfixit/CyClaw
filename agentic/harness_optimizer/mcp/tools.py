@@ -161,8 +161,14 @@ class ProposerWorkspaceTools:
     def _atomic_write(path: Path, content: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.{os.getpid()}.cyclaw-tmp")
-        tmp.write_text(content, encoding="utf-8")
-        os.replace(tmp, path)
+        try:
+            tmp.write_text(content, encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            # A failed write or replace would otherwise leave the .cyclaw-tmp
+            # file inside the optimizer workspace with nothing to clean it up.
+            tmp.unlink(missing_ok=True)
+            raise
 
     def list_workspace(self, target: str = "") -> list[dict]:
         """List readable workspace entries without exposing holdout contents."""
