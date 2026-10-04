@@ -1511,7 +1511,9 @@ jobs:
 
   verify-skills:
     name: verify-skills (${{ matrix.skill }})
-    runs-on: ubuntu-latest
+    # Same supported Linux image as `test` and `real-repo-run-smoke`: bubblewrap
+    # confinement is mandatory and Ubuntu 24.04 stock AppArmor denies it.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     # Deliberately runs IN PARALLEL with `test` (needs only discover-skills).
     # A `needs: test` serialization was tried (2026-07-17) to guarantee this
@@ -1545,6 +1547,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install Linux verification filesystem/PID/network sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          bwrap --version
+          # Keep stock AppArmor/user-namespace policy. The native gate below
+          # must fail if this runner cannot establish the required confinement.
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: Setup Python 3.12 (stdlib profile)
         if: matrix.profile == 'stdlib'
