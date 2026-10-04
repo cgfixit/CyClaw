@@ -289,8 +289,6 @@ def test_query_graph_busy_is_audited(client, tmp_path, monkeypatch):
     with 503 GRAPH_BUSY (graph worker capacity full) writes exactly one
     graph_busy audit line, like GRAPH_TIMEOUT/graph_error, and the raw query
     text never lands in audit.jsonl (audit_log keeps only its fingerprint)."""
-    import json
-
     import gate
     from utils.bounded_executor import WorkCapacityExceeded
 
