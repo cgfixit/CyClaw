@@ -30,7 +30,11 @@ def _cfg(tmp_path: Path, **extra: object) -> str:
         "query": {"base_url": "http://127.0.0.1:8787"},
     }
     block.update(extra)
-    raw = {"logging": {"audit_file": str(tmp_path / "audit.jsonl")}, "opentweet": block}
+    # Automatic scheduling fails closed unless the injection filter is enabled
+    # AND has patterns (an empty list degrades it to a length check), so the
+    # fixture carries one real pattern instead of relying on the default.
+    policy = {"prompt_filter": {"enabled": True, "banned_patterns": ["(?i)ignore previous instructions"]}}
+    raw = {"logging": {"audit_file": str(tmp_path / "audit.jsonl")}, "policy": policy, "opentweet": block}
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     (tmp_path / "topic.txt").write_text("soul governance", encoding="utf-8")

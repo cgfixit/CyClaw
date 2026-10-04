@@ -87,7 +87,7 @@ def test_l2_knn_matches_hand_computed_distance(vec_conn):
         )
     query = [0.15, 0.15, 0.15, 0.15]
     rows = vec_conn.execute(
-        "SELECT rowid, distance FROM vec_items WHERE embedding MATCH ? ORDER BY distance LIMIT 3",
+        "SELECT rowid, distance FROM vec_items WHERE embedding MATCH ? AND k = 3 ORDER BY distance",
         [_serialize(query)],
     ).fetchall()
     got = dict(rows)
@@ -119,7 +119,7 @@ def test_cosine_distance_metric_reproduces_chroma_score_contract(vec_conn):
         )
     query = _serialize([1.0, 0.0, 0.0, 0.0])
     rows = vec_conn.execute(
-        "SELECT rowid, distance FROM vec_cos WHERE embedding MATCH ? ORDER BY distance LIMIT 3",
+        "SELECT rowid, distance FROM vec_cos WHERE embedding MATCH ? AND k = 3 ORDER BY distance",
         [query],
     ).fetchall()
     scores = {rowid: 1 - distance for rowid, distance in rows}

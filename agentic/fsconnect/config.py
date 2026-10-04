@@ -25,6 +25,7 @@ import posixpath
 import sys
 from dataclasses import asdict, dataclass, field
 
+from agentic.fsconnect.protected_paths import validate_root
 from utils.errors import FsConnectConfigError
 from utils.logger import _get_config
 
@@ -236,6 +237,10 @@ class FsConnectConfig:
                     f"fsconnect.{field_name} entry contains a NUL byte",
                     details={"field": field_name},
                 )
+            try:
+                validate_root(r)
+            except ValueError as exc:
+                raise FsConnectConfigError(str(exc), details={"field": field_name}) from None
             if _is_unc(r) and not self.allow_unc_roots:
                 raise FsConnectConfigError(
                     f"fsconnect.{field_name} contains a UNC path but allow_unc_roots is false",

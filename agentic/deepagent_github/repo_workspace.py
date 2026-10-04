@@ -198,35 +198,11 @@ def _git_env() -> dict[str, str]:
     return {name: os.environ[name] for name in _GIT_ENV_ALLOWLIST if name in os.environ}
 
 
-# write_file refuses `.git`, but it is not the only writer: real-repo verification
-# runs model-proposed checks (pytest etc.) with cwd at the clone root, and the
-# macOS Seatbelt profile allows writes to that whole subtree while Linux confines
-# only the network. A check could therefore plant `.git/hooks/post-commit` or a
-# `core.fsmonitor`/`diff.external`/`filter.*` entry in `.git/config`, and the next
-# `git status`/`diff`/`commit`/`push` here would run it unsandboxed -- before
-# human approval in real-repo-run-status's case (#1526 F1). Two controls, both
-# applied on every _run_git:
-#   1. Command-scope overrides (GIT_CONFIG_COUNT outranks repo config) that point
-#      hooksPath at a fresh empty directory and turn fsmonitor off, so a planted
-#      hook never runs (--no-verify alone does not skip post-commit/pre-push).
-#   2. A check of the clone's own `.git/config`, names AND values, against a
-#      snapshot taken right after the clone (before any model-proposed code
-#      ran), persisted beside the clone so a later attach() process can read it.
-#      Values matter: rewriting `remote.origin.url` alone redirects an approved
-#      push (#1527 review). The only post-clone additions accepted are the
-#      `branch.<b>.remote = origin` / `branch.<b>.merge = refs/heads/<b>` pairs
-#      push --set-upstream writes, plus display/format `core.*` keys. Anything
-#      else -- a command-bearing driver, include.path, pushurl, url rewrites,
-#      extensions.worktreeConfig, a changed URL -- refuses every git operation
-#      rather than guessing which keys are dangerous.
-#   _LOCAL_CONFIG_ALLOWED_RE is a name floor under the snapshot: a snapshot
-#   entry counts only if its name is one gh/git legitimately writes, so a
-#   tampered snapshot still cannot admit a filter or include. On Linux and
-#   Windows the verification sandbox does not confine file writes, so a check
-#   could rewrite the snapshot's values too; closing that needs filesystem
-#   confinement there (#1526 F1 follow-up). Operator-owned global/system config
-#   stays trusted -- push needs its credential helper -- the same posture as
-#   _GIT_ENV_ALLOWLIST keeping HOME.
+# Verification executes only in disposable gitless mirrors with no copyback.
+# Platform write confinement keeps even detached checks away from this clone,
+# its git metadata, and the sibling baseline. These command-scope overrides
+# and exact post-clone config comparison remain defense in depth. Operator
+# global/system configuration stays trusted for credential-helper discovery.
 _LOCAL_CONFIG_ALLOWED_RE = re.compile(
     r"core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|"
     r"precomposeunicode|symlinks|quotepath)"
@@ -813,9 +789,8 @@ class RepoWorkspaceTools:
         The read/write tool methods above are the intended boundary for
         reading or mutating individual files; this exists only for a caller
         that needs an actual ``cwd`` to hand a subprocess it runs itself --
-        namely ``agentic.executor.run_verification``, which pins its checks'
-        working directory to a worktree it does not otherwise have a way to
-        obtain from this class.
+        namely ``agentic.executor.run_verification``, which copies this source into a gitless disposable mirror. Verification
+        never writes this authoritative checkout or copies artifacts back.
         """
         return self._dest
 

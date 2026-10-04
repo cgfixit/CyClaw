@@ -20,8 +20,9 @@ from typing import Any
 
 from telegram import client as tg_client
 from telegram.config import MAX_TELEGRAM_CLOUD_DOWNLOAD_BYTES, TelegramConfig
+from utils.child_environment import child_environment, configured_path_names
 from utils.errors import TelegramRefused, TelegramRuntimeError
-from utils.logger import _get_config, audit_log, hash_query
+from utils.logger import _get_config, audit_log, hash_query, query_fingerprint
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FSCONNECT_TIMEOUT_SEC = 120
@@ -256,6 +257,9 @@ def _run_fsconnect_write(
         completed = subprocess.run(  # noqa: S603 -- fixed executable and argv list; no shell
             command,
             cwd=str(_REPO_ROOT),
+            env=child_environment(
+                "filesystem", secret_names=configured_path_names(_get_config(cfg._config_path).get("fsconnect")),
+            ),
             input=data,
             capture_output=True,
             timeout=_FSCONNECT_TIMEOUT_SEC,
@@ -357,7 +361,7 @@ def stage_attachment(
             details={"gate": "media_confirm"},
         )
 
-    confirmation_hash = hash_query(confirmation)
+    confirmation_hash = query_fingerprint(confirmation, config_path=cfg._config_path)
     try:
         cap = _media_cap(cfg)
     except TelegramRefused as exc:

@@ -129,10 +129,15 @@ The resulting **refresh token lives only in `rclone.conf`**
 (`~/.config/rclone/rclone.conf`, or `%APPDATA%\rclone\rclone.conf` on Windows),
 owned by your user, managed entirely by rclone. CyClaw never holds it.
 
-> Higher-security option: enable rclone config encryption
-> (`rclone config` → `s) Set configuration password`). Trade-off: an unattended
-> scheduled run then needs the password supplied (e.g. via
-> `RCLONE_CONFIG_PASS`), which is its own secret to manage.
+For unattended schedules, **encrypt the rclone configuration** (`rclone config`
+→ `s) Set configuration password`). `rclone obscure` is reversible obfuscation
+and does not satisfy this requirement. Store the configuration password using
+CyClaw's `RCLONE_CONFIG_PASS` Keychain/Credential Manager service and launch
+through the corresponding keystore wrapper; do not put the password in YAML,
+`.env`, scheduler arguments or a plist. The sync CLI and its rclone child retain
+only sync discovery variables and this password, excluding gateway/provider
+credentials. Encryption protects the config at rest; an authorized running
+rclone process necessarily receives its decryption password.
 
 ---
 

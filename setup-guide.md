@@ -159,6 +159,31 @@ Linux operators use the same file. For a one-line readiness check instead:
 curl -s http://127.0.0.1:8787/health
 ```
 
+### Optional agentic verification sandbox
+
+The gateway does not need a verification sandbox. Agentic repository checks do:
+Linux requires `bubblewrap` and permission to create its filesystem, PID and
+network namespaces. On Debian/Ubuntu, install the distribution package before
+enabling those checks:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes --no-install-recommends bubblewrap
+python scripts/verify_agentic_sandbox.py
+```
+
+The command runs a disposable native confinement probe, without a test-suite
+runner. A missing backend or host policy that prevents isolation must fail this
+check; do not disable AppArmor or kernel restrictions to make it pass. Use a host
+with an administrator-approved bubblewrap policy instead.
+
+macOS uses its Seatbelt backend and can run the same probe. Windows currently
+refuses agentic repository verification before launching a check: a Job Object
+does not provide the required filesystem/network boundary. The probe confirms
+that refusal on Windows. This does not disable the gateway or retrieval there.
+All supported checks run in a fresh Gitless copy and never copy writes back to
+the authoritative checkout. See [agentic workspace tools](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
+
 ---
 
 ## macOS (Apple Silicon)

@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from utils.child_environment import child_environment, configured_path_names
 from utils.logger import _get_config, redact_sensitive
 from utils.numbat_emitter import emit_numbat_command, redact_argv_for_numbat
 from utils.repo_paths import canonical_repo_relative_path
@@ -270,11 +271,34 @@ def sync_timeout_sec() -> int:
     return sec * multiplier + 60
 
 
+def _ops_environment(argv: list[str]) -> dict[str, str]:
+    module = argv[2] if len(argv) > 2 and argv[1] == "-m" else ""
+    cfg = _get_config(str(_CONFIG_PATH))
+    if module == "sync.cli":
+        return child_environment("sync", secret_names=configured_path_names(cfg.get("sync")))
+    if module == "agentic.fsconnect.cli":
+        return child_environment("filesystem", secret_names=configured_path_names(cfg.get("fsconnect")))
+    if module == "agentic.sqlconnect.cli":
+        name = (cfg.get("sqlconnect") or {}).get("dsn_env", "CYCLAW_SQL_DSN")
+        if not isinstance(name, str) or not name:
+            raise OpsError("sqlconnect.dsn_env must name an environment variable")
+        return child_environment("sql", secret_names=(name,))
+    if module == "agentic.cli":
+        action = argv[5] if len(argv) > 5 else ""
+        # Only the coding loop invokes a model; the HTTP ops surface has no
+        # cloud-provider selector, so it uses its configured local model.
+        secrets = ("DEEPAGENT_API_KEY",) if action == "real-repo-run" else ()
+        capability = "github" if action in {"context", "test", "real-repo-run", "real-repo-run-push", "real-repo-run-publish"} else "filesystem"
+        return child_environment(capability, secret_names=(*secrets, *configured_path_names(cfg.get("agentic"))))
+    return child_environment()
+
+
 def _run(argv: list[str], *, timeout_sec: int | None = None) -> subprocess.CompletedProcess[str]:
     """Run a fully-formed, whitelisted argv list. No shell, fixed interpreter."""
     return subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell, fixed interpreter + whitelisted argv
         argv,
         cwd=str(_REPO_ROOT),
+        env=_ops_environment(argv),
         capture_output=True,
         text=True,
         timeout=_TIMEOUT_SEC if timeout_sec is None else timeout_sec,

@@ -37,6 +37,8 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
+from utils.child_environment import isolated_helper_environment
+
 logger = logging.getLogger("cyclaw.external_pre_hook")
 
 # Same shape as utils/spend.py's _QUERY_HASH_RE (kept separate on purpose --
@@ -151,13 +153,15 @@ def _run_command(block: dict[str, Any], provider: str, model: str, query_hash: s
     payload_bytes = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
     try:
-        proc = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell, operator-configured argv
-            command,
-            input=payload_bytes,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
+        with isolated_helper_environment() as env:
+            proc = subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell, operator-configured argv
+                command,
+                env=env,
+                input=payload_bytes,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
     except subprocess.TimeoutExpired:
         logger.warning("pre_action_hook timed out after %ss; denying", timeout)
         return _deny("hook_timeout", f"hook timed out after {timeout}s")

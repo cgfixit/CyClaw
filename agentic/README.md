@@ -31,7 +31,7 @@ The six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`,
 | `agentic/writer.py` | GitHub write gate — executable op: draft `pr_create` only |
 | `agentic/real_repo_loop.py` | Live plan → patch → verify → human-decides → commit pipeline |
 | `agentic/real_repo_run_store.py` | Persisted run records under `workspace_root/runs/` |
-| `agentic/executor/` | Sandboxed verification (`pytest` / `ruff` / custom checks) — required fail-closed hard sandbox (`hard_sandbox.py`: Job Object / Seatbelt / `unshare --net`); no silent `subprocess.run` fallback |
+| `agentic/executor/` | Sandboxed verification (`pytest` / `ruff` / custom checks) — fresh gitless mirror per check, status/output only with no copyback; fail-closed Seatbelt / bubblewrap filesystem+PID+network isolation; Windows refuses until equivalent confinement exists |
 | `agentic/deepagent_github/` | Real-repo workspace tools + **retired** DeepAgents graph probe |
 | `agentic/harness_optimizer/` | **Retired** (owner decision 2026-07-31) fixture/harness optimizer *loop* + scoped proposer workspace tools; code/tests/CI kept. Its `harness_optimizer/governance.py`, `harness_optimizer/model_adapter.py`, and `harness_optimizer/mcp/tools.py` are still on the live real-repo path |
 | `agentic/fsconnect/` | Scoped filesystem connector (`python -m agentic.fsconnect.cli`) |
@@ -496,9 +496,16 @@ scrubbed env and `cwd` pinned to the clone. Every workspace Git call disables
 hooks and fsmonitor and checks local config names and values against the
 post-clone snapshot. Unexpected entries or changed remote URLs refuse the
 operation. Narrow display settings and branch-tracking additions are allowed.
-Operator-owned global/system Git config remains trusted. Linux and Windows
-verification do not confine file writes, so a check can also modify the
-snapshot; this protection does not close that sandbox gap.
+Operator-owned global/system Git config remains trusted. Verification runs in
+a fresh gitless mirror with no copyback. Linux requires bubblewrap filesystem,
+PID and network isolation; macOS uses Seatbelt to confine writes to the mirror
+and disposable scratch. Both deny writes to the authoritative clone and its
+configuration snapshot. Windows refuses verification until a filesystem and
+network boundary is available; Job Objects alone are insufficient. Linux native
+CI uses Ubuntu 22.04 with stock host policy. On Ubuntu 24.04, AppArmor can deny
+bubblewrap network-namespace setup (`RTM_NEWADDR: Operation not permitted`);
+verification then refuses before launching the check. CyClaw does not disable
+AppArmor or share the host network to bypass that refusal.
 
 | Tool / method | Default | What it does |
 |---|---|---|

@@ -472,9 +472,9 @@ no-op; writes also need a per-call `reason` and `confirm`, and
 `allow_git_write_tools` ships false. `python -m agentic.cli real-repo-run`
 clones into a jail, plans, patches, and verifies, then waits for a human
 decision before committing; push and draft PR are separate decisions.
-Checks run under Linux `unshare --net`, macOS `sandbox-exec`, or Windows Job
-Objects and fail closed without them. Windows kills the process tree but
-does not block sockets, and no platform uses a microVM
+Checks use fresh gitless copies with no copyback under Linux bubblewrap or
+macOS Seatbelt, and fail closed without them. Windows verification refuses
+until equivalent filesystem and network confinement is available. No platform uses a microVM
 ([threat model](docs/THREAT_MODEL.md)). `real-repo-run*` is CLI-only
 (`POST /ops/agentic` returns 422).
 

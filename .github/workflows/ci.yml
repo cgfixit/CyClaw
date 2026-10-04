@@ -528,7 +528,10 @@ jobs:
         # because torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu
         # for macOS -- confirmed on this matrix leg's first run, and documented
         # in setup-guide.md.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # ubuntu-latest (24.04) is the required check; ubuntu-22.04 is the leg where
+        # stock AppArmor lets bubblewrap set up its namespaces, so native
+        # confinement is proven there. Each check is named for its real runner.
+        os: [ubuntu-latest, ubuntu-22.04, windows-latest, macos-latest]
     # All three supported hosts are release gates. Platform-specific skips are
     # reported below with `pytest -rs`; a failing Windows result is not masked.
 
@@ -536,6 +539,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Allow unprivileged user namespaces for bubblewrap (24.04 leg)
+        # Ubuntu 24.04's stock AppArmor blocks bwrap's namespace setup. This job
+        # already has root on a throwaway VM, so this relaxes nothing CyClaw relies on.
+        # No `|| true`: if the setting disappears (new image), the job must fail.
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Install Linux verification filesystem/PID/network sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          bwrap --version
+          # Keep stock AppArmor/user-namespace policy. The native gate below
+          # must fail if this runner cannot establish the required confinement.
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: macOS install-script smoke test (layout + shim + profile integration)
         if: runner.os == 'macOS'
@@ -1130,6 +1153,10 @@ jobs:
           # full suite runs these again, quietly.
           pytest -vv -rs tests/test_gate.py::TestCelMonitorRequestPath tests/test_numbat_cel.py
 
+      - name: Verify native agentic confinement or explicit Windows refusal
+        shell: bash
+        run: python scripts/verify_agentic_sandbox.py
+
       - name: Run tests + coverage
         shell: bash
         run: |
@@ -1253,7 +1280,7 @@ jobs:
   # imports retrieval/gate/graph (invariant I6).
   real-repo-run-smoke:
     name: real-repo-run-smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1261,6 +1288,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install Linux verification filesystem/PID/network sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          bwrap --version
+          # Keep stock AppArmor/user-namespace policy. The native gate below
+          # must fail if this runner cannot establish the required confinement.
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: Setup Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -1286,6 +1325,10 @@ jobs:
         run: |
           python -m pip install --upgrade "pip==26.2.1"
           pip install -c constraints.txt httpx pyyaml pytest rank-bm25 nltk numpy
+
+      - name: Verify native agentic confinement or explicit Windows refusal
+        shell: bash
+        run: python scripts/verify_agentic_sandbox.py
 
       - name: Run real-repo-run smoke test
         run: pytest tests/test_agentic_real_repo_run_smoke.py -v --tb=short
@@ -1491,7 +1534,9 @@ jobs:
 
   verify-skills:
     name: verify-skills (${{ matrix.skill }})
-    runs-on: ubuntu-latest
+    # Same supported Linux image as `test` and `real-repo-run-smoke`: bubblewrap
+    # confinement is mandatory and Ubuntu 24.04 stock AppArmor denies it.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     # Deliberately runs IN PARALLEL with `test` (needs only discover-skills).
     # A `needs: test` serialization was tried (2026-07-17) to guarantee this
@@ -1525,6 +1570,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install Linux verification filesystem/PID/network sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          bwrap --version
+          # Keep stock AppArmor/user-namespace policy. The native gate below
+          # must fail if this runner cannot establish the required confinement.
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: Setup Python 3.12 (stdlib profile)
         if: matrix.profile == 'stdlib'

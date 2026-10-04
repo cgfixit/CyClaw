@@ -88,7 +88,9 @@ def test_darwin_read_walks_skip_apple_metadata_and_dataless(monkeypatch, env):
     cfg, fs_cfg, cp, share, _audit = env
     for name in (".DS_Store", ".localized", "._note.md"):
         (share / name).write_text("metadata", encoding="utf-8")
-    (share / ".env").write_text("ordinary dotfile", encoding="utf-8")
+    (share / ".editorconfig").write_text("ordinary dotfile", encoding="utf-8")
+    # Credential-shaped names are hidden by agentic.fsconnect.protected_paths.
+    (share / ".env").write_text("protected", encoding="utf-8")
     (share / "placeholder.md").touch()
     monkeypatch.setattr(pathsafe, "_is_macos_dataless", lambda st: st.st_size == 0)
 
@@ -102,7 +104,8 @@ def test_darwin_read_walks_skip_apple_metadata_and_dataless(monkeypatch, env):
 
     assert {".DS_Store", ".localized", "._note.md", "placeholder.md"}.isdisjoint(listed)
     assert {".DS_Store", ".localized", "._note.md", "placeholder.md"}.isdisjoint(globbed)
-    assert ".env" in listed
+    assert ".editorconfig" in listed
+    assert ".env" not in listed
 
 
 def test_fs_stat(env):

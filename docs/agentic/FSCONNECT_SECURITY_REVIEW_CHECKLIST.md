@@ -77,3 +77,16 @@ Reviewer: ______   Date: ______   Deployment: ______   Config sha256: ______
 ```
 Sign-off: ____________________   (no sign-off, no flag flip)
 ```
+
+## Root and special-file boundary
+
+Connector roots must be purpose-specific directories. Filesystem root, the
+operator home, this repository root and ancestors containing either are refused,
+as are credential/configuration subtrees. Reads, writes and traversal refuse
+protected components such as `.git`, `.env*`, `.ssh`, `.aws`, `.config`,
+`rclone.conf`, and private-key/container suffixes. This is defense in depth:
+operators must still select a directory intended for connector access.
+POSIX reads open with `O_NONBLOCK` before inspecting the held file descriptor;
+FIFOs and all other non-regular files are refused without waiting for a writer.
+Windows retains its existing handle/reparse validation and write refusals;
+POSIX probes do not establish native Windows behavior.

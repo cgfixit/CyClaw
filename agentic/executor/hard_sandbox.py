@@ -1,8 +1,9 @@
 """Hard sandbox backends for agentic verification.
 
 Production ``run_verification`` must not call unconstrained ``subprocess.run``.
-Platform backends: Windows Job Object, Darwin ``sandbox-exec`` Seatbelt, Linux
-``unshare --net``. Missing binary or failed capability probe raises
+Platform backends: Darwin ``sandbox-exec`` Seatbelt and Linux bubblewrap.
+Windows fails closed until a filesystem and network boundary is implemented.
+Missing binary or failed capability probe raises
 ``HardSandboxUnavailable`` -- fail closed, no software fallback.
 
 ``ArgvListSandbox`` is the old argv-list ``subprocess.run`` path, imported by
@@ -23,20 +24,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from utils.child_environment import child_environment
 from utils.errors import AgenticError
 
 MAX_OUTPUT_CHARS = 20_000
-
-# Same cap as the previous runner: a runaway pytest dump must not blow memory.
-_JOB_ACTIVE_PROCESS_LIMIT = 32
-
-# Windows Job Object flags (winnt.h).
-_JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
-_JOB_OBJECT_LIMIT_KILL_ON_CLOSE = 0x00002000
-_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
-_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-_PROCESS_SET_QUOTA = 0x0100
-_PROCESS_TERMINATE = 0x0001
 
 
 class HardSandboxUnavailable(AgenticError):
@@ -170,6 +161,7 @@ def seatbelt_profile(cwd: Path, tmpdir: Path | None = None) -> str:
         "(version 1)\n"
         "(allow default)\n"
         "(deny network*)\n"
+        f'(deny file-write* (subpath "{root}/.git"))\n'
         f"(deny file-write* (require-not (require-any {except_clause})))\n"
     )
 
@@ -177,7 +169,9 @@ def seatbelt_profile(cwd: Path, tmpdir: Path | None = None) -> str:
 def production_sandbox() -> HardSandbox:
     """Return the host backend, or raise. Never falls back to ArgvListSandbox."""
     if sys.platform == "win32":
-        return WindowsJobObjectSandbox()
+        raise HardSandboxUnavailable(
+            "Windows verification requires filesystem/network isolation; Job Objects alone are insufficient"
+        )
     if sys.platform == "darwin":
         return DarwinSeatbeltSandbox()
     if sys.platform.startswith("linux"):
@@ -217,6 +211,8 @@ class DarwinSeatbeltSandbox:
         with tempfile.TemporaryDirectory(prefix="cyclaw-seatbelt-") as tmp:
             tmp_path = Path(tmp)
             env_with_tmp = dict(env)
+            env_with_tmp["HOME"] = str(tmp_path)
+            env_with_tmp["USERPROFILE"] = str(tmp_path)
             env_with_tmp["TMPDIR"] = str(tmp_path)
             env_with_tmp["TMP"] = str(tmp_path)
             env_with_tmp["TEMP"] = str(tmp_path)
@@ -233,227 +229,42 @@ class DarwinSeatbeltSandbox:
 
 
 class LinuxNetnsSandbox:
-    """Linux network namespace via ``unshare --net -- argv``.
+    """Bubblewrap filesystem, PID, user, IPC and network namespaces; fail closed.
 
-    Requires ``unshare`` on PATH and a successful ``unshare --net /bin/true``
-    probe. Missing binary or non-zero probe (EPERM) fails closed.
+    Host files are read-only. Only the unique candidate and scratch directories
+    are writable. PID namespace teardown also kills detached descendants.
     """
 
     def __init__(self) -> None:
-        path = shutil.which("unshare")
+        path = shutil.which("bwrap")
         if not path:
-            raise HardSandboxUnavailable(
-                "unshare not found; Linux netns fails closed "
-                "(issue #1134 Phase 4).",
-                details={"platform": sys.platform},
-            )
+            raise HardSandboxUnavailable("bubblewrap is required for Linux verification filesystem/PID/network isolation")
+        self._bwrap = path
         try:
             probe = subprocess.run(  # noqa: S603 -- fixed argv, no shell
-                [path, "--net", "/bin/true"],
-                capture_output=True,
-                timeout=5,
-                check=False,
+                self._prefix() + ["/bin/true"], env=child_environment(),
+                capture_output=True, timeout=5, check=False,
             )
-        except OSError as exc:
-            raise HardSandboxUnavailable(
-                f"unshare --net probe could not run: {exc}; "
-                "Linux netns fails closed (issue #1134 Phase 4).",
-                details={"platform": sys.platform},
-            ) from exc
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise HardSandboxUnavailable("bubblewrap capability probe failed") from exc
         if probe.returncode != 0:
-            raise HardSandboxUnavailable(
-                "unshare --net probe failed (EPERM or unsupported); "
-                "Linux netns fails closed (issue #1134 Phase 4).",
-                details={
-                    "platform": sys.platform,
-                    "returncode": probe.returncode,
-                    "stderr": truncate_output(stream_to_str(probe.stderr)),
-                },
-            )
-        self._unshare = path
+            raise HardSandboxUnavailable("bubblewrap namespaces unavailable; verification refused")
 
-    def run(
-        self,
-        argv: Sequence[str],
-        *,
-        cwd: Path,
-        env: Mapping[str, str],
-        timeout_sec: int,
-    ) -> SandboxOutcome:
-        wrapped = [self._unshare, "--net", "--", *list(argv)]
-        return ArgvListSandbox().run(
-            wrapped, cwd=cwd, env=env, timeout_sec=timeout_sec
-        )
+    def _prefix(self) -> list[str]:
+        return [self._bwrap, "--die-with-parent", "--new-session", "--unshare-all",
+                "--cap-drop", "ALL", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev"]
+
+    def run(self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str], timeout_sec: int) -> SandboxOutcome:
+        with tempfile.TemporaryDirectory(prefix="cyclaw-bwrap-") as scratch:
+            root = str(cwd.resolve())
+            child_env = dict(env, HOME=scratch, USERPROFILE=scratch, TMPDIR=scratch, TMP=scratch, TEMP=scratch)
+            wrapped = self._prefix() + ["--bind", root, root, "--bind", scratch, scratch,
+                                       "--chdir", root, "--", *argv]
+            return ArgvListSandbox().run(wrapped, cwd=cwd, env=child_env, timeout_sec=timeout_sec)
 
 
 class WindowsJobObjectSandbox:
-    """Assign the child to a Job Object with KILL_ON_JOB_CLOSE.
+    """Compatibility name that refuses the incomplete Windows boundary."""
 
-    This is a process-tree kill boundary, not a network namespace. Sockets
-    still work until a later Phase 4 slice. Assign failure fails the check
-    rather than running unconstrained.
-    """
-
-    def run(
-        self,
-        argv: Sequence[str],
-        *,
-        cwd: Path,
-        env: Mapping[str, str],
-        timeout_sec: int,
-    ) -> SandboxOutcome:
-        job = _create_job()
-        try:
-            try:
-                proc = subprocess.Popen(  # noqa: S603 -- argv list, no shell
-                    list(argv),
-                    cwd=str(cwd),
-                    env=dict(env),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    creationflags=_CREATE_BREAKAWAY_FROM_JOB,
-                )
-            except OSError:
-                try:
-                    proc = subprocess.Popen(  # noqa: S603 -- still assigned to the job below
-                        list(argv),
-                        cwd=str(cwd),
-                        env=dict(env),
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                    )
-                except OSError as exc:
-                    return SandboxOutcome(
-                        exit_code=-2,
-                        stderr=f"could not execute {argv[0]!r}: {exc}",
-                    )
-            if not _assign_pid(job, proc.pid):
-                proc.kill()
-                proc.communicate()
-                return SandboxOutcome(
-                    exit_code=-2,
-                    stderr="AssignProcessToJobObject failed; refusing unconstrained run",
-                )
-            try:
-                stdout, stderr = proc.communicate(timeout=timeout_sec)
-            except subprocess.TimeoutExpired:
-                _terminate_job(job)
-                try:
-                    stdout, stderr = proc.communicate(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    stdout, stderr = proc.communicate()
-                return SandboxOutcome(
-                    exit_code=-1,
-                    stdout=truncate_output(stream_to_str(stdout)),
-                    stderr=f"timed out after {timeout_sec}s",
-                    timed_out=True,
-                )
-            return SandboxOutcome(
-                exit_code=proc.returncode if proc.returncode is not None else -1,
-                stdout=truncate_output(stdout or ""),
-                stderr=truncate_output(stderr or ""),
-            )
-        finally:
-            _close_handle(job)
-
-
-def _win_kernel32():  # type: ignore[no-untyped-def]
-    import ctypes
-
-    wintypes = ctypes.wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
-    k32.CreateJobObjectW.restype = wintypes.HANDLE
-    k32.SetInformationJobObject.argtypes = [
-        wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
-    ]
-    k32.SetInformationJobObject.restype = wintypes.BOOL
-    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-    k32.AssignProcessToJobObject.restype = wintypes.BOOL
-    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    k32.OpenProcess.restype = wintypes.HANDLE
-    k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-    k32.TerminateJobObject.restype = wintypes.BOOL
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    k32.CloseHandle.restype = wintypes.BOOL
-    return ctypes, wintypes, k32
-
-
-def _create_job() -> int:
-    ctypes, wintypes, k32 = _win_kernel32()
-
-    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("PerProcessUserTimeLimit", ctypes.c_int64),
-            ("PerJobUserTimeLimit", ctypes.c_int64),
-            ("LimitFlags", wintypes.DWORD),
-            ("MinimumWorkingSetSize", ctypes.c_size_t),
-            ("MaximumWorkingSetSize", ctypes.c_size_t),
-            ("ActiveProcessLimit", wintypes.DWORD),
-            ("Affinity", ctypes.c_void_p),
-            ("PriorityClass", wintypes.DWORD),
-            ("SchedulingClass", wintypes.DWORD),
-        ]
-
-    class IO_COUNTERS(ctypes.Structure):
-        _fields_ = [("x", ctypes.c_uint64 * 6)]
-
-    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
-            ("IoInfo", IO_COUNTERS),
-            ("ProcessMemoryLimit", ctypes.c_size_t),
-            ("JobMemoryLimit", ctypes.c_size_t),
-            ("PeakProcessMemoryUsed", ctypes.c_size_t),
-            ("PeakJobMemoryUsed", ctypes.c_size_t),
-        ]
-
-    handle = k32.CreateJobObjectW(None, None)
-    if not handle:
-        raise HardSandboxUnavailable(
-            "CreateJobObjectW failed",
-            details={"winerror": ctypes.get_last_error()},
-        )
-    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-    info.BasicLimitInformation.LimitFlags = (
-        _JOB_OBJECT_LIMIT_KILL_ON_CLOSE | _JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-    )
-    info.BasicLimitInformation.ActiveProcessLimit = _JOB_ACTIVE_PROCESS_LIMIT
-    ok = k32.SetInformationJobObject(
-        handle,
-        _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-        ctypes.byref(info),
-        ctypes.sizeof(info),
-    )
-    if not ok:
-        k32.CloseHandle(handle)
-        raise HardSandboxUnavailable(
-            "SetInformationJobObject failed",
-            details={"winerror": ctypes.get_last_error()},
-        )
-    return int(handle)
-
-
-def _assign_pid(job: int, pid: int) -> bool:
-    ctypes, _wintypes, k32 = _win_kernel32()
-    access = _PROCESS_SET_QUOTA | _PROCESS_TERMINATE
-    proc_handle = k32.OpenProcess(access, False, pid)
-    if not proc_handle:
-        return False
-    try:
-        return bool(k32.AssignProcessToJobObject(job, proc_handle))
-    finally:
-        k32.CloseHandle(proc_handle)
-
-
-def _terminate_job(job: int) -> None:
-    _ctypes, _wintypes, k32 = _win_kernel32()
-    k32.TerminateJobObject(job, 1)
-
-
-def _close_handle(job: int) -> None:
-    _ctypes, _wintypes, k32 = _win_kernel32()
-    k32.CloseHandle(job)
+    def run(self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str], timeout_sec: int) -> SandboxOutcome:
+        raise HardSandboxUnavailable("Windows Job Objects do not confine filesystem or network access")

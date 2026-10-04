@@ -54,6 +54,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentic.fsconnect.protected_paths import protected_component, validate_root
 from utils.errors import FsConnectRuntimeError, FsMacOSPermissionError, FsPathError
 
 logger = logging.getLogger(__name__)
@@ -640,6 +641,8 @@ def split_components(target: str) -> list[str]:
             raise FsPathError("':' is not allowed in a path component (drive letter / ADS)")
         if raw != raw.rstrip(" ."):
             raise FsPathError("trailing dot or space is not allowed in a path component")
+        if protected_component(raw):
+            raise FsPathError("protected credential/configuration path is not exposed")
         comps.append(raw)
     return comps
 
@@ -703,6 +706,10 @@ class ScopedRoots:
         """
         seen: list[tuple[str, str]] = []  # (normcase, resolved-str) pairs
         for raw in root_strs:
+            try:
+                validate_root(raw)
+            except ValueError as exc:
+                raise FsPathError(str(exc)) from None
             resolved = self._prepare_root(raw, create=create)
             norm = os.path.normcase(str(resolved))
             resolved_str = str(resolved)
@@ -906,7 +913,7 @@ class ScopedRoots:
                     if _is_macos_dataless(pre_open_stat):
                         raise FsPathError(f"iCloud dataless placeholder is not read: {leaf!r}")
                 try:
-                    fd = os.open(leaf, os.O_RDONLY | _O_NOFOLLOW, dir_fd=pfd)
+                    fd = os.open(leaf, os.O_RDONLY | _O_NOFOLLOW | os.O_NONBLOCK, dir_fd=pfd)
                 except OSError as exc:
                     _raise_macos_permission(f"opening {leaf!r} for reading", exc)
                     raise FsPathError(
@@ -1011,7 +1018,7 @@ class ScopedRoots:
     def _listdir_fd(self, dir_fd: int, *, skip_macos_metadata: bool = False) -> list[dict]:
         entries: list[dict] = []
         try:
-            names = sorted(os.listdir(dir_fd))
+            names = sorted(name for name in os.listdir(dir_fd) if not protected_component(name))
         except OSError as exc:
             _raise_macos_permission("listing a configured directory", exc)
             raise FsPathError(
@@ -1144,13 +1151,19 @@ class ScopedRoots:
             with self._descend_posix(sr, comps) as (pfd, leaf):
                 try:
                     fd = os.open(
-                        leaf, os.O_WRONLY | os.O_CREAT | os.O_APPEND | _O_NOFOLLOW, 0o600, dir_fd=pfd
+                        leaf, os.O_WRONLY | os.O_CREAT | os.O_APPEND | _O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=pfd
                     )
                 except OSError as exc:
                     raise FsPathError(
                         f"cannot open {leaf!r} for append",
                         details={"errno": exc.errno, "strerror": exc.strerror},
                     ) from exc
+                try:
+                    if not statmod.S_ISREG(os.fstat(fd).st_mode):
+                        raise FsPathError("append target is not a regular file")
+                except BaseException:
+                    os.close(fd)
+                    raise
                 with os.fdopen(fd, "ab", closefd=True) as f:
                     f.write(data)
             return {"bytes": len(data), "path": self._display(sr, comps)}
@@ -1257,11 +1270,14 @@ class ScopedRoots:
         if sha_max_bytes is not None and size > sha_max_bytes:
             return None
         try:
-            fd = os.open(leaf, os.O_RDONLY | _O_NOFOLLOW, dir_fd=pfd)
+            fd = os.open(leaf, os.O_RDONLY | _O_NOFOLLOW | os.O_NONBLOCK, dir_fd=pfd)
         except OSError:
             return None
         h = hashlib.sha256()
         with os.fdopen(fd, "rb", closefd=True) as f:
+            opened = os.fstat(f.fileno())
+            if not statmod.S_ISREG(opened.st_mode) or (sha_max_bytes is not None and opened.st_size > sha_max_bytes):
+                return None
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
         return h.hexdigest()
@@ -1425,7 +1441,7 @@ class ScopedRoots:
         try:
             if not attrs & _FILE_ATTRIBUTE_DIRECTORY:
                 raise FsPathError("target is not a directory")
-            return _win_list_handle(handle)
+            return [entry for entry in _win_list_handle(handle) if not protected_component(str(entry["name"]))]
         finally:
             _win_close_handle(handle)
 

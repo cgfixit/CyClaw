@@ -126,16 +126,14 @@ module isolation — I6 is the import-isolation invariant). See
   claims, and what remains true: this is not multi-tenant, and it is not a
   platform for arbitrary *third-party* code — see §5 for the distinction and its
   limits.
-- **A hard network boundary around the verification executor.** `agentic/executor`
-  now requires `production_sandbox()` (issue #1134 Phase 4). On Windows that is a
-  Job Object with `KILL_ON_JOB_CLOSE` (process-tree kill, active-process cap).
-  Darwin uses `sandbox-exec` (network deny; writes limited to the worktree and
-  a disposable `TMPDIR`). Linux uses `unshare --net`. Missing binary or failed
-  probe fails closed — there is no silent `subprocess.run` fallback. POSIX
-  timeouts kill the process group, not only the wrapper. Ordinary TCP/UDP
-  sockets still work on Windows. Treat any claim that a verified worktree
-  "had no network access" as unverified on Windows until a real namespace
-  exists (§6, stage 5).
+- **Filesystem and network confinement for verification.** Checks execute in a
+  disposable gitless source mirror, and no check-generated files are copied back.
+  macOS Seatbelt permits writes only to that mirror and its private scratch
+  directory. The authoritative checkout, Git metadata, and baseline stay read-only.
+  Detached macOS descendants can survive process-group cleanup, but remain under
+  the inherited confinement. Linux requires bubblewrap filesystem, network, and PID
+  namespaces. Windows verification refuses to run until an equivalent filesystem
+  boundary exists; a Job Object alone does not qualify. Missing backends fail closed.
 - **Kernel / hypervisor escape.** There is **no per-workload microVM**
   (gVisor/Firecracker). Container isolation shares the container host's Linux
   kernel. On Docker Desktop that kernel is in the managed Linux VM rather than
@@ -355,13 +353,10 @@ narrower and more precise reason than "nothing executes":
   the human `reason` and `confirm` gates exist so that reading is a deliberate
   choice, not an assumption baked into the tooling.
 
-  **[Fourth amendment, issue #1134 Phase 4 sandbox slice.]** The third
-  amendment's "HOME remains inherited" line is **stale**. `run_verification`
-  now assigns a disposable `HOME`/`USERPROFILE` and requires
-  `production_sandbox()`: Windows Job Object (`KILL_ON_JOB_CLOSE`),
-  Darwin Seatbelt (`sandbox-exec`, network deny, worktree+TMPDIR writes),
-  Linux `unshare --net`. Missing backend fails closed. POSIX timeout
-  kills the process group. Sockets still work on Windows.
+  Verification uses a disposable HOME and a gitless mirror under the filesystem
+  and network boundary described above. Its output is evidence only. Publication
+  reads the authoritative candidate; checks cannot mutate its Git configuration or
+  post-clone baseline. POSIX process groups are reaped on completion and timeout.
 
   **[Fifth amendment, issue #1134 Phase 4 approval-manifest slice.]**
   `finalize_real_repo_change` now rebuilds an acceptance digest

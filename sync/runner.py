@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 
 from sync.config import RcloneConfig
 from sync.filters import write_filter_file
+from utils.child_environment import child_environment
 from utils.errors import (
     RcloneNotInstalledError,
     RcloneTimeoutError,
@@ -81,6 +82,7 @@ def check_rclone_version(rclone_bin: str = "rclone") -> tuple[int, int, int]:
         # argv list; binary is an absolute path from shutil.which; no shell.
         result = subprocess.run(  # noqa: S603 -- argv list, absolute binary, no shell
             [binary, "version"],
+            env=child_environment(),
             capture_output=True,
             text=True,
             timeout=10,
@@ -419,6 +421,7 @@ def run_post_sync_check(
     try:
         completed = subprocess.run(  # noqa: S603 -- argv list, absolute binary, no shell
             argv,
+            env=child_environment("sync"),
             capture_output=True,
             text=True,
             check=False,
@@ -962,6 +965,7 @@ def _run_sync_locked(
                 # argv is a list of a fixed flag set + validated config; never shell=True.
                 completed = subprocess.run(  # noqa: S603 -- argv list, validated inputs, no shell
                     argv,
+                    env=child_environment("sync"),
                     capture_output=True,
                     text=True,
                     check=False,
