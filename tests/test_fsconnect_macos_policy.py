@@ -265,14 +265,24 @@ def test_root_stat_permission_is_typed(
     monkeypatch,
     error_number: int,
 ) -> None:
-    monkeypatch.setattr(pathsafe.Path, "resolve", lambda self, *, strict: self)
+    configured_root = pathsafe.Path("configured-root")
+    real_resolve = pathsafe.Path.resolve
+    real_stat = pathsafe.Path.stat
 
-    def denied(_self):
-        raise PermissionError(error_number, "denied")
+    def resolve_configured_root(self, *args, **kwargs):
+        if self == configured_root:
+            return self
+        return real_resolve(self, *args, **kwargs)
 
-    monkeypatch.setattr(pathsafe.Path, "stat", denied)
+    def deny_configured_root(self, *args, **kwargs):
+        if self == configured_root:
+            raise PermissionError(error_number, "denied")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathsafe.Path, "resolve", resolve_configured_root)
+    monkeypatch.setattr(pathsafe.Path, "stat", deny_configured_root)
     with pytest.raises(FsMacOSPermissionError):
-        pathsafe.ScopedRoots(["configured-root"], create=False)
+        pathsafe.ScopedRoots([str(configured_root)], create=False)
 
 
 def test_open_fd_is_rechecked_for_dataless_state(darwin: None, monkeypatch) -> None:
