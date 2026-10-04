@@ -528,9 +528,10 @@ jobs:
         # because torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu
         # for macOS -- confirmed on this matrix leg's first run, and documented
         # in setup-guide.md.
-        # Ubuntu 24.04 stock AppArmor denies bubblewrap loopback setup.
-        # Native confinement stays mandatory on the supported 22.04 image.
-        os: [ubuntu-22.04, windows-latest, macos-latest]
+        # ubuntu-latest (24.04) is the required check; ubuntu-22.04 is the leg where
+        # stock AppArmor lets bubblewrap set up its namespaces, so native
+        # confinement is proven there. Each check is named for its real runner.
+        os: [ubuntu-latest, ubuntu-22.04, windows-latest, macos-latest]
     # All three supported hosts are release gates. Platform-specific skips are
     # reported below with `pytest -rs`; a failing Windows result is not masked.
 
@@ -540,7 +541,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Linux verification filesystem/PID/network sandbox
-        if: runner.os == 'Linux'
+        if: matrix.os == 'ubuntu-22.04'
         shell: bash
         run: |
           sudo apt-get update
