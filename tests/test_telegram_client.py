@@ -708,6 +708,7 @@ def test_post_query_audit_receives_hash_not_plaintext(tmp_path: Path) -> None:
     raw = yaml.safe_load(Path(cfg._config_path).read_text(encoding="utf-8"))
     raw["policy"] = {"privacy": {"query_fingerprint_key_file": str(key_file)}}
     Path(cfg._config_path).write_text(yaml.safe_dump(raw), encoding="utf-8")
+    reset_config_cache()
     cfg = load_telegram_config(cfg._config_path)
     mock_resp = MagicMock()
     mock_resp.status_code = 200

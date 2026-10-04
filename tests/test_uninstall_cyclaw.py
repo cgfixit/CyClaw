@@ -140,6 +140,7 @@ _PATH_WITHOUT_LSOF_TOOLS = (
     "kill",
     "sleep",
     "cat",
+    "awk",
     "sed",
     "tr",
     "dirname",
