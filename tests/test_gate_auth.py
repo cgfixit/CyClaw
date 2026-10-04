@@ -778,5 +778,6 @@ def test_login_and_logout_run_the_blocking_manager_call_on_a_worker_thread():
     from pathlib import Path
 
     src = (Path(__file__).resolve().parent.parent / "gate_auth.py").read_text(encoding="utf-8")
-    assert "await asyncio.to_thread(manager.login" in src
+    assert "await _password_work(manager.login" in src
+    assert "await auth_workers.run(fn, *args)" in src
     assert "await asyncio.to_thread(manager.logout" in src

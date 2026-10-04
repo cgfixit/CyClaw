@@ -275,7 +275,7 @@ class TestIndexBuildCredentialGate:
         from utils import console_session
 
         monkeypatch.setenv("CYCLAW_API_KEY", self.KEY)
-        minted = console_session.mint(self.KEY, 600)
+        minted = console_session.mint(self.KEY, 600, audience="http://localhost")
         client.cookies.set(console_session.COOKIE_NAME, minted.token)
         with patch.object(gate, "_run_index_build") as run:
             resp = client.post("/index/build")
@@ -365,7 +365,7 @@ class TestIndexBuildWorker:
             gate._run_index_build()
         assert gate._index_build["state"] == "error"
         assert "super-secret-key-value" not in gate._index_build["error"]
-        assert "[REDACTED]" in gate._index_build["error"]
+        assert "[REDACTED_SECRET]" in gate._index_build["error"]
 
     def test_progress_handler_is_removed_even_on_failure(self, idle_client):
         """A leaked handler would keep firing on every later indexer log line

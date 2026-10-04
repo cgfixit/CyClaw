@@ -59,7 +59,7 @@ def _private_directory(path: Path) -> None:
     try:
         path.chmod(0o700)
     except OSError:
-        pass
+        logger.warning("Could not harden log directory permissions to 0700: %s", path)
 
 
 def _private_open(path: Path) -> TextIO:

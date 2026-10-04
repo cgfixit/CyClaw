@@ -234,7 +234,8 @@ class TestPing:
             },
         }
         if provider == "local_llm":
-            cfg["models"]["local_llm"]["api_key"] = key
+            monkeypatch.setenv("LOCAL_HEALTH_KEY", key)
+            cfg["models"]["local_llm"]["api_key_env"] = "LOCAL_HEALTH_KEY"
         else:
             monkeypatch.setenv("GROK_API_KEY" if provider == "grok" else "ANTHROPIC_API_KEY", key)
         captured = []
@@ -248,7 +249,8 @@ class TestPing:
 
         monkeypatch.setattr(health, "_http_get", boom)
         statuses = health.check_all(cfg=cfg)
-        assert captured == [key if provider == "claude" else f"Bearer {key}"]
+        clean_key = key.strip()
+        assert captured == [clean_key if provider == "claude" else f"Bearer {clean_key}"]
         failed = [status for status in statuses if not status.healthy]
         assert len(failed) == 1
         assert failed[0].error == "Invalid request"

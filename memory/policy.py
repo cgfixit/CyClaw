@@ -64,8 +64,12 @@ def scan_content(content: str, cfg: dict[str, Any], *, enforced: bool = True) ->
     """Return matched pattern sources. enforced=True uses critical set only."""
     base = ENFORCED_SOUL_PATTERNS if enforced else OWASP_INJECTION_PATTERNS
     # Keep literal-pattern matches when folding removes marks/punctuation.
+    literal_probe = _normalize_for_match(content or "", fold_separators=False)
     probe = _normalize_for_match(content or "")
-    return [src for src, pat in _compile_patterns(base, cfg) if pat.search(content or "") or pat.search(probe)]
+    return [
+        src for src, pat in _compile_patterns(base, cfg)
+        if pat.search(content or "") or pat.search(literal_probe) or pat.search(probe)
+    ]
 
 
 def enforce_content(content: str, cfg: dict[str, Any]) -> None:
