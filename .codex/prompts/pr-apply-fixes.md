@@ -7,8 +7,11 @@ You are Codex applying **owner-approved** fixes on a CyClaw pull request branch.
 The repository owner issued either trigger below for a qualifying automated/AI
 bot comment:
 
-- `@codex apply fixes`
-- `@openai-code-agent apply fixes`
+- `@codex apply fixes <full 40-character head SHA>` (PR issue comment)
+- `@openai-code-agent apply fixes <full 40-character head SHA>` (PR issue comment)
+
+Review-comment replies may omit the SHA: approval is bound to the review comment's
+commit and the event PR head. The gate rejects stale heads before candidate execution.
 
 The workflow binds a reply to its exact parent; an issue-comment fallback can
 select the most recent prior qualifying bot comment. This is an explicit,

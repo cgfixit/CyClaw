@@ -1,6 +1,9 @@
 # Owner-authorized fixes: untrusted candidate execution and credentialed publication
 # run on separate hosted runners. Publication consumes only a data patch, never
 # candidate .git state, scripts, dependencies, hooks, or local action definitions.
+# Issue comments: @codex apply fixes <full 40-character head SHA> (or
+# @openai-code-agent apply fixes <SHA>). Review replies bind to comment.commit_id
+# and the event PR head; stale review threads require fresh approval.
 name: Codex Apply Fixes (PR Reply)
 on:
   pull_request_review_comment:
@@ -214,6 +217,24 @@ jobs:
               repo: context.repo.repo,
               pull_number: prNumber,
             });
+            // Bind authorization to an immutable revision, not whichever branch
+            // tip exists when this queued job starts. Git commit dates are
+            // author-controlled and cannot establish approval freshness.
+            const approvedSha = context.eventName === "pull_request_review_comment"
+              ? context.payload.comment?.commit_id
+              : body.match(/@(?:codex|openai-code-agent)\s+apply\s+fixes\s+([0-9a-f]{40})(?=\s|$)/i)?.[1];
+            if (!approvedSha || !/^[0-9a-f]{40}$/i.test(approvedSha)) {
+              core.setFailed(context.eventName === "pull_request_review_comment"
+                ? "Review approval is missing its immutable commit SHA."
+                : "Issue-comment approval requires '@codex apply fixes <full 40-character head SHA>'.");
+              return;
+            }
+            if (pr.head.sha.toLowerCase() !== approvedSha.toLowerCase() ||
+                (context.eventName === "pull_request_review_comment" &&
+                 context.payload.pull_request?.head?.sha !== pr.head.sha)) {
+              core.setFailed("PR head changed since approval; approve the current exact head again.");
+              return;
+            }
             if (pr.state !== "open") {
               core.setFailed("PR is not open.");
               return;
