@@ -105,6 +105,11 @@ class LoopResult:
         if not self.iterations:
             raise AgenticError("LoopResult requires at least one iteration")
 
+    @property
+    def final_decision(self) -> CandidateDecision:
+        return self.iterations[-1].decision
+
+
 def run_optimization_loop(
     runner: GitHubCodingRunner,
     experiment: Experiment,

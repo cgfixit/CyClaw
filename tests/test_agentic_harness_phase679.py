@@ -511,6 +511,7 @@ def test_loop_accepts_on_the_first_correct_proposal(tmp_path: Path) -> None:
     assert result.accepted is True
     assert len(result.iterations) == 1
     assert result.iterations[0].decision.accepted is True
+    assert result.final_decision is result.iterations[-1].decision
     assert result.baseline.score == 0.5
     written = (workspace.current_dir / "planner.py").read_text(encoding="utf-8")
     assert "fixed" in written
