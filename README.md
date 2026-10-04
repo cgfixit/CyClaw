@@ -92,8 +92,9 @@ Updating an existing environment? Rerun the install, then follow the
 unversioned `python3` that may resolve to 3.11; `.venv` needs no admin
 rights. Choose [native macOS](macos/README.md), [Windows](powershell/README.md),
 the Linux Quick Start, or [Docker](docs/DOCKER.md) (`linux/amd64`, publish on
-`127.0.0.1` only, and create the bind directories first). `pip install -e .`
-adds the `cyclaw-*` commands; the `python -m …` forms always work.
+`127.0.0.1` only, and create the bind directories first). The constrained
+editable install in the [setup guide](setup-guide.md) adds the `cyclaw-*`
+commands; the `python -m …` forms always work.
 
 **Secrets.** `gate.py` reads environment variables, never dotenv files.
 `Invoke-CyClaw.ps1` reads non-secret settings from the first owner-only
@@ -195,7 +196,8 @@ separate [evals](docs/EVALS.md) measure answer quality.
    soul self-initializes. [Soul invariants](INVARIANTS.md), Rules 4–5.
 5. **Confirmed external fallback.** Grok (`grok-4.5`, `api.x.ai`) or Claude
    (`claude-sonnet-5`, `api.anthropic.com`) requires hybrid mode, that
-   provider enabled, and `user_confirmed_online: true` on the request.
+   provider enabled, `user_confirmed_online: true` on the request, that
+   provider selected, and a usable client (key present).
    Calls share the remaining `api.graph_timeout_sec` budget, and
    `utils/endpoint_trust.py` rejects rewritten provider URLs.
 6. **HTTP and MCP.** FastAPI serves the browser at `/`. The separate MCP
