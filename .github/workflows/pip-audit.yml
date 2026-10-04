@@ -215,6 +215,8 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/audit-venv"
           "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.2.1
+          "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes --no-deps \
+            -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r requirements-lock-linux.txt
           "$RUNNER_TEMP/audit-venv/bin/pip" install -r requirements-test.txt -c constraints.txt
 
