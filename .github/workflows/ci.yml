@@ -510,7 +510,8 @@ jobs:
           }
 
   test:
-    name: ${{ matrix.os }}
+    # Report the Linux leg as `ubuntu-latest` (the ruleset's required check name) while it runs on ubuntu-22.04 for bwrap.
+    name: ${{ matrix.os == 'ubuntu-22.04' && 'ubuntu-latest' || matrix.os }}
     runs-on: ${{ matrix.os }}
     # Bound every run: the install step pulls torch + chromadb + sentence-transformers
     # and the RAG smoke spins up an embedded ChromaDB. A hung download or a wedged
