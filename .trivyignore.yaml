@@ -1,0 +1,21 @@
+vulnerabilities:
+  - id: CVE-2026-45829
+    expired_at: 2026-11-01
+    statement: >-
+      chromadb 1.5.9 server RCE is unreachable because CyClaw uses embedded
+      PersistentClient only, with no Chroma HTTP server or trust_remote_code.
+  - id: CVE-2026-45830
+    expired_at: 2026-11-01
+    statement: >-
+      The authenticated IDOR is in the unused Chroma HTTP server surface.
+      CyClaw uses embedded PersistentClient only.
+  - id: CVE-2026-45831
+    expired_at: 2026-11-01
+    statement: >-
+      The SimpleRBAC scope bypass is in the unused Chroma HTTP server surface.
+      CyClaw uses embedded PersistentClient only.
+  - id: CVE-2026-45833
+    expired_at: 2026-11-01
+    statement: >-
+      The authenticated model code injection is in the unused Chroma HTTP
+      server surface. CyClaw uses embedded PersistentClient only.

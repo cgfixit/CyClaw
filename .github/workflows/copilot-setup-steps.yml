@@ -64,7 +64,9 @@ jobs:
         # This pin is duplicated in ci.yml, pip-audit.yml, and
         # nemo-guardrails.yml -- grep for the version string under
         # .github/workflows/ before bumping it.
-        run: pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
+        run: >-
+          pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt
+          --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install CyClaw dependencies + test tools
         run: pip install -r requirements.txt -r requirements-test.txt -c constraints.txt

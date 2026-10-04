@@ -12,7 +12,8 @@
   Prompt before deleting %USERPROFILE%\CyClaw-FS (the confined read jail).
 
 .PARAMETER RemoveCredentials
-  Delete the five documented Credential Manager targets. Prompts y/N unless
+  Delete every CyClaw Credential Manager target named in utils/secret-policy.tsv
+  (the prompt lists them and their count). Prompts y/N unless
   -Yes is also passed (the macOS twin is --remove-keychain / --yes). Plaintext
   lines are left in place so the purge is not also the only copy. This switch
   never writes a credential. Without it, uninstall only removes a plaintext
@@ -114,20 +115,25 @@ function Confirm-CyclawDestructive([string]$Prompt) {
 }
 
 # Never write Credential Manager during uninstall. -RemoveCredentials purges
-# the five documented targets only after a y/N prompt (or -Yes) and skips the
-# plaintext strip, so both copies are not destroyed together. Otherwise a
-# line is removed only when the stored value matches. Scope is the home
-# dotenv and the install layout %USERPROFILE%\.CyClaw\repo dotenv. The
-# checkout environment variable is not followed.
+# every target named in secret-policy.tsv only after a y/N prompt (or -Yes) that
+# lists them, and skips the plaintext strip, so both copies are not destroyed
+# together. Otherwise a line is removed only when the stored value matches.
+# Scope is the home dotenv and the install layout %USERPROFILE%\.CyClaw\repo
+# dotenv. The checkout environment variable is not followed.
 $secretStore = Join-Path $PSScriptRoot "CyClaw-SecretStore.ps1"
 if (Test-Path -LiteralPath $secretStore) {
     . $secretStore
     if ($RemoveCredentials) {
         Write-Host "[cyclaw] -RemoveCredentials: leaving plaintext secret lines in place so the Credential Manager purge is not also the only copy."
-        if (-not (Confirm-CyclawDestructive "Delete the five documented CyClaw Credential Manager items?")) {
+        # Target names only (never a secret value), derived from the same
+        # policy file the purge walks, so the prompt can't drift from it.
+        $credTargets = @($script:CyclawSecretTargets.Values | Where-Object { $_ } | Sort-Object -Unique)
+        Write-Host "[cyclaw] -RemoveCredentials targets these $($credTargets.Count) Credential Manager items:"
+        foreach ($credTarget in $credTargets) { Write-Host "[cyclaw]   $credTarget" }
+        if (-not (Confirm-CyclawDestructive "Delete these $($credTargets.Count) CyClaw Credential Manager items?")) {
             Write-Host "[cyclaw] kept Credential Manager items"
         } elseif (Test-CyclawWindowsHost) {
-            foreach ($credTarget in @($script:CyclawSecretTargets.Values | Where-Object { $_ } | Sort-Object -Unique)) {
+            foreach ($credTarget in $credTargets) {
                 if (Remove-CyclawCredential $credTarget) {
                     Write-Host "[cyclaw] removed Credential Manager item $credTarget"
                 }

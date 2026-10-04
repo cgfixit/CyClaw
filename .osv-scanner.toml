@@ -15,9 +15,9 @@
 # Package: chromadb
 # Version: 1.5.9
 # Date added: 2026-06-20 (GHSA) / 2026-07-20 (PYSEC alias)
-# Last reviewed: 2026-07-20
+# Last reviewed: 2026-10-04 against api.osv.dev for chromadb 1.5.9
 # Owner: CGFixIT
-# Next scheduled review: 2026-09-20 (quarterly)
+# Next scheduled review: 2026-11-01
 # Status: Accepted (no upstream patch available; last_affected: 1.5.9)
 # Mitigation: Local PersistentClient (embedded mode) + offline-first + no
 #   HttpClient surface + no trust_remote_code. The advisory requires the
@@ -31,10 +31,12 @@
 
 [[IgnoredVulns]]
 id = "GHSA-f4j7-r4q5-qw2c"
+ignoreUntil = 2026-11-01
 reason = "CVE-2026-45829 (Critical pre-auth RCE) — no upstream patch released as of 2026-07-20. Risk accepted under v1.4.0 for local/offline CyClaw: chromadb.PersistentClient (embedded mode, path from config.yaml), no HttpClient, pre-computed embeddings only, offline-first design + full telemetry kill switch in gate.py. See pip-audit workflow for detailed justification. Quarterly review scheduled."
 
 [[IgnoredVulns]]
 id = "PYSEC-2026-311"
+ignoreUntil = 2026-11-01
 reason = "Alias of CVE-2026-45829 / GHSA-f4j7-r4q5-qw2c (same chromadb pre-auth code injection; OSV serves it under both IDs). Same acceptance: PyPI-sourced ID requires the Chroma HTTP server API with trust_remote_code=true; CyClaw uses embedded PersistentClient only, never the server surface. Verified via OSV API 2026-07-20: still reported against chromadb 1.5.9, last_affected 1.5.9, no fixed version."
 
 # --- GHSA-2wm9-hf6c-p5cr / GHSA-36p7-vc44-83pf / GHSA-xph7-9rjv-w5fr (chromadb siblings) ---
@@ -48,9 +50,9 @@ reason = "Alias of CVE-2026-45829 / GHSA-f4j7-r4q5-qw2c (same chromadb pre-auth 
 # Package: chromadb
 # Version: 1.5.9
 # Date added: 2026-08-27
-# Last reviewed: 2026-08-27
+# Last reviewed: 2026-10-04 against api.osv.dev for chromadb 1.5.9
 # Owner: CGFixIT
-# Next scheduled review: 2026-09-20 (quarterly, same cycle as the 45829 entry)
+# Next scheduled review: 2026-11-01
 # Status: Accepted (no upstream patch available; last_affected: 1.5.9)
 # Mitigation: same as CVE-2026-45829 above — embedded PersistentClient only,
 #   no HttpClient, no network listener; the vulnerable Chroma HTTP server API
@@ -59,14 +61,17 @@ reason = "Alias of CVE-2026-45829 / GHSA-f4j7-r4q5-qw2c (same chromadb pre-auth 
 
 [[IgnoredVulns]]
 id = "GHSA-2wm9-hf6c-p5cr"
+ignoreUntil = 2026-11-01
 reason = "CVE-2026-45830 (authenticated IDOR on the Chroma HTTP server — any authenticated user can read/write/update/delete any collection). Sibling of the already-accepted CVE-2026-45829; same mitigation: CyClaw uses embedded PersistentClient only, never the HttpClient/server surface. See SECURITY.md."
 
 [[IgnoredVulns]]
 id = "GHSA-36p7-vc44-83pf"
+ignoreUntil = 2026-11-01
 reason = "CVE-2026-45833 (authenticated code injection through a malicious model repository plus trust_remote_code=true on the Chroma HTTP server's collection-update endpoint, CVSS 9.4). Same mitigation: CyClaw uses embedded PersistentClient only, never the HttpClient/server surface. See SECURITY.md."
 
 [[IgnoredVulns]]
 id = "GHSA-xph7-9rjv-w5fr"
+ignoreUntil = 2026-11-01
 reason = "CVE-2026-45831 (SimpleRBACAuthorizationProvider fails to scope permissions to a tenant, database, or collection, allowing authenticated cross-tenant actions on the Chroma server, CVSS 8.8). Same mitigation: CyClaw uses embedded PersistentClient only, never the HttpClient/server surface. See SECURITY.md."
 
 # === Pruned 2026-07-20 (dead entries — advisories no longer match the pins) ===
@@ -88,3 +93,11 @@ reason = "CVE-2026-45831 (SimpleRBACAuthorizationProvider fails to scope permiss
 #   no remote model loading) remains true; the quarterly torch review on
 #   2026-09-20 stands. If a future scan flags torch 2.13.0 again, re-add a
 #   targeted ignore with the evidence from that scan.
+
+# Same NLTK acceptance as pip-audit.yml (PYSEC-2026-3740 / CVE-2026-81726).
+# Hosted OSV run 37175706890 reports this against the locked 3.10.3 with no fix.
+# retrieval/stemmer.py imports only PorterStemmer, not the affected model APIs.
+[[IgnoredVulns]]
+id = "GHSA-8mgp-746c-j5xp"
+ignoreUntil = 2026-11-01
+reason = "Existing pip-audit acceptance for nltk 3.10.3: the pathsec bypass affects TransitionParser and perceptron/maxent model-artifact APIs. CyClaw only uses PorterStemmer. Re-evaluate on any NLTK usage change or patched release."

@@ -54,7 +54,7 @@ def test_dockerfile_dependency_install_fails_loudly() -> None:
     joined = dockerfile.replace("\\\n", " ")
     install_runs = [
         line for line in joined.splitlines()
-        if line.startswith("RUN ") and "requirements.txt" in line
+        if line.startswith("RUN ") and "requirements-lock-linux.txt" in line
     ]
     assert len(install_runs) == 1, f"expected exactly one dependency-install RUN, got {install_runs}"
     run = install_runs[0]
@@ -65,8 +65,8 @@ def test_dockerfile_dependency_install_fails_loudly() -> None:
         "the dependency-install RUN branches on '||'; a fallback resolver installs a different "
         "tree than the reviewed one, and the build stays green while it happens"
     )
-    assert "pip install --no-cache-dir -r requirements.txt -c constraints.txt" in run, (
-        "the image must install the constrained legacy surface"
+    assert "pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt" in run, (
+        "the image must install the hashed Linux runtime lock"
     )
 
 
@@ -113,16 +113,21 @@ def test_dockerfile_torch_preinstall_matches_constraints_pin() -> None:
     that tree.
     """
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    # The torch wheel now comes from the hashed, exclusive-index Torch lock, so
+    # the version lives in that lock file rather than inline in the Dockerfile.
     in_docker = re.search(
-        r"pip install --no-cache-dir torch==(\S+) --index-url "
+        r"pip install --no-cache-dir --require-hashes --no-deps "
+        r"-r requirements-torch-lock-linux\.txt --index-url "
         r"https://download\.pytorch\.org/whl/cpu",
         dockerfile,
     )
-    assert in_docker, "Dockerfile must pre-install the CPU torch wheel from the PyTorch CPU index"
+    assert in_docker, "Dockerfile must install the hashed CPU torch lock from the PyTorch CPU index"
+    lock = re.search(r"(?m)^torch==(\S+)", (REPO_ROOT / "requirements-torch-lock-linux.txt").read_text(encoding="utf-8"))
+    assert lock, "requirements-torch-lock-linux.txt carries no torch== pin"
     pinned = re.search(r"(?m)^torch==(\S+)", (REPO_ROOT / "constraints.txt").read_text(encoding="utf-8"))
     assert pinned, "constraints.txt carries no torch== pin"
-    assert in_docker.group(1) == pinned.group(1), (
-        f"Dockerfile pre-installs torch=={in_docker.group(1)} but constraints.txt pins "
+    assert lock.group(1) == pinned.group(1), (
+        f"requirements-torch-lock-linux.txt pins torch=={lock.group(1)} but constraints.txt pins "
         f"torch=={pinned.group(1)}; keep the two in lock-step on every torch bump"
     )
 

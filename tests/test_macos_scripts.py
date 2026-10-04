@@ -1100,40 +1100,30 @@ def test_source_dotenv_does_not_execute_hidden_secret_lines(tmp_path: Path) -> N
     assert result.stdout.splitlines()[-2:] == ["port:8788", "status:1"]
 
 
-@_BASH_EXECUTION_REQUIRED
-def test_installer_macos_constraints_copy_keeps_torch_pinned() -> None:
-    """The Darwin branch must keep a torch pin in its constraints copy.
+def test_installer_macos_installs_hashed_plain_torch_lock() -> None:
+    """The Darwin branch must install the hashed PLAIN-torch lock, pinned in step.
 
-    ``pip install ... --ignore-installed PyYAML`` reinstalls every resolved
-    package (``--ignore-installed`` is a bare flag; PyYAML is just one more
-    requirement), torch included. An earlier revision stripped the torch line
-    from the constraints copy entirely, so that reinstall floated torch to
-    PyPI's newest release and discarded the explicit ``torch==2.13.0`` the
-    line above it had just installed (reproduced 2026-09-06 with 2.14.0).
+    The old flow rewrote a constraints copy so ``--ignore-installed`` could not
+    float torch to PyPI's newest release (reproduced 2026-09-06 with 2.14.0).
+    The hashed lock replaces that workaround: ``--require-hashes --no-deps``
+    installs exactly one reviewed wheel, so the same drift is now prevented by
+    the lock's hash pin. What must stay true is that the Darwin lock pins the
+    plain (no ``+cpu``) build of the version constraints.txt pins.
     """
     install_text = (_REPO_ROOT / "macos" / "install-cyclaw.sh").read_text(encoding="utf-8")
-    assert "grep -v '^torch==' \"$REPO_DIR/constraints.txt\"" not in install_text
-    match = re.search(r"(sed '[^']+') \"\$REPO_DIR/constraints\.txt\"", install_text)
-    assert match, "install-cyclaw.sh's constraints rewrite not found -- update this test's regex"
+    assert (
+        '-m pip install --require-hashes --no-deps -r "$REPO_DIR/requirements-torch-lock-macos.txt"'
+        in install_text
+    ), "install-cyclaw.sh's Darwin branch must install the hashed macOS torch lock"
+    assert "sed 's/^" not in install_text, "the constraints rewrite was retired; torch comes from the hashed lock"
 
     constraints = (_REPO_ROOT / "constraints.txt").read_text(encoding="utf-8")
     pinned = re.search(r"^torch==(\d+\.\d+\.\d+)\+cpu$", constraints, re.MULTILINE)
     assert pinned, "constraints.txt no longer pins torch==X.Y.Z+cpu -- update this test"
 
-    # Bytes, not text=True: on Windows text mode would rewrite "\n" as "\r\n"
-    # on the pipe and sed's "$" anchor would then miss the "+cpu" suffix.
-    result = subprocess.run(
-        [_BASH, "-c", match.group(1)],
-        input=constraints.encode("utf-8"),
-        capture_output=True,
-        check=True,
-        timeout=15,
+    lock = (_REPO_ROOT / "requirements-torch-lock-macos.txt").read_text(encoding="utf-8")
+    assert re.search(rf"^torch=={re.escape(pinned.group(1))} \\$", lock, re.MULTILINE), (
+        f"requirements-torch-lock-macos.txt must pin plain torch=={pinned.group(1)} "
+        "(no +cpu), in lock-step with constraints.txt"
     )
-    rewritten = result.stdout.decode("utf-8").splitlines()
-    assert f"torch=={pinned.group(1)}" in rewritten
-    assert not any("+cpu" in line for line in rewritten if line.strip() and not line.lstrip().startswith("#"))
-    # Every non-torch line passes through byte-for-byte.
-    original = constraints.splitlines()
-    assert [line for line in rewritten if not line.startswith("torch==")] == [
-        line for line in original if not line.startswith("torch==")
-    ]
+    assert "+cpu" not in lock.split("--hash", 1)[0], "the macOS torch lock must not carry a +cpu build"

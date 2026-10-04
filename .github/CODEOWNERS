@@ -1,1 +1,12 @@
 .claude/skills/dotenv-guard/baseline.txt @cgfixit
+/.github/workflows/ @cgfixit
+/.github/dependabot.yml @cgfixit
+/.github/CODEOWNERS @cgfixit
+/.osv-scanner.toml @cgfixit
+/.trivyignore.yaml @cgfixit
+/Dockerfile @cgfixit
+/.dockerignore @cgfixit
+/requirements*.txt @cgfixit
+/requirements-torch*.txt @cgfixit
+/constraints.txt @cgfixit
+/scripts/refresh-runtime-lock.sh @cgfixit

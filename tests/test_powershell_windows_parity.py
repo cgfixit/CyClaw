@@ -353,10 +353,15 @@ def test_remove_credentials_prompts_unless_yes() -> None:
     assert "[switch]$Yes" in text
     assert "if ($Yes)" in text
     assert "kept Credential Manager items" in text
-    call = text.index('Confirm-CyclawDestructive "Delete the five documented CyClaw Credential Manager items?"')
+    # The prompt's count and list come from the same policy-derived target set
+    # the purge walks (utils/secret-policy.tsv), never a hard-coded number.
+    targets = text.index("$credTargets = @($script:CyclawSecretTargets.Values")
+    call = text.index('Confirm-CyclawDestructive "Delete these $($credTargets.Count) CyClaw Credential Manager items?"')
     kept = text.index("kept Credential Manager items")
     remove = text.index("Remove-CyclawCredential")
-    assert call < kept < remove
+    assert targets < call < kept < remove
+    assert "foreach ($credTarget in $credTargets)" in text[kept:]
+    assert "five documented" not in text
     confirm = text.split("function Confirm-CyclawDestructive", 1)[1].split("\n}", 1)[0]
     assert confirm.index("if ($Yes)") < confirm.index("Read-Host")
     assert "(y/N)" in confirm

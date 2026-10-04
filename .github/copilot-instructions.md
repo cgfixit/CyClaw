@@ -69,11 +69,16 @@ Six invariants are design constraints enforced by graph wiring, not runtime flag
 # 1. Pin pip
 python -m pip install --upgrade "pip>=26.1.2"
 
-# 2. Linux / Windows: CPU torch FIRST (order is mandatory)
-pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
+# 2. Linux: CPU torch FIRST (order is mandatory)
+pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r requirements-lock-linux.txt
+pip install -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 
-# macOS Apple Silicon: plain torch (no +cpu suffix), stripped manifests — see setup-guide.md#macos-apple-silicon
+# Windows uses both platform-specific lock files:
+# pip install --require-hashes --no-deps -r requirements-torch-lock-windows.txt --index-url https://download.pytorch.org/whl/cpu
+# pip install --require-hashes -r requirements-lock-windows.txt
+
+# macOS Apple Silicon: plain torch (no +cpu suffix) via requirements-torch-lock-macos.txt
 # ci.yml macos-latest leg and macos/install-cyclaw.sh Darwin branch already do this
 
 # 3. Prepare runtime directories (required before server or tests touching gateway)

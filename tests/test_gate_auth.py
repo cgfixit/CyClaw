@@ -781,3 +781,53 @@ def test_login_and_logout_run_the_blocking_manager_call_on_a_worker_thread():
     assert "await _password_work(manager.login" in src
     assert "await auth_workers.run(fn, *args)" in src
     assert "await asyncio.to_thread(manager.logout" in src
+
+
+class TestPasswordWorkBusyIsAudited:
+    """INVARIANTS I4: a password op shed with 503 AUTH_BUSY is a rejection, so
+    it is audited -- once, inside _password_work, for every caller. Only ip,
+    the op name and (on authenticated routes) the acting user are recorded."""
+
+    @staticmethod
+    def _shed_all_password_work(app, monkeypatch):
+        from utils.bounded_executor import WorkCapacityExceeded
+
+        async def _full(_fn, *_args):
+            raise WorkCapacityExceeded("worker capacity is exhausted")
+
+        monkeypatch.setattr(app.state.auth_workers, "run", _full)
+
+    def test_busy_login_is_audited_without_username_or_password(self, manager, user, monkeypatch):
+        username, password = user
+        app = _make_app(manager)
+        self._shed_all_password_work(app, monkeypatch)
+        r = TestClient(app, base_url="http://localhost").post(
+            "/auth/login", json={"username": username, "password": password}
+        )
+        assert r.status_code == 503
+        assert r.json()["detail"]["code"] == "AUTH_BUSY"
+        busy = [e for e in app.state.audit_events if e["event"] == "auth_busy"]
+        assert len(busy) == 1
+        assert set(busy[0]) == {"event", "op", "ip"}
+        assert busy[0]["op"] == "login"
+        assert password not in str(app.state.audit_events)
+        assert username not in str(busy[0])
+
+    def test_busy_own_password_change_records_the_authenticated_actor(self, manager, user, monkeypatch):
+        username, password = user
+        app = _make_app(manager)
+        client = TestClient(app, base_url="http://localhost")
+        csrf = client.post("/auth/login", json={"username": username, "password": password}).json()["csrf_token"]
+        self._shed_all_password_work(app, monkeypatch)
+        new_password = "a different long passphrase entirely"
+        r = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": csrf},
+            json={"current_password": password, "password": new_password},
+        )
+        assert r.status_code == 503
+        assert r.json()["detail"]["code"] == "AUTH_BUSY"
+        busy = [e for e in app.state.audit_events if e["event"] == "auth_busy"]
+        assert busy == [{"event": "auth_busy", "op": "change_password", "ip": busy[0]["ip"], "username": username}]
+        assert password not in str(app.state.audit_events)
+        assert new_password not in str(app.state.audit_events)

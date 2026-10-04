@@ -494,7 +494,8 @@ if [ "$SKIP_OLLAMA" -eq 0 ]; then
       # address-already-in-use — that is success, not a problem.
       step "Ollama API not answering yet; launching 'ollama serve' in the background"
       _ollama_apply_mlx_env
-      ollama serve >/tmp/cyclaw-ollama-serve.log 2>&1 &
+      OLLAMA_LOG="$(mktemp "${TMPDIR:-/tmp}/cyclaw-ollama-serve.XXXXXX.log")"
+      ollama serve >"$OLLAMA_LOG" 2>&1 &
       sleep 1
       if _ollama_up; then
         step "Ollama API is up on 127.0.0.1:11434"

@@ -63,15 +63,17 @@ bash macos/setup-cyclaw.sh
 ```bash
 git clone https://github.com/cgfixit/CyClaw && cd CyClaw
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
+pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r requirements-lock-linux.txt
+pip install -r requirements-test.txt -c constraints.txt
 ollama pull qwen3.8:27b-mlx
 export CYCLAW_API_KEY="$(openssl rand -hex 20)"  # operator routes; /query uses sessions/tokens when auth is on
 python -m retrieval.indexer                      # once; without this, /query is 503
 python gate.py                                   # http://127.0.0.1:8787
 ```
 
-**Windows** uses the same pins (`py -3.12 -m venv .venv`,
+**Windows** uses the same pins with `requirements-torch-lock-windows.txt`
+and `requirements-lock-windows.txt` (`py -3.12 -m venv .venv`,
 `.\.venv\Scripts\Activate.ps1`). [Windows](setup-guide.md#windows-powershell)
 and [Linux](setup-guide.md#linux-bash).
 
@@ -82,7 +84,7 @@ Updating an existing environment? Rerun the install, then follow the
 [NeMo verification](setup-guide.md#verify-the-installed-nemo-runtime).
 
 > **Manual macOS install:** there is no `+cpu` torch wheel for macOS; use
-> plain `torch==2.13.0` per [macOS (Apple Silicon)](setup-guide.md#macos-apple-silicon).
+> plain `torch==2.13.0` then the hashed macOS runtime lock per [macOS (Apple Silicon)](setup-guide.md#macos-apple-silicon).
 
 ---
 

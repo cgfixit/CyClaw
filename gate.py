@@ -1063,6 +1063,10 @@ async def query_endpoint(request: Request, req: QueryRequest):
             timeout=graph_timeout,
         )
     except WorkCapacityExceeded as e:
+        # INVARIANTS I4 / Rule 3: every /query rejection is audited, the
+        # capacity-shed path included. Rate limiting runs before this point,
+        # so busy-path audit writes are already capped per client IP.
+        await _audit_query(request, {"event": "graph_busy", "query": req.query})
         raise HTTPException(
             status_code=503,
             detail={"code": "GRAPH_BUSY", "error": "Query capacity is full; try again shortly"},

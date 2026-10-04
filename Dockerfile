@@ -1,7 +1,7 @@
 # CyClaw Dockerfile - Production-grade, zero-trust, reproducible
-# Python 3.12 + pip, installed from requirements.txt + constraints.txt.
+# Python 3.12 + pip, installed from the generated Linux hash lock.
 # Seccomp/AppArmor ready. Non-root.
-# Aligns with v1.9.0 pyproject + constraints for hermetic deps; CI uses requirements.txt for compat.
+# Aligns with v1.9.0 pyproject + constraints; CI uses the same runtime locks.
 
 # Pinned to the multi-arch manifest-list digest of the 3.12-slim-bookworm tag
 # (fetched from Docker Hub 2026-10-03): a bare tag is mutable, so a re-tagged/
@@ -12,9 +12,9 @@ FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf2583
 WORKDIR /app
 
 # Dependency files first for layer caching
-COPY pyproject.toml constraints.txt requirements.txt ./
+COPY pyproject.toml constraints.txt requirements.txt requirements-lock-linux.txt requirements-torch-lock-linux.txt ./
 
-# Install with plain pip against requirements.txt, NOT pyproject.toml/-e .:
+# Install with plain pip against the generated runtime lock, not pyproject.toml/-e .:
 # this build stage hasn't COPYed the actual source yet (the COPY above takes
 # manifests only), so `-e .` could not build the cyclaw wheel here regardless.
 #
@@ -27,18 +27,16 @@ COPY pyproject.toml constraints.txt requirements.txt ./
 # guard, not a bug. So uv reported "no version of setuptools==<pin>" and every
 # build fell through to pip, with `2>/dev/null` swallowing the reason.
 # Reproduced 2026-09-11 against Python 3.12 with BOTH uv 0.7.22 (the
-# generation this file used to pin) and uv 0.8.17, for `-r requirements.txt`
+# generation this file used to pin) and uv 0.8.17, for the old requirements path
 # and `-e .` alike. `--index-strategy unsafe-best-match` does resolve, but it
 # would hand EVERY package to whichever index has the best version -- the
-# exact guard requirements.txt's own comment relies on -- so the honest fix is
+# exact guard the manifest comment relied on -- so the honest fix is
 # to run the path that was already doing the work. uv is referenced nowhere
 # else in this repo (no workflow, no documented command).
 #
-# Step 1 pins pip itself (matches ci.yml's CVE/repro pin). Step 2 pre-installs
-# the CPU torch wheel explicitly (mirrors ci.yml / pip-audit.yml): pip reads
-# requirements.txt's own --extra-index-url, but pre-installing keeps the CPU
-# wheel resolution independent of that line's ordering. Step 3 installs the
-# rest under constraints.
+# Step 1 pins pip itself. Step 2 installs the CPU Torch wheel from its exclusive
+# index. Step 3 installs the remaining fully resolved graph with hashes from
+# PyPI only.
 # The torch pre-install MUST match the constraints.txt torch pin exactly --
 # when constraints moved 2.12.1 -> 2.13.0 this line stayed behind, so the
 # build installed 2.12.1 and then immediately failed the constrained resolve
@@ -62,8 +60,8 @@ ARG PIP_RETRIES=10
 ENV PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
     PIP_RETRIES=${PIP_RETRIES}
 RUN pip install --no-cache-dir --upgrade "pip==26.2.1" && \
-    pip install --no-cache-dir torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt -c constraints.txt
+    pip install --no-cache-dir --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt
 
 # Runtime stage
 # Same digest as the builder stage above (both MUST match — they are meant to
@@ -99,8 +97,8 @@ RUN apt-get update \
 # degradation) under read_only:true + cap_drop:ALL.
 RUN groupadd --gid 1000 cyclaw && \
     useradd --create-home --uid 1000 --gid cyclaw cyclaw && \
-    mkdir -p /app/.emb_cache && \
-    chown -R cyclaw:cyclaw /app /tmp
+    mkdir -p /app/.emb_cache /app/data /app/index /app/logs && \
+    chown cyclaw:cyclaw /app/.emb_cache /app/data /app/index /app/logs
 USER cyclaw
 
 # Offline-first + security env. CYCLAW_OFFLINE is a human-readable posture

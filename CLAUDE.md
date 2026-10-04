@@ -294,18 +294,13 @@ Real traps in *this* codebase, verified against the code, each paired with the
 rule that prevents it.
 
 ### Environment & install
-- **Trap:** `pip install -r requirements.txt` fails or pulls a CUDA torch.
+- **Trap:** installing Torch from the general dependency input pulls a CUDA build.
   **Rule:** install `torch==2.13.0+cpu` from the PyTorch CPU index **first**,
-  then `pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML`.
+  then install the matching hashed runtime lock and constrained test tools.
 - **Trap:** running that torch line on macOS, or "fixing" the `+cpu` pin when
   it 404s there. **Rule:** macOS needs **plain** `torch==2.13.0` (no `+cpu`
-  wheel exists for Apple Silicon); both manifests hardcode `+cpu` **by design**
-  (dependency-confusion-proof on Linux/Windows). Use the §8 macOS block, which
-  strips torch from the requirements copy but only drops `+cpu` in the
-  constraints copy. Do **not** strip torch from constraints:
-  `--ignore-installed` reinstalls everything, and unconstrained torch floats to
-  PyPI's newest (reproduced 2026-09-06: 2.14.0). `ci.yml`'s `macos-latest` leg
-  and `macos/install-cyclaw.sh` do the same.
+  wheel exists for Apple Silicon). Use the §8 macOS block and its hashed
+  platform lock, which deliberately omits Torch and alternate index directives.
 - **Trap:** moving the torch pin and touching only `requirements.txt`/
   `constraints.txt`. **Rule:** `environment.yml` (conda, `pytorch=2.13.0=cpu*`)
   is a fourth surface, CI-gated by `python-package-conda.yml` and dep-guard D9.
@@ -464,7 +459,7 @@ rule that prevents it.
   **Rule:** BM25 stays JSON (`index/bm25.json`); pickle is RCE. `test_security`
   guards it.
 - **Trap:** logging raw query text "for debugging."
-  **Rule:** the audit log stores keyed HMAC fingerprints by default; `test_gate` enforces it.
+  **Rule:** the audit log stores keyed HMAC fingerprints only (while include_query_hash: true); `test_gate` enforces it.
 - **Trap:** treating MCP `hybrid_search` as unsanitized.
   **Rule:** it runs `check_input` before retrieval (E3, #974; same patterns and
   `max_input_chars` as `/query`) and audits `prompt_injection_blocked`.
@@ -653,17 +648,20 @@ behavior gap).
 Skills reference this section; keep it as the single canonical copy.
 
 ```bash
-# Install — Linux/Windows (order matters — torch CPU FIRST)
-pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
+# Install — Linux (order matters — torch CPU FIRST)
+pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r requirements-lock-linux.txt
+pip install -r requirements-test.txt -c constraints.txt
 
-# Install — macOS (Apple Silicon): PLAIN torch; strip torch/index lines from the
-# requirements copy, drop only the +cpu suffix in the constraints copy (§4).
-pip install "torch==2.13.0"
-grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' \
-    requirements.txt > /tmp/requirements-macos.txt
-sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
-pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt --ignore-installed PyYAML
+# Install — Windows (both lock files are platform-specific)
+pip install --require-hashes --no-deps -r requirements-torch-lock-windows.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r requirements-lock-windows.txt
+pip install -r requirements-test.txt -c constraints.txt
+
+# Install — macOS (Apple Silicon): plain torch, then the arm64 macOS lock.
+pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
+pip install --require-hashes -r requirements-lock-macos.txt
+pip install -r requirements-test.txt -c constraints.txt
 
 # Install — conda (fourth surface; conda-forge names torch `pytorch`)
 conda env create -f environment.yml

@@ -43,10 +43,11 @@ python -m venv .venv
 
 # 2. Torch CPU first — order matters (keeps the CPU wheel, avoids a multi-GB
 #    CUDA build, and stays on the patched side of CVE-2025-32434)
-pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes --no-deps -r requirements-torch-lock-windows.txt --index-url https://download.pytorch.org/whl/cpu
 
-# 3. Runtime + test toolchain, using the shared dependency constraints
-pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
+# 3. Hashed runtime lock, then the constrained test toolchain
+pip install --require-hashes -r requirements-lock-windows.txt
+pip install -r requirements-test.txt -c constraints.txt
 
 # 4. Store real provider and operator keys with interactive Credential Manager
 #    prompts. The prompt values do not enter PowerShell history or process argv.
@@ -122,10 +123,11 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 
 # 2. Torch CPU first — order matters (see the Windows step 2 note above)
-pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
 
-# 3. Runtime + test toolchain, using the shared dependency constraints
-pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
+# 3. Hashed runtime lock, then the constrained test toolchain
+pip install --require-hashes -r requirements-lock-linux.txt
+pip install -r requirements-test.txt -c constraints.txt
 
 # 4. Enter real keys at hidden prompts. Their values do not enter shell history
 #    or process argv. Leave GROK_API_KEY empty to keep Grok unavailable.
@@ -181,7 +183,6 @@ does not provide the required filesystem/network boundary. The probe confirms
 that refusal on Windows. This does not disable the gateway or retrieval there.
 All supported checks run in a fresh Gitless copy and never copy writes back to
 the authoritative checkout. See [agentic workspace tools](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
-
 
 ---
 
@@ -326,24 +327,14 @@ source .venv/bin/activate
 # `python -c 'import sys; print(sys.executable)'` and confirm it ends in
 # `.venv/bin/python` before indexing or starting the gateway.
 
-# 2. Torch FIRST, and PLAIN — no "+cpu" suffix, no --index-url override.
-#    Apple Silicon has no separate CPU/CUDA build to disambiguate, so PyPI
-#    ships a single arm64 wheel. This is the step the Linux block gets wrong
-#    for macOS.
-pip install "torch==2.13.0"
+# 2. Torch first, from the hashed plain-arm64 lock on PyPI.
+#    Apple Silicon has no separate CPU/CUDA build to disambiguate.
+pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
 
-# 3. Everything else — but from a requirements.txt copy with the torch and
-#    PyTorch-index lines removed, and a constraints.txt copy with only the
-#    "+cpu" suffix dropped from the torch pin. Without the first, pip tries
-#    to reconcile the plain torch you just installed against the "+cpu" pin
-#    and the install fails; without the second, --ignore-installed (which
-#    reinstalls every package, not just PyYAML) floats torch to PyPI's
-#    newest release. Mirrors what CI's macos-latest leg runs.
-grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' \
-    requirements.txt > /tmp/requirements-macos.txt
-sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-macos.txt
-pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt \
-    --ignore-installed PyYAML
+# 3. Hashed arm64 macOS runtime lock, then the constrained test toolchain.
+#    The lock contains no Torch or alternate package index directive.
+pip install --require-hashes -r requirements-lock-macos.txt
+pip install -r requirements-test.txt -c constraints.txt
 
 # 4. Prompt for provider and operator keys, store them in Keychain, and load
 #    them into this shell without putting their values in shell history.
@@ -787,8 +778,8 @@ cookie-authenticated `GET /auth/whoami` rotates the CSRF token.
 The single most common way a macOS install fails here, and the reason macOS
 gets its own section above rather than sharing Linux's.
 
-`requirements.txt` and `constraints.txt` both hardcode `torch==2.13.0+cpu`
-against `https://download.pytorch.org/whl/cpu`. That `+cpu` local-version
+`constraints.txt` pins `torch==2.13.0+cpu` for Linux and Windows. The generated
+platform locks omit Torch entirely. That `+cpu` local-version
 suffix exists on Linux and Windows specifically to avoid pip resolving the
 default CUDA-bundled wheel. **Apple Silicon has no CUDA build to disambiguate
 from, so no `+cpu`-suffixed macOS wheel is published at all** — that index
@@ -981,14 +972,16 @@ coverage gate only applies under CI's explicit `--cov=` invocation. Any
 failure here is a real defect against your environment, not an expected
 placeholder — there are no known-failing tests on a clean install.
 
-### constraints.txt
+### Dependency locks and constraints
 
-The `-c constraints.txt` flag applies shared runtime and selected transitive
-pins; it is an actively maintained install input, not a full lockfile.
-Dependencies absent from it can still resolve to newer compatible releases.
-Use it with the selected install profile (and the documented macOS filter)
-to retain those pins. If the tracked file is missing, restore it before
-installing; omitting it drops the constraints on transitive dependencies.
+Normal runtime installs use matching `requirements-torch-lock-{linux,windows,macos}.txt`
+and `requirements-lock-{linux,windows,macos}.txt` files with `--require-hashes`.
+Each runtime lock contains the full non-Torch runtime graph
+for Python 3.12. Regenerate all three with `scripts/refresh-runtime-lock.sh` on
+the supported arm64 macOS host, then review the changed versions and hashes.
+
+`constraints.txt` remains the shared ceiling for editable installs, test tools,
+and optional dependency profiles. It is also an input to lock generation.
 
 ---
 
@@ -1155,8 +1148,8 @@ results are hints, not a complete or live reachability map.
 | `400` on every request, working server otherwise | Your `Host` header isn't in `config.yaml`'s `allowed_hosts` allow-list — add the hostname/IP you're reaching CyClaw by |
 | `ModuleNotFoundError: nltk` (or any other pinned package) | The dependency install (step 3) didn't finish — re-run it; this is not fixed by `nltk.download()` |
 | `FileNotFoundError: constraints.txt` | `git pull` — it's a normal tracked file, not a one-time recovery |
-| **macOS:** `ERROR: No matching distribution found for torch==2.13.0+cpu` | You followed the Linux/Windows torch line. macOS has no `+cpu` wheel — use `pip install "torch==2.13.0"` and the stripped-manifest step ([macOS](#macos-apple-silicon)) |
-| **macOS:** torch installs, then `requirements.txt` fails on a torch version conflict | Step 3's manifest stripping was skipped — both manifests hardcode the `+cpu` pin, so they must be filtered ([macOS](#macos-apple-silicon)) |
+| **macOS:** `ERROR: No matching distribution found for torch==2.13.0+cpu` | You followed the Linux/Windows torch lock. macOS has no `+cpu` wheel — use `pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt` ([macOS](#macos-apple-silicon)) |
+| **macOS:** torch installs, then dependency installation reports a torch conflict | Use the platform-specific hashed runtime and torch locks from the macOS steps; do not mix the Linux/Windows locks into a macOS environment ([macOS](#macos-apple-silicon)) |
 | **macOS:** `No matching distribution found for torch==2.13.0` (no `+cpu`) | Either an Intel Mac (no `x86_64` wheel exists at this pin) or macOS < 14 (the wheel is `macosx_14_0_arm64`) — see [torch on macOS](#torch-on-macos-plain-build-no-cpu-suffix) |
 | **macOS:** `ollama serve` fails with address already in use | The Ollama `.app` is already serving `:11434` — nothing to fix |
 | Soul endpoints return 404 | Set `personality.enabled: true` in `config.yaml` |
