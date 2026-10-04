@@ -122,12 +122,12 @@ jobs:
         shell: bash
         run: |
           case "${{ runner.os }}" in
-            Linux) torch_lock=requirements-torch-lock-linux.txt ;;
-            Windows) torch_lock=requirements-torch-lock-windows.txt ;;
+            Linux) torch_lock=requirements-torch-lock-linux.txt; runtime_lock=requirements-lock-linux.txt ;;
+            Windows) torch_lock=requirements-torch-lock-windows.txt; runtime_lock=requirements-lock-windows.txt ;;
           esac
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels -r "$torch_lock"
           if [ "$INSTALL_PROFILE" = requirements ]; then
-            pip install --require-hashes -r requirements-lock-linux.txt
+            pip install --require-hashes -r "$runtime_lock"
           else
             pip install -e . -c constraints.txt
           fi

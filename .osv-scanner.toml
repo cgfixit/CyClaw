@@ -93,3 +93,11 @@ reason = "CVE-2026-45831 (SimpleRBACAuthorizationProvider fails to scope permiss
 #   no remote model loading) remains true; the quarterly torch review on
 #   2026-09-20 stands. If a future scan flags torch 2.13.0 again, re-add a
 #   targeted ignore with the evidence from that scan.
+
+# Same NLTK acceptance as pip-audit.yml (PYSEC-2026-3740 / CVE-2026-81726).
+# Hosted OSV run 37175706890 reports this against the locked 3.10.3 with no fix.
+# retrieval/stemmer.py imports only PorterStemmer, not the affected model APIs.
+[[IgnoredVulns]]
+id = "GHSA-8mgp-746c-j5xp"
+ignoreUntil = 2026-11-01
+reason = "Existing pip-audit acceptance for nltk 3.10.3: the pathsec bypass affects TransitionParser and perceptron/maxent model-artifact APIs. CyClaw only uses PorterStemmer. Re-evaluate on any NLTK usage change or patched release."
