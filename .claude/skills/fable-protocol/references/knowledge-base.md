@@ -223,3 +223,52 @@ codebase at merge time). Every real session needed both loaded anyway.
 this repo should reference them going forward except as historical record
 (dated audit docs under `docs/audits/` and the legacy snapshot under
 `docs/memories/zOld/` are left as they were — dated docs stay dated).
+
+## SKILL.md version history (moved here 2026-10-04)
+
+Moved verbatim out of `SKILL.md`'s header (prompt audit 2026-10-04: history narrative loaded on every use).
+References to "§7", "§5.5 / §8.9" and "the v1.1 note above" are as of the original text.
+
+v1.1 — recalibrated for Claude Sonnet 5 (launched 2026-06-30). If the running model
+IS Sonnet 5, some of this is partly native (self-checking, lower hallucination/
+sycophancy); apply anyway as cheap insurance, and see §7 for what to expect fewer of
+and §5.5 / §8.9 for Sonnet-5-specific safeguards, routing, and API changes.
+
+v1.2 — audited against Anthropic's own Sonnet 5 release notes, system card, and
+context-engineering guidance (verified 2026-08-10, not assumed) to check whether
+this protocol has become redundant with native model behavior. Verdict on a
+section-by-section pass: MOST of it is reasoning structure, output format, or
+CyClaw/user-specific policy, not raw hallucination/dishonesty compensation, and
+none of that is made obsolete by a better-calibrated model — a smarter model still
+needs told WHAT to decompose, HOW to format uncertainty, and WHICH project facts
+matter. The one item with direct, verified overlap is §2.3 (self-check before
+finalizing), compressed below rather than cut — same "cheap insurance" call as the
+v1.1 note above. §1.5/§3.1/§4.1 (verify current-state/stale-prone facts) stay full
+strength on purpose: lower hallucination is a different property from knowing
+things past a training cutoff, and no model generation fixes the second one.
+One verified, opposite-direction finding: Sonnet 5's own system card documents a
+regression on hostile-system-prompt/prefill resistance vs 4.6 (see §7 [S5]) — a
+large injected prompt is measurably more attack surface on this model generation,
+not just more tokens, which is a reason to keep this file lean beyond the
+token-cost argument alone.
+
+v2.0 (2026-09-06) — consolidated the companion `fable-5.1-cc` knowledge-handoff
+skill into this file (see §11). No discipline content in §1-7 changed; §8 grew
+from a compact "user context" section into the full knowledge base, and §9 is
+new (the old checklist and meta sections just shifted from §9-10 to §10-11).
+Two factual corrections made in the merge, both caught by applying this
+protocol's own §1.5/§3.1 rules to itself: the "LLM Council subgraph" and
+"3-layer semantic drift detection" lines in the old §8.3 implied built-and-tested
+status; a repo-wide grep for their distinctive terms (`DeBERTa`, `chairman
+synthesis`, etc.) at merge time returned zero hits outside these two knowledge
+files. Both are now marked as proposed/unverified against the current tree, not
+shipped features — see `references/knowledge-base.md` §8.4's Integrity note.
+
+v2.1 (2026-09-11, issue #1351) — moved §8.4-8.9 (the CyClaw facts-to-know-cold
+restatement, other-projects list, hardware notes, decisions table, operational
+constraints, and Sonnet-5 API notes — lookup material, not per-turn discipline)
+into `references/knowledge-base.md`, read on demand instead of always injected.
+This was the single largest chunk of what the SessionStart hook dumped in full
+on every session start and every `/compact` (flagged directly in the issue).
+§1-9 discipline content is unchanged; §8.1-8.3 (identity, communication
+contract, "the pattern") stay inline since they shape tone every turn.
