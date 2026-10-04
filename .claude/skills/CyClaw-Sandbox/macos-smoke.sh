@@ -34,9 +34,15 @@ PYTHON="${PYTHON:-python3}"
 # DevSkim: ignore DS162092,DS137138 — loopback-only by design (api.host in config.yaml)
 BASE="http://127.0.0.1:${PORT}"
 API_KEY="${CYCLAW_API_KEY:-}"
+AUTH_HEADER_FILE=$(mktemp)
+chmod 600 "$AUTH_HEADER_FILE"
+printf 'Authorization: Bearer %s\n' "$API_KEY" > "$AUTH_HEADER_FILE"
 FAILURES=0
 HTTP_CODE=""
 HTTP_BODY=""
+
+cleanup() { rm -f "$AUTH_HEADER_FILE"; }
+trap cleanup EXIT
 
 pass() { printf '  PASS  %s\n' "$1"; }
 fail() { printf '  FAIL  %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
@@ -64,10 +70,10 @@ jget() {
 auth_get() {
   if [ -n "$CSRF" ]; then
     http GET "$1" \
-      -H "Authorization: Bearer ${API_KEY}" \
+      --header "@$AUTH_HEADER_FILE" \
       -H "X-CyClaw-CSRF: ${CSRF}"
   else
-    http GET "$1" -H "Authorization: Bearer ${API_KEY}"
+    http GET "$1" --header "@$AUTH_HEADER_FILE"
   fi
 }
 
@@ -76,13 +82,13 @@ auth_post() {
   local url="$1" body="$2"
   if [ -n "$CSRF" ]; then
     http POST "$url" \
-      -H "Authorization: Bearer ${API_KEY}" \
+      --header "@$AUTH_HEADER_FILE" \
       -H "X-CyClaw-CSRF: ${CSRF}" \
       -H "Content-Type: application/json" \
       --data-binary "$body"
   else
     http POST "$url" \
-      -H "Authorization: Bearer ${API_KEY}" \
+      --header "@$AUTH_HEADER_FILE" \
       -H "Content-Type: application/json" \
       --data-binary "$body"
   fi
@@ -161,7 +167,7 @@ if [ "$HTTP_CODE" = "401" ]; then
 else
   fail "GET /soul unauth HTTP $HTTP_CODE (expected 401)"
 fi
-http GET "$BASE/soul" -H "Authorization: Bearer ${API_KEY}"
+http GET "$BASE/soul" --header "@$AUTH_HEADER_FILE"
 if [ "$HTTP_CODE" = "200" ]; then
   ver=$(jget "d.get('version','')")
   if [ -n "$ver" ]; then
@@ -188,7 +194,7 @@ fi
 #     configured -- out of scope here, deferred to a documented future
 #     project phase; see tests/test_fsconnect_macos_real.py).
 http POST "$BASE/ops/fsconnect" \
-  -H "Authorization: Bearer ${API_KEY}" \
+  --header "@$AUTH_HEADER_FILE" \
   -H "Content-Type: application/json" \
   --data-binary '{"action": "status"}'
 cfg=$(jget "d.get('config')")

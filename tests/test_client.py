@@ -90,7 +90,16 @@ def _write_config(tmp_path, retry: dict = None, local_llm_extra: dict | None = N
         local_llm["retry"] = dict(retry)
         grok["retry"] = dict(retry)
         claude["retry"] = dict(retry)
-    cfg = {"models": {"local_llm": local_llm, "grok": grok, "claude": claude}}
+    cfg = {
+        "models": {"local_llm": local_llm, "grok": grok, "claude": claude},
+        "policy": {
+            "external_call_limits": {
+                "daily": 10_000,
+                "monthly": 10_000,
+                "ledger_path": str(tmp_path / "external-calls.db"),
+            }
+        },
+    }
     p = tmp_path / "config.yaml"
     with open(p, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f)

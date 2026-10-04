@@ -1,0 +1,4 @@
+# Empty TSV service fields end in a significant tab.
+utils/secret-policy.tsv text eol=lf whitespace=-blank-at-eol
+# Preserve the checksum-pinned upstream Unicode data byte for byte.
+utils/unicode_data/confusables-17.0.0.txt -text -whitespace

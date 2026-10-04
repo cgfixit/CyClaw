@@ -173,6 +173,19 @@ purge_cyclaw_keychain() {
   remove_keychain_item "$KC_GROK"
   remove_keychain_item "$KC_ANTHROPIC"
   remove_keychain_item "$KC_GH"
+  policy_file="$SCRIPT_DIR/../utils/secret-policy.tsv"
+  if [ ! -r "$policy_file" ]; then
+    policy_file="$HOME_DIR/lib/secret-policy.tsv"
+  fi
+  if [ -r "$policy_file" ] && [ "$(sed -n '1p' "$policy_file")" = "# cyclaw-secret-policy-v1" ]; then
+    while IFS=$'\t' read -r kind env_name service; do
+      [ "$kind" = "exact" ] && [ -n "$service" ] || continue
+      case "$service" in
+        "$KC_API"|"$KC_TELEGRAM"|"$KC_GROK"|"$KC_ANTHROPIC"|"$KC_GH") continue ;;
+      esac
+      remove_keychain_item "$service"
+    done < "$policy_file"
+  fi
 }
 
 # -- Sync scheduler cleanup ---------------------------------------------------

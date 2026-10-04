@@ -242,7 +242,10 @@ fail-closed, key rotation, single-use pairing), and `TestSanitizerCwdIndependenc
 
 **Must never change:** the shipped `config.yaml` keeps
 `logging.audit_fields.include_query_hash: true`. With it true, `audit_log()` replaces
-the `query` field with its SHA-256 hash and never persists raw query text. **Setting
+the `query` field with a persistent HMAC-SHA256 fingerprint and never persists raw query text.
+The key comes from `policy.privacy.query_fingerprint_key_env` or an atomically created
+0600 local key file. There is no unkeyed fallback. Rotating the key starts a new
+correlation history; restart the process after replacing a cached file key. **Setting
 it `false` makes the audit log persist the raw query string** (subject only to
 email/IP/secret redaction) — turning `audit.jsonl` into a plaintext query log. Treat
 this flag as a privacy control, not a verbosity toggle, and do not flip the shipped

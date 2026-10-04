@@ -114,7 +114,10 @@ cmd_serve() {
 }
 
 cmd_probe() {
-  local key="${CYCLAW_API_KEY:-smoke-test-key}"
+  local key="${CYCLAW_API_KEY:-smoke-test-key}" header_file
+  header_file=$(mktemp) || return 1
+  chmod 600 "$header_file"
+  printf 'Authorization: Bearer %s\n' "$key" > "$header_file"
   echo "--- GET /health (degraded without Ollama is NORMAL)"
   curl -s --max-time 5 "$BASE/health" | python3 -c "import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ('status','index_ready','graph_ready','mode')})"
   echo "--- POST /query (503 INDEX_NOT_FOUND until the index is built)"
@@ -123,7 +126,8 @@ cmd_probe() {
   echo "--- GET /soul without key (expect 401 -- unset/wrong key fails CLOSED)"
   curl -s -o /dev/null -w "%{http_code}\n" "$BASE/soul"
   echo "--- GET /soul with key (expect 200)"
-  curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $key" "$BASE/soul"
+  curl -s -o /dev/null -w "%{http_code}\n" --header "@$header_file" "$BASE/soul"
+  rm -f "$header_file"
 }
 
 cmd_stop() {

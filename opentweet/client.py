@@ -13,7 +13,7 @@ import httpx
 
 from opentweet.config import OpenTweetConfig
 from utils.errors import OpenTweetRuntimeError
-from utils.logger import audit_log, hash_query
+from utils.logger import audit_log, query_fingerprint
 
 _loopback_http_client: httpx.Client | None = None
 _opentweet_http_client: httpx.Client | None = None
@@ -83,7 +83,7 @@ def post_query(cfg: OpenTweetConfig, query: str) -> dict[str, Any]:
                 "ok": False,
                 "http_status": None,
                 "latency_ms": int((time.monotonic() - started) * 1000),
-                "query_hash": hash_query(query),
+                "query_hash": query_fingerprint(query, config_path=cfg._config_path),
                 "query_len": len(query),
                 "error_type": type(exc).__name__,
             },
@@ -105,7 +105,7 @@ def post_query(cfg: OpenTweetConfig, query: str) -> dict[str, Any]:
         "ok": resp.status_code == 200 and isinstance(data, dict),
         "http_status": resp.status_code,
         "latency_ms": latency_ms,
-        "query_hash": hash_query(query),
+        "query_hash": query_fingerprint(query, config_path=cfg._config_path),
         "query_len": len(query),
         "answer_model": data.get("model_used") if isinstance(data, dict) else None,
         "user_confirmed_online": False,

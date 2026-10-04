@@ -3,7 +3,7 @@ plus standard Python logging setup for operational diagnostics.
 
 Every query, miss, escalation, and error gets a JSONL line. When
 logging.audit_fields.include_query_hash is true (the shipped default),
-query text is SHA256-hashed so the audit log cannot become a data
+query text is HMAC-SHA256 fingerprinted with a private persistent key so the audit log cannot become a data
 exfiltration vector; setting that toggle false stores the raw query text
 (PII redaction still applies) and is privacy-affecting — see config.yaml
 logging.audit_fields and the invariant in tests/test_due_diligence_invariants.py.
@@ -15,10 +15,13 @@ import json
 import logging
 import os
 import re
+import secrets
+import stat
 import sys
 import threading
 import time
 import weakref
+import hmac
 from collections import deque
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -26,6 +29,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 import yaml
+from utils.secret_policy import SECRET_POLICY
 
 logger = logging.getLogger("cyclaw.logger")
 
@@ -50,6 +54,32 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _AUDIT_HANDLES: dict[str, TextIO] = {}
 
 
+def _private_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass
+
+
+def _private_open(path: Path) -> TextIO:
+    _private_directory(path.parent)
+    flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError("refusing non-regular log file")
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        return os.fdopen(fd, "a", encoding="utf-8")
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def _audit_handle(log_path: Path) -> TextIO:
     """Return the cached append-mode handle for log_path, opening it if needed.
 
@@ -58,7 +88,7 @@ def _audit_handle(log_path: Path) -> TextIO:
     key = str(log_path)
     handle = _AUDIT_HANDLES.get(key)
     if handle is None or handle.closed:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
+        _private_directory(log_path.parent)
         # Intentionally long-lived: cached in _AUDIT_HANDLES and reused across
         # every subsequent audit_log() call for this path (see module docstring
         # above). A static file-not-closed check cannot see across that
@@ -66,7 +96,7 @@ def _audit_handle(log_path: Path) -> TextIO:
         # registered right here (not only in the batch close_audit_handles()
         # below) -- closing an already-closed file object is a no-op, so the
         # two closers never conflict.
-        handle = open(log_path, "a", encoding="utf-8")  # noqa: SIM115  # codeql[py/file-not-closed] closed via atexit.register below and close_audit_handles()
+        handle = _private_open(log_path)
         atexit.register(handle.close)
         _AUDIT_HANDLES[key] = handle
     return handle
@@ -176,7 +206,7 @@ def setup_logging(cfg: dict | None = None, *, background_console: bool = False) 
 
     if log_file:
         anchored_log_file = _anchor(log_file)
-        anchored_log_file.parent.mkdir(parents=True, exist_ok=True)
+        _private_directory(anchored_log_file.parent)
         # _capture_third_party attaches a file handler to the REAL root, and its
         # filter deliberately passes cyclaw.* through at any level and agentic.*
         # through at WARNING+ (see _ThirdPartyFloor) -- so when it attaches,
@@ -555,7 +585,7 @@ class _BackgroundFileHandler(logging.Handler):
         return str(self.path)
 
     def _open_stream(self) -> TextIO | None:
-        return open(self.path, "a", encoding="utf-8")  # noqa: SIM115  # codeql[py/file-not-closed] closed in _close_stream()
+        return _private_open(self.path)
 
     def _close_stream(self, stream: TextIO) -> None:
         try:
@@ -807,7 +837,126 @@ def reset_config_cache() -> None:
         clear()
 
 def hash_query(query: str) -> str:
+    """Ordinary SHA-256 for content integrity and non-private identifiers."""
     return hashlib.sha256(query.encode("utf-8")).hexdigest()
+
+
+def _privacy_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    policy = cfg.get("policy") if isinstance(cfg, dict) else None
+    privacy = policy.get("privacy") if isinstance(policy, dict) else None
+    return privacy if isinstance(privacy, dict) else {}
+
+
+def _read_key_file(path: Path) -> bytes:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("query fingerprint key path must be a regular file")
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        raw = os.read(fd, 129)
+    finally:
+        os.close(fd)
+    if len(raw) > 65:
+        raise ValueError("query fingerprint key file is invalid")
+    try:
+        key = bytes.fromhex(raw.decode("ascii").strip())
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("query fingerprint key file is invalid") from exc
+    if len(key) != 32:
+        raise ValueError("query fingerprint key must contain exactly 32 bytes")
+    return key
+
+
+def _create_or_read_key_file(path: Path) -> bytes:
+    _private_directory(path.parent)
+    try:
+        return _read_key_file(path)
+    except FileNotFoundError:
+        pass
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    key = secrets.token_bytes(32)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp")
+    fd = os.open(temporary, flags, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("query fingerprint key path must be a regular file")
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        payload = key.hex().encode("ascii") + b"\n"
+        written = 0
+        while written < len(payload):
+            written += os.write(fd, payload[written:])
+        os.fsync(fd)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    finally:
+        os.close(fd)
+    try:
+        os.link(temporary, path, follow_symlinks=False)
+    except FileExistsError:
+        return _read_key_file(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return key
+
+
+@lru_cache(maxsize=8)
+def _query_fingerprint_key(key_env: str, key_file: str) -> bytes:
+    env_value = os.environ.get(key_env, "")
+    if env_value:
+        key = env_value.encode("utf-8")
+        if len(key) < 32:
+            raise ValueError(f"{key_env} must contain at least 32 UTF-8 bytes")
+        return key
+    path = _anchor(key_file)
+    return _create_or_read_key_file(path)
+
+
+def query_fingerprint(
+    query: str,
+    cfg: dict[str, Any] | None = None,
+    *,
+    config_path: str = "config.yaml",
+) -> str:
+    """Persistent keyed identifier for private query-like text.
+
+    The key is cached per configured source. Rotation therefore takes effect
+    on process restart, which prevents one process from emitting mixed epochs.
+    """
+    if cfg is None:
+        cfg = _get_config(config_path)
+    privacy = _privacy_cfg(cfg)
+    key_env = privacy.get("query_fingerprint_key_env", "CYCLAW_QUERY_FINGERPRINT_KEY")
+    if not isinstance(key_env, str) or not key_env:
+        raise ValueError("policy.privacy.query_fingerprint_key_env must name an environment variable")
+    key_file = privacy.get("query_fingerprint_key_file", "data/privacy/query-hmac.key")
+    if not isinstance(key_file, str) or not key_file:
+        raise ValueError("policy.privacy.query_fingerprint_key_file must name a file")
+    key = _query_fingerprint_key(key_env, key_file)
+    return hmac.new(key, query.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+_MINIMUM_SECRET_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"(?i)\bBearer\s+[A-Za-z0-9._~-]+", "Bearer [REDACTED_SECRET]"),
+    (r"(?i)\bapi[_-]?key[\"'\s]*[:=][\"'\s]*[\w.-]{4,}", "api_key=[REDACTED_SECRET]"),
+    (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED_SECRET]"),
+    (r"\bxox[baprs]-[0-9A-Za-z-]+\b", "[REDACTED_SECRET]"),
+    (r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b", "[REDACTED_SECRET]"),
+    (r"(?<![A-Za-z0-9_-])sk-(?:proj-)?[A-Za-z0-9_-]{20,}", "[REDACTED_SECRET]"),
+    (r"(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{20,}", "[REDACTED_SECRET]"),
+    (r"(?<![A-Za-z0-9_-])xai-[A-Za-z0-9_-]{20,}", "[REDACTED_SECRET]"),
+    (r"(?<!\d)\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])", "[REDACTED_SECRET]"),
+    (r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@", "[REDACTED_SECRET]@"),
+)
 
 
 def include_query_hash(cfg: dict[str, Any] | None) -> bool:
@@ -840,7 +989,7 @@ def _compiled_redactors(
     these regexes each call was pure overhead. Keyed on the (hashable) privacy
     settings so a config change still produces a fresh pattern set.
     """
-    compiled = []
+    compiled = [(re.compile(pattern), replacement) for pattern, replacement in _MINIMUM_SECRET_PATTERNS]
     if redact_emails:
         compiled.append((re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
                          '[REDACTED_EMAIL]'))
@@ -886,7 +1035,7 @@ def _resolve_redactors(cfg: dict) -> tuple[tuple[re.Pattern, str], ...]:
     """
     privacy = cfg.get("policy", {}).get("privacy", {})
     configured_patterns = privacy.get("redact_secrets_like", []) or []
-    return _compiled_redactors(
+    configured = _compiled_redactors(
         privacy.get("redact_emails", False),
         privacy.get("redact_ips", False),
         tuple((idx, pattern) for idx, pattern in enumerate(configured_patterns) if isinstance(pattern, str)),
@@ -896,17 +1045,28 @@ def _resolve_redactors(cfg: dict) -> tuple[tuple[re.Pattern, str], ...]:
             if not isinstance(pattern, str)
         ),
     )
+    live_values = tuple(
+        (re.compile(re.escape(value)), "[REDACTED_SECRET]")
+        for name, value in os.environ.items()
+        if SECRET_POLICY.is_secret_name(name) and len(value) >= 8
+    )
+    return live_values + configured
 
 
 def redact_sensitive(text: str, cfg: dict | None = None) -> str:
     if cfg is None:
         cfg = _get_config()
+    # Exact live values are removed before regexes so unusual token formats are
+    # still covered. Skip short values to avoid destroying ordinary prose.
+    for name, value in os.environ.items():
+        if SECRET_POLICY.is_secret_name(name) and len(value) >= 8:
+            text = text.replace(value, "[REDACTED_SECRET]")
     for pattern, replacement in _resolve_redactors(cfg):
         text = pattern.sub(replacement, text)
     return text
 
 
-# Keys whose top-level value must NOT be redacted: query_hash is already a SHA-256
+# Keys whose top-level value must NOT be redacted: query_hash is already a keyed HMAC-SHA256
 # digest, timestamp is structural ISO-8601, and event is the event-type tag.
 # Applied only at the OUTER record level — nested fields named the same inside a
 # dict/list value have no special meaning and pass through normal redaction.
@@ -948,7 +1108,7 @@ def audit_log(event: dict, config_path: str = "config.yaml", cfg: dict | None = 
         record = dict(event)  # work on a shallow copy — never mutate the caller's dict
         if "query" in record and include_query_hash(cfg):
             raw_query = record.pop("query")
-            record["query_hash"] = hash_query(raw_query)
+            record["query_hash"] = query_fingerprint(raw_query, cfg)
         redactors = _resolve_redactors(cfg)
         for key, value in list(record.items()):
             if key in _AUDIT_SKIP_KEYS:
@@ -961,7 +1121,7 @@ def audit_log(event: dict, config_path: str = "config.yaml", cfg: dict | None = 
         # converges on (invariant I4) -- it runs AFTER the answer is already
         # computed. This function has ~100 call sites across the repo, several
         # passing through caller-supplied **fields; a non-string "query" value
-        # (hash_query()'s .encode('utf-8') would raise) or any non-JSON-
+        # (query_fingerprint()'s .encode('utf-8') would raise) or any non-JSON-
         # serializable field anywhere in `event` must not turn an already-good
         # response into an HTTP 500 purely because the audit trail couldn't be
         # built. Same rationale as the OSError guard below, extended to cover

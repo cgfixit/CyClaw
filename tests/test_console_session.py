@@ -30,11 +30,12 @@ _CROSS_SITE = {"Sec-Fetch-Site": "cross-site"}
 
 
 def test_mint_then_verify_round_trips():
-    minted = console_session.mint(KEY, 600, now=1000.0)
-    got = console_session.verify(KEY, minted.token, now=1001.0)
+    minted = console_session.mint(KEY, 600, now=1000.0, audience="https://localhost:8787")
+    got = console_session.verify(KEY, minted.token, now=1001.0, audience="https://localhost:8787")
     assert got is not None
     assert got.expires_at == 1600
     assert got.csrf == minted.csrf
+    assert console_session.verify(KEY, minted.token, now=1001.0, audience="https://localhost:8788") is None
 
 
 def test_verify_refuses_other_key_expiry_tampering_and_garbage():
@@ -99,7 +100,7 @@ def test_pairing_code_leaves_the_environment():
 
 
 def test_config_defaults_and_bounds():
-    assert validate_console_session_config({}) == (43200, 300)
+    assert validate_console_session_config({}) == (3600, 300)
     assert validate_console_session_config(
         {"security": {"console_session_ttl_sec": 3600, "console_pairing_ttl_sec": 60}}
     ) == (3600, 60)
@@ -161,6 +162,7 @@ def test_cookie_is_httponly_and_strict(gw):
     cookie = resp.headers["set-cookie"].lower()
     assert cookie.startswith(f"{console_session.COOKIE_NAME}=")
     assert "httponly" in cookie and "samesite=strict" in cookie and "path=/" in cookie
+    assert "max-age" not in cookie and "expires=" not in cookie
 
 
 def test_wrong_key_is_refused_and_audited(gw, tmp_path):

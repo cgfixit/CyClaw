@@ -30,7 +30,7 @@ import mcp_hybrid_server
 from mcp_hybrid_server import CAPABILITIES, TOOLS, handle_message
 from retrieval.hybrid_search import SearchResult
 from utils.errors import RAGError
-from utils.logger import audit_log as _real_audit_log, hash_query, reset_config_cache
+from utils.logger import audit_log as _real_audit_log, query_fingerprint, reset_config_cache
 from utils.mcp_manifest import compare_registered_tools, manifest_fingerprint
 
 
@@ -454,7 +454,7 @@ def test_rag_error_returns_error_32000(retriever):
 
 def test_mcp_audit_event_hashes_full_query(retriever, tmp_path, monkeypatch):
     """The persisted MCP audit event must store a hashed query, not raw text,
-    with parity to the HTTP path (full-query SHA-256, no [:100] truncation).
+    with parity to the HTTP path (full-query keyed fingerprint, no [:100] truncation).
     """
     audit_file = tmp_path / "audit.jsonl"
     cfg = {
@@ -491,7 +491,7 @@ def test_mcp_audit_event_hashes_full_query(retriever, tmp_path, monkeypatch):
     assert "query" not in event, "raw query must not be persisted"
     assert "query_hash" in event
     # Parity: identical to what the HTTP/graph audit path writes for this query.
-    assert event["query_hash"] == hash_query(long_query)
+    assert event["query_hash"] == query_fingerprint(long_query, cfg)
     reset_config_cache()
 
 
@@ -626,7 +626,7 @@ def test_rag_error_writes_audit_event(retriever, tmp_path, monkeypatch):
     assert event["retrieval_mode"] == "hybrid"
     assert "IDX" in event["error"]
     # Query field is hashed by audit_log, never persisted as raw text.
-    assert event.get("query_hash") == hash_query("anything")
+    assert event.get("query_hash") == query_fingerprint("anything", cfg)
     assert "query" not in event
     reset_config_cache()
 

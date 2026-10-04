@@ -57,7 +57,7 @@ CURATED_QA: list[dict[str, str]] = [
         "Soul preamble IS included here.\n"
         "9. guardrail_output: Sync, offline-only grounding (hallucination) check after response nodes, "
         "before audit. Scoped to local_llm path initially. Single unconditional edge to audit_logger.\n"
-        "10. audit_logger: SHA-256 hashed, PII-redacted, append-only JSONL. ALL paths converge here.\n\n"
+        "10. audit_logger: keyed HMAC-SHA256 query fingerprints, PII-redacted, append-only JSONL. ALL paths converge here.\n\n"
         "Key invariants enforced by graph edges (not prompts):\n"
         "- Every query passes through retrieval first (no bypass edge from ENTRY)\n"
         "- No LLM is called before the score gate\n"
@@ -112,7 +112,7 @@ CURATED_QA: list[dict[str, str]] = [
         "- answer_model: str — 'local' | 'grok' | 'claude' | 'offline-best-effort'\n"
         "- answer_sources: list[RetrievedDoc] — docs cited in the answer\n\n"
         "Set by audit_logger:\n"
-        "- audit_event: dict — SHA-256 hashed, PII-redacted audit record\n\n"
+        "- audit_event: dict — query-fingerprinted, PII-redacted audit record\n\n"
         "Set by any node on failure:\n"
         "- error: str | None — typed error message\n\n"
         "RetrievedDoc is also a TypedDict(total=False) carrying: text, score, source, chunk_id, "
@@ -633,7 +633,7 @@ CURATED_QA: list[dict[str, str]] = [
     "instruction": "How does the audit logger work? Describe the file handle caching and thread safety.",
     "input": "",
     "output": (
-        "utils/logger.py implements append-only JSONL audit logging with SHA-256 query hashing and "
+        "utils/logger.py implements append-only JSONL audit logging with keyed HMAC-SHA256 query fingerprints and "
         "PII redaction.\n\n"
         "File handle caching:\n"
         "- _AUDIT_HANDLES: dict[str, TextIO] caches one append-mode file handle per resolved audit path\n"
@@ -646,8 +646,8 @@ CURATED_QA: list[dict[str, str]] = [
         "Thread safety:\n"
         "- _AUDIT_WRITE_LOCK (threading.Lock) serializes all writes and handle creation\n"
         "- Multiple threads writing audit events are ordered — no interleaved JSONL lines\n\n"
-        "Query hashing:\n"
-        "- When logging.audit_fields.include_query_hash is true (shipped default), query text is SHA-256 hashed\n"
+        "Query fingerprinting:\n"
+        "- When logging.audit_fields.include_query_hash is true (shipped default), query text is fingerprinted with a private persistent HMAC-SHA256 key\n"
         "- The audit log cannot become a data exfiltration vector — raw query text is never stored\n"
         "- Setting it false stores raw query text (PII redaction still applies) and is privacy-affecting\n"
         "- This invariant is tested in tests/test_due_diligence_invariants.py\n\n"
@@ -1114,7 +1114,7 @@ CURATED_QA: list[dict[str, str]] = [
         "5. Guardrail input rail: guardrail_input node checks for injection markers and soul-mutation regex "
         "before the LLM is called.\n"
         "6. Guardrail output rail: guardrail_output checks for hallucination/grounding issues after generation.\n"
-        "7. Audit logging: every query is SHA-256 hashed and PII-redacted, providing forensic visibility.\n\n"
+        "7. Audit logging: every query gets a keyed HMAC-SHA256 fingerprint and PII redaction, providing forensic visibility.\n\n"
         "None of these alone is sufficient. The combination of structural separation + sanitization + score gating + "
         "guardrails + audit creates defense-in-depth where each layer catches what others miss."
     ),

@@ -151,6 +151,7 @@ cyclaw-gen-cert = "utils.gen_cert:main"
 packages = ["utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "telegram", "opentweet", "memory"]
 
 [tool.hatch.build.targets.wheel.force-include]
+"utils/secret-policy.tsv" = "utils/secret-policy.tsv"
 "gate.py" = "gate.py"
 "gate_ops.py" = "gate_ops.py"
 "gate_auth.py" = "gate_auth.py"

@@ -33,6 +33,7 @@ from fastapi.routing import APIRoute
 
 from metrics import summarize_audit
 from schemas.api import (
+    AuthChangePasswordRequest,
     AuthCreateUserRequest,
     AuthLoginRequest,
     AuthLoginResponse,
@@ -44,8 +45,8 @@ from schemas.api import (
 )
 from utils import authn
 from utils.authn_manager import BOOTSTRAP_USERNAME, AuthManager, SessionInfo, UserSummary
+from utils.bounded_executor import BoundedExecutor, WorkCapacityExceeded
 from utils.errors import (
-    AuthAccountLocked,
     AuthBootstrapComplete,
     AuthLastAdmin,
     AuthLoginFailed,
@@ -59,7 +60,6 @@ logger = logging.getLogger("cyclaw.gate_auth")
 _HTTP_UNAUTHORIZED = 401
 _HTTP_FORBIDDEN = 403
 _HTTP_CONFLICT = 409
-_HTTP_LOCKED = 423
 _HTTP_SERVICE_UNAVAILABLE = 503
 _LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost"})
 # Presence-only, same set as gate.py -- a proxy on this host
@@ -122,6 +122,21 @@ def register_auth_routes(
     Returns the ``require_session_or_token`` closure so the caller can attach
     it to ``/query`` when a manager exists.
     """
+    auth_workers = BoundedExecutor(
+        (cfg.get("auth", {}) or {}).get("max_concurrent_password_ops", 2), name="cyclaw-auth"
+    )
+    app.state.auth_workers = auth_workers
+
+    async def _password_work(fn, *args):
+        try:
+            return await auth_workers.run(fn, *args)
+        except WorkCapacityExceeded as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "AUTH_BUSY", "message": "Password service is busy; try again shortly"},
+                headers={"Retry-After": "1"},
+            ) from exc
+
     api_cfg = cfg.get("api", {}) or {}
     tls_cfg = api_cfg.get("tls", {}) if isinstance(api_cfg, dict) else {}
     # Secure is set from config, not from the live connection's scheme: a
@@ -140,6 +155,7 @@ def register_auth_routes(
     # to point at. Duplicated rather than imported because gate.py imports
     # THIS module, so the dependency cannot run the other way.
     tls_enabled = tls_cfg.get("enabled") is True if isinstance(tls_cfg, dict) else False
+    session_cookie = "__Host-cyclaw_session" if tls_enabled else _SESSION_COOKIE
     allowed_hosts = cfg.get("security", {}).get("allowed_hosts", ["127.0.0.1", "localhost"])
     # A browser's Origin header is scheme+host+PORT, not host alone.
     # allowed_hosts / TrustedHostMiddleware both deliberately ignore port
@@ -302,7 +318,7 @@ def register_auth_routes(
             )
         return auth_manager
 
-    def _session_from_cookie(cyclaw_session: str | None = Cookie(default=None)) -> SessionInfo:
+    def _session_from_cookie(cyclaw_session: str | None = Cookie(default=None, alias=session_cookie)) -> SessionInfo:
         manager = _require_enabled()
         session_info = manager.validate_session(cyclaw_session or "")
         if session_info is None:
@@ -334,7 +350,7 @@ def register_auth_routes(
 
     async def require_session_or_token(
         request: Request,
-        cyclaw_session: str | None = Cookie(default=None),
+        cyclaw_session: str | None = Cookie(default=None, alias=session_cookie),
         authorization: str | None = Header(default=None),
     ) -> str:
         """Return the authenticated username via EITHER a live session cookie
@@ -397,7 +413,7 @@ def register_auth_routes(
 
     @app.get(
         "/auth/setup-status",
-        dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)],
+        dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)],
     )
     async def auth_setup_status() -> AuthSetupStatusResponse:
         manager = _require_enabled()
@@ -410,7 +426,7 @@ def register_auth_routes(
 
     @app.post(
         "/auth/bootstrap-password",
-        dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)],
+        dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)],
     )
     async def auth_bootstrap_password(
         request: Request, response: Response, req: AuthSetPasswordRequest
@@ -429,7 +445,7 @@ def register_auth_routes(
                 },
             )
         try:
-            login_result = await asyncio.to_thread(manager.bootstrap_set_password, req.password)
+            login_result = await _password_work(manager.bootstrap_set_password, req.password)
         except AuthBootstrapComplete as exc:
             raise HTTPException(
                 status_code=_HTTP_CONFLICT,
@@ -441,13 +457,12 @@ def register_auth_routes(
                 detail={_CODE_KEY: "AUTH_POLICY", _MESSAGE_KEY: str(exc), _DETAILS_KEY: {}},
             ) from exc
         response.set_cookie(
-            key=_SESSION_COOKIE,
+            key=session_cookie,
             value=login_result.session_id,
             httponly=True,
             samesite="strict",
             secure=tls_enabled,
             path="/",
-            max_age=int(manager.absolute_timeout_sec),
         )
         await audit({
             _EVENT_KEY: "auth_bootstrap_password_set",
@@ -459,30 +474,12 @@ def register_auth_routes(
             expires_ts=login_result.expires_ts,
         )
 
-    @app.post("/auth/login", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.post("/auth/login", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_login(request: Request, response: Response, req: AuthLoginRequest) -> AuthLoginResponse:
         manager = _require_enabled()
         client_ip = request.client.host if request.client else "unknown"
         try:
-            # manager.login() is synchronous and blocking: scrypt hashing
-            # (~0.1s by design, see utils/authn.py) plus a SQLite round-trip.
-            # gate.py's uvicorn.run() carries no `workers=`, so this is a
-            # single-process, single-event-loop deployment -- calling it
-            # directly here would stall every other in-flight request
-            # (/query included) for the duration of every login attempt.
-            # asyncio.to_thread matches the pattern gate.py's own _audit and
-            # _check_rate_limit_async already establish for exactly this
-            # class of call.
-            login_result = await asyncio.to_thread(manager.login, req.username, req.password)
-        except AuthAccountLocked as exc:
-            await audit({_EVENT_KEY: "auth_login_locked", "ip": client_ip})
-            raise HTTPException(
-                status_code=_HTTP_LOCKED,
-                detail={
-                    _CODE_KEY: exc.code, _MESSAGE_KEY: exc.message,
-                    _DETAILS_KEY: {"retry_after_sec": exc.retry_after_sec},
-                },
-            ) from exc
+            login_result = await _password_work(manager.login, req.username, req.password)
         except AuthLoginFailed as exc:
             await audit({_EVENT_KEY: "auth_login_failed", "ip": client_ip})
             raise HTTPException(
@@ -490,13 +487,12 @@ def register_auth_routes(
                 detail={_CODE_KEY: exc.code, _MESSAGE_KEY: exc.message, _DETAILS_KEY: {}},
             ) from exc
         response.set_cookie(
-            key=_SESSION_COOKIE,
+            key=session_cookie,
             value=login_result.session_id,
             httponly=True,
             samesite="strict",
             secure=tls_enabled,
             path="/",
-            max_age=int(manager.absolute_timeout_sec),
         )
         await audit({_EVENT_KEY: "auth_login_ok", "ip": client_ip, "username": login_result.username})
         return AuthLoginResponse(
@@ -505,22 +501,19 @@ def register_auth_routes(
             expires_ts=login_result.expires_ts,
         )
 
-    @app.post("/auth/logout", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.post("/auth/logout", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_logout(response: Response, session: SessionInfo = Depends(_enforce_csrf)) -> dict[str, bool]:
         manager = _require_enabled()
-        # Same reasoning as auth_login above: manager.logout() is a blocking
-        # SQLite call and this handler is `async def`, so it must be
-        # off-loaded rather than run directly on the event loop.
         await asyncio.to_thread(manager.logout, session.session_id)
-        response.delete_cookie(key=_SESSION_COOKIE, path="/")
+        response.delete_cookie(key=session_cookie, path="/")
         await audit({_EVENT_KEY: "auth_logout", "username": session.username})
         return {"ok": True}
 
-    @app.get("/auth/whoami", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.get("/auth/whoami", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_whoami(
         response: Response,
         username: str = Depends(require_session_or_token),
-        cyclaw_session: str | None = Cookie(default=None),
+        cyclaw_session: str | None = Cookie(default=None, alias=session_cookie),
     ) -> AuthWhoamiResponse:
         manager = _require_enabled()
         user = manager.get_user(username)
@@ -553,6 +546,11 @@ def register_auth_routes(
         )
 
     def _raise_auth_error(exc: Exception) -> None:
+        if isinstance(exc, AuthLoginFailed):
+            raise HTTPException(
+                status_code=_HTTP_UNAUTHORIZED,
+                detail={_CODE_KEY: exc.code, _MESSAGE_KEY: exc.message, _DETAILS_KEY: {}},
+            ) from exc
         if isinstance(exc, AuthLastAdmin):
             raise HTTPException(
                 status_code=_HTTP_FORBIDDEN,
@@ -587,7 +585,7 @@ def register_auth_routes(
 
     def _require_write_actor(
         request: Request,
-        cyclaw_session: str | None = Cookie(default=None),
+        cyclaw_session: str | None = Cookie(default=None, alias=session_cookie),
         authorization: str | None = Header(default=None),
     ) -> UserSummary:
         manager = _require_enabled()
@@ -674,7 +672,7 @@ def register_auth_routes(
             },
         )
 
-    @app.get("/auth/users", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.get("/auth/users", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_list_users(username: str = Depends(require_session_or_token)) -> list[AuthUserRecord]:
         actor = _user_from_identity(username)
         _assert_can_list(actor)
@@ -682,7 +680,7 @@ def register_auth_routes(
         users = await asyncio.to_thread(manager.list_users)
         return [_record_from_user(u) for u in users]
 
-    @app.post("/auth/users", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.post("/auth/users", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_create_user(
         request: Request, req: AuthCreateUserRequest, actor: UserSummary = Depends(_require_write_actor),
     ) -> AuthUserRecord:
@@ -693,7 +691,7 @@ def register_auth_routes(
         _assert_can_create(actor, role)
         manager = _require_enabled()
         try:
-            created = await asyncio.to_thread(manager.create_user, req.username, req.password, role)
+            created = await _password_work(manager.create_user, req.username, req.password, role)
         except Exception as exc:
             _raise_auth_error(exc)
         await audit({_EVENT_KEY: "auth_user_created", "username": actor.username, "target": created, "role": role})
@@ -707,7 +705,7 @@ def register_auth_routes(
 
     @app.post(
         "/auth/users/{username}/password",
-        dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)],
+        dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)],
     )
     async def auth_set_password(
         username: str, req: AuthSetPasswordRequest, actor: UserSummary = Depends(_require_write_actor),
@@ -718,25 +716,25 @@ def register_auth_routes(
             _raise_auth_error(AuthUserNotFound(f"unknown user: {username}", details={"username": username}))
         _assert_can_touch(actor, target)
         try:
-            await asyncio.to_thread(manager.set_password, username, req.password)
+            await _password_work(manager.set_password, username, req.password)
         except Exception as exc:
             _raise_auth_error(exc)
         await audit({_EVENT_KEY: "auth_password_reset", "username": actor.username, "target": target.username})
         return {"ok": True}
 
-    @app.post("/auth/password", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.post("/auth/password", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_set_own_password(
-        req: AuthSetPasswordRequest, actor: UserSummary = Depends(_require_write_actor),
+        req: AuthChangePasswordRequest, actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
         manager = _require_enabled()
         try:
-            await asyncio.to_thread(manager.set_password, actor.username, req.password)
+            await _password_work(manager.change_password, actor.username, req.current_password, req.password)
         except Exception as exc:
             _raise_auth_error(exc)
         await audit({_EVENT_KEY: "auth_password_self", "username": actor.username, "target": actor.username})
         return {"ok": True}
 
-    @app.post("/auth/users/{username}/role", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.post("/auth/users/{username}/role", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_set_role(
         username: str, req: AuthSetRoleRequest, actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
@@ -759,7 +757,7 @@ def register_auth_routes(
 
     @app.post(
         "/auth/users/{username}/disable",
-        dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)],
+        dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)],
     )
     async def auth_disable_user(
         username: str, actor: UserSummary = Depends(_require_write_actor),
@@ -778,7 +776,7 @@ def register_auth_routes(
 
     @app.post(
         "/auth/users/{username}/enable",
-        dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)],
+        dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)],
     )
     async def auth_enable_user(
         username: str, actor: UserSummary = Depends(_require_write_actor),
@@ -795,7 +793,7 @@ def register_auth_routes(
         await audit({_EVENT_KEY: "auth_user_enabled", "username": actor.username, "target": target.username})
         return {"ok": True}
 
-    @app.delete("/auth/users/{username}", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.delete("/auth/users/{username}", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_delete_user(
         username: str, actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
@@ -816,7 +814,7 @@ def register_auth_routes(
         await audit({_EVENT_KEY: "auth_user_deleted", "username": actor.username, "target": username})
         return {"ok": True}
 
-    @app.get("/auth/audit/summary", dependencies=[Depends(enforce_rate_limit), Depends(_enforce_same_origin)])
+    @app.get("/auth/audit/summary", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_audit_summary(username: str = Depends(require_session_or_token)) -> dict:
         actor = _user_from_identity(username)
         if actor.role not in {"admin", "audit"}:

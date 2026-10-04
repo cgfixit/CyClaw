@@ -127,8 +127,7 @@ if (Test-Path -LiteralPath $secretStore) {
         if (-not (Confirm-CyclawDestructive "Delete the five documented CyClaw Credential Manager items?")) {
             Write-Host "[cyclaw] kept Credential Manager items"
         } elseif (Test-CyclawWindowsHost) {
-            foreach ($credName in @("CYCLAW_API_KEY", "TELEGRAM_BOT_TOKEN", "GROK_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN")) {
-                $credTarget = $script:CyclawSecretTargets[$credName]
+            foreach ($credTarget in @($script:CyclawSecretTargets.Values | Where-Object { $_ } | Sort-Object -Unique)) {
                 if (Remove-CyclawCredential $credTarget) {
                     Write-Host "[cyclaw] removed Credential Manager item $credTarget"
                 }

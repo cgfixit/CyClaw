@@ -40,6 +40,8 @@ def connect(db_path: Path, auth_cfg: dict) -> tuple[Any, str, str]:
     ``CYCLAW_AUTH_DB_URL`` env var to a ``postgresql://`` DSN.
     SQLite: default, uses ``db_path``.
     """
+    from utils.config_validation import validate_database_url_no_password
+    validate_database_url_no_password(auth_cfg.get("database_url"), "auth.database_url")
     dsn = auth_cfg.get("database_url") or os.environ.get(_AUTH_DB_ENV) or ""
     if dsn.startswith("postgresql") or dsn.startswith("postgres"):
         try:
@@ -94,7 +96,8 @@ def ddl_users() -> str:
             last_login_ts REAL,
             failed_count INTEGER NOT NULL DEFAULT 0,
             locked_until_ts REAL,
-            role TEXT NOT NULL DEFAULT 'operator'
+            role TEXT NOT NULL DEFAULT 'operator',
+            credential_revision INTEGER NOT NULL DEFAULT 0
         )
     """
 
@@ -167,3 +170,10 @@ def ensure_users_role_column(conn: object, backend: str) -> None:
     conn.execute(  # type: ignore[union-attr]
         "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'"
     )
+
+
+def ensure_credential_revision_column(conn: object, backend: str) -> None:
+    if "credential_revision" not in users_column_names(conn, backend):
+        conn.execute(  # type: ignore[union-attr]
+            "ALTER TABLE users ADD COLUMN credential_revision INTEGER NOT NULL DEFAULT 0"
+        )

@@ -3,7 +3,7 @@
 By design this layer writes its own JSONL stream (default ``logs/guardrails.jsonl``)
 and ships its own analyzer, so the existing ``metrics.py`` / ``GET /audit/summary``
 surface is left completely untouched. The two streams can be cross-referenced
-later by ``query_hash`` (both use the same ``utils.logger.hash_query``), but the
+later by ``query_hash`` (both use the same keyed query fingerprint), but the
 guardrails stream is the authoritative source for:
 
   * agentic / tool-call activity            -> event "tool_call"
@@ -12,7 +12,7 @@ guardrails stream is the authoritative source for:
   * individual rail firings                  -> event "rail_triggered"
   * allowed / skipped generations           -> events "generation_allowed" / "guardrail_skipped"
 
-Raw query/answer text is NEVER written -- only SHA-256 hashes, mirroring the
+Raw query/answer text is NEVER written -- only keyed HMAC fingerprints, mirroring the
 audit log's privacy posture. This module is out-of-band and never imported by
 gate.py, graph.py, or mcp_hybrid_server.py.
 """
@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from utils.logger import hash_query
+from utils.logger import query_fingerprint
 
 logger = logging.getLogger("cyclaw.guardrails.metrics")
 
@@ -118,7 +118,7 @@ class GuardrailMetrics:
     def _record(self, event: str, *, query: str | None = None, **fields: Any) -> dict:
         record: dict[str, Any] = {"event": event, **fields}
         if query is not None:
-            record["query_hash"] = hash_query(query)
+            record["query_hash"] = query_fingerprint(query)
         record["timestamp"] = datetime.now(UTC).isoformat()
         # Allowlist + recursive secret strip before counters/persist so unknown
         # kwargs (NonSerializable payload) and nested secrets never hit JSONL.

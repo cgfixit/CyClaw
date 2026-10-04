@@ -6,10 +6,9 @@
   Dot-sourced by Invoke-CyClaw.ps1, Install-CyClaw.ps1, and Uninstall-CyClaw.ps1.
   ~/.CyClaw/.env stays the home for ordinary settings (ports, paths, mode
   flags, model names, feature toggles). Secret-classified names are not
-  imported. A name is secret when it is on the allowlist below, or when it
-  ends in _API_KEY, _TOKEN, _SECRET, or _PASSWORD (PowerShell -like is
-  case-insensitive, so grok_api_key is secret too). Allowlisted secrets are
-  read from Credential Manager into the CyClaw process only. A plaintext
+  imported. The versioned utils/secret-policy.tsv is shared with Python and
+  POSIX shell and supplies suffix rules plus explicit Credential Manager targets.
+  Mapped secrets are read from Credential Manager into the CyClaw process only. A plaintext
   line is removed only when the value read back from Credential Manager is
   ordinal-equal to the file. A mismatch keeps the line and warns. No backup
   is written. Values are never printed. Install may copy a missing item.
@@ -19,24 +18,36 @@
   Windows PowerShell 5.1 and PowerShell 7+. Not a launcher.
 #>
 
-$script:CyclawSecretTargets = @{
-    CYCLAW_API_KEY     = "com.cgfixit.cyclaw.api-key"
-    TELEGRAM_BOT_TOKEN = "com.cgfixit.cyclaw.telegram-bot-token"
-    GROK_API_KEY       = "com.cgfixit.cyclaw.grok-api-key"
-    ANTHROPIC_API_KEY  = "com.cgfixit.cyclaw.anthropic-api-key"
-    GH_TOKEN           = "com.cgfixit.cyclaw.gh-token"
-    GITHUB_TOKEN       = "com.cgfixit.cyclaw.gh-token"
-    # Scrubbed so an old file cannot export it. llm/client.py does not read it.
-    # Empty target: not copied into Credential Manager.
-    CLAUDE_API_KEY     = ""
+$script:CyclawSecretTargets = @{}
+$script:CyclawSecretSuffixes = @()
+$policyPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'utils/secret-policy.tsv'
+if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
+    $policyPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/secret-policy.tsv'
+}
+if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) { throw 'missing utils/secret-policy.tsv' }
+$policyLines = @(Get-Content -LiteralPath $policyPath -Encoding ASCII)
+if ($policyLines.Count -eq 0 -or $policyLines[0] -cne '# cyclaw-secret-policy-v1') {
+    throw 'unsupported or invalid CyClaw secret-policy version'
+}
+foreach ($line in $policyLines | Select-Object -Skip 1) {
+    if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) { continue }
+    $fields = $line.Split("`t")
+    if ($fields.Count -ne 3 -or $fields[0] -notin @('suffix', 'exact')) { throw 'invalid secret-policy record' }
+    $name = $fields[1].ToUpperInvariant()
+    if ($fields[0] -eq 'suffix') { $script:CyclawSecretSuffixes += $name; continue }
+    if ($script:CyclawSecretTargets.ContainsKey($name)) { throw 'duplicate secret-policy record' }
+    $script:CyclawSecretTargets[$name] = $fields[2]
 }
 
 # Allowlist (hashtable above) OR suffix *_API_KEY / *_TOKEN / *_SECRET / *_PASSWORD.
 function Test-CyclawSecretName([string]$Name) {
     if ([string]::IsNullOrEmpty($Name)) { return $false }
     if ($script:CyclawSecretTargets.ContainsKey($Name)) { return $true }
-    if ($Name -like '*_API_KEY' -or $Name -like '*_TOKEN' -or $Name -like '*_SECRET' -or $Name -like '*_PASSWORD') {
-        return $true
+    $upper = $Name.ToUpperInvariant()
+    foreach ($suffix in $script:CyclawSecretSuffixes) {
+        if ($upper.Length -gt ($suffix.Length + 1) -and $upper.EndsWith("_$suffix", [StringComparison]::Ordinal)) {
+            return $true
+        }
     }
     return $false
 }
@@ -44,8 +55,7 @@ function Test-CyclawSecretName([string]$Name) {
 $script:CyclawPublicEnvHeader = @(
     '# CyClaw non-secret settings.',
     '# Ports, paths, mode flags, model names, and feature toggles belong here.',
-    '# Secret-classified names do not: the allowlist in CyClaw-SecretStore.ps1,',
-    '# plus any name ending in _API_KEY, _TOKEN, _SECRET, or _PASSWORD.',
+    '# Secret-classified names do not; utils/secret-policy.tsv is authoritative.',
     '# Those are read from Credential Manager when cyclaw starts.'
 )
 

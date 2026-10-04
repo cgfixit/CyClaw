@@ -19,7 +19,7 @@ from typing import NoReturn
 
 from agentic.harness_optimizer.proposer import ProposerWorkspace
 from utils.errors import AgenticError
-from utils.logger import audit_log, hash_query
+from utils.logger import audit_log, query_fingerprint
 
 _SEP_RE = re.compile(r"[\\/]+")
 _DEFAULT_MAX_READ_BYTES = 256_000
@@ -269,7 +269,7 @@ class ProposerWorkspaceTools:
         if not isinstance(query, str) or not query.strip():
             self._deny(tool, "RAG query must be a non-empty string")
         results = self.rag_search(query) if self.rag_search else []
-        query_hash = hash_query(query)
+        query_hash = query_fingerprint(query)
         self._audit(True, tool, query_hash=query_hash, results=len(results))
         return {"query_hash": query_hash, "results": results}
 

@@ -2,15 +2,15 @@
 
 Forensic / CLI only. ``gate.py``, ``graph.py``, and the MCP server must not
 import this module — it is not a policy decision point on the ``/query`` path
-(issue #966). Join key is the unsalted SHA-256 ``query_hash`` (content
-address, not request identity). Spend rows are restricted to ``source ==
+(issue #966). Join key is the persistent HMAC-SHA256 ``query_hash``
+(pseudonymous correlation key, not request identity). Spend rows are restricted to ``source ==
 "query"``; agentic ledger lines are counted and dropped so the two planes
 never mix.
 
-Findings carry hashes, event names, timestamps, and provider/model tags.
+Findings carry fingerprints, event names, timestamps, and provider/model tags.
 They never copy query text, IPs, soul content, or secrets.
 
-The mixed-hash ``window_injection_to_escalation`` rule assumes CyClaw's
+The correlation-window ``window_injection_to_escalation`` rule assumes CyClaw's
 shipped loopback single-operator threat model: a 15-minute window on this
 host is the operator's own sequence. It is not an actor id.
 """

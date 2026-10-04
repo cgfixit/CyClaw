@@ -259,7 +259,8 @@ sqlconnect:
   enabled: true
 ```
 
-Set `CYCLAW_SQL_DSN` (or whatever `dsn_env` names). v0.1 **cannot write**
+Store `CYCLAW_SQL_DSN` in Keychain/Credential Manager (or use whatever
+secret-classified `dsn_env` names). Do not place DSNs in dotenv or YAML. v0.1 **cannot write**
 (`read_only: true`, `allow_write: false` enforced at config load).
 
 ### 7. Passive network connector
@@ -377,8 +378,9 @@ per [`GITHUB_WRITE_ENABLEMENT.md`](../docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
 ### SQL connector
 
 - DSN **only** from environment (`dsn_env`). Never embed passwords in YAML.
-- Use a **read-only DB role** at the server even though the client enforces
-  SELECT-only and session read-only.
+- A **least-privilege read-only DB role is mandatory**; the SELECT guard is
+  defense in depth. MSSQL ODBC read-only mode is only a driver hint. See
+  [server permission requirements](../docs/input-boundaries.md#sql-connector-privileges).
 - Keep `max_rows` and `statement_timeout_ms` tight for exploratory use.
 - Do not set `allow_write: true` / `read_only: false` — config load fails closed
   in v0.1 for a reason.
@@ -632,7 +634,9 @@ python -m agentic.sqlconnect.cli query --table schema.table --count
 python -m agentic.sqlconnect.cli test
 ```
 
-Session-level read-only + SELECT-only query guard. No write path in v0.1.
+SELECT-only query guard plus PostgreSQL read-only transactions. MSSQL requests
+ODBC read-only mode, which does not guarantee enforcement; a least-privilege
+server role is mandatory. See [input boundaries](../docs/input-boundaries.md).
 
 ### J. Passive network connector tools (`netconnect`)
 

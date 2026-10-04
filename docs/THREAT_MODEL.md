@@ -48,6 +48,21 @@ multi-tenant workloads. "Several trusted operators" is inside the model;
 
 ---
 
+Core Grok and Claude transports share `policy.external_call_limits`: 100 POST
+attempts per UTC day and 1000 per UTC month by default. Reservations commit to
+SQLite in a private directory before transmission, including retries and guardrail regenerations.
+The ledger is trusted local state, not tamper-proof against its own OS user. Failed
+attempts are charged; corrupt or unavailable storage refuses egress. These are call
+ceilings, not a dollar guarantee, and do not cover separate agentic providers.
+Graph work has four dedicated slots by default; timeout or cancellation does not
+release a slot until the underlying worker actually finishes.
+
+Input inspection checks both original text and a derived Unicode copy: ASCII Tags
+are decoded, format/variation/combining marks are removed, TR39-data-derived
+confusables are folded, and separators normalized. This is a heuristic, not full
+TR39 conformance or exhaustive injection detection. SQL lexical guards require a
+least-privilege database role. MSSQL's ODBC read-only hint is not enforcement.
+
 ## 2. In-scope adversaries & the control that answers each
 
 | Threat | Primary control | Where |
@@ -1215,7 +1230,7 @@ What issue #1458 changed, and the boundaries that follow:
   service against online escalation, never an egress path. The local answer
   path is untouched, and `/health` reports the hook `degraded`.
 - **What reaches the hook.** Only provider, configured model tag, provider URL,
-  host endpoint fields, and the query's SHA-256. Only the URL's origin
+  host endpoint fields, and the query's keyed HMAC fingerprint. Only the URL's origin
   (`scheme://host[:port]`) enters an event; userinfo, path, query and
   fragment are dropped, because `utils/endpoint_trust.py` pins only the
   hostname and a credential can ride any of them. The hash is omitted from
@@ -1252,9 +1267,14 @@ The boundaries that follow:
 
 - **The key never stays in the page.** The cookie is HttpOnly,
   `SameSite=Strict`, `Path=/`, and `Secure` under `api.tls`. Page script
-  cannot read it. Its value is not the key: it is `v1.<expiry>.<nonce>.<mac>`,
-  an HMAC-SHA256 under a key derived from `CYCLAW_API_KEY`, and it cannot be
-  turned back into the key.
+  cannot read it. Its value is not the key: it is `v2.<expiry>.<nonce>.<mac>`,
+  an HMAC-SHA256 under a key derived from `CYCLAW_API_KEY`, bound to the
+  issuing scheme and Host:port. TLS uses the `__Host-` cookie prefix. Neither
+  mechanism port-scopes browser transmission: cookies still reach other services
+  on the same host. Use a dedicated hostname and TLS, and keep other local
+  services trusted. Audience binding refuses replay at another gateway origin;
+  it does not prevent a malicious service from stealing a cookie and replaying it
+  to its original gateway.
 - **CSRF is required for writes.** A state-changing request authorized by
   either cookie must also carry that cookie's CSRF token: the console cookie's
   is `X-CyClaw-Console-CSRF`, derived from the cookie's nonce; a login's is
@@ -1262,14 +1282,16 @@ The boundaries that follow:
   falls through to another credential. Both cookie paths are also refused on
   any request `_looks_cross_site` flags, and `GET /console/session`, which
   hands a same-origin page its CSRF token back after a reload, refuses
-  cross-site requests outright.
+  cross-site requests outright. These checks run before rate-limit accounting.
+  Sensitive JSON and console responses use `Cache-Control: no-store`, and
+  `Cross-Origin-Opener-Policy: same-origin` isolates the console browsing context.
 - **Fail-closed still holds for every key-based credential.** With
   `CYCLAW_API_KEY` unset, Bearer and console cookies validate nothing and
   `POST /console/session` answers 401. Only an admin login (4) works without
   the key, because a login is a credential of its own; `operator` and `audit`
   sessions are refused, as is a disabled admin.
 - **A console cookie cannot be revoked on its own.** It is stateless, so it
-  lives until `security.console_session_ttl_sec` (ships 43200 s, bounded
+  lives until `security.console_session_ttl_sec` (ships 3600 s, bounded
   60-604800 at boot) unless `CYCLAW_API_KEY` is rotated, which revokes every
   cookie at once. "Lock" in the console (`POST /console/session/end`) deletes
   the browser's copy only. A stolen cookie is therefore usable until expiry,

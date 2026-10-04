@@ -48,15 +48,12 @@ pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 # 3. Runtime + test toolchain, using the shared dependency constraints
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 
-# 4. Required env (any non-empty value works — see "GROK_API_KEY" below)
-$env:GROK_API_KEY = "dummy"
-
-# 4b. API key for /soul/* and /ops/*. The gateway and the smoke test must
-#     share this value in the same session (set it before step 6). Persist:
-#     README.md#windows--powershell--cmdexe
-Add-Type -AssemblyName System.Web
-$env:CYCLAW_API_KEY = [System.Web.Security.Membership]::GeneratePassword(24, 4)
-Write-Host $env:CYCLAW_API_KEY   # copy this — you paste it into the console UI
+# 4. Store real provider and operator keys with interactive Credential Manager
+#    prompts. The prompt values do not enter PowerShell history or process argv.
+.\powershell\CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.grok-api-key
+.\powershell\CyClaw-CredMan-Set.ps1 com.cgfixit.cyclaw.api-key
+. .\powershell\CyClaw-SecretStore.ps1
+Import-CyclawCredentialSecrets
 
 # 5. Build the retrieval index (safe to skip for now — see "Is the index
 #    really mandatory?" below — but /query 503s until you do this)
@@ -70,9 +67,9 @@ Open `http://127.0.0.1:8787` → the terminal UI loads automatically.
 
 ### Windows smoke test
 
-The `/soul` and `/ops/fsconnect` checks send `Authorization: Bearer
-$env:CYCLAW_API_KEY` and expect the server to have inherited the same value
-at launch (step 4b). Run this from that same PowerShell session:
+The `/soul` and `/ops/fsconnect` checks use the key that Credential Manager
+loaded into the server and smoke-test processes. Run this from that same
+PowerShell session:
 
 ```powershell
 .\.claude\skills\CyClaw-Sandbox\windows-smoke.ps1
@@ -130,13 +127,10 @@ pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 # 3. Runtime + test toolchain, using the shared dependency constraints
 pip install -r requirements.txt -r requirements-test.txt -c constraints.txt --ignore-installed PyYAML
 
-# 4. Required env (any non-empty value works — see "GROK_API_KEY" below)
-export GROK_API_KEY=dummy
-
-# 4b. API key for /soul/* and /ops/* (set before gate.py; the smoke test
-#     below reuses it). See "CYCLAW_API_KEY" later for what it gates.
-export CYCLAW_API_KEY="$(openssl rand -hex 20)"
-echo "$CYCLAW_API_KEY"
+# 4. Enter real keys at hidden prompts. Their values do not enter shell history
+#    or process argv. Leave GROK_API_KEY empty to keep Grok unavailable.
+read -r -s -p 'Grok API key: ' GROK_API_KEY; printf '\n'; export GROK_API_KEY
+read -r -s -p 'CyClaw API key: ' CYCLAW_API_KEY; printf '\n'; export CYCLAW_API_KEY
 
 # 5. Build the retrieval index (see "Is the index really mandatory?" below)
 python -m retrieval.indexer
@@ -152,7 +146,7 @@ script). POSIX/bash 3.2; curl + python3 only. Reuse the key from step 4b
 (the server must have inherited it at launch):
 
 ```bash
-export CYCLAW_API_KEY="${CYCLAW_API_KEY:-the-value-you-generated}"
+# The smoke script inherits the key without receiving it as an argument.
 bash .claude/skills/CyClaw-Sandbox/macos-smoke.sh
 ```
 
@@ -163,7 +157,6 @@ Linux operators use the same file. For a one-line readiness check instead:
 curl -s http://127.0.0.1:8787/health
 ```
 
-
 ---
 
 ## macOS (Apple Silicon)
@@ -172,8 +165,8 @@ curl -s http://127.0.0.1:8787/health
 here, and step 3 then fails a second time for a related reason. Both are
 explained under [torch on macOS](#torch-on-macos-plain-build-no-cpu-suffix);
 the short version is that the `+cpu` wheel Linux and Windows install does not
-exist for macOS, and both `requirements.txt` and `constraints.txt` hardcode
-that `+cpu` pin.
+exist for macOS. The platform lock deliberately omits Torch so that its source
+is selected only by the preceding platform-specific command.
 
 Three ways to do this. **Option C** is the recommended one-shot after
 `git clone` (install + keys + Ollama + index + a running server). **Option A**
@@ -326,15 +319,10 @@ sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > /tmp/constraints-mac
 pip install -r /tmp/requirements-macos.txt -r requirements-test.txt -c /tmp/constraints-macos.txt \
     --ignore-installed PyYAML
 
-# 4. Required env (any non-empty value works — see "GROK_API_KEY" below)
-export GROK_API_KEY=dummy
-
-# 4b. API key for the Soul + operator consoles. /query, /health and the
-#     terminal UI need no key, but every /soul/* and /ops/* route fails CLOSED
-#     with 401 without one — see "CYCLAW_API_KEY" below. Generate a real value
-#     rather than typing a word: openssl ships with macOS, no install needed.
-export CYCLAW_API_KEY="$(openssl rand -hex 20)"
-echo "$CYCLAW_API_KEY"          # copy this — you paste it into the console UI
+# 4. Prompt for provider and operator keys, store them in Keychain, and load
+#    them into this shell without putting their values in shell history.
+bash macos/setup-cyclaw-keys.sh
+source macos/cyclaw-keychain-load.sh
 
 # 5. Build the retrieval index (see "Is the index really mandatory?" below)
 python -m retrieval.indexer
@@ -373,12 +361,8 @@ a key change, follow
 (`--restart-servers`, new shell, `--fill-browser` / paste; `--remove-keychain`
 to delete leftover items).
 
-If you only need the keys in the current tab and do not want the bootstrap:
-
-```bash
-export GROK_API_KEY=dummy
-export CYCLAW_API_KEY="$(openssl rand -hex 20)"
-```
+Use the bootstrap for real keys. It prompts on a terminal and stores the values
+in Keychain without putting them in shell history or child process arguments.
 
 ### Running the server on macOS
 
@@ -469,7 +453,6 @@ Homebrew. The server must already be running (`invoke-cyclaw.sh` or
 `python gate.py`):
 
 ```bash
-export CYCLAW_API_KEY="the-value-you-generated"
 bash .claude/skills/CyClaw-Sandbox/macos-smoke.sh
 ```
 
@@ -494,11 +477,18 @@ Every route below is on the RAG gateway (`127.0.0.1:8787`). `curl` and
 `python3` both ship with macOS; nothing extra to install. Pipe anything
 through `python3 -m json.tool` to pretty-print it.
 
-Export the key once per tab so the authenticated examples work as written:
+Write the authorization header to a private temporary file. `curl` reads the
+header from that file, so the bearer value does not appear in its arguments:
 
 ```bash
-export CYCLAW_API_KEY="the-value-you-generated"
-AUTH="Authorization: Bearer $CYCLAW_API_KEY"
+AUTH_HEADER=$(mktemp)
+chmod 600 "$AUTH_HEADER"
+printf 'CyClaw API key: '
+read -r -s CYCLAW_KEY
+printf '\n'
+printf 'Authorization: Bearer %s\n' "$CYCLAW_KEY" > "$AUTH_HEADER"
+unset CYCLAW_KEY
+trap 'rm -f "$AUTH_HEADER"' EXIT
 ```
 
 ### Open routes (no key)
@@ -638,9 +628,17 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:8787/query \
 
 # Telegram / curl without a cookie: issue a named device token locally, then:
 #   cyclaw-user token create admin telegram
+# Enter that token at the hidden prompt and remove the file when this shell exits.
+DEVICE_HEADER=$(mktemp)
+chmod 600 "$DEVICE_HEADER"
+printf 'Device token: '
+read -r -s DEVICE_TOKEN
+printf '\nAuthorization: Bearer %s\n' "$DEVICE_TOKEN" > "$DEVICE_HEADER"
+unset DEVICE_TOKEN
+trap 'rm -f "$AUTH_HEADER" "$DEVICE_HEADER"' EXIT
 curl -s -X POST http://127.0.0.1:8787/query \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $DEVICE_TOKEN" \
+  --header "@$DEVICE_HEADER" \
   -d '{"query":"What is RRF fusion?"}' | python3 -m json.tool
 
 # Log out — use the latest CSRF token; /auth/whoami above rotated the login token.
@@ -701,25 +699,25 @@ See `docs/memory/README.md` for progressive enablement. `/memory/status` is the
 safe probe; propose/apply mutate the facts store and need a non-empty `reason`.
 
 ```bash
-curl -s -H "$AUTH" http://127.0.0.1:8787/soul | python3 -m json.tool
-curl -s -H "$AUTH" http://127.0.0.1:8787/audit/summary | python3 -m json.tool
-curl -s -H "$AUTH" http://127.0.0.1:8787/memory/status | python3 -m json.tool
+curl -s --header "@$AUTH_HEADER" http://127.0.0.1:8787/soul | python3 -m json.tool
+curl -s --header "@$AUTH_HEADER" http://127.0.0.1:8787/audit/summary | python3 -m json.tool
+curl -s --header "@$AUTH_HEADER" http://127.0.0.1:8787/memory/status | python3 -m json.tool
 
 # Dry-run a soul change — scans and reports, writes nothing.
 curl -s -X POST http://127.0.0.1:8787/soul/propose \
-  -H "$AUTH" -H 'Content-Type: application/json' \
+  --header "@$AUTH_HEADER" -H 'Content-Type: application/json' \
   -d '{"new_soul":"# Soul\n\nBe concise.","reason":"testing the scanner"}'
 
 # Operator consoles. "status" is the read-only action on each; every one of the
 # four takes an `action` field and nothing else is required.
 curl -s -X POST http://127.0.0.1:8787/ops/sync \
-  -H "$AUTH" -H 'Content-Type: application/json' -d '{"action":"status"}'
+  --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
 curl -s -X POST http://127.0.0.1:8787/ops/agentic \
-  -H "$AUTH" -H 'Content-Type: application/json' -d '{"action":"status"}'
+  --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
 curl -s -X POST http://127.0.0.1:8787/ops/fsconnect \
-  -H "$AUTH" -H 'Content-Type: application/json' -d '{"action":"status"}'
+  --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
 curl -s -X POST http://127.0.0.1:8787/ops/sqlconnect \
-  -H "$AUTH" -H 'Content-Type: application/json' -d '{"action":"status"}'
+  --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
 ```
 
 **These shared-key operator actions mutate state. Do not treat them as probes.**

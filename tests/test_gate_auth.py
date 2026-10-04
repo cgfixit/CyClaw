@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from gate_auth import register_auth_routes
 from utils.authn_manager import AuthManager
+from utils.errors import AuthLoginFailed
 
 _GOOD_PASSWORD = "correct horse battery staple"
 _ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
@@ -199,15 +200,20 @@ class TestLogin:
         username, password = user
         r = _client(manager).post("/auth/login", json={"username": username, "password": password})
         set_cookie = r.headers.get("set-cookie", "").lower()
+        assert set_cookie.startswith("cyclaw_session=")
         assert "httponly" in set_cookie
         assert "samesite=strict" in set_cookie
+        assert "max-age" not in set_cookie and "expires=" not in set_cookie
 
     def test_cookie_is_secure_when_tls_is_configured(self, manager, user):
         username, password = user
         r = _client(manager, cfg=_cfg(tls_enabled=True)).post(
             "/auth/login", json={"username": username, "password": password}
         )
-        assert "secure" in r.headers.get("set-cookie", "").lower()
+        set_cookie = r.headers.get("set-cookie", "").lower()
+        assert set_cookie.startswith("__host-cyclaw_session=")
+        assert "secure" in set_cookie
+        assert "max-age" not in set_cookie and "expires=" not in set_cookie
 
     def test_cookie_is_not_secure_when_tls_is_not_configured(self, manager, user):
         """The design doc's §5/§7 rule: Secure is not sent over plain HTTP,
@@ -230,7 +236,7 @@ class TestLogin:
         assert r.status_code == 401
         assert r.json()["detail"]["code"] == "AUTH_LOGIN_FAILED"
 
-    def test_locked_account_is_423_with_retry_after(self, manager, user):
+    def test_locked_account_is_401_with_generic_shape(self, manager, user):
         username, password = user
         # Threshold-5 lockout is only _LOCKOUT_BASE_SEC (2.0s). login() snapshots
         # manager._now() before scrypt; on Windows CI five hashes can exceed that
@@ -244,8 +250,12 @@ class TestLogin:
             for _ in range(5):
                 client.post("/auth/login", json={"username": username, "password": "wrong"})
             r = client.post("/auth/login", json={"username": username, "password": password})
-            assert r.status_code == 423
-            assert r.json()["detail"]["details"]["retry_after_sec"] > 0
+            assert r.status_code == 401
+            assert r.json()["detail"] == {
+                "code": "AUTH_LOGIN_FAILED",
+                "message": "invalid username or password",
+                "details": {},
+            }
         finally:
             manager._now = real_now
 
@@ -273,6 +283,52 @@ class TestLogin:
         )
         for event in app.state.audit_events:
             assert "wrong" not in str(event)
+
+
+class TestOwnPasswordChange:
+    def test_current_password_is_required(self, manager, user):
+        username, password = user
+        client = _client(manager)
+        login = client.post("/auth/login", json={"username": username, "password": password})
+        response = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": login.json()["csrf_token"]},
+            json={"password": "a completely new password"},
+        )
+        assert response.status_code == 422
+
+    def test_wrong_current_password_is_generic_and_does_not_change_password(self, manager, user):
+        username, password = user
+        client = _client(manager)
+        login = client.post("/auth/login", json={"username": username, "password": password})
+        response = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": login.json()["csrf_token"]},
+            json={"current_password": "wrong", "password": "a completely new password"},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == {
+            "code": "AUTH_LOGIN_FAILED",
+            "message": "invalid username or password",
+            "details": {},
+        }
+        assert manager.login(username, password).username == username
+
+    def test_correct_current_password_changes_password_and_revokes_sessions(self, manager, user):
+        username, password = user
+        new_password = "a completely new password"
+        client = _client(manager)
+        login = client.post("/auth/login", json={"username": username, "password": password})
+        response = client.post(
+            "/auth/password",
+            headers={"X-CyClaw-CSRF": login.json()["csrf_token"]},
+            json={"current_password": password, "password": new_password},
+        )
+        assert response.status_code == 200
+        assert client.get("/auth/whoami").status_code == 401
+        with pytest.raises(AuthLoginFailed):
+            manager.login(username, password)
+        assert manager.login(username, new_password).username == username
 
 
 class TestSameOrigin:

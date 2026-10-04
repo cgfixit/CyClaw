@@ -132,9 +132,12 @@ def _live_names(cfg: dict, legacy_name: str) -> set[str] | None:
 
 def _pg_dsn(cfg: dict) -> str:
     """Resolve the pgvector DSN: dedicated env → indexing.database_url → CYCLAW_DB_URL."""
+    from utils.config_validation import validate_database_url_no_password
+    inline = (cfg.get("indexing") or {}).get("database_url")
+    validate_database_url_no_password(inline, "indexing.database_url")
     return (
         os.environ.get("CYCLAW_VECTOR_DB_URL")
-        or (cfg.get("indexing") or {}).get("database_url")
+        or inline
         or os.environ.get("CYCLAW_DB_URL")
         or ""
     )

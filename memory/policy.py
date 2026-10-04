@@ -63,14 +63,9 @@ def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> list[tuple[str, r
 def scan_content(content: str, cfg: dict[str, Any], *, enforced: bool = True) -> list[str]:
     """Return matched pattern sources. enforced=True uses critical set only."""
     base = ENFORCED_SOUL_PATTERNS if enforced else OWASP_INJECTION_PATTERNS
-    # Match against a normalized copy, same as utils/sanitizer.py's
-    # check_input: NFKC folds fullwidth/compatibility Unicode forms back to
-    # the ASCII the patterns are written in, and stripping invisible
-    # characters closes the zero-width-splitting evasion. Only ever folds
-    # TOWARD what the patterns already catch, so this cannot stop catching
-    # something the unnormalized text used to match.
+    # Keep literal-pattern matches when folding removes marks/punctuation.
     probe = _normalize_for_match(content or "")
-    return [src for src, pat in _compile_patterns(base, cfg) if pat.search(probe)]
+    return [src for src, pat in _compile_patterns(base, cfg) if pat.search(content or "") or pat.search(probe)]
 
 
 def enforce_content(content: str, cfg: dict[str, Any]) -> None:

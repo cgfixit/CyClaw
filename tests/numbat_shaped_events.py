@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from collections.abc import Callable
@@ -54,7 +55,7 @@ if str(_REPO) not in sys.path:
 
 from utils import numbat_cel  # noqa: E402 - sys.path must include the repo first
 from utils.external_pre_hook import run_pre_action_hook  # noqa: E402
-from utils.logger import audit_log, close_audit_handles, hash_query, reset_config_cache  # noqa: E402
+from utils.logger import audit_log, close_audit_handles, query_fingerprint, reset_config_cache  # noqa: E402
 from utils.numbat_emitter import (  # noqa: E402
     close_numbat_handles,
     emit_numbat_command,
@@ -73,7 +74,8 @@ FROZEN_ENDPOINT = {
 FROZEN_LOCAL_PATH = "logs/numbat-events.ndjsonl"
 
 _QUERY = "What does Veeam's immutability flag do?"
-_QUERY_HASH = hash_query(_QUERY)
+_FINGERPRINT_ENV = "CYCLAW_FIXTURE_QUERY_FINGERPRINT_KEY"
+_FINGERPRINT_KEY = "fixture-only-query-fingerprint-key-1458"
 
 
 def _cfg(tmp: Path) -> dict[str, Any]:
@@ -94,6 +96,7 @@ def _cfg(tmp: Path) -> dict[str, Any]:
             "grok": {"model": "grok-4.5", "base_url": "https://api.x.ai/v1"},
             "claude": {"model": "claude-sonnet-5", "base_url": "https://api.anthropic.com/v1"},
         },
+        "policy": {"privacy": {"query_fingerprint_key_env": _FINGERPRINT_ENV}},
     }
 
 
@@ -194,14 +197,14 @@ def _hook_verdicts(cfg: dict[str, Any]) -> None:
             }}},
         }
         model = cfg["models"][provider]["model"]
-        run_pre_action_hook(provider, model, _QUERY_HASH, hook_cfg)
+        run_pre_action_hook(provider, model, query_fingerprint(_QUERY, cfg), hook_cfg)
 
 
 def _cel_match(cfg: dict[str, Any]) -> None:
     """monitor_request's real emission, with the evaluator pinned to a match."""
     with mock.patch.object(numbat_cel, "evaluate_cel_monitor", return_value=[0, 1]):
         numbat_cel.monitor_request(
-            query_hash=_QUERY_HASH,
+            query_hash=query_fingerprint(_QUERY, cfg),
             top_score=0.01,
             answer_model="grok",
             guardrail_blocked=False,
@@ -290,6 +293,8 @@ def generate(*, known_bad: bool = False, frozen: bool = False) -> list[dict[str,
     with tempfile.TemporaryDirectory(prefix="cyclaw-numbat-shaped-") as tmp_dir:
         tmp = Path(tmp_dir)
         cfg = _cfg(tmp)
+        previous_key = os.environ.get(_FINGERPRINT_ENV)
+        os.environ[_FINGERPRINT_ENV] = _FINGERPRINT_KEY
         reset_config_cache()
         try:
             for produce in producers:
@@ -300,6 +305,10 @@ def generate(*, known_bad: bool = False, frozen: bool = False) -> list[dict[str,
             close_audit_handles()
             close_numbat_handles()
             reset_config_cache()
+            if previous_key is None:
+                os.environ.pop(_FINGERPRINT_ENV, None)
+            else:
+                os.environ[_FINGERPRINT_ENV] = previous_key
         stream = tmp / "numbat-events.ndjsonl"
         records = [json.loads(line) for line in stream.read_text(encoding="utf-8").splitlines() if line.strip()]
     return _freeze(records) if frozen else records

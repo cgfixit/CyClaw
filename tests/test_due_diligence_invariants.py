@@ -40,7 +40,7 @@ from tests.conftest import (
     MockLocalLLM,
     MockRetriever,
 )
-from utils.logger import audit_log, close_audit_handles, hash_query, reset_config_cache
+from utils.logger import audit_log, close_audit_handles, query_fingerprint, reset_config_cache
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _EXTERNAL_MODELS = frozenset({"grok", "claude"})
@@ -464,7 +464,7 @@ class TestSoulInjectionScanBoundary:
 # Audit privacy: hashed-by-default query text (a config default, not a hard law).
 # =============================================================================
 class TestAuditQueryPrivacy:
-    """The audit log persists a SHA-256 hash of the `query` field, never the raw
+    """The audit log persists a keyed fingerprint of the `query` field, never the raw
     text — BUT only while logging.audit_fields.include_query_hash is true. This
     pins the hashing property, the shipped-config default, and characterizes the
     leak that flipping the flag produces. See INVARIANTS.md 'Audit query privacy'."""
@@ -486,20 +486,20 @@ class TestAuditQueryPrivacy:
         for q in _generated_queries(30):
             audit_log({"event": "rag_query", "query": q}, cfg=cfg)
             _raw, record = self._read_line(tmp_path / "a.jsonl")
-            assert record.get("query_hash") == hash_query(q)
+            assert record.get("query_hash") == query_fingerprint(q, cfg)
             assert "query" not in record
 
     def test_distinctive_plaintext_query_is_absent_from_hashed_line(self, tmp_path):
         cfg = {"logging": {"audit_file": str(tmp_path / "a.jsonl"),
                            "audit_fields": {"include_query_hash": True}},
                "policy": {"privacy": {}}}
-        # A long non-hex token cannot collide with a SHA-256 digest or an ISO
+        # A long non-hex token cannot collide with a SHA-256 HMAC or an ISO
         # timestamp, so its absence is a meaningful "no plaintext persisted" check.
         token = "zzz-plaintext-query-should-never-persist-zzz"
         audit_log({"event": "rag_query", "query": token}, cfg=cfg)
         raw, record = self._read_line(tmp_path / "a.jsonl")
         assert token not in raw, "raw query text leaked into audit line"
-        assert record["query_hash"] == hash_query(token)
+        assert record["query_hash"] == query_fingerprint(token, cfg)
 
     def test_shipped_config_enables_query_hashing(self):
         cfg = yaml.safe_load((_REPO_ROOT / "config.yaml").read_text(encoding="utf-8"))

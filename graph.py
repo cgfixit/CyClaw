@@ -30,7 +30,7 @@ from retrieval.hybrid_search import HybridRetriever
 from utils.endpoint_trust import EndpointTrustError, assert_local_destination, assert_online_destination
 from utils.errors import RAGError
 from utils.external_pre_hook import run_pre_action_hook
-from utils.logger import audit_log, hash_query, include_query_hash
+from utils.logger import audit_log, include_query_hash, query_fingerprint
 from utils.personality import PersonalityManager
 
 logger = logging.getLogger("cyclaw.graph")
@@ -270,7 +270,7 @@ def _fallback_spend_context(state: GraphState, cfg: dict, provider: str) -> dict
     }
     query = state.get("query")
     if include_query_hash(cfg) and isinstance(query, str):
-        ctx["query_hash"] = hash_query(query)
+        ctx["query_hash"] = query_fingerprint(query, cfg)
     return ctx
 
 
@@ -1055,7 +1055,7 @@ def audit_logger_node(state: GraphState, cfg: dict,
     # always runs so query audit convergence is preserved.
     if personality and state.get("answer_model"):
         try:
-            query_hash = hash_query(query)
+            query_hash = query_fingerprint(query, cfg)
             outcome = (
                 f"{state.get('answer_model', 'unknown')}"
                 f"|score={state.get('top_score', 0.0):.4f}"
@@ -1133,7 +1133,7 @@ def pre_action_hook_node(state: GraphState, cfg: dict, *, provider: str) -> dict
     """
     query = state.get("query", "")
     model = _llm_identity(provider, cfg).get("llm_model") or "unknown"
-    query_hash = hash_query(query)
+    query_hash = query_fingerprint(query, cfg)
 
     result = run_pre_action_hook(provider, model, query_hash, cfg)
     if result.get("verdict") == "allow":

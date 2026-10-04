@@ -7,9 +7,10 @@ script running in the page could read it. POST /console/session trades the
 key once for a signed cookie instead (gate.py). The cookie is HttpOnly, so
 page script cannot read it, and it expires; the key never does.
 
-The cookie is stateless: ``v1.<expiry>.<nonce>.<mac>``, where the MAC is an
+The cookie is stateless: ``v2.<expiry>.<nonce>.<mac>``, where the MAC is an
 HMAC-SHA256 under a key derived from CYCLAW_API_KEY. Nothing is stored
-server-side, so a cookie survives a gateway restart and works across uvicorn
+server-side. The MAC is bound to the issuing scheme and Host:port, so a cookie
+validates only for that gateway audience. A cookie survives a gateway restart and works across uvicorn
 workers, and rotating CYCLAW_API_KEY invalidates every cookie at once. An
 unset key validates nothing, so the fail-closed default still holds. The
 price of statelessness is that a cookie cannot be revoked one at a time
@@ -42,10 +43,11 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass
 
 COOKIE_NAME = "cyclaw_console"
+SECURE_COOKIE_NAME = "__Host-cyclaw_console"
 CSRF_HEADER = "x-cyclaw-console-csrf"
 PAIRING_ENV = "CYCLAW_CONSOLE_PAIRING_CODE"
 
-_VERSION = "v1"
+_VERSION = "v2"
 # A shorter code is refused as too guessable. The launchers mint 32 URL-safe
 # characters (about 190 bits).
 MIN_PAIRING_CODE_CHARS = 16
@@ -75,7 +77,7 @@ class ConsoleSession:
     expires_at: int
 
 
-def mint(api_key: str, ttl_sec: int, now: float | None = None) -> ConsoleSession:
+def mint(api_key: str, ttl_sec: int, now: float | None = None, *, audience: str = "") -> ConsoleSession:
     """Mint a cookie valid for ``ttl_sec`` seconds. Raises ValueError without a key."""
     if not api_key:
         raise ValueError("CYCLAW_API_KEY is not set")
@@ -84,13 +86,13 @@ def mint(api_key: str, ttl_sec: int, now: float | None = None) -> ConsoleSession
     nonce = secrets.token_urlsafe(18)
     body = f"{_VERSION}.{expires_at}.{nonce}"
     return ConsoleSession(
-        token=f"{body}.{_mac(api_key, f'session.{body}')}",
+        token=f"{body}.{_mac(api_key, f'session.{audience}.{body}')}",
         csrf=_csrf_for(api_key, nonce),
         expires_at=expires_at,
     )
 
 
-def verify(api_key: str, token: str | None, now: float | None = None) -> ConsoleSession | None:
+def verify(api_key: str, token: str | None, now: float | None = None, *, audience: str = "") -> ConsoleSession | None:
     """Return the session a cookie value carries, or None if it is not valid now."""
     if not api_key or not token or len(token) > _MAX_TOKEN_CHARS:
         return None
@@ -99,7 +101,7 @@ def verify(api_key: str, token: str | None, now: float | None = None) -> Console
         return None
     _, expires_raw, nonce, mac = parts
     body = f"{_VERSION}.{expires_raw}.{nonce}"
-    if not hmac.compare_digest(mac.encode("utf-8"), _mac(api_key, f"session.{body}").encode("utf-8")):
+    if not hmac.compare_digest(mac.encode("utf-8"), _mac(api_key, f"session.{audience}.{body}").encode("utf-8")):
         return None
     try:
         expires_at = int(expires_raw)

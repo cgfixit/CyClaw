@@ -101,7 +101,7 @@ decision.
 | POST | `/soul/restore` | **API key** | from `.bak` |
 | GET | `/audit/summary` | **API key** | rate-limited; aggregates only, no raw queries |
 | GET | `/console/session` | none (same-origin) | rate-limited; whether this browser can use the API-key routes and how (`via`: `console_key`/`admin_session`/`api_key_optional`), plus the console CSRF token after a reload; cross-site 403 |
-| POST | `/console/session` | **Bearer key or one-time pairing code** | rate-limited, same-origin, audited; sets the HttpOnly `cyclaw_console` cookie that satisfies `require_api_key` (`utils/console_session.py`); 401 when `CYCLAW_API_KEY` is unset |
+| POST | `/console/session` | **Bearer key or one-time pairing code** | rate-limited, same-origin, audited; sets the HttpOnly audience-bound console cookie (`__Host-cyclaw_console` under TLS) that satisfies `require_api_key` (`utils/console_session.py`); 401 when `CYCLAW_API_KEY` is unset |
 | POST | `/console/session/end` | none (same-origin) | rate-limited, audited; deletes this browser's console cookie (cannot revoke a copy elsewhere: rotate the key for that) |
 | POST | `/ops/sync` | **API key** | rate-limited; subprocess shim |
 | POST | `/ops/agentic` | **API key** | rate-limited; subprocess shim |
@@ -109,12 +109,12 @@ decision.
 | POST | `/ops/sqlconnect` | **API key** | rate-limited; subprocess shim |
 | GET | `/auth/setup-status` | same-origin (curl/MCP with no Origin still allowed) | rate-limited; `{enabled, needs_password, username}` when the bootstrap admin still has no password; 503 when `auth.enabled` is false |
 | POST | `/auth/bootstrap-password` | loopback peer, no forwarding headers | first admin password; same-origin; 403 off-box or when proxied; 409 once set; 503 when auth off |
-| POST | `/auth/login` | none | rate-limited; session cookie + CSRF token on success; 503 when `auth.enabled` is false |
+| POST | `/auth/login` | none | cross-site rejection precedes rate limiting; bounded password workers; session cookie + CSRF token on success; 503 when `auth.enabled` is false |
 | POST | `/auth/logout` | **session cookie + CSRF** | rate-limited; 503 when `auth.enabled` is false |
 | GET | `/auth/whoami` | **session cookie or bearer token** | rate-limited; returns `username` + `role`; 503 when `auth.enabled` is false |
 | GET | `/auth/users` | **session; admin or operator** | list users, no hashes; 503 when auth off |
 | POST | `/auth/users` | **session+CSRF or admin bearer** | create user; operator cannot create admin |
-| POST | `/auth/password` | **session+CSRF or admin bearer** | self-service password change; any authenticated role |
+| POST | `/auth/password` | **session+CSRF or admin bearer** | self-service password change requires `current_password` plus the new `password`; revokes existing sessions |
 | POST | `/auth/users/{username}/password` | **session+CSRF or admin bearer** | reset password; operator cannot touch admins |
 | POST | `/auth/users/{username}/role` | **admin only** | set role; last-admin protected |
 | POST | `/auth/users/{username}/disable` `/auth/users/{username}/enable` | **admin; operator on non-admins** | last-admin protected |
@@ -201,7 +201,7 @@ Module docstrings are the detailed reference; this table is the index.
 | `utils/sanitizer.py` | Injection filter; patterns in `config.yaml` |
 | `utils/personality.py` | Soul versioning, SHA-256 drift detection, injection gate on write |
 | `utils/personality_db.py` | Soul DB backend: SQLite default, Postgres via `CYCLAW_DB_URL` |
-| `utils/logger.py` | Audit JSONL (written on the caller's thread, I4): SHA-256 query hashing, recursive PII redaction, then a lazy fail-soft projection of the **already-redacted** record into the Numbat stream. `setup_logging` writes the app log (and gateway console, `background_console=True`) from one bounded writer thread (`logging.max_queued_records`, `logging.drain_wait_sec`; full queue drops and counts); closed handlers reopen after uvicorn's `dictConfig` |
+| `utils/logger.py` | Audit JSONL (written on the caller's thread, I4): keyed HMAC-SHA256 query fingerprints, recursive PII redaction, then a lazy fail-soft projection of the **already-redacted** record into the Numbat stream. The key comes from `CYCLAW_QUERY_FINGERPRINT_KEY` or the private persistent file configured at `policy.privacy.query_fingerprint_key_file`; ordinary `hash_query` SHA-256 remains for content-integrity identifiers. `setup_logging` writes the app log (and gateway console, `background_console=True`) from one bounded writer thread (`logging.max_queued_records`, `logging.drain_wait_sec`; full queue drops and counts); closed handlers reopen after uvicorn's `dictConfig` |
 | `utils/numbat_emitter.py` | Derived NDJSON stream `logs/numbat-events.ndjsonl` (`numbat:` ships **enabled** — this file only; the pre-action hook and CEL monitor ship off, and nothing scores it at runtime, #1458). Action plane (`emit_numbat_event`/`emit_numbat_command` from `agentic/*`, `ops_runner`, hook verdicts, CEL) + mainline plane (`project_audit_record`); keep `_AUDIT_ACTION_PLANE_EVENTS` in step with the emit sites. Stdlib-only, never raises; one bounded writer thread (`numbat.write_wait_sec`, `numbat.max_queued_writes`) |
 | `utils/ratelimit.py` | Per-IP rate limiting; in-memory / SQLite / Postgres |
 | `utils/health.py` | `check_all()` behind `/health`. Probes Grok/Claude only when `api.health_probe_external_providers` (ships **false**) and the key is set. Concurrent calls share one in-flight probe set, snapshots cache 2 s (`_status_ttl_sec`, #1490); probe errors surface only as fixed strings (`_public_probe_error`, #1492) |
@@ -464,7 +464,7 @@ rule that prevents it.
   **Rule:** BM25 stays JSON (`index/bm25.json`); pickle is RCE. `test_security`
   guards it.
 - **Trap:** logging raw query text "for debugging."
-  **Rule:** the audit log stores SHA-256 hashes only; `test_gate` enforces it.
+  **Rule:** the audit log stores keyed HMAC fingerprints by default; `test_gate` enforces it.
 - **Trap:** treating MCP `hybrid_search` as unsanitized.
   **Rule:** it runs `check_input` before retrieval (E3, #974; same patterns and
   `max_input_chars` as `/query`) and audits `prompt_injection_blocked`.

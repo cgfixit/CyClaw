@@ -64,6 +64,19 @@ def test_valid_enabled_load(tmp_path: Path) -> None:
     assert cfg.query.base_url == "http://127.0.0.1:8787"
 
 
+def test_base_urls_are_normalized_once_before_client_path_join(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        {
+            "api_base": "https://opentweet.io///",
+            "query": {"base_url": "http://127.0.0.1:8787///"},
+        },
+    )
+    cfg = load_opentweet_config(path)
+    assert cfg.api_base == "https://opentweet.io"
+    assert cfg.query.base_url == "http://127.0.0.1:8787"
+
+
 def test_loopback_reject(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,

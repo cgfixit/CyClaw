@@ -9,21 +9,9 @@
 # not exported from that file. Those values live in the macOS Keychain and
 # are read into the cyclaw process only.
 #
-# A name is secret-classified when either is true, compared case-insensitively
-# so grok_api_key is not exported (PowerShell -like is already case-insensitive):
-#   1. Allowlist (CyClaw's own keys):
-#        CYCLAW_API_KEY
-#        TELEGRAM_BOT_TOKEN
-#        GROK_API_KEY
-#        ANTHROPIC_API_KEY
-#        GH_TOKEN
-#        GITHUB_TOKEN
-#        CLAUDE_API_KEY
-#   2. Suffix pattern:
-#        *_API_KEY  *_TOKEN  *_SECRET  *_PASSWORD
-# CLAUDE_API_KEY is on the allowlist so it is never loaded. llm/client.py
-# does not read it, and setup does not copy it into the Keychain.
-# Names that match the pattern but are not on the allowlist are not loaded
+# Secret classification and explicit Keychain services come from the inert,
+# versioned utils/secret-policy.tsv shared with Python and PowerShell.
+# Names that match a suffix but have no exact service mapping are not loaded
 # and are not given a Keychain service. Setup leaves those lines in place
 # and warns, so the only copy is not deleted.
 
@@ -32,18 +20,35 @@ if [ -n "${BASH_SOURCE:-}" ] && [ "${BASH_SOURCE[0]}" = "$0" ]; then
   exit 1
 fi
 
+_CYCLAW_SECRET_POLICY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/utils/secret-policy.tsv"
+if [ ! -r "$_CYCLAW_SECRET_POLICY" ]; then
+  _CYCLAW_SECRET_POLICY="${CYCLAW_HOME:-$HOME/.CyClaw}/lib/secret-policy.tsv"
+fi
+
+_cyclaw_secret_policy_valid() {
+  [ -r "$_CYCLAW_SECRET_POLICY" ] || return 1
+  [ "$(sed -n '1p' "$_CYCLAW_SECRET_POLICY")" = "# cyclaw-secret-policy-v1" ] || return 1
+  awk -F '\t' 'BEGIN{ok=1} /^#/ || NF==0 {next} NF!=3 || ($1!="suffix" && $1!="exact") {ok=0} END{exit !ok}' "$_CYCLAW_SECRET_POLICY"
+}
+
+if ! _cyclaw_secret_policy_valid; then
+  echo "[cyclaw] error: missing or invalid utils/secret-policy.tsv" >&2
+  return 1
+fi
+
+cyclaw_secret_service() {
+  local name
+  name="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
+  awk -F '\t' -v n="$name" '$1=="exact" && toupper($2)==n && $3!="" {print $3; found=1; exit} END{exit !found}' "$_CYCLAW_SECRET_POLICY"
+}
+
 cyclaw_is_secret_name() {
   local name
   name="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
-  case "$name" in
-    CYCLAW_API_KEY|TELEGRAM_BOT_TOKEN|GROK_API_KEY|ANTHROPIC_API_KEY|GH_TOKEN|GITHUB_TOKEN|CLAUDE_API_KEY)
-      return 0
-      ;;
-    *_API_KEY|*_TOKEN|*_SECRET|*_PASSWORD)
-      return 0
-      ;;
-  esac
-  return 1
+  awk -F '\t' -v n="$name" '
+    $1=="exact" && toupper($2)==n {found=1; exit}
+    $1=="suffix" {tail="_" toupper($2); if (length(n)>length(tail) && substr(n,length(n)-length(tail)+1)==tail) {found=1; exit}}
+    END{exit !found}' "$_CYCLAW_SECRET_POLICY"
 }
 
 # Same predicate under the name cyclaw-keychain-load.sh calls.
@@ -55,8 +60,7 @@ cyclaw_public_env_header() {
   cat <<'EOF'
 # CyClaw non-secret settings (mode 600).
 # Ports, paths, mode flags, model names, and feature toggles belong here.
-# Secret-classified names do not: the allowlist in macos/cyclaw-public-env.sh,
-# plus any name ending in _API_KEY, _TOKEN, _SECRET, or _PASSWORD.
+# Secret-classified names do not; utils/secret-policy.tsv is authoritative.
 # Those are read from the macOS Keychain when cyclaw starts.
 EOF
 }

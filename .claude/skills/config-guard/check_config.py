@@ -41,6 +41,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 # Loopback hosts CyClaw is permitted to bind (docs/THREAT_MODEL.md: loopback-only).
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -116,6 +117,29 @@ def _load_ollama_context_length(root: Path) -> int | None:
 
 
 def run_checks(cfg: dict[str, Any], ollama_context_length: int | None = None) -> None:
+    print("C0 inline credentials are forbidden")
+    local = _dig(cfg, "models", "local_llm")
+    inline_keys = []
+    if isinstance(local, dict):
+        if str(local.get("api_key") or "").strip():
+            inline_keys.append("models.local_llm.api_key")
+        fallback = local.get("fallback")
+        if isinstance(fallback, dict) and str(fallback.get("api_key") or "").strip():
+            inline_keys.append("models.local_llm.fallback.api_key")
+    for path in (("indexing", "database_url"), ("personality", "database_url"),
+                 ("api", "rate_limit", "database_url"), ("auth", "database_url")):
+        value = _dig(cfg, *path)
+        if isinstance(value, str) and value:
+            try:
+                if urlsplit(value).password is not None:
+                    inline_keys.append(".".join(path))
+            except ValueError:
+                inline_keys.append(".".join(path))
+    if inline_keys:
+        fail("C0", "inline credentials found at: " + ", ".join(inline_keys))
+    else:
+        ok("C0", "local model keys and database passwords are indirect")
+
     # ── C1 min_score is a routable RRF score ────────────────────────────────
     print("C1 retrieval.min_score range")
     min_score = _dig(cfg, "retrieval", "min_score")

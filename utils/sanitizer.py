@@ -19,6 +19,7 @@ from re import Pattern
 import yaml
 
 from utils.errors import PromptInjectionError
+from utils._unicode_confusables import CONFUSABLE_FOLD
 
 logger = logging.getLogger("cyclaw.sanitizer")
 
@@ -35,29 +36,26 @@ _DEFAULT_MAX_INPUT_CHARS = 4000
 # rest of the config readers.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Zero-width and format characters: they render as nothing, but dropped INSIDE
-# a word they break the regex while leaving the text perfectly readable to the
-# model -- "ig<ZWSP>nore all previous instructions" matches no pattern, yet
-# tokenizes back to the instruction it spells. Deleting them (rather than
-# replacing with a space) is what rejoins the split word.
-# Covers zero-width space/non-joiner/joiner, the LTR/RTL marks, word joiner,
-# BOM, and soft hyphen. \u escapes (not a raw string): the same codepoints as
-# the old literal class, but the source stays reviewable. Bandit B613 flags
-# raw bidi in this file as Trojan Source; this pattern *strips* those marks.
-_INVISIBLE_CHARS = re.compile("[\u200b-\u200f\u2060\ufeff\u00ad]")
+def _normalize_for_match(text: str, *, fold_separators: bool = True) -> str:
+    """Fold an inspection copy; never rewrite accepted user/corpus content.
 
-
-def _normalize_for_match(text: str) -> str:
-    # Match against a normalized COPY so the pattern list doesn't have to
-    # enumerate every Unicode spelling of the same phrase. NFKC folds
-    # compatibility forms back to ASCII, so fullwidth
-    # "ｉｇｎｏｒｅ ａｌｌ ｐｒｅｖｉｏｕｓ ｉｎｓｔｒｕｃｔｉｏｎｓ" collapses onto
-    # the plain form the patterns already catch; stripping the invisible
-    # characters closes the zero-width-splitting variant. Both transforms only
-    # ever fold text TOWARD the ASCII the patterns are written in, so the
-    # normalized copy matches a superset of what the raw string would — this
-    # cannot silently stop catching something that used to be caught.
-    return _INVISIBLE_CHARS.sub("", unicodedata.normalize("NFKC", text))
+    TR39-derived confusables preserve ASCII for existing regex consumers; see
+    unicode_data/README.md for the distinction from a full TR39 skeleton.
+    Decode hidden ASCII Tags before removing other format/variation characters.
+    URL screening disables separator folding so dots and hyphens remain evidence.
+    """
+    text = "".join(chr(ord(c) - 0xE0000) if 0xE0020 <= ord(c) <= 0xE007E else c for c in text)
+    text = "".join(
+        c for c in text
+        if unicodedata.category(c) != "Cf"
+        and not 0xE0000 <= ord(c) <= 0xE007F
+        and not 0xFE00 <= ord(c) <= 0xFE0F
+        and not 0xE0100 <= ord(c) <= 0xE01EF
+    )
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    text = unicodedata.normalize("NFKC", text).casefold().translate(CONFUSABLE_FOLD)
+    return re.sub(r"[_\-.·]+", " ", text) if fold_separators else text
 
 
 def _resolve_config_path(config_path: str) -> Path:
@@ -155,7 +153,7 @@ def check_input(query: str, config_path: str = "config.yaml", *, max_chars_overr
 
     probe = _normalize_for_match(query)
     for pattern in patterns:
-        if pattern.search(probe):
+        if pattern.search(query) or pattern.search(probe):
             raise PromptInjectionError(
                 "Potential prompt injection detected",
                 details={},
@@ -173,14 +171,11 @@ def sanitize_chunk(text: str, config_path: str = "config.yaml") -> str:
     if not enabled:
         return text
 
-    # Deliberately NOT normalized the way check_input is. check_input only TESTS
-    # its input, so it can match against a folded copy and still hand the caller
-    # back the original. This function SUBSTITUTES and its return value is what
-    # gets stored in the index, so matching against a normalized copy would mean
-    # either writing the normalized text into the corpus (silently rewriting
-    # documents at ingestion) or mapping offsets back to the raw string. Chunks
-    # are author-controlled corpus content rather than adversarial live input, so
-    # the raw-text pass is the right trade here.
     for pattern in patterns:
         text = pattern.sub("[FILTERED]", text)
+    # Folded offsets do not map to original text. Reject the remaining chunk
+    # as a whole if an obfuscated instruction survived raw substitution.
+    probe = _normalize_for_match(text)
+    if any(pattern.search(probe) for pattern in patterns):
+        return "[FILTERED]"
     return text

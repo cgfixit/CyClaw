@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import stat
 from collections.abc import Callable
 from pathlib import Path
 
@@ -54,7 +55,10 @@ def _resolve_relative_path(value: str, base_dir: Path) -> str:
 
 def load_config(config_path: str = "config.yaml") -> dict:
     with open(_resolve_config_path(config_path), encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    from utils.config_validation import validate_no_inline_credentials
+    validate_no_inline_credentials(cfg)
+    return cfg
 
 
 def _anchor_index_paths(cfg: dict, config_path: Path) -> dict:
@@ -71,7 +75,12 @@ def _anchor_index_paths(cfg: dict, config_path: Path) -> dict:
     return cfg
 
 
-def load_corpus(corpus_path: str, extensions: list[str]) -> list[tuple[str, str]]:
+def load_corpus(
+    corpus_path: str, extensions: list[str], max_file_bytes: int = 10 * 1024 * 1024,
+) -> list[tuple[str, str]]:
+    """Load regular UTF-8 files with a per-file byte ceiling, never truncating."""
+    if isinstance(max_file_bytes, bool) or not isinstance(max_file_bytes, int) or max_file_bytes < 1:
+        raise ValueError("corpus.max_file_bytes must be a positive integer")
     docs = []
     corpus_dir = Path(corpus_path)
     if not corpus_dir.exists():
@@ -91,7 +100,23 @@ def load_corpus(corpus_path: str, extensions: list[str]) -> list[tuple[str, str]
             logger.warning("Skipping %s: resolves outside corpus directory", file_path)
             continue
         try:
-            content = file_path.read_text(encoding="utf-8")
+            resolved = file_path.resolve(strict=True)
+            if not resolved.is_relative_to(corpus_resolved):
+                continue
+            # Nonblocking open avoids a swapped-in FIFO hanging the indexer;
+            # no-follow rejects a final-component symlink swap after resolve.
+            flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(resolved, flags)
+            with os.fdopen(fd, "rb") as source:
+                info = os.fstat(source.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size > max_file_bytes:
+                    logger.warning("Skipping corpus file: not regular or exceeds byte limit")
+                    continue
+                raw = source.read(max_file_bytes + 1)
+                if len(raw) > max_file_bytes:
+                    logger.warning("Skipping corpus file: exceeds byte limit during read")
+                    continue
+            content = raw.decode("utf-8")
             docs.append((str(file_path), content))
         except (UnicodeDecodeError, OSError) as e:
             logger.warning("Skipping %s: %s", file_path, e)
@@ -251,7 +276,7 @@ def build_index(config_path: str = "config.yaml") -> None:
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
 
     logger.info("Loading corpus from %s", corpus_path)
-    docs = load_corpus(corpus_path, extensions)
+    docs = load_corpus(corpus_path, extensions, cfg["corpus"].get("max_file_bytes", 10 * 1024 * 1024))
     logger.info("Loaded %d documents", len(docs))
     split_document = make_chunker(cfg, config_path_str)
 

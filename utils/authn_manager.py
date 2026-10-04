@@ -23,7 +23,6 @@ from pathlib import Path
 
 from utils import authn, authn_store
 from utils.errors import (
-    AuthAccountLocked,
     AuthBootstrapComplete,
     AuthLastAdmin,
     AuthLoginFailed,
@@ -47,7 +46,7 @@ BOOTSTRAP_USERNAME = "admin"
 
 # Default session bounds (docs/AUTHENTICATION_DESIGN.md §10.2, confirmed
 # 2026-08-08): 12h idle, 7d absolute. Both configurable via auth.session.*.
-_DEFAULT_IDLE_TIMEOUT_SEC = 12 * 3600
+_DEFAULT_IDLE_TIMEOUT_SEC = 3600
 _DEFAULT_ABSOLUTE_TIMEOUT_SEC = 7 * 86400
 
 
@@ -100,38 +99,8 @@ class DeviceTokenSummary:
     revoked: bool
 
 
-# A syntactically valid record that no real password will ever match, built
-# once at import time with the SAME cost parameters hash_password() currently
-# uses. login() runs verify_password() against this for an unknown username so
-# response timing does not disclose whether the username exists -- skipping
-# the ~0.1s scrypt cost entirely for a nonexistent user would be a measurable
-# side channel. The fixed salt is fine: this record is never meant to
-# authenticate anything, only to cost the same as one that could.
-#
-# Known, accepted limitation: this equalizes cost against TODAY's policy
-# constants, not against whatever a specific stored row actually used.
-# verify_password() derives its cost from the n/r/p embedded IN the record
-# (that is precisely what lets needs_rehash raise the work factor later
-# without forcing a password reset) -- so the moment a future release raises
-# _SCRYPT_N/_SCRYPT_R/_SCRYPT_P, any account that has not logged in since
-# that bump (and so has not yet been transparently rehashed) becomes
-# CHEAPER to verify than this freshly-recompiled dummy, reopening a
-# username-timing gap for that account specifically until its next
-# successful login. Not exploitable today (no bump has ever happened, so
-# every stored record and this dummy use identical parameters) and not
-# fixed here: doing so requires the dummy's cost to track the CURRENT
-# minimum cost actually stored across the user table, which needs a
-# DB read on every login attempt for a risk that does not exist yet. If
-# _SCRYPT_N/R/P are ever raised, revisit this before shipping that change.
-#
-# Lazy on purpose: this is a full scrypt derivation (~0.1s on the target
-# Mac), and computing it at module import made EVERY process that imports
-# gate.py pay for it -- including the shipped default config, where
-# auth.enabled is false and no AuthManager is ever constructed.
-# AuthManager.__init__ warms the cache, so by the time any login request can
-# exist the record is precomputed and the unknown-username timing path is
-# byte-identical to the old module-level constant. lru_cache makes the cost
-# once-per-process no matter how many managers a test constructs.
+# Unknown, disabled, and locked accounts still perform one password verification.
+# The cached dummy record uses current policy parameters.
 @lru_cache(maxsize=1)
 def _dummy_record() -> str:
     return authn.hash_password("dummy-timing-equalization-password", salt=b"\x00" * 16)
@@ -161,11 +130,6 @@ class AuthManager:
         session_cfg = auth_cfg.get("session", {}) or {}
         self.idle_timeout_sec = session_cfg.get("idle_timeout_sec", _DEFAULT_IDLE_TIMEOUT_SEC)
         self.absolute_timeout_sec = session_cfg.get("absolute_timeout_sec", _DEFAULT_ABSOLUTE_TIMEOUT_SEC)
-        # Guards every read/write below (login, session/token validation,
-        # admin ops) through THIS instance. login() holds it for the full
-        # ~0.1s duration of verify_password()'s scrypt cost -- an accepted,
-        # documented tradeoff, not an oversight. See login()'s own comment
-        # for why a lock-free version was designed and rejected.
         self._lock = threading.Lock()
         self.conn, self._ph, self.backend = authn_store.connect(self.db_path, auth_cfg)
         self._prepare_sql()
@@ -213,7 +177,7 @@ class AuthManager:
             f"AND ({ph} = 'admin' OR {last_admin_guard})"
         )
         self._sql_delete_user = f"DELETE FROM users WHERE username = {ph} AND {last_admin_guard}"
-        self._sql_disable_user = f"UPDATE users SET disabled = 1 WHERE username = {ph} AND {last_admin_guard}"
+        self._sql_disable_user = f"UPDATE users SET disabled = 1, credential_revision = credential_revision + 1 WHERE username = {ph} AND {last_admin_guard}"
         # Postgres only. Locked in username order before each guarded write so
         # two concurrent statements against *different* admin rows cannot both
         # pass last_admin_guard under READ COMMITTED. SQLite is a no-op: it
@@ -227,8 +191,8 @@ class AuthManager:
         self._sql_count_enabled_admins = (
             "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0"
         )
-        self._sql_set_disabled = f"UPDATE users SET disabled = {ph} WHERE username = {ph}"
-        self._sql_set_password = f"UPDATE users SET password_hash = {ph} WHERE username = {ph}"
+        self._sql_set_disabled = f"UPDATE users SET disabled = {ph}, credential_revision = credential_revision + 1 WHERE username = {ph}"
+        self._sql_set_password = f"UPDATE users SET password_hash = {ph}, credential_revision = credential_revision + 1 WHERE username = {ph}"
         # Compare-and-swap for first-password setup: two AuthManager instances
         # (gateway vs harness, or HTTP vs `cyclaw-user passwd`) can both read
         # the pending row. Username-only UPDATE would let the later writer
@@ -236,15 +200,9 @@ class AuthManager:
         # caller just received. Matching the pending hash in WHERE makes the
         # loser a no-op (rowcount 0 -> AuthBootstrapComplete).
         self._sql_claim_bootstrap_password = (
-            f"UPDATE users SET password_hash = {ph} "
+            f"UPDATE users SET password_hash = {ph}, credential_revision = credential_revision + 1 "
             f"WHERE username = {ph} AND password_hash = {ph}"
         )
-        # A single conditional UPDATE, not a read-then-write pair: it both
-        # verifies the row is still exactly what login() checked (password
-        # hash, disabled, lockout) AND claims it -- in one statement, so
-        # there is no gap between "check" and "act" for a concurrent writer
-        # to land in. See login()'s own comment for why a bare re-SELECT
-        # (the previous approach) still left a narrower but real window.
         self._sql_claim_login = (
             f"UPDATE users SET last_login_ts = {ph}, failed_count = 0, locked_until_ts = NULL "
             f"WHERE username = {ph} AND password_hash = {ph} AND disabled = 0 "
@@ -318,6 +276,7 @@ class AuthManager:
         for index_ddl in authn_store.ddl_indexes():
             self.conn.execute(index_ddl)
         authn_store.ensure_users_role_column(self.conn, self.backend)
+        authn_store.ensure_credential_revision_column(self.conn, self.backend)
         self.conn.execute(
             f"UPDATE users SET role = {self._ph} WHERE username = {self._ph} AND role = {self._ph}",
             (authn.validate_role("admin"), BOOTSTRAP_USERNAME, authn.DEFAULT_ROLE),
@@ -651,114 +610,93 @@ class AuthManager:
             username=username, session_id=session_id, csrf_token=csrf_token, expires_ts=expires_ts
         )
 
-    def login(self, username: str, password: str) -> LoginResult:
-        """Verify credentials and, on success, create a session.
-
-        Raises AuthLoginFailed for an unknown username, a wrong password, OR a
-        disabled account -- deliberately the same error in all three cases, so
-        a caller cannot distinguish "no such account" from "wrong password"
-        from "account exists but is disabled". Raises AuthAccountLocked
-        instead when the account has an active lockout; that IS a distinct,
-        informative error, because the client needs the retry delay.
-        """
-        canonical = username.strip().lower() if isinstance(username, str) else ""
-        password = password if isinstance(password, str) else ""
-        now = self._now()
-        # Concurrency note (accepted tradeoff, not a bug -- raised in PR #830's
-        # review round, 2026-08-09, and re-affirmed rather than changed here).
-        # This lock is held for the FULL duration of verify_password() below,
-        # which costs ~0.1s of real scrypt work. That serializes every
-        # concurrent login through THIS AuthManager instance, and also blocks
-        # validate_session()/verify_device_token() calls made through the same
-        # instance while a login is mid-hash, since they share this lock too.
-        #
-        # A lock-free version -- hash outside the lock, then re-enter and
-        # recheck before writing -- was designed and rejected. The obvious
-        # implementation reintroduces a WORSE bug on the lockout counter: two
-        # concurrent wrong-password attempts against the same account would
-        # both read failed_count=4 outside the lock, both independently
-        # compute new_count=5, and both write 5 -- five real failures
-        # recording as one increment, undercounting the lockout ceiling.
-        # Fixing that correctly needs a compare-and-swap on the counter (a
-        # SQL UPDATE ... WHERE failed_count = ? guard) or a per-account lock,
-        # which is a real feature with its own tests, not a drive-by change
-        # bolted onto this method.
-        #
-        # The exposure left by NOT fixing this is bounded and judged
-        # acceptable for docs/THREAT_MODEL.md's single-operator, LAN-scale
-        # deployment: the per-IP rate limiter (gate.py's _enforce_rate_limit,
-        # 60/min) already runs before this method is ever reached, and
-        # realistic concurrent-login volume on a home LAN is a handful of
-        # devices, not a load-testing scenario. Serializing that traffic
-        # through one ~0.1s hash at a time costs a second concurrent caller a
-        # small, bounded latency hit -- correct, just not maximally
-        # concurrent. Revisit only with a fix verified safe by
-        # mutation-testing the LOCKOUT-ACCURACY property specifically (not
-        # just the happy path) -- a naive fix that "passes" only because no
-        # test races two failed attempts is exactly how the undercount above
-        # would ship unnoticed.
+    def _credential_snapshot(self, canonical: str) -> dict | None:
         with self._lock:
             row = self.conn.execute(self._sql_get_user, (canonical,)).fetchone()
-            if row is None:
-                # Pay the same scrypt cost a real check would, so timing does
-                # not disclose whether this username exists.
-                authn.verify_password(password, _dummy_record())
-                self._end_read_txn()
-                raise AuthLoginFailed()
-            if authn.is_locked(row["locked_until_ts"], now=now):
-                retry_after = max(row["locked_until_ts"] - now, 0.0)
-                self._end_read_txn()
-                raise AuthAccountLocked(
-                    f"account temporarily locked, retry in {int(retry_after) + 1}s",
-                    retry_after_sec=retry_after,
-                    details={"username": canonical},
+            self._end_read_txn()
+        return dict(row) if row is not None else None
+
+    def _credential_for_update_locked(self, canonical: str):
+        if self.backend == "sqlite":
+            self.conn.execute("BEGIN IMMEDIATE")
+            statement = self._sql_get_user
+        else:
+            statement = self._sql_get_user + " FOR UPDATE"
+        return self.conn.execute(statement, (canonical,)).fetchone()
+
+    def login(self, username: str, password: str) -> LoginResult:
+        """Hash outside the connection lock, then claim unchanged credentials atomically."""
+        canonical = username.strip().lower() if isinstance(username, str) else ""
+        password = password if isinstance(password, str) else ""
+        observed = self._credential_snapshot(canonical)
+        blocked = observed is None or observed["disabled"] or authn.is_locked(
+            observed["locked_until_ts"], now=self._now()
+        )
+        record = _dummy_record() if blocked else observed["password_hash"]
+        ok, needs_rehash = authn.verify_password(password, record)
+        if blocked:
+            raise AuthLoginFailed()
+        replacement = authn.hash_password(password) if ok and needs_rehash else None
+        with self._lock:
+            try:
+                row = self._credential_for_update_locked(canonical)
+                if (row is None or row["disabled"]
+                        or row["password_hash"] != observed["password_hash"]
+                        or row["credential_revision"] != observed["credential_revision"]):
+                    raise AuthLoginFailed()
+                now = self._now()
+                if not ok:
+                    # The write transaction owns the current count across connections.
+                    self._record_failure_locked(canonical, row["failed_count"], now)
+                    raise AuthLoginFailed()
+                if authn.is_locked(row["locked_until_ts"], now=now):
+                    raise AuthLoginFailed()
+                claimed = self.conn.execute(
+                    self._sql_claim_login, (now, canonical, row["password_hash"], now)
                 )
-            ok, needs_rehash = authn.verify_password(password, row["password_hash"])
-            if row["disabled"] or not ok:
-                self._record_failure_locked(canonical, row["failed_count"], now)
-                raise AuthLoginFailed()
-            # Claim the row atomically before minting a session -- a single
-            # conditional UPDATE, not a read-then-write pair. verify_password()
-            # above costs ~0.1s (scrypt), and self._lock only serializes calls
-            # made through THIS AuthManager instance -- it does nothing against
-            # a concurrent `cyclaw-user passwd`/`disable` from a SEPARATE
-            # process, which opens its own AuthManager and its own DB
-            # connection. A bare re-SELECT here (the previous approach) closes
-            # most of that window but not all of it: a concurrent
-            # set_password()'s revoke-sessions-for-user can still run, find
-            # nothing (this call's session doesn't exist yet), and commit
-            # BEFORE this call's session INSERT lands -- so the new session
-            # would survive a password rotation that was specifically meant to
-            # cut it off immediately, the same "revoke NOW, not eventually"
-            # promise set_password()/_set_disabled() make for already-issued
-            # sessions. A single UPDATE closes this for real: it is the first
-            # write in this transaction, so whichever of this call or a
-            # concurrent set_password()/_set_disabled() reaches the row's lock
-            # first forces the other to wait until it commits -- the loser
-            # then re-evaluates its own WHERE clause against the winner's
-            # already-committed state, so a losing login() sees rowcount == 0
-            # (fails closed) and a losing set_password() (should this call win
-            # the race) sees the just-created session once it proceeds, and
-            # revokes it as usual.
-            claimed = self.conn.execute(
-                self._sql_claim_login, (now, canonical, row["password_hash"], now)
-            )
-            if not claimed.rowcount:
-                # Deliberately NOT routed through _record_failure_locked(): the
-                # credential presented was correct at the moment it was
-                # checked. This is "the account changed out from under us",
-                # not "a wrong guess" -- counting it toward the lockout
-                # ceiling would let a legitimate password rotation contribute
-                # to locking the account that rotation was just used on. Raise
-                # the generic error, not a distinct one, so this race is not
-                # itself an oracle for "a concurrent change just happened".
-                self._end_read_txn()
-                raise AuthLoginFailed()
-            if needs_rehash:
-                self.conn.execute(self._sql_set_password, (authn.hash_password(password), canonical))
-            result = self._create_session_locked(canonical, now)
-            self.conn.commit()
-            return result
+                if not claimed.rowcount:
+                    raise AuthLoginFailed()
+                if replacement is not None:
+                    self.conn.execute(self._sql_set_password, (replacement, canonical))
+                result = self._create_session_locked(canonical, now)
+                self.conn.commit()
+                return result
+            except BaseException:
+                self.conn.rollback()
+                raise
+
+    def change_password(self, username: str, current_password: str, new_password: str) -> None:
+        """Replace unchanged credentials only after verifying the current password."""
+        canonical = username.strip().lower() if isinstance(username, str) else ""
+        observed = self._credential_snapshot(canonical)
+        blocked = observed is None or observed["disabled"] or authn.is_locked(
+            observed["locked_until_ts"], now=self._now()
+        )
+        record = _dummy_record() if blocked else observed["password_hash"]
+        ok, _ = authn.verify_password(current_password, record)
+        if blocked:
+            raise AuthLoginFailed()
+        replacement = authn.hash_password(new_password) if ok else None
+        with self._lock:
+            try:
+                row = self._credential_for_update_locked(canonical)
+                if (row is None or row["disabled"]
+                        or row["password_hash"] != observed["password_hash"]
+                        or row["credential_revision"] != observed["credential_revision"]):
+                    raise AuthLoginFailed()
+                now = self._now()
+                if not ok:
+                    self._record_failure_locked(canonical, row["failed_count"], now)
+                    raise AuthLoginFailed()
+                if authn.is_locked(row["locked_until_ts"], now=now):
+                    raise AuthLoginFailed()
+                self.conn.execute(self._sql_set_password, (replacement, canonical))
+                self.conn.execute(self._sql_reset_lockout, (canonical,))
+                self.conn.execute(self._sql_revoke_sessions_for_user, (canonical,))
+                self.conn.commit()
+            except BaseException:
+                self.conn.rollback()
+                raise
 
     def validate_session(self, session_id: str) -> SessionInfo | None:
         """Return the session's identity if it is live, else None.

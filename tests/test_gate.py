@@ -312,7 +312,7 @@ class TestCelMonitorRequestPath:
         # and emits to a tmp Numbat stream only when source_hashes is populated.
         _need_celpy()
         import gate
-        from utils.logger import hash_query
+        from utils.logger import hash_query, query_fingerprint
         from utils.numbat_emitter import close_numbat_handles
 
         test_client, _ = client
@@ -341,7 +341,10 @@ class TestCelMonitorRequestPath:
         assert records[0]["decision"] == "allowed"
         assert "rules:0" in records[0]["tags"]
         preview = json.loads(records[0]["content_preview"])
-        assert preview == {"query_hash": hash_query("What is Veeam immutability?"), "cel_rules_matched": [0]}
+        assert preview == {
+            "query_hash": query_fingerprint("What is Veeam immutability?", gate.cfg),
+            "cel_rules_matched": [0],
+        }
         # The mock graph answers with the "local" role; the event names the
         # configured local model tag (TEST_CONFIG's), never the role string.
         assert records[0]["model_provider"] == "ollama"
@@ -1232,7 +1235,7 @@ class TestRateLimitAuditThrottle:
 
 class TestAuditSummaryEndpoint:
     """GET /audit/summary is API-key-gated and returns aggregates only — never
-    raw query text (the audit log stores SHA-256 hashes by design)."""
+    raw query text (the audit log stores keyed fingerprints by design)."""
 
     def test_requires_api_key(self, client, monkeypatch):
         test_client, _ = client

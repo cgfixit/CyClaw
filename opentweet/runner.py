@@ -9,7 +9,7 @@ from typing import Any
 from opentweet import client
 from opentweet.config import OpenTweetConfig, parse_schedule_slot
 from utils.errors import OpenTweetRefused
-from utils.logger import audit_log, hash_query
+from utils.logger import audit_log, query_fingerprint
 
 PROMPT_TEMPLATE = """Write exactly one X status of at most 260 characters that answers the topic
 using only the retrieved corpus.
@@ -178,7 +178,7 @@ def post_once(
     public: dict[str, Any] = {
         "ok": True,
         "mode": mode,
-        "text_hash": hash_query(answer),
+        "text_hash": query_fingerprint(answer, config_path=cfg._config_path),
         "text_len": len(answer),
         "dry_run": dry_run,
         "opentweet_id": None,
