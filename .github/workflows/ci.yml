@@ -532,6 +532,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Linux verification filesystem/PID/network sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          bwrap --version
+          # Keep stock AppArmor/user-namespace policy. The native gate below
+          # must fail if this runner cannot establish the required confinement.
+
       - name: macOS install-script smoke test (layout + shim + profile integration)
         if: runner.os == 'macOS'
         # Exercises macos/install-cyclaw.sh's and uninstall-cyclaw.sh's own shell
@@ -1116,6 +1126,10 @@ jobs:
           # full suite runs these again, quietly.
           pytest -vv -rs tests/test_gate.py::TestCelMonitorRequestPath tests/test_numbat_cel.py
 
+      - name: Verify native agentic confinement or explicit Windows refusal
+        shell: bash
+        run: python scripts/verify_agentic_sandbox.py
+
       - name: Run tests + coverage
         shell: bash
         run: |
@@ -1248,6 +1262,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Linux verification filesystem/PID/network sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          bwrap --version
+          # Keep stock AppArmor/user-namespace policy. The native gate below
+          # must fail if this runner cannot establish the required confinement.
+
       - name: Setup Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -1272,6 +1296,10 @@ jobs:
         run: |
           python -m pip install --upgrade "pip==26.2.1"
           pip install -c constraints.txt httpx pyyaml pytest rank-bm25 nltk numpy
+
+      - name: Verify native agentic confinement or explicit Windows refusal
+        shell: bash
+        run: python scripts/verify_agentic_sandbox.py
 
       - name: Run real-repo-run smoke test
         run: pytest tests/test_agentic_real_repo_run_smoke.py -v --tb=short

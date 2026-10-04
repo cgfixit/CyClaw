@@ -35,8 +35,8 @@ Imagine a big apartment building. The building’s plumbing, electricity, and fr
 - **Kata Containers** = “run this OCI container inside a lightweight VM.” Not an isolation primitive itself; it *uses* Firecracker/Cloud Hypervisor/QEMU.
 - **Landlock** = newer Linux LSM, path-based, no privileged profile load. CyClaw deferred it.
 - **Seatbelt (`sandbox-exec`)** = macOS’s version of “lease + no network + stay in this folder.” CyClaw’s agentic executor uses this on Darwin.
-- **Windows Job Object** = “if the parent dies, kill the whole process tree.” That is a kill boundary, **not** a network namespace. Sockets still work. CyClaw is honest about that.
-- **`unshare --net`** = Linux “this child has no network namespace.” CyClaw’s Linux executor uses this. Fail closed if the binary is missing.
+- **Windows Job Object** can bound process lifetime, but cannot confine filesystem or network access. CyClaw refuses Windows verification until an equivalent confinement boundary exists.
+- **bubblewrap** gives Linux verification a read-only host filesystem view, a writable disposable copy, and separate PID/network namespaces. CyClaw refuses execution if this boundary cannot be created.
 
 ---
 
@@ -120,7 +120,7 @@ Kata = OCI runtime that *puts the container in a VM*. Cloud Hypervisor = cousin 
 | gVisor | “can we pretend to be the kernel in userspace?” | host kernel still there, narrower surface | not shipped |
 | Firecracker / Kata / Cloud HV | “does this workload have its own kernel?” | no (guest kernel) | not shipped, Stage 5 parked |
 | Full VM / hypervisor | same, heavier | no | Docker Desktop’s Linux VM is this *for the whole engine*, not per workload |
-| Darwin Seatbelt / Win Job Object / `unshare --net` | platform-native child jail for the **agentic executor**, not the gate | mixed | shipped in `production_sandbox()` — fail closed if missing |
+| Darwin Seatbelt / Linux bubblewrap | native child confinement for the **agentic executor**, not the gate | yes | shipped in `production_sandbox()`; missing confinement fails closed and Windows verification is refused |
 
 Threat-model self-score: **4/10 versus hostile-workload containment.** Proportionate for “I run my RAG server on a box I own.” Insufficient if you start selling “the agent can execute untrusted code safely.”
 
@@ -144,9 +144,10 @@ Application policy is still the primary boundary: RAG-first, topology=policy, tr
 
 **Agentic executor jail (`production_sandbox()`, #1153/#1160) — different product surface from Docker:**
 
-- Windows: Job Object, `KILL_ON_JOB_CLOSE`. Process tree dies with the job. **Sockets still work.** Do not write “no network” on Windows.
-- macOS: `sandbox-exec` Seatbelt — deny network, writes limited to worktree + disposable `TMPDIR`
-- Linux: `unshare --net`
+- Windows: verification is refused before a child starts; Job Objects alone are insufficient.
+- macOS: `sandbox-exec` Seatbelt — deny network, writes limited to a fresh Gitless copy and private scratch; authoritative checkout, `.git` and trusted baseline stay unwritable. Detached descendants remain confined.
+- Linux: bubblewrap — filesystem, PID and network isolation; read-only host mounts and only the disposable copy/private scratch writable.
+- Every check gets a fresh copy. Only status/output returns; check-generated files are never copied back.
 - missing binary / EPERM → `HardSandboxUnavailable`. No silent `subprocess.run` fallback in production
 
 **Explicit non-goals from `docs/THREAT_MODEL.md`:** no per-workload microVM, no defense against hostile local root, no internet-facing multi-tenant deployment, no “the confirmation checkbox was a human.” `user_confirmed_online` is a self-asserted field on an unauthenticated `/query` unless you turn auth on.
@@ -239,7 +240,7 @@ Mostly-offline exists for this exact reason. OpenAI’s box was not air-gapped. 
 What to spend the next dollar on
 Application first. LSM second, and only on the Linux path.
 1. Keep doors closed. No model-facing shell, no package install tool, no docker.sock, no unrestricted /web, no auto-loaded LaunchAgents. That is how OpenAI’s isolation died — an exception that looked harmless.
-2. Keep I1–I6 and production_sandbox() honest. Prompt injection → tool/soul/file/egress is your real breakout. The child jail (Job Object / Seatbelt / unshare --net) is the right box for verification runs, not Docker around the whole app.
+2. Keep I1–I6 and production_sandbox() honest. Prompt injection → tool/soul/file/egress is your real breakout. Verification requires Seatbelt or bubblewrap confinement and refuses unsupported hosts; Docker around the gateway does not establish that child boundary.
 3. Treat RAG/soul as hostile input. The HF side of the incident was “untrusted content executed on a worker.” Your equivalent is a poisoned corpus or a soul edit. Scanners and refuse-empty-reason already exist. That is the same class of bug.
 4. Docker + builtin seccomp + later AppArmor + default-off Falco stays the next Linux operator step if the gate process is compromised. It shrinks what a wrecked Python process can do to that host. It does not stop “the agent cheated.” Falco watches after the fact and needs a privileged sidecar. Do not sell it as breakout prevention.
 5. Stage 5 / microVM only if the product becomes untrusted skills, multi-user, internet-bind, or GPU multi-tenant. Your threat model already parks that. Do not pull it forward because of a lab eval with refusals off.

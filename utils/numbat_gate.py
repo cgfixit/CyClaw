@@ -69,6 +69,8 @@ from typing import Any, BinaryIO
 
 import yaml
 
+from utils.child_environment import isolated_helper_environment
+
 logger = logging.getLogger("cyclaw.numbat_gate")
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -520,6 +522,11 @@ class _CliOutputTooLarge(Exception):
 
 
 def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    with isolated_helper_environment() as env:
+        return _run_cli_isolated(argv, timeout=timeout, env=env)
+
+
+def _run_cli_isolated(argv: list[str], *, timeout: float, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     """``subprocess.run(argv, capture_output=True, text=True, timeout=...)``, bounded.
 
     Everything, reading the output included, happens within ``timeout``:
@@ -539,6 +546,7 @@ def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[
     try:
         proc = subprocess.Popen(  # noqa: S603  # nosec B603 - list-form, no shell
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=env,
             start_new_session=True,  # its own process group, so a kill reaches its children (POSIX)
         )
     except BaseException:

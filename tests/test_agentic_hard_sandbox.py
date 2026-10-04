@@ -1,10 +1,4 @@
-"""Production hard-sandbox selection and Windows Job Object.
-
-These tests do NOT inject ArgvListSandbox. Missing Darwin/Linux binaries
-fail closed. Windows CI / this host assert Job Object actually runs python -c.
-Seatbelt/netns profile and missing-binary paths are unit-tested; this file
-does not claim a live ``sandbox-exec`` run on Windows.
-"""
+"""Fail-closed production sandbox selection and subprocess lifecycle contracts."""
 
 from __future__ import annotations
 
@@ -33,22 +27,22 @@ def _py(code: str, timeout_sec: int = 10) -> Check:
     return Check("probe", (sys.executable, "-c", code), timeout_sec=timeout_sec)
 
 
-def test_production_sandbox_win32_is_job_object() -> None:
+def test_production_sandbox_win32_refuses_incomplete_isolation() -> None:
     if sys.platform != "win32":
         pytest.skip("Job Object is the Windows backend")
-    backend = production_sandbox()
-    assert isinstance(backend, WindowsJobObjectSandbox)
+    with pytest.raises(HardSandboxUnavailable, match="filesystem"):
+        production_sandbox()
 
 
 def test_production_sandbox_is_fail_closed_off_windows() -> None:
     if sys.platform == "win32":
-        backend = production_sandbox()
-        assert isinstance(backend, WindowsJobObjectSandbox)
+        with pytest.raises(HardSandboxUnavailable):
+            production_sandbox()
         return
     try:
         backend = production_sandbox()
     except HardSandboxUnavailable as exc:
-        assert "fails closed" in str(exc).lower() or "fail" in str(exc).lower()
+        assert exc.code == "HARD_SANDBOX_UNAVAILABLE"
         return
     if sys.platform == "darwin":
         assert isinstance(backend, DarwinSeatbeltSandbox)
@@ -59,8 +53,6 @@ def test_production_sandbox_is_fail_closed_off_windows() -> None:
 
 
 def test_run_verification_without_injected_sandbox_fails_closed_off_windows(tmp_path: Path) -> None:
-    if sys.platform == "win32":
-        pytest.skip("Windows has a production backend")
     try:
         production_sandbox()
     except HardSandboxUnavailable:
@@ -80,10 +72,6 @@ def test_empty_checks_do_not_require_a_backend(tmp_path: Path) -> None:
 def test_no_env_flag_selects_argv_list_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CYCLAW_SOFT_SANDBOX", "1")
     monkeypatch.setenv("CYCLAW_ALLOW_SOFT_SANDBOX", "1")
-    if sys.platform == "win32":
-        report = run_verification(tmp_path, [_py("import sys; sys.exit(0)")])
-        assert report.ok is True
-        return
     try:
         production_sandbox()
     except HardSandboxUnavailable:
@@ -128,12 +116,12 @@ def test_linux_netns_missing_binary_fails_closed(monkeypatch: pytest.MonkeyPatch
     real_which = shutil.which
 
     def _which(cmd: str) -> str | None:
-        if cmd == "unshare":
+        if cmd == "bwrap":
             return None
         return real_which(cmd)
 
     monkeypatch.setattr("agentic.executor.hard_sandbox.shutil.which", _which)
-    with pytest.raises(HardSandboxUnavailable, match="unshare"):
+    with pytest.raises(HardSandboxUnavailable, match="bubblewrap"):
         LinuxNetnsSandbox()
 
 
@@ -141,7 +129,8 @@ def test_production_sandbox_never_returns_argv_list(monkeypatch: pytest.MonkeyPa
     """Even with soft-sandbox env flags, production_sandbox stays hard."""
     monkeypatch.setenv("CYCLAW_SOFT_SANDBOX", "1")
     if sys.platform == "win32":
-        assert isinstance(production_sandbox(), WindowsJobObjectSandbox)
+        with pytest.raises(HardSandboxUnavailable):
+            production_sandbox()
         return
     monkeypatch.setattr(
         "agentic.executor.hard_sandbox.shutil.which",
@@ -151,48 +140,24 @@ def test_production_sandbox_never_returns_argv_list(monkeypatch: pytest.MonkeyPa
         production_sandbox()
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Job Object is the Windows backend")
-def test_job_object_runs_a_passing_check(tmp_path: Path) -> None:
-    report = run_verification(tmp_path, [_py("import sys; sys.exit(0)")])
-    assert report.ok is True
-    assert report.results[0].exit_code == 0
+def test_legacy_job_object_backend_cannot_run_unconfined(tmp_path: Path) -> None:
+    with pytest.raises(HardSandboxUnavailable, match="filesystem"):
+        WindowsJobObjectSandbox().run([sys.executable, "-c", "pass"], cwd=tmp_path, env={}, timeout_sec=1)
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Job Object is the Windows backend")
-def test_job_object_times_out_a_hung_check(tmp_path: Path) -> None:
-    report = run_verification(tmp_path, [_py("import time; time.sleep(30)", timeout_sec=1)])
-    assert report.ok is False
-    assert report.results[0].timed_out is True
+def test_verification_outputs_do_not_modify_the_authoritative_source(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("trusted", encoding="utf-8")
+    (tmp_path / "value").write_text("original", encoding="utf-8")
+    report = run_verification(tmp_path, [_py(
+        "from pathlib import Path; assert not Path('.git').exists(); Path('value').write_text('changed')"
+    )], sandbox=ArgvListSandbox())
+    assert report.ok
+    assert (tmp_path / "value").read_text(encoding="utf-8") == "original"
+    assert (tmp_path / ".git" / "config").read_text(encoding="utf-8") == "trusted"
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Job Object is the Windows backend")
-def test_job_object_does_not_inherit_api_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GROK_API_KEY", "must-not-leak")
-    monkeypatch.setenv("CYCLAW_API_KEY", "must-not-leak")
-    report = run_verification(
-        tmp_path,
-        [_py(
-            "import os,sys; sys.exit(0 if 'GROK_API_KEY' not in os.environ "
-            "and 'CYCLAW_API_KEY' not in os.environ else 1)"
-        )],
-    )
-    assert report.ok is True
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Job Object is the Windows backend")
-def test_job_object_uses_disposable_home_not_operator_home(tmp_path: Path) -> None:
-    operator_home = os.environ.get("USERPROFILE") or os.environ.get("HOME") or ""
-    report = run_verification(
-        tmp_path,
-        [_py(
-            "import os,sys; home=os.environ.get('USERPROFILE') or os.environ.get('HOME',''); "
-            f"sys.exit(0 if 'cyclaw-exec-home-' in home and home != {operator_home!r} else 1)"
-        )],
-    )
-    assert report.ok is True
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups; Windows uses the Job Object")
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
 def test_argv_list_reaps_a_descendant_left_running_after_a_normal_exit(tmp_path: Path) -> None:
     """#1527 review: a check that backgrounds a child and closes its pipes exits
     normally, but the child must not outlive it -- it could rewrite .git/config

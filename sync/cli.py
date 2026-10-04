@@ -41,6 +41,7 @@ from typing import Any
 from sync.config import load_sync_config
 from sync.filters import filter_summary, write_filter_file
 from sync.runner import check_rclone_version, reindex_exit_code_for, run_sync
+from utils.child_environment import child_environment
 from utils.errors import (
     RcloneNotInstalledError,
     RcloneTimeoutError,
@@ -49,7 +50,6 @@ from utils.errors import (
     SyncConfigError,
     SyncError,
 )
-from utils.telemetry_kill import build_telemetry_safe_env
 
 EXIT_OK = 0
 EXIT_SAFETY = 1
@@ -210,7 +210,7 @@ def _run_auto_reindex(cfg: Any) -> int:
             # from the scheduled cron/schtasks job where the parent env is
             # near-empty, and the overlay guarantees the indexer child starts
             # with the canonical block even before its own import-time apply.
-            env=build_telemetry_safe_env(),
+            env=child_environment("filesystem"),
             check=False,
             timeout=timeout,
             capture_output=True,

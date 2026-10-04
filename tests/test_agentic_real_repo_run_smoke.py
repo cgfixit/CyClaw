@@ -34,7 +34,8 @@ imports ``retrieval``/``gate``/``graph`` (invariant I6), so the local-only
 ``real-repo-run`` path here needs nothing beyond ``httpx``/``pyyaml``/git --
 verified by reading every module on this call path's own import list, not
 assumed. Scoped deliberately narrow: this proves the WIRING (a real run
-reaches ``pending_decision`` with the right ``changed_files``), not model
+reaches ``pending_decision`` on POSIX, or explicitly refuses verification on
+Windows), not model
 quality or realistic timing -- see ``docs/agentic/DEFERRED_WORK.md`` D1 for
 the full design rationale and why a latency-emulating version was rejected
 for CI (a runner's CPU says nothing about an operator's own hardware).
@@ -55,7 +56,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agentic.cli import EXIT_OK, main
+from agentic.cli import EXIT_FAIL, EXIT_OK, main
 from agentic.gh_client import check_gh_version
 from utils import ops_runner
 from utils.ops_runner import run_agentic_op
@@ -123,7 +124,7 @@ def _install_fake_gh(bin_dir: Path, source: str) -> Path:
 
 
 @pytest.fixture()
-def fake_gh_on_path(tmp_path, monkeypatch):
+def fake_gh_on_path(tmp_path, monkeypatch, real_bare_repo):
     """Put a real, platform-executable fake `gh` at the front of PATH for this test only.
 
     ``check_gh_version`` is ``lru_cache``d for the life of the process (see
@@ -134,7 +135,8 @@ def fake_gh_on_path(tmp_path, monkeypatch):
     """
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir()
-    gh_path = _install_fake_gh(bin_dir, _FAKE_GH_SCRIPT)
+    source = _FAKE_GH_SCRIPT.replace('os.environ["CYCLAW_SMOKE_BARE_REPO"]', repr(str(real_bare_repo)))
+    gh_path = _install_fake_gh(bin_dir, source)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     check_gh_version.cache_clear()
     yield gh_path
@@ -256,7 +258,7 @@ def checks_file(tmp_path):
     return str(path)
 
 
-def test_real_repo_run_reaches_pending_decision_over_real_socket_and_gh(
+def test_real_repo_run_enforces_platform_verification_over_real_socket_and_gh(
     fake_gh_on_path, real_bare_repo, smoke_config, checks_file, monkeypatch, capsys,
 ):
     """One full plan -> patch -> verify cycle through the real CLI.
@@ -267,8 +269,6 @@ def test_real_repo_run_reaches_pending_decision_over_real_socket_and_gh(
     argv machinery, and a real `git clone` of a real bare repository. Only
     GitHub itself and the operator's local model daemon are out of the loop.
     """
-    monkeypatch.setenv("CYCLAW_SMOKE_BARE_REPO", str(real_bare_repo))
-
     code = main([
         "--config", smoke_config, "real-repo-run",
         "--repo", "--instruction", "add the marker",
@@ -282,6 +282,11 @@ def test_real_repo_run_reaches_pending_decision_over_real_socket_and_gh(
     # message yields an empty string -- which is exactly what the first CI
     # failure of this test reported ("AssertionError:" with nothing after it).
     captured = capsys.readouterr()
+    if sys.platform == "win32":
+        assert code == EXIT_FAIL, f"exit={code} stderr={captured.err!r}"
+        assert "filesystem/network isolation" in captured.err
+        assert captured.out.strip() == ""
+        return
     assert code == EXIT_OK, f"exit={code} stderr={captured.err!r}"
     record = json.loads(captured.out)
     assert record["status"] == "pending_decision"
@@ -320,11 +325,14 @@ def canary_gh_on_path(tmp_path, monkeypatch):
     """
     bin_dir = tmp_path / "canary-bin"
     bin_dir.mkdir()
-    _install_fake_gh(bin_dir, _CANARY_GH_SCRIPT)
     gh_log = tmp_path / "gh_invocations.log"
     gh_log.write_text("", encoding="utf-8")
+    # Embed the fixture-owned destination: production children intentionally
+    # do not inherit arbitrary CYCLAW_SMOKE_* variables. The canary must still
+    # record an invocation if the preflight refusal regresses.
+    source = _CANARY_GH_SCRIPT.replace('os.environ["CYCLAW_SMOKE_GH_LOG"]', repr(str(gh_log)))
+    _install_fake_gh(bin_dir, source)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
-    monkeypatch.setenv("CYCLAW_SMOKE_GH_LOG", str(gh_log))
     check_gh_version.cache_clear()
     yield gh_log
     check_gh_version.cache_clear()

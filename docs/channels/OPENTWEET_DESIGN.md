@@ -77,3 +77,13 @@ window before the slot). Corpus-derived text must not appear in launchd
 or Task Scheduler logs. Loopback `/query` keeps I1–I5 on the generation
 path. Do not set `user_confirmed_online`. Do not add this package to the
 core import set.
+
+## Automatic scheduling content boundary
+
+Before automatic scheduling, CyClaw scans the topic and final answer through
+the shared injection filter. A disabled or empty filter refuses scheduling.
+Generated URL/domain/email shapes, mentions and hashtags are refused because
+this path cannot establish their source provenance. These checks also apply
+to schedule dry runs. Drafts retain the existing validation and remain available
+for human review. Pattern screening is a deterministic refusal rule, not proof
+that all hostile prose or unsupported claims have been detected.

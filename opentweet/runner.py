@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from opentweet import client
 from opentweet.config import OpenTweetConfig, parse_schedule_slot
-from utils.errors import OpenTweetRefused
+from utils.errors import OpenTweetRefused, PromptInjectionError
 from utils.logger import audit_log, query_fingerprint
+from utils.sanitizer import _load_filter, _normalize_for_match, check_input
 
 PROMPT_TEMPLATE = """Write exactly one X status of at most 260 characters that answers the topic
 using only the retrieved corpus.
@@ -122,6 +124,26 @@ def _validate_answer(cfg: OpenTweetConfig, data: dict[str, Any]) -> str:
     return text
 
 
+# This path has no source URL evidence. Automatic posting therefore refuses
+# URL/domain/email shapes, mentions and hashtags; drafts remain reviewable.
+_SCHEDULE_LINK = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|(?:https?|ftp|file|data|javascript|mailto|tel):|www[.]|[\w-]+[.][^\W\d_]{1,63}\b|[@#]|\b(?:\d{1,3}[.]){3}\d{1,3}\b)")
+
+
+def _screen_scheduled(cfg: OpenTweetConfig, text: str, *, field: str) -> None:
+    enabled, _maximum, patterns = _load_filter(cfg._config_path)
+    if not enabled or not patterns:
+        raise OpenTweetRefused("automatic scheduling requires the prompt injection filter", details={"gate": "schedule_filter"})
+    try:
+        check_input(text, cfg._config_path, max_chars_override=max(cfg.max_topic_chars, cfg.max_post_chars))
+    except PromptInjectionError:
+        raise OpenTweetRefused("automatic scheduling refused injection-like content", details={"gate": "schedule_injection", "field": field}) from None
+    # Fold IDNA dot separators before TR39 (which can map them to non-dot glyphs).
+    url_text = text.translate(str.maketrans("。．｡", "..."))
+    link_probe = _normalize_for_match(url_text, fold_separators=False)
+    if field == "answer" and (_SCHEDULE_LINK.search(text) or _SCHEDULE_LINK.search(link_probe)):
+        raise OpenTweetRefused("automatic scheduling cannot establish provenance for links or social tags", details={"gate": "schedule_link"})
+
+
 def _check_me(me: dict[str, Any], *, schedule: bool) -> None:
     if me.get("authenticated") is not True:
         raise OpenTweetRefused(
@@ -156,10 +178,14 @@ def post_once(
     includes the post text or API key.
     """
     topic_text = read_topic(cfg, topic=topic, topic_file=topic_file)
+    if schedule:
+        _screen_scheduled(cfg, topic_text, field="topic")
     # Concatenate: str.format would KeyError/ValueError if the topic contains braces.
     query = PROMPT_TEMPLATE + topic_text
     data = client.post_query(cfg, query)
     answer = _validate_answer(cfg, data)
+    if schedule:
+        _screen_scheduled(cfg, answer, field="answer")
 
     scheduled_date: str | None = None
     if schedule:

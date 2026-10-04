@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sync.config import RcloneConfig
+from utils.child_environment import child_environment
 from utils.errors import SchedulerError
 from utils.telemetry_kill import SCRUBBED_ENV_KEYS, scheduler_env_overlay
 
@@ -335,7 +336,8 @@ class CronScheduler:
         crontab = self._crontab_bin()
         try:
             result = subprocess.run(  # noqa: S603  # argv list, crontab resolved via shutil.which
-                [crontab, "-l"],
+                env=child_environment("filesystem"),
+                args=[crontab, "-l"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -363,7 +365,8 @@ class CronScheduler:
         crontab = self._crontab_bin()
         try:
             proc = subprocess.run(  # noqa: S603  # argv list, crontab resolved via shutil.which
-                [crontab, "-"],
+                env=child_environment("filesystem"),
+                args=[crontab, "-"],
                 input=content,
                 text=True,
                 capture_output=True,
@@ -635,7 +638,8 @@ class LaunchdScheduler:
             # not a failure; we only need the file gone afterward either way.
             try:
                 subprocess.run(  # noqa: S603  # argv list, launchctl resolved via shutil.which
-                    [launchctl, "bootout", f"gui/{self._uid()}", str(plist_path)],
+                    env=child_environment("filesystem"),
+                    args=[launchctl, "bootout", f"gui/{self._uid()}", str(plist_path)],
                     capture_output=True,
                     text=True,
                     timeout=10,
@@ -680,7 +684,8 @@ class LaunchdScheduler:
         if launchctl:
             try:
                 probe = subprocess.run(  # noqa: S603  # argv list, launchctl resolved via shutil.which
-                    [launchctl, "print", f"gui/{self._uid()}/{LAUNCHD_LABEL}"],
+                    env=child_environment("filesystem"),
+                    args=[launchctl, "print", f"gui/{self._uid()}/{LAUNCHD_LABEL}"],
                     capture_output=True,
                     text=True,
                     timeout=10,
@@ -745,7 +750,8 @@ class WindowsTaskScheduler:
         ]
         try:
             proc = subprocess.run(  # noqa: S603  # argv list, schtasks resolved via shutil.which
-                argv, capture_output=True, text=True, timeout=15, check=False
+                env=child_environment("filesystem"),
+                args=argv, capture_output=True, text=True, timeout=15, check=False
             )
         except subprocess.SubprocessError as exc:
             raise SchedulerError(f"schtasks /Create failed: {exc}") from exc
@@ -765,7 +771,8 @@ class WindowsTaskScheduler:
         argv = [self._schtasks(), "/Delete", "/TN", WINDOWS_TASK_NAME, "/F"]
         try:
             proc = subprocess.run(  # noqa: S603  # argv list, schtasks resolved via shutil.which
-                argv, capture_output=True, text=True, timeout=15, check=False
+                env=child_environment("filesystem"),
+                args=argv, capture_output=True, text=True, timeout=15, check=False
             )
         except subprocess.SubprocessError as exc:
             raise SchedulerError(f"schtasks /Delete failed: {exc}") from exc
@@ -788,7 +795,8 @@ class WindowsTaskScheduler:
         argv = [self._schtasks(), "/Query", "/TN", WINDOWS_TASK_NAME, "/FO", "LIST", "/V"]
         try:
             proc = subprocess.run(  # noqa: S603  # argv list, schtasks resolved via shutil.which
-                argv, capture_output=True, text=True, timeout=15, check=False
+                env=child_environment("filesystem"),
+                args=argv, capture_output=True, text=True, timeout=15, check=False
             )
         except subprocess.SubprocessError as exc:
             logger.warning("schtasks /Query failed: %s", exc)

@@ -1,9 +1,8 @@
 """Test-only ArgvListSandbox injector.
 
-Production ``production_sandbox()`` is fail-closed off Windows. CI tests that
+Production verification requires native confinement and refuses Windows. CI tests that
 need to exercise argv/cwd/timeout/numbat/env plumbing inject this double via
-monkeypatch -- never an env flag. ``tests/test_agentic_hard_sandbox.py`` must
-NOT use this helper.
+monkeypatch -- never an env flag. The hard-sandbox and real-repo smoke files must NOT use this helper.
 """
 
 from __future__ import annotations

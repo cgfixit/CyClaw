@@ -529,13 +529,15 @@ def client(request, tmp_path):
 
 @pytest.fixture(autouse=True)
 def _inject_argv_list_sandbox_except_hard_sandbox(request, monkeypatch):
-    """Keep Linux/macOS CI green without a production software fallback.
+    """Use a double only for portable contract tests.
 
-    ``test_agentic_hard_sandbox.py`` is the only file allowed to call the real
-    ``production_sandbox()`` factory so fail-closed stays covered.
+    Hard-sandbox and real-repo smoke tests keep the production factory so
+    native POSIX confinement and Windows refusal remain acceptance gates.
     """
     path = getattr(request.node, "fspath", None)
-    if path is not None and "test_agentic_hard_sandbox" in str(path):
+    if path is not None and any(name in str(path) for name in (
+        "test_agentic_hard_sandbox", "test_agentic_real_repo_run_smoke",
+    )):
         return
     from tests.executor_sandbox_double import inject_argv_list_sandbox
 

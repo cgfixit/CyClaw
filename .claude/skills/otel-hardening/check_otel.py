@@ -579,10 +579,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "(b) agentic/executor/runner.py::run_verification runs each caller-declared Check.argv "
                     "(CyClaw's own default_checks are pytest/ruff/invariant-guard)",
         "enforcement": "both ship off (hook enabled: false with command: []; agentic.enabled false) and both "
-                       "can only deny or verify, never widen an external call. (a) inherits the parent's "
-                       "already-killed os.environ (no env= is built, so inheritance is the delivery); (b) is "
-                       "wrapped by build_telemetry_safe_env (T12) and production_sandbox(), whose Linux "
-                       "netns denies the child network outright. Whatever the operator's command or the "
+                       "can only deny or verify, never widen an external call. Both use explicit capability "
+                       "environments through child_environment and build_telemetry_safe_env (T12); (b) also "
+                       "uses production_sandbox(), whose Linux bubblewrap backend confines filesystem, "
+                       "PID and network access. Whatever the operator's command or the "
                        "caller's check does on the network is that operator's policy, not CyClaw telemetry: "
                        "the static sweep cannot name the binary, so T13 checks the two spawn sites still "
                        "exist instead and this row documents the surface. Never a kill-map entry",
@@ -597,14 +597,14 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "docs/THREAT_MODEL.md",
         "versions": "host binaries, never pinned: launchctl + crontab + schtasks + cmd.exe (sync/scheduler.py, "
                     "utils/launchd_plist.py, utils/win_schtasks.py -- job registration/unregistration and the "
-                    "generated .cmd launchers), unshare + sandbox-exec (agentic/executor/hard_sandbox.py -- "
-                    "the Linux netns and Darwin Seatbelt wrappers), xdg-open + open + explorer "
+                    "generated .cmd launchers), bubblewrap + sandbox-exec (agentic/executor/hard_sandbox.py -- "
+                    "the Linux filesystem/PID/network and Darwin Seatbelt wrappers), xdg-open + open + explorer "
                     "(agentic/fsconnect/osutil.py reveal -- launches the desktop file manager on a "
                     "containment-checked local path)",
         "enforcement": "every one is a local OS control-plane or GUI tool with no network sink of its own; "
                        "the scheduler and sandbox wrappers are exactly the boundaries that deliver the "
-                       "canonical env to the children they start (T11/T12), and hard_sandbox's netns "
-                       "denies the child network outright on Linux. Nothing here has, or needs, a "
+                       "canonical env to the children they start (T11/T12), and hard_sandbox's bubblewrap "
+                       "confines child filesystem/PID/network access on Linux. Nothing here has, or needs, a "
                        "telemetry switch",
         "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal",
         "reviewed": "2026-09-28",
@@ -685,7 +685,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "crontab": "local OS process tooling",
     "schtasks": "local OS process tooling",
     "cmd.exe": "local OS process tooling",
-    "unshare": "local OS process tooling",
+    "bwrap": "local OS process tooling",
     "sandbox-exec": "local OS process tooling",
     "xdg-open": "local OS process tooling",
     "open": "local OS process tooling",
@@ -731,7 +731,7 @@ INVENTORY_ALIASES: dict[str, str] = {
 # neighbor-cache readers. None has a network sink; they are listed so a
 # future spawn site that adds a NEW binary still needs a row.
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
-                             "launchctl", "crontab", "schtasks", "cmd.exe", "unshare", "sandbox-exec",
+                             "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
                              "pre-action-hook-command", "executor-check")
 
@@ -1141,10 +1141,11 @@ _BYPASS_SKIP_PARTS = ("tests", ".claude", ".codex", "docs", "vendor", "__pycache
 # env= that drops the canonical map" half of the sweep, expressed positively
 # so it cannot false-positive on unrelated env= usage.
 _MUST_REFERENCE = (
-    ("agentic/executor/runner.py", "build_telemetry_safe_env"),
+    ("utils/child_environment.py", "build_telemetry_safe_env"),
+    ("agentic/executor/runner.py", "child_environment"),
     ("agentic/gh_client.py", "build_telemetry_safe_env"),
     ("agentic/writer.py", "build_telemetry_safe_env"),
-    ("sync/cli.py", "build_telemetry_safe_env"),
+    ("sync/cli.py", "child_environment"),
     ("sync/scheduler.py", "scheduler_env_overlay"),
     ("telegram/cli.py", "scheduler_env_overlay"),
     ("opentweet/cli.py", "scheduler_env_overlay"),
