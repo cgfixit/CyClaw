@@ -523,7 +523,9 @@ jobs:
         # because torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu
         # for macOS -- confirmed on this matrix leg's first run, and documented
         # in setup-guide.md.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Ubuntu 24.04 stock AppArmor denies bubblewrap loopback setup.
+        # Native confinement stays mandatory on the supported 22.04 image.
+        os: [ubuntu-22.04, windows-latest, macos-latest]
     # All three supported hosts are release gates. Platform-specific skips are
     # reported below with `pytest -rs`; a failing Windows result is not masked.
 
@@ -1255,7 +1257,7 @@ jobs:
   # imports retrieval/gate/graph (invariant I6).
   real-repo-run-smoke:
     name: real-repo-run-smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
       contents: read

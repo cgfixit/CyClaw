@@ -501,7 +501,11 @@ a fresh gitless mirror with no copyback. Linux requires bubblewrap filesystem,
 PID and network isolation; macOS uses Seatbelt to confine writes to the mirror
 and disposable scratch. Both deny writes to the authoritative clone and its
 configuration snapshot. Windows refuses verification until a filesystem and
-network boundary is available; Job Objects alone are insufficient.
+network boundary is available; Job Objects alone are insufficient. Linux native
+CI uses Ubuntu 22.04 with stock host policy. On Ubuntu 24.04, AppArmor can deny
+bubblewrap network-namespace setup (`RTM_NEWADDR: Operation not permitted`);
+verification then refuses before launching the check. CyClaw does not disable
+AppArmor or share the host network to bypass that refusal.
 
 | Tool / method | Default | What it does |
 |---|---|---|
