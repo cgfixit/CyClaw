@@ -136,6 +136,10 @@ measure the configured 80% coverage gate: use the explicit CI `--cov`
 invocation. Ruff F/B/S blocks; broader Ruff/WPS are advisory. Mypy is
 best-effort with `--explicit-package-bases`, not a CI gate.
 
+Testing and verification rules when making code changes: lint GitHub Actions
+workflows rather than running tests where you can. When you verify a local
+change, run only the code tied to that change, not the whole suite.
+
 Use four-space indentation, typed Python, snake_case names, and the existing
 120-column style. Use named logging. Docstrings belong only at the start of a
 module/function; use `#` for class or inline commentary. Keep tunables in config.
