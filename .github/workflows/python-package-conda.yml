@@ -42,8 +42,9 @@ jobs:
     - name: Install Linux verification filesystem/PID/network sandbox
       shell: bash
       run: |
+        # ubuntu-22.04 jammy pin (apt has no digest pin).
         sudo apt-get update
-        sudo apt-get install --yes --no-install-recommends bubblewrap
+        sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
         bwrap --version
         # Keep stock AppArmor/user-namespace policy; fail if this runner cannot
         # establish the required confinement.

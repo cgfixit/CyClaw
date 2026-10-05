@@ -551,8 +551,14 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # Version pin (apt has no digest pin). ubuntu-latest is 24.04 until
+          # GitHub's 2026-10-19 move to 26; re-check the noble pin then.
+          case "${{ matrix.os }}" in
+            ubuntu-22.04) ver='0.6.1-1ubuntu0.3' ;;
+            *) ver='0.9.0-1ubuntu0.3' ;;  # ubuntu-latest (24.04 noble)
+          esac
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap
+          sudo apt-get install --yes --no-install-recommends "bubblewrap=${ver}"
           bwrap --version
 
       - name: Prove stock AppArmor refuses bwrap (24.04 leg)
@@ -1338,8 +1344,9 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # ubuntu-22.04 jammy pin (apt has no digest pin).
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap
+          sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
           bwrap --version
           # Keep stock AppArmor/user-namespace policy. The native gate below
           # must fail if this runner cannot establish the required confinement.
@@ -1620,8 +1627,9 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # ubuntu-22.04 jammy pin (apt has no digest pin).
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap
+          sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
           bwrap --version
           # Keep stock AppArmor/user-namespace policy. The native gate below
           # must fail if this runner cannot establish the required confinement.

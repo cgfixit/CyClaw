@@ -25,7 +25,11 @@
 # bwrap callers on the host. Do not load both: both attach to /usr/bin/bwrap.
 # See deploy/apparmor/README.md.
 #
-# Requires AppArmor 4 (abi/4.0, Ubuntu 24.04+). Load:
+# Requires AppArmor 4 (abi/4.0, Ubuntu 24.04+). Install for boot persistence,
+# then load (see deploy/apparmor/README.md and setup-guide.md):
+#   sudo install -m 0644 deploy/apparmor/cyclaw-bwrap /etc/apparmor.d/cyclaw-bwrap
+#   sudo apparmor_parser -r /etc/apparmor.d/cyclaw-bwrap
+# One-shot from the tree (does not survive reboot):
 #   sudo apparmor_parser -r deploy/apparmor/cyclaw-bwrap
 abi <abi/4.0>,
 

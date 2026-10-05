@@ -168,7 +168,12 @@ enabling those checks:
 
 ```bash
 sudo apt-get update
-sudo apt-get install --yes --no-install-recommends bubblewrap
+# Pin matches the CI runners: Ubuntu 22.04 (jammy) or 24.04 (noble).
+# Ubuntu 22.04:
+sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
+# Ubuntu 24.04:
+# sudo apt-get install --yes --no-install-recommends bubblewrap=0.9.0-1ubuntu0.3
+bwrap --version
 python scripts/verify_agentic_sandbox.py
 ```
 
