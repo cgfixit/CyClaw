@@ -32,8 +32,10 @@ class LLMUnavailableError(LLMServiceError):
     """Local ConnectError only. Timeouts, read errors, and HTTP stay LLM_SERVICE_ERROR."""
 
     def __init__(self, message: str, details: dict | None = None):
-        super().__init__(message, details=details)
-        self.code = "LLM_UNAVAILABLE"
+        # LLMServiceError hardcodes LLM_SERVICE_ERROR and has no code argument.
+        # Set the code once on RAGError. A later self.code assignment is the
+        # overwrite the rclone errors in this file already refuse.
+        RAGError.__init__(self, message, code="LLM_UNAVAILABLE", details=details)
 
 class GrokServiceError(RAGError):
     def __init__(self, message: str, details: dict | None = None):
