@@ -606,12 +606,13 @@ def test_linux_uninstall_explicit_credential_purge(tmp_path: Path, flags: list[s
     assert "a1" * 20 not in result.stdout + result.stderr
     if removed:
         assert not (tmp_path / ".CyClaw").exists()
+        account = subprocess.check_output([shutil.which("id"), "-un"], text=True).strip()
         assert (tmp_path / "clear-argv").read_text().splitlines() == [
             "clear",
             "service",
             "com.cgfixit.cyclaw.api-key",
             "account",
-            subprocess.check_output([shutil.which("id"), "-un"], text=True).strip(),
+            account,
         ]
     else:
         assert not (tmp_path / "clear-argv").exists()
