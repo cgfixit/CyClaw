@@ -135,7 +135,7 @@ def test_a_model_error_after_a_skipped_check_is_still_degraded(monkeypatch) -> N
         _Down(), "p", query="q", label="LLM", spend_context=None,
         cfg=GuardrailsConfig(enabled=True), metrics=_metrics(),
     )
-    assert answer.startswith("[LLM Error:") and err is not None
+    assert answer == "" and err is not None
     assert block == _DEGRADED
 
 
@@ -164,7 +164,7 @@ def test_guarded_generate_maps_rag_error(monkeypatch) -> None:
     answer, err, block = guarded_generate(
         _Boom(), "p", query="q", label="LLM", spend_context=None, cfg=cfg, metrics=_metrics()
     )
-    assert answer.startswith("[LLM Error:")
+    assert answer == ""
     assert err is not None and "LLM_SERVICE_ERROR" in err
     assert block == _DEGRADED
 
