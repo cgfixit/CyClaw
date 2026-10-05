@@ -154,6 +154,10 @@ def setup_logging(cfg: dict | None = None, *, background_console: bool = False) 
         return
     if cfg is None:
         cfg = _get_config()
+    # Before handlers attach. A bad key then leaves the run-once flag unset
+    # and does not double-attach handlers on a retry. A missing key file is
+    # not created here.
+    _check_query_fingerprint_at_boot(cfg)
     log_cfg = cfg.get("logging", {})
     level = getattr(logging, log_cfg.get("level", "INFO").upper(), logging.INFO)
     log_file = log_cfg.get("log_file", "")
@@ -856,6 +860,14 @@ def _read_key_file(path: Path) -> bytes:
     flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
+    # A FIFO open for read blocks until a writer connects. Reject that mode
+    # before open, and keep the open nonblocking so a swap after lstat cannot
+    # hang logging setup.
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+    listed = path.lstat()
+    if not stat.S_ISREG(listed.st_mode):
+        raise ValueError("query fingerprint key path must be a regular file")
     fd = os.open(path, flags)
     try:
         info = os.fstat(fd)
@@ -924,6 +936,38 @@ def _query_fingerprint_key(key_env: str, key_file: str) -> bytes:
         return key
     path = _anchor(key_file)
     return _create_or_read_key_file(path)
+
+
+def _check_query_fingerprint_at_boot(cfg: dict) -> None:
+    """Fail fast when the configured fingerprint key is already unusable.
+
+    Hashing off skips a present key. A missing file stays lazy so import and
+    logging-only setup do not write one. A non-string name fails either way.
+    """
+    privacy = _privacy_cfg(cfg)
+    key_env = privacy.get("query_fingerprint_key_env", "CYCLAW_QUERY_FINGERPRINT_KEY")
+    key_file = privacy.get("query_fingerprint_key_file", "data/privacy/query-hmac.key")
+    names_ok = (
+        isinstance(key_env, str)
+        and bool(key_env)
+        and isinstance(key_file, str)
+        and bool(key_file)
+    )
+    if not names_ok:
+        query_fingerprint("boot", cfg)
+        return
+    if not include_query_hash(cfg):
+        return
+    if os.environ.get(key_env, ""):
+        query_fingerprint("boot", cfg)
+        return
+    try:
+        info = _anchor(key_file).lstat()
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError("query fingerprint key path must be a regular file")
+    query_fingerprint("boot", cfg)
 
 
 def query_fingerprint(
