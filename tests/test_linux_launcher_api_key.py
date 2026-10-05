@@ -648,6 +648,9 @@ def test_valid_40_hex_key_file_is_loaded_as_is(tmp_path: Path, shadow_path: Path
 
 
 _INVALID_FILE_KEYS = {
+    "trailing-record": _HEX40 + "\nunexpected-data",
+    "extra-newline": _HEX40 + "\n",
+    "nul-record": _HEX40 + "\0unexpected-data",
     "empty": "",
     "39-hex": _HEX40[:-1],
     "41-hex": _HEX40 + "8",

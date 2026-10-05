@@ -318,19 +318,22 @@ zsh; on macOS bash it preserves the first existing login file among
 `~/.CyClaw/repo` clone target before cloning; it is intentionally destructive
 and does not apply with `--repo-path`. Uninstall with
 `bash ./macos/uninstall-cyclaw.sh` (`--remove-home` also deletes `~/.CyClaw`,
-with a prompt; `--remove-keychain` is the opt-in purge of the five
-documented Keychain services — see
+with a prompt; `--remove-keychain` is the opt-in purge of documented macOS
+Keychain services or the Linux libsecret API key and key file — see
 [401 / key drift recovery](macos/README.md#401--key-drift-recovery)).
 
-**What it deliberately does NOT do** — verified against the script, which
-contains zero references to any of these. Option A is not a superset of
-Option B; it is a different target:
+For headless console pairing, run `cyclaw --no-browser --print-pairing-url`.
+This explicitly prints a private, single-use link; non-TTY output warns that
+the link is going to a pipe or file. Delete saved copies after pairing. See
+[Linux credentials and headless pairing](macos/README.md#linux-launcher-credentials-and-headless-pairing).
+
+**Additional setup requirements:**
 
 | Not handled | You still need to |
 |---|---|
 | Ollama install / `ollama serve` / model pull | Do [Ollama on macOS](#ollama-on-macos) yourself |
 | The retrieval index | Run `python -m retrieval.indexer` — otherwise `/query` 503s |
-| `CYCLAW_API_KEY` | Export it before launching, or the console's state-changing routes fail closed with 401. `macos/invoke-cyclaw.sh` warns about this at launch; the key is deliberately never written into the shim, since that would put a secret in a profile file on disk |
+| macOS key setup / provider credentials | Use `macos/setup-cyclaw-keys.sh` for macOS Keychain setup. The launcher loads or generates `CYCLAW_API_KEY`; Linux uses libsecret or an owner-only config key file. Secrets are never embedded in the shim |
 | `GROK_API_KEY` | Export it (any non-empty value offline) |
 | Your own corpus | Copy `.md` files into `data/corpus/` |
 

@@ -166,7 +166,14 @@ cyclaw_linux_load_api_key() {
       return 2
       ;;
   esac
-  IFS= read -r value < "$file" || true
+  # Read the whole allowed record, preserving trailing newlines. Success means
+  # a NUL delimiter or 42 characters were reached: neither is a valid key file.
+  if IFS= read -r -n 42 -d '' value < "$file"; then
+    value=""
+    echo "[cyclaw] error: refusing $file: extra data or NUL in key file" >&2
+    return 2
+  fi
+  value="${value%$'\n'}"
   if [ -z "$value" ]; then
     echo "[cyclaw] error: refusing $file: empty. Remove it and re-run to generate a new key." >&2
     return 2
@@ -217,9 +224,9 @@ _cyclaw_linux_store_file() {
       echo "[cyclaw] error: refusing $dir: symlink" >&2
       exit 1
     fi
-    chmod 700 -- "$dir" || exit 1
+    chmod 700 "$dir" || exit 1
     tmp="$(mktemp "$dir/.api-key.XXXXXX")" || exit 1
-    if printf '%s\n' "$value" > "$tmp" && chmod 600 -- "$tmp" && mv -f -- "$tmp" "$file"; then
+    if printf '%s\n' "$value" > "$tmp" && chmod 600 "$tmp" && mv -f -- "$tmp" "$file"; then
       exit 0
     fi
     rm -f -- "$tmp"
@@ -227,7 +234,7 @@ _cyclaw_linux_store_file() {
   )
 }
 
-cyclaw_linux_ensure_api_key() {
+_cyclaw_linux_create_api_key() {
   local rc=0 value="" tool="" file=""
   cyclaw_linux_load_api_key || rc=$?
   if [ "$rc" -ne 1 ]; then
@@ -257,4 +264,66 @@ cyclaw_linux_ensure_api_key() {
   value=""
   echo "[cyclaw] error: could not store a generated CYCLAW_API_KEY in libsecret or $file" >&2
   return 1
+}
+
+# Serialize creation and explicit purge across launchers using the same store.
+# A bounded wait fails closed on an abandoned lock; never remove another
+# process's lock. The subshell owns cleanup, including normal signal exits.
+_cyclaw_linux_with_key_lock() (
+  _cyclaw_linux_refuse_xtrace || exit 2
+  local file dir lock attempt=0
+  file="$(cyclaw_linux_key_file)"
+  dir="${file%/*}"
+  _cyclaw_linux_check_dir "$dir" || exit 2
+  umask 077
+  mkdir -p -- "$dir" || exit 1
+  _cyclaw_linux_check_dir "$dir" || exit 2
+  lock="$dir/.api-key.lock"
+  until mkdir -- "$lock" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 100 ]; then
+      echo "[cyclaw] error: credential store locked at $lock; retry after the other launcher exits (an abandoned lock requires manual removal)" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  trap 'rmdir -- "$lock" 2>/dev/null || true' EXIT
+  trap 'exit 1' HUP INT TERM
+  "$@"
+)
+
+cyclaw_linux_ensure_api_key() {
+  local rc=0
+  cyclaw_linux_load_api_key || rc=$?
+  [ "$rc" -eq 1 ] || return "$rc"
+  # Recheck under the lock before generating; a concurrent winner is reused.
+  _cyclaw_linux_with_key_lock _cyclaw_linux_create_api_key || return $?
+  cyclaw_linux_load_api_key
+}
+
+_cyclaw_linux_remove_api_key() {
+  local file tool owner rc=0
+  file="$(cyclaw_linux_key_file)"
+  if [ -e "$file" ] || [ -L "$file" ]; then
+    owner="$(_cyclaw_linux_stat %u %u "$file")" || owner=""
+    if [ -L "$file" ] || [ ! -f "$file" ] || [ "$owner" != "$(id -u)" ]; then
+      echo "[cyclaw] error: refusing to remove $file: not an owned regular file" >&2
+      return 2
+    fi
+    rm -- "$file" || return 1
+  fi
+  if tool="$(_cyclaw_linux_secret_tool)"; then
+    # Exact service and current account only; no secret is read or printed.
+    "$tool" clear service "$_CYCLAW_LINUX_KEY_SERVICE" account "$(id -un)" >/dev/null 2>&1 || rc=1
+    if [ "$rc" -ne 0 ]; then
+      echo "[cyclaw] WARNING: libsecret clear failed or no matching item exists; verify the keyring manually" >&2
+    fi
+  else
+    echo "[cyclaw] WARNING: secret-tool unavailable; any libsecret item must be removed separately" >&2
+  fi
+  return "$rc"
+}
+
+cyclaw_linux_remove_api_key() {
+  _cyclaw_linux_with_key_lock _cyclaw_linux_remove_api_key
 }

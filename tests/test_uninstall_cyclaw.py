@@ -321,19 +321,6 @@ def test_yes_alone_does_not_purge_keychain(fake_security: Path, tmp_path: Path) 
     assert not argv_log.exists()
 
 
-def test_remove_keychain_without_test_mode_skips_off_darwin(tmp_path: Path) -> None:
-    if sys.platform == "darwin":
-        pytest.skip("this pin is the Linux skip path")
-    result = _run(
-        "--remove-keychain",
-        "--yes",
-        home=tmp_path,
-        extra_env={"CYCLAW_UNINSTALL_TEST_MODE": ""},
-    )
-    assert result.returncode == 0, result.stderr
-    assert "Darwin-only" in result.stdout
-
-
 def test_missing_lsof_marks_port_unverified() -> None:
     """No lsof means the port was not inspected — treat it as still held."""
     source = _SCRIPT.read_text(encoding="utf-8")
@@ -568,3 +555,63 @@ def test_uninstall_does_not_follow_cyclaw_repo(fake_security: Path, tmp_path: Pa
     assert "KEEP_ME=1" in repo_text
     assert secret not in result.stdout
     assert secret not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "flags,removed",
+    [
+        ([], False),
+        (["--yes"], False),
+        (["--remove-keychain"], False),
+        (["--remove-home", "--remove-keychain", "--yes"], True),
+    ],
+)
+def test_linux_uninstall_explicit_credential_purge(tmp_path: Path, flags: list[str], removed: bool) -> None:
+    # Run the real uninstaller/helper with Linux platform selection on either
+    # POSIX host. Only uname and libsecret are stubbed; file removal is real.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, script in {
+        "uname": "#!/bin/bash\necho Linux\n",
+        "secret-tool": '#!/bin/bash\nprintf "%s\\n" "$@" > "$HOME/clear-argv"\n'
+        '[ "$1" = clear ] || exit 1\nrm "$HOME/keyring"\n',
+    }.items():
+        path = bin_dir / name
+        path.write_text(script)
+        path.chmod(0o700)
+    config = tmp_path / "config"
+    key_file = config / "cyclaw/api-key"
+    key_file.parent.mkdir(parents=True, mode=0o700)
+    key_file.write_text("a1" * 20 + "\n")
+    key_file.chmod(0o600)
+    (key_file.parent / "unrelated").write_text("keep")
+    (tmp_path / "keyring").write_text("synthetic credential")
+    (tmp_path / ".CyClaw").mkdir()
+    result = _run(
+        *flags,
+        home=tmp_path,
+        input_text="",
+        extra_env={
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "XDG_CONFIG_HOME": str(config),
+            "CYCLAW_SECRET_TOOL": str(bin_dir / "secret-tool"),
+            "CYCLAW_UNINSTALL_TEST_MODE": "",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert key_file.exists() is not removed
+    assert (tmp_path / "keyring").exists() is not removed
+    assert (key_file.parent / "unrelated").read_text() == "keep"
+    assert not (key_file.parent / ".api-key.lock").exists()
+    assert "a1" * 20 not in result.stdout + result.stderr
+    if removed:
+        assert not (tmp_path / ".CyClaw").exists()
+        assert (tmp_path / "clear-argv").read_text().splitlines() == [
+            "clear",
+            "service",
+            "com.cgfixit.cyclaw.api-key",
+            "account",
+            subprocess.check_output([shutil.which("id"), "-un"], text=True).strip(),
+        ]
+    else:
+        assert not (tmp_path / "clear-argv").exists()
