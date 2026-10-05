@@ -30,6 +30,15 @@
   .\Uninstall-CyClaw.ps1 -RemoveCredentials
   .\Uninstall-CyClaw.ps1 -RemoveCredentials -Yes
 #>
+[CmdletBinding()]
+param(
+    [switch]$RemoveHome,
+    [switch]$RemoveFsConnect,
+    [switch]$RemoveCredentials,
+    [switch]$Yes
+)
+
+
 function Write-CyClawHost {
     # Operator-facing console text for install/uninstall/launch scripts.
     # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
@@ -54,14 +63,6 @@ function Write-CyClawHost {
     }
 }
 
-[CmdletBinding()]
-param(
-    [switch]$RemoveHome,
-    [switch]$RemoveFsConnect,
-    [switch]$RemoveCredentials,
-    [switch]$Yes
-)
-
 $ErrorActionPreference = "Stop"
 # Bind -Yes into script scope for Confirm-CyclawDestructive.
 $script:Yes = [bool]$Yes
@@ -84,8 +85,10 @@ $KnownTaskNames = @(
     "CyClaw opentweet"
 )
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification='Name matches macos sync.cli unschedule twin; pinned by Windows parity tests.')]
 function Unschedule-SyncJob {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification='Name matches macos sync.cli unschedule twin; pinned by Windows parity tests.')]
+    param()
+
     $py = Join-Path $Home_ "venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $py)) {
         $cmd = Get-Command python -ErrorAction SilentlyContinue
@@ -108,9 +111,11 @@ function Unschedule-SyncJob {
     }
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification='Unschedule mirrors schtasks cleanup naming; pinned by Windows parity tests.')]
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='KnownTasks is the fixed uninstall batch name; pinned by Windows parity tests.')]
 function Unschedule-KnownTasks {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification='Unschedule mirrors schtasks cleanup naming; pinned by Windows parity tests.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='KnownTasks is the fixed uninstall batch name; pinned by Windows parity tests.')]
+    param()
+
     $schtasks = Get-Command schtasks.exe -ErrorAction SilentlyContinue
     if (-not $schtasks) { return }
     foreach ($name in $KnownTaskNames) {

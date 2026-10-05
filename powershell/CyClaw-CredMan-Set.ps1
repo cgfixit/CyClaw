@@ -23,6 +23,13 @@
   PowerShell skips finally. The handler is not installed on 5.1 —
   e.Cancel=$true there can hang the host.
 #>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string]$Target
+)
+
+
 function Write-CyClawHost {
     # Operator-facing console text for install/uninstall/launch scripts.
     # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
@@ -46,12 +53,6 @@ function Write-CyClawHost {
         [Console]::Out.WriteLine($msg)
     }
 }
-
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true, Position = 0)]
-    [string]$Target
-)
 
 $ErrorActionPreference = "Stop"
 

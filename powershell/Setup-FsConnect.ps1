@@ -15,6 +15,13 @@
   Path to config.yaml. Defaults to the sibling repo config, or
   $env:CYCLAW_FSCONNECT_CONFIG when set.
 #>
+[CmdletBinding()]
+param(
+    [switch]$PrepareOnly,
+    [string]$Config = ""
+)
+
+
 function Write-CyClawHost {
     # Operator-facing console text for install/uninstall/launch scripts.
     # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
@@ -38,12 +45,6 @@ function Write-CyClawHost {
         [Console]::Out.WriteLine($msg)
     }
 }
-
-[CmdletBinding()]
-param(
-    [switch]$PrepareOnly,
-    [string]$Config = ""
-)
 
 $ErrorActionPreference = "Stop"
 

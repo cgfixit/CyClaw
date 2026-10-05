@@ -252,8 +252,10 @@ function Write-CyclawCredential([string]$Target, [string]$Secret) {
     }
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='CredDelete wrapper for uninstall purge; callers already confirm with Confirm-CyclawDestructive.')]
-function Remove-CyclawCredential([string]$Target) {
+function Remove-CyclawCredential {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='CredDelete wrapper for uninstall purge; callers already confirm with Confirm-CyclawDestructive.')]
+    param([string]$Target)
+
     # True when the item is gone (deleted or already absent). False off
     # Windows, on an empty target, or when CredDelete fails for another reason.
     # Never prints a secret. Uninstall's -RemoveCredentials is the only caller.
@@ -270,8 +272,10 @@ function Remove-CyclawCredential([string]$Target) {
     return $false
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Imports the documented secret set; name pinned by Windows parity tests.')]
 function Import-CyclawCredentialSecrets {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Imports the documented secret set; name pinned by Windows parity tests.')]
+    param()
+
     if (-not (Test-CyclawWindowsHost)) {
         Write-CyClawHost "[cyclaw] warn    : Credential Manager is unavailable. Plaintext .env secrets are not used." -ForegroundColor Yellow
         if (-not $env:CYCLAW_API_KEY) {
@@ -309,8 +313,10 @@ function Import-CyclawCredentialSecrets {
     }
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns every assignment on one dotenv line; name pinned by Windows parity tests.')]
-function Get-CyclawEnvLineAssignments([string]$Line) {
+function Get-CyclawEnvLineAssignments {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns every assignment on one dotenv line; name pinned by Windows parity tests.')]
+    param([string]$Line)
+
     # One env-line parser for the Windows loaders. Same cases as
     # cyclaw_dotenv_line_assignments in macos/cyclaw-public-env.sh:
     # every NAME= / NAME+= token, lowercase names, a leading UTF-8 BOM,
@@ -416,8 +422,10 @@ function Get-CyclawEnvLineAssignments([string]$Line) {
     return @($rows.ToArray())
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns every assignment in a dotenv file; name pinned by Windows parity tests.')]
-function Get-CyclawDotenvAssignments([string]$Path) {
+function Get-CyclawDotenvAssignments {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns every assignment in a dotenv file; name pinned by Windows parity tests.')]
+    param([string]$Path)
+
     # Name -> value (last assignment wins). Caller must not print values.
     $map = @{}
     if (-not (Test-Path -LiteralPath $Path)) { return $map }
@@ -429,9 +437,11 @@ function Get-CyclawDotenvAssignments([string]$Path) {
     return $map
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Removes matching secret lines as a set; name pinned by Windows parity tests.')]
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Dotenv rewrite is non-interactive installer cleanup; no -WhatIf surface.')]
-function Remove-CyclawSecretLines([string]$Path, [hashtable]$Expected) {
+function Remove-CyclawSecretLines {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Removes matching secret lines as a set; name pinned by Windows parity tests.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Dotenv rewrite is non-interactive installer cleanup; no -WhatIf surface.')]
+    param([string]$Path, [hashtable]$Expected)
+
     # Expected maps a name to the unquoted value that must match ordinally.
     # Other assignments on the same line are rewritten. Comments stay.
     # A file that would become blank keeps the public header.
@@ -509,8 +519,10 @@ function Remove-CyclawSecretLines([string]$Path, [hashtable]$Expected) {
     Write-CyClawHost "[cyclaw] removed plaintext $($removed -join ', ') from $Path (Credential Manager holds it). No backup was written."
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification='Ensure creates the public dotenv header; name pinned by Windows parity tests.')]
-function Ensure-CyclawPublicEnvFile([string]$Path) {
+function Ensure-CyclawPublicEnvFile {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification='Ensure creates the public dotenv header; name pinned by Windows parity tests.')]
+    param([string]$Path)
+
     if ([string]::IsNullOrEmpty($Path)) { return }
     if (Test-Path -LiteralPath $Path) { return }
     $dir = Split-Path -Parent $Path
@@ -630,9 +642,9 @@ function Sync-CyclawPlaintextToCredentialManager {
     }
 }
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Matches is comparison semantics, not a plural noun bag; name pinned by Windows parity tests.')]
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Uninstall plaintext strip is non-interactive; no -WhatIf surface.')]
 function Remove-CyclawPlaintextIfCredentialMatches {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Matches is comparison semantics, not a plural noun bag; name pinned by Windows parity tests.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Uninstall plaintext strip is non-interactive; no -WhatIf surface.')]
     # Read-only. Never calls Write-CyclawCredential. Uninstall uses this so
     # tearing the integration down cannot create Credential Manager items.
     param(

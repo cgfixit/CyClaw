@@ -21,6 +21,13 @@
   cyclaw                 # via the installed shim / profile function
   .\Invoke-CyClaw.ps1 -NoBrowser
 #>
+[CmdletBinding()]
+param(
+    [switch]$NoBrowser,
+    [string]$Repo = ""
+)
+
+
 function Write-CyClawHost {
     # Operator-facing console text for install/uninstall/launch scripts.
     # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
@@ -44,12 +51,6 @@ function Write-CyClawHost {
         [Console]::Out.WriteLine($msg)
     }
 }
-
-[CmdletBinding()]
-param(
-    [switch]$NoBrowser,
-    [string]$Repo = ""
-)
 
 $ErrorActionPreference = "Stop"
 

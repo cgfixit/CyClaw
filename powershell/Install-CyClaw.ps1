@@ -46,6 +46,17 @@
 .EXAMPLE
   .\Install-CyClaw.ps1 -RepoPath C:\src\CyClaw
 #>
+[CmdletBinding()]
+param(
+    [string]$RepoPath = "",
+    [switch]$SkipPythonDeps,
+    [switch]$NoProfileEdit,
+    [switch]$NoPathEdit,
+    [switch]$ReplaceRepo,
+    [switch]$WriteEnvFile
+)
+
+
 function Write-CyClawHost {
     # Operator-facing console text for install/uninstall/launch scripts.
     # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
@@ -69,16 +80,6 @@ function Write-CyClawHost {
         [Console]::Out.WriteLine($msg)
     }
 }
-
-[CmdletBinding()]
-param(
-    [string]$RepoPath = "",
-    [switch]$SkipPythonDeps,
-    [switch]$NoProfileEdit,
-    [switch]$NoPathEdit,
-    [switch]$ReplaceRepo,
-    [switch]$WriteEnvFile
-)
 
 $ErrorActionPreference = "Stop"
 $RepoUrl = "https://github.com/CGFixIT/CyClaw.git"
