@@ -53,11 +53,21 @@ KEY_ENV_VAR = "CYCLAW_API_KEY"
 CONFIG_SUBDIR = "cyclaw"
 # Proposed fallback file name. None = accept any single file in CONFIG_SUBDIR holding the key.
 KEY_FILE_NAME: str | None = "api-key"
+
+
 # Attributes the launcher passes to `secret-tool store/lookup`, as a flat
-# attr/value tuple. None = do not pin them (lookup must still use the same
-# attributes as store). Proposed: ("service", "com.cgfixit.cyclaw.api-key", "account", <user>),
-# mirroring the macOS Keychain -s/-a pair from utils/secret-policy.tsv.
-SECRET_TOOL_ATTRS: tuple[str, ...] | None = None
+# attr/value tuple (Expert DECISION, e2e-fixes PR B): service/account mirror the
+# macOS Keychain -s/-a pair from utils/secret-policy.tsv; account is `id -un`.
+def _login_name() -> str:
+    """What `id -un` prints (the launcher's account attribute); "" off Linux."""
+    if not sys.platform.startswith("linux"):
+        return ""
+    import pwd
+
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+SECRET_TOOL_ATTRS: tuple[str, ...] | None = ("service", "com.cgfixit.cyclaw.api-key", "account", _login_name())
 
 # ---------------------------------------------------------------------------
 
@@ -146,6 +156,7 @@ class _Sandbox:
     shadow: Path
     with_secret_tool: bool = False
     set_xdg: bool = True
+    extra_env: dict[str, str] = field(default_factory=dict)
     home: Path = field(init=False)
     xdg: Path = field(init=False)
     cyclaw_home: Path = field(init=False)
@@ -215,6 +226,7 @@ class _Sandbox:
         if self.with_secret_tool:
             # A session bus "exists" from the launcher's point of view; the stub needs none.
             env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={self.root / 'fake-bus'}"
+        env.update(self.extra_env)
         if preset_key is not None:
             env[KEY_ENV_VAR] = preset_key
         return env
@@ -390,3 +402,20 @@ def test_secret_tool_store_failure_falls_back_to_key_file(tmp_path: Path, shadow
 
     _proc2, second = sb.run()
     assert second == first
+
+
+def test_secret_tool_disabled_by_env_hook_uses_key_file_only(tmp_path: Path, shadow_path: Path) -> None:
+    # CYCLAW_SECRET_TOOL=none (Expert DECISION, e2e-fixes PR B) turns libsecret
+    # off even when secret-tool is installed: never call it, persist via the file.
+    sb = _Sandbox(tmp_path, shadow_path, with_secret_tool=True, extra_env={"CYCLAW_SECRET_TOOL": "none"})
+
+    _proc1, first = sb.run()
+    _assert_plausible_key(first)
+    key_file = _assert_single_key_file(sb, first)
+
+    _proc2, second = sb.run()
+    assert second == first
+    assert sb.files_holding(first) == [key_file]
+    assert not sb.secret_tool_calls(), (
+        f"secret-tool was called despite CYCLAW_SECRET_TOOL=none: {sb.secret_tool_calls()}"
+    )
