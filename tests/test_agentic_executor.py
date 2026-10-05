@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
+import agentic.executor.runner as runner_module
 from agentic.executor import Check, VerificationReport, default_checks, run_verification
 from agentic.executor.hard_sandbox import ArgvListSandbox
-from agentic.executor.runner import MAX_OUTPUT_CHARS, _scrubbed_env
 
 
 def _py(code: str, timeout_sec: int = 10) -> Check:
@@ -101,9 +101,9 @@ def test_stdout_and_stderr_are_captured(tmp_path):
 
 
 def test_large_output_is_truncated(tmp_path):
-    report = run_verification(tmp_path, [_py(f"import sys; sys.stdout.write('x' * {MAX_OUTPUT_CHARS + 5000})")])
+    report = run_verification(tmp_path, [_py(f"import sys; sys.stdout.write('x' * {runner_module.MAX_OUTPUT_CHARS + 5000})")])
     out = report.results[0].stdout
-    assert len(out) < MAX_OUTPUT_CHARS + 100
+    assert len(out) < runner_module.MAX_OUTPUT_CHARS + 100
     assert "truncated" in out
 
 
@@ -223,7 +223,7 @@ def test_child_still_has_path_to_find_the_interpreter(tmp_path):
 
 def test_scrubbed_env_sets_no_proxy_and_pip_no_index(monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "http://example:8080")
-    env = _scrubbed_env()
+    env = runner_module._scrubbed_env()
     assert env["NO_PROXY"] == "*"
     assert env["PIP_NO_INDEX"] == "1"
     assert "HTTPS_PROXY" not in env
@@ -306,7 +306,6 @@ def test_fifo_in_worktree_does_not_hang_mirror_copy(tmp_path):
 
 def test_mirror_copy_oserror_becomes_failed_check(tmp_path, monkeypatch):
     """A copy failure is a CheckResult, not an uncaught exception."""
-    import agentic.executor.runner as runner_module
 
     def _boom(*_a, **_k):
         raise OSError("simulated mirror failure")

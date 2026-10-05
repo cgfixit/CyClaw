@@ -816,18 +816,14 @@ def test_sync_timeout_sec_never_raises_on_a_malformed_config(monkeypatch: pytest
 
 def test_ops_environment_dsn_env_must_be_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """sqlconnect.dsn_env must resolve to a secret-policy name, not a path decoy."""
-    import utils.ops_runner as ops
-
     cfg = {"sqlconnect": {"dsn_env": "NOT_A_SECRET_PATH"}}
-    monkeypatch.setattr(ops, "_get_config", lambda _p: cfg)
+    monkeypatch.setattr(ops_runner, "_get_config", lambda _p: cfg)
     with pytest.raises(OpsError, match="secret environment variable"):
         _ops_environment(["python", "-m", "agentic.sqlconnect.cli", "status"])
 
 
 def test_ops_environment_default_dsn_env_is_admitted(monkeypatch: pytest.MonkeyPatch) -> None:
-    import utils.ops_runner as ops
-
-    monkeypatch.setattr(ops, "_get_config", lambda _p: {"sqlconnect": {}})
+    monkeypatch.setattr(ops_runner, "_get_config", lambda _p: {"sqlconnect": {}})
     monkeypatch.setenv("CYCLAW_SQL_DSN", "postgresql://x")
     env = _ops_environment(["python", "-m", "agentic.sqlconnect.cli", "status"])
     assert env.get("CYCLAW_SQL_DSN") == "postgresql://x"
