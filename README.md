@@ -138,7 +138,9 @@ default. The old `:8790` coding console is now the separate
   retries itself after the unlock. Underneath that is `POST /index/build`
   (loopback, same-origin, no forwarding headers) followed by
   `GET /index/status`.
-- The console header shows two chips: **Library** (the index, with a "How to
+- The console header shows the mode in plain words ("Cloud fallback · ask
+  first" for `hybrid`, "Offline only" for `offline`, with a popover stating
+  the consent rule) and two chips: **Library** (the index, with a "How to
   build" help) and **Engine** (Ollama, with a "How to start" help). `/health`
   reporting `degraded` usually means Ollama is down, not a crash.
   `TELEMETRY KILL` at startup is expected. `/auth/*` returns 503 while auth is off.

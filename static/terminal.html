@@ -15,7 +15,13 @@
     --border: #2a2f38;
     --border-focus: #d4920b;
     --text-primary: #c8cdd5;
-    --text-secondary: #6b7280;
+    /* Was #6b7280, which measures ~4.0:1 on --bg-primary and ~3.5:1 on
+       --bg-tertiary, under WCAG AA's 4.5:1 for body text. It carries the
+       status chips, toolbar buttons, the mode badge, dialog prose and the
+       Details disclosures. #8a929e measures ~6.1:1 / ~5.8:1 / ~5.3:1 on the
+       three backgrounds while staying visibly quieter than --text-primary
+       (console UX audit 2026-10-04, case 5). */
+    --text-secondary: #8a929e;
     /* Was #454d59, which lands at ~2.6:1 against --bg-primary -- well under
        WCAG AA's 4.5:1 for body text, and this token carries the meta row, the
        empty-state hints, the footer, and every toolbar hint. #767e8b measures
@@ -70,6 +76,21 @@
      check, not by the contract tests, which read source rather than computed
      style. Server-side auth was never affected; this is the visual gate. */
   [hidden] { display: none !important; }
+
+  /* Visually hidden, still read by assistive tech: the query box's label. A
+     placeholder is not a label -- it vanishes on input and many screen readers
+     skip it. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 
   button, input, textarea, select {
     font: inherit;
@@ -249,7 +270,16 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+  /* The mode badge used to read a bare "HYBRID" -- the first chip in the
+     header, and a config value rather than a promise. It now says what the
+     mode means to the person asking ("Cloud fallback · ask first" / "Offline
+     only") and opens a native <details> that spells out the consent rule
+     (console UX audit 2026-10-04). */
+  .mode-help { position: relative; }
+  .mode-help > summary { list-style: none; cursor: pointer; }
+  .mode-help > summary::-webkit-details-marker { display: none; }
   .mode-badge {
+    display: inline-block;
     font-family: var(--mono);
     font-size: var(--fs-micro);
     padding: 2px 8px;
@@ -257,8 +287,13 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .mode-help-panel {
+    left: 0;
+    right: auto;
+    width: min(24rem, calc(100vw - 32px));
   }
 
   /* ── MAIN LAYOUT ── */
@@ -715,6 +750,9 @@
   .operator-dialog input { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
   .operator-dialog .operator-error { color: var(--accent-red); min-height: 1.2em; }
   .operator-dialog .operator-lead { color: var(--text-primary); }
+  /* Gates read as sentences; the config key that backs each one stays visible
+     but recessive, for the operator who will go edit config.yaml. */
+  .gate-key { color: var(--text-muted); font-size: var(--fs-micro); margin-left: 6px; }
   .operator-dialog .operator-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
   .toolbar-btn {
@@ -740,6 +778,19 @@
     color: var(--text-primary);
     border-color: var(--accent-amber);
     transform: translateY(-1px);
+  }
+  /* One primary action per dialog. Unlock and Cancel used to be the same
+     grey pill, so the eye had nothing to land on (console UX audit
+     2026-10-04). Same amber as the Build and Send buttons. */
+  .toolbar-btn.primary {
+    background: var(--accent-amber);
+    border-color: var(--accent-amber);
+    color: var(--bg-primary);
+    font-weight: 700;
+  }
+  .toolbar-btn.primary:hover {
+    background: var(--border-focus);
+    color: var(--bg-primary);
   }
   .toolbar-hint {
     flex: 1 1 280px;
@@ -983,7 +1034,12 @@
       width: 100%;
       justify-content: space-between;
       gap: 8px;
+      flex-wrap: wrap;
     }
+    /* The mode badge's full label ("Cloud fallback · ask first") plus the two
+       health chips do not fit one 390px row; the badge takes its own row and
+       the chips get the full width below it. */
+    .mode-help { flex-basis: 100%; }
 
     .toolbar-btn {
       flex: 1 1 calc(50% - 8px);
@@ -1052,7 +1108,7 @@
 <body>
 
 <!-- HEADER -->
-<div class="header">
+<header class="header">
   <div class="header-left">
     <div>
       <div class="logo">CyClaw</div>
@@ -1060,7 +1116,12 @@
     </div>
   </div>
   <div class="header-right">
-    <div class="mode-badge" id="modeBadge">offline</div>
+    <details class="mode-help" id="modeHelp">
+      <summary class="mode-badge" id="modeBadge">checking...</summary>
+      <div class="health-help-panel mode-help-panel">
+        <p id="modeHelpText">Reading the gateway's mode…</p>
+      </div>
+    </details>
     <div class="health-chip" id="healthChip">
       <span class="health-item" id="libraryChip">
         <span class="status-dot" id="libraryDot"></span>
@@ -1098,11 +1159,14 @@
       </details>
     </div>
   </div>
-</div>
+</header>
 
-<!-- MAIN -->
-<div class="main">
-  <div class="soul-toolbar">
+<!-- MAIN. Landmarks (header / nav / main / footer) instead of four divs, so a
+     screen-reader user can jump between the status header, the operator
+     toolbar, the conversation and the footer (console UX audit 2026-10-04,
+     case 5). Every selector here is class-based, so the tags carry no style. -->
+<main class="main">
+  <nav class="soul-toolbar" aria-label="Operator tools">
     <!-- Advanced mode. The five subsystem consoles below were previously
          visible to every visitor with no gating at all, so the first thing a
          non-engineer saw was five operator tools they had to learn to ignore.
@@ -1153,7 +1217,7 @@
            a value here is traded for the console cookie at once and cleared. -->
       <input class="api-key-input" id="apiKeyInput" type="password" placeholder="CYCLAW_API_KEY (Soul / ops)" autocomplete="off" hidden>
     </span>
-  </div>
+  </nav>
 
   <dialog class="operator-dialog" id="operatorDialog" aria-labelledby="operatorDialogTitle">
     <form id="operatorForm" method="dialog">
@@ -1171,7 +1235,7 @@
       <p class="operator-error" id="operatorDialogError" role="alert"></p>
       <div class="operator-actions">
         <button class="toolbar-btn" id="operatorDialogCancel" type="button">Cancel</button>
-        <button class="toolbar-btn" id="operatorDialogSubmit" type="submit">Unlock</button>
+        <button class="toolbar-btn primary" id="operatorDialogSubmit" type="submit">Unlock</button>
       </div>
     </form>
   </dialog>
@@ -1252,7 +1316,7 @@
            placeholder="reason for change (required to apply a skill)">
     <div class="soul-actions">
       <button class="soul-btn" id="agenticProposeBtn">Propose Skill</button>
-      <label class="gate-confirm-label"><input type="checkbox" id="agenticConfirm"> --confirm</label>
+      <label class="gate-confirm-label"><input type="checkbox" id="agenticConfirm"> I reviewed this skill and want to apply it <span class="gate-key">--confirm</span></label>
       <button class="soul-btn apply" id="agenticApplyBtn" disabled>Apply Skill (writes disabled)</button>
     </div>
     <!-- 4-gate checklist: Apply stays disabled until all four show ✓. Gates 1-2
@@ -1261,10 +1325,10 @@
          with the shipped defaults (writes_enabled:false) the Apply button is disabled,
          so no skills-registry write can be triggered from the console at all. -->
     <div class="gate-checklist" id="agenticGates">
-      <div class="gate-row bad" id="gateMode">✗ mode = write</div>
-      <div class="gate-row bad" id="gateWrites">✗ writes_enabled = true</div>
-      <div class="gate-row bad" id="gateReason">✗ reason non-empty</div>
-      <div class="gate-row bad" id="gateConfirm">✗ --confirm checked</div>
+      <div class="gate-row bad" id="gateMode">✗ Agentic mode allows writes <span class="gate-key">mode = write</span></div>
+      <div class="gate-row bad" id="gateWrites">✗ Writes are switched on in config <span class="gate-key">writes_enabled = true</span></div>
+      <div class="gate-row bad" id="gateReason">✗ A reason is given <span class="gate-key">reason</span></div>
+      <div class="gate-row bad" id="gateConfirm">✗ You confirmed the review <span class="gate-key">--confirm</span></div>
     </div>
     <div class="soul-status" id="agenticStatus"></div>
     <div class="proposal-box" id="agenticBox">
@@ -1358,7 +1422,9 @@
   </div>
 
   <div class="first-run-slot" id="firstRunSlot" hidden></div>
-  <div class="results" id="results">
+  <!-- role=log + aria-live=polite: new answers and errors are announced
+       without stealing focus from the input. -->
+  <div class="results" id="results" role="log" aria-live="polite" aria-label="Conversation">
     <div class="empty-state" id="emptyState">
       <div class="hint hint-lede">
         Your documents never leave this machine. Every query is logged locally,
@@ -1373,12 +1439,13 @@
       </div>
     </div>
   </div>
-</div>
+</main>
 
 <!-- INPUT -->
 <div class="input-bar">
   <div class="input-wrapper">
-    <span class="input-prefix">›</span>
+    <span class="input-prefix" aria-hidden="true">›</span>
+    <label for="queryInput" class="sr-only">Ask a question about your documents</label>
     <textarea class="query-input" id="queryInput"
       placeholder="query the vault..."
       rows="1"></textarea>
@@ -1387,10 +1454,10 @@
 </div>
 
 <!-- FOOTER -->
-<div class="footer-bar">
+<footer class="footer-bar">
   <span id="footerLeft">cyclaw · loading...</span>
   <span id="footerRight"></span>
-</div>
+</footer>
 
 <script src="/static/auth_admin.js"></script>
 <script src="/static/terminal.js"></script>

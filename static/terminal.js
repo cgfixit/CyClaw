@@ -985,7 +985,7 @@ async function checkHealth() {
     }
     lastHealth = data;
     paintHealthStatus();
-    modeBadge.textContent = data.mode || 'offline';
+    paintModeBadge(data.mode);
     const fl = document.getElementById('footerLeft');
     if (fl) {
       const ver = data.version ? ` v${data.version}` : '';
@@ -1004,6 +1004,32 @@ async function checkHealth() {
     healthBackoffMs = Math.min(healthBackoffMs * 2, HEALTH_MAX_INTERVAL);
   }
   scheduleHealthCheck();
+}
+
+// app.mode in plain words. "hybrid" is the shipped posture and means: answer
+// from your documents and the local engine; when the library has no match,
+// ASK before sending that one question to a cloud model. The badge said
+// "HYBRID", which names the config value, not the promise.
+const MODE_COPY = {
+  hybrid: {
+    label: 'Cloud fallback · ask first',
+    help: 'Answers come from your documents and the local engine. If nothing in your library '
+        + 'matches, CyClaw asks you before sending that one question to a cloud model (Grok or '
+        + 'Claude). Nothing goes online without your yes, and the choice is never remembered.'
+  },
+  offline: {
+    label: 'Offline only',
+    help: 'Everything stays on this machine. No cloud model is ever contacted.'
+  }
+};
+
+function paintModeBadge(mode) {
+  const key = typeof mode === 'string' ? mode : 'offline';
+  const copy = MODE_COPY[key];
+  const helpEl = document.getElementById('modeHelpText');
+  // textContent for both: mode is a server string, even if it is an enum today.
+  if (modeBadge) modeBadge.textContent = copy ? copy.label : key;
+  if (helpEl) helpEl.textContent = copy ? copy.help : `Gateway mode: ${key}.`;
 }
 
 function applyRoleChrome() {
@@ -1793,9 +1819,20 @@ function agenticLabelMsg(data) {
   }
 }
 
-function setGate(id, ok, label) {
+// label is the sentence; key is the config/CLI token behind it, shown muted
+// so the row reads as a requirement first and a setting second. Built with
+// createElement, never innerHTML: both strings are hardcoded today, but this
+// keeps the next caller honest.
+function setGate(id, ok, label, key) {
   const el = document.getElementById(id);
   el.textContent = `${ok ? '✓' : '✗'} ${label}`;
+  if (key) {
+    const k = document.createElement('span');
+    k.className = 'gate-key';
+    k.textContent = key;
+    el.appendChild(document.createTextNode(' '));
+    el.appendChild(k);
+  }
   el.className = `gate-row ${ok ? 'ok' : 'bad'}`;
 }
 
@@ -1810,10 +1847,10 @@ function refreshAgenticGates() {
   const confirmOk = agenticConfirm.checked;
   const modeOk    = agenticConfig.mode === 'write';
   const writesOk  = agenticConfig.writes_enabled === true;
-  setGate('gateMode', modeOk, 'mode = write');
-  setGate('gateWrites', writesOk, 'writes_enabled = true');
-  setGate('gateReason', reasonOk, 'reason non-empty');
-  setGate('gateConfirm', confirmOk, '--confirm checked');
+  setGate('gateMode', modeOk, 'Agentic mode allows writes', 'mode = write');
+  setGate('gateWrites', writesOk, 'Writes are switched on in config', 'writes_enabled = true');
+  setGate('gateReason', reasonOk, 'A reason is given', 'reason');
+  setGate('gateConfirm', confirmOk, 'You confirmed the review', '--confirm');
   const allOk = modeOk && writesOk && reasonOk && confirmOk;
   agenticApplyBtn.disabled = !allOk;
   agenticApplyBtn.textContent = allOk

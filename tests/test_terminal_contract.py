@@ -723,6 +723,58 @@ def test_first_run_panel_survives_the_first_query_and_a_locked_build_opens_unloc
     assert "operatorDialog.addEventListener('close', () => resetOperatorDialogContext())" in js
 
 
+def _contrast(fg_hex: str, bg_hex: str) -> float:
+    def lum(h: str) -> float:
+        chans = []
+        for i in (1, 3, 5):
+            c = int(h[i:i + 2], 16) / 255
+            chans.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * chans[0] + 0.7152 * chans[1] + 0.0722 * chans[2]
+    a, b = sorted((lum(fg_hex), lum(bg_hex)), reverse=True)
+    return (a + 0.05) / (b + 0.05)
+
+
+def test_accessibility_parity_landmarks_live_region_label_and_contrast():
+    """Console UX audit 2026-10-04, case 5 (the CyClaw column): the page was
+    four divs, the conversation log was not announced, the query box had only
+    a placeholder for a name, and --text-secondary measured ~4.0:1. Pins the
+    landmarks, the live region, the hidden label, and the token's WCAG AA
+    ratio on every background it is painted over. Also pins the two small
+    mirrored findings: Unlock is the one primary action in its dialog, and
+    the mode badge explains the mode instead of echoing the config value.
+    """
+    html = _TERMINAL_HTML.read_text(encoding="utf-8")
+    js = _TERMINAL_JS.read_text(encoding="utf-8")
+
+    assert '<header class="header">' in html and "</header>" in html
+    assert '<nav class="soul-toolbar" aria-label=' in html and "</nav>" in html
+    assert html.count("<main ") == 1 and "</main>" in html
+    assert '<footer class="footer-bar">' in html and "</footer>" in html
+
+    results_tag = html.split('id="results"', 1)[0].rsplit("<div", 1)[1] + html.split('id="results"', 1)[1].split(">", 1)[0]
+    assert 'role="log"' in results_tag and 'aria-live="polite"' in results_tag
+
+    assert '<label for="queryInput" class="sr-only">' in html
+    assert ".sr-only {" in html
+
+    tokens = dict(re.findall(r"--(bg-primary|bg-secondary|bg-tertiary|text-secondary):\s*(#[0-9a-fA-F]{6})", html))
+    for bg in ("bg-primary", "bg-secondary", "bg-tertiary"):
+        ratio = _contrast(tokens["text-secondary"], tokens[bg])
+        assert ratio >= 4.5, f"--text-secondary is {ratio:.2f}:1 on --{bg}; WCAG AA body text needs 4.5:1"
+
+    assert 'class="toolbar-btn primary" id="operatorDialogSubmit"' in html
+    assert 'id="operatorDialogCancel"' in html and 'class="toolbar-btn primary" id="operatorDialogCancel"' not in html
+
+    assert '<summary class="mode-badge" id="modeBadge">' in html
+    assert "const MODE_COPY = {" in js
+    assert "label: 'Cloud fallback · ask first'" in js
+    assert "label: 'Offline only'" in js
+    assert "modeBadge.textContent = data.mode" not in js
+    # Both badge strings are assigned with textContent, never innerHTML.
+    paint = js.split("function paintModeBadge(", 1)[1].split("\n}", 1)[0]
+    assert "innerHTML" not in paint and "textContent" in paint
+
+
 def test_index_build_renders_elapsed_when_present():
     """GET /index/status already returns elapsed_sec; the panel used to ignore
     it. Store only finite non-negative values, reset on a new build, format
