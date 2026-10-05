@@ -6,7 +6,7 @@ bind (loopback by default).
 
 | File | Served by | What it is |
 |---|---|---|
-| `terminal.html` + `terminal.js` | `gate.py` at `GET /` (plus the `/static` mount), default `127.0.0.1:8787` | Operator console for `/query`, index build/status, console-session credentials, and authenticated soul/ops endpoints. |
+| `terminal.html` + `terminal.js` | `gate.py` at `GET /` (plus the `/static` mount), default `127.0.0.1:8787` | Operator console for `/query`, the first-run build panel (a slot above the log that persists until `index_ready`; a locked `POST /index/build` opens the unlock dialog and retries), the Library/Engine health chips, console-session credentials, and authenticated soul/ops endpoints. |
 | `auth_admin.js` | the `/static` mount; referenced by `terminal.html` | Users panel (`/auth/users` list/create/role-change/password-reset/delete; the `disabled` flag is displayed but the `/disable`/`/enable` routes are not wired to buttons) — one script, no inline script. |
 
 `gate.py`'s CSP has no nonce source, so no page here may carry an inline

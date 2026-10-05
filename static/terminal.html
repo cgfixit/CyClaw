@@ -162,14 +162,32 @@
     font-size: var(--fs-small);
     color: var(--text-secondary);
   }
-  /* Health chip: terse status stays in the header; details and the
-     Ollama "How to start" control are native <details> so they work
-     with keyboard and screen readers, not hover-only title text. */
+  /* Health chips: one labelled chip per dependency the operator can act on
+     -- Library (the index) and Engine (Ollama) -- each with its own native
+     <details> help, plus one shared Details disclosure. A single combined chip
+     used to rank "No library yet" above the Ollama-down sentence, so its only
+     help control ("How to start": ollama serve) sat beside the library status
+     and read as the fix for the library (console UX audit 2026-10-04, case 2).
+     Native <details> so keyboard and screen readers get the help, not
+     hover-only title text. */
   .health-chip {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 14px;
     position: relative;
+    flex-wrap: wrap;
+  }
+  .health-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .health-name {
+    font-family: var(--mono);
+    font-size: var(--fs-micro);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
   .health-details,
   .health-help {
@@ -558,14 +576,6 @@
     gap: 8px;
     padding: 40px;
   }
-  .empty-state .logo-large {
-    font-family: var(--mono);
-    font-size: var(--fs-display);
-    font-weight: 700;
-    color: var(--border);
-    letter-spacing: 3px;
-    text-transform: uppercase;
-  }
   .empty-state .hint {
     font-family: var(--mono);
     font-size: var(--fs-small);
@@ -577,37 +587,53 @@
   /* ── FIRST RUN ──
      Replaces the raw "503: Index not built. Run: python -m retrieval.indexer"
      that a browser used to show someone who may not have a terminal open.
-     Rendered into the empty state, so it disappears for good once the user has
-     asked anything -- by then they are past first run. */
+     Lives in its own slot ABOVE the results log, not inside the empty state:
+     the empty state is removed on the first query, which used to take the
+     only Build button with it and leave a CLI command and a page reload as
+     the way back (console UX audit 2026-10-04, case 2). The slot hides itself
+     once /health reports index_ready, and the panel sits above the empty
+     state's explanation rather than under it, so the one action on the screen
+     comes first. */
+  .first-run-slot {
+    flex-shrink: 0;
+    padding: 12px 20px 0;
+  }
   .first-run {
-    margin-top: 20px;
-    padding: 16px 20px;
+    padding: 14px 18px;
     border: 1px solid var(--accent-amber-dim);
     border-radius: var(--radius);
     background: rgba(212,146,11,0.05);
-    max-width: 440px;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    flex-wrap: wrap;
     align-items: center;
-    text-align: center;
+    gap: 6px 16px;
   }
   .first-run-title {
     font-family: var(--mono);
     font-size: var(--fs-body);
     color: var(--accent-amber);
     font-weight: 600;
+    flex-basis: 100%;
   }
   .first-run-body {
     font-family: var(--mono);
     font-size: var(--fs-small);
     color: var(--text-primary);
     line-height: 1.6;
+    flex: 1 1 280px;
+  }
+  /* The INDEX_NOT_FOUND error entry carries the same button, so the fix is
+     never more than one click from the error that names the problem. */
+  .entry-actions {
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: var(--fs-small);
+    color: var(--text-secondary);
   }
   .first-run-btn {
     min-height: 34px;
     padding: 0 18px;
-    margin-top: 4px;
+    flex-shrink: 0;
     border: none;
     border-radius: var(--radius-pill);
     background: var(--accent-amber);
@@ -688,6 +714,7 @@
   }
   .operator-dialog input { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
   .operator-dialog .operator-error { color: var(--accent-red); min-height: 1.2em; }
+  .operator-dialog .operator-lead { color: var(--text-primary); }
   .operator-dialog .operator-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
   .toolbar-btn {
@@ -1035,16 +1062,32 @@
   <div class="header-right">
     <div class="mode-badge" id="modeBadge">offline</div>
     <div class="health-chip" id="healthChip">
-      <div class="status-dot" id="statusDot"></div>
-      <span class="status-text" id="statusText">checking...</span>
-      <details class="health-help" id="ollamaHelp" hidden>
-        <summary>How to start</summary>
-        <div class="health-help-panel">
-          <p>Start the local engine on this machine, then CyClaw can write answers again.</p>
-          <pre>ollama serve</pre>
-          <p>Your documents stay on this computer and stay searchable while the engine is down.</p>
-        </div>
-      </details>
+      <span class="health-item" id="libraryChip">
+        <span class="status-dot" id="libraryDot"></span>
+        <span class="health-name">Library</span>
+        <span class="status-text" id="libraryText">checking...</span>
+        <details class="health-help" id="libraryHelp" hidden>
+          <summary>How to build</summary>
+          <div class="health-help-panel">
+            <p>CyClaw answers from a searchable copy of your documents, built on this machine. Nothing is uploaded.</p>
+            <p>Put your files in the documents folder named in the panel below, then build. The answer engine is separate: search works without it.</p>
+            <button class="first-run-btn build-index-btn" type="button">Build my library</button>
+          </div>
+        </details>
+      </span>
+      <span class="health-item" id="engineChip">
+        <span class="status-dot" id="engineDot"></span>
+        <span class="health-name">Engine</span>
+        <span class="status-text" id="engineText">checking...</span>
+        <details class="health-help" id="ollamaHelp" hidden>
+          <summary>How to start</summary>
+          <div class="health-help-panel">
+            <p>Start the local engine on this machine, then CyClaw can write answers again.</p>
+            <pre>ollama serve</pre>
+            <p>Your documents stay on this computer and stay searchable while the engine is down.</p>
+          </div>
+        </details>
+      </span>
       <details class="health-details" id="healthDetails">
         <summary>Details</summary>
         <div class="health-details-panel">
@@ -1115,6 +1158,7 @@
   <dialog class="operator-dialog" id="operatorDialog" aria-labelledby="operatorDialogTitle">
     <form id="operatorForm" method="dialog">
       <h2 id="operatorDialogTitle">Unlock operator tools</h2>
+      <p class="operator-lead" id="operatorDialogLead" hidden></p>
       <p>Soul, sync, agentic, FS, SQL, memory and audit tools need CYCLAW_API_KEY. Paste it once: this console trades it for a browser cookie and does not keep the key.</p>
       <p id="operatorDialogAdmin" hidden>Login is on: logging in as an admin unlocks these tools without the key.</p>
       <p>Easiest: start CyClaw with its launcher (<code>macos/invoke-cyclaw.sh</code> or <code>powershell\Invoke-CyClaw.ps1</code>), which unlocks this console for you. Or copy the key from your keystore:</p>
@@ -1313,9 +1357,9 @@
     <pre class="proposal-preview" id="auditSummary">Load the Audit panel after login.</pre>
   </div>
 
+  <div class="first-run-slot" id="firstRunSlot" hidden></div>
   <div class="results" id="results">
     <div class="empty-state" id="emptyState">
-      <div class="logo-large">CyClaw</div>
       <div class="hint hint-lede">
         Your documents never leave this machine. Every query is logged locally,
         and you can read the log.

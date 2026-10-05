@@ -131,10 +131,16 @@ default. The old `:8790` coding console is now the separate
 **First-run checks and limits.**
 
 - Without an index, `/query` returns `503 INDEX_NOT_FOUND`. Run
-  `python -m retrieval.indexer`, or use the browser's `POST /index/build`
-  (loopback, same-origin, no forwarding headers; operator access once
-  `CYCLAW_API_KEY` is set) and watch `GET /index/status`.
-- `/health` reporting `degraded` usually means Ollama is down, not a crash.
+  `python -m retrieval.indexer`, or click **Build my library** in the console.
+  The first-run panel sits above the log and stays until `/health` reports
+  `index_ready`, the `INDEX_NOT_FOUND` error entry carries the same button,
+  and once `CYCLAW_API_KEY` is set a locked build opens the unlock dialog and
+  retries itself after the unlock. Underneath that is `POST /index/build`
+  (loopback, same-origin, no forwarding headers) followed by
+  `GET /index/status`.
+- The console header shows two chips: **Library** (the index, with a "How to
+  build" help) and **Engine** (Ollama, with a "How to start" help). `/health`
+  reporting `degraded` usually means Ollama is down, not a crash.
   `TELEMETRY KILL` at startup is expected. `/auth/*` returns 503 while auth is off.
 - The 60/min per-IP rate limit resets on restart unless
   `api.rate_limit.persist_path` or a Postgres DSN is set. `/health` and
@@ -215,8 +221,9 @@ Core modules do not import `agentic`, `sync`, `guardrails`, `telegram`, or
 
 **Storage and console.** `indexing.vector_backend` defaults to embedded
 `chroma` (optional `pgvector`); BM25 is JSON, never pickle.
-`static/terminal.html` provides queries, index progress, Soul, Sync,
-Agentic, Filesystem, and SQL panels, plus Users and Audit when auth is on.
+`static/terminal.html` provides queries, a first-run build panel with index
+progress, Library/Engine health chips, Soul, Sync, Agentic, Filesystem, and
+SQL panels, plus Users and Audit when auth is on.
 
 ### Optional layers at a glance
 
