@@ -173,7 +173,7 @@ def guarded_generate(
         else:
             answer = client.generate(prompt, spend_context=spend_context)
     except RAGError as exc:
-        return f"[{label} Error: {exc.message}]", f"{exc.code}: {exc.message}", degraded if broker.degraded else None
+        return "", f"{exc.code}: {exc.message}", degraded if broker.degraded else None
     if broker.check_assistant(query or prompt, answer, grounding_context=grounding_context):
         return cfg.block_message, None, {
             "stage": "output", "rails": broker.blocked_rails,

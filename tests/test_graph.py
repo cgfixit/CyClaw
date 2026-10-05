@@ -1319,10 +1319,9 @@ class TestNodeErrorRecovery:
             {"query": "q", "retrieved_docs": []}, llm=self._RaisingLLM(), cfg={}
         )
         assert out["answer_model"] == "local"
-        assert out["answer"].startswith("[LLM Error:")
-        assert "LM Studio down" in out["answer"]
-        # The failure must also surface on the error field so audit_logger_node
-        # and QueryResponse.error record it (not just a bracketed answer string).
+        assert out["answer"] == ""
+        # The failure must surface on the error field so audit_logger_node
+        # and QueryResponse.error record it. answer stays empty.
         assert out["error"] == "LLM_SERVICE_ERROR: LM Studio down"
 
     def test_offline_best_effort_node_handles_llm_service_error(self):
@@ -1330,8 +1329,7 @@ class TestNodeErrorRecovery:
             {"query": "q", "retrieved_docs": []}, llm=self._RaisingLLM(), cfg={}
         )
         assert out["answer_model"] == "offline-best-effort"
-        assert out["answer"].startswith("[LLM Error:")
-        assert "LM Studio down" in out["answer"]
+        assert out["answer"] == ""
         assert out["error"] == "LLM_SERVICE_ERROR: LM Studio down"
 
     def test_offline_best_effort_node_refuses_non_loopback_url(self):
@@ -1342,6 +1340,7 @@ class TestNodeErrorRecovery:
         )
         assert not llm.called
         assert out["answer_model"] == "offline-best-effort"
+        assert out["answer"] == ""
         assert out["error"].startswith("ENDPOINT_TRUST")
 
     def test_offline_best_effort_node_accepts_loopback_url(self):
@@ -1359,16 +1358,14 @@ class TestNodeErrorRecovery:
         cfg = {"policy": {"fallback": {"send_local_context_to_grok": False}}}
         out = grok_fallback_node({"query": "q"}, grok=self._RaisingGrok(), cfg=cfg)
         assert out["answer_model"] == "grok"
-        assert out["answer"].startswith("[Grok Error:")
-        assert "xAI 500" in out["answer"]
+        assert out["answer"] == ""
         assert out["error"] == "GROK_SERVICE_ERROR: xAI 500"
 
     def test_claude_fallback_node_handles_claude_service_error(self):
         cfg = {"policy": {"fallback": {"send_local_context_to_claude": False}}}
         out = claude_fallback_node({"query": "q"}, claude=self._RaisingClaude(), cfg=cfg)
         assert out["answer_model"] == "claude"
-        assert out["answer"].startswith("[Claude Error:")
-        assert "Anthropic 500" in out["answer"]
+        assert out["answer"] == ""
         assert out["error"] == "CLAUDE_SERVICE_ERROR: Anthropic 500"
 
     def test_local_llm_node_success_does_not_set_error(self):
@@ -2210,7 +2207,7 @@ class TestGenerateGuardRefusalsInAudit:
         result = graph.invoke({"query": "What is Veeam immutability?"})
 
         # The user sees the outage, not "stopped by a CyClaw safety guardrail".
-        assert result["answer"].startswith("[LLM Error:")
+        assert result["answer"] == ""
         assert result["error"].startswith("LLM_SERVICE_ERROR")
         assert result.get("guardrail_blocked", False) is False
         assert result["audit_event"]["guardrail_rails"] == []
@@ -2341,6 +2338,7 @@ def test_local_nodes_endpoint_trust(node, model, url, hosts, allowed):
     if allowed:
         assert "error" not in out
     else:
+        assert out["answer"] == ""
         assert out["error"].startswith("ENDPOINT_TRUST")
 
 
