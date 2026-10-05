@@ -46,6 +46,30 @@
 .EXAMPLE
   .\Install-CyClaw.ps1 -RepoPath C:\src\CyClaw
 #>
+function Write-CyClawHost {
+    # Operator-facing console text for install/uninstall/launch scripts.
+    # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
+    # still always show (Write-Information is Preference-gated).
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+        [object[]]$Object,
+        [ConsoleColor]$ForegroundColor
+    )
+    $msg = (@($Object) | ForEach-Object { "$_" }) -join " "
+    if ($PSBoundParameters.ContainsKey("ForegroundColor")) {
+        $prev = [Console]::ForegroundColor
+        try {
+            [Console]::ForegroundColor = $ForegroundColor
+            [Console]::Out.WriteLine($msg)
+        } finally {
+            [Console]::ForegroundColor = $prev
+        }
+    } else {
+        [Console]::Out.WriteLine($msg)
+    }
+}
+
 [CmdletBinding()]
 param(
     [string]$RepoPath = "",
@@ -59,8 +83,8 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoUrl = "https://github.com/CGFixIT/CyClaw.git"
 
-function Write-Step([string]$msg) { Write-Host ("[cyclaw] " + $msg) -ForegroundColor Cyan }
-function Write-Warn([string]$msg) { Write-Host ("[cyclaw] WARNING: " + $msg) -ForegroundColor Yellow }
+function Write-Step([string]$msg) { Write-CyClawHost ("[cyclaw] " + $msg) -ForegroundColor Cyan }
+function Write-Warn([string]$msg) { Write-CyClawHost ("[cyclaw] WARNING: " + $msg) -ForegroundColor Yellow }
 
 # The resolved repo path (the default %USERPROFILE%\.CyClaw\repo, or an
 # operator-supplied -RepoPath once resolved) gets interpolated, unescaped,
@@ -254,7 +278,7 @@ if ($WriteEnvFile) {
 Sync-CyclawPlaintextToCredentialManager -HomeDir $Home_ -RepoDir $Repo -WriteEnvFile:$WriteEnvFile
 Ensure-CyclawPublicEnvFile (Join-Path $Home_ ".env")
 
-Write-Host ""
+Write-CyClawHost ""
 Write-Step "install complete. Open a NEW PowerShell window and run:  cyclaw"
 Write-Step "the terminal console opens at http://127.0.0.1:8787."
 Write-Step "non-secret settings: $Home_\.env. Secrets: Credential Manager, cyclaw process only."

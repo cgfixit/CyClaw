@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Fetch one Credential Manager secret and inject it as an environment variable.
 

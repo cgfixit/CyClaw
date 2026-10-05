@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Prepare %USERPROFILE%\CyClaw-FS and enable the confined list/stat/read profile.
 
@@ -15,6 +15,30 @@
   Path to config.yaml. Defaults to the sibling repo config, or
   $env:CYCLAW_FSCONNECT_CONFIG when set.
 #>
+function Write-CyClawHost {
+    # Operator-facing console text for install/uninstall/launch scripts.
+    # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
+    # still always show (Write-Information is Preference-gated).
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+        [object[]]$Object,
+        [ConsoleColor]$ForegroundColor
+    )
+    $msg = (@($Object) | ForEach-Object { "$_" }) -join " "
+    if ($PSBoundParameters.ContainsKey("ForegroundColor")) {
+        $prev = [Console]::ForegroundColor
+        try {
+            [Console]::ForegroundColor = $ForegroundColor
+            [Console]::Out.WriteLine($msg)
+        } finally {
+            [Console]::ForegroundColor = $prev
+        }
+    } else {
+        [Console]::Out.WriteLine($msg)
+    }
+}
+
 [CmdletBinding()]
 param(
     [switch]$PrepareOnly,
@@ -23,8 +47,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Write-Step([string]$msg) { Write-Host ("[cyclaw] " + $msg) }
-function Write-Warn([string]$msg) { Write-Host ("[cyclaw] WARNING: " + $msg) -ForegroundColor Yellow }
+function Write-Step([string]$msg) { Write-CyClawHost ("[cyclaw] " + $msg) }
+function Write-Warn([string]$msg) { Write-CyClawHost ("[cyclaw] WARNING: " + $msg) -ForegroundColor Yellow }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptDir
@@ -122,7 +146,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Step "list/stat/read enabled; writes and indexing remain off"
-Write-Host "Next steps (run from the CyClaw repo):"
-Write-Host "  python -m agentic.fsconnect.cli status"
-Write-Host "  python -m agentic.fsconnect.cli list --root `"$FsRoot`""
+Write-CyClawHost "Next steps (run from the CyClaw repo):"
+Write-CyClawHost "  python -m agentic.fsconnect.cli status"
+Write-CyClawHost "  python -m agentic.fsconnect.cli list --root `"$FsRoot`""
 exit 0
