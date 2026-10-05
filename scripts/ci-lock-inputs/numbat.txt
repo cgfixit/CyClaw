@@ -1,0 +1,3 @@
+cel-python
+pytest
+pyyaml

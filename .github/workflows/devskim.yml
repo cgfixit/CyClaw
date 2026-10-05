@@ -94,12 +94,13 @@ jobs:
           #     "token or key in source" rule matches any hex-digest assignment),
           #     and the data file's "TODO"-style notices are upstream Unicode text
           #     that cannot be edited without breaking the pinned digest.
-          #   scripts/refresh-runtime-lock.sh -- its only matches are grep guards
-          #     that REFUSE a generated lock containing --extra-index-url /
-          #     --index-url; the script selects Torch only through uv's
-          #     --torch-backend, so the "additional package index" rule is
-          #     matching the detection pattern, not an actual extra index.
-          ignore-globs: "**/.git/**,**/bin/**,**/*.md,**/*.json,**/utils/unicode_data/**,**/scripts/refresh-runtime-lock.sh"
+          #   scripts/refresh-runtime-lock.sh, scripts/refresh-ci-locks.sh --
+          #     their only matches are grep guards that REFUSE a generated lock
+          #     containing --extra-index-url / --index-url. The runtime script
+          #     selects Torch only through uv's --torch-backend. The CI script
+          #     rejects a torch== line. The rule is matching the detection
+          #     pattern, not an actual extra index.
+          ignore-globs: "**/.git/**,**/bin/**,**/*.md,**/*.json,**/utils/unicode_data/**,**/scripts/refresh-runtime-lock.sh,**/scripts/refresh-ci-locks.sh"
 
       # Upload SARIF to GitHub Security tab
       - name: Publish findings to Security tab

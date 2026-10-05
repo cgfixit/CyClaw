@@ -51,10 +51,9 @@ jobs:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: |
-            requirements.txt
-            requirements-test.txt
-            constraints.txt
-            pyproject.toml
+            requirements-lock-linux.txt
+            requirements-test-lock-linux.txt
+            requirements-torch-lock-linux.txt
 
       - name: Upgrade pip
         # Exact pin per ci.yml header policy (==26.2.1, not floating >=).
@@ -69,7 +68,9 @@ jobs:
           --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install CyClaw dependencies + test tools
-        run: pip install -r requirements.txt -r requirements-test.txt -c constraints.txt
+        run: |
+          pip install --require-hashes -r requirements-lock-linux.txt
+          pip install --require-hashes -r requirements-test-lock-linux.txt
 
       - name: Prepare runtime directories
         # Stub only when absent: data/personality/soul.md is tracked with real
