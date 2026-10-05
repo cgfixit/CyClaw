@@ -23,12 +23,26 @@ concurrency:
 jobs:
   verify:
     name: verify-codex-skills
+    # ubuntu-latest is 24.04. Stock AppArmor denies bwrap user namespaces, and
+    # verify.sh runs the suite that refuses Linux verification without them
+    # (agentic/executor/hard_sandbox.py). Load the same profile the test job loads.
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install Linux verification filesystem/PID/network sandbox
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          bwrap --version
+          sudo install -m 0644 deploy/apparmor/cyclaw-bwrap /etc/apparmor.d/cyclaw-bwrap
+          sudo apparmor_parser -r /etc/apparmor.d/cyclaw-bwrap
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: Validate Codex skill metadata and shell assets
         shell: bash

@@ -1,0 +1,7 @@
+psycopg[binary]
+pgvector
+pyyaml
+rank-bm25
+nltk
+numpy
+pytest

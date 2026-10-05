@@ -66,6 +66,9 @@ class QueryResponse(BaseModel):
     # query against a disabled provider fell through to offline_best_effort,
     # presenting a local answer as though it had come from the cloud.
     available_providers: list[str] = []
+    # Generation and destination-trust failures leave this set and `answer`
+    # empty. Detect the failure here. A non-empty `answer` can still sit
+    # beside an upstream retrieval error, and that text is a real answer.
     error: str | None = None
 
 class HealthResponse(BaseModel):

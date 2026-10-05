@@ -62,12 +62,9 @@ jobs:
       - name: Install Bandit
         run: |
           # bandit[sarif] is required for -f sarif (core wheel has no SARIF extra).
-          # sarif-om / jschema-to-python are not in constraints.txt; pin them here
-          # so the Security-tab upload does not float.
-          pip install -c constraints.txt \
-            "bandit[sarif]" \
-            "sarif-om==1.0.4" \
-            "jschema-to-python==1.2.3"
+          # sarif-om / jschema-to-python are not in constraints.txt. Their pins
+          # live in scripts/ci-lock-inputs/bandit.txt and the hashed lock.
+          pip install --require-hashes -r requirements-ci-bandit-lock-linux.txt
           python -c "import bandit; assert bandit.__version__ == '1.9.4', bandit.__version__"
 
       - name: Run Bandit (advisory findings)

@@ -104,7 +104,10 @@ jobs:
           python -m pip install --upgrade "pip==26.2.1"
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels \
             -r requirements-torch-lock-linux.txt
-          pip install -e ".[numbat-cel,test]" -c constraints.txt
+          pip install --require-hashes -r requirements-lock-linux.txt
+          pip install --require-hashes -r requirements-test-lock-linux.txt
+          pip install --require-hashes -r requirements-ci-cel-lock-linux.txt
+          pip install -e ".[numbat-cel,test]" --no-deps
           pip check
           python -m guardrails.verify_install
           python -c "from importlib.metadata import version; assert version('cel-python') == '0.5.0'"

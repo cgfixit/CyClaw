@@ -316,7 +316,7 @@ def _generate_or_error(
         except Exception:
             logger.warning("generate_guard failed")
             return (
-                "[Guardrail Error: guard execution failed]",
+                "",
                 "GUARDRAIL_ERROR: guard execution failed",
                 {"stage": "degraded", "rails": []},
             )
@@ -327,7 +327,9 @@ def _generate_or_error(
         # already have billed a 200. Mocks accept **kwargs.
         return client.generate(prompt, spend_context=spend_context), None, None
     except RAGError as e:
-        return f"[{label} Error: {e.message}]", f"{e.code}: {e.message}", None
+        # The failure lives in the error string. answer stays empty so a
+        # client that only reads answer cannot show the outage as content.
+        return "", f"{e.code}: {e.message}", None
 
 
 def _record_guard_block(out: dict[str, Any], block: GuardBlock | None, *, sent_sources: bool = False) -> None:
@@ -616,7 +618,7 @@ Answer based STRICTLY on the retrieved context above. If the context is insuffic
             )
         except EndpointTrustError as exc:
             return {
-                "answer": f"[LLM Error: {exc}]",
+                "answer": "",
                 "answer_model": "local",
                 "answer_sources": [],
                 "error": f"ENDPOINT_TRUST: {exc}",
@@ -711,7 +713,7 @@ def _external_fallback_node(
         )
     except EndpointTrustError as exc:
         return {
-            "answer": f"[{label} Error: {exc}]",
+            "answer": "",
             "answer_model": provider,
             "answer_sources": [],
             "error": f"ENDPOINT_TRUST: {exc}",
@@ -915,7 +917,7 @@ Provide the best general answer you can. Clearly note that your local knowledge 
             )
         except EndpointTrustError as exc:
             return {
-                "answer": f"[LLM Error: {exc}]",
+                "answer": "",
                 "answer_model": "offline-best-effort",
                 "answer_sources": [],
                 "error": f"ENDPOINT_TRUST: {exc}",
