@@ -303,6 +303,9 @@ fi
 # log, so it does not land in the journal, nohup.out, or CI output.
 if [ -n "$PAIR_CODE" ]; then
   if [ "$PRINT_PAIR_URL" -eq 1 ] || { [ -t 1 ] && [ "$NO_BROWSER" -eq 0 ] && [ -z "$BROWSER_OPENER" ]; }; then
+    if [ "$PRINT_PAIR_URL" -eq 1 ] && [ ! -t 1 ]; then
+      echo "[cyclaw] warn : --print-pairing-url with stdout not a terminal; the one-time pairing link is going to a pipe or file. Delete any copy once paired." >&2
+    fi
     echo "[cyclaw] pair : ${CONSOLE_URL%/}/#pair=$PAIR_CODE  (one-time link; open it in a browser that can reach this machine)"
   fi
 fi

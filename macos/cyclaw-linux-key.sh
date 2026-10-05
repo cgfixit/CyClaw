@@ -9,11 +9,14 @@
 #   - Lookup order: libsecret (secret-tool) first, then the key file.
 #   - libsecret attributes: service com.cgfixit.cyclaw.api-key (the same
 #     service name the macOS Keychain item uses) and account $(id -un).
-#   - Key file: ${XDG_CONFIG_HOME:-$HOME/.config}/cyclaw/api-key. Directory
+#   - Key file: $XDG_CONFIG_HOME/cyclaw/api-key, where a relative or empty
+#     XDG_CONFIG_HOME is ignored per the XDG spec and $HOME/.config is used
+#     (a relative path would resolve against the launch folder). Directory
 #     0700, file 0600, written under umask 077 through a temp file and mv.
 #     A file that is a symlink, is owned by someone else, or is readable by
 #     group/other is refused (return 2), never repaired or overwritten.
-#   - A new key is 40 hex chars (20 random bytes), as on macOS.
+#   - A key is exactly 40 lowercase hex chars (20 random bytes), as on macOS.
+#     A stored value of any other shape is refused (return 2), not used.
 #   - The value is never an argv token of any process (it reaches
 #     secret-tool on stdin through the printf builtin), never printed, never
 #     logged, and never written to a dotenv file. xtrace is refused.
@@ -32,7 +35,34 @@ _CYCLAW_LINUX_KEY_SERVICE="com.cgfixit.cyclaw.api-key"
 _CYCLAW_LINUX_KEY_LABEL="CyClaw API key"
 
 cyclaw_linux_key_file() {
-  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/cyclaw/api-key"
+  local base="${XDG_CONFIG_HOME:-}"
+  case "$base" in
+    /*) ;;
+    *) base="$HOME/.config" ;;
+  esac
+  printf '%s\n' "$base/cyclaw/api-key"
+}
+
+# 0 when $1 is exactly 40 lowercase hex chars.
+_cyclaw_linux_valid_key() {
+  case "$1" in
+    *[!0-9a-f]*|"") return 1 ;;
+  esac
+  [ "${#1}" -eq 40 ]
+}
+
+# Octal mode of $1, zero-padded to at least 3 digits (stat prints 0022 as
+# "22", which would otherwise slip past a 3-digit pattern). Empty on error.
+_cyclaw_linux_mode() {
+  local mode=""
+  mode="$(_cyclaw_linux_stat %a %Lp "$1")" || mode=""
+  case "$mode" in
+    *[!0-7]*|"") return 1 ;;
+  esac
+  while [ "${#mode}" -lt 3 ]; do
+    mode="0$mode"
+  done
+  printf '%s\n' "$mode"
 }
 
 _cyclaw_linux_refuse_xtrace() {
@@ -81,7 +111,7 @@ _cyclaw_linux_check_dir() {
     echo "[cyclaw] error: refusing $dir: not owned by $(id -un). Remove it and re-run." >&2
     return 2
   fi
-  mode="$(_cyclaw_linux_stat %a %Lp "$dir")" || mode=""
+  mode="$(_cyclaw_linux_mode "$dir")" || mode=""
   case "$mode" in
     *[0-7][2367][0-7]|*[0-7][0-7][2367]|"")
       echo "[cyclaw] error: refusing $dir: mode ${mode:-unknown} is group/other writable. Run: chmod 700 \"$dir\"" >&2
@@ -104,6 +134,11 @@ cyclaw_linux_load_api_key() {
   if tool="$(_cyclaw_linux_secret_tool)"; then
     value="$(_cyclaw_linux_secret_lookup "$tool")" || value=""
     if [ -n "$value" ]; then
+      if ! _cyclaw_linux_valid_key "$value"; then
+        value=""
+        echo "[cyclaw] error: refusing the libsecret CYCLAW_API_KEY: not 40 hex chars. Clear it with: secret-tool clear service $_CYCLAW_LINUX_KEY_SERVICE account $(id -un)" >&2
+        return 2
+      fi
       export CYCLAW_API_KEY="$value"
       value=""
       return 0
@@ -123,7 +158,7 @@ cyclaw_linux_load_api_key() {
     echo "[cyclaw] error: refusing $file: not owned by $(id -un). Remove it and re-run." >&2
     return 2
   fi
-  mode="$(_cyclaw_linux_stat %a %Lp "$file")" || mode=""
+  mode="$(_cyclaw_linux_mode "$file")" || mode=""
   case "$mode" in
     600|400) ;;
     *)
@@ -134,6 +169,11 @@ cyclaw_linux_load_api_key() {
   IFS= read -r value < "$file" || true
   if [ -z "$value" ]; then
     echo "[cyclaw] error: refusing $file: empty. Remove it and re-run to generate a new key." >&2
+    return 2
+  fi
+  if ! _cyclaw_linux_valid_key "$value"; then
+    value=""
+    echo "[cyclaw] error: refusing $file: not 40 hex chars. Remove it and re-run to generate a new key." >&2
     return 2
   fi
   export CYCLAW_API_KEY="$value"
@@ -196,16 +236,9 @@ cyclaw_linux_ensure_api_key() {
   fi
   echo "[cyclaw] key  : no CYCLAW_API_KEY in libsecret or the key file; generating one"
   value="$(_cyclaw_linux_generate_key)" || value=""
-  case "$value" in
-    *[!0-9a-f]*|"")
-      value=""
-      echo "[cyclaw] error: could not generate CYCLAW_API_KEY (no openssl or /dev/urandom)" >&2
-      return 1
-      ;;
-  esac
-  if [ "${#value}" -ne 40 ]; then
+  if ! _cyclaw_linux_valid_key "$value"; then
     value=""
-    echo "[cyclaw] error: could not generate CYCLAW_API_KEY (short read)" >&2
+    echo "[cyclaw] error: could not generate a 40-hex CYCLAW_API_KEY (no openssl or /dev/urandom, or a short read)" >&2
     return 1
   fi
   if tool="$(_cyclaw_linux_secret_tool)" && _cyclaw_linux_store_secret_tool "$tool" "$value"; then
