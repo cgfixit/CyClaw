@@ -311,7 +311,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     env["CYCLAW_HOME"] = str(home)
     env["CYCLAW_KEYCHAIN_ENV_TEST_MODE"] = "1"
     env["PATH"] = f"{security}{os.pathsep}{env.get('PATH', '')}"
-    env.pop("CYCLAW_API_KEY", None)
+    for name in ("CYCLAW_API_KEY", "CYCLAW_SQL_DSN", "CYCLAW_DB_URL"):
+        env.pop(name, None)
     result = subprocess.run(
         [
             _BASH,
