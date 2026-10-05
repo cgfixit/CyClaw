@@ -150,17 +150,14 @@ def test_configured_path_names_retains_absolute_directory_vars(
     "name",
     ["FAKEROOT", "TEMPPATH", "VAULTDIR", "CERTPATH", "MYFOLDER"],
 )
-def test_configured_path_names_admits_suffix_decoys_under_current_rule(
+def test_configured_path_names_rejects_suffix_decoys_under_allowlist(
     monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
-    # Today's suffix allow-list admits *ROOT/*DIR/*PATH/*HOME/*FOLDER names when
-    # they hold an absolute path and are not secret-classified. Document the
-    # current contract; #1557 item 4 replaces the suffix rule with an explicit
-    # list — NEED @PyForge when that lands (these decoys should then raise even
-    # with absolute values).
+    # Explicit allow-list (CYCLAW_FS_ROOT only) rejects suffix decoys even with
+    # absolute values — closes #1557 item 4 after PyForge cf09a0cd.
     monkeypatch.setenv(name, "/tmp/absolute-decoy")
-    names = configured_path_names({"workdir": f"${{{name}}}"})
-    assert name in names
+    with pytest.raises(ValueError, match="not an allowed directory capability"):
+        configured_path_names({"workdir": f"${{{name}}}"})
 
 
 def test_configured_path_names_rejects_relative_values(monkeypatch: pytest.MonkeyPatch) -> None:
