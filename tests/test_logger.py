@@ -201,6 +201,97 @@ class TestSetupLoggingPathAnchoring:
         assert not (elsewhere / "relative.log").exists()
 
 
+class TestFingerprintKeyAtBoot:
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_missing_key_file_is_not_created(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CYCLAW_FP_BOOT", raising=False)
+        key_file = tmp_path / "absent.key"
+        cfg = {
+            "logging": {
+                "level": "INFO",
+                "log_file": str(tmp_path / "app.log"),
+                "audit_fields": {"include_query_hash": True},
+            },
+            "policy": {
+                "privacy": {
+                    "query_fingerprint_key_env": "CYCLAW_FP_BOOT",
+                    "query_fingerprint_key_file": str(key_file),
+                }
+            },
+        }
+        logger.setup_logging(cfg)
+        assert logger._logging_initialized is True
+        assert not key_file.exists()
+
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_short_env_fails_before_handlers(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CYCLAW_FP_BOOT", "too-short")
+        root = logging.getLogger("cyclaw")
+        before = len(root.handlers)
+        cfg = {
+            "logging": {
+                "level": "INFO",
+                "log_file": str(tmp_path / "app.log"),
+                "audit_fields": {"include_query_hash": True},
+            },
+            "policy": {"privacy": {"query_fingerprint_key_env": "CYCLAW_FP_BOOT"}},
+        }
+        with pytest.raises(ValueError, match="at least 32 UTF-8 bytes"):
+            logger.setup_logging(cfg)
+        assert logger._logging_initialized is False
+        assert len(root.handlers) == before
+
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_existing_bad_file_fails(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CYCLAW_FP_BOOT", raising=False)
+        key_file = tmp_path / "bad.key"
+        key_file.write_bytes(b"abcd\n")
+        cfg = {
+            "logging": {
+                "level": "INFO",
+                "log_file": str(tmp_path / "app.log"),
+                "audit_fields": {"include_query_hash": True},
+            },
+            "policy": {
+                "privacy": {
+                    "query_fingerprint_key_env": "CYCLAW_FP_BOOT",
+                    "query_fingerprint_key_file": str(key_file),
+                }
+            },
+        }
+        with pytest.raises(ValueError, match="query fingerprint key"):
+            logger.setup_logging(cfg)
+        assert key_file.read_bytes() == b"abcd\n"
+
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_hash_off_ignores_a_short_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CYCLAW_FP_BOOT", "too-short")
+        cfg = {
+            "logging": {
+                "level": "INFO",
+                "log_file": str(tmp_path / "app.log"),
+                "audit_fields": {"include_query_hash": False},
+            },
+            "policy": {"privacy": {"query_fingerprint_key_env": "CYCLAW_FP_BOOT"}},
+        }
+        logger.setup_logging(cfg)
+        assert logger._logging_initialized is True
+
+    @pytest.mark.usefixtures("isolated_logging")
+    def test_non_string_name_fails_even_when_hash_is_off(self, tmp_path):
+        cfg = {
+            "logging": {
+                "level": "INFO",
+                "log_file": str(tmp_path / "app.log"),
+                "audit_fields": {"include_query_hash": False},
+            },
+            "policy": {"privacy": {"query_fingerprint_key_env": 12}},
+        }
+        with pytest.raises(ValueError, match="query_fingerprint_key_env"):
+            logger.setup_logging(cfg)
+        assert logger._logging_initialized is False
+
+
 class TestThirdPartyLogCapture:
     """logging.level is DEBUG for CyClaw's own modules; third-party loggers
     reach the same file but are held at a floor.
