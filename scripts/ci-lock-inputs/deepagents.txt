@@ -1,0 +1,9 @@
+pyyaml
+httpx
+langgraph
+langchain-core
+pytest
+rank-bm25
+deepagents
+langchain-openai
+langchain-xai

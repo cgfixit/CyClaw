@@ -488,6 +488,7 @@ def test_uninstaller_bootouts_landed_launchagent_labels() -> None:
     ):
         assert service in text
     assert 'ACCOUNT="$(id -un)"' in text
+    assert "The five built-in Keychain services are still covered. Policy-named services are not." in text
     for label in labels:
         assert label in text
     # Label-domain bootout must run even when the plist file is already gone.

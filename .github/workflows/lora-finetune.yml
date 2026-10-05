@@ -68,15 +68,14 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          # pytest is unpinned on the install line (`-c ../../constraints.txt
-          # pytest`); its version lives in constraints.txt. Key both. Paths
-          # are workspace-root relative, not the job working-directory.
+          # pytest comes from the hashed test lock (pytest==9.1.1). Paths are
+          # workspace-root relative, not the job working-directory.
           cache-dependency-path: |
-            constraints.txt
+            requirements-test-lock-linux.txt
             .github/workflows/lora-finetune.yml
 
       - name: Install pytest
-        run: pip install -c ../../constraints.txt pytest
+        run: pip install --require-hashes -r ../../requirements-test-lock-linux.txt
 
       - name: Run the kit's own test suite (mocked unsloth/trl/datasets, no GPU)
         run: python -m pytest tests/ -q --tb=short

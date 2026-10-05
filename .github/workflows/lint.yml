@@ -80,17 +80,15 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           # flake8/wemake are pinned directly in this workflow's run: steps, so
-          # the workflow file is part of the key. ruff is NOT: it installs as
-          # `pip install -c constraints.txt ruff`, i.e. its version comes from
-          # constraints.txt (ruff==0.16.8). Without that file in the key a ruff
-          # bump there left this cache valid, so the job kept resolving the new
-          # version against a key that never changed.
+          # the workflow file is part of the key. ruff installs from
+          # requirements-ci-ruff-lock-linux.txt (ruff==0.16.8, compiled
+          # against constraints.txt).
           cache-dependency-path: |
-            constraints.txt
+            requirements-ci-ruff-lock-linux.txt
             .github/workflows/lint.yml
 
       - name: Install ruff
-        run: pip install -c constraints.txt ruff
+        run: pip install --require-hashes -r requirements-ci-ruff-lock-linux.txt
 
       - name: Ruff F/B/S gate
         run: ruff check --select F,B,S .

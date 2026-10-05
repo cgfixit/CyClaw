@@ -554,18 +554,21 @@ function describeQueryError(err) {
 }
 
 // A failed generation still answers 200 (the status is a deliberate contract
-// that Telegram and MCP rely on), but graph.py fills `answer` with a bracketed
-// stand-in -- "[LLM Error: ...]", "[Guardrail Error: ...]", "[External call
-// denied by pre-action hook: ...]" -- rather than anything a model wrote. That
-// stand-in must not render as an ANSWER entry. Only a body that also carries
-// `error` qualifies: an upstream retrieval error can ride along with a real
-// offline answer, and that answer still shows (with the WARNING below it).
-// Match the complete graph placeholder, including provider-specific failures.
-// Prose about an error label and citation-wrapped answers remain real answers.
+// that Telegram and MCP rely on). Current servers leave `answer` empty and
+// put the failure in `error`. Older servers filled `answer` with a bracketed
+// stand-in ("[LLM Error: ...]", "[Guardrail Error: ...]", "[External call
+// denied by pre-action hook: ...]"). Neither is something a model wrote, so
+// neither renders as an ANSWER entry. Only a body that also carries `error`
+// qualifies: an upstream retrieval error can ride along with a real offline
+// answer, and that answer still shows (with the WARNING below it). An empty
+// answer with a structured error is the same case as the stand-in. The regex
+// stays for one release of server/client skew. Prose about an error label
+// and citation-wrapped answers remain real answers.
 const STUB_ANSWER_RE = /^\[(?:(?:LLM|Grok|Claude|Guardrail) Error|External call denied by pre-action hook): [\s\S]*\]$/;
 function isStubAnswer(data) {
   if (!data || !data.error) return false;
-  return STUB_ANSWER_RE.test(String(data.answer || '').trim());
+  const answer = String(data.answer || '').trim();
+  return !answer || STUB_ANSWER_RE.test(answer);
 }
 
 function describeAnswerRoute(modelUsed, llmModel) {
@@ -1328,7 +1331,8 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
     }
     meta.push({ k: 'time', v: `${elapsed}ms` });
     // A stand-in answer is not shown at all (nor its sources): the ERROR entry
-    // below replaces it and carries the model/time row instead.
+    // below replaces it and carries the model/time row instead. An empty
+    // answer with a structured error is the same case.
     const answerIsStub = isStubAnswer(data);
     if (!answerIsStub) {
       const answerEl = document.getElementById(addEntry('answer', 'ANSWER', data.answer, meta));
