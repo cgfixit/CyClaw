@@ -279,9 +279,13 @@ def _ops_environment(argv: list[str]) -> dict[str, str]:
     if module == "agentic.fsconnect.cli":
         return child_environment("filesystem", secret_names=configured_path_names(cfg.get("fsconnect")))
     if module == "agentic.sqlconnect.cli":
+        from utils.secret_policy import is_secret_name
+
         name = (cfg.get("sqlconnect") or {}).get("dsn_env", "CYCLAW_SQL_DSN")
         if not isinstance(name, str) or not name:
             raise OpsError("sqlconnect.dsn_env must name an environment variable")
+        if not is_secret_name(name):
+            raise OpsError("sqlconnect.dsn_env must name a secret environment variable")
         return child_environment("sql", secret_names=(name,))
     if module == "agentic.cli":
         action = argv[5] if len(argv) > 5 else ""
