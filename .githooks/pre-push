@@ -25,15 +25,19 @@ requires_fresh_main() {
   esac
 }
 
+remote_name="${1:-origin}"
+
 local_refs=()
 local_shas=()
 remote_refs=()
+remote_shas=()
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   [[ -n "$local_ref" ]] || continue
   local_refs+=("$local_ref")
   local_shas+=("$local_sha")
   remote_refs+=("$remote_ref")
+  remote_shas+=("$remote_sha")
 done
 
 if ! git fetch origin main --prune; then
@@ -81,5 +85,17 @@ for i in "${!local_refs[@]}"; do
     fi
   fi
 done
+
+# Security gate: protected-branch and non-fast-forward pushes, plus a secret
+# and blocked-file scan of every commit this push would publish (catches
+# commits made with --no-verify or from a clone without hooks). See
+# .githooks/_security.sh and security.conf.
+# shellcheck source=SCRIPTDIR/_security.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_security.sh"
+for i in "${!local_refs[@]}"; do
+  sec_pre_push_ref "$remote_name" "${local_refs[$i]}" "${local_shas[$i]}" \
+    "${remote_refs[$i]}" "${remote_shas[$i]}" || fail=1
+done
+sec_pre_push_finish || fail=1
 
 exit "$fail"
