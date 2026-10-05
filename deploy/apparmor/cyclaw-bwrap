@@ -1,0 +1,36 @@
+# CyClaw: let bubblewrap create user namespaces on hosts that enforce
+# kernel.apparmor_restrict_unprivileged_userns=1 (stock Ubuntu 24.04 and
+# newer) WITHOUT turning that restriction off for the whole system.
+# Never use `sysctl kernel.apparmor_restrict_unprivileged_userns=0` instead.
+#
+# Scope: attaches to exactly /usr/bin/bwrap (the apt `bubblewrap` path). No
+# globs, no other binaries, no local include. The only rule is `userns,`.
+#
+# flags=(unconfined): bwrap ITSELF RUNS WITHOUT APPARMOR CONFINEMENT. This
+# profile does not sandbox bwrap; it only lifts the userns block for this one
+# binary. CyClaw's sandbox strength comes from bwrap's own flags
+# (--unshare-all --cap-drop ALL --die-with-parent --new-session) in
+# agentic/executor/hard_sandbox.py, proven by scripts/verify_agentic_sandbox.py.
+#
+# Residual risk: any local user on this host can now use /usr/bin/bwrap to get
+# a user namespace, so bwrap becomes an exemption from the host's userns
+# restriction. Fine for a single-user CyClaw workstation; on shared or
+# multi-user hosts use Ubuntu's stricter `bwrap-userns-restrict` instead.
+#
+# Why not `bwrap-userns-restrict` (apparmor extra-profiles) by default: it is
+# not userns-only (its bwrap profile allows capability, mount, ptrace, dbus,
+# network and rwlkm on /**), it must match the host's AppArmor ABI, and its
+# main gain, stripping capabilities from bwrap's children via unpriv_bwrap,
+# is what CyClaw already gets from --cap-drop ALL. Its gain is against OTHER
+# bwrap callers on the host. Do not load both: both attach to /usr/bin/bwrap.
+# See deploy/apparmor/README.md.
+#
+# Requires AppArmor 4 (abi/4.0, Ubuntu 24.04+). Load:
+#   sudo apparmor_parser -r deploy/apparmor/cyclaw-bwrap
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile cyclaw-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
