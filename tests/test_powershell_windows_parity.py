@@ -183,10 +183,11 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
     assert "Import-CyclawCredentialSecrets" in text
     assert "Test-CyclawSecretName" in store
     assert "CyclawSecretTargets.ContainsKey" in store or "CyclawSecretTargets.ContainsKey($Name)" in store
-    assert "*_API_KEY" in store
-    assert "*_TOKEN" in store
-    assert "*_SECRET" in store
-    assert "*_PASSWORD" in store
+    policy = (_REPO_ROOT / "utils" / "secret-policy.tsv").read_text(encoding="utf-8")
+    assert "utils/secret-policy.tsv" in store
+    assert "foreach ($suffix in $script:CyclawSecretSuffixes)" in store
+    for suffix in ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "DSN", "DB_URL", "PAT", "CREDENTIALS"):
+        assert f"suffix\t{suffix}\t" in policy
     assert "Test-CyclawDotenvOwnerOnly" in store
     assert "WindowsIdentity" in store
     assert "GetCurrent().User" in store
