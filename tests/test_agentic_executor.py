@@ -294,6 +294,8 @@ def test_default_checks_defaults_to_this_repos_own_root():
 
 def test_fifo_in_worktree_does_not_hang_mirror_copy(tmp_path):
     """FIFOs must be skipped during mirror copy so copytree cannot block forever."""
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("os.mkfifo is POSIX-only")
     fifo = tmp_path / "blocker.fifo"
     os.mkfifo(fifo)
     (tmp_path / "ok.txt").write_text("x\n", encoding="utf-8")
