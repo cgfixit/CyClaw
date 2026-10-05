@@ -639,6 +639,15 @@ function renderFirstRun(data) {
   const slot = document.getElementById('firstRunSlot');
   if (!slot) return;
   let panel = document.getElementById('firstRunPanel');
+  // /health is authoritative. If it says the index exists (the CLI, another
+  // tab, or a build this tab lost contact with finished it), a stale local
+  // error must not keep "That didn't work" + Try again on screen beside a
+  // green Library chip, nor invite a needless rebuild of a valid index.
+  if (data && data.index_ready === true && indexBuild.state === 'error') {
+    indexBuild.state = 'idle';
+    indexBuild.error = null;
+    indexBuild.needsUnlock = false;
+  }
   const needed = data && data.index_ready === false;
 
   if (!needed && indexBuild.state !== 'running' && indexBuild.state !== 'error') {
@@ -876,10 +885,17 @@ function describeHealth(data) {
   const down = Object.keys(services).filter(
     (k) => services[k] && services[k].healthy === false
   );
+  // /health reports the one resolved local backend under its provider name
+  // ("ollama" or "lmstudio", llm/client.py resolve_local_backend) or as
+  // "local_llm" when the resolver or the destination allowlist rejected the
+  // configuration before any probe. Any of them down means the Engine is
+  // down; only the Ollama case gets the `ollama serve` help.
+  const LOCAL_ENGINE_KEYS = ['ollama', 'lmstudio', 'local_llm'];
+  const engineKey = LOCAL_ENGINE_KEYS.find((k) => down.includes(k)) || null;
   const ollamaDown = down.includes('ollama');
   const building = indexBuild.state === 'running';
   const libraryMissing = d.index_ready === false;
-  const others = down.filter((k) => k !== 'ollama');
+  const others = down.filter((k) => !LOCAL_ENGINE_KEYS.includes(k));
 
   let library;
   if (building) {
@@ -893,17 +909,34 @@ function describeHealth(data) {
     library = { text: 'ready', tone: 'ok', detail: 'Your documents are searchable.' };
   }
 
-  const engine = ollamaDown
-    ? {
+  let engine;
+  if (ollamaDown) {
+    engine = {
       text: 'offline', tone: 'warn',
       detail: "Local AI engine isn't running. Start Ollama (ollama serve) and CyClaw can write "
             + 'answers again. Your documents are still searchable in the meantime.'
-    }
-    : { text: 'running', tone: 'ok', detail: 'The local AI engine is running.' };
+    };
+  } else if (engineKey === 'lmstudio') {
+    engine = {
+      text: 'offline', tone: 'warn',
+      detail: "Local AI engine isn't answering. Start LM Studio and its local server, then CyClaw "
+            + 'can write answers again. Your documents are still searchable in the meantime.'
+    };
+  } else if (engineKey) {
+    // local_llm: the configuration itself was rejected (destination trust,
+    // resolver), so there is nothing to start; show the server's reason.
+    engine = {
+      text: 'offline', tone: 'warn',
+      detail: 'Local AI engine configuration was rejected: '
+            + ((services[engineKey] && services[engineKey].error) || 'see Details.')
+    };
+  } else {
+    engine = { text: 'running', tone: 'ok', detail: 'The local AI engine is running.' };
+  }
 
   let detail;
   if (building || libraryMissing) detail = library.detail;
-  else if (ollamaDown) detail = engine.detail;
+  else if (engineKey) detail = engine.detail;
   else if (others.length) {
     detail = `${others[0]} unavailable: `
       + ((services[others[0]] && services[others[0]].error) || 'this service is not responding.');
@@ -1013,13 +1046,21 @@ async function checkHealth() {
 const MODE_COPY = {
   hybrid: {
     label: 'Cloud fallback · ask first',
-    help: 'Answers come from your documents and the local engine. If nothing in your library '
-        + 'matches, CyClaw asks you before sending that one question to a cloud model (Grok or '
-        + 'Claude). Nothing goes online without your yes, and the choice is never remembered.'
+    // Scoped to questions on purpose: with api.health_probe_external_providers
+    // on (ships false) the gateway's own /health probe reaches the enabled
+    // cloud endpoints, so "nothing goes online" would be false there.
+    help: 'Answers come from your documents and your configured local engine. If nothing in your '
+        + 'library matches, CyClaw asks you before sending that one question to a cloud model '
+        + '(Grok or Claude). No question goes to a cloud model without your yes, and the choice is '
+        + 'never remembered.'
   },
   offline: {
     label: 'Offline only',
-    help: 'Everything stays on this machine. No cloud model is ever contacted.'
+    // "Your configured local engine", not "this machine": models.local_llm can
+    // point at a container or LAN host listed in trusted_hosts (AGENTS.md), and
+    // that host does receive local context and soul text.
+    help: 'Cloud fallback is off. Answers come only from your documents and the local engine you '
+        + 'configured; no cloud model is ever contacted.'
   }
 };
 

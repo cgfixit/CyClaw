@@ -1442,7 +1442,10 @@
 </main>
 
 <!-- INPUT -->
-<div class="input-bar">
+<!-- A named <section> is a region landmark: the composer is the console's
+     primary action and must be reachable by landmark navigation, not left in
+     a bare div between <main> and <footer>. -->
+<section class="input-bar" aria-label="Ask a question">
   <div class="input-wrapper">
     <span class="input-prefix" aria-hidden="true">›</span>
     <label for="queryInput" class="sr-only">Ask a question about your documents</label>
@@ -1451,7 +1454,7 @@
       rows="1"></textarea>
   </div>
   <button class="send-btn" id="sendBtn">Send</button>
-</div>
+</section>
 
 <!-- FOOTER -->
 <footer class="footer-bar">
