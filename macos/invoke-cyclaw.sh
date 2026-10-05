@@ -13,12 +13,18 @@
 # Options:
 #   --gate-port PORT  RAG gateway / terminal.html port (default 8787)
 #   --no-browser      do not open a browser; just serve
+#   --print-pairing-url
+#                     print the one-time console pairing URL to stdout (for a
+#                     headless or SSH session; works with --no-browser). Without
+#                     it the URL is printed only when stdout is a terminal and
+#                     there is no desktop to open a browser on.
 #   --repo PATH       explicit path to the CyClaw checkout (overrides $CYCLAW_REPO)
 
 set -euo pipefail
 
 GATE_PORT="${CYCLAW_GATE_PORT:-8787}"
 NO_BROWSER=0
+PRINT_PAIR_URL=0
 REPO_OVERRIDE=""
 
 # Validate a port before it is exported as CYCLAW_GATE_PORT and printed.
@@ -45,6 +51,10 @@ while [ $# -gt 0 ]; do
       ;;
     --no-browser)
       NO_BROWSER=1
+      shift
+      ;;
+    --print-pairing-url)
+      PRINT_PAIR_URL=1
       shift
       ;;
     --repo)
@@ -157,7 +167,34 @@ if [ -z "${CYCLAW_API_KEY:-}" ] && [ "$(uname -s)" = "Darwin" ] && [ -f "$REPO_D
   fi
 fi
 
-if [ -z "${CYCLAW_API_KEY:-}" ]; then
+# First run on Linux: no Keychain, so the key lives in libsecret (secret-tool)
+# or, without a usable keyring, in a 0600 file under $XDG_CONFIG_HOME/cyclaw.
+# macos/cyclaw-linux-key.sh owns that contract. A key file it refuses (wrong
+# owner or mode, symlink) stops the launcher rather than being overwritten.
+if [ -z "${CYCLAW_API_KEY:-}" ] && [ "$(uname -s)" = "Linux" ]; then
+  _CYCLAW_LINUX_KEY_HELPER=""
+  for _cand in "$_INVOKE_DIR/cyclaw-linux-key.sh" "$REPO_DIR/macos/cyclaw-linux-key.sh"; do
+    if [ -f "$_cand" ]; then
+      _CYCLAW_LINUX_KEY_HELPER="$_cand"
+      break
+    fi
+  done
+  if [ -n "$_CYCLAW_LINUX_KEY_HELPER" ]; then
+    # shellcheck disable=SC1090
+    . "$_CYCLAW_LINUX_KEY_HELPER"
+    _linux_key_rc=0
+    cyclaw_linux_ensure_api_key || _linux_key_rc=$?
+    if [ "$_linux_key_rc" -eq 2 ]; then
+      exit 1
+    fi
+  else
+    echo "[cyclaw] warn : cyclaw-linux-key.sh not found beside the launcher or in $REPO_DIR/macos; no API key was generated" >&2
+  fi
+fi
+
+if [ -z "${CYCLAW_API_KEY:-}" ] && [ "$(uname -s)" = "Linux" ]; then
+  echo "[cyclaw] warn : CYCLAW_API_KEY is not set and could not be stored in libsecret or $(printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}")/cyclaw/api-key. Soul / ops state-changing routes will 401." >&2
+elif [ -z "${CYCLAW_API_KEY:-}" ]; then
   echo "[cyclaw] warn : CYCLAW_API_KEY is not in the Keychain (service com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. Re-run macos/setup-cyclaw-keys.sh; this launcher does not read that secret from .env." >&2
 fi
 
@@ -203,7 +240,7 @@ fi
 # reaching the page (utils/console_session.py). gate.py takes the code out of
 # its own environment at import; it is unset here once the gateway has it.
 PAIR_CODE=""
-if [ "$NO_BROWSER" -eq 0 ] && [ -n "${CYCLAW_API_KEY:-}" ]; then
+if { [ "$NO_BROWSER" -eq 0 ] || [ "$PRINT_PAIR_URL" -eq 1 ]; } && [ -n "${CYCLAW_API_KEY:-}" ]; then
   PAIR_CODE="$("$VENV_PY" -S -E -c 'import secrets; print(secrets.token_urlsafe(24))' 2>/dev/null || true)"
 fi
 if [ -n "$PAIR_CODE" ]; then
@@ -250,16 +287,36 @@ if [ "$GATE_READY" -eq 0 ]; then
 fi
 
 # --- open browser (best-effort) ---
-if [ "$NO_BROWSER" -eq 0 ]; then
+# `open` only on macOS: on Debian/Ubuntu `open` is openvt(1). xdg-open only
+# with a desktop session; without DISPLAY/WAYLAND_DISPLAY it has nothing to
+# open and the one-time link used to be lost on headless installs.
+BROWSER_OPENER=""
+if [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
+  BROWSER_OPENER="open"
+elif command -v xdg-open >/dev/null 2>&1 && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
+  BROWSER_OPENER="xdg-open"
+fi
+
+# The pairing URL carries a one-time secret (single use, short TTL; see
+# utils/console_session.py). Print it only on explicit request or to an
+# interactive terminal with no browser to hand it to -- never to stderr or a
+# log, so it does not land in the journal, nohup.out, or CI output.
+if [ -n "$PAIR_CODE" ]; then
+  if [ "$PRINT_PAIR_URL" -eq 1 ] || { [ -t 1 ] && [ "$NO_BROWSER" -eq 0 ] && [ -z "$BROWSER_OPENER" ]; }; then
+    echo "[cyclaw] pair : ${CONSOLE_URL%/}/#pair=$PAIR_CODE  (one-time link; open it in a browser that can reach this machine)"
+  fi
+fi
+
+if [ "$NO_BROWSER" -eq 0 ] && [ -n "$BROWSER_OPENER" ]; then
   (
     sleep 1.5
     OPEN_URL="$CONSOLE_URL"
     if [ -n "$PAIR_CODE" ]; then
       OPEN_URL="${CONSOLE_URL%/}/#pair=$PAIR_CODE"
     fi
-    if command -v open >/dev/null 2>&1; then
+    if [ "$BROWSER_OPENER" = "open" ]; then
       open "$OPEN_URL"
-    elif command -v xdg-open >/dev/null 2>&1; then
+    else
       xdg-open "$OPEN_URL" >/dev/null 2>&1
     fi
   ) &
