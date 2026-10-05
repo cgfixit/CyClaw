@@ -406,3 +406,33 @@ def test_console_keeps_citation_wrapped_real_answer_when_error_rides_along(tmp_p
         f"citation-wrapped real answer was hidden because an error rode along; entries={entries}"
     )
     assert _entries_of_type(entries, "error"), f"the upstream error was not shown; entries={entries}"
+
+
+@pytest.mark.skipif(_NODE is None, reason="node is not on PATH")
+@pytest.mark.parametrize("label", ["LLM Error", "Grok Error", "Claude Error", "Guardrail Error",
+                                   "External call denied by pre-action hook"])
+def test_console_suppresses_complete_graph_placeholder(tmp_path: Path, label: str) -> None:
+    body = {**_CANNED_ERROR_BODY, "answer": f"[{label}: failure [detail]\ncontinued]"}
+    entries = _render_in_console(tmp_path, 200, body)
+    assert not _entries_of_type(entries, "answer"), entries
+    assert len(_entries_of_type(entries, "error")) == 1, entries
+
+
+@pytest.mark.skipif(_NODE is None, reason="node is not on PATH")
+@pytest.mark.parametrize("answer", [
+    "[LLM Error] is the label used for a failed local call.",
+    "[Guardrail Error: failed] is an example, not this answer's status.",
+    "[External call denied] describes a policy decision.",
+    "[LLM Error: incomplete quotation",
+])
+def test_console_keeps_prose_about_error_labels(tmp_path: Path, answer: str) -> None:
+    entries = _render_in_console(tmp_path, 200, {**_CANNED_ERROR_BODY, "answer": answer})
+    assert len(_entries_of_type(entries, "answer")) == 1, entries
+    assert len(_entries_of_type(entries, "error")) == 1, entries
+
+
+@pytest.mark.skipif(_NODE is None, reason="node is not on PATH")
+def test_console_keeps_placeholder_shaped_answer_without_error(tmp_path: Path) -> None:
+    entries = _render_in_console(tmp_path, 200, {**_CANNED_ERROR_BODY, "error": None})
+    assert len(_entries_of_type(entries, "answer")) == 1, entries
+    assert not _entries_of_type(entries, "error"), entries

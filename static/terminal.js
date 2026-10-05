@@ -534,9 +534,9 @@ function describeQueryError(err) {
 // stand-in must not render as an ANSWER entry. Only a body that also carries
 // `error` qualifies: an upstream retrieval error can ride along with a real
 // offline answer, and that answer still shows (with the WARNING below it).
-// Anchored on the three known prefixes, not "starts with [ and ends with ]":
-// a real answer can open and close with citations like "[1] ... [2]".
-const STUB_ANSWER_RE = /^\[(LLM Error|Guardrail Error|External call denied)\b/;
+// Match the complete graph placeholder, including provider-specific failures.
+// Prose about an error label and citation-wrapped answers remain real answers.
+const STUB_ANSWER_RE = /^\[(?:(?:LLM|Grok|Claude|Guardrail) Error|External call denied by pre-action hook): [\s\S]*\]$/;
 function isStubAnswer(data) {
   if (!data || !data.error) return false;
   return STUB_ANSWER_RE.test(String(data.answer || '').trim());
