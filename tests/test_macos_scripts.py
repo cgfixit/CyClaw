@@ -198,6 +198,9 @@ def test_invoke_cyclaw_propagates_a_post_start_child_failure(tmp_path: Path) -> 
 
     env = os.environ.copy()
     env["CYCLAW_HOME"] = str(home)
+    # Keep the Linux first-run key out of the real ~/.config and keyring.
+    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env["CYCLAW_SECRET_TOOL"] = "none"
     result = subprocess.run(
         [
             _BASH,
@@ -310,6 +313,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     env = os.environ.copy()
     env["CYCLAW_HOME"] = str(home)
     env["CYCLAW_KEYCHAIN_ENV_TEST_MODE"] = "1"
+    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env["CYCLAW_SECRET_TOOL"] = "none"
     env["PATH"] = f"{security}{os.pathsep}{env.get('PATH', '')}"
     for name in ("CYCLAW_API_KEY", "CYCLAW_SQL_DSN", "CYCLAW_DB_URL"):
         env.pop(name, None)
@@ -764,7 +769,9 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
         f'status="{status_file.as_posix()}"\n'
         'if [ "${CYCLAW_LAUNCH_MARKER:-}" = "from-repo" ]; then printf "repo\\n" > "$status";'
         ' else printf "other\\n" > "$status"; fi\n'
-        'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "secret\\n" >> "$status"; else printf "nosecret\\n" >> "$status"; fi\n'
+        # Only a dotenv-sourced value counts as a leak: on Linux the launcher
+        # now generates its own key (macos/cyclaw-linux-key.sh) when none is set.
+        'case "${CYCLAW_API_KEY:-}" in from-*) printf "secret\\n" >> "$status" ;; *) printf "nosecret\\n" >> "$status" ;; esac\n'
         "sleep 4\n"
         "exit 0\n",
         encoding="utf-8",
@@ -786,6 +793,9 @@ def test_invoke_cyclaw_falls_back_to_repo_dotenv_when_home_dotenv_is_refused(tmp
     env = os.environ.copy()
     env["CYCLAW_HOME"] = str(home)
     env.pop("CYCLAW_API_KEY", None)
+    # Keep the Linux first-run key out of the real ~/.config and keyring.
+    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env["CYCLAW_SECRET_TOOL"] = "none"
     result = subprocess.run(
         [
             _BASH,

@@ -6,7 +6,7 @@
 # The home directory (sessions, venv, repo clone, .env) is KEPT by default
 # so no data is lost; pass --remove-home to delete it (prompts first).
 # Keychain items are KEPT by default; pass --remove-keychain to delete only
-# the documented CyClaw services (Darwin / test-mode; prompts y/N).
+# the documented CyClaw services (macOS), or Linux libsecret/key file (y/N).
 #
 # Usage:
 #   bash macos/uninstall-cyclaw.sh                # keep ~/.CyClaw data + Keychain
@@ -411,6 +411,37 @@ for RC_FILE in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.
   remove_managed_blocks "$EDIT_PATH" "$RC_FILE"
 done
 
+# Linux credentials live outside ~/.CyClaw. Purge before --remove-home can
+# delete this helper, and preserve the explicit y/N consent boundary.
+if [ "$REMOVE_KEYCHAIN" -eq 1 ] && [ "$(uname -s)" = "Linux" ] && [ "${CYCLAW_UNINSTALL_TEST_MODE:-}" != "1" ]; then
+  linux_key_helper="$SCRIPT_DIR/cyclaw-linux-key.sh"
+  if [ ! -r "$linux_key_helper" ]; then
+    linux_key_helper="$HOME_DIR/repo/macos/cyclaw-linux-key.sh"
+  fi
+  if [ ! -r "$linux_key_helper" ]; then
+    echo "[cyclaw] error: Linux credential helper missing; credentials were not removed" >&2
+    exit 1
+  fi
+  # shellcheck source=macos/cyclaw-linux-key.sh
+  source "$linux_key_helper"
+  echo "[cyclaw] --remove-keychain targets libsecret service $KC_API (account=$ACCOUNT) and $(cyclaw_linux_key_file)"
+  if confirm_destructive "Delete these CyClaw Linux credentials?"; then
+    cyclaw_linux_remove_api_key || exit $?
+  else
+    echo "[cyclaw] kept Linux credentials"
+  fi
+elif [ "$REMOVE_KEYCHAIN" -eq 1 ]; then
+  keychain_services="$(cyclaw_keychain_services)"
+  keychain_count="$(printf '%s\n' "$keychain_services" | grep -c .)"
+  echo "[cyclaw] --remove-keychain targets these $keychain_count Keychain services (account=$ACCOUNT):"
+  printf '%s\n' "$keychain_services" | sed 's/^/[cyclaw]   /'
+  if confirm_destructive "Delete these $keychain_count CyClaw Keychain items for $ACCOUNT?"; then
+    purge_cyclaw_keychain
+  else
+    echo "[cyclaw] kept Keychain items"
+  fi
+fi
+
 if [ "$REMOVE_HOME" -eq 1 ] && [ -d "$HOME_DIR" ]; then
   if confirm_destructive "Delete $HOME_DIR including all sessions and the venv?"; then
     rm -rf "$HOME_DIR"
@@ -421,23 +452,12 @@ if [ "$REMOVE_HOME" -eq 1 ] && [ -d "$HOME_DIR" ]; then
 fi
 
 if [ "$REMOVE_HOME" -eq 1 ] && [ "$REMOVE_KEYCHAIN" -eq 0 ]; then
-  echo "[cyclaw] NOTE: Keychain items were not removed. A later reinstall can revive"
+  echo "[cyclaw] NOTE: Keychain items were not removed. Linux libsecret/key files are also kept."
+  echo "[cyclaw]       A later reinstall can revive"
   echo "[cyclaw]       old CYCLAW_API_KEY / provider tokens from services named"
   echo "[cyclaw]       com.cgfixit.cyclaw.* (account=$ACCOUNT). Re-run with --remove-keychain"
   echo "[cyclaw]       to delete every documented item (the services listed in secret-policy.tsv),"
   echo "[cyclaw]       or leave them if you still want them."
-fi
-
-if [ "$REMOVE_KEYCHAIN" -eq 1 ]; then
-  keychain_services="$(cyclaw_keychain_services)"
-  keychain_count="$(printf '%s\n' "$keychain_services" | grep -c .)"
-  echo "[cyclaw] --remove-keychain targets these $keychain_count Keychain services (account=$ACCOUNT):"
-  printf '%s\n' "$keychain_services" | sed 's/^/[cyclaw]   /'
-  if confirm_destructive "Delete these $keychain_count CyClaw Keychain items for $ACCOUNT?"; then
-    purge_cyclaw_keychain
-  else
-    echo "[cyclaw] kept Keychain items"
-  fi
 fi
 
 if [ "$REMOVE_FSCONNECT" -eq 1 ] && { [ -e "$FSCONNECT_DIR" ] || [ -L "$FSCONNECT_DIR" ]; }; then
