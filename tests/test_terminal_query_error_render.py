@@ -391,3 +391,18 @@ def test_console_renders_gateway_llm_error_body_end_to_end(tmp_path: Path) -> No
     assert status == 200 and body.get("error"), body
     entries = _render_in_console(tmp_path, status, body)
     _assert_error_shown_not_answer(entries, _LLM_FAILURE)
+
+
+@pytest.mark.skipif(_NODE is None, reason="node is not on PATH; console half needs it")
+def test_console_keeps_citation_wrapped_real_answer_when_error_rides_along(tmp_path: Path) -> None:
+    # A real answer that happens to open and close with citations ("[1] ... [2]")
+    # is not a stand-in placeholder: with an upstream error riding along it must
+    # still render as an ANSWER (plus the error entry), not be hidden.
+    real_answer = "[1] Veeam hardened repositories set chattr +i on backup files [2]"
+    body = {**_CANNED_OK_BODY, "answer": real_answer, "error": "RETRIEVAL_DEGRADED: vector store unavailable"}
+    entries = _render_in_console(tmp_path, 200, body)
+    answers = _entries_of_type(entries, "answer")
+    assert len(answers) == 1 and "chattr +i" in answers[0]["text"], (
+        f"citation-wrapped real answer was hidden because an error rode along; entries={entries}"
+    )
+    assert _entries_of_type(entries, "error"), f"the upstream error was not shown; entries={entries}"
