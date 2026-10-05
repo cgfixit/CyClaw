@@ -31,7 +31,13 @@ from llm.client import (
     resolve_local_backend,
     set_graph_deadline,
 )
-from utils.errors import ClaudeServiceError, ConfigError, GrokServiceError, LLMServiceError
+from utils.errors import (
+    ClaudeServiceError,
+    ConfigError,
+    GrokServiceError,
+    LLMServiceError,
+    LLMUnavailableError,
+)
 from utils.logger import hash_query
 
 _URL = "http://127.0.0.1:1234/v1/chat/completions"  # DevSkim: ignore DS162092,DS137138 - loopback test URL
@@ -383,6 +389,50 @@ class TestLocalLLMClient:
         assert exc.value.details.get("status") == 503
         client.close()
 
+    def test_generate_connect_error_is_llm_unavailable(self, tmp_path):
+        client = LocalLLMClient(_write_config(tmp_path))
+        client.base_url = "http://127.0.0.1:11434/v1"
+        client._client.post = _FakePost(raises=httpx.ConnectError("refused"))
+        with pytest.raises(LLMUnavailableError) as exc:
+            client.generate("a prompt")
+        assert exc.value.code == "LLM_UNAVAILABLE"
+        assert exc.value.message == "local model not reachable at 127.0.0.1:11434"
+        assert "refused" not in exc.value.message
+        client.close()
+
+    def test_generate_connect_error_omits_userinfo(self, tmp_path):
+        client = LocalLLMClient(
+            _write_config(
+                tmp_path,
+                local_llm_extra={"base_url": "http://user:s3cret@127.0.0.1:1234/v1"},
+            )
+        )
+        client._client.post = _FakePost(raises=httpx.ConnectError("refused"))
+        with pytest.raises(LLMUnavailableError) as exc:
+            client.generate("a prompt")
+        assert exc.value.message == "local model not reachable at 127.0.0.1:1234"
+        assert "s3cret" not in exc.value.message
+        client.close()
+
+    def test_generate_read_error_stays_llm_service_error(self, tmp_path):
+        client = LocalLLMClient(_write_config(tmp_path))
+        client._client.post = _FakePost(raises=httpx.ReadError("reset"))
+        with pytest.raises(LLMServiceError) as exc:
+            client.generate("a prompt")
+        assert type(exc.value) is LLMServiceError
+        assert exc.value.code == "LLM_SERVICE_ERROR"
+        assert "ReadError" in exc.value.message
+        client.close()
+
+    def test_generate_connect_timeout_stays_llm_service_error(self, tmp_path):
+        client = LocalLLMClient(_write_config(tmp_path))
+        client._client.post = _FakePost(raises=httpx.ConnectTimeout("handshake"))
+        with pytest.raises(LLMServiceError) as exc:
+            client.generate("a prompt")
+        assert exc.value.code == "LLM_SERVICE_ERROR"
+        assert not isinstance(exc.value, LLMUnavailableError)
+        client.close()
+
     def test_generate_timeout_maps_to_llm_service_error(self, tmp_path):
         client = LocalLLMClient(_write_config(tmp_path))
         client._client.post = _FakePost(raises=httpx.TimeoutException("timed out"))
@@ -495,6 +545,16 @@ class TestGrokClient:
         with pytest.raises(GrokServiceError) as exc:
             client.generate("a prompt")
         assert exc.value.details.get("required_env") == "GROK_API_KEY"
+        client.close()
+
+    def test_connect_error_stays_grok_service_error(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GROK_API_KEY", "dummy")
+        client = GrokClient(_write_config(tmp_path))
+        client._client.post = _FakePost(raises=httpx.ConnectError("refused"))
+        with pytest.raises(GrokServiceError) as exc:
+            client.generate("a prompt")
+        assert exc.value.code == "GROK_SERVICE_ERROR"
+        assert not isinstance(exc.value, LLMUnavailableError)
         client.close()
 
     def test_non_json_200_still_records_usage_missing_spend(

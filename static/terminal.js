@@ -500,10 +500,10 @@ function extractErrorMessage(err, fallback = 'Unknown error') {
 
 // ── /query ERROR COPY ──
 // Plain-language sentences for the codes that can actually reach a /query
-// user: the ~10 raised as HTTPException (gate.py) plus the 4 that arrive as a
+// user: the ~10 raised as HTTPException (gate.py) plus the 5 that arrive as a
 // 200 with an `error` field carrying graph.py's "{code}: {message}" stamp
-// (utils/errors.py's LLMServiceError / GrokServiceError / ClaudeServiceError /
-// EmbeddingServiceError). utils/errors.py declares dozens of other classes --
+// (utils/errors.py's LLMServiceError / LLMUnavailableError / GrokServiceError /
+// ClaudeServiceError / EmbeddingServiceError). utils/errors.py declares dozens of other classes --
 // soul, ops, agentic, fsconnect, sqlconnect, auth-admin -- none of which this
 // console's /query path can ever surface, so they have no entry here. An
 // unmapped code (or none at all) falls back to the raw server message rather
@@ -521,6 +521,7 @@ const ERROR_COPY = {
   AUTH_REQUIRED: 'Sign in to ask a question.',
   EMBEDDING_ERROR: "Couldn't search your documents right now.",
   LLM_SERVICE_ERROR: 'The local model had a problem answering.',
+  LLM_UNAVAILABLE: 'The local model is not running, or this machine cannot reach it.',
   GROK_SERVICE_ERROR: 'Grok had a problem answering.',
   CLAUDE_SERVICE_ERROR: 'Claude had a problem answering.'
 };

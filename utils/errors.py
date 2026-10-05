@@ -27,6 +27,14 @@ class LLMServiceError(RAGError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, code="LLM_SERVICE_ERROR", details=details)
 
+
+class LLMUnavailableError(LLMServiceError):
+    """Local ConnectError only. Timeouts, read errors, and HTTP stay LLM_SERVICE_ERROR."""
+
+    def __init__(self, message: str, details: dict | None = None):
+        super().__init__(message, details=details)
+        self.code = "LLM_UNAVAILABLE"
+
 class GrokServiceError(RAGError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, code="GROK_SERVICE_ERROR", details=details)
