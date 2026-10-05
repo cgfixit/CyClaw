@@ -92,15 +92,17 @@ jobs:
           persist-credentials: false
 
       - name: Setup Python 3.12
+        # No `cache: pip`. setup-python's pip cache saves in its Post step
+        # (run 37263232058 tried to, and only the repo cache budget stopped
+        # it), and it restores across workflows by the shared
+        # setup-python-<os>-<arch>-python-<ver>-pip- prefix. A manual run
+        # must not write a cache entry that ci.yml or pip-audit can then
+        # restore, same rule as the restore-only embeddings cache below.
+        # The cost is one uncached first install per leg; the reinstall
+        # still reuses pip's local cache.
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: |
-            requirements-lock-macos.txt
-            requirements-lock-windows.txt
-            requirements-torch-lock-macos.txt
-            requirements-torch-lock-windows.txt
 
       - name: Prepare hermetic test env
         shell: bash
