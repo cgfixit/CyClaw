@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -186,7 +187,9 @@ def test_libsecret_failure_falls_back_to_0600_file(tmp_path: Path) -> None:
 
 # --- helper: refusing an unsafe key file -----------------------------------
 
-_PLANTED = "0123456789abcdef0123456789abcdef01234567"
+# A fresh valid-shaped key per run: the leak checks need a distinctive value,
+# and nothing secret-looking is committed for scanners to flag.
+_PLANTED = secrets.token_hex(20)
 
 
 def _plant(tmp_path: Path, *, file_mode: int = 0o600, dir_mode: int = 0o700) -> Path:
@@ -233,6 +236,53 @@ def test_load_refuses_key_in_shared_writable_folder(tmp_path: Path, dir_mode: in
         _key_file(tmp_path).parent.chmod(0o700)
     assert result.returncode == 2
     assert "KEY_EXPORTED" not in result.stdout
+
+
+def _foreign_owner_stat(tmp_path: Path, target: str) -> dict[str, str]:
+    """PATH with a ``stat`` that reports uid 4242 as the owner of ``target``.
+
+    Without root, a test can't chown a file to another user. The helper reads
+    ownership through ``stat -c %u``, so this stub fakes a foreign owner for
+    exactly one path suffix and passes every other call to the real stat.
+    """
+    real = shutil.which("stat")
+    assert real, "stat is required"
+    stub = tmp_path / "stub-bin" / "stat"
+    stub.parent.mkdir(exist_ok=True)
+    stub.write_text(
+        "#!/bin/sh\n"
+        "for last; do :; done\n"
+        f'if [ "$1" = "-c" ] && [ "$2" = "%u" ] && [ "${{last%{target}}}" != "$last" ]; then\n'
+        "  echo 4242; exit 0\n"
+        "fi\n"
+        f'exec "{real}" "$@"\n',
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+    return {"PATH": f"{stub.parent}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+
+@pytest.mark.parametrize("target", ["/cyclaw", "/api-key"], ids=["folder", "file"])
+def test_load_refuses_foreign_owned_folder_or_file(tmp_path: Path, target: str) -> None:
+    _plant(tmp_path)
+    result = _source(
+        'cyclaw_linux_load_api_key; rc=$?\n[ -n "${CYCLAW_API_KEY:-}" ] && echo KEY_EXPORTED\nexit $rc',
+        _env(tmp_path, **_NO_KEYRING, **_foreign_owner_stat(tmp_path, target)),
+    )
+    assert result.returncode == 2, result.stderr
+    assert "KEY_EXPORTED" not in result.stdout
+    assert _PLANTED not in result.stdout + result.stderr
+
+
+def test_foreign_owner_stub_is_not_vacuous(tmp_path: Path) -> None:
+    """Control: the same stub aimed at no real path leaves a good key loadable."""
+    _plant(tmp_path)
+    result = _source(
+        'cyclaw_linux_load_api_key; rc=$?\n[ -n "${CYCLAW_API_KEY:-}" ] && echo KEY_EXPORTED\nexit $rc',
+        _env(tmp_path, **_NO_KEYRING, **_foreign_owner_stat(tmp_path, "/no-such-suffix")),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "KEY_EXPORTED" in result.stdout
 
 
 def test_load_refuses_symlinked_key_file(tmp_path: Path) -> None:
