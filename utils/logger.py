@@ -860,6 +860,14 @@ def _read_key_file(path: Path) -> bytes:
     flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
+    # A FIFO open for read blocks until a writer connects. Reject that mode
+    # before open, and keep the open nonblocking so a swap after lstat cannot
+    # hang logging setup.
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+    listed = path.lstat()
+    if not stat.S_ISREG(listed.st_mode):
+        raise ValueError("query fingerprint key path must be a regular file")
     fd = os.open(path, flags)
     try:
         info = os.fstat(fd)
@@ -954,9 +962,11 @@ def _check_query_fingerprint_at_boot(cfg: dict) -> None:
         query_fingerprint("boot", cfg)
         return
     try:
-        _anchor(key_file).lstat()
+        info = _anchor(key_file).lstat()
     except FileNotFoundError:
         return
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError("query fingerprint key path must be a regular file")
     query_fingerprint("boot", cfg)
 
 

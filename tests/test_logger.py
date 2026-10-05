@@ -264,6 +264,31 @@ class TestFingerprintKeyAtBoot:
         assert key_file.read_bytes() == b"abcd\n"
 
     @pytest.mark.usefixtures("isolated_logging")
+    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX fifo")
+    def test_fifo_key_fails_closed(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CYCLAW_FP_BOOT", raising=False)
+        key_file = tmp_path / "key.fifo"
+        os.mkfifo(key_file)
+        cfg = {
+            "logging": {
+                "level": "INFO",
+                "log_file": str(tmp_path / "app.log"),
+                "audit_fields": {"include_query_hash": True},
+            },
+            "policy": {
+                "privacy": {
+                    "query_fingerprint_key_env": "CYCLAW_FP_BOOT",
+                    "query_fingerprint_key_file": str(key_file),
+                }
+            },
+        }
+        started = time.monotonic()
+        with pytest.raises(ValueError, match="regular file"):
+            logger.setup_logging(cfg)
+        assert time.monotonic() - started < 2
+        assert logger._logging_initialized is False
+
+    @pytest.mark.usefixtures("isolated_logging")
     def test_hash_off_ignores_a_short_env(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CYCLAW_FP_BOOT", "too-short")
         cfg = {
