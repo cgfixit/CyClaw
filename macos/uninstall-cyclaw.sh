@@ -181,7 +181,7 @@ $service"
       printf '%s\n' "$service"
     done < "$policy_file"
   else
-    echo "[cyclaw] WARNING: secret-policy.tsv missing or unreadable; Keychain purge covers only the five installer services (not other exact names from the policy)" >&2
+    echo "[cyclaw] WARNING: secret-policy.tsv missing or unreadable ($policy_file). The five built-in Keychain services are still covered. Policy-named services are not." >&2
   fi
 }
 

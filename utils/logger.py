@@ -237,17 +237,6 @@ def setup_logging(cfg: dict | None = None, *, background_console: bool = False) 
             # rather than opening a second fd on the same path.
             agentic_logger.addHandler(fh)
 
-    # Fail closed at boot if the audit fingerprint key is missing/invalid, so a
-    # bad key never waits until the first audited query mid-session.
-    privacy = _privacy_cfg(cfg)
-    key_env = privacy.get("query_fingerprint_key_env", "CYCLAW_QUERY_FINGERPRINT_KEY")
-    if not isinstance(key_env, str) or not key_env:
-        raise ValueError("policy.privacy.query_fingerprint_key_env must name an environment variable")
-    key_file = privacy.get("query_fingerprint_key_file", "data/privacy/query-hmac.key")
-    if not isinstance(key_file, str) or not key_file:
-        raise ValueError("policy.privacy.query_fingerprint_key_file must name a file")
-    _query_fingerprint_key(key_env, key_file)
-
     _logging_initialized = True
 
 
