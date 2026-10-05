@@ -118,7 +118,8 @@ Use checklists as lightweight reminders, not as a substitute for reading the rel
   to a qualifying bot comment; a reply uses its exact parent, while the
   issue-comment fallback uses the most recent prior qualifying bot comment.
   Inspect the generated diff and its CI before merging.
-- Install the tracked per-clone hooks with `bash scripts/install-githooks.sh`.
+- Install the tracked per-clone hooks with `bash scripts/ensure-githooks.sh`
+  (idempotent; also the line for the Codex environment setup script).
   The pre-push hook enforces branch naming and fresh-`origin/main` ancestry for
   feature branches. It does not replace the multi-PR mapping, isolated trial
   merge, or post-green-CI rebase gates in `Codex_instructions.md`.
