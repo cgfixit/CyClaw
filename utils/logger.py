@@ -533,9 +533,8 @@ class _BackgroundFileHandler(logging.Handler):
         self._dropped_unreported += 1
         if self._dropped_unreported > 1:
             return None
-        return (
-            f"dropping lines for {self.where} because {cause}; the count is written into it once its writer catches up"
-        )
+        return (f"dropping lines for {self.where} because {cause}; the count is written into it "
+                "once its writer catches up")
 
     def flush(self) -> None:
         """Wait up to logging.drain_wait_sec for every line queued so far to reach the file."""
@@ -583,11 +582,9 @@ class _BackgroundFileHandler(logging.Handler):
                     if not stuck:
                         self._stream = None
                 if unwritten or uncounted:
-                    _note_on_stderr(
-                        f"closing {self.where} with {unwritten} queued line(s) not written and "
-                        f"{uncounted} dropped line(s) not yet counted in it "
-                        f"({self.dropped} dropped in all)"
-                    )
+                    _note_on_stderr(f"closing {self.where} with {unwritten} queued line(s) not written and "
+                                    f"{uncounted} dropped line(s) not yet counted in it "
+                                    f"({self.dropped} dropped in all)")
                 # A process exiting now would lose a note still queued, such as
                 # this one or the writer's report of a last write that failed
                 # (Codex review on #1482), so wait for them, as long as for the
@@ -647,13 +644,8 @@ class _BackgroundFileHandler(logging.Handler):
 
     def _drop_report(self, count: int, total: int) -> str:
         record = logging.LogRecord(
-            "cyclaw.logger",
-            logging.WARNING,
-            __file__,
-            0,
-            "dropped %d log line(s) while the log writer was behind, %d in all",
-            (count, total),
-            None,
+            "cyclaw.logger", logging.WARNING, __file__, 0,
+            "dropped %d log line(s) while the log writer was behind, %d in all", (count, total), None,
         )
         return self.format(record) + "\n"
 
@@ -792,15 +784,15 @@ class _ThirdPartyFloor(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if record.name == "cyclaw" or record.name.startswith("cyclaw."):
             return True
-        if record.levelno >= logging.WARNING and (record.name == "agentic" or record.name.startswith("agentic.")):
+        if record.levelno >= logging.WARNING and (
+            record.name == "agentic" or record.name.startswith("agentic.")
+        ):
             return True
         return record.levelno >= self.floor
 
 
 def _capture_third_party(
-    log_cfg: dict,
-    log_path: Path,
-    fmt: logging.Formatter,
+    log_cfg: dict, log_path: Path, fmt: logging.Formatter,
 ) -> bool:
     """Route non-CyClaw loggers into the same file, at a safer level.
 
@@ -836,7 +828,6 @@ def _capture_third_party(
         real_root.setLevel(floor)
     return True
 
-
 def resolve_config_path(config_path: str = "config.yaml") -> Path:
     """Resolve a config path exactly as ``_get_config`` loads it.
 
@@ -860,12 +851,10 @@ def _get_config(config_path: str = "config.yaml") -> dict:
         validate_no_inline_credentials(cfg)
     return cfg
 
-
 def reset_config_cache() -> None:
     clear = getattr(_get_config, "cache_clear", None)
     if clear is not None:
         clear()
-
 
 def hash_query(query: str) -> str:
     """Ordinary SHA-256 for content integrity and non-private identifiers."""
@@ -1047,7 +1036,6 @@ def include_query_hash(cfg: dict[str, Any] | None) -> bool:
         return True
     return bool(audit_fields.get("include_query_hash", True))
 
-
 @lru_cache(maxsize=8)
 def _compiled_redactors(
     redact_emails: bool,
@@ -1063,20 +1051,21 @@ def _compiled_redactors(
     """
     compiled = [(re.compile(pattern), replacement) for pattern, replacement in _MINIMUM_SECRET_PATTERNS]
     if redact_emails:
-        compiled.append((re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"), "[REDACTED_EMAIL]"))
+        compiled.append((re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+                         '[REDACTED_EMAIL]'))
     if redact_ips:
-        compiled.append((re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"), "[REDACTED_IP]"))
+        compiled.append((re.compile(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'),
+                         '[REDACTED_IP]'))
     for idx, pattern_type in invalid_secret_patterns:
         logger.warning(
             "privacy redaction pattern #%d has non-string type %s; it is "
             "skipped, so matching values pass through un-redacted until it "
             "is corrected.",
-            idx,
-            pattern_type,
+            idx, pattern_type,
         )
     for idx, pattern in secret_patterns:
         try:
-            compiled.append((re.compile(pattern), "[REDACTED_SECRET]"))
+            compiled.append((re.compile(pattern), '[REDACTED_SECRET]'))
         except re.error as exc:
             # Silently dropping an invalid pattern disables redaction for that
             # shape with no signal — matching values then reach audit.jsonl and
@@ -1091,11 +1080,9 @@ def _compiled_redactors(
                 "privacy redaction pattern #%d failed to compile (%s); it is "
                 "skipped, so matching values pass through un-redacted until it "
                 "is corrected.",
-                idx,
-                exc,
+                idx, exc,
             )
     return tuple(compiled)
-
 
 def _resolve_redactors(cfg: dict) -> tuple[tuple[re.Pattern, str], ...]:
     """Resolve cfg's privacy settings to a compiled redactor tuple.
