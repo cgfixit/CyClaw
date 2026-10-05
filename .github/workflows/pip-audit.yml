@@ -13,6 +13,9 @@ on:
       # test). Without it here, adding or bumping an optional dependency
       # changed no triggering path and this workflow never ran on the change.
       - 'pyproject.toml'
+      - 'requirements-lock-*.txt'
+      - 'requirements-*-lock-*.txt'
+      - 'scripts/ci-lock-inputs/**'
       - '.github/workflows/pip-audit.yml'
       - 'guardrails/**'
       - 'config.yaml'
@@ -22,6 +25,9 @@ on:
       - 'requirements-test.txt'
       - 'constraints.txt'
       - 'pyproject.toml'
+      - 'requirements-lock-*.txt'
+      - 'requirements-*-lock-*.txt'
+      - 'scripts/ci-lock-inputs/**'
       - '.github/workflows/pip-audit.yml'
       - 'guardrails/**'
       - 'config.yaml'
@@ -337,11 +343,34 @@ jobs:
           mkdir -p .audit-extras
           python - <<'PY'
           import pathlib, sys, tomllib
+          def pin(req: str):
+              body = req.split(";", 1)[0].strip()
+              name, sep, rest = body.partition("==")
+              if sep != "==":
+                  return None
+              dist = name.split("[", 1)[0].strip().lower().replace("_", "-")
+              version = rest.split(",", 1)[0].split()[0].strip().rstrip("\\")
+              if not dist or not version:
+                  return None
+              return dist, version
+
+          def locked_pins(path: pathlib.Path):
+              found = set()
+              for line in path.read_text(encoding="utf-8").splitlines():
+                  stripped = line.strip()
+                  if not stripped or stripped.startswith("#") or stripped.startswith("--"):
+                      continue
+                  parsed = pin(stripped)
+                  if parsed:
+                      found.add(parsed)
+              return found
+
           extras = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["optional-dependencies"]
           rows = []
           missing = []
+          stale = []
           for name, reqs in extras.items():
-              direct = [r for r in reqs if not r.startswith("cyclaw[")]
+              direct = [r for r in reqs if not str(r).startswith("cyclaw[")]
               if not direct:
                   print(f"skip {name} (aggregate extra, no direct pins)")
                   continue
@@ -351,13 +380,21 @@ jobs:
                   lock = "requirements-ci-cel-lock-linux.txt"
               else:
                   lock = f"requirements-extra-lock-{name}-linux.txt"
-              if not pathlib.Path(lock).is_file():
+              lock_path = pathlib.Path(lock)
+              if not lock_path.is_file():
                   missing.append(f"{name} -> {lock}")
-              else:
-                  rows.append(f"{name}\t{lock}")
-                  print(f"{name} {lock}")
+                  continue
+              pins = locked_pins(lock_path)
+              for req in direct:
+                  parsed = pin(str(req))
+                  if parsed is None or parsed not in pins:
+                      stale.append(f"{name} {req} -> {lock}")
+              rows.append(f"{name}\t{lock}")
+              print(f"{name} {lock}")
           if missing:
               sys.exit("missing hashed extra lock: " + ", ".join(missing))
+          if stale:
+              sys.exit("extra pin missing from its hashed lock: " + ", ".join(stale))
           pathlib.Path(".audit-extras/locks.tsv").write_text("\n".join(rows) + "\n")
           PY
 
