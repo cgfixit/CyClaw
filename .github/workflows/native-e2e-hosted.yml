@@ -1,0 +1,371 @@
+# ==============================================================================
+# CyClaw native E2E on GitHub-hosted macOS and Windows (manual only)
+#
+# Proves a real install works end to end on each OS, using the installed venv
+# and the OS keystore instead of the source checkout's interpreter and env
+# vars. workflow_dispatch only: it never runs on pull_request and is not a
+# required check, because a full install with Python deps plus a model
+# download is far too slow for every PR.
+#
+# Each OS leg:
+#   1. Uninstalls on a clean runner (must be a no-op), installs WITH Python
+#      deps, uninstalls (data kept), reinstalls.
+#   2. Stores CYCLAW_API_KEY for real (a throwaway keychain on macOS, Windows
+#      Credential Manager on Windows) and loads it back with the installed
+#      loader in the same step that runs the checker.
+#   3. Runs tests/native_e2e_hosted.py with the INSTALLED venv python. That
+#      one checker starts mock_ollama.py and the gateway the way ci.yml's live
+#      smokes do (mock on 127.0.0.1:11434 --model qwen3.8:27b-mlx; python -m
+#      uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers),
+#      then checks: keyless 401 / key 200; console pairing (wrong code 401,
+#      one-time code 200 + HttpOnly cookie, reuse 401); injection 400; vault
+#      miss (needs_confirm); a RAG answer through the mock; the FS panel lists
+#      the allowed folder and refuses /etc or C:\Windows; the audit summary
+#      and audit log record the queries; and no log or audit line contains
+#      the API key or the pairing code.
+#
+# Reuse, not copy: ci.yml's process start/stop helpers are inline run: blocks
+# that cannot be referenced without editing ci.yml, so this workflow reuses
+# the scripts they call instead. The checker runs
+# .claude/skills/CyClaw-Sandbox/macos-smoke.sh (macOS) or windows-smoke.ps1
+# (Windows, under pwsh) for the shared health / query / injection / soul /
+# static UI / fsconnect-status contract, and owns process start/stop and the
+# extra checks in one cross-platform Python file, so neither OS carries its
+# own bash or pwsh copy of that glue.
+#
+# Windows fsconnect: Install-CyClaw.ps1 does not enable fsconnect (the macOS
+# installer does), so the Windows leg runs the documented twin,
+# powershell/Setup-FsConnect.ps1, after each install.
+#
+# Secrets: the only real secret is the generated CYCLAW_API_KEY. It lives in
+# the throwaway keystore, is loaded into one step's process environment, and
+# is never echoed or passed through GITHUB_ENV / GITHUB_OUTPUT. The checker
+# generates the console pairing code itself and hands it only to the gateway
+# process. Both are registered with ::add-mask:: before first use. The macOS
+# keychain password is random per run and masked before use. GROK_API_KEY is
+# the literal "dummy" used by every CI job, not a secret.
+# ==============================================================================
+
+name: Native E2E (hosted macOS + Windows)
+
+on:
+  workflow_dispatch:
+
+# One run per ref at a time. A second manual dispatch waits for the first
+# instead of cancelling an install half way through.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# Same pip timeout pair as every other workflow that runs pip (the installers
+# run pip inside their own venv and inherit this env).
+env:
+  PIP_DEFAULT_TIMEOUT: "60"
+  PIP_RETRIES: "10"
+
+jobs:
+  native-e2e:
+    name: native E2E (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Two installs with Python deps, an index build, and a first-run model
+    # download. A hung download should fail, not idle for six hours.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    env:
+      GROK_API_KEY: dummy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements-lock-macos.txt
+            requirements-lock-windows.txt
+            requirements-torch-lock-macos.txt
+            requirements-torch-lock-windows.txt
+
+      - name: Prepare hermetic test env
+        shell: bash
+        run: |
+          # Mirrors ci.yml. data/corpus/cyclaw_overview.md is committed and is
+          # what the checker indexes and asks about. No prod secrets.
+          mkdir -p data/personality index logs
+          echo '# Soul' > data/personality/soul.md
+
+      - name: Cache embeddings model (sentence-transformers)
+        # Same step, path, and key as ci.yml's test job, so a dispatch on main
+        # restores the models ci.yml already saved instead of downloading them.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .emb_cache
+          key: emb-model-all-MiniLM-L6-v2+ms-marco-MiniLM-L6-v2-v1
+          restore-keys: |
+            emb-model-
+
+      # ---------------------------------------------------------------- macOS
+
+      - name: macOS uninstall on a clean runner (must be a no-op)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "[native-e2e] FAIL: $1" >&2; exit 1; }
+          [ ! -e "$HOME/.CyClaw" ] || fail "runner already has ~/.CyClaw"
+          bash macos/uninstall-cyclaw.sh < /dev/null
+          [ ! -e "$HOME/.CyClaw" ] || fail "uninstall on a clean runner created ~/.CyClaw"
+          [ ! -e "$HOME/CyClaw-FS" ] || fail "uninstall on a clean runner created ~/CyClaw-FS"
+
+      - name: macOS install with Python deps, uninstall, reinstall
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "[native-e2e] FAIL: $1" >&2; exit 1; }
+          VENV_PY="$HOME/.CyClaw/venv/bin/python"
+          assert_installed() {
+            [ -x "$VENV_PY" ] || fail "venv python missing after install"
+            [ "$("$VENV_PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')" = "3.12" ] \
+              || fail "installed venv is not Python 3.12"
+            "$VENV_PY" -c 'import fastapi, uvicorn, torch, chromadb, sentence_transformers' \
+              || fail "installed venv cannot import the runtime deps"
+            [ -x "$HOME/.CyClaw/bin/cyclaw" ] || fail "cyclaw shim missing"
+            [ -f "$HOME/.CyClaw/bin/cyclaw-keychain-load.sh" ] || fail "installed keychain loader missing"
+            [ -d "$HOME/CyClaw-FS" ] || fail "fsconnect jail missing"
+            "$VENV_PY" - "$HOME/CyClaw-FS" <<'PY' || fail "installer did not enable fsconnect list/read on ~/CyClaw-FS"
+          import os, sys, yaml
+          block = yaml.safe_load(open("config.yaml", encoding="utf-8"))["fsconnect"]
+          root = os.path.realpath(sys.argv[1])
+          assert block["enabled"] is True, "fsconnect.enabled"
+          assert block["allowed_roots"] == [root], "allowed_roots"
+          assert block["writes_enabled"] is False, "writes_enabled"
+          PY
+          }
+          install() {
+            bash macos/install-cyclaw.sh --repo-path "$GITHUB_WORKSPACE" --no-profile-edit --no-path-edit < /dev/null
+          }
+
+          echo "::group::install (with Python deps)"
+          install
+          echo "::endgroup::"
+          assert_installed
+
+          echo "::group::uninstall (default keeps data)"
+          bash macos/uninstall-cyclaw.sh < /dev/null
+          echo "::endgroup::"
+          [ -x "$VENV_PY" ] || fail "default uninstall deleted the venv"
+          [ -d "$HOME/CyClaw-FS" ] || fail "default uninstall deleted ~/CyClaw-FS"
+
+          echo "::group::reinstall"
+          install
+          echo "::endgroup::"
+          assert_installed
+
+      - name: macOS store CYCLAW_API_KEY in a throwaway keychain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/cyclaw-e2e.keychain-db"
+          KC_PASS="$(openssl rand -hex 16)"
+          echo "::add-mask::$KC_PASS"
+          # Old search list, so the throwaway keychain is added in front of it.
+          EXISTING=()
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%\"}"
+            line="${line#\"}"
+            [ -n "$line" ] && EXISTING+=("$line")
+          done < <(security list-keychains -d user)
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security list-keychains -d user -s "$KC" "${EXISTING[@]}"
+          security default-keychain -d user -s "$KC"
+          KC_PASS=""
+
+          # The documented first-run path: autogenerate CYCLAW_API_KEY and
+          # store it via expect, never on argv, never printed. --no-copy-key
+          # keeps it off the pasteboard; no dotenv is written.
+          env -u CYCLAW_API_KEY bash macos/setup-cyclaw-keys.sh \
+            --skip-prompts --no-print-key --no-copy-key --no-env-file --no-repo-env --no-profile-edit < /dev/null
+
+          # Attribute lookup only (no -w): proves the item is in the throwaway
+          # keychain without reading the secret.
+          security find-generic-password -a "$(id -un)" -s com.cgfixit.cyclaw.api-key "$KC" > /dev/null
+
+      - name: macOS native E2E (key loaded from the Keychain)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The installed loader refuses xtrace and never prints a value. It
+          # exports CYCLAW_API_KEY into this step's shell only.
+          # shellcheck disable=SC1091
+          . "$HOME/.CyClaw/bin/cyclaw-keychain-load.sh"
+          _load_os_secrets
+          if [ -z "${CYCLAW_API_KEY:-}" ]; then
+            echo "[native-e2e] FAIL: CYCLAW_API_KEY did not load from the Keychain" >&2
+            exit 1
+          fi
+          "$HOME/.CyClaw/venv/bin/python" tests/native_e2e_hosted.py \
+            --expect-venv "$HOME/.CyClaw/venv" \
+            --smoke macos \
+            --fs-root "$HOME/CyClaw-FS" \
+            --fs-denied /etc \
+            --runtime-dir "$RUNNER_TEMP/cyclaw-native-e2e"
+
+      - name: macOS remove the throwaway keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          KC="$RUNNER_TEMP/cyclaw-e2e.keychain-db"
+          if [ -e "$KC" ]; then
+            security default-keychain -d user -s "$HOME/Library/Keychains/login.keychain-db" || true
+            security delete-keychain "$KC" || true
+          fi
+
+      # -------------------------------------------------------------- Windows
+
+      - name: Windows uninstall on a clean runner (must be a no-op)
+        if: runner.os == 'Windows'
+        # Inbox Windows PowerShell 5.1, like ci.yml's installer job: the
+        # install scripts explicitly support it.
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $HomeDir = Join-Path $env:USERPROFILE ".CyClaw"
+          if (Test-Path -LiteralPath $HomeDir) { throw "runner already has .CyClaw" }
+          & (Join-Path $env:GITHUB_WORKSPACE "powershell\Uninstall-CyClaw.ps1")
+          if (Test-Path -LiteralPath $HomeDir) { throw "uninstall on a clean runner created .CyClaw" }
+          if (Test-Path -LiteralPath (Join-Path $env:USERPROFILE "CyClaw-FS")) {
+            throw "uninstall on a clean runner created CyClaw-FS"
+          }
+
+      - name: Windows install with Python deps, uninstall, reinstall
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Installer = Join-Path $env:GITHUB_WORKSPACE "powershell\Install-CyClaw.ps1"
+          $Uninstaller = Join-Path $env:GITHUB_WORKSPACE "powershell\Uninstall-CyClaw.ps1"
+          $FsSetup = Join-Path $env:GITHUB_WORKSPACE "powershell\Setup-FsConnect.ps1"
+          $HomeDir = Join-Path $env:USERPROFILE ".CyClaw"
+          $VenvPy = Join-Path $HomeDir "venv\Scripts\python.exe"
+          $FsRoot = Join-Path $env:USERPROFILE "CyClaw-FS"
+          # Written to a file rather than passed with -c: Windows PowerShell
+          # 5.1 mangles quotes inside native-command arguments.
+          $FsCheck = Join-Path $env:RUNNER_TEMP "cyclaw-fsconnect-check.py"
+          @(
+            "import os, sys, yaml"
+            "block = yaml.safe_load(open('config.yaml', encoding='utf-8'))['fsconnect']"
+            "root = os.path.normcase(os.path.realpath(sys.argv[1]))"
+            "roots = [os.path.normcase(p) for p in block['allowed_roots']]"
+            "ok = block['enabled'] is True and roots == [root] and block['writes_enabled'] is False"
+            "sys.exit(0 if ok else 1)"
+          ) | Set-Content -LiteralPath $FsCheck -Encoding ASCII
+
+          function Install-Once {
+            & $Installer -RepoPath $env:GITHUB_WORKSPACE -NoProfileEdit -NoPathEdit
+            # Install-CyClaw.ps1 does not enable fsconnect; this is its
+            # documented Windows twin of the macOS installer's step 4.
+            $env:CYCLAW_FSCONNECT_PYTHON = $VenvPy
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $FsSetup
+            if ($LASTEXITCODE -ne 0) { throw "Setup-FsConnect.ps1 failed (exit $LASTEXITCODE)" }
+          }
+          function Assert-Installed {
+            if (-not (Test-Path -LiteralPath $VenvPy -PathType Leaf)) { throw "venv python missing after install" }
+            $ver = & $VenvPy -c "import sys; print('%d.%d' % sys.version_info[:2])"
+            if ($ver -ne "3.12") { throw "installed venv is not Python 3.12 ($ver)" }
+            & $VenvPy -c "import fastapi, uvicorn, torch, chromadb, sentence_transformers"
+            if ($LASTEXITCODE -ne 0) { throw "installed venv cannot import the runtime deps" }
+            $files = @("bin\cyclaw.cmd", "bin\Invoke-CyClaw.ps1", "bin\CyClaw-SecretStore.ps1", "lib\secret-policy.tsv")
+            foreach ($rel in $files) {
+              if (-not (Test-Path -LiteralPath (Join-Path $HomeDir $rel) -PathType Leaf)) {
+                throw "installer did not create .CyClaw\$rel"
+              }
+            }
+            if (-not (Test-Path -LiteralPath $FsRoot -PathType Container)) { throw "fsconnect jail missing" }
+            & $VenvPy $FsCheck $FsRoot
+            if ($LASTEXITCODE -ne 0) { throw "fsconnect list/read is not enabled on $FsRoot" }
+          }
+
+          Write-Host "::group::install (with Python deps)"
+          Install-Once
+          Write-Host "::endgroup::"
+          Assert-Installed
+
+          Write-Host "::group::uninstall (default keeps data)"
+          & $Uninstaller
+          Write-Host "::endgroup::"
+          if (-not (Test-Path -LiteralPath $VenvPy -PathType Leaf)) { throw "default uninstall deleted the venv" }
+          if (-not (Test-Path -LiteralPath $FsRoot -PathType Container)) { throw "default uninstall deleted CyClaw-FS" }
+
+          Write-Host "::group::reinstall"
+          Install-Once
+          Write-Host "::endgroup::"
+          Assert-Installed
+
+      - name: Windows store CYCLAW_API_KEY in Credential Manager
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Installed copy of the secret store (reads .CyClaw\lib\secret-policy.tsv).
+          . (Join-Path $env:USERPROFILE ".CyClaw\bin\CyClaw-SecretStore.ps1")
+          # Same shape Invoke-CyClaw.ps1 generates on first run: 20 random
+          # bytes as hex, held in memory and handed to CredWrite, never argv.
+          $keyBytes = New-Object byte[] 20
+          $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+          try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+          $newKey = -join ($keyBytes | ForEach-Object { $_.ToString("x2") })
+          $stored = Write-CyclawCredential "com.cgfixit.cyclaw.api-key" $newKey
+          $newKey = $null
+          if (-not $stored) { throw "CredWrite failed for com.cgfixit.cyclaw.api-key" }
+          $read = Read-CyclawCredential "com.cgfixit.cyclaw.api-key"
+          $status = $read.Status
+          $read.Secret = $null
+          if ($status -ne "readable") { throw "Credential Manager item is $status after write" }
+          Write-Host "[native-e2e] CYCLAW_API_KEY stored in Credential Manager (target com.cgfixit.cyclaw.api-key)"
+
+      - name: Windows native E2E (key loaded from Credential Manager)
+        if: runner.os == 'Windows'
+        # pwsh: windows-smoke.ps1 needs PowerShell 7 (-SkipHttpErrorCheck).
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . (Join-Path $env:USERPROFILE ".CyClaw\bin\CyClaw-SecretStore.ps1")
+          Import-CyclawCredentialSecrets
+          if (-not $env:CYCLAW_API_KEY) { throw "CYCLAW_API_KEY did not load from Credential Manager" }
+          $HomeDir = Join-Path $env:USERPROFILE ".CyClaw"
+          & (Join-Path $HomeDir "venv\Scripts\python.exe") tests\native_e2e_hosted.py `
+            --expect-venv (Join-Path $HomeDir "venv") `
+            --smoke windows `
+            --fs-root (Join-Path $env:USERPROFILE "CyClaw-FS") `
+            --fs-denied "C:\Windows" `
+            --runtime-dir (Join-Path $env:RUNNER_TEMP "cyclaw-native-e2e")
+          if ($LASTEXITCODE -ne 0) { throw "native E2E checker failed (exit $LASTEXITCODE)" }
+
+      - name: Windows remove the Credential Manager item
+        if: always() && runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $store = Join-Path $env:USERPROFILE ".CyClaw\bin\CyClaw-SecretStore.ps1"
+          if (Test-Path -LiteralPath $store) {
+            . $store
+            if (Remove-CyclawCredential "com.cgfixit.cyclaw.api-key") {
+              Write-Host "[native-e2e] removed Credential Manager item com.cgfixit.cyclaw.api-key"
+            }
+          }
