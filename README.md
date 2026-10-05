@@ -5,7 +5,7 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.2.11-blue.svg)](https://github.com/langchain-ai/langgraph)
 [![CyClaw CI/CD testing](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml)
 
-[![Local RAG console](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/2026-09-11-local-rag-and-injection-verification.png)](https://github.com/cgfixit/CyClaw/tree/main/docs/screenshots)
+[![CyClaw console answering from the local library](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/2026-10-05-console-answered-query-1440.png)](https://github.com/cgfixit/CyClaw/tree/main/docs/screenshots)
 
 CyClaw answers questions from **your documents on your hardware**. Its
 12-node LangGraph starts with retrieval, ends every path in the audit log,
