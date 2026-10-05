@@ -527,6 +527,18 @@ function describeQueryError(err) {
   return { text: (code && ERROR_COPY[code]) || message, code, message };
 }
 
+// A failed generation still answers 200 (the status is a deliberate contract
+// that Telegram and MCP rely on), but graph.py fills `answer` with a bracketed
+// stand-in -- "[LLM Error: ...]", "[Guardrail Error: ...]", "[External call
+// denied by pre-action hook: ...]" -- rather than anything a model wrote. That
+// stand-in must not render as an ANSWER entry. Only a body that also carries
+// `error` qualifies: an upstream retrieval error can ride along with a real
+// offline answer, and that answer still shows (with the WARNING below it).
+function isStubAnswer(data) {
+  if (!data || !data.error) return false;
+  return /^\[[\s\S]*\]$/.test(String(data.answer || '').trim());
+}
+
 function describeAnswerRoute(modelUsed, llmModel) {
   // model_used is the stable role vocabulary (metrics.py buckets on it).
   // Only the four answer roles get a sentence; blocked / denied / unavailable
@@ -1120,17 +1132,26 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
       meta.push({ k: 'hits', v: data.hit_count });
     }
     meta.push({ k: 'time', v: `${elapsed}ms` });
-    const answerEl = document.getElementById(addEntry('answer', 'ANSWER', data.answer, meta));
-    if (answerEl && data.sources && data.sources.length > 0) {
-      addSources(answerEl, data.sources);
+    // A stand-in answer is not shown at all (nor its sources): the ERROR entry
+    // below replaces it and carries the model/time row instead.
+    const answerIsStub = isStubAnswer(data);
+    if (!answerIsStub) {
+      const answerEl = document.getElementById(addEntry('answer', 'ANSWER', data.answer, meta));
+      if (answerEl && data.sources && data.sources.length > 0) {
+        addSources(answerEl, data.sources);
+      }
     }
 
     if (data.error) {
       const { text, code, message } = describeQueryError(data.error);
-      const meta = [];
-      if (code) meta.push({ k: 'code', v: code });
-      if (message && message !== text) meta.push({ k: 'detail', v: message });
-      addEntry('error', 'WARNING', text, meta.length ? meta : null);
+      const errMeta = answerIsStub ? meta.slice() : [];
+      if (code) errMeta.push({ k: 'code', v: code });
+      if (message && message !== text) errMeta.push({ k: 'detail', v: message });
+      if (answerIsStub) {
+        addEntry('error', 'ERROR', text, errMeta);
+      } else {
+        addEntry('error', 'WARNING', text, errMeta.length ? errMeta : null);
+      }
     }
 
     footerRight.textContent = `queries: ${queryCount} · last: ${elapsed}ms`;
