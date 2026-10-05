@@ -638,19 +638,30 @@ def test_health_details_are_keyboard_reachable_and_json_uses_textcontent():
     assert "paintHealthStatus({ unreachable: true })" in js
 
 
-def test_ollama_down_exposes_inline_how_to_start():
-    """When Ollama is down the chip stays terse/amber; startup help is a
-    one-click control with local `ollama serve` copy, not an external docs
-    link and not hover-only title text.
+def test_health_splits_library_and_engine_chips_each_with_own_help():
+    """One combined chip ranked "No library yet" above the Ollama-down sentence
+    and then showed its only help control -- "How to start": ollama serve --
+    beside it, so the operator read the engine instructions as the fix for the
+    library (console UX audit 2026-10-04, case 2). The header now carries one
+    labelled chip per dependency, each with its own native <details> help:
+    Library -> "How to build" (with a Build button), Engine -> "How to start"
+    (local `ollama serve` copy, no external link, not hover-only title text).
     """
     html = _TERMINAL_HTML.read_text(encoding="utf-8")
     js = _TERMINAL_JS.read_text(encoding="utf-8")
 
-    assert 'id="ollamaHelp"' in html
-    help_block = html.split('id="ollamaHelp"', 1)[1].split("</details>", 1)[0]
-    assert "How to start" in help_block
-    assert "ollama serve" in help_block
-    assert "http" not in help_block.lower()
+    header = html.split('id="healthChip"', 1)[1].split("<!-- MAIN -->", 1)[0]
+    assert 'id="libraryChip"' in header and 'id="engineChip"' in header
+    assert header.index('id="libraryChip"') < header.index('id="engineChip"')
+    lib_help = header.split('id="libraryHelp"', 1)[1].split("</details>", 1)[0]
+    assert "How to build" in lib_help
+    assert 'class="first-run-btn build-index-btn"' in lib_help
+    eng_help = header.split('id="ollamaHelp"', 1)[1].split("</details>", 1)[0]
+    assert "How to start" in eng_help
+    assert "ollama serve" in eng_help
+    assert "http" not in eng_help.lower() and "http" not in lib_help.lower()
+    # The Engine help must sit under the Engine chip, never beside the Library status.
+    assert header.index('id="engineChip"') < header.index('id="ollamaHelp"')
 
     describe = js.split("function describeHealth(", 1)
     assert len(describe) == 2, "describeHealth moved; update this test"
@@ -659,14 +670,109 @@ def test_ollama_down_exposes_inline_how_to_start():
     assert "Local AI engine isn't running" in desc_body
     assert "tone: 'warn'" in desc_body
     assert "tone: 'ok'" in desc_body
+    assert "return { library, engine, detail, ollamaDown, libraryMissing, building }" in desc_body
+    # Each help control follows its own dependency, not the other one.
     assert "ollamaHelp.hidden = !ollamaDown" in js
-    # The chip ranks "No library yet" above the Ollama-down sentence, but the
-    # How to start control must still appear whenever the service is down.
-    ranked = desc_body.split("if (d.index_ready === false)", 1)
-    assert len(ranked) == 2, "index_ready ranking moved; update this test"
-    no_lib = ranked[1].split("if (ollamaDown)", 1)[0]
-    assert "ollamaDown," in no_lib or "ollamaDown:" in no_lib
-    assert "ollamaDown: false" not in no_lib
+    assert "libraryHelp.hidden = !libraryMissing" in js
+    paint = js.split("function paintHealthStatus(", 1)[1].split("async function checkHealth(", 1)[0]
+    assert "paintChip(libraryDot, libraryText, health.library)" in paint
+    assert "paintChip(engineDot, engineText, health.engine)" in paint
+
+
+def test_first_run_panel_survives_the_first_query_and_a_locked_build_opens_unlock():
+    """Three dead ends between "no library" and a first answer (console UX
+    audit 2026-10-04, case 2):
+
+    1. The panel lived inside #emptyState, which submitQuery REMOVES on the
+       first query, so one question erased the only Build button and left a
+       CLI command and a reload. It now renders into #firstRunSlot, a sibling
+       of #results that is hidden rather than removed, and the INDEX_NOT_FOUND
+       error entry carries its own Build button.
+    2. With CYCLAW_API_KEY set and the browser unpaired, POST /index/build
+       answers 401 INDEX_BUILD_AUTH_REQUIRED and "Try again" repeated it
+       forever. A 401 now opens the operator dialog with a build-specific
+       title and retries the build after a successful unlock; any close
+       (Cancel, Esc, success) resets the dialog for the next caller.
+    """
+    html = _TERMINAL_HTML.read_text(encoding="utf-8")
+    js = _TERMINAL_JS.read_text(encoding="utf-8")
+
+    assert 'id="firstRunSlot"' in html
+    assert html.index('id="firstRunSlot"') < html.index('id="results"')
+    assert 'class="logo-large"' not in html, "the ghost logo repeated the header at 1.4:1"
+
+    render = js.split("function renderFirstRun(", 1)[1].split("\nfunction ", 1)[0]
+    assert "getElementById('firstRunSlot')" in render
+    assert "emptyState" not in render
+    assert "slot.hidden = true" in render and "slot.hidden = false" in render
+
+    submit_fn = js.split("async function submitQuery(", 1)[1]
+    assert "if (code === 'INDEX_NOT_FOUND') attachBuildAction(" in submit_fn
+    assert "function attachBuildAction(" in js
+
+    start_body = js.split("async function startIndexBuild(", 1)[1].split("function pollIndexStatus(", 1)[0]
+    assert "if (resp.status === 401)" in start_body
+    assert "indexBuild.needsUnlock = true" in start_body
+    assert "openUnlockToBuild()" in start_body
+    unlock = js.split("function openUnlockToBuild(", 1)[1].split("\n}", 1)[0]
+    assert "title: 'Unlock to build your library'" in unlock
+    assert "onUnlock: () => startIndexBuild()" in unlock
+    dialog_submit = js.split("async function submitOperatorDialog(", 1)[1].split("\n}", 1)[0]
+    assert "const followUp = operatorUnlockFollowUp" in dialog_submit
+    assert dialog_submit.index("closeOperatorDialog()") < dialog_submit.index("if (followUp) followUp()")
+    assert "operatorDialog.addEventListener('close', () => resetOperatorDialogContext())" in js
+
+
+def _contrast(fg_hex: str, bg_hex: str) -> float:
+    def lum(h: str) -> float:
+        chans = []
+        for i in (1, 3, 5):
+            c = int(h[i:i + 2], 16) / 255
+            chans.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * chans[0] + 0.7152 * chans[1] + 0.0722 * chans[2]
+    a, b = sorted((lum(fg_hex), lum(bg_hex)), reverse=True)
+    return (a + 0.05) / (b + 0.05)
+
+
+def test_accessibility_parity_landmarks_live_region_label_and_contrast():
+    """Console UX audit 2026-10-04, case 5 (the CyClaw column): the page was
+    four divs, the conversation log was not announced, the query box had only
+    a placeholder for a name, and --text-secondary measured ~4.0:1. Pins the
+    landmarks, the live region, the hidden label, and the token's WCAG AA
+    ratio on every background it is painted over. Also pins the two small
+    mirrored findings: Unlock is the one primary action in its dialog, and
+    the mode badge explains the mode instead of echoing the config value.
+    """
+    html = _TERMINAL_HTML.read_text(encoding="utf-8")
+    js = _TERMINAL_JS.read_text(encoding="utf-8")
+
+    assert '<header class="header">' in html and "</header>" in html
+    assert '<nav class="soul-toolbar" aria-label=' in html and "</nav>" in html
+    assert html.count("<main ") == 1 and "</main>" in html
+    assert '<footer class="footer-bar">' in html and "</footer>" in html
+
+    results_tag = html.split('id="results"', 1)[0].rsplit("<div", 1)[1] + html.split('id="results"', 1)[1].split(">", 1)[0]
+    assert 'role="log"' in results_tag and 'aria-live="polite"' in results_tag
+
+    assert '<label for="queryInput" class="sr-only">' in html
+    assert ".sr-only {" in html
+
+    tokens = dict(re.findall(r"--(bg-primary|bg-secondary|bg-tertiary|text-secondary):\s*(#[0-9a-fA-F]{6})", html))
+    for bg in ("bg-primary", "bg-secondary", "bg-tertiary"):
+        ratio = _contrast(tokens["text-secondary"], tokens[bg])
+        assert ratio >= 4.5, f"--text-secondary is {ratio:.2f}:1 on --{bg}; WCAG AA body text needs 4.5:1"
+
+    assert 'class="toolbar-btn primary" id="operatorDialogSubmit"' in html
+    assert 'id="operatorDialogCancel"' in html and 'class="toolbar-btn primary" id="operatorDialogCancel"' not in html
+
+    assert '<summary class="mode-badge" id="modeBadge">' in html
+    assert "const MODE_COPY = {" in js
+    assert "label: 'Cloud fallback · ask first'" in js
+    assert "label: 'Offline only'" in js
+    assert "modeBadge.textContent = data.mode" not in js
+    # Both badge strings are assigned with textContent, never innerHTML.
+    paint = js.split("function paintModeBadge(", 1)[1].split("\n}", 1)[0]
+    assert "innerHTML" not in paint and "textContent" in paint
 
 
 def test_index_build_renders_elapsed_when_present():

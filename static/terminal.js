@@ -4,8 +4,10 @@ const resultsEl = document.getElementById('results');
 const emptyState = document.getElementById('emptyState');
 const input = document.getElementById('queryInput');
 const sendBtn = document.getElementById('sendBtn');
-const statusDot = document.getElementById('statusDot');
-const statusText = document.getElementById('statusText');
+const libraryDot = document.getElementById('libraryDot');
+const libraryText = document.getElementById('libraryText');
+const engineDot = document.getElementById('engineDot');
+const engineText = document.getElementById('engineText');
 const modeBadge = document.getElementById('modeBadge');
 const footerRight = document.getElementById('footerRight');
 const soulPanel = document.getElementById('soulPanel');
@@ -195,8 +197,28 @@ async function lockOperatorTools() {
   await refreshOperatorAccess();
 }
 
-function openOperatorDialog(message) {
+const OPERATOR_DIALOG_TITLE = 'Unlock operator tools';
+let operatorUnlockFollowUp = null;
+
+function resetOperatorDialogContext() {
+  const titleEl = document.getElementById('operatorDialogTitle');
+  const leadEl = document.getElementById('operatorDialogLead');
+  if (titleEl) titleEl.textContent = OPERATOR_DIALOG_TITLE;
+  if (leadEl) { leadEl.textContent = ''; leadEl.hidden = true; }
+  operatorUnlockFollowUp = null;
+}
+
+// opts (all optional): title and lead name why the dialog opened (the build
+// flow says "Unlock to build your library"); onUnlock runs after a successful
+// unlock so the action that hit the 401 is retried without a second click.
+function openOperatorDialog(message, opts) {
   if (!operatorDialog) return;
+  const o = opts || {};
+  const titleEl = document.getElementById('operatorDialogTitle');
+  const leadEl = document.getElementById('operatorDialogLead');
+  if (titleEl) titleEl.textContent = o.title || OPERATOR_DIALOG_TITLE;
+  if (leadEl) { leadEl.textContent = o.lead || ''; leadEl.hidden = !o.lead; }
+  operatorUnlockFollowUp = typeof o.onUnlock === 'function' ? o.onUnlock : null;
   if (operatorDialogError) operatorDialogError.textContent = message || '';
   if (operatorKeyInput) operatorKeyInput.value = '';
   paintOperatorAccess();
@@ -210,6 +232,7 @@ function openOperatorDialog(message) {
 
 function closeOperatorDialog() {
   if (operatorKeyInput) operatorKeyInput.value = '';
+  resetOperatorDialogContext();
   if (!operatorDialog) return;
   if (typeof operatorDialog.close === 'function' && operatorDialog.open) operatorDialog.close();
   else operatorDialog.removeAttribute('open');
@@ -228,7 +251,10 @@ async function submitOperatorDialog(event) {
     if (operatorDialogError) operatorDialogError.textContent = problem;
     return;
   }
+  // Capture before close: closing resets the context.
+  const followUp = operatorUnlockFollowUp;
   closeOperatorDialog();
+  if (followUp) followUp();
 }
 
 // The launchers open the console at #pair=<one-time code>. The fragment is
@@ -588,7 +614,7 @@ function setSoulStatus(message, tone = '') {
 // retrieval.indexer" -- a CLI command, in a browser, to someone who may not
 // have a terminal open. /health has always carried index_ready; the console
 // just never read it. Now the empty state becomes an actionable panel instead.
-const indexBuild = { state: 'idle', timer: null, misses: 0, elapsed: null };
+const indexBuild = { state: 'idle', timer: null, misses: 0, elapsed: null, needsUnlock: false };
 const INDEX_POLL_MS = 1500;
 // A dropped poll is not a failed build, so the poll retries -- but it needs a
 // ceiling. Without one, a gateway that dies mid-build leaves the tab hammering
@@ -606,26 +632,70 @@ function formatElapsed(seconds) {
   return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, '0')}s`;
 }
 
+// The query box stays usable with no library (an operator may want to see the
+// error, and /query is the only way to find out the index is missing from a
+// script), but its placeholder says what to do first instead of inviting a
+// guaranteed INDEX_NOT_FOUND.
+const QUERY_PLACEHOLDER = input ? (input.getAttribute('placeholder') || '') : '';
+function paintQueryPlaceholder(libraryMissing) {
+  if (!input) return;
+  input.placeholder = libraryMissing
+    ? 'build your library first...'
+    : QUERY_PLACEHOLDER;
+}
+
 function renderFirstRun(data) {
-  const emptyState = document.getElementById('emptyState');
-  // The empty state is REMOVED (not hidden) on the first query, so once a user
-  // has asked anything there is nothing to render into -- and by then they are
-  // past first run anyway.
-  if (!emptyState) return;
+  // #firstRunSlot is a static band above the results log. It is never removed:
+  // the empty state is REMOVED on the first query, and when the panel lived
+  // inside it the first question erased the only Build button, leaving the
+  // INDEX_NOT_FOUND error, a CLI command, and a reload as the way back
+  // (console UX audit 2026-10-04, case 2). The slot hides itself once /health
+  // reports index_ready and no build is running or failed.
+  const slot = document.getElementById('firstRunSlot');
+  if (!slot) return;
   let panel = document.getElementById('firstRunPanel');
+  // /health is authoritative. If it says the index exists (the CLI, another
+  // tab, or a build this tab lost contact with finished it), a stale local
+  // error must not keep "That didn't work" + Try again on screen beside a
+  // green Library chip, nor invite a needless rebuild of a valid index.
+  if (data && data.index_ready === true && indexBuild.state === 'error') {
+    indexBuild.state = 'idle';
+    indexBuild.error = null;
+    indexBuild.needsUnlock = false;
+  }
   const needed = data && data.index_ready === false;
 
   if (!needed && indexBuild.state !== 'running' && indexBuild.state !== 'error') {
     if (panel) panel.remove();
+    slot.hidden = true;
+    paintQueryPlaceholder(false);
+    // Earlier INDEX_NOT_FOUND entries offered a Build button; the library is
+    // ready now, so a click would only start a needless rebuild.
+    forEachNode('.entry-actions', (el) => el.remove());
     return;
   }
   if (!panel) {
     panel = document.createElement('div');
     panel.className = 'first-run';
     panel.id = 'firstRunPanel';
-    emptyState.appendChild(panel);
+    slot.appendChild(panel);
   }
+  slot.hidden = false;
   paintFirstRun(panel, data);
+  paintQueryPlaceholder(Boolean(needed));
+  // Every Build button on the page (panel, Library chip help, error entries)
+  // follows one rule: disabled while a build runs. The server also 409s a
+  // second build, so this is only the visual half.
+  setBuildButtonsDisabled(indexBuild.state === 'running');
+}
+
+function forEachNode(selector, fn) {
+  const nodes = typeof document.querySelectorAll === 'function' ? document.querySelectorAll(selector) : [];
+  Array.prototype.forEach.call(nodes, fn);
+}
+
+function setBuildButtonsDisabled(disabled) {
+  forEachNode('.build-index-btn', (btn) => { btn.disabled = disabled; });
 }
 
 function paintFirstRun(panel, data) {
@@ -650,6 +720,15 @@ function paintFirstRun(panel, data) {
   }
 
   if (indexBuild.state === 'error') {
+    // A 401 is not a failed build: the gateway has CYCLAW_API_KEY set and this
+    // browser is not paired. "Try again" used to repeat the same 401 forever;
+    // the button now opens the unlock dialog, which retries the build itself.
+    if (indexBuild.needsUnlock) {
+      title.textContent = 'Unlock to build your library';
+      body.textContent = indexBuild.error || 'Building needs operator access on this gateway.';
+      panel.append(title, body, buildButton('Unlock and build'));
+      return;
+    }
     title.textContent = "That didn't work";
     body.textContent = indexBuild.error || 'The build stopped before it finished.';
     panel.append(title, body, buildButton('Try again'));
@@ -666,20 +745,44 @@ function paintFirstRun(panel, data) {
   panel.append(title, body, buildButton('Build my library'));
 }
 
+// Several of these can exist at once (the panel, the Library chip's help, one
+// per INDEX_NOT_FOUND entry), so the class is the handle and one delegated
+// click listener (bottom of file) routes all of them to requestIndexBuild.
 function buildButton(label) {
   const btn = document.createElement('button');
-  btn.className = 'first-run-btn';
-  btn.id = 'buildIndexBtn';
+  btn.className = 'first-run-btn build-index-btn';
   btn.type = 'button';
   btn.textContent = label;
-  btn.addEventListener('click', () => startIndexBuild());
   return btn;
 }
 
+const UNLOCK_TO_BUILD_LEAD = 'This gateway has CYCLAW_API_KEY set, so building the library needs operator '
+  + 'access. Unlock once and the build starts right away.';
+
+function openUnlockToBuild() {
+  openOperatorDialog('', {
+    title: 'Unlock to build your library',
+    lead: UNLOCK_TO_BUILD_LEAD,
+    onUnlock: () => startIndexBuild(),
+  });
+}
+
+// Every Build button lands here. Once a 401 has told us the route is locked,
+// go straight to the unlock dialog instead of spending a request to be told
+// again -- unless access arrived in the meantime (toolbar unlock, admin
+// login), in which case just build.
+function requestIndexBuild() {
+  if (indexBuild.needsUnlock && !hasOperatorAccess()) {
+    openUnlockToBuild();
+    return;
+  }
+  startIndexBuild();
+}
+
 async function startIndexBuild() {
-  const btn = document.getElementById('buildIndexBtn');
-  if (btn) btn.disabled = true;   // the server also 409s a second build
+  setBuildButtonsDisabled(true);   // the server also 409s a second build
   indexBuild.state = 'running';
+  indexBuild.needsUnlock = false;
   indexBuild.done = 0;
   indexBuild.total = 0;
   indexBuild.elapsed = null;
@@ -697,6 +800,19 @@ async function startIndexBuild() {
     // operator credential, and the console cookie needs its CSRF header on a
     // POST (#1528). With the key unset it is ignored.
     const resp = await fetchWithTimeout(`${API}/index/build`, { method: 'POST', headers: authHeaders() }, 15000);
+    if (resp.status === 401) {
+      // INDEX_BUILD_AUTH_REQUIRED: the key is set and this browser is not
+      // paired. Not a build failure -- open the unlock dialog, which retries
+      // the build on success; the panel offers "Unlock and build" meanwhile.
+      await refreshOperatorAccess();
+      indexBuild.state = 'error';
+      indexBuild.needsUnlock = true;
+      indexBuild.error = UNLOCK_TO_BUILD_LEAD;
+      paintHealthStatus();
+      renderFirstRun(lastHealth);
+      openUnlockToBuild();
+      return;
+    }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       throw new Error(extractErrorMessage(err, `build failed (${resp.status})`));
@@ -769,10 +885,13 @@ function pollIndexStatus() {
 // something specific -- per-service {healthy, error} plus index_ready --
 // and the console was fetching all of it and discarding it.
 //
-// Order matters: the states are ranked by which one the reader can ACT on. No
-// library is first because the fix is a button on this screen; a stopped
-// engine is next because the fix is one command; anything else is
-// informational.
+// Two chips, not one ranked sentence: the library (index) and the engine
+// (Ollama) are independent, each has its own fix, and each gets its own help
+// control. The one combined chip ranked "No library yet" first and then showed
+// the Ollama "How to start" help next to it, so the operator read `ollama
+// serve` as the way to get a library (console UX audit 2026-10-04, case 2).
+// The shared detail sentence (Details disclosure) still leads with the thing
+// the reader can act on from this screen.
 let lastHealth = null;
 
 function describeHealth(data) {
@@ -781,44 +900,71 @@ function describeHealth(data) {
   const down = Object.keys(services).filter(
     (k) => services[k] && services[k].healthy === false
   );
+  // /health reports the one resolved local backend under its provider name
+  // ("ollama" or "lmstudio", llm/client.py resolve_local_backend) or as
+  // "local_llm" when the resolver or the destination allowlist rejected the
+  // configuration before any probe. Any of them down means the Engine is
+  // down; only the Ollama case gets the `ollama serve` help.
+  const LOCAL_ENGINE_KEYS = ['ollama', 'lmstudio', 'local_llm'];
+  const engineKey = LOCAL_ENGINE_KEYS.find((k) => down.includes(k)) || null;
   const ollamaDown = down.includes('ollama');
+  const building = indexBuild.state === 'running';
+  const libraryMissing = d.index_ready === false;
+  const others = down.filter((k) => !LOCAL_ENGINE_KEYS.includes(k));
 
-  if (indexBuild.state === 'running') {
-    return {
-      text: 'Building your library…', tone: 'warn', ollamaDown,
-      detail: 'Reading your documents and making them searchable.'
+  let library;
+  if (building) {
+    library = { text: 'building…', tone: 'warn', detail: 'Reading your documents and making them searchable.' };
+  } else if (libraryMissing) {
+    library = {
+      text: 'not built', tone: 'warn',
+      detail: 'CyClaw has no searchable copy of your documents yet. Build one from the panel below.'
     };
+  } else {
+    library = { text: 'ready', tone: 'ok', detail: 'Your documents are searchable.' };
   }
-  if (d.index_ready === false) {
-    return {
-      text: 'No library yet', tone: 'warn', ollamaDown,
-      detail: 'CyClaw has no searchable copy of your documents yet. Build one below.'
-    };
-  }
+
+  let engine;
   if (ollamaDown) {
-    return {
-      text: "Local AI engine isn't running", tone: 'warn', ollamaDown,
-      detail: 'Start Ollama (ollama serve) and CyClaw can write answers again. '
-            + 'Your documents are still searchable in the meantime.'
+    engine = {
+      text: 'offline', tone: 'warn',
+      detail: "Local AI engine isn't running. Start Ollama (ollama serve) and CyClaw can write "
+            + 'answers again. Your documents are still searchable in the meantime.'
     };
-  }
-  if (down.length) {
-    return {
-      text: `${down[0]} unavailable`, tone: 'warn', ollamaDown: false,
-      detail: (services[down[0]] && services[down[0]].error) || 'This service is not responding.'
+  } else if (engineKey === 'lmstudio') {
+    engine = {
+      text: 'offline', tone: 'warn',
+      detail: "Local AI engine isn't answering. Start LM Studio and its local server, then CyClaw "
+            + 'can write answers again. Your documents are still searchable in the meantime.'
     };
+  } else if (engineKey) {
+    // local_llm: the configuration itself was rejected (destination trust,
+    // resolver), so there is nothing to start; show the server's reason.
+    engine = {
+      text: 'offline', tone: 'warn',
+      detail: 'Local AI engine configuration was rejected: '
+            + ((services[engineKey] && services[engineKey].error) || 'see Details.')
+    };
+  } else {
+    engine = { text: 'running', tone: 'ok', detail: 'The local AI engine is running.' };
   }
-  return {
-    text: 'Ready', tone: 'ok', ollamaDown: false,
-    detail: 'Your documents are searchable and the local AI engine is running.'
-  };
+
+  let detail;
+  if (building || libraryMissing) detail = library.detail;
+  else if (engineKey) detail = engine.detail;
+  else if (others.length) {
+    detail = `${others[0]} unavailable: `
+      + ((services[others[0]] && services[others[0]].error) || 'this service is not responding.');
+  } else detail = 'Your documents are searchable and the local AI engine is running.';
+
+  return { library, engine, detail, ollamaDown, libraryMissing, building };
 }
 
 // Painting is separate from fetching because the status chip has TWO drivers:
 // the 15s /health poll, and local build-state transitions that must show up
 // immediately. Without this, clicking Build left the chip reading "No library
 // yet" for up to 15 seconds while the panel beside it already said "Building".
-function paintHealthDisclosure(detail, ollamaDown, jsonLabel, jsonText) {
+function paintHealthDisclosure(detail, ollamaDown, libraryMissing, jsonLabel, jsonText) {
   // Every server-derived value is assigned via textContent. The health
   // payload is JSON from /health; writing it with innerHTML would turn a
   // future field (corpus_path, error strings) into an XSS sink.
@@ -826,20 +972,31 @@ function paintHealthDisclosure(detail, ollamaDown, jsonLabel, jsonText) {
   const jsonEl = document.getElementById('healthJson');
   const labelEl = document.getElementById('healthJsonLabel');
   const ollamaHelp = document.getElementById('ollamaHelp');
+  const libraryHelp = document.getElementById('libraryHelp');
   if (detailEl) detailEl.textContent = detail;
   if (labelEl) labelEl.textContent = jsonLabel;
   if (jsonEl) jsonEl.textContent = jsonText;
   if (ollamaHelp) ollamaHelp.hidden = !ollamaDown;
+  if (libraryHelp) libraryHelp.hidden = !libraryMissing;
+}
+
+function paintChip(dot, textEl, state) {
+  if (dot) dot.className = `status-dot ${state.tone}`;
+  if (textEl) {
+    textEl.textContent = state.text;
+    textEl.title = state.detail || '';
+  }
 }
 
 function paintHealthStatus(opts) {
   const unreachable = opts && opts.unreachable;
   if (unreachable) {
-    statusDot.className = 'status-dot offline';
-    statusText.textContent = "Can't reach CyClaw";
-    statusText.title = 'The gateway is not responding. Is it still running?';
+    const gone = { text: 'unreachable', tone: 'offline', detail: "Can't reach CyClaw. The gateway is not responding. Is it still running?" };
+    paintChip(libraryDot, libraryText, gone);
+    paintChip(engineDot, engineText, gone);
     paintHealthDisclosure(
       'The gateway is not responding. Is it still running?',
+      false,
       false,
       lastHealth ? 'Last successful health response' : 'No health response yet',
       lastHealth ? JSON.stringify(lastHealth, null, 2) : 'Gateway unreachable.'
@@ -847,12 +1004,12 @@ function paintHealthStatus(opts) {
     return;
   }
   const health = describeHealth(lastHealth);
-  statusDot.className = `status-dot ${health.tone}`;
-  statusText.textContent = health.text;
-  statusText.title = health.detail;
+  paintChip(libraryDot, libraryText, health.library);
+  paintChip(engineDot, engineText, health.engine);
   paintHealthDisclosure(
     health.detail,
     health.ollamaDown,
+    health.libraryMissing && !health.building,
     lastHealth ? 'Latest health response' : 'No health response yet',
     lastHealth ? JSON.stringify(lastHealth, null, 2) : 'No health response yet.'
   );
@@ -876,7 +1033,7 @@ async function checkHealth() {
     }
     lastHealth = data;
     paintHealthStatus();
-    modeBadge.textContent = data.mode || 'offline';
+    paintModeBadge(data.mode);
     const fl = document.getElementById('footerLeft');
     if (fl) {
       const ver = data.version ? ` v${data.version}` : '';
@@ -895,6 +1052,40 @@ async function checkHealth() {
     healthBackoffMs = Math.min(healthBackoffMs * 2, HEALTH_MAX_INTERVAL);
   }
   scheduleHealthCheck();
+}
+
+// app.mode in plain words. "hybrid" is the shipped posture and means: answer
+// from your documents and the local engine; when the library has no match,
+// ASK before sending that one question to a cloud model. The badge said
+// "HYBRID", which names the config value, not the promise.
+const MODE_COPY = {
+  hybrid: {
+    label: 'Cloud fallback · ask first',
+    // Scoped to questions on purpose: with api.health_probe_external_providers
+    // on (ships false) the gateway's own /health probe reaches the enabled
+    // cloud endpoints, so "nothing goes online" would be false there.
+    help: 'Answers come from your documents and your configured local engine. If nothing in your '
+        + 'library matches, CyClaw asks you before sending that one question to a cloud model '
+        + '(Grok or Claude). No question goes to a cloud model without your yes, and the choice is '
+        + 'never remembered.'
+  },
+  offline: {
+    label: 'Offline only',
+    // "Your configured local engine", not "this machine": models.local_llm can
+    // point at a container or LAN host listed in trusted_hosts (AGENTS.md), and
+    // that host does receive local context and soul text.
+    help: 'Cloud fallback is off. Answers come only from your documents and the local engine you '
+        + 'configured; no cloud model is ever contacted.'
+  }
+};
+
+function paintModeBadge(mode) {
+  const key = typeof mode === 'string' ? mode : 'offline';
+  const copy = MODE_COPY[key];
+  const helpEl = document.getElementById('modeHelpText');
+  // textContent for both: mode is a server string, even if it is an enum today.
+  if (modeBadge) modeBadge.textContent = copy ? copy.label : key;
+  if (helpEl) helpEl.textContent = copy ? copy.help : `Gateway mode: ${key}.`;
 }
 
 function applyRoleChrome() {
@@ -1093,7 +1284,8 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
       const meta = [{ k: 'http', v: resp.status }];
       if (code) meta.push({ k: 'code', v: code });
       if (message && message !== text) meta.push({ k: 'detail', v: message });
-      addEntry('error', 'ERROR', text, meta);
+      const errorEntryId = addEntry('error', 'ERROR', text, meta);
+      if (code === 'INDEX_NOT_FOUND') attachBuildAction(errorEntryId);
       return;
     }
 
@@ -1246,6 +1438,23 @@ function addEntry(type, label, text, meta = null) {
 function removeEntry(id) {
   const el = document.getElementById(id);
   if (el) el.remove();
+}
+
+// INDEX_NOT_FOUND is the one /query error whose fix is a button on this page,
+// so the entry carries it. The server message still says "Run: python -m
+// retrieval.indexer" in the detail row for anyone driving CyClaw from a
+// terminal; this is for the operator who only has the browser.
+function attachBuildAction(entryId) {
+  const el = document.getElementById(entryId);
+  if (!el) return;
+  const actions = document.createElement('div');
+  actions.className = 'entry-actions';
+  if (indexBuild.state === 'running') {
+    actions.textContent = 'Your library is being built now. Ask again once the panel above says it is ready.';
+  } else {
+    actions.appendChild(buildButton('Build my library'));
+  }
+  el.appendChild(actions);
 }
 
 // availableProviders comes from the server's QueryResponse and lists only the
@@ -1675,9 +1884,20 @@ function agenticLabelMsg(data) {
   }
 }
 
-function setGate(id, ok, label) {
+// label is the sentence; key is the config/CLI token behind it, shown muted
+// so the row reads as a requirement first and a setting second. Built with
+// createElement, never innerHTML: both strings are hardcoded today, but this
+// keeps the next caller honest.
+function setGate(id, ok, label, key) {
   const el = document.getElementById(id);
   el.textContent = `${ok ? '✓' : '✗'} ${label}`;
+  if (key) {
+    const k = document.createElement('span');
+    k.className = 'gate-key';
+    k.textContent = key;
+    el.appendChild(document.createTextNode(' '));
+    el.appendChild(k);
+  }
   el.className = `gate-row ${ok ? 'ok' : 'bad'}`;
 }
 
@@ -1692,10 +1912,10 @@ function refreshAgenticGates() {
   const confirmOk = agenticConfirm.checked;
   const modeOk    = agenticConfig.mode === 'write';
   const writesOk  = agenticConfig.writes_enabled === true;
-  setGate('gateMode', modeOk, 'mode = write');
-  setGate('gateWrites', writesOk, 'writes_enabled = true');
-  setGate('gateReason', reasonOk, 'reason non-empty');
-  setGate('gateConfirm', confirmOk, '--confirm checked');
+  setGate('gateMode', modeOk, 'Agentic mode allows writes', 'mode = write');
+  setGate('gateWrites', writesOk, 'Writes are switched on in config', 'writes_enabled = true');
+  setGate('gateReason', reasonOk, 'A reason is given', 'reason');
+  setGate('gateConfirm', confirmOk, 'You confirmed the review', '--confirm');
   const allOk = modeOk && writesOk && reasonOk && confirmOk;
   agenticApplyBtn.disabled = !allOk;
   agenticApplyBtn.textContent = allOk
@@ -2079,6 +2299,17 @@ if (operatorLockBtn) operatorLockBtn.addEventListener('click', () => lockOperato
 if (document.getElementById('operatorForm')) {
   document.getElementById('operatorForm').addEventListener('submit', submitOperatorDialog);
 }
+// Esc closes a <dialog> without going through closeOperatorDialog(); the
+// 'close' event is the one hook that sees every way out.
+if (operatorDialog) operatorDialog.addEventListener('close', () => resetOperatorDialogContext());
+document.addEventListener('click', (event) => {
+  const target = event.target;
+  const btn = target && typeof target.closest === 'function' ? target.closest('.build-index-btn') : null;
+  if (!btn || btn.disabled) return;
+  const libraryHelp = document.getElementById('libraryHelp');
+  if (libraryHelp && libraryHelp.open) libraryHelp.open = false;
+  requestIndexBuild();
+});
 if (document.getElementById('operatorDialogCancel')) {
   document.getElementById('operatorDialogCancel').addEventListener('click', () => closeOperatorDialog());
 }

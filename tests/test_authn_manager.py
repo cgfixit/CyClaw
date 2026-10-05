@@ -546,6 +546,14 @@ class TestLoginTransactionAndRaceSafety:
         running. The claim's WHERE clause re-checks locked_until_ts, not
         just password_hash/disabled, so this must fail closed too."""
         db_path = str(tmp_path / "race4.db")
+        # The fifth failure locks the account for only _LOCKOUT_BASE_SEC (2 s),
+        # and this login's REAL scrypt verify still runs after that lock is
+        # set. On a loaded runner (windows-latest, PR #1562) one verify took
+        # longer than the window, the lock had expired by the time the claim
+        # ran, and the test reported DID NOT RAISE. Widen the window so the
+        # assertion is about the claim re-checking locked_until_ts, not about
+        # how fast the runner can do scrypt.
+        monkeypatch.setattr("utils.authn._LOCKOUT_BASE_SEC", 3600.0)
         manager_a = AuthManager({"auth": {"enabled": True, "db_path": db_path}})
         manager_b = AuthManager({"auth": {"enabled": True, "db_path": db_path}})
         try:
