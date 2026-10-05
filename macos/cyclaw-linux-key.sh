@@ -64,6 +64,33 @@ _cyclaw_linux_stat() {
   stat -c "$1" -- "$3" 2>/dev/null || stat -f "$2" -- "$3" 2>/dev/null
 }
 
+# The key file's folder must be ours and closed to group/other writes:
+# otherwise another local user can swap api-key for a symlink between the
+# file checks and the read. A missing folder is fine (first run).
+_cyclaw_linux_check_dir() {
+  local dir="$1" owner="" mode=""
+  if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then
+    return 0
+  fi
+  if [ -L "$dir" ] || [ ! -d "$dir" ]; then
+    echo "[cyclaw] error: refusing $dir: not a real directory. Remove it and re-run." >&2
+    return 2
+  fi
+  owner="$(_cyclaw_linux_stat %u %u "$dir")" || owner=""
+  if [ "$owner" != "$(id -u)" ]; then
+    echo "[cyclaw] error: refusing $dir: not owned by $(id -un). Remove it and re-run." >&2
+    return 2
+  fi
+  mode="$(_cyclaw_linux_stat %a %Lp "$dir")" || mode=""
+  case "$mode" in
+    *[0-7][2367][0-7]|*[0-7][0-7][2367]|"")
+      echo "[cyclaw] error: refusing $dir: mode ${mode:-unknown} is group/other writable. Run: chmod 700 \"$dir\"" >&2
+      return 2
+      ;;
+  esac
+  return 0
+}
+
 _cyclaw_linux_secret_lookup() {
   "$1" lookup service "$_CYCLAW_LINUX_KEY_SERVICE" account "$(id -un)" 2>/dev/null
 }
@@ -83,6 +110,7 @@ cyclaw_linux_load_api_key() {
     fi
   fi
   file="$(cyclaw_linux_key_file)"
+  _cyclaw_linux_check_dir "${file%/*}" || return 2
   if [ ! -e "$file" ] && [ ! -L "$file" ]; then
     return 1
   fi
