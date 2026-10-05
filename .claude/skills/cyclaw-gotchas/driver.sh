@@ -87,8 +87,11 @@ cmd_venv() {
   if "$PY" -c "import torch" 2>/dev/null; then
     echo "torch already importable"
   elif if [ "$use_uv" = 1 ]; then
-         UV_HTTP_RETRIES=1 UV_HTTP_TIMEOUT=15 uv pip install -q --python "$PY" "torch==2.13.0+cpu" \
-           --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+         # CPU index only, and --no-deps: no second index, so no dependency
+         # confusion (DevSkim ADM.10205). torch's own deps (sympy, networkx,
+         # ...) come from PyPI in the requirements step below.
+         UV_HTTP_RETRIES=1 UV_HTTP_TIMEOUT=15 uv pip install -q --python "$PY" --no-deps \
+           "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
        else
          "$pip" install -q --retries 1 --timeout 15 "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
        fi; then
