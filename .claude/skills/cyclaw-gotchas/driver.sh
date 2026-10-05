@@ -69,29 +69,45 @@ cmd_inventory() {
 }
 
 cmd_venv() {
+  # One build at a time: the SessionStart hook builds this venv in the background
+  # and an agent's own `driver.sh venv` then waits here, instead of racing it.
+  exec 8>"$SCRATCH/venv.lock"; flock 8
   if [ -x "$PY" ] && "$PY" -c "import torch, chromadb, langgraph, pytest" 2>/dev/null; then
     echo "venv ready at $VENV"; return 0
   fi
   command -v python3.12 >/dev/null || { echo "python3.12 not on PATH" >&2; return 3; }
   [ -x "$PY" ] || python3.12 -m venv "$VENV" || return 3
-  local pip="$VENV/bin/pip"
+  # uv, when present, resolves and downloads in parallel: the same cold build
+  # took 122 s with uv vs 413 s with pip on the default cloud image (4 vCPU,
+  # CPU torch index denied, 2026-10-05). pip stays the fallback, so a
+  # container without uv behaves exactly as before.
+  local pip="$VENV/bin/pip" use_uv=0
+  command -v uv >/dev/null 2>&1 && use_uv=1
+  inst() { if [ "$use_uv" = 1 ]; then uv pip install -q --python "$PY" "$@"; else "$pip" install -q "$@"; fi; }
   if "$PY" -c "import torch" 2>/dev/null; then
     echo "torch already importable"
-  elif "$pip" install -q --retries 1 --timeout 15 "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu; then
+  elif if [ "$use_uv" = 1 ]; then
+         UV_HTTP_RETRIES=1 UV_HTTP_TIMEOUT=15 uv pip install -q --python "$PY" "torch==2.13.0+cpu" \
+           --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+       else
+         "$pip" install -q --retries 1 --timeout 15 "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
+       fi; then
     echo "torch: installed from the CPU index"
   else
     echo "torch: CPU index unreachable (proxy policy denies download.pytorch.org)."
     echo "       Falling back to plain torch==2.13.0 from PyPI. --no-deps does NOT work"
     echo "       (import fails on libcudart.so.13); the CUDA deps come along, ~2 GB."
-    "$pip" install -q "torch==2.13.0" || return 2
+    inst "torch==2.13.0" || return 2
   fi
   grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > "$SCRATCH/requirements-notorch.txt"
   # Keep torch pinned (minus +cpu) in the constraints copy: --ignore-installed
   # below reinstalls every package, torch included, and an unconstrained copy
   # floated it to 2.14.0 here on 2026-09-06 despite the explicit 2.13.0 above.
   sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > "$SCRATCH/constraints-plain-torch.txt"
-  "$pip" install -q -r "$SCRATCH/requirements-notorch.txt" -r requirements-test.txt \
-      -c "$SCRATCH/constraints-plain-torch.txt" --ignore-installed PyYAML || return 2
+  # --ignore-installed is a pip flag; uv installs into the fresh venv as-is.
+  local extra=(); [ "$use_uv" = 1 ] || extra=(--ignore-installed PyYAML)
+  inst -r "$SCRATCH/requirements-notorch.txt" -r requirements-test.txt \
+      -c "$SCRATCH/constraints-plain-torch.txt" ${extra[@]+"${extra[@]}"} || return 2
   "$PY" -c "import torch, chromadb, langgraph, pytest; print('venv ready:', torch.__version__)"
 }
 

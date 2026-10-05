@@ -61,8 +61,8 @@ All `*-refactor` skills follow the same seven-step cycle:
 │   └── …                  ← many more (agent, sandbox, optimize, …)
 ├── commands/              ← thin /name wrappers pointing at skills/, plus five
 │                            standalone commands with no skill twin
-├── hooks/                 ← session-start-sync-check.sh and fable-protocol-loader.sh,
-│                            both wired as SessionStart hooks in settings.json
+├── hooks/                 ← session-start-sync-check.sh, fable-protocol-loader.sh and
+│                            session-start-venv.sh, all SessionStart hooks in settings.json
 └── rules/                 ← project-specific rules (PROJECT_RULES.md; plain
                               Markdown, no frontmatter, applies repo-wide)
 ```
@@ -197,9 +197,19 @@ is deliberate, not an oversight (see the dangling-hook note above).
 entries resolving to four scripts, including `memory-orchestrator/orchestrate.py`
 referenced twice for `PreCompact`/`SessionEnd`, and a persona-loader
 `SessionStart` entry for `python-coding-agent`. All three were removed along
-with their target skills — `settings.json` now registers only the two
+with their target skills — `settings.json` now registers only the
 `SessionStart` hooks below, and the observation that the memory hooks lacked
 a `|| true` guard is moot; they no longer exist to lack one.)
+
+**`session-start-venv.sh` (third `SessionStart` hook, added 2026-10-05).**
+Cloud-only (`CLAUDE_CODE_REMOTE=true`; a no-op on a laptop). It detaches
+`cyclaw-gotchas/driver.sh venv` and returns at once, so the Python 3.12 venv at
+`/root/.venv-cyclaw-312` builds while the session starts instead of when the
+first `pytest` needs it. `driver.sh venv` takes a lock, so an agent that runs it
+by hand meanwhile waits for the build and then gets `venv ready`. The driver
+uses `uv` when it is on PATH (cold build 413 s with pip vs 122 s with uv,
+measured 2026-10-05 on the default cloud image) and pip otherwise. Log:
+`$TMPDIR/cyclaw-session-start-venv.log` (`/tmp` when unset).
 
 **`fable-protocol-loader.sh` (second `SessionStart` hook as of 2026-09-16;
 was the third, added 2026-09-06, until the persona-loader hook ahead of it
