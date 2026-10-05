@@ -4,10 +4,10 @@ Contract (e2e-fixes card, PR A "terminal-error"):
 
 * Server: when the LLM fails, ``/query`` still answers HTTP 200, ``body.error``
   carries the stamped ``"{code}: {message}"`` (scrubbed by ``public_error()``),
-  and ``body.answer`` carries the ``[LLM Error: ...]`` stub.
-* Console: on a 200 whose body has ``error`` set, ``static/terminal.js`` shows
-  the error and stops presenting the degraded answer as a normal reply (no
-  ``answer-entry`` carrying the ``[LLM Error:`` stub).
+  and ``body.answer`` is empty.
+* Console: on a 200 whose body has ``error`` set and an empty or stand-in
+  answer, ``static/terminal.js`` shows the error and does not add an ANSWER
+  entry. A non-empty real answer that rides with an upstream error still shows.
 
 The server half drives the real graph (``graph.build_graph``) behind a mocked
 gateway, with a local LLM client that raises ``LLMServiceError`` -- the same
@@ -41,7 +41,6 @@ _PEER = ("127.0.0.73", 51234)  # DevSkim: ignore DS162092,DS137138 - test loopba
 
 _LLM_FAILURE = "Ollama returned 500 after 3 retries"
 _LLM_CODE = "LLM_SERVICE_ERROR"
-_ERROR_STUB = "[LLM Error:"
 
 # What gate.py returns for a degraded local answer (the tests/test_runtime_errors.py
 # Group 2 shape, as the QueryResponse JSON the browser receives).
@@ -107,7 +106,7 @@ def test_query_llm_failure_answers_200_with_error_field(tmp_path: Path) -> None:
     answer = body.get("answer")
     assert isinstance(error, str) and error.startswith(f"{_LLM_CODE}: "), body
     assert _LLM_FAILURE in error
-    assert isinstance(answer, str) and _ERROR_STUB in answer, body
+    assert answer == "", body
 
 
 # ---------------------------------------------------------------------------
@@ -360,10 +359,10 @@ def _assert_error_shown_not_answer(entries: list[dict[str, str]], failure_text: 
     assert any(_LLM_CODE in e["text"] or failure_text in e["text"] for e in errors), (
         f"error entry does not name the failure ({_LLM_CODE} / {failure_text!r}); errors={errors}"
     )
-    degraded = [e for e in _entries_of_type(entries, "answer") if _ERROR_STUB in e["text"]]
-    assert not degraded, (
-        "the degraded '[LLM Error: ...]' answer is still presented as a normal reply "
-        f"(answer-entry); entries={degraded}"
+    answers = _entries_of_type(entries, "answer")
+    assert not answers, (
+        "a generation failure was still presented as an ANSWER entry; "
+        f"entries={answers}"
     )
 
 
@@ -406,6 +405,15 @@ def test_console_keeps_citation_wrapped_real_answer_when_error_rides_along(tmp_p
         f"citation-wrapped real answer was hidden because an error rode along; entries={entries}"
     )
     assert _entries_of_type(entries, "error"), f"the upstream error was not shown; entries={entries}"
+
+
+@pytest.mark.skipif(_NODE is None, reason="node is not on PATH")
+@pytest.mark.parametrize("answer", ["", "   "])
+def test_console_suppresses_empty_answer_when_error_is_set(tmp_path: Path, answer: str) -> None:
+    body = {**_CANNED_ERROR_BODY, "answer": answer}
+    entries = _render_in_console(tmp_path, 200, body)
+    assert not _entries_of_type(entries, "answer"), entries
+    assert len(_entries_of_type(entries, "error")) == 1, entries
 
 
 @pytest.mark.skipif(_NODE is None, reason="node is not on PATH")

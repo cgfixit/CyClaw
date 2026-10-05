@@ -1,0 +1,6 @@
+httpx
+pyyaml
+pytest
+rank-bm25
+nltk
+numpy

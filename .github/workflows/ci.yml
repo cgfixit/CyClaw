@@ -259,7 +259,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install checker dependency
-        run: python -m pip install -c constraints.txt PyYAML
+        run: python -m pip install --require-hashes -r requirements-ci-yaml-lock-linux.txt
       - name: Check documentation contracts (blocking)
         run: python .claude/skills/doc-sync/doc_sync.py
       - name: Verify drift detection (blocking)
@@ -390,7 +390,9 @@ jobs:
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --upgrade "pip==26.2.1"
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --require-hashes --no-deps \
             -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
-          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install dist/*.whl -c constraints.txt
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --require-hashes \
+            -r requirements-lock-linux.txt
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --no-deps dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip check
           "$RUNNER_TEMP/wheel-install/bin/python" -m guardrails.verify_install
@@ -817,6 +819,9 @@ jobs:
             requirements-torch-lock-macos.txt
             requirements-torch-lock-windows.txt
             requirements-test.txt
+            requirements-test-lock-linux.txt
+            requirements-test-lock-macos.txt
+            requirements-test-lock-windows.txt
             constraints.txt
             pyproject.toml
 
@@ -866,15 +871,17 @@ jobs:
             Linux)
               torch_lock=requirements-torch-lock-linux.txt
               runtime_lock=requirements-lock-linux.txt
+              test_lock=requirements-test-lock-linux.txt
               ;;
             Windows)
               torch_lock=requirements-torch-lock-windows.txt
               runtime_lock=requirements-lock-windows.txt
+              test_lock=requirements-test-lock-windows.txt
               ;;
           esac
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels -r "$torch_lock"
           pip install --require-hashes -r "$runtime_lock"
-          pip install -r requirements-test.txt -c constraints.txt
+          pip install --require-hashes -r "$test_lock"
 
       - name: Install the numbat-cel extra (Linux leg only)
         if: runner.os == 'Linux'
@@ -884,9 +891,9 @@ jobs:
           # so without it every test that needs the CEL evaluator skips on all
           # three legs. That includes the /query integration test in
           # tests/test_gate.py, which numbat-rules.yml's CEL lane cannot run
-          # (that lane has no app install). One leg is enough; its transitive
-          # pins come from constraints.txt, as in that lane.
-          pip install -c constraints.txt cel-python==0.5.0
+          # (that lane has no app install). One leg is enough. The hashed lock
+          # was compiled against constraints.txt.
+          pip install --require-hashes -r requirements-ci-cel-lock-linux.txt
 
       - name: Install deps (macOS -- plain torch, no +cpu suffix)
         if: runner.os == 'macOS'
@@ -901,7 +908,7 @@ jobs:
           # alternate index directive.
           pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
           pip install --require-hashes -r requirements-lock-macos.txt
-          pip install -r requirements-test.txt -c constraints.txt
+          pip install --require-hashes -r requirements-test-lock-macos.txt
 
       - name: Prepare hermetic test env
         shell: bash
@@ -1285,13 +1292,11 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          # This job installs an ad-hoc pinned set (below) rather than
-          # requirements.txt, but every version it resolves comes from
-          # constraints.txt -- so that plus the workflow file (which names the
-          # packages) is the correct key. Download-cache only: a stale or
-          # missing entry degrades to a normal install, never a broken one.
+          # This job installs requirements-ci-smoke-lock-linux.txt rather than
+          # the runtime lock. Download-cache only: a stale or missing entry
+          # degrades to a normal install, never a broken one.
           cache-dependency-path: |
-            constraints.txt
+            requirements-ci-smoke-lock-linux.txt
             .github/workflows/ci.yml
 
       - name: Install ollama-mock-smoke test deps (no torch/chromadb needed)
@@ -1303,7 +1308,7 @@ jobs:
         # (this exact install line is duplicated in the sibling job below/above -- both are small, single-purpose smoke lanes; a real shared step would need a composite action for what is currently only 2 call sites, which this repo's own minimal-abstraction convention argues against for now)
         run: |
           python -m pip install --upgrade "pip==26.2.1"
-          pip install -c constraints.txt httpx pyyaml pytest rank-bm25 nltk numpy
+          pip install --require-hashes -r requirements-ci-smoke-lock-linux.txt
 
       - name: Run LocalLLMClient real-socket tests
         run: pytest tests/test_llm_client_ollama.py -v --tb=short
@@ -1351,10 +1356,9 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          # Same key as the sibling ollama-mock-smoke job above, for the same
-          # reason: ad-hoc package list in this file, versions from constraints.
+          # Same key as the sibling ollama-mock-smoke job above.
           cache-dependency-path: |
-            constraints.txt
+            requirements-ci-smoke-lock-linux.txt
             .github/workflows/ci.yml
 
       - name: Install real-repo-run-smoke test deps (no torch/chromadb needed)
@@ -1369,7 +1373,7 @@ jobs:
         # (this exact install line is duplicated in the sibling job below/above -- both are small, single-purpose smoke lanes; a real shared step would need a composite action for what is currently only 2 call sites, which this repo's own minimal-abstraction convention argues against for now)
         run: |
           python -m pip install --upgrade "pip==26.2.1"
-          pip install -c constraints.txt httpx pyyaml pytest rank-bm25 nltk numpy
+          pip install --require-hashes -r requirements-ci-smoke-lock-linux.txt
 
       - name: Verify native agentic confinement or explicit Windows refusal
         shell: bash
@@ -1403,20 +1407,23 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          # The heaviest uncached install in the file: langgraph + langchain-core
-          # + deepagents + langchain-openai + langchain-xai and their transitive
-          # trees, re-downloaded on every run. Same constraints-plus-workflow key
-          # as the two smoke jobs above.
+          # The heaviest install in the file. The hashed lock is the cache key.
           cache-dependency-path: |
-            constraints.txt
+            requirements-ci-deepagents-lock-linux.txt
+            requirements-ci-deepagents-lock-macos.txt
+            requirements-ci-deepagents-lock-windows.txt
             .github/workflows/ci.yml
 
       - name: Install optional Deep Agents harness dependencies
         shell: bash
         run: |
           python -m pip install --upgrade "pip==26.2.1"
-          pip install -c constraints.txt pyyaml httpx langgraph langchain-core pytest rank-bm25
-          pip install -c constraints.txt deepagents langchain-openai langchain-xai
+          case "${{ runner.os }}" in
+            Linux) deepagents_lock=requirements-ci-deepagents-lock-linux.txt ;;
+            Windows) deepagents_lock=requirements-ci-deepagents-lock-windows.txt ;;
+            macOS) deepagents_lock=requirements-ci-deepagents-lock-macos.txt ;;
+          esac
+          pip install --require-hashes -r "$deepagents_lock"
           python -m pip check
 
       - name: Verify Deep Agents HITL and fixture runner
@@ -1498,7 +1505,7 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: |
-            constraints.txt
+            requirements-ci-postgres-lock-linux.txt
             pyproject.toml
 
       - name: Upgrade pip (CVE mitigation for CI env only)
@@ -1508,9 +1515,9 @@ jobs:
         run: |
           # Postgres drivers + the import-time deps tests/conftest.py needs
           # (retrieval.hybrid_search → rank-bm25, nltk; numpy backs rank-bm25).
-          # Constraints pin the drivers (psycopg, psycopg-binary, pgvector) and
-          # the rest to the project versions. PorterStemmer needs no nltk_data download.
-          pip install -c constraints.txt 'psycopg[binary]' pgvector pyyaml rank-bm25 nltk numpy pytest
+          # The hashed lock was compiled against constraints.txt.
+          # PorterStemmer needs no nltk_data download.
+          pip install --require-hashes -r requirements-ci-postgres-lock-linux.txt
 
       - name: Run live Postgres / pgvector backend tests
         run: |
@@ -1641,9 +1648,8 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: |
-            requirements.txt
-            requirements-test.txt
-            constraints.txt
+            requirements-lock-linux.txt
+            requirements-ci-yaml-lock-linux.txt
             pyproject.toml
 
       - name: Cache torch CPU wheel
@@ -1673,7 +1679,7 @@ jobs:
           python -m pip install --upgrade "pip==26.2.1"
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels \
             -r requirements-torch-lock-linux.txt
-          pip install -r requirements.txt -c constraints.txt
+          pip install --require-hashes -r requirements-lock-linux.txt
           # Some skill scripts invoke `python3.12` explicitly; ensure it resolves.
           command -v python3.12 >/dev/null 2>&1 || sudo ln -sf "$(command -v python)" /usr/local/bin/python3.12
 
@@ -1682,7 +1688,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade "pip==26.2.1"
-          pip install -c constraints.txt pyyaml
+          pip install --require-hashes -r requirements-ci-yaml-lock-linux.txt
 
       - name: Cache embeddings model (sentence-transformers)
         if: matrix.profile == 'heavy'

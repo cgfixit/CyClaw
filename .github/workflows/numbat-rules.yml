@@ -198,16 +198,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          # cel-python and its transitive pins live in constraints.txt; the
-          # tool pins live in this file. Either changing invalidates the cache.
+          # The hashed numbat lock is the install. The workflow file still
+          # names the job, so it stays in the cache key.
           cache-dependency-path: |
             .github/workflows/numbat-rules.yml
-            constraints.txt
+            requirements-ci-numbat-lock-linux.txt
 
       - name: Install the numbat-cel extra's pin
         run: |
-          python -m pip install --disable-pip-version-check -c constraints.txt \
-            cel-python==0.5.0 pytest==9.1.1 pyyaml==6.0.3
+          python -m pip install --disable-pip-version-check --require-hashes \
+            -r requirements-ci-numbat-lock-linux.txt
 
       - name: CEL monitor tests must run, not skip
         env:
