@@ -112,9 +112,7 @@ _SERVICES = (
     "com.cgfixit.cyclaw.rclone-config-pass",
 )
 
-pytestmark = pytest.mark.skipif(
-    os.name == "nt", reason="requires a POSIX shell (bash) and chmod semantics"
-)
+pytestmark = pytest.mark.skipif(os.name == "nt", reason="requires a POSIX shell (bash) and chmod semantics")
 
 
 def _unused_port() -> int:
@@ -230,9 +228,7 @@ def test_default_uninstall_does_not_call_security(fake_security: Path, tmp_path:
     assert "delete-generic-password" not in result.stdout
 
 
-def test_remove_keychain_without_yes_on_nontty_keeps_items(
-    fake_security: Path, tmp_path: Path
-) -> None:
+def test_remove_keychain_without_yes_on_nontty_keeps_items(fake_security: Path, tmp_path: Path) -> None:
     argv_log = tmp_path / "security-calls.log"
     result = _run(
         "--remove-keychain",
@@ -246,9 +242,7 @@ def test_remove_keychain_without_yes_on_nontty_keeps_items(
     assert not argv_log.exists()
 
 
-def test_remove_keychain_yes_deletes_documented_services(
-    fake_security: Path, tmp_path: Path
-) -> None:
+def test_remove_keychain_yes_deletes_documented_services(fake_security: Path, tmp_path: Path) -> None:
     argv_log = tmp_path / "security-calls.log"
     account = subprocess.check_output(["/usr/bin/id", "-un"], text=True).strip()
     result = _run(
@@ -268,9 +262,7 @@ def test_remove_keychain_yes_deletes_documented_services(
     assert logged.count("delete-generic-password") == len(_SERVICES)
 
 
-def test_remove_keychain_yes_treats_missing_item_as_success(
-    fake_security: Path, tmp_path: Path
-) -> None:
+def test_remove_keychain_yes_treats_missing_item_as_success(fake_security: Path, tmp_path: Path) -> None:
     result = _run(
         "--remove-keychain",
         "--yes",
@@ -283,9 +275,7 @@ def test_remove_keychain_yes_treats_missing_item_as_success(
     assert "uninstall complete" in result.stdout
 
 
-def test_remove_keychain_yes_survives_security_failure(
-    fake_security: Path, tmp_path: Path
-) -> None:
+def test_remove_keychain_yes_survives_security_failure(fake_security: Path, tmp_path: Path) -> None:
     result = _run(
         "--remove-keychain",
         "--yes",
@@ -425,9 +415,7 @@ def test_uninstall_strips_plaintext_when_keychain_holds_it(fake_security: Path, 
     assert "No backup was written" in result.stdout
 
 
-def test_uninstall_leaves_plaintext_when_keychain_item_is_missing(
-    fake_security: Path, tmp_path: Path
-) -> None:
+def test_uninstall_leaves_plaintext_when_keychain_item_is_missing(fake_security: Path, tmp_path: Path) -> None:
     secret = "g" * 40
     env_file = tmp_path / ".CyClaw" / ".env"
     env_file.parent.mkdir()
@@ -471,9 +459,7 @@ def test_uninstall_mismatch_keeps_plaintext(fake_security: Path, tmp_path: Path)
     assert stored not in result.stderr
 
 
-def test_remove_keychain_leaves_plaintext_while_purge_deletes(
-    fake_security: Path, tmp_path: Path
-) -> None:
+def test_remove_keychain_leaves_plaintext_while_purge_deletes(fake_security: Path, tmp_path: Path) -> None:
     secret = "j" * 40
     env_file = tmp_path / ".CyClaw" / ".env"
     env_file.parent.mkdir()
@@ -500,9 +486,7 @@ def test_remove_keychain_leaves_plaintext_while_purge_deletes(
     assert secret not in result.stderr
 
 
-def test_remove_keychain_declined_still_skips_the_strip(
-    fake_security: Path, tmp_path: Path
-) -> None:
+def test_remove_keychain_declined_still_skips_the_strip(fake_security: Path, tmp_path: Path) -> None:
     secret = "k" * 40
     env_file = tmp_path / ".CyClaw" / ".env"
     env_file.parent.mkdir()
@@ -616,3 +600,40 @@ def test_linux_uninstall_explicit_credential_purge(tmp_path: Path, flags: list[s
         ]
     else:
         assert not (tmp_path / "clear-argv").exists()
+
+
+def test_missing_secret_policy_tsv_warns(tmp_path: Path) -> None:
+    """Unreadable policy paths warn; purge still lists the five installer services."""
+    home = tmp_path / "home"
+    home.mkdir()
+    script_dir = tmp_path / "macos"
+    script_dir.mkdir()
+    real = _SCRIPT.read_text(encoding="utf-8")
+    start = real.index("cyclaw_keychain_services() {")
+    end = real.index("\npurge_cyclaw_keychain()")
+    body = real[start:end]
+    out = tmp_path / "services.out"
+    err = tmp_path / "services.err"
+    runner = tmp_path / "run.sh"
+    runner.write_text(
+        "set -euo pipefail\n"
+        f'SCRIPT_DIR="{script_dir}"\n'
+        f'HOME_DIR="{home}"\n'
+        "KC_API=com.cgfixit.cyclaw.api-key\n"
+        "KC_TELEGRAM=com.cgfixit.cyclaw.telegram-bot-token\n"
+        "KC_GROK=com.cgfixit.cyclaw.grok-api-key\n"
+        "KC_ANTHROPIC=com.cgfixit.cyclaw.anthropic-api-key\n"
+        "KC_GH=com.cgfixit.cyclaw.gh-token\n" + body + f'\ncyclaw_keychain_services >"{out}" 2>"{err}"\n',
+        encoding="utf-8",
+    )
+    proc = subprocess.run([_BASH, str(runner)], check=False, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert "WARNING: secret-policy.tsv missing or unreadable" in err.read_text(encoding="utf-8")
+    services = [line for line in out.read_text(encoding="utf-8").splitlines() if line]
+    assert services == [
+        "com.cgfixit.cyclaw.api-key",
+        "com.cgfixit.cyclaw.telegram-bot-token",
+        "com.cgfixit.cyclaw.grok-api-key",
+        "com.cgfixit.cyclaw.anthropic-api-key",
+        "com.cgfixit.cyclaw.gh-token",
+    ]

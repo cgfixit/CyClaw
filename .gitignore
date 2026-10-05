@@ -37,6 +37,7 @@ index/
 logs/
 *.jsonl
 data/personality/*.db
+data/budget/
 data/personality/*.db-shm
 data/personality/*.db-wal
 data/personality/soul.md.bak
