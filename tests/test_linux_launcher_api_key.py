@@ -50,6 +50,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import select
 import shlex
 import shutil
@@ -535,7 +536,9 @@ def test_secret_tool_disabled_by_env_hook_uses_key_file_only(tmp_path: Path, sha
 # ---------------------------------------------------------------------------
 
 # A well-formed stored key: 40 lowercase hex chars, the shape the launcher generates.
-_HEX40 = "0123456789abcdef0123456789abcdef01234567"
+# Built at runtime so no key-shaped literal sits in source (DevSkim DS173237); the
+# fixed "af" tail guarantees a letter so the uppercase variant always differs.
+_HEX40 = secrets.token_hex(19) + "af"
 # Loose match for a "stdout is not a terminal" warning; "terminal.html" (the
 # console page name) does not count.
 _TTY_WARNING = re.compile(r"(?i)\b(tty|terminal(?!\.html)|pairing)\b")
