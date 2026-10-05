@@ -196,10 +196,10 @@ looks_like_repo() {
 }
 
 absolute_dir() {
-  (CDPATH= cd -- "$1" && pwd)
+  (CDPATH='' cd -- "$1" && pwd)
 }
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 REPO_DIR=""
 
 find_checkout() {
@@ -363,7 +363,7 @@ ENV_FILE="$HOME_DIR/.env"
 # xtrace would print every assignment while sourcing a dotenv. Refuse rather
 # than turning a convenience flag into a credential-disclosure feature.
 # Secrets come from Keychain after non-secret settings are sourced.
-_CYCLAW_SECRET_HELPER="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/cyclaw-keychain-load.sh"
+_CYCLAW_SECRET_HELPER="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/cyclaw-keychain-load.sh"
 if [ ! -f "$_CYCLAW_SECRET_HELPER" ]; then
   die "cyclaw-keychain-load.sh not found at $_CYCLAW_SECRET_HELPER"
 fi

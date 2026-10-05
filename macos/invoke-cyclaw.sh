@@ -125,7 +125,7 @@ echo "[cyclaw] Ctrl+C stops the server"
 # process only. Secret lines in .env are scrubbed and never passed to gate.py.
 # xtrace would dump every assignment — refuse rather than leak.
 # shim + cyclaw() + a direct script all exec this file.
-_INVOKE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+_INVOKE_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 _CYCLAW_SECRET_HELPER=""
 for _cand in "$_INVOKE_DIR/cyclaw-keychain-load.sh" "$REPO_DIR/macos/cyclaw-keychain-load.sh"; do
   if [ -f "$_cand" ]; then
@@ -255,7 +255,7 @@ unset CYCLAW_CONSOLE_PAIRING_CODE
 # fall through silently: a browser opened on a dead port and the final wait
 # blocked forever with no diagnostic. Surface the real cause instead.
 GATE_READY=0
-for i in 1 2 3 4 5; do
+for _ in 1 2 3 4 5; do
   if ! kill -0 "$GATE_PID" 2>/dev/null; then
     wait "$GATE_PID" 2>/dev/null || true
     # Cleared first so the EXIT trap's cleanup() does not try to kill a pid

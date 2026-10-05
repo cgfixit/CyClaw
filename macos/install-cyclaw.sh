@@ -98,7 +98,7 @@ if [ -n "$REPO_PATH" ]; then
     echo "--repo-path '$REPO_PATH' does not look like a CyClaw checkout." >&2
     exit 1
   fi
-  REPO_DIR="$(CDPATH= cd -- "$REPO_PATH" && pwd)"
+  REPO_DIR="$(CDPATH='' cd -- "$REPO_PATH" && pwd)"
   step "using existing repo at $REPO_DIR"
 elif [ ! -f "$REPO_DIR/gate.py" ]; then
   if [ -d "$REPO_DIR" ]; then

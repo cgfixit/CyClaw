@@ -252,7 +252,7 @@ fi
 
 # $0 is reliable when invoked as `bash path/to/script`; CDPATH must not
 # hijack `cd` (same class of footgun install-cyclaw.sh documents).
-_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 if [ -f "$_SCRIPT_DIR/cyclaw-public-env.sh" ]; then
   # shellcheck disable=SC1091
   . "$_SCRIPT_DIR/cyclaw-public-env.sh"
@@ -284,7 +284,7 @@ _find_repo() {
       echo "--repo-path '$REPO_PATH' does not look like a CyClaw checkout (missing gate.py)." >&2
       exit 1
     fi
-    REPO_DIR="$(CDPATH= cd -- "$REPO_PATH" && pwd)"
+    REPO_DIR="$(CDPATH='' cd -- "$REPO_PATH" && pwd)"
     reject_shell_metachars "$REPO_DIR"
     return 0
   fi
@@ -297,7 +297,7 @@ _find_repo() {
     [ -n "$cand" ] || continue
     [ -d "$cand" ] || continue
     if _looks_like_repo "$cand"; then
-      REPO_DIR="$(CDPATH= cd -- "$cand" && pwd)"
+      REPO_DIR="$(CDPATH='' cd -- "$cand" && pwd)"
       reject_shell_metachars "$REPO_DIR"
       return 0
     fi
@@ -309,7 +309,7 @@ _find_repo
 
 mkdir -p "$HOME_DIR"
 chmod 700 "$HOME_DIR" 2>/dev/null || true
-HOME_DIR="$(CDPATH= cd -- "$HOME_DIR" && pwd)"
+HOME_DIR="$(CDPATH='' cd -- "$HOME_DIR" && pwd)"
 reject_shell_metachars "$HOME_DIR"
 ENV_FILE="$HOME_DIR/.env"
 
@@ -717,10 +717,10 @@ _migrate_one_line() {
 # Pattern matches that are not on the Keychain allowlist stay on disk.
 # Deleting them would destroy the only copy. Launchers still do not load them.
 _warn_unmapped_secret_lines() {
-  local file="$1" line name op val
+  local file="" line name _op _val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    while IFS=$'\x1f' read -r name op val; do
+    while IFS=$'\x1f' read -r name _op _val; do
       [ -n "$name" ] || continue
       cyclaw_is_secret_name "$name" || continue
       cyclaw_secret_service "$name" >/dev/null 2>&1 && continue
