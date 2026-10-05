@@ -41,7 +41,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 # Loopback hosts CyClaw is permitted to bind (docs/THREAT_MODEL.md: loopback-only).
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -131,7 +131,10 @@ def run_checks(cfg: dict[str, Any], ollama_context_length: int | None = None) ->
         value = _dig(cfg, *path)
         if isinstance(value, str) and value:
             try:
-                if urlsplit(value).password is not None:
+                parsed = urlsplit(value)
+                if parsed.password is not None or any(
+                    key.lower() == "password" for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+                ):
                     inline_keys.append(".".join(path))
             except ValueError:
                 inline_keys.append(".".join(path))

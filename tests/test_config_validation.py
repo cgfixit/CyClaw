@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from utils.config_validation import (
+    validate_no_inline_credentials,
     validate_logging_config,
     validate_auth_config,
     validate_boot_timeout_config,
@@ -21,6 +22,40 @@ from utils.config_validation import (
     validate_tls_config,
 )
 from utils.errors import ConfigError
+
+
+@pytest.mark.parametrize("path", [
+    ("indexing", "database_url"),
+    ("personality", "database_url"),
+    ("api", "rate_limit", "database_url"),
+    ("auth", "database_url"),
+])
+@pytest.mark.parametrize("url", [
+    "postgresql://operator:synthetic@localhost/db",
+    "postgresql://operator@localhost/db?password=synthetic",
+])
+def test_database_url_password_rejected_at_config_load(tmp_path: Path, path: tuple[str, ...], url: str) -> None:
+    from utils.logger import _get_config, reset_config_cache
+
+    cfg: dict = {}
+    node = cfg
+    for key in path[:-1]:
+        node = node.setdefault(key, {})
+    node[path[-1]] = url
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    reset_config_cache()
+    try:
+        with pytest.raises(ConfigError, match="must not contain a password") as exc:
+            _get_config(str(config_path))
+        assert exc.value.details == {"field": ".".join(path)}
+        assert "synthetic" not in str(exc.value)
+    finally:
+        reset_config_cache()
+
+
+def test_database_url_without_password_remains_valid() -> None:
+    validate_no_inline_credentials({"indexing": {"database_url": "postgresql://operator@localhost/db?sslmode=require"}})
 
 
 def _valid_retrieval() -> dict:

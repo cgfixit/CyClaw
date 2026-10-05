@@ -11,6 +11,7 @@ logging.audit_fields and the invariant in tests/test_due_diligence_invariants.py
 
 import atexit
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -21,7 +22,6 @@ import sys
 import threading
 import time
 import weakref
-import hmac
 from collections import deque
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any, TextIO
 
 import yaml
+
+from utils.config_validation import validate_no_inline_credentials
 from utils.secret_policy import SECRET_POLICY
 
 logger = logging.getLogger("cyclaw.logger")
@@ -829,7 +831,10 @@ def resolve_config_path(config_path: str = "config.yaml") -> Path:
 @lru_cache(maxsize=8)
 def _get_config(config_path: str = "config.yaml") -> dict:
     with open(resolve_config_path(config_path), encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if isinstance(cfg, dict):
+        validate_no_inline_credentials(cfg)
+    return cfg
 
 def reset_config_cache() -> None:
     clear = getattr(_get_config, "cache_clear", None)

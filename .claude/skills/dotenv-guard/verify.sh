@@ -187,13 +187,13 @@ _expect "K2 tracked .env-local" 2 K2 'FAIL  \[K2\] tracked .env-local assigns GR
 
 t="$work/e2suffix"; _tree "$t"
 mkdir -p "$t/config"
-printf '%s\n' 'GH_PAT=' 'SENTRY_DSN=' 'DB_CREDENTIALS=' 'AWS_ACCESS_KEY=' >"$t/config/suffix.env"
+printf '%s\n' 'GH_PAT=' 'SENTRY_DSN=' 'CYCLAW_DB_URL=' 'DB_CREDENTIALS=' 'AWS_ACCESS_KEY=' >"$t/config/suffix.env"
 git -C "$t" add -f config/suffix.env
 out="$("$PY" "$checker" --repo-root "$t" --baseline "$empty" 2>&1)"; rc=$?
 if [ "$rc" -ne 2 ]; then
   echo "K2 widened suffixes: FAIL — expected exit 2, got $rc" >&2; echo "$out" >&2; exit 1
 fi
-for secret_name in GH_PAT SENTRY_DSN DB_CREDENTIALS AWS_ACCESS_KEY; do
+for secret_name in GH_PAT SENTRY_DSN CYCLAW_DB_URL DB_CREDENTIALS AWS_ACCESS_KEY; do
   if ! grep -q "tracked config/suffix.env assigns ${secret_name}" <<<"$out"; then
     echo "K2 widened suffixes: FAIL — missing ${secret_name}" >&2; echo "$out" >&2; exit 1
   fi
@@ -203,7 +203,7 @@ if [ -n "$others" ]; then
   echo "K2 widened suffixes: FAIL — another rule tripped:" >&2; echo "$others" >&2; exit 1
 fi
 n=$((n + 1))
-echo "K2 widened suffixes (_PAT _DSN _CREDENTIALS _KEY): PASS"
+echo "K2 widened suffixes (_PAT _DSN _DB_URL _CREDENTIALS _KEY): PASS"
 
 t="$work/e3"; _tree "$t"
 printf '*.pyc\n' >"$t/.gitignore"
