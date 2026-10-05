@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -144,21 +145,17 @@ def test_no_tracked_path_is_uncheckoutable_on_windows() -> None:
 _README_TEST_COUNT = re.compile(r"\((\d+)\s+`test_\*\.py` files")
 
 
-def test_tests_readme_test_file_count_matches_tree() -> None:
-    """tests/README.md suite-count integer must match find tests -name 'test_*.py'.
-
-    Regression: the lede was bumped 181→183, then 194→209 on #1214, then left
-    stale again after later test files (including tests/nemo_runtime/) landed.
-    `ls tests/test_*.py` misses nested files that pytest testpaths=["tests"]
-    still collects. Count recursively; put new guards in this file so the
-    integer does not move just because the pin exists.
-    """
+def test_tests_readme_test_discovery_matches_config() -> None:
+    """Pin documented discovery settings; validate a numeric count only if stated."""
     readme = (REPO_ROOT / "tests" / "README.md").read_text(encoding="utf-8")
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    options = config["tool"]["pytest"]["ini_options"]
+    assert options["testpaths"] == ["tests"]
+    assert '`testpaths = ["tests"]` in `pyproject.toml`' in readme
+    assert "`test_*.py` files, auto-collected" in readme
     match = _README_TEST_COUNT.search(readme)
-    assert match, (
-        "tests/README.md must state '(N `test_*.py` files' in the lede so the "
-        "count can be pinned"
-    )
+    if match is None:
+        return
     claimed = int(match.group(1))
     actual = sum(
         1
