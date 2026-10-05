@@ -115,7 +115,7 @@ jobs:
             --index-url https://download.pytorch.org/whl/cpu \
             --no-deps -d .torch-wheels
 
-      - name: Install with constraints (reproducible gate)
+      - name: Install the hashed runtime lock
         env:
           INSTALL_PROFILE: ${{ matrix.profile }}
         if: runner.os != 'macOS'
@@ -126,13 +126,12 @@ jobs:
             Windows) torch_lock=requirements-torch-lock-windows.txt; runtime_lock=requirements-lock-windows.txt ;;
           esac
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels -r "$torch_lock"
-          if [ "$INSTALL_PROFILE" = requirements ]; then
-            pip install --require-hashes -r "$runtime_lock"
-          else
-            pip install -e . -c constraints.txt
+          pip install --require-hashes -r "$runtime_lock"
+          if [ "$INSTALL_PROFILE" != requirements ]; then
+            pip install -e . --no-deps
           fi
 
-      - name: Install with constraints (macOS -- plain torch, no +cpu suffix)
+      - name: Install the hashed runtime lock (macOS -- plain torch, no +cpu suffix)
         env:
           INSTALL_PROFILE: ${{ matrix.profile }}
         if: runner.os == 'macOS'
@@ -140,19 +139,12 @@ jobs:
         # torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu for
         # macOS -- that index lists plain (non "+cpu"-suffixed) versions there
         # instead, because Apple Silicon has no separate CPU/CUDA build to
-        # disambiguate. Same fix ci.yml's "Install deps (macOS -- plain torch,
-        # no +cpu suffix)" step applies: install plain torch directly, then
-        # everything else from a requirements.txt copy with the torch/
-        # extra-index-url lines stripped, so pip never tries to reconcile the
-        # installed plain build against the +cpu-suffixed pin, and a
-        # constraints.txt copy that keeps torch pinned minus the +cpu suffix.
+        # disambiguate. The macOS locks already omit the +cpu suffix.
         run: |
           pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
-          if [ "$INSTALL_PROFILE" = requirements ]; then
-            pip install --require-hashes -r requirements-lock-macos.txt
-          else
-            sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > "$RUNNER_TEMP/constraints-macos.txt"
-            pip install -e . -c "$RUNNER_TEMP/constraints-macos.txt"
+          pip install --require-hashes -r requirements-lock-macos.txt
+          if [ "$INSTALL_PROFILE" != requirements ]; then
+            pip install -e . --no-deps
           fi
 
       - name: Verify dependency consistency + smoke imports
@@ -192,7 +184,7 @@ jobs:
         # silently out of step with the other's for the same commit.
         run: pip install pip-audit==2.10.1
 
-      - name: Install audited environment (base runtime + test tools, constraints applied)
+      - name: Install audited environment (hashed runtime lock + hashed test lock)
         shell: bash
         # pip-audit's own `-r` resolves dependencies itself, in a throwaway venv
         # it builds internally -- it has no `-c`/`--constraint` flag, so it can
@@ -218,7 +210,7 @@ jobs:
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes --no-deps \
             -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r requirements-lock-linux.txt
-          "$RUNNER_TEMP/audit-venv/bin/pip" install -r requirements-test.txt -c constraints.txt
+          "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r requirements-test-lock-linux.txt
 
       - name: Run pip-audit (ignore only mitigated chromadb + nltk CVEs)
         run: |
@@ -280,11 +272,9 @@ jobs:
         # scan-optional job below.)
         #
         # setuptools is pinned at 84.0.0 in constraints.txt (PYSEC-2026-3447
-        # floor is 83.0.0). The previous --ignore-vuln is gone: the "Install
-        # audited environment" step above does a real `pip install -c
-        # constraints.txt`, so the venv this job audits (via --path) actually
-        # has the patched 84.0.0, not whatever pip-audit's own unconstrained
-        # internal resolution would have floated.
+        # floor is 83.0.0). The previous --ignore-vuln is gone: the audited
+        # venv installs requirements-lock-linux.txt with --require-hashes, and
+        # that lock carries setuptools==84.0.0.
         #
         # PYSEC-2026-3721 (pip) — was ignored here from 2026-09-07 while pip
         # was pinned to 26.1.2 repo-wide. Closed by the repository-wide pip
@@ -337,26 +327,38 @@ jobs:
         # silently out of step with the other's for the same commit.
         run: pip install pip-audit==2.10.1
 
-      - name: Generate one requirements file per extra
+      - name: Resolve the hashed lock for each extra
         shell: bash
-        # Generated from pyproject.toml rather than hand-listed, so a new extra
-        # is scanned the day it lands instead of the day someone remembers to
-        # update this workflow. Aggregate extras (`full`, `all`) are skipped:
-        # their entries are `cyclaw[...]` self-references, and the extras they
-        # point at are each scanned on their own anyway.
+        # Names still come from pyproject.toml, so a new extra fails this job
+        # until scripts/refresh-ci-locks.sh grows a lock. Aggregate extras
+        # (`full`, `all`) stay skipped. test and numbat-cel reuse the locks
+        # the other jobs already install.
         run: |
           mkdir -p .audit-extras
           python - <<'PY'
-          import pathlib, tomllib
+          import pathlib, sys, tomllib
           extras = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["optional-dependencies"]
-          out = pathlib.Path(".audit-extras")
+          rows = []
+          missing = []
           for name, reqs in extras.items():
               direct = [r for r in reqs if not r.startswith("cyclaw[")]
               if not direct:
                   print(f"skip {name} (aggregate extra, no direct pins)")
                   continue
-              (out / f"{name}.txt").write_text("\n".join(direct) + "\n")
-              print(f"wrote {name}.txt ({len(direct)} pin(s))")
+              if name == "test":
+                  lock = "requirements-test-lock-linux.txt"
+              elif name == "numbat-cel":
+                  lock = "requirements-ci-cel-lock-linux.txt"
+              else:
+                  lock = f"requirements-extra-lock-{name}-linux.txt"
+              if not pathlib.Path(lock).is_file():
+                  missing.append(f"{name} -> {lock}")
+              else:
+                  rows.append(f"{name}\t{lock}")
+                  print(f"{name} {lock}")
+          if missing:
+              sys.exit("missing hashed extra lock: " + ", ".join(missing))
+          pathlib.Path(".audit-extras/locks.tsv").write_text("\n".join(rows) + "\n")
           PY
 
       - name: Run pip-audit over every extra
@@ -368,13 +370,11 @@ jobs:
         #
         # Every CVE is a real finding here -- the base scan's chromadb/nltk
         # ignores are deliberately NOT carried over, since neither package is
-        # an extra. setuptools is constrained via a real `pip install -c
-        # constraints.txt` per extra below (84.0.0, PYSEC-2026-3447 floor
-        # 83.0.0) so the old ignore is gone. Same reasoning as the base `scan`
-        # job: pip-audit -r has no -c/--constraint flag (confirmed against
-        # pip-audit==2.10.1 --help and by reproducing the argparse error), so
-        # each extra is installed for real into its own throwaway venv with
-        # constraints applied, then audited via pip-audit --path. pip is
+        # an extra. Each extra installs from a hashed lock compiled against
+        # constraints.txt (setuptools stays 84.0.0 when a package pulls it,
+        # PYSEC-2026-3447 floor 83.0.0). pip-audit -r has no -c/--constraint
+        # flag, so the lock is installed into a throwaway venv and audited
+        # with --path. pip is
         # pinned to 26.2.1 (matching every other workflow -- dep-guard's E1
         # cross-workflow pin-consistency check), which carries the fix for
         # PYSEC-2026-3721, so no ignore is needed for it below (was ignored
@@ -382,15 +382,14 @@ jobs:
         # history).
         run: |
           failed=""
-          for f in .audit-extras/*.txt; do
-            extra="$(basename "$f" .txt)"
-            echo "::group::pip-audit -r $f"
+          while IFS=$'\t' read -r extra lock; do
+            echo "::group::pip-audit $extra"
             ok=0
             for attempt in 1 2 3; do
               rm -rf "$RUNNER_TEMP/audit-venv-extra"
               python -m venv "$RUNNER_TEMP/audit-venv-extra"
               "$RUNNER_TEMP/audit-venv-extra/bin/python" -m pip install --upgrade pip==26.2.1
-              if "$RUNNER_TEMP/audit-venv-extra/bin/pip" install -r "$f" -c constraints.txt; then
+              if "$RUNNER_TEMP/audit-venv-extra/bin/pip" install --require-hashes -r "$lock"; then
                 AUDIT_PATH="$("$RUNNER_TEMP/audit-venv-extra/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
                 if pip-audit --path "$AUDIT_PATH"; then
                   ok=1
@@ -407,7 +406,7 @@ jobs:
               failed="$failed $extra"
             fi
             echo "::endgroup::"
-          done
+          done < .audit-extras/locks.tsv
           if [ -n "$failed" ]; then
             echo "::error::pip-audit reported findings in optional extra(s):$failed"
             exit 1
