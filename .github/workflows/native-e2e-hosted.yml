@@ -41,9 +41,14 @@
 # the throwaway keystore, is loaded into one step's process environment, and
 # is never echoed or passed through GITHUB_ENV / GITHUB_OUTPUT. The checker
 # generates the console pairing code itself and hands it only to the gateway
-# process. Both are registered with ::add-mask:: before first use. The macOS
-# keychain password is random per run and masked before use. GROK_API_KEY is
-# the literal "dummy" used by every CI job, not a secret.
+# process. Each value is registered with ::add-mask:: in the step that holds
+# it, before first use: the Windows key where it is generated, the loaded
+# CYCLAW_API_KEY in each checker step right after the keystore load (before
+# the checker starts), the pairing code by the checker itself, and the random
+# per-run macOS keychain password. ::add-mask:: covers the step log only; the
+# checker's final leak scan covers files only (gateway / mock / smoke logs and
+# the audit log), and the checker also redacts both values in its own output.
+# GROK_API_KEY is the literal "dummy" used by every CI job, not a secret.
 # ==============================================================================
 
 name: Native E2E (hosted macOS + Windows)
@@ -105,10 +110,13 @@ jobs:
           mkdir -p data/personality index logs
           echo '# Soul' > data/personality/soul.md
 
-      - name: Cache embeddings model (sentence-transformers)
-        # Same step, path, and key as ci.yml's test job, so a dispatch on main
-        # restores the models ci.yml already saved instead of downloading them.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      - name: Restore embeddings model cache (sentence-transformers, read-only)
+        # Same path, key, and restore-keys as ci.yml's test job, so a dispatch
+        # on main restores the models ci.yml already saved instead of
+        # downloading them. restore-only (actions/cache/restore, same pinned
+        # commit as ci.yml's actions/cache): a manual run never writes the
+        # cache entry ci.yml restores, so it cannot seed or replace it.
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .emb_cache
           key: emb-model-all-MiniLM-L6-v2+ms-marco-MiniLM-L6-v2-v1
@@ -220,6 +228,10 @@ jobs:
             echo "[native-e2e] FAIL: CYCLAW_API_KEY did not load from the Keychain" >&2
             exit 1
           fi
+          # Mask the loaded key in this step's log before the checker starts
+          # (the runner consumes the line; it is not shown). Guarded above, so
+          # an empty value is never registered.
+          echo "::add-mask::${CYCLAW_API_KEY}"
           "$HOME/.CyClaw/venv/bin/python" tests/native_e2e_hosted.py \
             --expect-venv "$HOME/.CyClaw/venv" \
             --smoke macos \
@@ -331,6 +343,8 @@ jobs:
           $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
           try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
           $newKey = -join ($keyBytes | ForEach-Object { $_.ToString("x2") })
+          # Mask before any other use (the runner consumes the line).
+          Write-Host "::add-mask::$newKey"
           $stored = Write-CyclawCredential "com.cgfixit.cyclaw.api-key" $newKey
           $newKey = $null
           if (-not $stored) { throw "CredWrite failed for com.cgfixit.cyclaw.api-key" }
@@ -349,6 +363,9 @@ jobs:
           . (Join-Path $env:USERPROFILE ".CyClaw\bin\CyClaw-SecretStore.ps1")
           Import-CyclawCredentialSecrets
           if (-not $env:CYCLAW_API_KEY) { throw "CYCLAW_API_KEY did not load from Credential Manager" }
+          # Mask the loaded key in this step's log before the checker starts
+          # (non-empty is guaranteed by the check above).
+          Write-Host "::add-mask::$env:CYCLAW_API_KEY"
           $HomeDir = Join-Path $env:USERPROFILE ".CyClaw"
           & (Join-Path $HomeDir "venv\Scripts\python.exe") tests\native_e2e_hosted.py `
             --expect-venv (Join-Path $HomeDir "venv") `

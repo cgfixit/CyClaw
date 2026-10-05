@@ -26,10 +26,13 @@ What it does, in order:
    logs/ directory for the API key and the pairing code; any hit fails.
 
 Secrets: the pairing code is generated here with ``secrets.token_urlsafe`` and
-is passed only in the gateway's environment. Under GitHub Actions both values
-are registered with ``::add-mask::`` before first use. Nothing this script
-prints contains either value: every line goes through one redactor, and logs
-dumped on failure are redacted the same way.
+is passed only in the gateway's environment. Under GitHub Actions this script
+registers the pairing code with ``::add-mask::`` before first use; the API key
+is masked by the workflow step that loads it from the keystore, before this
+script starts. ``::add-mask::`` covers the step log only; the final leak scan
+covers files only. Nothing this script prints contains either value: every
+line goes through one redactor, and logs dumped on failure are redacted the
+same way.
 
 Not collected by pytest (the file name does not match test_*.py). It only runs
 when invoked directly; nothing in the required CI runs it.
@@ -514,18 +517,21 @@ def check_audit(res: Results, base: str, key: str, expected: dict[str, int], aud
     )
     lines = count_lines(audit_file)
     events: set[str] = set()
+    read_error = ""
     try:
         for line in audit_file.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
                 events.add(str(json.loads(line).get("event")))
             except (ValueError, AttributeError):
                 continue
-    except OSError:
-        pass
+    except OSError as exc:
+        # A missing or unreadable audit file leaves `events` empty, so the check
+        # below fails; the error is recorded in its detail instead of hidden.
+        read_error = f" read_error={type(exc).__name__}: {exc}"
     res.check(
         "audit log file has new lines, including the RAG query",
         lines > baseline and "rag_query" in events and "user_gate_pause" in events,
-        f"{audit_file.name}: {baseline} -> {lines} lines",
+        f"{audit_file.name}: {baseline} -> {lines} lines{read_error}",
     )
 
 
@@ -561,10 +567,10 @@ def main(argv: list[str] | None = None) -> int:
     REDACT.add(key)
     REDACT.add(pairing_code)
     if os.environ.get("GITHUB_ACTIONS") == "true":
-        # The runner consumes these lines; they are never shown in the log.
-        for value in (key, pairing_code):
-            if value:
-                print(f"::add-mask::{value}", flush=True)
+        # The runner consumes this line; it is never shown in the log. The API
+        # key is not masked here: the workflow step masks it right after the
+        # keystore load, before this process exists.
+        print(f"::add-mask::{pairing_code}", flush=True)
 
     say(f"=== CyClaw native E2E ({sys.platform}, Python {sys.version.split()[0]}) ===")
     say(f"interpreter : {sys.executable}")
