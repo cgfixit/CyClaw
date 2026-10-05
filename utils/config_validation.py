@@ -14,7 +14,7 @@ import math
 import threading
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from utils.errors import ConfigError
 
@@ -34,10 +34,12 @@ def validate_database_url_no_password(value: object, field: str) -> None:
     if not isinstance(value, str):
         raise ConfigError(f"{field} must be a string or null", details={"field": field})
     try:
-        password = urlsplit(value).password
+        parsed = urlsplit(value)
     except ValueError as exc:
         raise ConfigError(f"{field} is not a valid URL", details={"field": field}) from exc
-    if password is not None:
+    if parsed.password is not None or any(
+        key.lower() == "password" for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+    ):
         raise ConfigError(f"{field} must not contain a password; use its environment variable/keystore entry",
                           details={"field": field})
 

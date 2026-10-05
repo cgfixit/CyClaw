@@ -122,4 +122,26 @@ if [ "$rc" -ne 2 ]; then
 fi
 echo "mutation D (C9 shipped provider posture): PASS (WARN=exit 0, --strict=exit 2)"
 
+# 2e. A URL query password is as sensitive as user:password@host.
+tmp5="$work/c0"
+_copy_guard_inputs "$tmp5"
+"$PY" - "$tmp5/config.yaml" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+old = "  # database_url: null"
+assert old in source
+path.write_text(source.replace(old, "  database_url: postgresql://operator@localhost/db?password=synthetic", 1),
+                encoding="utf-8")
+PY
+out="$("$PY" "$checker" --repo-root "$tmp5" 2>&1)"; rc=$?
+if [ "$rc" -ne 2 ] || ! grep -q 'FAIL  \[C0\]' <<<"$out"; then
+  echo "mutation E (C0 query password): FAIL — expected exit 2 and C0" >&2
+  echo "$out" >&2
+  exit 1
+fi
+echo "mutation E (C0 query password): PASS (exit 2, C0 reported)"
+
 echo "== config-guard verify: OK =="

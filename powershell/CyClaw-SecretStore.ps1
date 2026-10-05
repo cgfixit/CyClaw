@@ -39,7 +39,7 @@ foreach ($line in $policyLines | Select-Object -Skip 1) {
     $script:CyclawSecretTargets[$name] = $fields[2]
 }
 
-# Allowlist (hashtable above) OR suffix *_API_KEY / *_TOKEN / *_SECRET / *_PASSWORD.
+# Exact names (hashtable above) or suffixes from the shared policy.
 function Test-CyclawSecretName([string]$Name) {
     if ([string]::IsNullOrEmpty($Name)) { return $false }
     if ($script:CyclawSecretTargets.ContainsKey($Name)) { return $true }
@@ -254,9 +254,10 @@ function Import-CyclawCredentialSecrets {
         return
     }
     $failed = $false
-    foreach ($name in @("CYCLAW_API_KEY", "TELEGRAM_BOT_TOKEN", "GROK_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN")) {
+    foreach ($name in @($script:CyclawSecretTargets.Keys | Sort-Object)) {
         if ([Environment]::GetEnvironmentVariable($name)) { continue }
         $target = $script:CyclawSecretTargets[$name]
+        if ([string]::IsNullOrEmpty($target)) { continue }
         $read = Read-CyclawCredential $target
         if ($read.Status -eq "missing") {
             $read.Secret = $null

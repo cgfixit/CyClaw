@@ -252,7 +252,7 @@ def test_invoke_cyclaw_loads_nonsensitive_dotenv_and_keychain_secrets() -> None:
 
 @pytest.mark.skipif(os.name == "nt", reason="requires POSIX child-process env inheritance")
 def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path: Path) -> None:
-    """Keychain supplies CYCLAW_API_KEY. A dotenv secret must not, and must not print."""
+    """The launcher loads mapped secrets from Keychain and skips dotenv copies."""
     home = tmp_path / "home"
     fake_python = home / "venv" / "bin" / "python"
     fake_python.parent.mkdir(parents=True)
@@ -264,6 +264,10 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
         f'status="{status_file.as_posix()}"\n'
         'if [ "${CYCLAW_API_KEY:-}" = "from-keychain" ]; then printf "keychain\\n" > "$status";'
         ' else printf "other\\n" > "$status"; fi\n'
+        'if [ "${CYCLAW_SQL_DSN:-}" = "keychain-dsn" ]; then printf "dsn:keychain\\n" >> "$status";'
+        ' else printf "dsn:other\\n" >> "$status"; fi\n'
+        'if [ "${CYCLAW_DB_URL:-}" = "keychain-db" ]; then printf "db:keychain\\n" >> "$status";'
+        ' else printf "db:other\\n" >> "$status"; fi\n'
         'printf "port:%s\\n" "$CYCLAW_GATE_PORT" >> "$status"\n'
         'printf "marker:%s\\n" "${CYCLAW_LAUNCH_MARKER:-unset}" >> "$status"\n'
         "sleep 4\n"
@@ -273,7 +277,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     fake_python.chmod(0o755)
     dotenv = home / ".env"
     dotenv.write_text(
-        "CYCLAW_API_KEY=from-dotenv\nCYCLAW_GATE_PORT=9001\nCYCLAW_LAUNCH_MARKER=from-dotenv\n",
+        "CYCLAW_API_KEY=from-dotenv\nCYCLAW_SQL_DSN=from-dotenv\n"
+        "CYCLAW_DB_URL=from-dotenv\nCYCLAW_GATE_PORT=9001\nCYCLAW_LAUNCH_MARKER=from-dotenv\n",
         encoding="utf-8",
     )
     dotenv.chmod(0o600)
@@ -284,9 +289,12 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
         "#!/bin/sh\n"
         'case "$1" in\n'
         "  find-generic-password)\n"
-        '    printf "%s\\n" "$*" | grep -q "com.cgfixit.cyclaw.api-key" || exit 44\n'
+        '    case "$*" in *com.cgfixit.cyclaw.api-key*|*com.cgfixit.cyclaw.sql-dsn*|'
+        '*com.cgfixit.cyclaw.db-url*) ;; *) exit 44 ;; esac\n'
         '    printf "%s\\n" "$*" | grep -q -- "-w" || exit 0\n'
-        '    printf "%s" "from-keychain"\n'
+        '    case "$*" in *com.cgfixit.cyclaw.api-key*) printf "%s" "from-keychain" ;;'
+        ' *com.cgfixit.cyclaw.sql-dsn*) printf "%s" "keychain-dsn" ;;'
+        ' *com.cgfixit.cyclaw.db-url*) printf "%s" "keychain-db" ;; esac\n'
         "    exit 0\n"
         "    ;;\n"
         "esac\n"
@@ -303,7 +311,8 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
     env["CYCLAW_HOME"] = str(home)
     env["CYCLAW_KEYCHAIN_ENV_TEST_MODE"] = "1"
     env["PATH"] = f"{security}{os.pathsep}{env.get('PATH', '')}"
-    env.pop("CYCLAW_API_KEY", None)
+    for name in ("CYCLAW_API_KEY", "CYCLAW_SQL_DSN", "CYCLAW_DB_URL"):
+        env.pop(name, None)
     result = subprocess.run(
         [
             _BASH,
@@ -324,10 +333,13 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
 
     output = result.stdout + result.stderr
     assert "from-dotenv" not in output
-    assert "from-keychain" not in output
+    for value in ("from-keychain", "keychain-dsn", "keychain-db"):
+        assert value not in output
     assert "Typing the key in the browser cannot configure the server" not in result.stderr
     assert "http://127.0.0.1:8999" in result.stdout
-    assert status_file.read_text(encoding="utf-8") == "keychain\nport:8999\nmarker:from-dotenv\n"
+    assert status_file.read_text(encoding="utf-8") == (
+        "keychain\ndsn:keychain\ndb:keychain\nport:8999\nmarker:from-dotenv\n"
+    )
 
 
 def test_installer_preserves_patched_config_across_updates() -> None:
@@ -843,6 +855,10 @@ def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: P
         "CYCLAW_GATE_PORT=8788\n"
         "CYCLAW_API_KEY=allowlist-secret\n"
         "DB_PASSWORD=pattern-secret\n"
+        "SENTRY_DSN=dsn-secret\n"
+        "CYCLAW_DB_URL=db-secret\n"
+        "GH_PAT=pat-secret\n"
+        "DB_CREDENTIALS=credentials-secret\n"
         "OLLAMA_MODEL=qwen\n",
         encoding="utf-8",
     )
@@ -850,7 +866,8 @@ def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: P
     # Drop inherited CI values (verify-skills exports CYCLAW_API_KEY) before
     # the loader runs, then keep its status. Later printfs must not hide a refuse.
     program = (
-        "unset CYCLAW_GATE_PORT OLLAMA_MODEL CYCLAW_API_KEY DB_PASSWORD\n"
+        "unset CYCLAW_GATE_PORT OLLAMA_MODEL CYCLAW_API_KEY DB_PASSWORD "
+        "SENTRY_DSN CYCLAW_DB_URL GH_PAT DB_CREDENTIALS\n"
         f'. "{_REPO_ROOT / "macos" / "cyclaw-public-env.sh"}"\n'
         f'cyclaw_source_public_env "{dotenv}"\n'
         "loader_status=$?\n"
@@ -858,12 +875,16 @@ def test_public_env_exports_ordinary_settings_and_skips_secret_names(tmp_path: P
         'printf "model:%s\\n" "$OLLAMA_MODEL"\n'
         'if [ -n "${CYCLAW_API_KEY:-}" ]; then printf "api:set\\n"; else printf "api:unset\\n"; fi\n'
         'if [ -n "${DB_PASSWORD:-}" ]; then printf "db:set\\n"; else printf "db:unset\\n"; fi\n'
+        'for name in SENTRY_DSN CYCLAW_DB_URL GH_PAT DB_CREDENTIALS; do '
+        'eval "value=\\${$name-}"; [ -z "$value" ] || exit 31; done\n'
         'exit "$loader_status"\n'
     )
     result = subprocess.run([_BASH, "-c", program], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert "allowlist-secret" not in result.stdout + result.stderr
     assert "pattern-secret" not in result.stdout + result.stderr
+    for value in ("dsn-secret", "db-secret", "pat-secret", "credentials-secret"):
+        assert value not in result.stdout + result.stderr
     assert result.stdout.splitlines()[-4:] == [
         "port:8788",
         "model:qwen",

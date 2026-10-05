@@ -19,6 +19,62 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PS = _REPO_ROOT / "powershell"
 
 
+def test_secret_store_imports_policy_targets_and_skips_secret_dotenv(tmp_path: Path) -> None:
+    shell = shutil.which("powershell") if os.name == "nt" else shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell is not installed")
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "CYCLAW_GATE_PORT=8788\n"
+        "CYCLAW_SQL_DSN=plaintext-dsn\n"
+        "CYCLAW_DB_URL=plaintext-db\n"
+        "GH_PAT=plaintext-pat\n"
+        "DB_CREDENTIALS=plaintext-credentials\n",
+        encoding="utf-8",
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. ./powershell/CyClaw-SecretStore.ps1
+function Test-CyclawDotenvOwnerOnly([string]$Path) { return $true }
+function Test-CyclawWindowsHost { return $true }
+function Read-CyclawCredential([string]$Target) {
+    return [pscustomobject]@{ Status = 'readable'; Secret = ('vault-' + $Target); Win32 = 0 }
+}
+foreach ($name in $script:CyclawSecretTargets.Keys) {
+    Remove-Item -Path ('Env:' + $name) -ErrorAction SilentlyContinue
+}
+foreach ($name in @('GH_PAT', 'DB_CREDENTIALS', 'CYCLAW_GATE_PORT')) {
+    Remove-Item -Path ('Env:' + $name) -ErrorAction SilentlyContinue
+}
+if (-not (Import-CyclawDotenv $env:CYCLAW_TEST_DOTENV)) { throw 'dotenv not loaded' }
+if ($env:CYCLAW_GATE_PORT -ne '8788') { throw 'public setting not imported' }
+foreach ($name in @('CYCLAW_SQL_DSN', 'CYCLAW_DB_URL', 'GH_PAT', 'DB_CREDENTIALS')) {
+    if ([Environment]::GetEnvironmentVariable($name)) { throw "dotenv leaked $name" }
+    if (-not (Test-CyclawSecretName $name)) { throw "classifier missed $name" }
+}
+Import-CyclawCredentialSecrets
+foreach ($name in @('CYCLAW_SQL_DSN', 'CYCLAW_DB_URL', 'CYCLAW_VECTOR_DB_URL',
+                    'CYCLAW_RATELIMIT_DB_URL', 'CYCLAW_AUTH_DB_URL')) {
+    $expected = 'vault-' + $script:CyclawSecretTargets[$name]
+    if ([Environment]::GetEnvironmentVariable($name) -cne $expected) {
+        throw "Credential Manager target not loaded for $name"
+    }
+}
+foreach ($name in @('GH_PAT', 'DB_CREDENTIALS')) {
+    if ([Environment]::GetEnvironmentVariable($name)) { throw "unmapped $name was loaded" }
+}
+'OK'
+"""
+    env = os.environ.copy()
+    env["CYCLAW_TEST_DOTENV"] = str(dotenv)
+    result = subprocess.run(
+        [shell, "-NoProfile", "-Command", script], cwd=_REPO_ROOT, env=env,
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "OK"
+
+
 def test_installer_update_checks_git_exit() -> None:
     text = (_PS / "Install-CyClaw.ps1").read_text(encoding="utf-8")
     update = text.split('Write-Step "repo already present at $Repo (pulling latest main)"', 1)[1]
@@ -127,10 +183,11 @@ def test_invoke_loads_persisted_api_key_from_dotenv() -> None:
     assert "Import-CyclawCredentialSecrets" in text
     assert "Test-CyclawSecretName" in store
     assert "CyclawSecretTargets.ContainsKey" in store or "CyclawSecretTargets.ContainsKey($Name)" in store
-    assert "*_API_KEY" in store
-    assert "*_TOKEN" in store
-    assert "*_SECRET" in store
-    assert "*_PASSWORD" in store
+    policy = (_REPO_ROOT / "utils" / "secret-policy.tsv").read_text(encoding="utf-8")
+    assert "utils/secret-policy.tsv" in store
+    assert "foreach ($suffix in $script:CyclawSecretSuffixes)" in store
+    for suffix in ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "DSN", "DB_URL", "PAT", "CREDENTIALS"):
+        assert f"suffix\t{suffix}\t" in policy
     assert "Test-CyclawDotenvOwnerOnly" in store
     assert "WindowsIdentity" in store
     assert "GetCurrent().User" in store
