@@ -12,7 +12,7 @@
 # result. Current state: direct pins aligned with v1.9.0.
 
 # CRITICAL: pydantic family must stay synchronized or pip resolver explodes
-# pydantic 2.13.5 hard-pins pydantic-core==2.46.5 (exact ==, not a range), and
+# pydantic 2.13.5 hard-pins pydantic-core==2.49.0 (exact ==, not a range), and
 # 2.13.5 is the latest pydantic on PyPI. pydantic-core publishes AHEAD of its
 # parent -- 2.49.0 is its latest as of 2026-09-11 -- and no pydantic release
 # pairs with it yet, so PyPI's "newer pydantic-core" is never a bump candidate
@@ -21,7 +21,7 @@
 # with a compatible pydantic bump, and move dep-guard's _PYDANTIC_LOCKSTEP in
 # the same commit.
 pydantic==2.13.5
-pydantic-core==2.46.5
+pydantic-core==2.49.0
 # Not imported directly anywhere in CyClaw's own source and not in pyproject.toml's
 # [project.dependencies] -- but it IS a real, unconditional (non-extra) transitive
 # of chromadb==1.5.9 (`pydantic-settings>=2.0` in chromadb's own requires_dist), so
@@ -33,18 +33,18 @@ pydantic-core==2.46.5
 pydantic-settings==2.15.0
 
 # Direct dependencies from pyproject.toml -- versions MUST match; Torch adds the +cpu build tag.
-fastapi==0.141.1
+fastapi==0.142.2
 # Constraints pin versions only; the `[standard]` extra stays in requirements.txt.
 # pip >= 26.1.2 rejects extras in a -c constraints file ("Constraints cannot have
 # extras"), which broke the verify-install gate. See pypa/pip#8210.
-uvicorn==0.53.0
+uvicorn==0.54.0
 pyyaml==6.0.3
 httpx==0.28.1
 # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
 # so legacy/no-deps paths cannot strand the app on websockets 12.x.
-websockets==15.0.1
-langgraph==1.2.11
-langchain-core==1.6.3
+websockets==17.1
+langgraph==1.2.12
+langchain-core==1.6.6
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; risk accepted ONLY for local/offline air-gapped PersistentClient embedded mode). See SECURITY.md + pip-audit.
 sentence-transformers==6.1.0
 # Transitive of chromadb (which asks only for onnxruntime>=1.14.1) and of
@@ -76,8 +76,8 @@ onnxruntime==1.30.0
 # Direct imports (retrieval/embeddings.py; gate.py), promoted
 # from implicit sentence-transformers/fastapi transitives to explicit pins --
 # see pyproject.toml [project.dependencies] for why.
-huggingface-hub==1.32.0
-starlette==1.6.0
+huggingface-hub==2.1.1
+starlette==1.7.0
 rank-bm25==0.2.2
 numpy==1.26.4
 nltk==3.10.3
@@ -85,12 +85,12 @@ nltk==3.10.3
 # (Windows), which the OpenTweet scheduling tests rely on. Installed from
 # requirements-test.txt / the pyproject `test` extra, not from requirements.txt --
 # no production module imports zoneinfo. Pinned here as a version ceiling only.
-tzdata==2026.2
+tzdata==2026.5
 
 # embedding backend (minimum safe post CVE-2025-32434); CPU wheel via
 # --extra-index-url (see this file's header -- no pyproject.toml extra or
 # [tool.uv.sources] table currently routes this).
-torch==2.13.0+cpu
+torch==2.14.1
 # Transitive of torch (requires_dist setuptools>=77.0.3). Unpinned, pip-audit
 # resolved a pre-83 build and needed PYSEC-2026-3447 ignored. 83.0.0 is the
 # advisory floor; 84.0.0 is current PyPI (2026-09-07). Constraints-only: not a
@@ -120,7 +120,7 @@ sqlite-vec==0.1.9
 # Required NeMo engine, installed by every base manifest. Keep all pins aligned.
 # NeMo brings fastembed and onnxruntime. Supported offline loader flags and the
 # no-network installation smoke are documented in docs/NeMo/README.md.
-nemoguardrails==0.24.0
+nemoguardrails==0.24.1
 
 # Optional CEL sanitizer backend for Numbat monitor-only rules (pyproject extra:
 # numbat-cel). Default-off; only installed when the operator opts into CEL rules.
@@ -138,9 +138,9 @@ pendulum==3.2.0
 
 # Optional Deep Agents harness (pyproject extra: agentic-deepagents). These are
 # not installed by the default offline runtime or legacy requirements path.
-deepagents==0.6.12
-langchain==1.4.2
-langchain-openai==1.6.2
+deepagents==0.7.21
+langchain==1.4.3
+langchain-openai==1.6.7
 # Mandatory transitives of deepagents (not extras of it, not imported directly
 # by any CyClaw code -- unlike langchain-anthropic below, so these stay
 # constraints-only, not a pyproject.toml extra entry): pinned so the exact
@@ -148,14 +148,14 @@ langchain-openai==1.6.2
 # ranges (langchain-google-genai>=4.2.7,<5; langsmith>=0.9.3; wcmatch>=10.1).
 # Verified via a real combined-extras install, 2026-08-01.
 langchain-google-genai==4.4.0
-langsmith==0.13.0
-wcmatch==11.0
+langsmith==0.14.4
+wcmatch==11.0.1
 # Mandatory transitive of deepagents (not an extra of it); pinned so the exact
 # version is reproducible rather than floating in deepagents' >=1.4.7,<2 range.
 # Also imported directly by agentic/deepagent_github/model_adapter.py for the
 # Claude cloud provider -- the reason this one alone also gets a pyproject.toml
 # extra entry, unlike its three siblings above.
-langchain-anthropic==1.7.2
+langchain-anthropic==1.7.5
 # Optional cloud provider (pyproject extra: agentic-deepagents-cloud). Grok only
 # -- Claude rides langchain-anthropic above.
 langchain-xai==1.3.0
@@ -183,6 +183,6 @@ pygments==2.21.0
 # carries no gate risk. Both versions verified present on conda-forge too, since
 # environment.yml carries the same pins and a conda-only version would break that
 # lane's solve. bandit is already at its latest release (1.9.4) — left alone.
-ruff==0.16.8
-mypy==2.3.0
+ruff==0.16.10
+mypy==2.4.0
 bandit==1.9.4
