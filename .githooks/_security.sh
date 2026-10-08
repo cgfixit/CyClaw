@@ -648,33 +648,34 @@ sec_pre_push_ref() {
 
   # A ref can point at an annotated tag, a blob or a tree, not only a commit.
   # Peel to what it publishes: scan a tag's message, and a blob or tree's bytes.
+  # One level at a time: a tag can point at another tag, and git sends every
+  # tag object in the chain, so each message is scanned (^{} would skip them).
   otype="$(git cat-file -t "$local_sha" 2>/dev/null || echo missing)"
-  if [[ "$otype" == tag ]]; then
+  while [[ "$otype" == tag ]]; do
     added="$(git cat-file -p "$local_sha" | sec__label_lines "$remote_ref")"
     sec__scan_added "tag message for '$remote_ref'" "$added" || rc=1
-    local_sha="$(git rev-parse "${local_sha}^{}" 2>/dev/null || echo "$local_sha")"
+    local_sha="$(git cat-file tag "$local_sha" | sed -n '1s/^object //p')"
     otype="$(git cat-file -t "$local_sha" 2>/dev/null || echo missing)"
-  fi
+  done
   case "$otype" in
     commit) ;;
     blob)
       added="$(git cat-file blob "$local_sha" | sec__label_lines "$remote_ref")"
-      sec__scan_added "blob published as '$remote_ref'" "$added" || rc=1
-      return "$rc" ;;
+      sec__scan_added "blob published as '$remote_ref'" "$added" || rc=1 ;;
     tree)
-      sec__scan_tree "tree published as '$remote_ref'" "$local_sha" || rc=1
-      return "$rc" ;;
+      sec__scan_tree "tree published as '$remote_ref'" "$local_sha" || rc=1 ;;
     *)
       sec__say "security gate: refused push of '$remote_ref': cannot read the object it points at ($otype)."
       return 1 ;;
   esac
-  SEC__PUSH_SHAS+="$local_sha"$'\n'
 
   if ! sec__zero "$remote_sha" && git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
     known_remote=1
   fi
+  # Checked before the blob/tree return below: moving an existing ref onto a
+  # blob or a tree replaces what it published, so it is a rewrite too.
   if ! sec__zero "$remote_sha"; then
-    if [[ "$known_remote" -eq 0 ]] || ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+    if [[ "$known_remote" -eq 0 || "$otype" != commit ]] || ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
       if [[ "${ALLOW_FORCE_WITH_LEASE:-}" != "true" ]]; then
         sec__say "security gate: refused non-fast-forward push to '${branch:-$remote_ref}' (it rewrites pushed history)." \
           "  This is an ask-first action. Operator override: ALLOW_FORCE_WITH_LEASE=true git push --force-with-lease"
@@ -682,6 +683,8 @@ sec_pre_push_ref() {
       fi
     fi
   fi
+  [[ "$otype" == commit ]] || return "$rc"
+  SEC__PUSH_SHAS+="$local_sha"$'\n'
 
   # The commits this push would publish for the first time.
   if [[ "$known_remote" -eq 1 ]]; then
