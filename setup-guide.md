@@ -1,4 +1,4 @@
-# CyClaw — GitHub Setup Guide (Windows · macOS · Linux)
+# CyClaw — Setup Guide (Windows · macOS · Linux)
 
 **v1.9.0 | Offline-First | Ollama | ~15 min**
 Install execution verified 2026-07-29 against `main` (macOS path 2026-08-02);
