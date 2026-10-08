@@ -1,16 +1,67 @@
 """Native verification acceptance for CI; no software sandbox double is used."""
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
 import socket
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentic.executor import Check, HardSandboxUnavailable, run_verification  # noqa: E402
+from agentic.executor.hard_sandbox import LinuxNetnsSandbox  # noqa: E402
+from utils.child_environment import child_environment  # noqa: E402
+
+
+def verify_linux_timeout_cleanup(root: Path) -> None:
+    """Exercise real bwrap timeout teardown, including a setsid descendant."""
+    candidate = root / "timeout-candidate"
+    candidate.mkdir()
+    marker = "cyclaw-timeout-" + secrets.token_hex(16)
+    child_code = "import pathlib,time; pathlib.Path('detached-ready').write_text('ready'); time.sleep(60)"
+    code = f"""import pathlib,subprocess,sys,time
+subprocess.Popen([sys.executable, '-c', {child_code!r}, {marker!r}],
+                 start_new_session=True, stdin=subprocess.DEVNULL,
+                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+while not pathlib.Path('detached-ready').exists():
+    time.sleep(0.01)
+print('detached-ready', flush=True)
+time.sleep(60)
+"""
+
+    def descendants() -> list[int]:
+        found = []
+        for entry in Path("/proc").iterdir():
+            if entry.name.isdigit():
+                with contextlib.suppress(FileNotFoundError, ProcessLookupError, PermissionError):
+                    if marker.encode() in (entry / "cmdline").read_bytes().split(b"\0"):
+                        found.append(int(entry.name))
+        return found
+
+    try:
+        started = time.monotonic()
+        outcome = LinuxNetnsSandbox().run(
+            [sys.executable, "-c", code], cwd=candidate, env=child_environment("verification"), timeout_sec=5,
+        )
+        if not outcome.timed_out or outcome.exit_code != -1 or "detached-ready" not in outcome.stdout:
+            raise RuntimeError(f"native Linux timeout did not exercise the detached child: {outcome!r}")
+        if time.monotonic() - started > 20:
+            raise RuntimeError("native Linux timeout teardown exceeded its allowance")
+        deadline = time.monotonic() + 5
+        while descendants():
+            if time.monotonic() >= deadline:
+                raise RuntimeError("a detached Linux verification descendant survived timeout teardown")
+            time.sleep(0.05)
+    finally:
+        # Only clean up this probe's uniquely marked children if the boundary fails.
+        for pid in descendants():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, 9)
+    print("PASS: Linux bubblewrap timeout and detached descendant cleanup")
 
 
 def main() -> int:
@@ -76,6 +127,8 @@ print('candidate writable; authoritative/git/baseline/parent writes and host net
         if baseline.read_text(encoding="utf-8") != "trusted":
             raise RuntimeError("verification changed the trusted baseline")
         print(f"PASS: {sys.platform} native confinement, credential exclusion, and gitless no-copyback")
+        if sys.platform.startswith("linux"):
+            verify_linux_timeout_cleanup(root)
         return 0
 
 

@@ -1,4 +1,4 @@
-# CyClaw — GitHub Setup Guide (Windows · macOS · Linux)
+# CyClaw — Setup Guide (Windows · macOS · Linux)
 
 **v1.9.0 | Offline-First | Ollama | ~15 min**
 Install execution verified 2026-07-29 against `main` (macOS path 2026-08-02);
@@ -168,20 +168,31 @@ enabling those checks (the version pins below are Ubuntu-only):
 
 ```bash
 sudo apt-get update
-# Pin matches the CI runners: Ubuntu 22.04 (jammy) or 24.04 (noble).
-# Ubuntu 22.04:
+# Pins match the amd64 CI runners (also available for i386); not ARM.
+# Ubuntu 22.04 amd64/i386:
 sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
-# Ubuntu 24.04:
+# Ubuntu 24.04 amd64/i386:
 # sudo apt-get install --yes --no-install-recommends bubblewrap=0.9.0-1ubuntu0.3
-# Debian (no Ubuntu pin applies; take the distribution's current build):
+# Ubuntu ARM or Debian (inspect and use the distribution's current candidate):
+# apt-cache policy bubblewrap
 # sudo apt-get install --yes --no-install-recommends bubblewrap
 bwrap --version
 python scripts/verify_agentic_sandbox.py
 ```
 
+The [Ubuntu package matrix](https://packages.ubuntu.com/bubblewrap) lists
+different ARM builds: as of 2026-10-08, Jammy arm64 is `0.6.1-1` and Noble
+arm64 is `0.9.0-1build1`. The x86 pins above therefore do not resolve on those
+ARM archives. Those older ARM versions are availability observations, not
+security approvals or instructions to downgrade; check the distribution's
+current candidate and security updates. CI installation evidence here is amd64;
+ARM operators must run the native probe on their own host.
+
 The command runs a disposable native confinement probe, without a test-suite
-runner. A missing backend or host policy that prevents isolation must fail this
-check; do not disable AppArmor or kernel restrictions to make it pass. Use a host
+runner. On Linux it also times out a check with a detached descendant and
+confirms namespace teardown removes that descendant. A missing backend or host
+policy that prevents isolation must fail this check; do not disable AppArmor or
+kernel restrictions to make it pass. Use a host
 with an administrator-approved bubblewrap policy instead.
 
 #### Stock Ubuntu 24.04 and newer: load the bubblewrap AppArmor profile

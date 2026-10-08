@@ -1,9 +1,8 @@
 """Tests for utils.ops_runner — the subprocess shim behind /ops/sync and /ops/agentic.
 
-These never spawn the real CLIs: ``_run`` is monkeypatched to capture the argv the
-shim builds and to return a synthetic ``CompletedProcess``. The one exception is the
-isolation test, which spins a clean interpreter to prove importing the shim never
-imports the out-of-band packages.
+Most cases replace ``_run`` to capture argv and return a synthetic result.
+The isolation test and the DSN status probe use real child interpreters; neither
+contacts an external service.
 """
 
 from __future__ import annotations
@@ -827,3 +826,53 @@ def test_ops_environment_default_dsn_env_is_admitted(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("CYCLAW_SQL_DSN", "postgresql://x")
     env = _ops_environment(["python", "-m", "agentic.sqlconnect.cli", "status"])
     assert env.get("CYCLAW_SQL_DSN") == "postgresql://x"
+
+
+def test_sql_status_scopes_dsn_and_keeps_canary_out_of_output_and_audit(tmp_path, monkeypatch, capsys, caplog):
+    import json
+
+    import yaml
+
+    from utils.logger import audit_log
+
+    canary = "synthetic-issue-1557-dsn-value"
+    cfg = {
+        "sqlconnect": {"enabled": False, "dsn_env": "ISSUE_1557_DSN"},
+        "logging": {"audit_file": str(tmp_path / "audit.jsonl"), "log_file": str(tmp_path / "app.log")},
+        "numbat": {"enabled": True, "output_path": str(tmp_path / "numbat.ndjsonl")},
+    }
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    monkeypatch.setattr(ops_runner, "_CONFIG_PATH", config_path)
+    monkeypatch.setenv("ISSUE_1557_DSN", canary)
+    monkeypatch.setenv("UNRELATED_SECRET", "synthetic-unrelated-value")
+    monkeypatch.setenv("FAKEROOT", str(tmp_path))
+    real_environment = ops_runner.child_environment
+    selected = []
+
+    def environment(capability, *, secret_names):
+        selected.append((capability, secret_names))
+        env = real_environment(capability, secret_names=secret_names)
+        assert env["ISSUE_1557_DSN"] == canary
+        assert "UNRELATED_SECRET" not in env and "FAKEROOT" not in env
+        return env
+
+    monkeypatch.setattr(ops_runner, "child_environment", environment)
+    result = run_sqlconnect_op("status")
+    assert result.ok
+    assert selected == [("sql", ("ISSUE_1557_DSN",))]
+    assert "ISSUE_1557_DSN" in result.stdout
+    # The same secret-policy name also protects driver-like diagnostics at the
+    # browser serialization and authoritative audit sinks, without regex config.
+    diagnostic = ops_runner.OpsResult("sqlconnect", "query", 3, False, "env_config", "", canary)
+    assert canary not in json.dumps(diagnostic.to_dict())
+    audit_log({"event": "dsn_canary_probe", "error": canary}, cfg=cfg)
+    captured = capsys.readouterr()
+    outputs = result.stdout + result.stderr + captured.out + captured.err + caplog.text
+    for name in ("audit.jsonl", "app.log", "numbat.ndjsonl"):
+        path = tmp_path / name
+        if path.exists():
+            outputs += path.read_text(encoding="utf-8")
+    assert (tmp_path / "audit.jsonl").is_file()
+    assert (tmp_path / "numbat.ndjsonl").is_file()
+    assert canary not in outputs

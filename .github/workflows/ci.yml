@@ -562,6 +562,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends "bubblewrap=${ver}"
           bwrap --version
+          test "$(bwrap --version)" = "bubblewrap ${ver%%-*}"
 
       - name: Prove stock AppArmor refuses bwrap (24.04 leg)
         # Stock 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1, so
@@ -1353,6 +1354,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
           bwrap --version
+          test "$(bwrap --version)" = "bubblewrap 0.6.1"
           # Keep stock AppArmor/user-namespace policy. The native gate below
           # must fail if this runner cannot establish the required confinement.
           bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
@@ -1638,6 +1640,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
           bwrap --version
+          test "$(bwrap --version)" = "bubblewrap 0.6.1"
           # Keep stock AppArmor/user-namespace policy. The native gate below
           # must fail if this runner cannot establish the required confinement.
           bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \

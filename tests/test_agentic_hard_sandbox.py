@@ -26,6 +26,14 @@ def _py(code: str, timeout_sec: int = 10) -> Check:
     return Check("probe", (sys.executable, "-c", code), timeout_sec=timeout_sec)
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="native Linux bubblewrap acceptance")
+def test_linux_bwrap_timeout_kills_detached_descendants(tmp_path: Path) -> None:
+    # A missing binary/capability fails this test; CI installs and probes bwrap.
+    from scripts.verify_agentic_sandbox import verify_linux_timeout_cleanup
+
+    verify_linux_timeout_cleanup(tmp_path)
+
+
 def test_production_sandbox_win32_refuses_incomplete_isolation() -> None:
     if sys.platform != "win32":
         pytest.skip("Job Object is the Windows backend")
