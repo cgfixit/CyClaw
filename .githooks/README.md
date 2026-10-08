@@ -46,12 +46,12 @@ sees too late or cannot see:
 | Protected control files (`soul.md`, `utils/sanitizer.py`, `gate_auth.py`, scanner ignore files, `.githooks/*`) | staged | pushed range | `HOOK_OPERATOR_ACK=1` (operator only) |
 | Privacy: operator identifiers from the untracked private file, absolute home-directory paths, invisible bidi / Unicode-tag characters | staged diff | every commit being published | none — use a placeholder; fixture lines take `gitleaks:allow` |
 | Agent session residue (`.aider*`, `settings.local.json`, `*.har`, shell histories, …), new files over `SEC_MAX_NEW_FILE_KB`, media with GPS/author metadata (needs `exiftool`) | staged | filenames only | `SEC_BLOCKED_EXCEPT` / raise the cap with the operator |
-| `.gitignore` rule removed; agent tool wiring (`.mcp.json`, `.claude/settings.json`, `.codex/config.toml`) changed | staged | reminder | `HOOK_OPERATOR_ACK=1` (operator only) |
+| `.gitignore` rule removed (also checked on pushed commits); agent tool wiring (`.mcp.json`, `.claude/settings.json`, `.codex/config.toml`) changed or deleted | staged | rule removal: blocks; wiring: reminder | `HOOK_OPERATOR_ACK=1` (operator only) |
 | Secure-by-design questions when a diff adds a route, outbound call, exec/deserialization, persisted model, file write, config input, telemetry or HTML sink; reminders for dependency manifests and agent instruction files | printed, not blocking | — | answer in the PR body |
 | `ruff --select F,B,S` on staged Python (if `ruff` is installed) | yes | — | fix the finding |
 | Direct push to, or deletion of, `main` | — | yes | `ALLOW_MAIN_PUSH=1` (operator only; delete has none) |
 | Non-fast-forward push | — | yes | `ALLOW_FORCE_WITH_LEASE=true` (operator only) |
-| `invariant-guard` when `gate.py`, `gate_ops.py`, `graph.py`, `mcp_hybrid_server.py` or `config.yaml` is in the push | — | yes | fix the finding |
+| `invariant-guard` (run on an export of each pushed commit) when any file it reads is in the push: the core six, `config.yaml`, `utils/personality*.py`, the out-of-band packages | — | yes | fix the finding |
 
 Operator-private patterns (`SEC_PII_REGEX`, `SEC_AUTHOR_EMAIL_DENY`) live in
 `~/.config/githooks/private.conf` or the untracked `.githooks/security.local.conf`,
