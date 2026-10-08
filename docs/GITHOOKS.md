@@ -52,16 +52,16 @@ Load order: gate defaults, then `security.conf`, then `private.conf`, then
 | Check | pre-commit | pre-push |
 |---|---|---|
 | Credential-shaped strings in added lines: provider prefixes (xAI, Anthropic, OpenAI incl. legacy `sk-` + 32 or more alphanumerics, Stripe `sk_live_`/`rk_live_`, GitHub, AWS, Slack, Hugging Face, Google, Telegram, Dropbox, private-key headers), plus `gitleaks` when installed | staged diff | every commit being published |
-| Credential and runtime-state filenames, matched case-insensitively (`Secrets.PEM`, `prod.ENV`): `.env*`, keys, keystores, `*.db` and its renamed copies, agent session residue (`.aider*`, `settings.local.json`, `*.har`, shell histories). Only files being added, copied or renamed count, so editing an already tracked file is not newly blocked | staged files | every commit being published |
+| Credential and runtime-state filenames, matched case-insensitively (`Secrets.PEM`, `prod.ENV`): `.env*`, keys, keystores, `*.db` and its renamed copies, agent session residue (`.aider*`, `settings.local.json`, `*.har`, shell histories). Edits count too, so a blocked file that slipped into history stays blocked; exempt a real fixture with `SEC_BLOCKED_EXCEPT` | staged files | every commit being published |
 | Your identifiers from `private.conf` | staged diff | every commit being published |
 | Absolute home-directory paths (`/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\`); placeholder users pass | staged diff | every commit being published |
 | Invisible bidi-override and Unicode tag characters (Trojan Source; hidden instructions in agent files) | staged diff | every commit being published |
 | New file over `SEC_MAX_NEW_FILE_KB` (default 2048); media with GPS/author metadata when `exiftool` is installed | staged | — |
-| Removed `.gitignore` rule | staged | every commit being published |
+| Removed `.gitignore` rule (moving a `.gitignore` to another directory counts) | staged | every commit being published |
 | Personal address in author/committer (`SEC_AUTHOR_EMAIL_DENY`), also on a deletion-only or `--allow-empty` commit | every commit | — |
 | Protected control file changed, **deleted** or renamed away | staged | reminder only |
 | Push to, or deletion of, `main`/`master` | — | yes |
-| Non-fast-forward push (rewrites published history) | — | yes |
+| Existing tag update; non-fast-forward branch push | — | yes |
 
 Pre-push scans each commit, not the tip against the base: a key added in one
 commit and deleted in the next is still published, so it is still refused.
