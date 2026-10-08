@@ -8,8 +8,10 @@ Windows refuses until a filesystem/network boundary is implemented.
 from __future__ import annotations
 
 import shutil
+import stat
 import sys
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +28,7 @@ from utils.numbat_emitter import emit_numbat_command, redact_argv_for_numbat
 
 DEFAULT_CHECK_TIMEOUT_SEC = 120
 
+
 def _scrubbed_env() -> dict[str, str]:
     env = child_environment("verification")
     env.update(NO_PROXY="*", no_proxy="*", PIP_NO_INDEX="1", PYTHONDONTWRITEBYTECODE="1")
@@ -41,6 +44,46 @@ def _mirror_argv(argv: Sequence[str], source: Path, mirror: Path) -> tuple[str, 
             arg = str(mirror / path.relative_to(source))
         result.append(arg)
     return tuple(result)
+
+
+def _mirror_ignore(deadline: float):
+    """Ignore .git plus FIFOs/sockets/device nodes; raise TimeoutError past deadline, OSError on unreadable metadata."""
+
+    def ignore(directory: str, names: list[str]) -> list[str]:
+        if time.monotonic() > deadline:
+            raise TimeoutError("verification mirror copy exceeded check timeout")
+        skipped: list[str] = []
+        for name in names:
+            if name == ".git":
+                skipped.append(name)
+                continue
+            # A failed lstat is deliberately NOT swallowed: dropping the entry would
+            # let copytree succeed on a thinner tree and the check pass against code
+            # that is not the candidate. run_verification turns the OSError into a
+            # failed CheckResult plus an audit event.
+            mode = (Path(directory) / name).lstat().st_mode
+            if stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
+                skipped.append(name)
+        return skipped
+
+    return ignore
+
+
+def _copy_worktree_mirror(source: Path, mirror: Path, *, timeout_sec: int) -> None:
+    """Copy ``source`` into ``mirror`` within the check's timeout budget.
+
+    FIFOs and other specials are skipped (they can hang ``copytree`` forever).
+    Overruns raise ``TimeoutError``; other copy failures raise ``OSError``.
+    """
+    deadline = time.monotonic() + max(1, int(timeout_sec))
+    shutil.copytree(
+        source,
+        mirror,
+        symlinks=True,
+        ignore=_mirror_ignore(deadline),
+    )
+    if time.monotonic() > deadline:
+        raise TimeoutError("verification mirror copy exceeded check timeout")
 
 
 @dataclass(frozen=True)
@@ -105,13 +148,75 @@ def run_verification(
         with tempfile.TemporaryDirectory(prefix="cyclaw-verification-") as temporary:
             mirror = Path(temporary) / "candidate"
             source = worktree.resolve()
-            shutil.copytree(source, mirror, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+            copy_started = time.monotonic()
+            try:
+                _copy_worktree_mirror(source, mirror, timeout_sec=check.timeout_sec)
+            except TimeoutError as exc:
+                result = CheckResult(
+                    name=check.name,
+                    exit_code=-1,
+                    ok=False,
+                    stdout="",
+                    stderr=str(exc),
+                    timed_out=True,
+                )
+                audit_log(
+                    {
+                        "event": "agentic_executor_mirror_copy",
+                        "check": check.name,
+                        "ok": False,
+                        "timed_out": True,
+                        "error": str(exc),
+                    },
+                    config_path=config_path,
+                    cfg=cfg,
+                )
+                results.append(result)
+                continue
+            except OSError as exc:
+                result = CheckResult(
+                    name=check.name,
+                    exit_code=-1,
+                    ok=False,
+                    stdout="",
+                    stderr=f"mirror copy failed: {exc}",
+                    timed_out=False,
+                )
+                audit_log(
+                    {
+                        "event": "agentic_executor_mirror_copy",
+                        "check": check.name,
+                        "ok": False,
+                        "timed_out": False,
+                        "error": str(exc),
+                    },
+                    config_path=config_path,
+                    cfg=cfg,
+                )
+                results.append(result)
+                continue
+            audit_log(
+                {
+                    "event": "agentic_executor_mirror_copy",
+                    "check": check.name,
+                    "ok": True,
+                    "timed_out": False,
+                },
+                config_path=config_path,
+                cfg=cfg,
+            )
             env["HOME"] = str(mirror)
             env["USERPROFILE"] = str(mirror)
             if backend is None:
                 raise HardSandboxUnavailable("nonempty checks require a sandbox backend")
+            # Mirror copy already consumed wall time from the same check budget.
+            elapsed = time.monotonic() - copy_started
+            remaining = max(1, int(check.timeout_sec - elapsed))
             outcome = backend.run(
-                _mirror_argv(check.argv, source, mirror), cwd=mirror, env=env, timeout_sec=check.timeout_sec,
+                _mirror_argv(check.argv, source, mirror),
+                cwd=mirror,
+                env=env,
+                timeout_sec=remaining,
             )
             result = CheckResult(
                 name=check.name,

@@ -14,7 +14,7 @@ import sys
 import pytest
 
 from utils import ops_runner
-from utils.ops_runner import OpsError, run_agentic_op, run_fsconnect_op, run_sqlconnect_op, run_sync_op
+from utils.ops_runner import OpsError, _ops_environment, run_agentic_op, run_fsconnect_op, run_sqlconnect_op, run_sync_op
 
 
 def _fake_run(returncode: int = 0, stdout: str = "", stderr: str = ""):
@@ -812,3 +812,18 @@ def test_sync_timeout_sec_never_raises_on_a_malformed_config(monkeypatch: pytest
     non-mapping must degrade to the shipped budget rather than 500 the probe."""
     monkeypatch.setattr(ops_runner, "_get_config", lambda _path: "not-a-mapping")
     assert ops_runner.sync_timeout_sec() == 3660
+
+
+def test_ops_environment_dsn_env_must_be_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """sqlconnect.dsn_env must resolve to a secret-policy name, not a path decoy."""
+    cfg = {"sqlconnect": {"dsn_env": "NOT_A_SECRET_PATH"}}
+    monkeypatch.setattr(ops_runner, "_get_config", lambda _p: cfg)
+    with pytest.raises(OpsError, match="secret environment variable"):
+        _ops_environment(["python", "-m", "agentic.sqlconnect.cli", "status"])
+
+
+def test_ops_environment_default_dsn_env_is_admitted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ops_runner, "_get_config", lambda _p: {"sqlconnect": {}})
+    monkeypatch.setenv("CYCLAW_SQL_DSN", "postgresql://x")
+    env = _ops_environment(["python", "-m", "agentic.sqlconnect.cli", "status"])
+    assert env.get("CYCLAW_SQL_DSN") == "postgresql://x"

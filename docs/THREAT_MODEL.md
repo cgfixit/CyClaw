@@ -134,6 +134,10 @@ module isolation — I6 is the import-isolation invariant). See
   the inherited confinement. Linux requires bubblewrap filesystem, network, and PID
   namespaces. Windows verification refuses to run until an equivalent filesystem
   boundary exists; a Job Object alone does not qualify. Missing backends fail closed.
+  **The boundary confines writes and network; it does not hide the host.** Checks
+  can still read host files that bubblewrap or Seatbelt mount read-only into the
+  sandbox (operator home, system libraries, other world-readable paths). Treat
+  host-readable secrets as in scope for injection-driven reads.
 - **Kernel / hypervisor escape.** There is **no per-workload microVM**
   (gVisor/Firecracker). Container isolation shares the container host's Linux
   kernel. On Docker Desktop that kernel is in the managed Linux VM rather than

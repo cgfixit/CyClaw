@@ -163,12 +163,19 @@ curl -s http://127.0.0.1:8787/health
 
 The gateway does not need a verification sandbox. Agentic repository checks do:
 Linux requires `bubblewrap` and permission to create its filesystem, PID and
-network namespaces. On Debian/Ubuntu, install the distribution package before
-enabling those checks:
+network namespaces. On Debian or Ubuntu, install the distribution package before
+enabling those checks (the version pins below are Ubuntu-only):
 
 ```bash
 sudo apt-get update
-sudo apt-get install --yes --no-install-recommends bubblewrap
+# Pin matches the CI runners: Ubuntu 22.04 (jammy) or 24.04 (noble).
+# Ubuntu 22.04:
+sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
+# Ubuntu 24.04:
+# sudo apt-get install --yes --no-install-recommends bubblewrap=0.9.0-1ubuntu0.3
+# Debian (no Ubuntu pin applies; take the distribution's current build):
+# sudo apt-get install --yes --no-install-recommends bubblewrap
+bwrap --version
 python scripts/verify_agentic_sandbox.py
 ```
 

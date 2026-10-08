@@ -59,12 +59,22 @@ _PATH_FIELDS = frozenset(
     }
 )
 
+# Exact names only: a suffix like *ROOT/*PATH admitted decoys (FAKEROOT, TEMPPATH).
+# Add a name here when a capability config documents it as a path env var.
+_ALLOWED_PATH_ENV_NAMES = frozenset(
+    {
+        # Grow this set only when a capability config documents the name.
+        "CYCLAW_FS_ROOT",
+    }
+)
+
 
 def configured_path_names(block: object) -> tuple[str, ...]:
     """Retain named directory variables only where a capability config uses them.
 
-    Names must describe paths and cannot select secrets or runtime loader controls.
-    Missing or non-absolute values fail before launching a child with a changed root.
+    Names must be on the explicit allow-list and cannot select secrets or runtime
+    loader controls. Missing or non-absolute values fail before launching a child
+    with a changed root.
     """
     import re
 
@@ -101,7 +111,7 @@ def configured_path_names(block: object) -> tuple[str, ...]:
         upper = name.upper()
         if (
             is_secret_name(name)
-            or not upper.endswith(("ROOT", "DIR", "HOME", "PATH", "FOLDER"))
+            or name not in _ALLOWED_PATH_ENV_NAMES
             or upper.startswith(("PYTHON", "NODE", "LD_", "DYLD_", "GIT_", "GH_"))
         ):
             raise ValueError(f"configuration path variable {name} is not an allowed directory capability")
