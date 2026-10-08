@@ -49,8 +49,9 @@ Scoped behavioral rules and non-negotiable constraints for Claude Code sessions 
 
 ### Testing
 
-- **Coverage Target:** 80% minimum (measured across the 17 sources in `pyproject.toml`'s `[tool.coverage.run]`: `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`)
-- **Test Command:** `GROK_API_KEY=dummy pytest tests/ -q --tb=short`
+- **Coverage Target:** 80% minimum, enforced by CI rather than reproduced locally (measured across the 17 sources in `pyproject.toml`'s `[tool.coverage.run]`: `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`)
+- **Verification:** follow `CLAUDE.md` §5 "Verification policy": run the changed code directly, then lint/static checks, then let GitHub Actions run the suites; at most one targeted test file as a last resort. Do not run the full suite or the `--cov` run as a routine step.
+- **Full-suite command (CI / owner only):** `GROK_API_KEY=dummy pytest tests/ -q --tb=short`
 - **No Live Services:** All external deps mocked via `tests/conftest.py`
 - **Exit Codes:** Respect exit code conventions (0=success, 2=operation failed, 3=env/config error, 4=write refused)
 
