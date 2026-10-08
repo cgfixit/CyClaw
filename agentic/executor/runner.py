@@ -47,7 +47,7 @@ def _mirror_argv(argv: Sequence[str], source: Path, mirror: Path) -> tuple[str, 
 
 
 def _mirror_ignore(deadline: float):
-    """Ignore .git plus FIFOs/sockets/device nodes; raise TimeoutError past deadline."""
+    """Ignore .git plus FIFOs/sockets/device nodes; raise TimeoutError past deadline, OSError on unreadable metadata."""
 
     def ignore(directory: str, names: list[str]) -> list[str]:
         if time.monotonic() > deadline:
@@ -57,12 +57,11 @@ def _mirror_ignore(deadline: float):
             if name == ".git":
                 skipped.append(name)
                 continue
-            path = Path(directory) / name
-            try:
-                mode = path.lstat().st_mode
-            except OSError:
-                skipped.append(name)
-                continue
+            # A failed lstat is deliberately NOT swallowed: dropping the entry would
+            # let copytree succeed on a thinner tree and the check pass against code
+            # that is not the candidate. run_verification turns the OSError into a
+            # failed CheckResult plus an audit event.
+            mode = (Path(directory) / name).lstat().st_mode
             if stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
                 skipped.append(name)
         return skipped

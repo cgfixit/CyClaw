@@ -316,3 +316,21 @@ def test_mirror_copy_oserror_becomes_failed_check(tmp_path, monkeypatch):
     assert report.results[0].ok is False
     assert report.results[0].timed_out is False
     assert "mirror copy failed" in report.results[0].stderr
+
+
+def test_unreadable_entry_fails_the_check_instead_of_thinning_the_mirror(tmp_path, monkeypatch):
+    """An entry whose metadata cannot be read must fail closed, never be silently dropped."""
+    (tmp_path / "ok.txt").write_text("x\n", encoding="utf-8")
+    (tmp_path / "unreadable.txt").write_text("y\n", encoding="utf-8")
+    real_lstat = Path.lstat
+
+    def _lstat(self, *a, **k):
+        if self.name == "unreadable.txt":
+            raise OSError(5, "simulated EIO")
+        return real_lstat(self, *a, **k)
+
+    monkeypatch.setattr(Path, "lstat", _lstat)
+    report = run_verification(tmp_path, [_py("import sys; sys.exit(0)")])
+    assert report.ok is False
+    assert report.results[0].ok is False
+    assert "mirror copy failed" in report.results[0].stderr
