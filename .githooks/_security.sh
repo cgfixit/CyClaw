@@ -245,8 +245,10 @@ sec__diff_lines() {
       next
     }
     /^commit / { inh = 0; next }
-    inh == 0 && /^--- / { g = $0; sub(/^--- (a\/)?/, "", g); next }
-    inh == 0 && /^\+\+\+ / { f = $0; sub(/^\+\+\+ (b\/)?/, "", f); next }
+    # git ends a ---/+++ path that contains a space with a TAB; strip it, or the
+    # path never matches a glob (SEC_BINARY_GLOBS) and is reported with a TAB.
+    inh == 0 && /^--- / { g = $0; sub(/^--- (a\/)?/, "", g); sub(/\t$/, "", g); next }
+    inh == 0 && /^\+\+\+ / { f = $0; sub(/^\+\+\+ (b\/)?/, "", f); sub(/\t$/, "", f); next }
     /^@@/ {
       inh = 1
       h = $0; sub(/[^@].*$/, "", h); ncol = length(h) - 1
