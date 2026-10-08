@@ -4,20 +4,21 @@
 
 ## Reporting a Vulnerability
 
-Open a private security advisory on GitHub ([CGFixIT/CyClaw](https://github.com/CGFixIT/CyClaw/security/advisories)) or contact the maintainer via [cgfixit.com](https://cgfixit.com). Do not open public issues for exploitable findings — on a public repository every issue is public the moment it is filed. Full process: [`.github/SECURITY.md`](.github/SECURITY.md).
+Open a private security advisory on GitHub ([cgfixit/CyClaw](https://github.com/cgfixit/CyClaw/security/advisories)) or contact the maintainer via [cgfixit.com](https://cgfixit.com). Do not open public issues for exploitable findings — on a public repository every issue is public the moment it is filed. Full process: [`.github/SECURITY.md`](.github/SECURITY.md).
 
 ## Security Model (Summary)
 
-CyClaw is an **offline-first, loopback-only** local AI gateway. The enforced invariants:
+CyClaw is an **offline-first, loopback-only** local AI gateway. Items 1–6 are the pinned security invariants, each with its test in [`INVARIANTS.md`](INVARIANTS.md) and its history in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (eighteen numbered amendments as of 2026-10-03); items 7–9 are supplementary controls that sit beside them, not invariants:
 
 1. **RAG-first** — `retrieve` is the unconditional LangGraph entry node; no bypass edge exists.
 2. **Topology = policy** — routing is done by score gates in graph edges, never by prompts.
 3. **Triple-gated external access** — Grok/Claude require `app.mode=="hybrid"` AND `models.<provider>.enabled` AND per-query human confirmation. The shipped config satisfies the first two gates for both providers; the per-query confirmation cannot be pre-set, and a usable provider key is still required at the call site.
 4. **Audit convergence** — every path terminates in `audit_logger` (keyed HMAC-SHA256 query fingerprints, PII + secret redaction, append-only JSONL).
 5. **Soul governance** — identity evolution requires a human-authored reason; atomic writes; SHA-256 drift detection on startup.
-6. **Out-of-band connectors** — `agentic/`, `sync/`, `guardrails/` are never imported by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`. `sync/` and `agentic/` ship disabled and run via audited argv-list subprocess shims. Guardrails ships enabled with a required NeMo dependency. Missing or failed live NeMo checks run deterministic input and soul-leak checks on every answer route and record `guardrail_degraded`. Grounding remains local-only. A fallback refusal also records `guardrail_blocked`; an unexpected wrapper error ends generation without replay. These checks cannot grant a route. Explicit `guardrails.enabled: false`, or an absent block, leaves the graph guards as pass-through. Agentic verification containment is **best-effort** software (`agentic/executor/runner.py`), not a network namespace.
+6. **Out-of-band connectors** — `agentic/`, `sync/`, `guardrails/`, `telegram/`, and `opentweet/` are never imported by the core six (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`), and never import them. `sync/` and `agentic/` ship disabled and run via audited argv-list subprocess shims. Guardrails ships enabled with a required NeMo dependency. Missing or failed live NeMo checks run deterministic input and soul-leak checks on every answer route and record `guardrail_degraded`. Grounding remains local-only. A fallback refusal also records `guardrail_blocked`; an unexpected wrapper error ends generation without replay. These checks cannot grant a route. Explicit `guardrails.enabled: false`, or an absent block, leaves the graph guards as pass-through. Agentic verification runs in disposable copies under a required `production_sandbox()` (Darwin Seatbelt; Linux bubblewrap filesystem, PID and network namespaces; Windows and missing capabilities fail closed, `agentic/executor/`). That is process confinement, not a microVM or a host-read isolation boundary.
 7. **No unsolicited secondary telemetry** — every vendor telemetry/analytics path is disabled before the dependency that reads it initializes: canonical env maps (`utils/telemetry_kill.py`) applied at import time by every Python entry point AND delivered as literal environment at every process boundary (Docker ENV, launchers, generated launchd plists / Windows tasks / cron lines, verifier and `gh` children), plus the post-import ONNX Runtime API call at the load seams. `gate.py` prints a verification table at startup; the other appliers enforce silently and are pinned by tests + the `otel-hardening` checker. Stated precisely: these controls silence telemetry readers — they are **not** a general network kill switch, and CyClaw's *intentional* egress is governed by its own gates (see **Egress classification** below).
-8. **Loopback binding** — `127.0.0.1:8787` (gateway) and `127.0.0.1:11434` (Ollama); API-key gate on all mutating endpoints; per-IP rate limiting; strict security headers + TrustedHost.
+8. **Loopback binding** — `127.0.0.1:8787` (gateway) and `127.0.0.1:11434` (Ollama); request bodies capped at `security.max_request_body_bytes` (1 MiB, 413 above it); per-IP rate limiting; strict security headers + TrustedHost. Operator routes (`/soul/*`, `/ops/*`, `/audit/summary`, `/memory/*`, `/query/export/html`) need `require_api_key`'s credentials: Bearer `CYCLAW_API_KEY` or the console cookie, both of which fail closed while the key is unset, or (with `auth.enabled`) an enabled admin's login, the one credential that works without the key; `/query`, `/index/build` (loopback peer + same-origin + no forwarding header, plus the key once set), `/console/session`, and the session-governed `/auth/*` routes have their own gates ([`INVARIANTS.md`](INVARIANTS.md) Rule 6, threat-model amendments fourteen, fifteen, and eighteen).
+9. **Commit-time gate** — the tracked `.githooks/` (`_security.sh` + `security.conf`, installed by `scripts/ensure-githooks.sh`) refuse commits that carry secrets, private data, or protected-path edits, and refuse pushes that carry secrets or private data or rewrite a protected branch, unless an explicit operator override is set; a protected-path edit that reaches `pre-push` without the pre-commit hook gets a reminder only ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)). A speed bump for people and agents, not a boundary: `gitleaks.yml` and the `main` ruleset are the controls.
 
 ## Accepted Dependency Risks
 
@@ -34,17 +35,17 @@ These are tracked, deliberate exceptions — re-reviewed at every release and en
 - **Last reviewed:** 2026-10-04 against the OSV API for `chromadb==1.5.9`. All four advisories remain active with no fixed version. OSV-Scanner and Trivy suppressions expire on 2026-11-01.
 - **Telemetry at this pin:** chromadb 1.5.9's PostHog product-telemetry path is **dead code** (the `posthog` extra is no longer a dependency; `Settings(anonymized_telemetry=False)` is belt-and-suspenders). The live kill for Chroma's *separate* OTel exporter path is `CHROMA_OTEL_GRANULARITY=none` in `utils/telemetry_kill.py`. A chromadb bump that reintroduces a live PostHog SDK is an explicit re-review trigger, not "the flag is still false so we are fine."
 - **Guardrails:** any future change introducing `chromadb.HttpClient` or a standalone Chroma server MUST be treated as a security regression and re-open this assessment.
-- **Review date:** next chromadb release or 2026-10-01, whichever comes first.
+- **Review date:** next chromadb release or 2026-11-01 (when the OSV-Scanner and Trivy suppressions expire), whichever comes first.
 
 ### nltk 3.10.3 — pin bump (closes the 3.10.2 CVE cluster)
 
 - **Pin:** `nltk==3.10.3` in `pyproject.toml`, `requirements.txt`, `constraints.txt`, and `environment.yml`. Dockerfile installs from those manifests.
 - **Why bumped:** [#1256](https://github.com/cgfixit/CyClaw/issues/1256). CyClaw-reachable finding is [CVE-2026-81722](https://osv.dev/vulnerability/CVE-2026-81722) (PorterStemmer O(n²) DoS on a long run of `y` plus a matching suffix). `retrieval/stemmer.py` calls `PorterStemmer.stem()` on every keyword query and at index time. The rest of the 3.10.2 cluster (CVE-2026-79675 / 78680 / 79657 / 79676 / 79674 / 78682 / 81726) is the same unpatched pin; those APIs (Stanford JVM wrappers, Graphviz `dot`, pickle loaders, corpus readers, `nltk.data.load` / downloader) are not imported here.
-- **Still true:** CyClaw never calls `nltk.data.load()` and never loads punkt. Tokenization stays on `_WORD_RE`. The old punkt path-traversal (CVE-2026-12243 / PYSEC-2026-597) remains unreachable; `.trivyignore` / `pip-audit` entries for it stay until a post-bump scan proves they are dead.
+- **Still true:** CyClaw never calls `nltk.data.load()` and never loads punkt. Tokenization stays on `_WORD_RE`. The old punkt path-traversal (CVE-2026-12243 / PYSEC-2026-597) remains unreachable; `.trivyignore.yaml` / `pip-audit` entries for it stay until a post-bump scan proves they are dead.
 - **Defense in depth:** `retrieval/stemmer.py` caps tokens at 256 chars (`_MAX_TOKEN_CHARS` + bounded `_WORD_RE`) before `PorterStemmer.stem()`. That is not a substitute for the 3.10.3 pin.
 - **Guardrails:** any future change introducing `nltk.data.load()`, `nltk.download()`, `punkt`/`word_tokenize`, or the model-artifact APIs below MUST be treated as a security regression and re-open this assessment.
 - **Accepted 2026-09-04; reviewed 2026-10-04:** [PYSEC-2026-3740](https://osv.dev/vulnerability/PYSEC-2026-3740) (alias [CVE-2026-81726](https://nvd.nist.gov/vuln/detail/CVE-2026-81726) / [GHSA-8mgp-746c-j5xp](https://github.com/advisories/GHSA-8mgp-746c-j5xp)). The OSV API still reports this as the sole finding for `nltk==3.10.3`, with no fixed version. Surface is unused model-artifact I/O (`TransitionParser.train`/`parse`, `AveragedPerceptron.save`/`load`, `PerceptronTagger.save_to_json`, `save_maxent_params`), not `PorterStemmer`. `pip-audit.yml` ignores the PYSEC id only (the id that scanner prints). OSV-Scanner suppresses `GHSA-8mgp-746c-j5xp` until 2026-11-01 (`.osv-scanner.toml`); Trivy does not suppress it. Drop the pip-audit ignore and the OSV ignore when a patched nltk ships.
-- **Review date:** next nltk release or 2026-10-01, whichever comes first.
+- **Review date:** next nltk release or 2026-11-01 (when the OSV-Scanner suppression expires), whichever comes first.
 
 ## Accepted Workflow Risks
 
@@ -67,11 +68,11 @@ These are deliberate GitHub Actions exceptions — documented so a dismissed cod
 
 ## Verification
 
-- `python -m pytest tests/ -q` — full suite (mocked externals; no live services needed)
+- `GROK_API_KEY=dummy python -m pytest tests/ -q` — full suite (mocked externals; no live services needed). CI runs it; agents verify per `CLAUDE.md` §5 instead
 - `pip-audit -r requirements.txt -r requirements-test.txt` — dependency CVE sweep (also runs in CI)
-- `python scripts`/swarm verification harness — config invariants, telemetry kill, due-diligence invariants, terminal contract
+- `python3 .claude/skills/invariant-guard/check_invariants.py`, `python3 .claude/skills/config-guard/check_config.py`, `python3 .claude/skills/dotenv-guard/check_dotenv.py` — static invariant, config, and secrets-handling checks; `tests/test_due_diligence_invariants.py` and `tests/test_terminal_contract.py` pin the gate, soul, scanner, and console contracts
 - Network audit: zero non-loopback connections expected in offline mode (see telemetry kill-switch docs in `docs/security-philosophy/cyclaw_telemetry_kill.env`)
-- `python3 .claude/skills/otel-hardening/check_otel.py --strict` — telemetry-kill value oracle, boundary delivery, and egress-classification sweep; `bash .claude/skills/otel-hardening/verify.sh` runs its 21-scenario mutation self-test
+- `python3 .claude/skills/otel-hardening/check_otel.py --strict` — telemetry-kill value oracle, boundary delivery, and egress-classification sweep; `bash .claude/skills/otel-hardening/verify.sh` runs its mutation self-test
 
 ## Egress classification
 
@@ -107,9 +108,8 @@ or launcher lands unclassified:
    cloud fallbacks, the gated cloud-planner adapters, Telegram and OpenTweet
    (first-party httpx clients performing intentional remote API operations;
    there is no installed vendor SDK and therefore no SDK telemetry key to
-   set), rclone/Dropbox corpus sync, operator-configured SQL endpoints, the
-   and the one-time embedding-model
-   bootstrap fetch (`HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` stay conditional
+   set), rclone/Dropbox corpus sync, operator-configured SQL endpoints, and
+   the one-time embedding-model bootstrap fetch (`HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` stay conditional
    on the model being cached, or on the opt-in
    `models.embeddings.offline_after_index` flag plus a completed retrieval
    index already on disk — #1255 Phase B, default `false`). Never mislabeled
