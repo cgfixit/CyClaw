@@ -580,6 +580,18 @@ sec__gitleaks() {   # sec__gitleaks WHERE ARGS...
   fi
 }
 
+# sec__gitleaks_text WHERE TEXT   the optional scanner over content that is not
+# a commit range (a tag message, or a blob or tree a tag points at), which
+# `gitleaks git` never sees. Silent when gitleaks is absent: sec__gitleaks says so.
+sec__gitleaks_text() {
+  local where="$1"
+  command -v gitleaks >/dev/null 2>&1 || return 0
+  if ! printf '%s\n' "$2" | (cd "$sec__root" && gitleaks stdin --redact --no-banner --log-level error --no-color --verbose >&2); then
+    sec__say "security gate: gitleaks reported a finding in $where (output above, redacted)."
+    return 1
+  fi
+}
+
 # ── Entry points ────────────────────────────────────────────────────────────
 
 # Content scans read the diff as text no matter what .gitattributes or a NUL
@@ -640,7 +652,10 @@ sec__scan_tree() {
   )"
   names="$(git -c core.quotePath=false ls-tree -r --name-only "$tree")"
   sec__check_files "$names" "$where" || return 1
-  sec__scan_added "$where" "$added"
+  local rc=0
+  sec__scan_added "$where" "$added" || rc=1
+  sec__gitleaks_text "$where" "$added" || rc=1
+  return "$rc"
 }
 
 # sec_pre_push_ref REMOTE LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA
@@ -681,6 +696,7 @@ sec_pre_push_ref() {
   while [[ "$otype" == tag ]]; do
     added="$(git cat-file -p "$local_sha" | sec__label_lines "$remote_ref")"
     sec__scan_added "tag message for '$remote_ref'" "$added" || rc=1
+    sec__gitleaks_text "tag message for '$remote_ref'" "$added" || rc=1
     local_sha="$(git cat-file tag "$local_sha" | sed -n '1s/^object //p')"
     otype="$(git cat-file -t "$local_sha" 2>/dev/null || echo missing)"
   done
@@ -688,7 +704,8 @@ sec_pre_push_ref() {
     commit) ;;
     blob)
       added="$(git cat-file blob "$local_sha" | sec__label_lines "$remote_ref")"
-      sec__scan_added "blob published as '$remote_ref'" "$added" || rc=1 ;;
+      sec__scan_added "blob published as '$remote_ref'" "$added" || rc=1
+      sec__gitleaks_text "blob published as '$remote_ref'" "$added" || rc=1 ;;
     tree)
       sec__scan_tree "tree published as '$remote_ref'" "$local_sha" || rc=1 ;;
     *)
