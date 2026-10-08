@@ -12,8 +12,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
-from agentic.config import AgenticConfig
-from agentic.context import fetch_issue_context, fetch_pr_context, fetch_repo_context
 from agentic.harness_optimizer.core import Experiment, RunReport, Variant
 from agentic.harness_optimizer.governance import (
     GovernanceFinding,
@@ -94,23 +92,6 @@ class GitHubCodingEvaluation:
             "governance_findings": list(self.report.governance_findings),
             "selected_commands": list(self.selected_commands),
         }
-
-
-def fetch_github_task_context(
-    cfg: AgenticConfig,
-    *,
-    issue_number: int | None = None,
-    pr_number: int | None = None,
-) -> dict:
-    """Use the existing read-only context wrappers for a task's declared source."""
-
-    if issue_number is not None and pr_number is not None:
-        raise AgenticError("a GitHub coding task may reference either an issue or a PR, not both")
-    if pr_number is not None:
-        return fetch_pr_context(cfg, pr_number)
-    if issue_number is not None:
-        return fetch_issue_context(cfg, issue_number)
-    return fetch_repo_context(cfg)
 
 
 @dataclass(frozen=True)

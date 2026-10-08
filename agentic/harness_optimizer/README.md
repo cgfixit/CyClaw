@@ -20,10 +20,8 @@
 Opt-in scaffold under the agentic layer. Ships **disabled**
 (`agentic.harness_optimizer.enabled: false`). It scores fixture-based harness
 runs, proposes candidate artifacts in a jailed workspace, and records
-human-gated accept/reject decisions. It never **writes** to GitHub
-(`runners/github_coding_runner.fetch_github_task_context` does make read-only
-GitHub context calls through `agentic.context`), does not spawn a host
-shell, or import `gate.py` / `graph.py` / `mcp_hybrid_server.py` (I6).
+human-gated accept/reject decisions. It never calls GitHub, does not spawn a
+host shell, or import `gate.py` / `graph.py` / `mcp_hybrid_server.py` (I6).
 
 A human is **always** required to accept. `apply_candidate_artifact` demands a
 non-empty `reason` and an explicit `confirm`, and setting

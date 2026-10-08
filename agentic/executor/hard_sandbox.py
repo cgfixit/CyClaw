@@ -261,10 +261,3 @@ class LinuxNetnsSandbox:
             wrapped = self._prefix() + ["--bind", root, root, "--bind", scratch, scratch,
                                        "--chdir", root, "--", *argv]
             return ArgvListSandbox().run(wrapped, cwd=cwd, env=child_env, timeout_sec=timeout_sec)
-
-
-class WindowsJobObjectSandbox:
-    """Compatibility name that refuses the incomplete Windows boundary."""
-
-    def run(self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str], timeout_sec: int) -> SandboxOutcome:
-        raise HardSandboxUnavailable("Windows Job Objects do not confine filesystem or network access")

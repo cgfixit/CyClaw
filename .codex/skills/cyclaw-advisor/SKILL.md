@@ -59,8 +59,9 @@ travels through `ops_runner`, not direct core imports.
 
 Real-repo approval uses acceptance manifests bound to run/base/path hashes and
 a disposable-copy verification before finalize. Read `agentic/executor/` and
-its tests before claiming a platform sandbox guarantee. Job Objects control
-process trees; they are not a network namespace. See
+its tests before claiming a platform sandbox guarantee. Windows has no
+backend: `production_sandbox()` refuses it, because Job Objects control
+process trees but confine neither filesystem nor network. See
 [environment notes](CyClaw-environment.md) for the platform source map.
 
 ## Advice and verification

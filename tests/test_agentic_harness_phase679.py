@@ -32,7 +32,6 @@ from agentic.harness_optimizer.loop_driver import run_optimization_loop
 from agentic.harness_optimizer.runners.github_coding_runner import (
     FixtureCase,
     GitHubCodingRunner,
-    fetch_github_task_context,
 )
 from agentic.harness_optimizer.proposer import build_proposer_workspace
 from utils.errors import AgenticError, AgenticWriteRefused
@@ -260,13 +259,6 @@ def test_fixture_runner_rejects_visible_case_hardcoding(tmp_path: Path) -> None:
     report = runner.run(_experiment(), Variant("candidate", ("planner",), "proposal.md", str(workspace.root)))
 
     assert any(finding.startswith("critical: visible_case_hardcoding") for finding in report.governance_findings)
-
-
-def test_fetch_github_task_context_uses_existing_read_only_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agentic.harness_optimizer.runners import github_coding_runner
-
-    monkeypatch.setattr(github_coding_runner, "fetch_pr_context", lambda cfg, number: {"pr": number, "source": "fake-gh"})
-    assert fetch_github_task_context(_config(), pr_number=7) == {"pr": 7, "source": "fake-gh"}
 
 
 def test_apply_candidate_artifact_requires_all_human_gates(tmp_path: Path) -> None:

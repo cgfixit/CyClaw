@@ -159,7 +159,7 @@ class PersonalityManager:
         )
         self.conn.execute(personality_db.ddl_soul_versions(self._backend))
         self.conn.execute(personality_db.ddl_interactions(self._backend))
-        for index_ddl in personality_db.ddl_indexes(self._backend):
+        for index_ddl in personality_db.ddl_indexes():
             self.conn.execute(index_ddl)
         self.conn.commit()
 
