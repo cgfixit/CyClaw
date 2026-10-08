@@ -5,7 +5,7 @@ Enforces **documented multi-vendor feature-branch prefixes** on commit and push,
 fresh-`origin/main` ancestry for feature-branch pushes.
 
 Canonical list (must stay aligned with `utils.agent_identity.ALLOWED_BRANCH_PREFIXES`,
-`CLAUDE.md` §5 / Kimi section, and `.github/PULL_REQUEST_TEMPLATE.md`):
+`CLAUDE.md` §10 "Branch namespaces", and `.github/PULL_REQUEST_TEMPLATE.md`):
 
 | Prefix | Driver |
 |--------|--------|
