@@ -387,9 +387,11 @@ sec__drop_binary_paths() {
   local line body
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    if sec__match_any "${line%%:*}" ${SEC_BINARY_GLOBS[@]+"${SEC_BINARY_GLOBS[@]}"}; then
+    if sec__match_any "${line%%:*}" ${SEC_BINARY_GLOBS[@]+"${SEC_BINARY_GLOBS[@]}"} &&
+      command -v iconv >/dev/null 2>&1; then
       # The name alone is not proof: a binary's bytes are almost never valid
-      # UTF-8, while a hidden mark in a text file renamed .pdf is.
+      # UTF-8, while a hidden mark in a text file renamed .pdf is. Without
+      # iconv, keep the hit instead of silently dropping it.
       body="${line#*:}"; body="${body#*:}"
       printf '%s' "$body" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || continue
     fi
