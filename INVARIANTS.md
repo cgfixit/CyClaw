@@ -10,7 +10,7 @@ holds only by convention so you do not mistake a comment for an enforcement.
 Authority order (from `CLAUDE.md`): running code wins over `config.yaml` wins over
 docs. This file describes the code as it actually behaves, cross-checked against
 `docs/audits/2026-07-08-due-diligence-invariants.md` (the original findings) and
-resynced against the tree on 2026-10-03 (every claim and named test re-checked;
+resynced against the tree on 2026-10-08 (every claim and named test re-checked;
 no rule changed since 2026-09-28). Every "proven by" reference is a test in
 `tests/test_due_diligence_invariants.py` unless another file is named. `CLAUDE.md`
 §2 summarizes Rule 6's API-key bypass and defers to this file for the detail.
@@ -170,7 +170,9 @@ rule deliberately — do not silently delete the tripwire.
 `gate.py`'s `require_api_key` — `/soul/*`, `/ops/*`, `/audit/summary`, `/memory/*`,
 and `/query/export/html` — returns 401 to every **key-based** credential, never
 "open mode." Key comparison uses `hmac.compare_digest` (constant-time). Do not
-reintroduce an unauthenticated fallback.
+reintroduce an unauthenticated fallback. Independently of any credential, every
+request body is capped at `security.max_request_body_bytes` (1 MiB shipped,
+`_MaxBodySizeMiddleware`, 413 above it; #1547) before a handler runs.
 
 **The four credentials `require_api_key` accepts (any one is enough):**
 
