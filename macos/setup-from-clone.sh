@@ -152,8 +152,8 @@ fi
 # -- paths --------------------------------------------------------------------
 
 # $0 is reliable when invoked as `bash path/to/script`; CDPATH must not hijack cd.
-_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-REPO_DIR="$(CDPATH= cd -- "$_SCRIPT_DIR/.." && pwd)"
+_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+REPO_DIR="$(CDPATH='' cd -- "$_SCRIPT_DIR/.." && pwd)"
 HOME_DIR="${CYCLAW_HOME:-$HOME/.CyClaw}"
 
 reject_shell_metachars() {
@@ -293,7 +293,7 @@ fi
 
 if [ "$SKIP_PRIVACY" -eq 0 ] && [ -x "$REPO_DIR/.claude/skills/cyclaw-privacy/verify.sh" ]; then
   step "cyclaw-privacy: verifying checkout posture"
-  ( CDPATH= cd -- "$REPO_DIR" && bash .claude/skills/cyclaw-privacy/verify.sh ) || \
+  ( CDPATH='' cd -- "$REPO_DIR" && bash .claude/skills/cyclaw-privacy/verify.sh ) || \
     warn "cyclaw-privacy verify.sh reported a problem; continuing"
 elif [ "$SKIP_PRIVACY" -eq 0 ]; then
   warn "cyclaw-privacy verify.sh not executable; skipping"
@@ -405,7 +405,7 @@ fi
 # Load non-secret settings from dotenv, then secrets from Keychain into THIS
 # process so later steps (gh auth, the gateway) inherit them. Never print values.
 # xtrace would dump every assignment — refuse rather than leak.
-_CYCLAW_SECRET_HELPER="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/cyclaw-keychain-load.sh"
+_CYCLAW_SECRET_HELPER="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/cyclaw-keychain-load.sh"
 if [ ! -f "$_CYCLAW_SECRET_HELPER" ]; then
   die "cyclaw-keychain-load.sh not found at $_CYCLAW_SECRET_HELPER"
 fi
@@ -546,7 +546,7 @@ if [ "$SKIP_INDEX" -eq 0 ]; then
     step "retrieval index already present at $REPO_DIR/index"
   else
     step "building retrieval index (python -m retrieval.indexer)"
-    ( CDPATH= cd -- "$REPO_DIR" && "$VENV_PY" -m retrieval.indexer )
+    ( CDPATH='' cd -- "$REPO_DIR" && "$VENV_PY" -m retrieval.indexer )
     step "index built"
   fi
 else

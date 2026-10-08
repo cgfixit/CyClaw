@@ -27,7 +27,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   exit 1
 fi
 
-_CYCLAW_LOAD_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_CYCLAW_LOAD_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$_CYCLAW_LOAD_DIR/cyclaw-public-env.sh" ]; then
   # shellcheck disable=SC1091
   . "$_CYCLAW_LOAD_DIR/cyclaw-public-env.sh"
@@ -63,11 +63,11 @@ _remember_secret_preset() {
 # Pattern matches in the file (DB_PASSWORD, *_API_KEY, ...) join the scrub
 # list before the file is sourced. Allowlist names are already on it.
 _remember_secret_presets_in_file() {
-  local file="$1" line name op val
+  local file="$1" line name _op _val
   [ -f "$file" ] || return 0
   command -v cyclaw_is_secret_name >/dev/null 2>&1 || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    while IFS=$'\x1f' read -r name op val; do
+    while IFS=$'\x1f' read -r name _op _val; do
       [ -n "$name" ] || continue
       cyclaw_is_secret_name "$name" || continue
       case " ${_CYCLAW_SCRUB_NAMES} " in
@@ -173,7 +173,7 @@ _security_bin() {
 
 _cyclaw_keychain_helper() {
   local dir
-  dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
   if [ -f "$dir/cyclaw-keychain-env.sh" ]; then
     printf '%s\n' "$dir/cyclaw-keychain-env.sh"
     return 0
@@ -217,14 +217,14 @@ _load_one_keychain_secret() {
 }
 
 _warn_dotenv_secret_lines() {
-  local file="$1" line name op val
+  local file="$1" line name _op _val
   [ -n "$file" ] || return 0
   [ -f "$file" ] || return 0
   if ! command -v cyclaw_dotenv_assignment_name >/dev/null 2>&1; then
     return 0
   fi
   while IFS= read -r line || [ -n "$line" ]; do
-    while IFS=$'\x1f' read -r name op val; do
+    while IFS=$'\x1f' read -r name _op _val; do
       [ -n "$name" ] || continue
       cyclaw_is_secret_name "$name" || continue
       echo "[cyclaw] warn : $name is in $file but launchers do not load secrets from dotenv." >&2

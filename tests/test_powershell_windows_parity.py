@@ -246,7 +246,9 @@ def test_invoke_starts_gate_through_main_not_bare_uvicorn() -> None:
     assert probe_idx < text.index("[cyclaw] console : $Url")
     # The browser opens the probed URL (plus the one-time #pair= fragment).
     assert probe_idx < text.index("$OpenUrl = $Url")
-    assert "-ArgumentList $OpenUrl" in text
+    # Prefer $using: so PSUseUsingScopeModifierInNewRunspaces stays clean.
+    assert "$using:OpenUrl" in text
+    assert "Start-Job -ScriptBlock" in text
 
 
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell")
@@ -408,7 +410,7 @@ def test_remove_credentials_prompts_unless_yes() -> None:
     text = (_PS / "Uninstall-CyClaw.ps1").read_text(encoding="utf-8")
     readme = (_PS / "README.md").read_text(encoding="utf-8")
     assert "[switch]$Yes" in text
-    assert "if ($Yes)" in text
+    assert "if ($script:Yes)" in text
     assert "kept Credential Manager items" in text
     # The prompt's count and list come from the same policy-derived target set
     # the purge walks (utils/secret-policy.tsv), never a hard-coded number.
@@ -420,7 +422,7 @@ def test_remove_credentials_prompts_unless_yes() -> None:
     assert "foreach ($credTarget in $credTargets)" in text[kept:]
     assert "five documented" not in text
     confirm = text.split("function Confirm-CyclawDestructive", 1)[1].split("\n}", 1)[0]
-    assert confirm.index("if ($Yes)") < confirm.index("Read-Host")
+    assert confirm.index("if ($script:Yes)") < confirm.index("Read-Host")
     assert "(y/N)" in confirm
     home = text.split("# -- home directory", 1)[1]
     assert "$Yes" not in home

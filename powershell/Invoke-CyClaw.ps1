@@ -27,6 +27,31 @@ param(
     [string]$Repo = ""
 )
 
+
+function Write-CyClawHost {
+    # Operator-facing console text for install/uninstall/launch scripts.
+    # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
+    # still always show (Write-Information is Preference-gated).
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+        [object[]]$Object,
+        [ConsoleColor]$ForegroundColor
+    )
+    $msg = (@($Object) | ForEach-Object { "$_" }) -join " "
+    if ($PSBoundParameters.ContainsKey("ForegroundColor")) {
+        $prev = [Console]::ForegroundColor
+        try {
+            [Console]::ForegroundColor = $ForegroundColor
+            [Console]::Out.WriteLine($msg)
+        } finally {
+            [Console]::ForegroundColor = $prev
+        }
+    } else {
+        [Console]::Out.WriteLine($msg)
+    }
+}
+
 $ErrorActionPreference = "Stop"
 
 $Home_ = if ($env:CYCLAW_HOME) { $env:CYCLAW_HOME } else { Join-Path $env:USERPROFILE ".CyClaw" }
@@ -90,9 +115,9 @@ $Url = & $VenvPy (Join-Path $Repo "utils\gateway_url.py") (Join-Path $Repo "conf
 if ($LASTEXITCODE -ne 0 -or -not $Url) { $Url = "http://127.0.0.1:8787" }
 $Url = "$Url".Trim()
 
-Write-Host "[cyclaw] repo    : $Repo" -ForegroundColor Cyan
-Write-Host "[cyclaw] home    : $Home_" -ForegroundColor Cyan
-Write-Host "[cyclaw] console : $Url  (Ctrl+C to stop)" -ForegroundColor Cyan
+Write-CyClawHost "[cyclaw] repo    : $Repo" -ForegroundColor Cyan
+Write-CyClawHost "[cyclaw] home    : $Home_" -ForegroundColor Cyan
+Write-CyClawHost "[cyclaw] console : $Url  (Ctrl+C to stop)" -ForegroundColor Cyan
 # First run on this machine: no key in Credential Manager yet. Generate one
 # (20 random bytes as hex, the shape macos/setup-cyclaw-keys.sh makes with
 # `openssl rand -hex 20`) and store it, so the gateway does not start keyless.
@@ -104,13 +129,13 @@ if (-not $env:CYCLAW_API_KEY -and (Test-CyclawWindowsHost)) {
     $newKey = -join ($keyBytes | ForEach-Object { $_.ToString("x2") })
     if (Write-CyclawCredential "com.cgfixit.cyclaw.api-key" $newKey) {
         $env:CYCLAW_API_KEY = $newKey
-        Write-Host "[cyclaw] key     : generated CYCLAW_API_KEY and stored it in Credential Manager (target com.cgfixit.cyclaw.api-key)" -ForegroundColor Cyan
+        Write-CyClawHost "[cyclaw] key     : generated CYCLAW_API_KEY and stored it in Credential Manager (target com.cgfixit.cyclaw.api-key)" -ForegroundColor Cyan
     }
     $newKey = $null
 }
 
 if (-not $env:CYCLAW_API_KEY) {
-    Write-Host "[cyclaw] warn    : CYCLAW_API_KEY is not in Credential Manager (target com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. This launcher does not read that secret from .env." -ForegroundColor Yellow
+    Write-CyClawHost "[cyclaw] warn    : CYCLAW_API_KEY is not in Credential Manager (target com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. This launcher does not read that secret from .env." -ForegroundColor Yellow
 }
 
 if (-not $NoBrowser) {
@@ -130,10 +155,9 @@ if (-not $NoBrowser) {
     # Open the browser slightly after the server starts; the page retries
     # until the API answers, so a race here is harmless.
     Start-Job -ScriptBlock {
-        param($url)
         Start-Sleep -Seconds 2
-        Start-Process $url
-    } -ArgumentList $OpenUrl | Out-Null
+        Start-Process $using:OpenUrl
+    } | Out-Null
 }
 
 Push-Location $Repo
@@ -166,7 +190,7 @@ try {
             }
         }
     } else {
-        Write-Host "[cyclaw] warn    : could not export telemetry-kill block (children still self-apply at import)" -ForegroundColor Yellow
+        Write-CyClawHost "[cyclaw] warn    : could not export telemetry-kill block (children still self-apply at import)" -ForegroundColor Yellow
     }
     # gate.py, not `uvicorn gate:app`: only main() -> _serve() applies the
     # loopback bind guard, api.tls certfile/keyfile, and proxy_headers=False

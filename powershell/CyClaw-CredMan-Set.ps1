@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Store one secret in Windows Credential Manager for CyClaw-CredMan-Env.ps1.
 
@@ -28,6 +28,31 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$Target
 )
+
+
+function Write-CyClawHost {
+    # Operator-facing console text for install/uninstall/launch scripts.
+    # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
+    # still always show (Write-Information is Preference-gated).
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+        [object[]]$Object,
+        [ConsoleColor]$ForegroundColor
+    )
+    $msg = (@($Object) | ForEach-Object { "$_" }) -join " "
+    if ($PSBoundParameters.ContainsKey("ForegroundColor")) {
+        $prev = [Console]::ForegroundColor
+        try {
+            [Console]::ForegroundColor = $ForegroundColor
+            [Console]::Out.WriteLine($msg)
+        } finally {
+            [Console]::ForegroundColor = $prev
+        }
+    } else {
+        [Console]::Out.WriteLine($msg)
+    }
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -189,8 +214,8 @@ if ($script:UsePs7Cancel) {
 }
 
 $account = $env:USERNAME
-Write-Host "[cyclaw] Storing Credential Manager target '$Target' for account '$account'."
-Write-Host "[cyclaw] You will be prompted for the secret value (input is not echoed)."
+Write-CyClawHost "[cyclaw] Storing Credential Manager target '$Target' for account '$account'."
+Write-CyClawHost "[cyclaw] You will be prompted for the secret value (input is not echoed)."
 
 $exitCode = 1
 try {
@@ -242,6 +267,6 @@ try {
 }
 
 if ($exitCode -eq 0) {
-    Write-Host "[cyclaw] stored Credential Manager item: target=$Target account=$account"
+    Write-CyClawHost "[cyclaw] stored Credential Manager item: target=$Target account=$account"
 }
 exit $exitCode

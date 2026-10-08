@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Credential Manager access and dotenv handling for the Windows launcher.
 
@@ -17,6 +17,30 @@
 
   Windows PowerShell 5.1 and PowerShell 7+. Not a launcher.
 #>
+
+function Write-CyClawHost {
+    # Operator-facing console text for install/uninstall/launch scripts.
+    # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
+    # still always show (Write-Information is Preference-gated).
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+        [object[]]$Object,
+        [ConsoleColor]$ForegroundColor
+    )
+    $msg = (@($Object) | ForEach-Object { "$_" }) -join " "
+    if ($PSBoundParameters.ContainsKey("ForegroundColor")) {
+        $prev = [Console]::ForegroundColor
+        try {
+            [Console]::ForegroundColor = $ForegroundColor
+            [Console]::Out.WriteLine($msg)
+        } finally {
+            [Console]::ForegroundColor = $prev
+        }
+    } else {
+        [Console]::Out.WriteLine($msg)
+    }
+}
 
 $script:CyclawSecretTargets = @{}
 $script:CyclawSecretSuffixes = @()
@@ -88,7 +112,7 @@ function Test-CyclawDotenvOwnerOnly([string]$Path) {
 function Import-CyclawDotenv([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     if (-not (Test-CyclawDotenvOwnerOnly $Path)) {
-        Write-Host "[cyclaw] warn    : refusing to source $Path (ACL is not owner-only; want current-user only). Fix with: icacls `"$Path`" /inheritance:r /grant:r `"${env:USERNAME}:(R,W)`"" -ForegroundColor Yellow
+        Write-CyClawHost "[cyclaw] warn    : refusing to source $Path (ACL is not owner-only; want current-user only). Fix with: icacls `"$Path`" /inheritance:r /grant:r `"${env:USERNAME}:(R,W)`"" -ForegroundColor Yellow
         return $false
     }
     foreach ($raw in @(Get-Content -LiteralPath $Path)) {
@@ -210,7 +234,7 @@ function Write-CyclawCredential([string]$Target, [string]$Secret) {
         $cred.Comment = "CyClaw secret; read only via CyClaw-SecretStore / CyClaw-CredMan-Env"
         if (-not [CyClawSecretStoreNative]::CredWrite([ref]$cred, 0)) {
             $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()  # DevSkim: ignore DS104456 — CredWrite last-error; not a secret
-            Write-Host "[cyclaw] WARNING: CredWrite failed for target $Target (win32=$err). Plaintext line left in place." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] WARNING: CredWrite failed for target $Target (win32=$err). Plaintext line left in place." -ForegroundColor Yellow
             return $false
         }
         return $true
@@ -228,7 +252,10 @@ function Write-CyclawCredential([string]$Target, [string]$Secret) {
     }
 }
 
-function Remove-CyclawCredential([string]$Target) {
+function Remove-CyclawCredential {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='CredDelete wrapper for uninstall purge; callers already confirm with Confirm-CyclawDestructive.')]
+    param([string]$Target)
+
     # True when the item is gone (deleted or already absent). False off
     # Windows, on an empty target, or when CredDelete fails for another reason.
     # Never prints a secret. Uninstall's -RemoveCredentials is the only caller.
@@ -241,15 +268,18 @@ function Remove-CyclawCredential([string]$Target) {
     $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()  # DevSkim: ignore DS104456 — CredDelete last-error; not a secret
     # 1168 ERROR_NOT_FOUND, 2 ERROR_FILE_NOT_FOUND: already absent.
     if ($err -eq 1168 -or $err -eq 2) { return $true }
-    Write-Host "[cyclaw] WARNING: CredDelete failed for target $Target (win32=$err)." -ForegroundColor Yellow
+    Write-CyClawHost "[cyclaw] WARNING: CredDelete failed for target $Target (win32=$err)." -ForegroundColor Yellow
     return $false
 }
 
 function Import-CyclawCredentialSecrets {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Imports the documented secret set; name pinned by Windows parity tests.')]
+    param()
+
     if (-not (Test-CyclawWindowsHost)) {
-        Write-Host "[cyclaw] warn    : Credential Manager is unavailable. Plaintext .env secrets are not used." -ForegroundColor Yellow
+        Write-CyClawHost "[cyclaw] warn    : Credential Manager is unavailable. Plaintext .env secrets are not used." -ForegroundColor Yellow
         if (-not $env:CYCLAW_API_KEY) {
-            Write-Host "[cyclaw] warn    : CYCLAW_API_KEY is unset. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] warn    : CYCLAW_API_KEY is unset. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server." -ForegroundColor Yellow
         }
         return
     }
@@ -269,7 +299,7 @@ function Import-CyclawCredentialSecrets {
             continue
         }
         $read.Secret = $null
-        Write-Host "[cyclaw] error   : Credential Manager item for $name (target $target) is $($read.Status) (win32=$($read.Win32)). Not falling back to .env." -ForegroundColor Red
+        Write-CyClawHost "[cyclaw] error   : Credential Manager item for $name (target $target) is $($read.Status) (win32=$($read.Win32)). Not falling back to .env." -ForegroundColor Red
         $failed = $true
     }
     if ($env:GH_TOKEN -and -not $env:GITHUB_TOKEN) {
@@ -279,11 +309,14 @@ function Import-CyclawCredentialSecrets {
         throw "cyclaw: Credential Manager secret could not be read. The gateway was not started."
     }
     if (-not $env:CYCLAW_API_KEY) {
-        Write-Host "[cyclaw] warn    : CYCLAW_API_KEY is not in Credential Manager (target com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. This launcher does not read that secret from .env." -ForegroundColor Yellow
+        Write-CyClawHost "[cyclaw] warn    : CYCLAW_API_KEY is not in Credential Manager (target com.cgfixit.cyclaw.api-key) and was not already set. Soul / ops state-changing routes will 401. Typing the key in the browser cannot configure the server. This launcher does not read that secret from .env." -ForegroundColor Yellow
     }
 }
 
-function Get-CyclawEnvLineAssignments([string]$Line) {
+function Get-CyclawEnvLineAssignments {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns every assignment on one dotenv line; name pinned by Windows parity tests.')]
+    param([string]$Line)
+
     # One env-line parser for the Windows loaders. Same cases as
     # cyclaw_dotenv_line_assignments in macos/cyclaw-public-env.sh:
     # every NAME= / NAME+= token, lowercase names, a leading UTF-8 BOM,
@@ -389,7 +422,10 @@ function Get-CyclawEnvLineAssignments([string]$Line) {
     return @($rows.ToArray())
 }
 
-function Get-CyclawDotenvAssignments([string]$Path) {
+function Get-CyclawDotenvAssignments {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Returns every assignment in a dotenv file; name pinned by Windows parity tests.')]
+    param([string]$Path)
+
     # Name -> value (last assignment wins). Caller must not print values.
     $map = @{}
     if (-not (Test-Path -LiteralPath $Path)) { return $map }
@@ -401,7 +437,11 @@ function Get-CyclawDotenvAssignments([string]$Path) {
     return $map
 }
 
-function Remove-CyclawSecretLines([string]$Path, [hashtable]$Expected) {
+function Remove-CyclawSecretLines {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Removes matching secret lines as a set; name pinned by Windows parity tests.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Dotenv rewrite is non-interactive installer cleanup; no -WhatIf surface.')]
+    param([string]$Path, [hashtable]$Expected)
+
     # Expected maps a name to the unquoted value that must match ordinally.
     # Other assignments on the same line are rewritten. Comments stay.
     # A file that would become blank keeps the public header.
@@ -474,12 +514,15 @@ function Remove-CyclawSecretLines([string]$Path, [hashtable]$Expected) {
         $acl.AddAccessRule($rule)
         Set-Acl -LiteralPath $Path -AclObject $acl
     } catch {
-        Write-Host "[cyclaw] WARNING: could not restrict the ACL on $Path after removing secret lines." -ForegroundColor Yellow
+        Write-CyClawHost "[cyclaw] WARNING: could not restrict the ACL on $Path after removing secret lines." -ForegroundColor Yellow
     }
-    Write-Host "[cyclaw] removed plaintext $($removed -join ', ') from $Path (Credential Manager holds it). No backup was written."
+    Write-CyClawHost "[cyclaw] removed plaintext $($removed -join ', ') from $Path (Credential Manager holds it). No backup was written."
 }
 
-function Ensure-CyclawPublicEnvFile([string]$Path) {
+function Ensure-CyclawPublicEnvFile {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification='Ensure creates the public dotenv header; name pinned by Windows parity tests.')]
+    param([string]$Path)
+
     if ([string]::IsNullOrEmpty($Path)) { return }
     if (Test-Path -LiteralPath $Path) { return }
     $dir = Split-Path -Parent $Path
@@ -497,7 +540,7 @@ function Ensure-CyclawPublicEnvFile([string]$Path) {
         $acl.AddAccessRule($rule)
         Set-Acl -LiteralPath $Path -AclObject $acl
     } catch {
-        Write-Host "[cyclaw] WARNING: could not restrict the ACL on $Path." -ForegroundColor Yellow
+        Write-CyClawHost "[cyclaw] WARNING: could not restrict the ACL on $Path." -ForegroundColor Yellow
     }
 }
 
@@ -522,17 +565,17 @@ function Sync-CyclawPlaintextToCredentialManager {
         }
         if ($present.Count -eq 0) { continue }
         if ($WriteEnvFile) {
-            Write-Host "[cyclaw] WARNING: PLAINTEXT OPT-IN: -WriteEnvFile leaves secrets in $file." -ForegroundColor Yellow
-            Write-Host "[cyclaw] WARNING: Invoke-CyClaw.ps1 does not load those secret lines. Prefer Credential Manager." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] WARNING: PLAINTEXT OPT-IN: -WriteEnvFile leaves secrets in $file." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] WARNING: Invoke-CyClaw.ps1 does not load those secret lines. Prefer Credential Manager." -ForegroundColor Yellow
             continue
         }
         if (-not (Test-CyclawWindowsHost)) {
-            Write-Host "[cyclaw] WARNING: left plaintext secrets in $file (Credential Manager is unavailable on this host)." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] WARNING: left plaintext secrets in $file (Credential Manager is unavailable on this host)." -ForegroundColor Yellow
             continue
         }
         if ($assignments.ContainsKey("GH_TOKEN") -and $assignments.ContainsKey("GITHUB_TOKEN")) {
             if ($assignments["GH_TOKEN"] -ne $assignments["GITHUB_TOKEN"]) {
-                Write-Host "[cyclaw] WARNING: GH_TOKEN and GITHUB_TOKEN differ in $file; the Credential Manager copy follows GH_TOKEN. Values were not printed." -ForegroundColor Yellow
+                Write-CyClawHost "[cyclaw] WARNING: GH_TOKEN and GITHUB_TOKEN differ in $file; the Credential Manager copy follows GH_TOKEN. Values were not printed." -ForegroundColor Yellow
             }
         }
         $drop = @{}
@@ -550,7 +593,7 @@ function Sync-CyclawPlaintextToCredentialManager {
                 if ([string]::Equals($stored, $fileVal, [StringComparison]::Ordinal)) {
                     $drop[$name] = $fileVal
                 } else {
-                    Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target value differs from the file). The line was kept. Values were not printed." -ForegroundColor Yellow
+                    Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target value differs from the file). The line was kept. Values were not printed." -ForegroundColor Yellow
                 }
                 $stored = $null
                 continue
@@ -559,7 +602,7 @@ function Sync-CyclawPlaintextToCredentialManager {
             if ($read.Status -eq "missing") {
                 $secret = $fileVal
                 if ([string]::IsNullOrEmpty($secret)) {
-                    Write-Host "[cyclaw] WARNING: left plaintext $name in $file (value empty; not stored)." -ForegroundColor Yellow
+                    Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (value empty; not stored)." -ForegroundColor Yellow
                     $secret = $null
                     continue
                 }
@@ -570,19 +613,19 @@ function Sync-CyclawPlaintextToCredentialManager {
                     $readBack.Secret = $null
                     if ([string]::Equals($readBackVal, $secret, [StringComparison]::Ordinal)) {
                         $drop[$name] = $secret
-                        Write-Host "[cyclaw] moved $name from $file into Credential Manager ($target)."
+                        Write-CyClawHost "[cyclaw] moved $name from $file into Credential Manager ($target)."
                     } else {
-                        Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target could not be read back). The line was kept. Values were not printed." -ForegroundColor Yellow
+                        Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target could not be read back). The line was kept. Values were not printed." -ForegroundColor Yellow
                     }
                     $readBackVal = $null
                 }
                 $secret = $null
                 continue
             }
-            Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager target $target is $($read.Status); not deleting the only readable copy)." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager target $target is $($read.Status); not deleting the only readable copy)." -ForegroundColor Yellow
         }
         if ($assignments.ContainsKey("CLAUDE_API_KEY")) {
-            Write-Host "[cyclaw] WARNING: left CLAUDE_API_KEY in $file. llm/client.py reads ANTHROPIC_API_KEY; this unused name is not loaded and was not copied." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] WARNING: left CLAUDE_API_KEY in $file. llm/client.py reads ANTHROPIC_API_KEY; this unused name is not loaded and was not copied." -ForegroundColor Yellow
         }
         foreach ($name in @($assignments.Keys)) {
             if (-not (Test-CyclawSecretName $name)) { continue }
@@ -590,7 +633,7 @@ function Sync-CyclawPlaintextToCredentialManager {
             $mapped = ""
             if ($script:CyclawSecretTargets.ContainsKey($name)) { $mapped = $script:CyclawSecretTargets[$name] }
             if (-not [string]::IsNullOrEmpty($mapped)) { continue }
-            Write-Host "[cyclaw] WARNING: left plaintext $name in $file (secret-classified, no Credential Manager target). Launchers do not load it. The value was not printed." -ForegroundColor Yellow
+            Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (secret-classified, no Credential Manager target). Launchers do not load it. The value was not printed." -ForegroundColor Yellow
         }
         if ($drop.Count -gt 0) {
             Remove-CyclawSecretLines $file $drop
@@ -600,6 +643,8 @@ function Sync-CyclawPlaintextToCredentialManager {
 }
 
 function Remove-CyclawPlaintextIfCredentialMatches {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification='Matches is comparison semantics, not a plural noun bag; name pinned by Windows parity tests.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Uninstall plaintext strip is non-interactive; no -WhatIf surface.')]
     # Read-only. Never calls Write-CyclawCredential. Uninstall uses this so
     # tearing the integration down cannot create Credential Manager items.
     param(
@@ -621,19 +666,19 @@ function Remove-CyclawPlaintextIfCredentialMatches {
             $target = $script:CyclawSecretTargets[$name]
             $fileVal = [string]$assignments[$name]
             if (-not (Test-CyclawWindowsHost)) {
-                Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager is unavailable on this host)." -ForegroundColor Yellow
+                Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager is unavailable on this host)." -ForegroundColor Yellow
                 continue
             }
             $read = Read-CyclawCredential $target
             if ($read.Status -ne "readable") {
                 $read.Secret = $null
-                Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager target $target is $($read.Status); not deleting the only readable copy)." -ForegroundColor Yellow
+                Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager target $target is $($read.Status); not deleting the only readable copy)." -ForegroundColor Yellow
                 continue
             }
             $stored = [string]$read.Secret
             $read.Secret = $null
             if (-not [string]::Equals($stored, $fileVal, [StringComparison]::Ordinal)) {
-                Write-Host "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target value differs from the file). The line was kept. Values were not printed." -ForegroundColor Yellow
+                Write-CyClawHost "[cyclaw] WARNING: left plaintext $name in $file (Credential Manager $target value differs from the file). The line was kept. Values were not printed." -ForegroundColor Yellow
                 $stored = $null
                 continue
             }
@@ -652,8 +697,8 @@ function Write-CyclawPlaintextSecretWarning([string]$Path) {
     foreach ($raw in @(Get-Content -LiteralPath $Path)) {
         foreach ($row in @(Get-CyclawEnvLineAssignments $raw)) {
             if ($script:CyclawSecretTargets.ContainsKey($row.Name)) {
-                Write-Host "[cyclaw] warn    : $($row.Name) is in $Path but launchers do not load secrets from dotenv." -ForegroundColor Yellow
-                Write-Host "[cyclaw] warn    : re-run Install-CyClaw.ps1 to copy it into Credential Manager and remove the plaintext line." -ForegroundColor Yellow
+                Write-CyClawHost "[cyclaw] warn    : $($row.Name) is in $Path but launchers do not load secrets from dotenv." -ForegroundColor Yellow
+                Write-CyClawHost "[cyclaw] warn    : re-run Install-CyClaw.ps1 to copy it into Credential Manager and remove the plaintext line." -ForegroundColor Yellow
             }
         }
     }

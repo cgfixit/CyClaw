@@ -1159,3 +1159,32 @@ def test_installer_macos_installs_hashed_plain_torch_lock() -> None:
         "(no +cpu), in lock-step with constraints.txt"
     )
     assert "+cpu" not in lock.split("--hash", 1)[0], "the macOS torch lock must not carry a +cpu build"
+
+
+@_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell path and HOME semantics")
+def test_dotenv_secret_helpers_keep_their_path_argument(tmp_path: Path) -> None:
+    # The SC2034 cleanup once rewrote `local file="$1"` to `local file=""` in
+    # these helpers. Every caller still passed the path, so the helpers saw an
+    # empty file and returned early: a pattern-classified secret never joined
+    # the scrub list and was exported into the launcher environment.
+    dotenv = tmp_path / "demo.env"
+    dotenv.write_text("DB_PASSWORD=hunter2\nPLAIN=ok\n", encoding="utf-8")
+    script = (
+        f'cd "{_REPO_ROOT / "macos"}" && . ./cyclaw-keychain-load.sh && '
+        '_CYCLAW_SCRUB_NAMES="" && '
+        f'_remember_secret_presets_in_file "{dotenv}" && '
+        'printf "scrub=[%s]\\n" "${_CYCLAW_SCRUB_NAMES# }" && '
+        f'_warn_dotenv_secret_lines "{dotenv}"'
+    )
+    proc = subprocess.run(  # noqa: S603
+        ["bash", "-c", script],  # noqa: S607
+        env={**os.environ, "HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "scrub=[DB_PASSWORD]" in proc.stdout
+    assert "DB_PASSWORD is in" in proc.stderr
+    assert "hunter2" not in proc.stdout + proc.stderr

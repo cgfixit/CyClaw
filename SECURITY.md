@@ -46,6 +46,25 @@ These are tracked, deliberate exceptions — re-reviewed at every release and en
 - **Accepted 2026-09-04; reviewed 2026-10-04:** [PYSEC-2026-3740](https://osv.dev/vulnerability/PYSEC-2026-3740) (alias [CVE-2026-81726](https://nvd.nist.gov/vuln/detail/CVE-2026-81726) / [GHSA-8mgp-746c-j5xp](https://github.com/advisories/GHSA-8mgp-746c-j5xp)). The OSV API still reports this as the sole finding for `nltk==3.10.3`, with no fixed version. Surface is unused model-artifact I/O (`TransitionParser.train`/`parse`, `AveragedPerceptron.save`/`load`, `PerceptronTagger.save_to_json`, `save_maxent_params`), not `PorterStemmer`. `pip-audit.yml` ignores the PYSEC id only (the id that scanner prints). OSV-Scanner suppresses `GHSA-8mgp-746c-j5xp` until 2026-11-01 (`.osv-scanner.toml`); Trivy does not suppress it. Drop the pip-audit ignore and the OSV ignore when a patched nltk ships.
 - **Review date:** next nltk release or 2026-10-01, whichever comes first.
 
+## Accepted Workflow Risks
+
+These are deliberate GitHub Actions exceptions — documented so a dismissed code-scanning alert is not the only record.
+
+### Alert 1726 — `actions/untrusted-checkout` in `codex-apply-fixes.yml` (won't fix, 2026-10-04)
+
+- **What it is:** CodeQL `actions/untrusted-checkout/high` on the candidate job's checkout of the approved PR head (`ref: needs.gate.outputs.head_sha`) inside a workflow that can later execute code on that tree. Trigger surface includes `issue_comment` / `pull_request_review_comment` (privileged relative to a plain `pull_request` workflow).
+- **Why accepted:** Codex must run against the exact owner-approved head to apply fixes. The job cannot substitute the default branch for the candidate tree.
+- **Mitigations in place:**
+  - Owner-only + same-repo gates before any checkout (`github.actor == github.repository_owner`, head repo must equal `github.repository`).
+  - Candidate checkout uses `persist-credentials: false` and a read-only `contents: read` job token.
+  - Apply-fixes prompt is loaded from a **second** checkout of the default branch into `$RUNNER_TEMP`, never from the PR tree.
+  - Publication runs on a **separate** job/runner and consumes only a data patch — never candidate `.git` state, hooks, or local action definitions (see workflow header).
+- **Residual:** A future workflow edit that re-introduces credentialed checkout of untrusted code, drops the owner/same-repo gate, or executes PR-supplied actions/scripts under a write token voids this acceptance. Re-open alert 1726 (or a successor) rather than dismissing again without updating this section.
+- **Related standing control:** `pr-review.yml` documents its `pull_request_target` trigger with an inline `zizmor: ignore[dangerous-triggers]` rationale (trusted base; owner-only same-repo; candidate code never executed).
+- **Last reviewed:** 2026-10-05 against alert [1726](https://github.com/cgfixit/CyClaw/security/code-scanning/1726) on main `b6ecf6ae`.
+- **Review date:** next change to `codex-apply-fixes.yml` gate/candidate/publish jobs, or 2026-11-01, whichever comes first.
+
+
 ## Verification
 
 - `python -m pytest tests/ -q` — full suite (mocked externals; no live services needed)

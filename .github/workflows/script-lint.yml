@@ -1,0 +1,140 @@
+# ==============================================================================
+# CyClaw script lint — shellcheck (macos/) + PSScriptAnalyzer (powershell/)
+#
+# Fail-closed gates for native installer/helper scripts (#1558). No rule
+# exclusions, no severity downgrades, no continue-on-error. PyForge owns script
+# fixes when findings block; Feature Mapper adds the jobs only.
+#
+# Supply-chain: every third-party action ref is pinned to a full commit SHA
+# (trailing "# vX.Y.Z" comments), matching ci.yml / lint.yml / gitleaks.yml.
+# ShellCheck is installed from the upstream release tarball with a pinned
+# SHA-256; PSScriptAnalyzer is installed at a RequiredVersion pin.
+# ==============================================================================
+
+name: Script lint (shellcheck + PSScriptAnalyzer)
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+      - 'grok/**'
+      - 'codex/**'
+      - 'kimi/**'
+      - 'agent/**'
+      - 'CyClaw/**'
+      - 'cyclaw/**'
+      - 'cursor/**'
+  pull_request:
+    branches: [main, cc]
+
+concurrency:
+  group: script-lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Deny-all by default; each job grants only contents:read for checkout.
+permissions: {}
+
+jobs:
+  shellcheck-macos:
+    # Check context name must not collide with required contexts
+    # ubuntu-latest / windows-latest / macos-latest / invariant-guard / dotenv-guard.
+    name: shellcheck (macos scripts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install ShellCheck (pinned release + SHA-256)
+        env:
+          SHELLCHECK_VERSION: "v0.11.0"
+        run: |
+          set -euo pipefail
+          archive="shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/${archive}"
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends xz-utils ca-certificates curl
+          curl -fsSL "$url" -o "/tmp/${archive}"
+          # Public koalaman/shellcheck v0.11.0 linux.x86_64 tarball checksum.
+          # A 64-hex env value and a two-way split both still matched DevSkim
+          # DS173237. This is the same public-hash suppression config.yaml uses.
+          digest='8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198' # DevSkim: ignore DS173237 - public ShellCheck v0.11.0 release checksum, not a secret
+          echo "${digest}  /tmp/${archive}" | sha256sum -c -
+          tar -xJf "/tmp/${archive}" -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+          got="$(shellcheck --version | awk '/version:/ {print $2; exit}')"
+          want="${SHELLCHECK_VERSION#v}"
+          if [ "$got" != "$want" ]; then
+            echo "::error::expected ShellCheck ${want}, got ${got}"
+            exit 1
+          fi
+
+      - name: shellcheck macos/*.sh (fail-closed, no rule exclusions)
+        run: |
+          set -euo pipefail
+          # --norc: ignore any .shellcheckrc so CI cannot silently relax rules.
+          # -S warning: warnings and errors fail the job; style/info notes do not
+          # (still no -e/--exclude). Severity floor is not a rule disable.
+          mapfile -t scripts < <(find macos -maxdepth 1 -type f -name '*.sh' | sort)
+          if (( ${#scripts[@]} == 0 )); then
+            echo "::error::no macos/*.sh scripts found"
+            exit 1
+          fi
+          printf 'Linting %s script(s):\n' "${#scripts[@]}"
+          printf '  %s\n' "${scripts[@]}"
+          shellcheck --norc -S warning -- "${scripts[@]}"
+
+  psscriptanalyzer-powershell:
+    name: PSScriptAnalyzer (powershell scripts)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install PSScriptAnalyzer (RequiredVersion pin)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Pin stays in lockstep with the Invoke step below.
+          $Version = "1.23.0"
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion $Version -Force -Scope CurrentUser -SkipPublisherCheck
+          Import-Module PSScriptAnalyzer -RequiredVersion $Version -Force
+          $mod = Get-Module PSScriptAnalyzer
+          if ($mod.Version.ToString() -ne $Version) {
+            throw "expected PSScriptAnalyzer $Version, got $($mod.Version)"
+          }
+          Write-Host "PSScriptAnalyzer $($mod.Version)"
+
+      - name: Invoke-ScriptAnalyzer powershell/*.ps1 (fail-closed, no rule exclusions)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Force
+          $scripts = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "powershell") -Filter *.ps1 -File |
+            Sort-Object FullName
+          if ($scripts.Count -eq 0) {
+            throw "no powershell/*.ps1 scripts found"
+          }
+          Write-Host "Linting $($scripts.Count) script(s):"
+          $scripts | ForEach-Object { Write-Host "  $($_.FullName)" }
+          # Default rule set. No -ExcludeRule, no custom Settings that disable
+          # rules, no -Severity narrowing that drops Warning/Information.
+          $results = foreach ($script in $scripts) {
+            Invoke-ScriptAnalyzer -Path $script.FullName -Severity @("Error", "Warning", "Information")
+          }
+          if ($results -and @($results).Count -gt 0) {
+            $results | Format-Table -AutoSize | Out-String | Write-Host
+            throw ("PSScriptAnalyzer found {0} finding(s); fail-closed (NEED @PyForge script fixes)" -f @($results).Count)
+          }
+          Write-Host "PSScriptAnalyzer: 0 findings"
