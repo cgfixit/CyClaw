@@ -59,8 +59,12 @@ param(
 
 function Write-CyClawHost {
     # Operator-facing console text for install/uninstall/launch scripts.
-    # Uses [Console] so PSAvoidUsingWriteHost stays clean while messages
-    # still always show (Write-Information is Preference-gated).
+    # Write-Host (PowerShell 5.0+) writes to the information stream and is shown
+    # whatever $InformationPreference says, so `*> install.log`, `6>&1` and
+    # Start-Transcript all capture it. Writing to the console object directly
+    # those streams and lost the messages from redirected logs. This is the one
+    # sanctioned Write-Host call site, hence the scoped suppression.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification='Single sanctioned wrapper: routes operator text through the information stream so it is redirectable, transcribed and always shown.')]
     [CmdletBinding()]
     param(
         [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
@@ -69,15 +73,9 @@ function Write-CyClawHost {
     )
     $msg = (@($Object) | ForEach-Object { "$_" }) -join " "
     if ($PSBoundParameters.ContainsKey("ForegroundColor")) {
-        $prev = [Console]::ForegroundColor
-        try {
-            [Console]::ForegroundColor = $ForegroundColor
-            [Console]::Out.WriteLine($msg)
-        } finally {
-            [Console]::ForegroundColor = $prev
-        }
+        Write-Host $msg -ForegroundColor $ForegroundColor
     } else {
-        [Console]::Out.WriteLine($msg)
+        Write-Host $msg
     }
 }
 
