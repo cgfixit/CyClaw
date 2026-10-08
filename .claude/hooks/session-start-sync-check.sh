@@ -11,6 +11,8 @@
 #      never an identity someone set on purpose) and pins nothing.
 #      CYCLAW_AGENT_COMMIT_EMAIL / CYCLAW_AGENT_COMMIT_NAME set the identity of
 #      CyClaw's own agentic loop (utils/agent_identity.py), not this one.
+#   1b. Point core.hooksPath at the tracked .githooks/ via
+#      scripts/ensure-githooks.sh (idempotent; leaves a deliberate value alone).
 #   2. Fetch the default branch and REPORT divergence between local and remote.
 #      It never resets, rebases, pushes, or deletes — it only informs, so a
 #      human stays in control of how to reconcile.
@@ -55,6 +57,13 @@ elif [ "$author" = "$committer" ]; then
   echo "[sync-check] Commits will be made as: $committer"
 else
   echo "[sync-check] Commits will be made as: author $author, committer $committer"
+fi
+
+# ── 1b. Tracked git hooks: point core.hooksPath at .githooks ────────────────
+# Same agent-neutral line Copilot, Codex and people run (scripts/ensure-githooks.sh):
+# idempotent, never overwrites a deliberate hooksPath, never fails the session.
+if [ -f "$repo_root/scripts/ensure-githooks.sh" ]; then
+  bash "$repo_root/scripts/ensure-githooks.sh" 2>/dev/null | sed 's/^\[githooks\]/[sync-check]/'
 fi
 
 # ── 2. Detect default branch (origin/HEAD, fallback main) ────────────────────

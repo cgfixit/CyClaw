@@ -109,6 +109,10 @@ install profile in `setup-guide.md` and apply `constraints.txt`; install Torch
 first, using the documented plain macOS wheel instead of Linux/Windows `+cpu`.
 Never invent extras or copy version pins from an old skill.
 
+Once per clone, before the first commit, run `bash scripts/ensure-githooks.sh`
+(idempotent): it points `core.hooksPath` at the tracked `.githooks/`. Agents
+without a setup hook that already runs it run it themselves.
+
 Run from the repository root with the selected Python interpreter:
 
 ```text

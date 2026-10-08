@@ -49,7 +49,8 @@ When uncertain, choose the higher tier.
    validates.
 7. Push only after that rebase and trial. The tracked pre-push hook checks
    naming and fresh-`origin/main` ancestry; install it once per clone with
-   `bash scripts/install-githooks.sh`.
+   `bash scripts/ensure-githooks.sh` (idempotent; put it in the Codex
+   environment setup script so every cloud task starts with hooks active).
 8. Create or update the draft PR using the repository template, monitor CI, and
    treat an inherited red `main` separately from a branch-caused failure.
 9. When PR CI is green, fetch `origin/main` one final time. If it moved,
