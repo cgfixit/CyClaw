@@ -48,11 +48,10 @@ jobs:
       - name: Point git at the tracked hooks
         # Copilot commits from this runner; without this, .githooks/ (branch
         # naming, title format, and the security gate) never runs for it.
-        # Local config for this checkout, global (relative) for any clone
-        # Copilot makes itself. The runner is ephemeral.
-        run: |
-          bash scripts/ensure-githooks.sh
-          git config --global core.hooksPath .githooks
+        # This checkout only (local config). A global, relative core.hooksPath
+        # would also run the tracked hooks of any other repository Copilot
+        # clones and commits in on this runner.
+        run: bash scripts/ensure-githooks.sh
 
       - name: Setup Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0

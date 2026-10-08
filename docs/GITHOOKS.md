@@ -13,16 +13,24 @@ do next.
 ## Install (once per clone)
 
 ```sh
-bash scripts/install-githooks.sh        # or: git config core.hooksPath .githooks
+bash scripts/ensure-githooks.sh         # idempotent; the one setup line every agent runs
 git config core.hooksPath               # -> .githooks
 ```
 
-Put that one line in every agent's setup step (session-start hook, Codex
-setup script, Copilot setup steps, container entrypoint). A fresh cloud clone
-has no hooks until it runs (see `scripts/ensure-githooks.sh` once #1577 lands). Optional tools, used when present: `gitleaks`
-(entropy-based detection of unprefixed secrets) and `exiftool` (image and
-document metadata). Without them the gate still runs its own checks and says
-what it skipped.
+Put that one line in every agent's setup step. The Claude Code SessionStart
+hook (`.claude/hooks/session-start-sync-check.sh`), `copilot-setup-steps.yml`,
+and `.codex/Codex_instructions.md` already call it; add it to any container
+entrypoint or other setup script. A fresh cloud clone has no hooks until it
+runs. `ensure-githooks.sh` is never fatal and sets `core.hooksPath` only when
+no scope has set it, so an operator's own hook manager is left alone.
+
+Manual alternative: `bash scripts/install-githooks.sh` (or
+`git config core.hooksPath .githooks`) sets the path in this clone
+unconditionally, even over a value `ensure-githooks.sh` would have kept.
+
+Optional tools, used when present: `gitleaks` (entropy-based detection of
+unprefixed secrets) and `exiftool` (image and document metadata). Without them
+the gate still runs its own checks and says what it skipped.
 
 ## Files
 

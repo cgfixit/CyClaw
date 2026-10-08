@@ -735,8 +735,9 @@ only (§10), every other model reaches it via explicit `/fable-protocol`.
 **Start.** Three SessionStart hooks run. `session-start-sync-check.sh` points
 `core.hooksPath` at the tracked `.githooks/` (via `scripts/ensure-githooks.sh`,
 idempotent, never overriding a deliberate hooks path), drops a stale
-`CyClaw Agent` identity pin, and reports local↔remote divergence; it never
-resets, rebases, pushes, or deletes, and always exits 0.
+`CyClaw Agent` identity pin, and reports local↔remote divergence; those git
+config writes are its only mutations (it never resets, rebases, pushes, or
+deletes, and always exits 0).
 `fable-protocol-loader.sh` injects `/fable-protocol` only when the stdin model
 id contains `sonnet` (Opus, Haiku, Fable, and unknown ids are skipped; a
 mid-session `/model` switch fires no hook). In the cloud only,
