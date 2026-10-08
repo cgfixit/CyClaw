@@ -18,8 +18,8 @@ from re import Pattern
 
 import yaml
 
-from utils.errors import PromptInjectionError
 from utils._unicode_confusables import CONFUSABLE_FOLD
+from utils.errors import PromptInjectionError
 
 logger = logging.getLogger("cyclaw.sanitizer")
 
