@@ -14,6 +14,7 @@ grepping.
 | `../CLAUDE.md` / `../AGENTS.md` | Operating contract for agents (invariants, traps, commands). |
 | `../INVARIANTS.md` (repo root) | Which guarantee is enforced by code vs. convention, and the test pinning each. |
 | `changelog.txt` | Change history over time. |
+| `GITHOOKS.md` | The agent-neutral `.githooks` security gate: install line for every agent, what blocks a commit or push, operator-only overrides, private identifier patterns, and how to reuse the template in another repo. |
 
 ## Subsystem deep-dives
 

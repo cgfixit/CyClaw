@@ -135,3 +135,11 @@ docs/memories/CONSOLIDATED.md
 verification_report.json
 query_results.json
 cyclaw-sandbox-query-results.json
+
+# Operator-private hook values (PII patterns); never tracked
+.githooks/security.local.conf
+# Key material anywhere in the tree
+*.pem
+# Manual backups of ignored runtime state (index, logs, embedding cache, soul DB)
+*.rootowned-bak
+*.rootowned-bak/

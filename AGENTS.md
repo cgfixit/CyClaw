@@ -212,5 +212,8 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` for authorized draft publication,
 including invariant impact, validation limits, risks, base, and merge order.
 Distinguish local edits, commits, pushed branches, PR state, and terminal CI
 results. Tracked `.githooks` enforce naming and fresh-main ancestry after
-installation; external runtime hooks are environment-specific, not universal
-repo requirements.
+installation (`git config core.hooksPath .githooks`), plus a security gate for
+secrets, private data, protected paths and main/force pushes
+(`docs/GITHOOKS.md`). Never set its operator overrides or pass `--no-verify`
+yourself; stop and ask. External runtime hooks are environment-specific, not
+universal repo requirements.

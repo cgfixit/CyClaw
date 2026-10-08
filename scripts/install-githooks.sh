@@ -11,4 +11,10 @@ echo "Installed CyClaw git hooks:"
 echo "  pre-commit  — branch naming allowlist"
 echo "  pre-push    — branch naming + fresh origin/main ancestry"
 echo "  commit-msg  — PR template title prefix [prefix] - subject"
+echo "  security    — secrets, blocked files, protected paths, main/force-push guard"
+echo "                (.githooks/_security.sh + security.conf, run by pre-commit and pre-push)"
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "NOTE: gitleaks is not installed; the security gate falls back to provider-prefix"
+  echo "      patterns only. Install it for entropy-based detection: brew install gitleaks"
+fi
 echo "Also available: scripts/check-pr-template.sh (PR body sections before create)."

@@ -8,25 +8,30 @@
 set -euo pipefail
 
 branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
-# Detached HEAD (rebase, bisect, etc.) — do not block
-if [[ -z "$branch" ]]; then
-  exit 0
+# Detached HEAD (rebase, bisect, etc.) — skip the naming check only
+if [[ -n "$branch" ]]; then
+  case "$branch" in
+    main|master|develop) ;;
+    # Vendor / agent feature prefixes (see utils/agent_identity.py)
+    grok/*|claude/*|codex/*|kimi/*|agent/*|CyClaw/*|cyclaw/*) ;;
+    dependabot/*|renovate/*) ;;
+    release/*|hotfix/*) ;;
+    *)
+      printf '%s\n' \
+        "pre-commit: branch '${branch}' violates naming convention" \
+        "  Feature branches must use a documented vendor prefix:" \
+        "  grok/ | claude/ | codex/ | kimi/ | agent/ | CyClaw/ | cyclaw/" \
+        "  Also allowed: main | master | develop | dependabot/* | renovate/* |" \
+        "                 release/* | hotfix/*" \
+        "  Rename:  git branch -m <prefix>/<feature>" \
+        >&2
+      exit 1
+      ;;
+  esac
 fi
 
-case "$branch" in
-  main|master|develop) exit 0 ;;
-  # Vendor / agent feature prefixes (see utils/agent_identity.py)
-  grok/*|claude/*|codex/*|kimi/*|agent/*|CyClaw/*|cyclaw/*) exit 0 ;;
-  dependabot/*|renovate/*) exit 0 ;;
-  release/*|hotfix/*) exit 0 ;;
-esac
-
-printf '%s\n' \
-  "pre-commit: branch '${branch}' violates naming convention" \
-  "  Feature branches must use a documented vendor prefix:" \
-  "  grok/ | claude/ | codex/ | kimi/ | agent/ | CyClaw/ | cyclaw/" \
-  "  Also allowed: main | master | develop | dependabot/* | renovate/* |" \
-  "                 release/* | hotfix/*" \
-  "  Rename:  git branch -m <prefix>/<feature>" \
-  >&2
-exit 1
+# Security gate: secrets by content and filename, protected control files,
+# ruff F,B,S on staged Python. See .githooks/_security.sh and security.conf.
+# shellcheck source=SCRIPTDIR/_security.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_security.sh"
+sec_pre_commit || exit 1

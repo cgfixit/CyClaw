@@ -1,4 +1,4 @@
-# Git hooks (branch naming, title prefix, fresh main)
+# Git hooks (branch naming, title prefix, fresh main, security gate)
 
 Enforces **documented multi-vendor feature-branch prefixes** on commit and push,
 **PR-template commit title prefixes** on every commit subject, plus
@@ -30,6 +30,37 @@ The `commit-msg` hook's allowlist is a closed set — `invariant`, `governance`,
 skips the check entirely for merge/revert/fixup commits (`Merge`, `Revert`,
 `fixup!`, `squash!`, `Amend!`). Anything else is rejected, so reach for the
 closest listed prefix rather than inventing one.
+
+## Security gate (`_security.sh` + `security.conf`)
+
+Full explainer, install line for every agent, and reuse steps: [`docs/GITHOOKS.md`](../docs/GITHOOKS.md).
+
+`pre-commit` and `pre-push` both source `_security.sh` (generic, shared with
+cg-agent-harness) and `security.conf` (CyClaw values). It covers only what CI
+sees too late or cannot see:
+
+| Check | pre-commit | pre-push | Override |
+|-------|-----------|----------|----------|
+| Credential-shaped strings in added lines (provider prefixes; plus `gitleaks` when installed) | staged diff | every commit being published | none — fix, or mark a fixture `gitleaks:allow` |
+| Credential / runtime-state filenames (`.env`, `*.key`, `*.db`, `CONSOLIDATED.md`, …) | staged | every commit being published | `SEC_BLOCKED_EXCEPT` in `security.conf` |
+| Protected control files (`soul.md`, `utils/sanitizer.py`, `gate_auth.py`, scanner ignore files, `.githooks/*`) | staged | pushed range | `HOOK_OPERATOR_ACK=1` (operator only) |
+| Privacy: operator identifiers from the untracked private file, absolute home-directory paths, invisible bidi / Unicode-tag characters | staged diff | every commit being published | none — use a placeholder; fixture lines take `gitleaks:allow` |
+| Agent session residue (`.aider*`, `settings.local.json`, `*.har`, shell histories, …), new files over `SEC_MAX_NEW_FILE_KB`, media with GPS/author metadata (needs `exiftool`) | staged | filenames only | `SEC_BLOCKED_EXCEPT` / raise the cap with the operator |
+| `.gitignore` rule removed (also checked on pushed commits); agent tool wiring (`.mcp.json`, `.claude/settings.json`, `.codex/config.toml`) changed or deleted | staged | rule removal: blocks; wiring: reminder | `HOOK_OPERATOR_ACK=1` (operator only) |
+| Secure-by-design questions when a diff adds a route, outbound call, exec/deserialization, persisted model, file write, config input, telemetry or HTML sink; reminders for dependency manifests and agent instruction files | printed, not blocking | — | answer in the PR body |
+| `ruff --select F,B,S` on staged Python (if `ruff` is installed) | yes | — | fix the finding |
+| Direct push to, or deletion of, `main` | — | yes | `ALLOW_MAIN_PUSH=1` (operator only; delete has none) |
+| Non-fast-forward push | — | yes | `ALLOW_FORCE_WITH_LEASE=true` (operator only) |
+| `invariant-guard` (run on an export of each pushed commit) when any file it reads is in the push: the core six, `config.yaml`, `utils/personality*.py`, the out-of-band packages | — | yes | fix the finding |
+
+Operator-private patterns (`SEC_PII_REGEX`, `SEC_AUTHOR_EMAIL_DENY`) live in
+`~/.config/githooks/private.conf` or the untracked `.githooks/security.local.conf`,
+never in `security.conf`: a tracked list of your identifiers is the leak.
+
+It is a speed bump, not a boundary: `--no-verify`, a clone that never ran the
+install step, and the agentic pipeline (which pins `core.hooksPath` to an empty
+directory for its workspace clones) all bypass it. The `gitleaks.yml` workflow
+and the `main` ruleset remain the controls.
 
 ## PR body template (not a git hook)
 
