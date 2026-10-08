@@ -416,10 +416,10 @@ on 2026-10-08, with [#1585](https://github.com/cgfixit/CyClaw/pull/1585) assumed
 
 | PR | Change |
 |---|---|
-| [#1573](https://github.com/cgfixit/CyClaw/pull/1573), [#1577](https://github.com/cgfixit/CyClaw/pull/1577), [#1583](https://github.com/cgfixit/CyClaw/pull/1583), [#1585](https://github.com/cgfixit/CyClaw/pull/1585) | Agent-neutral secrets/privacy gate in the tracked git hooks, on in every agent's setup step ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)) |
+| [#1573](https://github.com/cgfixit/CyClaw/pull/1573), [#1577](https://github.com/cgfixit/CyClaw/pull/1577), [#1583](https://github.com/cgfixit/CyClaw/pull/1583), [#1585](https://github.com/cgfixit/CyClaw/pull/1585) | Agent-neutral secrets/privacy gate in the tracked git hooks: Claude Code's SessionStart hook and the Copilot setup steps activate it automatically, every other agent runs `scripts/ensure-githooks.sh` once per clone ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)) |
 | [#1580](https://github.com/cgfixit/CyClaw/pull/1580), [#1581](https://github.com/cgfixit/CyClaw/pull/1581) | Agents verify by running code, lint, and GitHub Actions, not local full-suite runs |
 | [#1549](https://github.com/cgfixit/CyClaw/pull/1549), [#1576](https://github.com/cgfixit/CyClaw/pull/1576), [#1554](https://github.com/cgfixit/CyClaw/pull/1554) | Agentic verification confined under Seatbelt or bubblewrap, fail-closed elsewhere |
-| [#1548](https://github.com/cgfixit/CyClaw/pull/1548), [#1570](https://github.com/cgfixit/CyClaw/pull/1570) | Hashed runtime and test installs everywhere pip runs |
+| [#1548](https://github.com/cgfixit/CyClaw/pull/1548), [#1570](https://github.com/cgfixit/CyClaw/pull/1570) | Hashed runtime and test installs in CI, the Dockerfile, and the macOS/Windows installers (the Linux Quick Start's test install stays unhashed) |
 | [#1547](https://github.com/cgfixit/CyClaw/pull/1547), [#1564](https://github.com/cgfixit/CyClaw/pull/1564) | Request-body cap, hardened credential input, database-URL validation |
 | [#1561](https://github.com/cgfixit/CyClaw/pull/1561) | Linux launcher stores `CYCLAW_API_KEY` in libsecret or a 0600 file |
 | [#1559](https://github.com/cgfixit/CyClaw/pull/1559), [#1562](https://github.com/cgfixit/CyClaw/pull/1562), [#1565](https://github.com/cgfixit/CyClaw/pull/1565), [#1566](https://github.com/cgfixit/CyClaw/pull/1566) | Console first-run fixes, Library/Engine chips, one error entry on generation failure, `LLM_UNAVAILABLE` for refused local models |

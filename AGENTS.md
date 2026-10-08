@@ -57,7 +57,7 @@ failures.
 
 Auth Stage 3 is implemented: `/query` uses session/device-token authentication
 when `auth.enabled` is literal true, and always enforces its same-origin check.
-Soul/ops/audit API-key routes fail closed on missing keys. The separate
+Soul/ops/audit API-key routes fail closed for every key-based credential (Bearer key or console cookie) while `CYCLAW_API_KEY` is unset; an enabled admin's login, with `auth.enabled`, is the one credential that still passes. The separate
 `security.api_key_optional` opt-in requires loopback peer, no forwarding headers,
 and a non-cross-site request; it does not disable auth/RBAC. Besides the Bearer
 key, `require_api_key` accepts the browser console's `cyclaw_console` cookie
