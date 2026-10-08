@@ -46,7 +46,6 @@ def mem_cfg(tmp_path: Path) -> dict:
             "retrieval_fusion": {"enabled": False},
             "propose_apply": {"enabled": True},
             "export_html": {"enabled": False},
-            "consolidation": {"enabled": False},
         },
         "policy": {
             "prompt_filter": {"enabled": True, "banned_patterns": ["ignore previous instructions"]},

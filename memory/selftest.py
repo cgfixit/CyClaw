@@ -29,7 +29,6 @@ def _cfg(db_path: Path) -> dict:
             },
             "propose_apply": {"enabled": True},
             "export_html": {"enabled": True},
-            "consolidation": {"enabled": False},
         },
         "policy": {
             "prompt_filter": {
@@ -42,7 +41,6 @@ def _cfg(db_path: Path) -> dict:
 
 
 def main() -> int:
-    from memory.consolidation import run_consolidation
     from memory.mirror import export_html, status_dict
     from memory.policy import enforce_content, require_reason
     from memory.retrieval_adapter import fuse_memory_hits
@@ -132,9 +130,6 @@ def main() -> int:
 
         html_out = export_html(cfg)
         check("export_html", "<html" in html_out.lower() and "neovim" in html_out.lower())
-
-        consol = run_consolidation(cfg)
-        check("consolidation_stub", consol.get("status") == "disabled")
 
         # Defaults-off fusion is identity
         off = dict(cfg)

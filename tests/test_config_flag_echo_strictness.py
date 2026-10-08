@@ -38,7 +38,6 @@ _MIRROR_KEYS = {
     "retrieval_fusion": "retrieval_fusion_enabled",
     "propose_apply": "propose_apply_enabled",
     "export_html": "export_html_enabled",
-    "consolidation": "consolidation_enabled",
 }
 
 

@@ -34,7 +34,6 @@ def memory_app(tmp_path: Path, api_key: str):
             "retrieval_fusion": {"enabled": False},
             "propose_apply": {"enabled": True},
             "export_html": {"enabled": True},
-            "consolidation": {"enabled": False},
         },
         "policy": {
             "prompt_filter": {"banned_patterns": ["ignore previous instructions"]},
@@ -124,7 +123,6 @@ def test_disabled_master_404_on_facts(tmp_path, api_key):
             "retrieval_fusion": {"enabled": False},
             "propose_apply": {"enabled": False},
             "export_html": {"enabled": False},
-            "consolidation": {"enabled": False},
         },
         "policy": {"prompt_filter": {"banned_patterns": []}, "privacy": {}},
     }

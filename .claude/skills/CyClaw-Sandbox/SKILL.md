@@ -386,8 +386,8 @@ report one of these as a new finding.
    NeMo `check()` or deterministic fallback when a live check is unavailable.
    Grounding remains scoped to retrieved local answers.
 2. Telegram's T4 media handling is partial and POSIX-only.
-3. `memory/consolidation.py` is a deliberate stub; consolidation stays
-   disabled in v1.
+3. Episode-to-fact consolidation is not implemented (the former
+   `memory/consolidation.py` stub was removed).
 4. `terminal.html` has no memory console and no full auth-management UI --
    both are REST-only surfaces today (a minimal `.toolbar-auth` affordance
    exists for `/users`/`/audit`).
