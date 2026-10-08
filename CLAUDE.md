@@ -107,7 +107,7 @@ LLM decision.
 | GET | `/memory/status` | **API key** | rate-limited; always 200 + flags |
 | GET | `/memory/facts` `/memory/episodes` `/memory/proposals` | **API key** | rate-limited; 404 when `memory.enabled` is false (proposals: when propose/apply off) |
 | POST | `/memory/propose` `/memory/reject` `/memory/apply` | **API key** | rate-limited; non-empty `reason` required; injection scan on apply |
-| GET | `/query/export/html` | **API key** | rate-limited; 404 when `export_html.enabled` is false |
+| GET | `/query/export/html` | **API key** | rate-limited; 404 unless both `memory.enabled` and `memory.export_html.enabled` are true |
 
 The four `/ops/*` endpoints reach out-of-band subsystems ONLY through
 `utils/ops_runner.py` (a `subprocess.run([...])` shim); they never import them.
@@ -591,7 +591,7 @@ CI targets Python 3.12 on four `test` legs (ubuntu-latest, ubuntu-22.04 for the
 AppArmor-profiled bwrap policy, windows, macos), all release gates. In `ci.yml`
 only `verify-skills` carries `continue-on-error`. Coverage sources live in
 `pyproject.toml`'s `[tool.coverage.run]`. `tests/conftest.py` mocks all external deps; `tests/` holds about
-230 auto-collected `test_*.py` files.
+220 auto-collected `test_*.py` files.
 
 ---
 
