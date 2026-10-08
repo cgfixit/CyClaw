@@ -279,7 +279,7 @@ sec__label_lines() {
 
 # sec__check_files FILES WHERE [BLOCK_FILES [PROTECTED_FILES]]   (newline-separated)
 # FILES drives the reminders. BLOCK_FILES (default FILES) is the list the
-# blocked-filename test runs on: git diff-filter ACMR, so a blocked name stays
+# blocked-filename test runs on: git diff-filter ACMRT, so a blocked name stays
 # blocked after it is tracked (exempt a fixture with SEC_BLOCKED_EXCEPT). PROTECTED_FILES (default
 # FILES) also carries deletions and old rename paths, so removing a control
 # file needs the same operator ack as editing it.
@@ -608,10 +608,11 @@ sec_pre_commit() {
 
   # Three views of the staged change. Content and reminders: ACMRT (T is a
   # type change, e.g. a file replaced by a symlink to a key). Blocked names:
-  # ACMR, so a blocked file that slipped in stays blocked. Protected paths:
+  # ACMRT, so a blocked file that slipped in stays blocked, even when it is
+  # swapped for a symlink. Protected paths:
   # every status incl. D, with renames split so the old path counts.
   files="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMRT)"
-  bfiles="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR)"
+  bfiles="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMRT)"
   pfiles="$(git -c core.quotePath=false diff --cached --name-only --no-renames --diff-filter=ACMRTD)"
   SEC_FILES="$files"
 
@@ -751,7 +752,7 @@ sec_pre_push_ref() {
   # content (lines in the merge and in neither parent), which plain `git log`
   # never shows; side branches' own commits are in the range as usual.
   files="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --diff-filter=ACMRT "${range[@]}" | sed '/^$/d' | sort -u)"
-  bfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --diff-filter=ACMR "${range[@]}" | sed '/^$/d' | sort -u)"
+  bfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --diff-filter=ACMRT "${range[@]}" | sed '/^$/d' | sort -u)"
   pfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --no-renames --diff-filter=ACMRTD "${range[@]}" | sed '/^$/d' | sort -u)"
   if [[ -n "$pfiles" ]]; then
     SEC__PUSH_FILES+="$files"$'\n'
