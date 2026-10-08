@@ -31,6 +31,14 @@ LOG="$SCRATCH/gate.log"
 mkdir -p "$SCRATCH"
 
 need_venv() {
+  # The SessionStart hook builds the venv in the background; python3.12 -m venv
+  # creates bin/python within a second, long before torch/chromadb are
+  # installed. Taking the build's own lock (cmd_venv holds fd 8 for the whole
+  # build) blocks here until it finishes, so test/serve never run against a
+  # half-built venv. No lock file yet means no build was ever started.
+  if command -v flock >/dev/null 2>&1 && [ -e "$SCRATCH/venv.lock" ]; then
+    ( flock 8 ) 8>"$SCRATCH/venv.lock"
+  fi
   if [ ! -x "$PY" ]; then
     echo "no venv at $VENV -- run: bash .claude/skills/cyclaw-gotchas/driver.sh venv" >&2
     exit 3
