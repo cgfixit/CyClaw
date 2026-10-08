@@ -9,7 +9,9 @@ text scan when not). Safe to run in a fresh container before any pip install.
 
 Checks (one section per invariant, plus supporting guards):
   I1  RAG-first          retrieve is the unconditional graph entry
-  I2  Topology=policy    routing decided only by the two named routers
+  I2  Topology=policy    routing decided only by the four named routers
+                         (score_router, guardrail_router, user_gate_router,
+                         pre_action_hook_router)
   I3  Triple-gated external providers  hybrid mode + provider.enabled + user confirmation
   I4  Audit convergence  every node reaches audit_logger; audit_logger -> END
   I5  Soul governance    apply_evolution refuses an empty reason

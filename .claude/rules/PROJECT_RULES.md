@@ -99,7 +99,7 @@ See `retrieval/hybrid_search.py` for implementation.
 
 - **Identity:** Claude Code commits as the session runtime's identity: in the cloud `Claude <noreply@anthropic.com>` (signed, so GitHub shows it Verified), locally the operator's own git identity. Never set `CyClaw Agent` for a Claude Code commit; that driver-agnostic identity (`utils/agent_identity.py`) belongs to CyClaw's own agentic loop. See `CLAUDE.md` §10.
 
-- **Feature Branches:** Develop on a documented vendor prefix (`grok/`, `claude/`, `codex/`, `kimi/`, `agent/`, `CyClaw/`, `cyclaw/` — see `utils.agent_identity.ALLOWED_BRANCH_PREFIXES` and the PR template). Enforced by `.githooks/` pre-commit + pre-push after `bash scripts/install-githooks.sh`. Do not push to `main` directly when a feature branch and open PR exist.
+- **Feature Branches:** Develop on a documented vendor prefix (`grok/`, `claude/`, `codex/`, `kimi/`, `agent/`, `CyClaw/`, `cyclaw/` — see `utils.agent_identity.ALLOWED_BRANCH_PREFIXES` and the PR template). Enforced by `.githooks/` pre-commit + pre-push after `bash scripts/ensure-githooks.sh`. Do not push to `main` directly when a feature branch and open PR exist.
 
 - **Commits:** Clear, descriptive messages. Reference issue numbers when applicable.
 
