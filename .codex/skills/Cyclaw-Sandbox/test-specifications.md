@@ -100,7 +100,7 @@ config/layout, synthetic index creation and the same gateway checks.
 | Storage | Resolve each consumer, not just `CYCLAW_HOME`: default corpus/index/soul/auth/log paths anchor to the repo. Memory's relative DB path is CWD-relative (`memory/store.py`); use an explicit absolute temporary path in fixtures. Docker mounts determine host locations. |
 | Native macOS | Plain Torch via constrained temporary manifests; installer layout, launchd/Keychain wrappers, dotenv modes, BSD stat under shadowed PATH, allexport and failed-source behavior; APFS and `/Volumes` tests on Darwin. Simulation is not native acceptance. |
 | Native Windows | Constrained CPU Torch, installer/shims, Task Scheduler/CredMan, ACL/path checks. A Linux or macOS pass cannot establish these. |
-| Executor containment | Darwin denies network and restricts writes but permits reads; Linux uses a network namespace; Windows uses Job Object process-tree control with sockets still available. Missing required backend fails closed. Do not call these equivalent isolation. |
+| Executor containment | Darwin denies network and restricts writes but permits reads; Linux uses a network namespace; Windows is refused before a child starts (Job Objects confine neither filesystem nor network). Missing required backend fails closed. Do not call these equivalent isolation. |
 
 Use the relevant installer/launcher tests under `tests/`, including
 `tests/test_setup_from_clone.py`, `tests/test_setup_cyclaw_keys.py`,

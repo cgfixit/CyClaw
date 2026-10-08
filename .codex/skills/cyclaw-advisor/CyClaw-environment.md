@@ -10,7 +10,7 @@ instead of copying dependency pins or hardware assumptions into new guidance.
 | Container host model | `docs/DOCKER.md`, `models.local_llm.trusted_hosts`, and `assert_local_destination`. Trust is exact by hostname/IP, not DNS pinning. |
 | macOS dotenv | `macos/invoke-cyclaw.sh`, `setup-from-clone.sh`, `setup-cyclaw.sh`: BSD `/usr/bin/stat`, mode 600/400, source-status fallback, restore allexport. |
 | Windows launcher | `powershell/`, Windows installer jobs in `ci.yml`. PowerShell 5.1 must be tested natively; Git Bash does not prove that contract. |
-| Executor sandbox | `agentic/executor/hard_sandbox.py`: Windows Job Object, Darwin Seatbelt, Linux netns; missing capability refuses. Verify actual platform probes before claiming enforcement. |
+| Executor sandbox | `agentic/executor/hard_sandbox.py`: Darwin Seatbelt, Linux bubblewrap netns; Windows is unsupported and `production_sandbox()` refuses it, as it does any missing capability. Verify actual platform probes before claiming enforcement. |
 | Telemetry | `utils/telemetry_kill.py`, `utils/onnx_telemetry.py`, maintained otel checker. Pre-import environment suppression plus ONNX load seams; not a firewall. |
 
 Production executor verification must not fall back to the test-only
