@@ -8,5 +8,6 @@
 /.dockerignore @cgfixit
 /requirements*.txt @cgfixit
 /requirements-torch*.txt @cgfixit
+/locks/ @cgfixit
 /constraints.txt @cgfixit
 /scripts/refresh-runtime-lock.sh @cgfixit

@@ -164,15 +164,16 @@ echo "environment mutation (E5 Docker contract): PASS (exit 2)"
 # 9b. A silently-swallowed or fallback-branched dependency install must FAIL E5.
 # This is the shape that hid the dead uv resolver: the build stayed green while
 # installing a different tree than the reviewed one.
-for bad_run in \
-  'RUN pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt 2>/dev/null' \
-  'RUN some-resolver install -r requirements.txt -c constraints.txt || ( pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt )'
+for case in \
+  'discards stderr@@RUN pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt 2>/dev/null' \
+  'branches on @@RUN some-resolver install -r requirements.txt -c constraints.txt || ( pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt )'
 do
   f="$(mktemp -d)"
-  printf 'COPY pyproject.toml constraints.txt requirements.txt locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt ./\n%s\n' "$bad_run" > "$f/Dockerfile"
+  want="${case%%@@*}"; bad_run="${case#*@@}"
+  printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nCOPY locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt locks/\n%s\n' "$bad_run" > "$f/Dockerfile"
   out="$(python3 "$drift" --repo-root "$f" 2>&1)"; rc=$?
   rm -rf "$f"
-  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\]"; then
+  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\].*$want"; then
     echo "environment mutation (E5 silent install fallback): FAIL - expected exit 2 + E5 line, got rc=$rc" >&2
     echo "$out" >&2
     exit 1

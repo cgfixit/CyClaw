@@ -29,8 +29,10 @@ dir_pat = re.compile(r"/\S*?cyclaw-constraints\.[A-Za-z0-9]+/constraints\.txt")
 out = []
 for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
     if line.lstrip().startswith("#"):
-        line = file_pat.sub("constraints.txt", line)
+        # The directory form is a superset of the file form: run it first or
+        # file_pat leaves "constraints.txt/constraints.txt" behind.
         line = dir_pat.sub("constraints.txt", line)
+        line = file_pat.sub("constraints.txt", line)
     out.append(line)
 path.write_text("".join(out), encoding="utf-8")
 PY
