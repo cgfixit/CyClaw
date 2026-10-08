@@ -1,2 +1,2 @@
 # Input for the platform-specific hashed Torch locks.
-torch==2.13.0
+torch==2.14.1

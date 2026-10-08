@@ -19,18 +19,18 @@
 # from PyPI. Keeping the alternate index out of this file prevents every other
 # dependency from being resolved against it.
 
-fastapi==0.141.1
-uvicorn[standard]==0.53.0
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
 pydantic==2.13.5
 pyyaml==6.0.3
 httpx==0.28.1
-websockets==15.0.1
-langgraph==1.2.11
-langchain-core==1.6.3
+websockets==17.2
+langgraph==1.2.13
+langchain-core==1.6.6
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
 sentence-transformers==6.1.0
-huggingface-hub==1.32.0
-starlette==1.6.0
+huggingface-hub==2.1.1
+starlette==1.7.0
 # Transitive of chromadb, pinned explicitly so this surface carries the same
 # onnxruntime floor pyproject.toml/constraints.txt do (ORT_DISABLE_TELEMETRY
 # governs the non-Windows 1DS path only from v1.29.0 -- see constraints.txt).
@@ -38,7 +38,7 @@ onnxruntime==1.30.0
 rank-bm25==0.2.2
 numpy==1.26.4
 nltk==3.10.3
-nemoguardrails==0.24.0
+nemoguardrails==0.24.1
 # Optional Postgres / pgvector / mssql backends (NOT installed by default — the base
 # install stays SQLite + ChromaDB, offline-first). Enable via the pyproject extras instead:
 #   pip install 'cyclaw[postgres]' -c constraints.txt   # soul DB + rate limiter over Postgres (CYCLAW_DB_URL)
