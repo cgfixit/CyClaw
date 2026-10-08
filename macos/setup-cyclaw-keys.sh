@@ -871,7 +871,7 @@ _schedule_rotate() {
   fi
   cat > "$dest" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"> <!-- DevSkim: ignore DS137138 - standard plist DTD identifier, not a network request -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
@@ -1103,7 +1103,7 @@ end replaceText
 
 on urlAllowed(u, gatePort)
   if u is missing value or u is "" then return false
-  set prefixes to {"http://127.0.0.1:" & gatePort, "http://[::1]:" & gatePort}
+  set prefixes to {"http://127.0.0.1:" & gatePort, "http://[::1]:" & gatePort} -- DevSkim: ignore DS137138 - loopback URLs used to select the local gateway tab
   repeat with p in prefixes
     if u is p then return true
     if u starts with (p & "/") then return true

@@ -80,7 +80,7 @@ def test_base_urls_are_normalized_once_before_client_path_join(tmp_path: Path) -
 def test_loopback_reject(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
-        {"query": {"base_url": "http://example.com:8787"}},
+        {"query": {"base_url": "http://example.com:8787"}},  # DevSkim: ignore DS137138 - rejects non-loopback gateway before connection
     )
     with pytest.raises(OpenTweetConfigError):
         load_opentweet_config(path)
@@ -99,7 +99,7 @@ def test_url_userinfo_rejected_without_echoing_secret(tmp_path: Path) -> None:
 def test_loopback_userinfo_rejected(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
-        {"query": {"base_url": "http://user:supersecret@127.0.0.1:8787"}},
+        {"query": {"base_url": "http://user:supersecret@127.0.0.1:8787"}},  # DevSkim: ignore DS137138 - rejects URL credentials before connection
     )
     with pytest.raises(OpenTweetConfigError) as exc:
         load_opentweet_config(path)

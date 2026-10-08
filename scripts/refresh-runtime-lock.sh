@@ -70,14 +70,14 @@ compile_torch_lock x86_64-pc-windows-msvc requirements-torch-lock-windows.txt --
 compile_torch_lock native requirements-torch-lock-macos.txt
 
 for lock in "$repo_root"/requirements-lock-*.txt; do
-  if grep -Eq '^(--extra-index-url|--index-url|torch==)' "$lock"; then
+  if grep -Eq '^(--extra-index-url|--index-url|torch==)' "$lock"; then # DevSkim: ignore DS205001 - rejects index directives; does not install from an extra index
     echo "generated lock unexpectedly contains an index directive or Torch: $lock" >&2
     exit 1
   fi
 done
 
 for lock in "$repo_root"/requirements-torch-lock-*.txt; do
-  if grep -Eq '^(--extra-index-url|--index-url)' "$lock" || ! grep -Eq '^torch==' "$lock"; then
+  if grep -Eq '^(--extra-index-url|--index-url)' "$lock" || ! grep -Eq '^torch==' "$lock"; then # DevSkim: ignore DS205001 - rejects index directives in the dedicated Torch lock
     echo "generated Torch lock has an invalid shape: $lock" >&2
     exit 1
   fi

@@ -576,7 +576,7 @@ on urlAllowed(rawURL, gatePort)
 
   set prefixes to {¬
     "http://127.0.0.1:" & gatePort, ¬
-    "http://[::1]:" & gatePort}
+    "http://[::1]:" & gatePort} -- DevSkim: ignore DS137138 - IPv6 loopback URL used to select the local gateway tab
 
   repeat with p in prefixes
     set prefixText to p as text

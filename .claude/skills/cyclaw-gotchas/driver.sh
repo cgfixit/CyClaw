@@ -110,7 +110,7 @@ cmd_venv() {
     echo "       (import fails on libcudart.so.13); the CUDA deps come along, ~2 GB."
     inst "torch==2.13.0" || return 2
   fi
-  grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > "$SCRATCH/requirements-notorch.txt"
+  grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > "$SCRATCH/requirements-notorch.txt" # DevSkim: ignore DS205001 - removes the index directive before installation
   # Keep torch pinned (minus +cpu) in the constraints copy: --ignore-installed
   # below reinstalls every package, torch included, and an unconstrained copy
   # floated it to 2.14.0 here on 2026-09-06 despite the explicit 2.13.0 above.

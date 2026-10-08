@@ -13,7 +13,7 @@ from agentic.executor.manifest import build_manifest, git_head, verify_manifest
 from agentic.real_repo_loop import finalize_real_repo_change
 from utils.errors import AgenticError
 
-_RUN = "0123456789abcdef0123456789abcdef"
+_RUN = "0123456789abcdef0123456789abcdef"  # DevSkim: ignore DS173237 - fixed synthetic run ID; not key material
 
 
 def _git_init(root: Path) -> None:

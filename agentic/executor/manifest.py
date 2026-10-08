@@ -2,7 +2,7 @@
 
 A human reviews a pending run, then a later process calls ``finalize``.
 Between those, the worktree or the on-disk record can change. This module
-snapshots ``run_id + base HEAD + path→sha256`` at propose time and refuses
+snapshots ``run_id + base HEAD + path→sha256`` at propose time and refuses  # DevSkim: ignore DS197836 - documents a content digest, not password hashing
 approve when a rebuild does not match the stored digest.
 
 Not a signature: an attacker who rewrites both the JSON record and the

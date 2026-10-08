@@ -44,7 +44,7 @@ compile_lock() {
     --cache-dir "$cache_dir" \
     --custom-compile-command "scripts/refresh-ci-locks.sh" \
     --output-file "$repo_root/$output"
-  if grep -Eq '^(--extra-index-url|--index-url|torch==)' "$repo_root/$output"; then
+  if grep -Eq '^(--extra-index-url|--index-url|torch==)' "$repo_root/$output"; then # DevSkim: ignore DS205001 - rejects index directives; does not install from an extra index
     echo "generated lock unexpectedly contains an index directive or Torch: $output" >&2
     exit 1
   fi

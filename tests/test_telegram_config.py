@@ -131,7 +131,7 @@ def test_rejects_non_loopback_query_url(tmp_path: Path) -> None:
         tmp_path,
         {
             "enabled": False,
-            "query": {"base_url": "http://example.com:8787"},
+            "query": {"base_url": "http://example.com:8787"},  # DevSkim: ignore DS137138 - rejects non-loopback gateway before connection
         },
     )
     with pytest.raises(TelegramConfigError):
@@ -141,9 +141,9 @@ def test_rejects_non_loopback_query_url(tmp_path: Path) -> None:
 def test_accepts_ipv6_loopback_query_url(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
-        {"enabled": False, "query": {"base_url": "http://[::1]:8787"}},
+        {"enabled": False, "query": {"base_url": "http://[::1]:8787"}},  # DevSkim: ignore DS137138 - disabled integration IPv6 loopback config fixture
     )
-    assert load_telegram_config(path).query.base_url == "http://[::1]:8787"
+    assert load_telegram_config(path).query.base_url == "http://[::1]:8787"  # DevSkim: ignore DS137138 - asserts accepted IPv6 loopback URL; no connection
 
 
 def test_rejects_unknown_keys(tmp_path: Path) -> None:

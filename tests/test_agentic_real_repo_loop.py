@@ -41,7 +41,7 @@ from agentic.real_repo_loop import (
 )
 from utils.errors import AgenticError, AgenticWriteRefused
 
-_TEST_RUN_ID = "0123456789abcdef0123456789abcdef"
+_TEST_RUN_ID = "0123456789abcdef0123456789abcdef"  # DevSkim: ignore DS173237 - fixed synthetic run ID; not key material
 
 
 def _manifest_kw(tools: RepoWorkspaceTools, changed_files) -> dict:

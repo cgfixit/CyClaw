@@ -2,7 +2,7 @@
 import hashlib
 from pathlib import Path
 
-SOURCE_SHA256 = "091c7f82fc39ef208faf8f94d29c244de99254675e09de163160c810d13ef22a"
+SOURCE_SHA256 = "091c7f82fc39ef208faf8f94d29c244de99254675e09de163160c810d13ef22a"  # DevSkim: ignore DS173237 - public Unicode integrity digest, not a credential
 source = Path(__file__).with_name("confusables-17.0.0.txt").read_bytes()
 if hashlib.sha256(source).hexdigest() != SOURCE_SHA256:
     raise ValueError("Unexpected Unicode source digest")

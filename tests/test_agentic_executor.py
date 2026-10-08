@@ -201,7 +201,7 @@ def test_a_missing_check_binary_fails_the_check_without_crashing(tmp_path):
 def test_child_does_not_inherit_secret_shaped_env_vars(tmp_path, monkeypatch):
     monkeypatch.setenv("CYCLAW_API_KEY", "should-not-leak")
     monkeypatch.setenv("GROK_API_KEY", "should-not-leak-either")
-    monkeypatch.setenv("HTTPS_PROXY", "http://should-not-leak:8080")
+    monkeypatch.setenv("HTTPS_PROXY", "http://should-not-leak:8080")  # DevSkim: ignore DS137138 - synthetic proxy must be scrubbed from child environment
     report = run_verification(
         tmp_path,
         [
@@ -222,7 +222,7 @@ def test_child_still_has_path_to_find_the_interpreter(tmp_path):
 
 
 def test_scrubbed_env_sets_no_proxy_and_pip_no_index(monkeypatch):
-    monkeypatch.setenv("HTTPS_PROXY", "http://example:8080")
+    monkeypatch.setenv("HTTPS_PROXY", "http://example:8080")  # DevSkim: ignore DS137138 - synthetic proxy environment-scrubbing fixture
     env = runner_module._scrubbed_env()
     assert env["NO_PROXY"] == "*"
     assert env["PIP_NO_INDEX"] == "1"

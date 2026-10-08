@@ -146,7 +146,7 @@ function scheduleOperatorExpiry() {
   operatorExpiryTimer = null;
   if (!operatorExpiresAt) return;
   const delayMs = Math.max(0, operatorExpiresAt * 1000 - Date.now()) + 1000;
-  operatorExpiryTimer = window.setTimeout(() => refreshOperatorAccess(), delayMs);
+  operatorExpiryTimer = window.setTimeout(() => refreshOperatorAccess(), delayMs); // DevSkim: ignore DS172411 - fixed function callback, never evaluates a string
 }
 
 async function refreshOperatorAccess() {
@@ -464,7 +464,7 @@ async function logout() {
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs); // DevSkim: ignore DS172411 - fixed function callback, never evaluates a string
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
@@ -832,7 +832,7 @@ async function startIndexBuild() {
 
 function pollIndexStatus() {
   clearTimeout(indexBuild.timer);
-  indexBuild.timer = setTimeout(async () => {
+  indexBuild.timer = setTimeout(async () => { // DevSkim: ignore DS172411 - fixed function callback, never evaluates a string
     try {
       const resp = await fetchWithTimeout(`${API}/index/status`, {}, 3000);
       // Mirror checkHealth's guard: a JSON-bodied non-2xx (a 429 from the
@@ -1271,7 +1271,7 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
     // UI forever. queryDeadlineMs is synced from /health to stay just ABOVE the
     // server's graph_timeout_sec, so the server's truthful 504 GRAPH_TIMEOUT
     // message wins the race instead of being masked by a premature client abort.
-    timeoutId = window.setTimeout(() => activeQueryController.abort(), queryDeadlineMs);
+    timeoutId = window.setTimeout(() => activeQueryController.abort(), queryDeadlineMs); // DevSkim: ignore DS172411 - fixed function callback, never evaluates a string
     const resp = await fetch(`${API}/query`, {
       method: 'POST',
       headers: queryHeaders(),

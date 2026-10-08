@@ -404,7 +404,7 @@ class TestLocalLLMClient:
         client = LocalLLMClient(
             _write_config(
                 tmp_path,
-                local_llm_extra={"base_url": "http://user:s3cret@127.0.0.1:1234/v1"},
+                local_llm_extra={"base_url": "http://user:s3cret@127.0.0.1:1234/v1"},  # DevSkim: ignore DS137138 - fake connection error verifies userinfo redaction
             )
         )
         client._client.post = _FakePost(raises=httpx.ConnectError("refused"))
@@ -1538,7 +1538,7 @@ class TestResolveLocalBackend:
             "model": "qwen3.8:27b-mlx",
             "fallback": {
                 "enabled": True,
-                "base_url": "http://10.0.0.5:1234/v1",  # DevSkim: ignore DS162092
+                "base_url": "http://10.0.0.5:1234/v1",  # DevSkim: ignore DS162092,DS137138 - rejects non-loopback fallback before connection
                 "model": "x",
             },
         }
@@ -1970,13 +1970,13 @@ class TestClaudeStopReasonDiagnostics:
     ("url", "expected"),
     [
         ("http://127.0.0.1:11434", True),
-        ("http://LOCALHOST/v1", True),
-        ("http://[::1]:11434/v1", True),
-        ("http://[", False),
-        ("http://example.com", False),
+        ("http://LOCALHOST/v1", True),  # DevSkim: ignore DS137138 - loopback URL classification; no connection
+        ("http://[::1]:11434/v1", True),  # DevSkim: ignore DS137138 - IPv6 loopback classification; no connection
+        ("http://[", False),  # DevSkim: ignore DS137138 - malformed URL classification; no connection
+        ("http://example.com", False),  # DevSkim: ignore DS137138 - non-loopback rejection fixture; no connection
         ("http://127.0.0.1.example", False),
         ("http://127.0.0.1@evil.example/v1", False),
-        ("http://0.0.0.0:1", False),
+        ("http://0.0.0.0:1", False),  # DevSkim: ignore DS137138 - wildcard address rejection fixture; no connection
         ("", False),
     ],
 )
