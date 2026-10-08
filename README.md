@@ -47,9 +47,9 @@ bash macos/setup-cyclaw.sh
 ```bash
 git clone https://github.com/cgfixit/CyClaw && cd CyClaw
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
-pip install --require-hashes -r requirements-lock-linux.txt
-pip install -r requirements-test.txt -c constraints.txt
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r locks/requirements-lock-linux.txt
+pip install --require-hashes -r locks/requirements-test-lock-linux.txt
 ollama pull qwen3.8:27b-mlx
 export CYCLAW_API_KEY="$(openssl rand -hex 20)"  # operator routes; /query uses sessions/tokens when auth is on
 python -m retrieval.indexer                      # once; without this, /query is 503

@@ -13,8 +13,8 @@ on:
       # test). Without it here, adding or bumping an optional dependency
       # changed no triggering path and this workflow never ran on the change.
       - 'pyproject.toml'
-      - 'requirements-lock-*.txt'
-      - 'requirements-*-lock-*.txt'
+      - 'locks/requirements-lock-*.txt'
+      - 'locks/requirements-*-lock-*.txt'
       - 'scripts/ci-lock-inputs/**'
       - '.github/workflows/pip-audit.yml'
       - 'guardrails/**'
@@ -25,8 +25,8 @@ on:
       - 'requirements-test.txt'
       - 'constraints.txt'
       - 'pyproject.toml'
-      - 'requirements-lock-*.txt'
-      - 'requirements-*-lock-*.txt'
+      - 'locks/requirements-lock-*.txt'
+      - 'locks/requirements-*-lock-*.txt'
       - 'scripts/ci-lock-inputs/**'
       - '.github/workflows/pip-audit.yml'
       - 'guardrails/**'
@@ -74,12 +74,12 @@ jobs:
           # wheels from a previous run instead of a cold cache.
           cache-dependency-path: |
             requirements.txt
-            requirements-lock-linux.txt
-            requirements-lock-macos.txt
-            requirements-lock-windows.txt
-            requirements-torch-lock-linux.txt
-            requirements-torch-lock-macos.txt
-            requirements-torch-lock-windows.txt
+            locks/requirements-lock-linux.txt
+            locks/requirements-lock-macos.txt
+            locks/requirements-lock-windows.txt
+            locks/requirements-torch-lock-linux.txt
+            locks/requirements-torch-lock-macos.txt
+            locks/requirements-torch-lock-windows.txt
             requirements-test.txt
             constraints.txt
             pyproject.toml
@@ -128,8 +128,8 @@ jobs:
         shell: bash
         run: |
           case "${{ runner.os }}" in
-            Linux) torch_lock=requirements-torch-lock-linux.txt; runtime_lock=requirements-lock-linux.txt ;;
-            Windows) torch_lock=requirements-torch-lock-windows.txt; runtime_lock=requirements-lock-windows.txt ;;
+            Linux) torch_lock=locks/requirements-torch-lock-linux.txt; runtime_lock=locks/requirements-lock-linux.txt ;;
+            Windows) torch_lock=locks/requirements-torch-lock-windows.txt; runtime_lock=locks/requirements-lock-windows.txt ;;
           esac
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels -r "$torch_lock"
           pip install --require-hashes -r "$runtime_lock"
@@ -147,8 +147,8 @@ jobs:
         # instead, because Apple Silicon has no separate CPU/CUDA build to
         # disambiguate. The macOS locks already omit the +cpu suffix.
         run: |
-          pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
-          pip install --require-hashes -r requirements-lock-macos.txt
+          pip install --require-hashes --no-deps -r locks/requirements-torch-lock-macos.txt
+          pip install --require-hashes -r locks/requirements-lock-macos.txt
           if [ "$INSTALL_PROFILE" != requirements ]; then
             pip install -e . --no-deps
           fi
@@ -214,9 +214,9 @@ jobs:
           python -m venv "$RUNNER_TEMP/audit-venv"
           "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.2.1
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes --no-deps \
-            -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
-          "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r requirements-lock-linux.txt
-          "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r requirements-test-lock-linux.txt
+            -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+          "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r locks/requirements-lock-linux.txt
+          "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r locks/requirements-test-lock-linux.txt
 
       - name: Run pip-audit (ignore only mitigated chromadb + nltk CVEs)
         run: |
@@ -279,7 +279,7 @@ jobs:
         #
         # setuptools is pinned at 84.0.0 in constraints.txt (PYSEC-2026-3447
         # floor is 83.0.0). The previous --ignore-vuln is gone: the audited
-        # venv installs requirements-lock-linux.txt with --require-hashes, and
+        # venv installs locks/requirements-lock-linux.txt with --require-hashes, and
         # that lock carries setuptools==84.0.0.
         #
         # PYSEC-2026-3721 (pip) — was ignored here from 2026-09-07 while pip
@@ -375,11 +375,11 @@ jobs:
                   print(f"skip {name} (aggregate extra, no direct pins)")
                   continue
               if name == "test":
-                  lock = "requirements-test-lock-linux.txt"
+                  lock = "locks/requirements-test-lock-linux.txt"
               elif name == "numbat-cel":
-                  lock = "requirements-ci-cel-lock-linux.txt"
+                  lock = "locks/requirements-ci-cel-lock-linux.txt"
               else:
-                  lock = f"requirements-extra-lock-{name}-linux.txt"
+                  lock = f"locks/requirements-extra-lock-{name}-linux.txt"
               lock_path = pathlib.Path(lock)
               if not lock_path.is_file():
                   missing.append(f"{name} -> {lock}")

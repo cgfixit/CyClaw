@@ -43,11 +43,11 @@ python -m venv .venv
 
 # 2. Torch CPU first — order matters (keeps the CPU wheel, avoids a multi-GB
 #    CUDA build, and stays on the patched side of CVE-2025-32434)
-pip install --require-hashes --no-deps -r requirements-torch-lock-windows.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-windows.txt --index-url https://download.pytorch.org/whl/cpu
 
-# 3. Hashed runtime lock, then the constrained test toolchain
-pip install --require-hashes -r requirements-lock-windows.txt
-pip install -r requirements-test.txt -c constraints.txt
+# 3. Hashed runtime lock, then the hashed test lock
+pip install --require-hashes -r locks/requirements-lock-windows.txt
+pip install --require-hashes -r locks/requirements-test-lock-windows.txt
 
 # 4. Store real provider and operator keys with interactive Credential Manager
 #    prompts. The prompt values do not enter PowerShell history or process argv.
@@ -123,11 +123,11 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 
 # 2. Torch CPU first — order matters (see the Windows step 2 note above)
-pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
 
-# 3. Hashed runtime lock, then the constrained test toolchain
-pip install --require-hashes -r requirements-lock-linux.txt
-pip install -r requirements-test.txt -c constraints.txt
+# 3. Hashed runtime lock, then the hashed test lock
+pip install --require-hashes -r locks/requirements-lock-linux.txt
+pip install --require-hashes -r locks/requirements-test-lock-linux.txt
 
 # 4. Enter real keys at hidden prompts. Their values do not enter shell history
 #    or process argv. Leave GROK_API_KEY empty to keep Grok unavailable.
@@ -390,12 +390,12 @@ source .venv/bin/activate
 
 # 2. Torch first, from the hashed plain-arm64 lock on PyPI.
 #    Apple Silicon has no separate CPU/CUDA build to disambiguate.
-pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-macos.txt
 
-# 3. Hashed arm64 macOS runtime lock, then the constrained test toolchain.
+# 3. Hashed arm64 macOS runtime lock, then the hashed test lock.
 #    The lock contains no Torch or alternate package index directive.
-pip install --require-hashes -r requirements-lock-macos.txt
-pip install -r requirements-test.txt -c constraints.txt
+pip install --require-hashes -r locks/requirements-lock-macos.txt
+pip install --require-hashes -r locks/requirements-test-lock-macos.txt
 
 # 4. Prompt for provider and operator keys, store them in Keychain, and load
 #    them into this shell without putting their values in shell history.
@@ -1035,8 +1035,8 @@ placeholder — there are no known-failing tests on a clean install.
 
 ### Dependency locks and constraints
 
-Normal runtime installs use matching `requirements-torch-lock-{linux,windows,macos}.txt`
-and `requirements-lock-{linux,windows,macos}.txt` files with `--require-hashes`.
+Normal runtime installs use matching `locks/requirements-torch-lock-{linux,windows,macos}.txt`
+and `locks/requirements-lock-{linux,windows,macos}.txt` files with `--require-hashes`.
 Each runtime lock contains the full non-Torch runtime graph
 for Python 3.12. Regenerate all three with `scripts/refresh-runtime-lock.sh` on
 the supported arm64 macOS host, then review the changed versions and hashes.
@@ -1209,7 +1209,7 @@ results are hints, not a complete or live reachability map.
 | `400` on every request, working server otherwise | Your `Host` header isn't in `config.yaml`'s `allowed_hosts` allow-list — add the hostname/IP you're reaching CyClaw by |
 | `ModuleNotFoundError: nltk` (or any other pinned package) | The dependency install (step 3) didn't finish — re-run it; this is not fixed by `nltk.download()` |
 | `FileNotFoundError: constraints.txt` | `git pull` — it's a normal tracked file, not a one-time recovery |
-| **macOS:** `ERROR: No matching distribution found for torch==2.13.0+cpu` | You followed the Linux/Windows torch lock. macOS has no `+cpu` wheel — use `pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt` ([macOS](#macos-apple-silicon)) |
+| **macOS:** `ERROR: No matching distribution found for torch==2.13.0+cpu` | You followed the Linux/Windows torch lock. macOS has no `+cpu` wheel — use `pip install --require-hashes --no-deps -r locks/requirements-torch-lock-macos.txt` ([macOS](#macos-apple-silicon)) |
 | **macOS:** torch installs, then dependency installation reports a torch conflict | Use the platform-specific hashed runtime and torch locks from the macOS steps; do not mix the Linux/Windows locks into a macOS environment ([macOS](#macos-apple-silicon)) |
 | **macOS:** `No matching distribution found for torch==2.13.0` (no `+cpu`) | Either an Intel Mac (no `x86_64` wheel exists at this pin) or macOS < 14 (the wheel is `macosx_14_0_arm64`) — see [torch on macOS](#torch-on-macos-plain-build-no-cpu-suffix) |
 | **macOS:** `ollama serve` fails with address already in use | The Ollama `.app` is already serving `:11434` — nothing to fix |

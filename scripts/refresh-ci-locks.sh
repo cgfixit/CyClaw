@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Closed hashed locks for installs that used `pip install -c constraints.txt`.
-# Does not rewrite requirements-lock-*.txt or requirements-torch-lock-*.txt.
+# Does not rewrite locks/requirements-lock-*.txt or locks/requirements-torch-lock-*.txt.
 # Those stay on scripts/refresh-runtime-lock.sh. A constraints file caps
 # versions and still accepts a replaced wheel. --require-hashes needs a
 # requirements file, so each install set is compiled here.
@@ -11,14 +11,43 @@ uv_bin="${UV_BIN:-uv}"
 python_bin="${PYTHON_BIN:-python3.12}"
 cache_dir="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/cyclaw-uv-cache}"
 inputs="$repo_root/scripts/ci-lock-inputs"
+lock_dir="$repo_root/locks"
+mkdir -p "$lock_dir"
+
+# uv records the --constraints path in comments. Rewrite temp paths back to
+# the stable name constraints.txt, and fail if one remains.
+normalize_lock_comments() {
+  local lock="$1"
+  "$python_bin" - "$lock" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+file_pat = re.compile(r"/var/folders/\S*?cyclaw-constraints\.[A-Za-z0-9]+")
+dir_pat = re.compile(r"/\S*?cyclaw-constraints\.[A-Za-z0-9]+/constraints\.txt")
+out = []
+for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+    if line.lstrip().startswith("#"):
+        line = file_pat.sub("constraints.txt", line)
+        line = dir_pat.sub("constraints.txt", line)
+    out.append(line)
+path.write_text("".join(out), encoding="utf-8")
+PY
+  if grep -Eq '/var/folders/|cyclaw-constraints\.' "$lock"; then
+    echo "generated lock still records a temp constraints path: $lock" >&2
+    exit 1
+  fi
+}
 
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
   echo "CI lock generation requires the supported arm64 macOS host" >&2
   exit 1
 fi
 
-macos_constraints="$(mktemp "${TMPDIR:-/tmp}/cyclaw-constraints.XXXXXX")"
-trap 'rm -f "$macos_constraints"' EXIT
+macos_constraints_dir="$(mktemp -d "${TMPDIR:-/tmp}/cyclaw-constraints.XXXXXX")"
+trap 'rm -rf "$macos_constraints_dir"' EXIT
+macos_constraints="$macos_constraints_dir/constraints.txt"
 sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' "$repo_root/constraints.txt" > "$macos_constraints"
 
 compile_lock() {
@@ -43,12 +72,13 @@ compile_lock() {
     --no-sources \
     --cache-dir "$cache_dir" \
     --custom-compile-command "scripts/refresh-ci-locks.sh" \
-    --output-file "$repo_root/$output"
-  if grep -Eq '^(--extra-index-url|--index-url|torch==)' "$repo_root/$output"; then # DevSkim: ignore DS205001 - rejects index directives; does not install from an extra index
+    --output-file "$lock_dir/$output"
+  normalize_lock_comments "$lock_dir/$output"
+  if grep -Eq '^(--extra-index-url|--index-url|torch==)' "$lock_dir/$output"; then # DevSkim: ignore DS205001 - rejects index directives; does not install from an extra index
     echo "generated lock unexpectedly contains an index directive or Torch: $output" >&2
     exit 1
   fi
-  "$python_bin" - "$repo_root/$output" <<'PY'
+  "$python_bin" - "$lock_dir/$output" <<'PY'
 import sys
 from pathlib import Path
 

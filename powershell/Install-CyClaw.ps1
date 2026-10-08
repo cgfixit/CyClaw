@@ -190,9 +190,9 @@ if (-not $SkipPythonDeps) {
     # Match ci.yml's exact pip pin (CVE/repro); never float to latest on installers.
     & $VenvPy -m pip install --upgrade "pip==26.2.1" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "pip pin failed." }
-    & $VenvPy -m pip install --require-hashes --no-deps -r (Join-Path $Repo "requirements-torch-lock-windows.txt") --index-url https://download.pytorch.org/whl/cpu
+    & $VenvPy -m pip install --require-hashes --no-deps -r (Join-Path $Repo "locks/requirements-torch-lock-windows.txt") --index-url https://download.pytorch.org/whl/cpu
     if ($LASTEXITCODE -ne 0) { throw "torch install failed." }
-    & $VenvPy -m pip install --require-hashes -r (Join-Path $Repo "requirements-lock-windows.txt")
+    & $VenvPy -m pip install --require-hashes -r (Join-Path $Repo "locks/requirements-lock-windows.txt")
     if ($LASTEXITCODE -ne 0) { throw "requirements install failed." }
     Write-Step "dependencies installed"
 }

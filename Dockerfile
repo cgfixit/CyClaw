@@ -12,7 +12,8 @@ FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf2583
 WORKDIR /app
 
 # Dependency files first for layer caching
-COPY pyproject.toml constraints.txt requirements.txt requirements-lock-linux.txt requirements-torch-lock-linux.txt ./
+COPY pyproject.toml constraints.txt requirements.txt ./
+COPY locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt locks/
 
 # Install with plain pip against the generated runtime lock, not pyproject.toml/-e .:
 # this build stage hasn't COPYed the actual source yet (the COPY above takes
@@ -60,8 +61,8 @@ ARG PIP_RETRIES=10
 ENV PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
     PIP_RETRIES=${PIP_RETRIES}
 RUN pip install --no-cache-dir --upgrade "pip==26.2.1" && \
-    pip install --no-cache-dir --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt
+    pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt
 
 # Runtime stage
 # Same digest as the builder stage above (both MUST match — they are meant to
