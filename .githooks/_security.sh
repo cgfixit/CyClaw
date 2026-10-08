@@ -661,6 +661,7 @@ sec__scan_tree() {
 # sec_pre_push_ref REMOTE LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA
 sec_pre_push_ref() {
   local remote="$1" local_sha="$3" remote_ref="$4" remote_sha="$5"
+  local pushed_sha="$local_sha"
   sec__quiet=1
   sec__validate_config || return 1
   local rc=0 branch='' b is_protected=0 known_remote=0 files bfiles pfiles where otype added
@@ -717,11 +718,14 @@ sec_pre_push_ref() {
     known_remote=1
   fi
   # Checked before the blob/tree return below: moving an existing ref onto a
-  # blob or a tree replaces what it published, so it is a rewrite too.
+  # blob or a tree replaces what it published, so it is a rewrite too. Tags
+  # have no fast-forward updates, even when their target commit is a descendant.
   if ! sec__zero "$remote_sha"; then
-    if [[ "$known_remote" -eq 0 || "$otype" != commit ]] || ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+    if [[ "$remote_ref" == refs/tags/* && "$pushed_sha" != "$remote_sha" ]] ||
+       [[ "$known_remote" -eq 0 || "$otype" != commit ]] ||
+       ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
       if [[ "${ALLOW_FORCE_WITH_LEASE:-}" != "true" ]]; then
-        sec__say "security gate: refused non-fast-forward push to '${branch:-$remote_ref}' (it rewrites pushed history)." \
+        sec__say "security gate: refused ref rewrite to '${branch:-$remote_ref}' (it replaces a published ref)." \
           "  This is an ask-first action. Operator override: ALLOW_FORCE_WITH_LEASE=true git push --force-with-lease"
         rc=1
       fi

@@ -61,7 +61,7 @@ Load order: gate defaults, then `security.conf`, then `private.conf`, then
 | Personal address in author/committer (`SEC_AUTHOR_EMAIL_DENY`), also on a deletion-only or `--allow-empty` commit | every commit | — |
 | Protected control file changed, **deleted** or renamed away | staged | reminder only |
 | Push to, or deletion of, `main`/`master` | — | yes |
-| Non-fast-forward push (rewrites published history) | — | yes |
+| Existing tag update; non-fast-forward branch push | — | yes |
 
 Pre-push scans each commit, not the tip against the base: a key added in one
 commit and deleted in the next is still published, so it is still refused.
