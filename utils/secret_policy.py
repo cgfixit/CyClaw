@@ -13,7 +13,6 @@ _HEADER = "# cyclaw-secret-policy-v1"
 @dataclass(frozen=True)
 class SecretPolicy:
     suffixes: tuple[str, ...]
-    services: dict[str, str]
     exact_names: frozenset[str]
 
     def is_secret_name(self, name: str) -> bool:
@@ -24,15 +23,11 @@ class SecretPolicy:
             len(upper) > len(suffix) + 1 and upper.endswith("_" + suffix) for suffix in self.suffixes
         )
 
-    def service_for(self, name: str) -> str | None:
-        return self.services.get(name.upper())
-
 
 @lru_cache(maxsize=1)
 def load_secret_policy(path: Path = POLICY_PATH) -> SecretPolicy:
     suffixes: list[str] = []
     exact: set[str] = set()
-    services: dict[str, str] = {}
     lines = path.read_text(encoding="ascii").splitlines()
     if not lines or lines[0] != _HEADER:
         raise ValueError("unsupported or missing CyClaw secret-policy version")
@@ -55,9 +50,7 @@ def load_secret_policy(path: Path = POLICY_PATH) -> SecretPolicy:
             suffixes.append(name)
         else:
             exact.add(name)
-            if service:
-                services[name] = service
-    return SecretPolicy(tuple(suffixes), services, frozenset(exact))
+    return SecretPolicy(tuple(suffixes), frozenset(exact))
 
 
 SECRET_POLICY = load_secret_policy()

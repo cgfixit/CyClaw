@@ -15,7 +15,6 @@ from agentic.executor.hard_sandbox import (
     DarwinSeatbeltSandbox,
     HardSandboxUnavailable,
     LinuxNetnsSandbox,
-    WindowsJobObjectSandbox,
     production_sandbox,
     seatbelt_profile,
 )
@@ -138,11 +137,6 @@ def test_production_sandbox_never_returns_argv_list(monkeypatch: pytest.MonkeyPa
     )
     with pytest.raises(HardSandboxUnavailable):
         production_sandbox()
-
-
-def test_legacy_job_object_backend_cannot_run_unconfined(tmp_path: Path) -> None:
-    with pytest.raises(HardSandboxUnavailable, match="filesystem"):
-        WindowsJobObjectSandbox().run([sys.executable, "-c", "pass"], cwd=tmp_path, env={}, timeout_sec=1)
 
 
 def test_verification_outputs_do_not_modify_the_authoritative_source(tmp_path: Path) -> None:

@@ -153,14 +153,14 @@ def ddl_interactions(backend: str) -> str:
     """
 
 
-def ddl_indexes(backend: str) -> list[str]:
+def ddl_indexes() -> list[str]:
     """Index DDL applied after the tables exist (same syntax on both backends).
 
     The TTL prune (``DELETE FROM interactions WHERE timestamp < ?``) and the
     maintenance sweep both range-scan ``interactions.timestamp``; an index keeps
     that O(log n) instead of a full-table scan as history grows. ``CREATE INDEX
     IF NOT EXISTS`` is valid on both SQLite and PostgreSQL, so one list serves
-    both. ``backend`` is accepted for symmetry / future backend-specific indexes.
+    both.
     """
     return [
         "CREATE INDEX IF NOT EXISTS idx_interactions_ts ON interactions(timestamp)",
