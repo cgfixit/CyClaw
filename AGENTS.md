@@ -119,8 +119,8 @@ Run from the repository root with the selected Python interpreter:
 python -m retrieval.indexer
 python gate.py
 python mcp_hybrid_server.py
-python -m pytest tests/ -q --tb=short
-python -m tests.ci_rag_smoke
+python -m pytest tests/ -q --tb=short   # full suite: CI/owner only, not an agent default
+python -m tests.ci_rag_smoke             # real-index smoke: a CI step, not an agent default
 python -m ruff check --select F,B,S .
 python .claude/skills/invariant-guard/check_invariants.py
 python .claude/skills/dotenv-guard/check_dotenv.py
@@ -132,20 +132,25 @@ verification. Prepare isolated `data/personality/`, `index/`, and `logs/` when
 needed, preserving the committed soul. A mock test pass does not prove native
 platform behavior, real model quality, or a successful install.
 
-Choose validation by changed behavior. Docs/skills need frontmatter, metadata,
-link/path and drift checks, not a full application suite. Python changes need
-focused regression tests and touched-path lint; shared routing, retrieval, auth,
-and security changes need broader CI-equivalent evidence. Bare pytest does not
-measure the configured 80% coverage gate: use the explicit CI `--cov`
-invocation. Ruff F/B/S blocks; broader Ruff/WPS are advisory. Mypy is
-best-effort with `--explicit-package-bases`, not a CI gate.
+Choose validation by changed behavior, in this order, and stop at the first
+step that actually exercises the change (`CLAUDE.md` §5 "Verification policy",
+an owner decision for this repo, local and cloud sessions alike): (1) run the
+changed code directly and read its real output; (2) lint and static checks
+(`ruff`, `bash -n`/`shellcheck`, `actionlint`, the `.claude/skills/*/check_*.py`
+checkers); (3) push the draft PR and let GitHub Actions run the suites and the
+coverage gate; (4) one targeted test file only when 1-3 cannot exercise the
+path. Do not run the full suite, the CI-style `--cov` run, or
+`tools/lora_finetune/tests/` as a routine step. Docs/skills need frontmatter,
+metadata, link/path and drift checks, not an application suite. Shared routing,
+retrieval, auth, and security changes still need broader evidence, and that
+evidence is green CI on the exact PR head (full suites, the 80% coverage gate,
+and the three OS legs), not a local reproduction. Ruff F/B/S blocks; broader
+Ruff/WPS are advisory. Mypy is best-effort with `--explicit-package-bases`, not
+a CI gate. Say in the PR body which checks you ran directly and which only CI
+has run.
 
-Testing and verification rules when making code changes: when you change a
-GitHub Actions workflow, lint it (for example actionlint) rather than running the
-test suite to check it. When you verify a local change, run only the tests and
-code tied to that change, not the whole suite. This does not relax the rule
-above: shared routing, retrieval, auth, and security changes still need broader
-CI-equivalent evidence, and green CI on the exact PR head remains the merge gate.
+When you change a GitHub Actions workflow, lint it (for example actionlint)
+rather than running the test suite to check it.
 
 Use four-space indentation, typed Python, snake_case names, and the existing
 120-column style. Use named logging. Docstrings belong only at the start of a
