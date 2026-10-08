@@ -464,7 +464,7 @@ def test_stay_offline_button_reads_correctly_in_both_layouts():
 
 def test_error_copy_table_covers_the_query_reachable_codes():
     """Every code /query can actually emit -- the ~10 HTTPException codes plus
-    the 4 that arrive as a 200 with an `error` field carrying graph.py's
+    the 5 that arrive as a 200 with an `error` field carrying graph.py's
     "{code}: {message}" stamp -- must have a plain-language entry, so an error
     never regresses to a bare code with no sentence."""
     js = _TERMINAL_JS.read_text(encoding="utf-8")
@@ -474,8 +474,8 @@ def test_error_copy_table_covers_the_query_reachable_codes():
         "INDEX_NOT_FOUND", "PROMPT_INJECTION_BLOCKED", "GRAPH_TIMEOUT",
         "GRAPH_ERROR", "RATE_LIMIT", "VALIDATION_ERROR", "PAYLOAD_TOO_LARGE",
         "AUTH_ROLE_DENIED", "CROSS_SITE_BLOCKED", "AUTH_REQUIRED",
-        "EMBEDDING_ERROR", "LLM_SERVICE_ERROR", "GROK_SERVICE_ERROR",
-        "CLAUDE_SERVICE_ERROR",
+        "EMBEDDING_ERROR", "LLM_SERVICE_ERROR", "LLM_UNAVAILABLE",
+        "GROK_SERVICE_ERROR", "CLAUDE_SERVICE_ERROR",
     ):
         assert f"{code}:" in table, f"{code} has no ERROR_COPY entry"
 

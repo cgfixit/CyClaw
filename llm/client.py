@@ -34,9 +34,15 @@ import httpx
 import yaml
 
 from utils.config_validation import resolve_grok_reasoning_effort, resolve_reasoning_effort
-from utils.errors import ClaudeServiceError, GrokServiceError, LLMServiceError, RAGError
-from utils.spend import record_external_usage
+from utils.errors import (
+    ClaudeServiceError,
+    GrokServiceError,
+    LLMServiceError,
+    LLMUnavailableError,
+    RAGError,
+)
 from utils.external_budget import ExternalCallBudget
+from utils.spend import record_external_usage
 
 log = logging.getLogger(__name__)
 
@@ -473,6 +479,23 @@ def is_loopback_url(url: str) -> bool:
     return host in _LOOPBACK_HOSTS
 
 
+def _hostport(url: str) -> str:
+    """Host and port for an error string. No userinfo, path, or query."""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return "unknown"
+    host = parts.hostname
+    if not host:
+        return "unknown"
+    if ":" in host:
+        host = f"[{host}]"
+    port = parts.port
+    if port is None:
+        port = 443 if parts.scheme == "https" else 80
+    return f"{host}:{port}"
+
+
 def _probe_openai_models(
     base_url: str,
     *,
@@ -762,13 +785,17 @@ class LocalLLMClient:
             self._readopt_backend_if_stale()
         label = self._label
 
+        attempted_base_url = self.base_url
+
         def do_post() -> httpx.Response:
             # Snapshot under the same lock _readopt_backend_if_stale writes
             # under, so a concurrent backend swap can't hand this request a
             # torn base_url/model/api_key combination.
+            nonlocal attempted_base_url
             with self._backend_lock:
                 base_url, model, api_key = self.base_url, self.model, self.api_key
                 effort = self.reasoning_effort
+                attempted_base_url = base_url
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             payload: dict[str, object] = {
                 "model": model,
@@ -809,9 +836,19 @@ class LocalLLMClient:
                 ),
                 # Type-only: str(e) can carry URLs, body fragments, or secrets that
                 # graph embeds into HTTP 200 answers via _generate_or_error.
-                on_other=lambda e: LLMServiceError(
-                    f"{label} error: {type(e).__name__}",
-                    details={"exc_type": type(e).__name__, "provider": self.provider},
+                # ConnectError is the refused / no-route / DNS case. Name the
+                # URL this attempt posted to, not whatever backend is current
+                # after a swap. ConnectTimeout stays on on_timeout.
+                on_other=lambda e: (
+                    LLMUnavailableError(
+                        f"local model not reachable at {_hostport(attempted_base_url)}",
+                        details={"exc_type": type(e).__name__, "provider": self.provider},
+                    )
+                    if isinstance(e, httpx.ConnectError)
+                    else LLMServiceError(
+                        f"{label} error: {type(e).__name__}",
+                        details={"exc_type": type(e).__name__, "provider": self.provider},
+                    )
                 ),
             )
         except LLMServiceError:
