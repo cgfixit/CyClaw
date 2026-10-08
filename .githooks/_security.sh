@@ -3,6 +3,8 @@
 # .githooks/_security.sh -- generic security gate for pre-commit and pre-push.
 # How it works, overrides, and how to reuse it: docs/GITHOOKS.md
 #
+# NOTE FROM CG: NEED TO ENHANCE THIS LATER
+#
 # Sourced by the hooks, never executed. Identical in every repo; repo-specific
 # values live in .githooks/security.conf. Bash 3.2 compatible (stock macOS).
 #
