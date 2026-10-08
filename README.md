@@ -27,6 +27,7 @@ CyClaw serves one trusted operator, or a mutually trusted group with auth
 enabled; it provides neither tenant isolation nor a microVM
 ([threat model](docs/THREAT_MODEL.md)).
 
+
 Step-by-step installs and every REST call: [Full Setup Guide](setup-guide.md).
 Contributor rules for people and agents: [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md),
 and the tracked git-hook gate in [`docs/GITHOOKS.md`](docs/GITHOOKS.md).
