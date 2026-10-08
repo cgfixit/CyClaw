@@ -8,6 +8,8 @@ the way the author expected. No network access is attempted or required.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sys
 import time
@@ -304,18 +306,75 @@ def test_fifo_in_worktree_does_not_hang_mirror_copy(tmp_path):
     assert report.results[0].timed_out is False
 
 
-def test_mirror_copy_oserror_becomes_failed_check(tmp_path, monkeypatch):
-    """A copy failure is a CheckResult, not an uncaught exception."""
+@pytest.mark.parametrize("error", [OSError("synthetic mirror failure"), TimeoutError("synthetic deadline")])
+def test_mirror_copy_failure_emits_one_result_and_numbat_then_continues(tmp_path, monkeypatch, error):
+    """Copy refusals converge on the same result sinks as an executed check."""
+    copy = runner_module._copy_worktree_mirror
+    events, commands = [], []
 
-    def _boom(*_a, **_k):
-        raise OSError("simulated mirror failure")
+    def fail_once(*args, **kwargs):
+        monkeypatch.setattr(runner_module, "_copy_worktree_mirror", copy)
+        raise error
 
-    monkeypatch.setattr(runner_module, "_copy_worktree_mirror", _boom)
-    report = run_verification(tmp_path, [_py("import sys; sys.exit(0)")])
+    monkeypatch.setattr(runner_module, "_copy_worktree_mirror", fail_once)
+    monkeypatch.setattr(runner_module, "audit_log", lambda event, **kw: events.append(event))
+    monkeypatch.setattr(runner_module, "emit_numbat_command", lambda *args, **kw: commands.append(kw))
+    report = run_verification(tmp_path, [
+        Check("copy-failure", (sys.executable, "-c", "raise AssertionError('must not launch')")),
+        Check("next-check", (sys.executable, "-c", "print('ran')")),
+    ])
     assert report.ok is False
     assert report.results[0].ok is False
-    assert report.results[0].timed_out is False
-    assert "mirror copy failed" in report.results[0].stderr
+    assert report.results[0].timed_out is isinstance(error, TimeoutError)
+    assert str(error) in report.results[0].stderr
+    assert report.results[1].ok and report.results[1].stdout.strip() == "ran"
+    assert [event["event"] for event in events] == [
+        "agentic_executor_mirror_copy", "agentic_executor_check_result",
+        "agentic_executor_mirror_copy", "agentic_executor_check_result",
+    ]
+    assert events[0]["ok"] is False and events[1]["ok"] is False
+    assert events[1]["timed_out"] is isinstance(error, TimeoutError)
+    assert [command["exit_code"] for command in commands] == [-1, 0]
+    assert commands[0]["tags"] == ["executor", "copy-failure"]
+
+
+def test_mirror_summary_is_compact_and_records_specials(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "z.txt").write_bytes(b"abc")
+    (source / "a.txt").write_bytes(b"de")
+    (source / ".git").mkdir()
+    (source / ".git" / "config").write_bytes(b"excluded")
+    skipped = []
+    if hasattr(os, "mkfifo"):
+        os.mkfifo(source / "blocker.fifo")
+        skipped.append("blocker.fifo")
+    events = []
+    monkeypatch.setattr(runner_module, "audit_log", lambda event, **kw: events.append(event))
+    report = run_verification(source, [_py("from pathlib import Path; assert Path('z.txt').read_bytes() == b'abc'")])
+    assert report.ok
+    summary = events[0]
+    assert summary["file_count"] == 2
+    assert summary["total_bytes"] == 5
+    assert summary["manifest_sha256"] == hashlib.sha256(b'["a.txt","z.txt"]').hexdigest()
+    assert summary["skipped_paths"] == skipped
+    assert "a.txt" not in json.dumps(summary)
+
+
+def test_mirror_copy_cooperative_deadline_refuses_to_launch(tmp_path, monkeypatch):
+    """The documented cooperative check rejects an overrun after copying."""
+    clock = [0.0]
+    monkeypatch.setattr(runner_module.time, "monotonic", lambda: clock[0])
+    copytree = runner_module.shutil.copytree
+
+    def slow_copy(*args, **kwargs):
+        result = copytree(*args, **kwargs)
+        clock[0] = 2.0
+        return result
+
+    monkeypatch.setattr(runner_module.shutil, "copytree", slow_copy)
+    report = run_verification(tmp_path, [_py("raise AssertionError('must not launch')", timeout_sec=1)])
+    assert not report.ok and report.results[0].timed_out
 
 
 def test_unreadable_entry_fails_the_check_instead_of_thinning_the_mirror(tmp_path, monkeypatch):

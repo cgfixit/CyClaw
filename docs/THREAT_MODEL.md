@@ -138,6 +138,22 @@ module isolation — I6 is the import-isolation invariant). See
   can still read host files that bubblewrap or Seatbelt mount read-only into the
   sandbox (operator home, system libraries, other world-readable paths). Treat
   host-readable secrets as in scope for injection-driven reads.
+- **Verification mirror preparation is cooperatively bounded.** The trusted
+  operator's worktree is copied before confinement starts. FIFOs, sockets and
+  device nodes are skipped; unreadable metadata or copy errors refuse the check.
+  The deadline is checked between directory callbacks, while summarizing the
+  mirror and after the copy. It cannot interrupt an individual stalled regular
+  file or metadata operation, and there is no byte budget. A slow filesystem or
+  large worktree can therefore exceed the nominal check timeout or exhaust disk
+  space. This is an accepted availability limitation for trusted local worktrees;
+  use bounded worktrees on responsive local storage. It is not a hard time or
+  disk quota and does not make hostile repositories safe to execute.
+  The pre-check mirror event records file/symlink count, regular-file bytes, a
+  SHA-256 of the sorted relative-path list (JSON encoded), and skipped special
+  paths, without file contents or a full manifest. This is metadata evidence,
+  not a content-integrity digest or a record of later host-file reads. Failed
+  copies retain their mirror error detail and emit the same single canonical
+  check-result event and Numbat command projection as executed checks.
 - **Kernel / hypervisor escape.** There is **no per-workload microVM**
   (gVisor/Firecracker). Container isolation shares the container host's Linux
   kernel. On Docker Desktop that kernel is in the managed Linux VM rather than
