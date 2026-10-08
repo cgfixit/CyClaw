@@ -145,7 +145,7 @@ class TestIndexBuildGates:
         assert resp.json()["detail"]["code"] == "CROSS_SITE_BLOCKED"
 
     @pytest.mark.parametrize("origin", [
-        "http://[evil",               # urlparse() itself raises
+        "http://[evil",               # urlparse() itself raises  # DevSkim: ignore DS137138 - malformed Origin rejection fixture
         "http://localhost:notaport",  # DevSkim: ignore DS162092,DS137138 - lazy .port raises
         "http://localhost:99999",     # DevSkim: ignore DS162092,DS137138 - port out of range
     ])

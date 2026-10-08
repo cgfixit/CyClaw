@@ -16,11 +16,11 @@ from utils.gateway_url import gateway_url
     ("api", "override", "environment", "expected"),
     [
         ({}, None, None, "http://127.0.0.1:8787"),
-        ({"host": "127.0.0.2", "port": 8799}, None, None, "http://127.0.0.2:8799"),
+        ({"host": "127.0.0.2", "port": 8799}, None, None, "http://127.0.0.2:8799"),  # DevSkim: ignore DS137138 - loopback URL formatting fixture; no connection
         ({"host": "localhost", "tls": {"enabled": True}}, None, "8999", "https://localhost:8999"),
-        ({"host": "::1"}, None, None, "http://[::1]:8787"),
+        ({"host": "::1"}, None, None, "http://[::1]:8787"),  # DevSkim: ignore DS137138 - IPv6 loopback formatting fixture; no connection
         ({"host": "0.0.0.0"}, None, None, "http://127.0.0.1:8787"),  # noqa: S104 - no socket opened
-        ({"host": "::"}, None, None, "http://[::1]:8787"),
+        ({"host": "::"}, None, None, "http://[::1]:8787"),  # DevSkim: ignore DS137138 - wildcard bind maps to loopback browser destination
         ({"host": ""}, None, None, "http://127.0.0.1:8787"),
         ({"port": 8799}, "9000", "8999", "http://127.0.0.1:9000"),
         ({"port": 8799}, None, " ", "http://127.0.0.1:8799"),

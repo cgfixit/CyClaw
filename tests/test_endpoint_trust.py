@@ -32,7 +32,7 @@ def test_online_allowlist() -> None:
         assert_online_destination(provider="claude", base_url="https://api.x.ai/v1", confirmed=True)
 
 
-@pytest.mark.parametrize("url", ["http://[::1", "http://[not-ip]/"])
+@pytest.mark.parametrize("url", ["http://[::1", "http://[not-ip]/"])  # DevSkim: ignore DS137138 - malformed endpoint rejection fixtures
 def test_malformed_url_is_typed(url):
     with pytest.raises(EndpointTrustError, match="malformed endpoint URL"):
         hostname_of(url)
@@ -41,10 +41,10 @@ def test_malformed_url_is_typed(url):
 @pytest.mark.parametrize("hosts", [[], "host.docker.internal", None, ["other.internal"], [None]])
 def test_local_destination_rejects_untrusted_or_malformed_allowlist(hosts):
     with pytest.raises(EndpointTrustError):
-        assert_local_destination("http://host.docker.internal:11434/v1", hosts)
+        assert_local_destination("http://host.docker.internal:11434/v1", hosts)  # DevSkim: ignore DS137138 - untrusted container host rejection; no connection
 
 
 def test_local_destination_explicit_host_is_exact():
-    assert_local_destination("http://host.docker.internal:11434/v1", ["HOST.DOCKER.INTERNAL"])
+    assert_local_destination("http://host.docker.internal:11434/v1", ["HOST.DOCKER.INTERNAL"])  # DevSkim: ignore DS137138 - exact trusted-host validation; no connection
     with pytest.raises(EndpointTrustError):
-        assert_local_destination("http://host.docker.internal.evil:11434", ["host.docker.internal"])
+        assert_local_destination("http://host.docker.internal.evil:11434", ["host.docker.internal"])  # DevSkim: ignore DS137138 - suffix-spoofed host rejection; no connection

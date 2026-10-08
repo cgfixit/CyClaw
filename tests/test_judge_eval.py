@@ -121,7 +121,7 @@ def test_main_redacts_unexpected_runtime_failure(monkeypatch, capsys) -> None:
 @pytest.mark.parametrize(
     "endpoint",
     [
-        "http://api.anthropic.com/v1",
+        "http://api.anthropic.com/v1",  # DevSkim: ignore DS137138 - rejects cleartext provider URL before connection
         "https://api.anthropic.com.evil.example/v1",
         "https://user:pass@api.anthropic.com/v1",
         "https://api.anthropic.com:8443/v1",
@@ -144,9 +144,9 @@ def test_claude_endpoint_accepts_only_official_origin() -> None:
     "endpoint",
     [
         "https://example.com/v1",
-        "http://10.0.0.5:11434/v1",
+        "http://10.0.0.5:11434/v1",  # DevSkim: ignore DS137138 - rejects LAN model URL before connection
         "http://127.0.0.1:11434/other",
-        "http://user:pass@127.0.0.1:11434/v1",
+        "http://user:pass@127.0.0.1:11434/v1",  # DevSkim: ignore DS137138 - rejects URL credentials before connection
     ],
 )
 def test_contestant_endpoint_must_be_loopback(endpoint: str) -> None:

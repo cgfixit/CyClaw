@@ -87,8 +87,8 @@ def test_provider_model_rejects_shell_metacharacters():
 
 @pytest.mark.parametrize("url", [
     "https://attacker.example/v1",
-    "http://192.168.1.5:11434/v1",
-    "http://model.internal:8080/v1",
+    "http://192.168.1.5:11434/v1",  # DevSkim: ignore DS137138 - rejects LAN planner URL before connection
+    "http://model.internal:8080/v1",  # DevSkim: ignore DS137138 - rejects non-loopback planner URL before connection
 ])
 def test_local_base_url_must_be_loopback(url):
     """The six-gate cloud chain is routed around entirely without this.
@@ -111,7 +111,7 @@ def test_local_base_url_must_be_loopback(url):
     "http://127.0.0.1:11434/v1",
     # userinfo is not the host: this really does address localhost, and
     # urlparse().hostname reports it correctly rather than being fooled.
-    "http://evil.example@localhost:11434/v1",
+    "http://evil.example@localhost:11434/v1",  # DevSkim: ignore DS137138 - userinfo host-parsing fixture; destination is loopback
 ])
 def test_loopback_base_urls_are_accepted(url):
     assert DeepAgentGitHubConfig(base_url=url).base_url == url

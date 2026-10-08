@@ -97,7 +97,7 @@ class LoopbackOpenAIMock:
     @property
     def base_url(self) -> str:
         host, port = self._httpd.server_address
-        return f"http://{host}:{port}/v1"
+        return f"http://{host}:{port}/v1"  # DevSkim: ignore DS137138 - mock server binds only IPv4 loopback
 
     def start(self) -> None:
         self._thread.start()

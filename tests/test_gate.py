@@ -1494,7 +1494,7 @@ class TestApiKeyOptionalPeer:
 
     @pytest.mark.parametrize("headers", [
         {"Origin": "https://evil.example"},
-        {"Origin": "http://attacker.test:8080"},
+        {"Origin": "http://attacker.test:8080"},  # DevSkim: ignore DS137138 - cross-site rejection fixture
         {"Sec-Fetch-Site": "cross-site"},
         {"Sec-Fetch-Site": "same-site"},
         # Served at localhost, so 127.0.0.1 is a DIFFERENT web origin by spec
@@ -1611,7 +1611,7 @@ class TestQueryCrossSiteWithAuthOff:
 
     @pytest.mark.parametrize("headers", [
         {"Origin": "https://evil.example"},
-        {"Origin": "http://attacker.test:8080"},
+        {"Origin": "http://attacker.test:8080"},  # DevSkim: ignore DS137138 - cross-site rejection fixture
         {"Sec-Fetch-Site": "cross-site"},
         {"Sec-Fetch-Site": "same-site"},
     ])
@@ -1667,7 +1667,7 @@ class TestQueryCrossSiteWithAuthOff:
         assert resp.json()["detail"]["code"] == "CROSS_SITE_BLOCKED"
 
     @pytest.mark.parametrize("origin", [
-        "http://[evil",                 # urlparse() itself raises
+        "http://[evil",                 # urlparse() itself raises  # DevSkim: ignore DS137138 - malformed Origin rejection fixture
         "http://localhost:notaport",    # DevSkim: ignore DS162092,DS137138 - lazy .port raises
         "http://localhost:99999",       # DevSkim: ignore DS162092,DS137138 - port out of range
     ])
@@ -1720,13 +1720,13 @@ class TestQueryCrossSiteWithAuthOff:
         import gate
         monkeypatch.setattr(gate, "_allowed_hosts", ["*.example.com"])
         request = MagicMock(
-            headers={"origin": "http://node.example.com:8787"},
+            headers={"origin": "http://node.example.com:8787"},  # DevSkim: ignore DS137138 - mock same-origin matcher; no connection
             url=MagicMock(hostname="node.example.com", port=8787, scheme="http"),
         )
         assert gate._looks_cross_site(request) is False
         # Same allow-list, a host that is genuinely another origin.
         other = MagicMock(
-            headers={"origin": "http://other.example.com:8787"},
+            headers={"origin": "http://other.example.com:8787"},  # DevSkim: ignore DS137138 - mock cross-origin rejection; no connection
             url=MagicMock(hostname="node.example.com", port=8787, scheme="http"),
         )
         assert gate._looks_cross_site(other) is True

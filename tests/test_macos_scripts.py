@@ -156,7 +156,7 @@ def test_onboarding_uses_resolved_url_without_widening_key_autofill() -> None:
     # Configured browser destinations must not become credential-injection destinations.
     applescript = source.split("<<'APPLESCRIPT'", 1)[1].split("\nAPPLESCRIPT", 1)[0]
     assert '"http://127.0.0.1:" & gatePort' in applescript
-    assert '"http://[::1]:" & gatePort' in applescript
+    assert '"http://[::1]:" & gatePort' in applescript  # DevSkim: ignore DS137138 - asserts browser injection stays on IPv6 loopback
     assert "CONSOLE_URL" not in applescript
 
 

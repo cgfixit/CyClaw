@@ -49,58 +49,28 @@ jobs:
         id: devskim
         uses: microsoft/DevSkim-Action@4b5047945a44163b94642a1cecc0d93a3f428cc6  # v1
         with:
-          # Scan the whole workspace. The action's default `directory-to-scan` is
-          # GITHUB_WORKSPACE, so it is omitted here.
-          #
-          # The previous config used `directory:`, `output:`, `severity:`, and
-          # `ignore-files:` — none of which are valid DevSkim-Action@v1 inputs.
-          # The action silently ignored them (see the "Unexpected input(s)"
-          # warning in earlier run logs) and fell back to scanning the whole repo
-          # with defaults anyway. These are the correct input names; the effective
-          # behavior (whole-repo scan, inline `# DevSkim: ignore <rule>`
-          # suppressions honored) is unchanged.
-          #
-          # NOTE: DevSkim-Action@v1 has no `severity` input — severity gating was
-          # never actually applied. The job's pass/fail is driven by the SARIF
-          # upload + code-scanning alert creation below, which is the intended
-          # security behavior.
+          # Scan all supported source formats; same-line DevSkim comments carry
+          # site-specific exceptions. The action defaults to GITHUB_WORKSPACE.
           output-filename: devskim-results.sarif
-          # DS137138/DS162092: loopback-only binding/hardcoded-IP findings --
-          # CyClaw's threat model is loopback-only by design (docs/THREAT_MODEL.md),
-          # so these fire throughout on purpose; each true instance also carries an
-          # inline `# DevSkim: ignore` with a design rationale (see gate.py,
-          # tests/conftest.py, etc.) -- excluded here to stop the alert
-          # noise on every one of those already-justified sites.
-          #
-          # DS106863 ("Do not use the DES symmetric block cipher") is a BARE,
-          # case-insensitive, zero-word-boundary substring match on "DES" -- not a
-          # real cipher-usage detector. It fires on any code containing
-          # description/design/destructive/degrades/nodes/codes/modes/dest/etc.
-          # A repo-wide check found the substring in 113 of 199 .py files (57%).
-          # Confirmed via tests/test_agentic_registry_contract.py (PR #699,
-          # 2026-07-29): a schema dict with a "description" field tripped this rule
-          # three separate times as different lines were touched, none of them
-          # anywhere near cryptography. Checked: no `DES.new(`, `Cipher.DES`,
-          # `algorithms.DES`/`TripleDES`, or any crypto-library DES import exists
-          # anywhere in this codebase -- this exclusion turns off noise, not a
-          # real detector for an API surface CyClaw doesn't use.
-          exclude-rules: 'DS137138,DS162092,DS106863'
-          #
-          # Path-scoped exclusions (DevSkim-Action@v1 has no per-rule/path input,
-          # so these globs skip the whole file; rationale for each):
-          #   utils/unicode_data/**  -- vendored, SHA-256-pinned Unicode TR39
-          #     confusables data plus its generator. generate.py's SOURCE_SHA256 is
-          #     a public integrity digest of that data file, not a credential (the
-          #     "token or key in source" rule matches any hex-digest assignment),
-          #     and the data file's "TODO"-style notices are upstream Unicode text
-          #     that cannot be edited without breaking the pinned digest.
-          #   scripts/refresh-runtime-lock.sh, scripts/refresh-ci-locks.sh --
-          #     their only matches are grep guards that REFUSE a generated lock
-          #     containing --extra-index-url / --index-url. The runtime script
-          #     selects Torch only through uv's --torch-backend. The CI script
-          #     rejects a torch== line. The rule is matching the detection
-          #     pattern, not an actual extra index.
-          ignore-globs: "**/.git/**,**/bin/**,**/*.md,**/*.json,**/utils/unicode_data/**,**/scripts/refresh-runtime-lock.sh,**/scripts/refresh-ci-locks.sh"
+          # Accepted in #1556: DS162092 is a ManualReview advisory matching only
+          # localhost/127.0.0.1, not an insecure-transport or bind-address rule.
+          # Loopback is intentional throughout this local gateway, its fixtures
+          # and operator tools (docs/THREAT_MODEL.md). Annotating every occurrence
+          # would add noise to code, docstrings and generated training examples.
+          # DS137138 remains enabled for insecure HTTP, as does DS106863 for DES.
+          # DevSkim 1.0.100 detects real DES tokens without matching "description";
+          # the old repo-wide DES substring-noise exclusion is no longer needed.
+          exclude-rules: 'DS162092'
+          # Only exact data files are exempt beyond the action's .git/bin defaults:
+          # - The SHA-256-pinned Unicode table contains upstream character names
+          #   mistaken for task markers. Editing it would break its integrity pin.
+          #   Its Python generator is scanned, with a digest-specific inline ignore.
+          # - The generated training transcript contains prose about content hashes,
+          #   not password-hashing code; JSON cannot carry suppression comments.
+          #   Its Python producers and every other JSON file remain in scan scope.
+          ignore-globs: "**/.git/**,**/bin/**,**/utils/unicode_data/confusables-17.0.0.txt,**/tools/lora_finetune/cyclaw_training.json"
+          # The action publishes findings rather than failing on their count.
+          # Review the SARIF; a green upload alone does not mean zero findings.
 
       # Upload SARIF to GitHub Security tab
       - name: Publish findings to Security tab

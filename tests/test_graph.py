@@ -2324,9 +2324,9 @@ class TestLLMIdentityMappings:
 
 @pytest.mark.parametrize("node,model", [(local_llm_node, "local"), (offline_best_effort_node, "offline-best-effort")])
 @pytest.mark.parametrize("url,hosts,allowed", [
-    ("http://[::1", [], False),
-    ("http://host.docker.internal:11434/v1", [], False),
-    ("http://host.docker.internal:11434/v1", ["host.docker.internal"], True),
+    ("http://[::1", [], False),  # DevSkim: ignore DS137138 - malformed model endpoint fixture
+    ("http://host.docker.internal:11434/v1", [], False),  # DevSkim: ignore DS137138 - untrusted container host rejection; spy model
+    ("http://host.docker.internal:11434/v1", ["host.docker.internal"], True),  # DevSkim: ignore DS137138 - explicitly trusted container host; spy model
     ("https://api.x.ai/v1", ["host.docker.internal"], False),
 ])
 def test_local_nodes_endpoint_trust(node, model, url, hosts, allowed):

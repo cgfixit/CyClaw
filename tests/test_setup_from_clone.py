@@ -159,7 +159,7 @@ def test_chains_existing_macos_scripts_does_not_reimplement_them() -> None:
         assert name in text, f"orchestrator must invoke {name}"
     # Must not re-copy the torch/manifest-stripping block from install-cyclaw.sh
     assert "torch==2.13.0+cpu" not in text
-    assert "--extra-index-url https://download.pytorch.org" not in text
+    assert "--extra-index-url https://download.pytorch.org" not in text  # DevSkim: ignore DS205001 - asserts unsafe extra-index recipe is absent
     # Must not re-copy Keychain persist internals
     assert "com.cgfixit.cyclaw.api-key" not in text
     assert "add-generic-password" not in text

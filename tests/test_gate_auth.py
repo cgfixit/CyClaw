@@ -199,7 +199,7 @@ class TestLogin:
     def test_cookie_is_httponly_and_samesite_strict(self, manager, user):
         username, password = user
         r = _client(manager).post("/auth/login", json={"username": username, "password": password})
-        set_cookie = r.headers.get("set-cookie", "").lower()
+        set_cookie = r.headers.get("set-cookie", "").lower()  # DevSkim: ignore DS610001 - reads response header to assert cookie protections
         assert set_cookie.startswith("cyclaw_session=")
         assert "httponly" in set_cookie
         assert "samesite=strict" in set_cookie
@@ -210,7 +210,7 @@ class TestLogin:
         r = _client(manager, cfg=_cfg(tls_enabled=True)).post(
             "/auth/login", json={"username": username, "password": password}
         )
-        set_cookie = r.headers.get("set-cookie", "").lower()
+        set_cookie = r.headers.get("set-cookie", "").lower()  # DevSkim: ignore DS610001 - reads response header to assert Secure cookie flag
         assert set_cookie.startswith("__host-cyclaw_session=")
         assert "secure" in set_cookie
         assert "max-age" not in set_cookie and "expires=" not in set_cookie
@@ -222,7 +222,7 @@ class TestLogin:
         r = _client(manager, cfg=_cfg(tls_enabled=False)).post(
             "/auth/login", json={"username": username, "password": password}
         )
-        assert "secure" not in r.headers.get("set-cookie", "").lower()
+        assert "secure" not in r.headers.get("set-cookie", "").lower()  # DevSkim: ignore DS610001 - asserts documented cookie behavior without TLS
 
     def test_wrong_password_is_401_generic(self, manager, user):
         username, _ = user
@@ -356,7 +356,7 @@ class TestSameOrigin:
         r = _client(manager).post(
             "/auth/login",
             json={"username": username, "password": password},
-            headers={"origin": "http://evil.example"},
+            headers={"origin": "http://evil.example"},  # DevSkim: ignore DS137138 - cross-origin login rejection fixture
         )
         assert r.status_code == 403
         assert r.json()["detail"]["code"] == "CROSS_ORIGIN_BLOCKED"
@@ -415,7 +415,7 @@ class TestSameOrigin:
         [
             "http://localhost:notaport",  # non-numeric port -- urlparse() succeeds, .port raises
             "http://localhost:99999",  # out of the 0-65535 range -- same, lazy .port raise
-            "http://[evil",  # unbalanced IPv6 bracket -- urlparse() itself raises
+            "http://[evil",  # unbalanced IPv6 bracket -- urlparse() itself raises  # DevSkim: ignore DS137138 - malformed Origin rejection fixture
         ],
     )
     def test_malformed_origin_port_is_rejected_not_a_500(self, manager, user, malformed_origin):
@@ -449,11 +449,11 @@ class TestSameOrigin:
             "api": {"tls": {"enabled": False}, "port": _PORT},
             "security": {"allowed_hosts": ["*.example.com"]},
         }
-        client = TestClient(_make_app(manager, cfg=cfg), base_url=f"http://node.example.com:{_PORT}")
+        client = TestClient(_make_app(manager, cfg=cfg), base_url=f"http://node.example.com:{_PORT}")  # DevSkim: ignore DS137138 - in-process TestClient for wildcard host matching
         r = client.post(
             "/auth/login",
             json={"username": username, "password": password},
-            headers={"origin": f"http://node.example.com:{_PORT}"},
+            headers={"origin": f"http://node.example.com:{_PORT}"},  # DevSkim: ignore DS137138 - matching Origin for in-process wildcard host fixture
         )
         assert r.status_code == 200
 
@@ -470,11 +470,11 @@ class TestSameOrigin:
             "api": {"tls": {"enabled": False}, "port": _PORT},
             "security": {"allowed_hosts": ["*"]},
         }
-        client = TestClient(_make_app(manager, cfg=cfg), base_url=f"http://anything.test:{_PORT}")
+        client = TestClient(_make_app(manager, cfg=cfg), base_url=f"http://anything.test:{_PORT}")  # DevSkim: ignore DS137138 - in-process TestClient for unsafe wildcard rejection
         r = client.post(
             "/auth/login",
             json={"username": username, "password": password},
-            headers={"origin": f"http://anything.test:{_PORT}"},
+            headers={"origin": f"http://anything.test:{_PORT}"},  # DevSkim: ignore DS137138 - unsafe wildcard Origin rejection fixture
         )
         assert r.status_code == 403
         assert r.json()["detail"]["code"] == "CROSS_ORIGIN_BLOCKED"

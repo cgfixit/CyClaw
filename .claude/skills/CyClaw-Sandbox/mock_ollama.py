@@ -656,7 +656,7 @@ def run_server(config: ServerConfig) -> None:
     # This is a local-only mock server intended for sandbox/CI audit use.
     server = ThreadingHTTPServer((config.host, config.port), MockOllamaHandler)
 
-    base_url = f"http://{config.host}:{config.port}"
+    base_url = f"http://{config.host}:{config.port}"  # DevSkim: ignore DS137138 - URL displayed by the local mock server; no outbound request
 
     print(f"[mock_ollama] Listening on {base_url}", flush=True)
     print(f"[mock_ollama] Model: {config.model}", flush=True)

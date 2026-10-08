@@ -68,7 +68,7 @@ def test_open_consoles_resolves_config_when_runtime_exists(tmp_path: Path, runti
     assert opened.read_text(encoding="utf-8").strip() == expected
     applescript = source.split("<<'APPLESCRIPT'", 1)[1].split("\nAPPLESCRIPT", 1)[0]
     assert '"http://127.0.0.1:" & gatePort' in applescript
-    assert '"http://[::1]:" & gatePort' in applescript
+    assert '"http://[::1]:" & gatePort' in applescript  # DevSkim: ignore DS137138 - asserts browser injection stays on IPv6 loopback
 
 
 def _unused_listen_port() -> int:
