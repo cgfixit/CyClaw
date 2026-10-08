@@ -80,19 +80,24 @@ Linux Quick Start, [Docker](docs/DOCKER.md) (`linux/amd64`, published on
 install in the [setup guide](setup-guide.md) adds the `cyclaw-*` commands;
 `python -m …` always works.
 
-**Secrets.** `gate.py` reads environment variables, never dotenv files.
-Setup keeps secrets in the OS keystore: macOS Keychain
-(`macos/setup-cyclaw-keys.sh`; plaintext only with `--write-env-file`),
-Windows Credential Manager (`powershell/Install-CyClaw.ps1`, which also
-migrates existing plaintext secrets; plaintext only with `-WriteEnvFile`), and
-on Linux libsecret or an owner-only file (`macos/invoke-cyclaw.sh` via
-`macos/cyclaw-linux-key.sh`). Services read secrets at execution through
-`macos/cyclaw-keychain-env.sh` or `powershell/CyClaw-CredMan-Env.ps1`, never
-from dotenv, plist, task XML, `config.yaml`, shell rc files, or argv; a
-configured keystore lookup fails closed when its item is missing.
-`Invoke-CyClaw.ps1` reads only non-secret settings from an owner-only
-`%USERPROFILE%\.CyClaw\.env` or checkout dotenv. A missing provider key leaves
-that provider unavailable, not the server down ([provider keys](spend/README.md#api-keys)).
+**Secrets.** `gate.py` reads environment variables, never dotenv files
+(`Invoke-CyClaw.ps1` reads only non-secret settings from an owner-only
+`%USERPROFILE%\.CyClaw\.env` or checkout dotenv).
+
+**Secret persistence.**
+
+| Platform | Setup | Operation | Default secret store | Plaintext opt-in |
+|---|---|---|---|---|
+| macOS | `macos/setup-cyclaw-keys.sh` | Set up or preserve gateway key | Keychain | `--write-env-file` |
+| Windows | `powershell/Install-CyClaw.ps1` | Migrate existing plaintext secrets | Credential Manager | `-WriteEnvFile` |
+
+On Linux, `macos/invoke-cyclaw.sh` stores the gateway key in libsecret or an
+owner-only file (`macos/cyclaw-linux-key.sh`). Services read secrets at
+execution through `macos/cyclaw-keychain-env.sh` or
+`powershell/CyClaw-CredMan-Env.ps1`, never from dotenv, plist, task XML,
+`config.yaml`, shell rc files, or argv; a configured keystore lookup fails
+closed when its item is missing. A missing provider key leaves that provider
+unavailable, not the server down ([provider keys](spend/README.md#api-keys)).
 
 **Offline and hybrid.** Shipped `app.mode: hybrid` permits a paid call only
 when the selected provider is enabled, available, and confirmed for that
@@ -129,7 +134,7 @@ Check policy offline with
 `python .claude/skills/invariant-guard/check_invariants.py`; the unit suite is
 `GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short` with no live provider.
 
-**Local records** (relative to the repository):
+**Local records.** Paths are relative to the repository.
 
 | Path | Git status | Contents and behavior |
 |---|---|---|
