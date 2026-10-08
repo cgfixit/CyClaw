@@ -44,7 +44,6 @@ def mem_on(tmp_path: Path) -> dict:
             },
             "propose_apply": {"enabled": True},
             "export_html": {"enabled": False},
-            "consolidation": {"enabled": False},
         },
         "policy": {
             "prompt_filter": {"banned_patterns": []},

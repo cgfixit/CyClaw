@@ -20,8 +20,6 @@ updates and proposal application.
 3. `facts.retrieval_enabled: true` + `retrieval_fusion.enabled: true` — FTS fact hits fuse into `hybrid_search` as `retrieval_mode="memory"`.
 4. `export_html.enabled: true` — `GET /query/export/html` (auth-gated).
 
-`consolidation.enabled` is a **stub** and must stay false in v1.
-
 Step 3 comes after step 2 on purpose: facts are proposed, applied and verified
 **before** they are exposed to retrieval. `facts.retrieval_enabled` gates only
 that last exposure — it is deliberately not a master switch for facts, and

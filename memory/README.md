@@ -10,9 +10,6 @@ This package is the optional facts/episodes store on the RAG path.
 Every `memory:` switch in `config.yaml` ships `false`. With defaults, `/query`
 behavior matches pre-memory CyClaw. Failures in this layer never fail `/query`.
 
-`consolidation.enabled` is a stub (`consolidation.py`) and must stay false in
-v1 — even if flipped, `run_consolidation` returns disabled.
-
 ## Isolation
 
 The seven modules in `tests/test_memory_isolation.py`, including all six core
@@ -29,7 +26,6 @@ Routes live in `gate_memory.py` and lazy-import this package.
 | `retrieval_adapter.py` | Optional FTS fusion into hybrid search |
 | `mirror.py` | `/memory/status` dict + `GET /query/export/html` builder |
 | `flags.py` | Resolves `memory.facts.retrieval_enabled`; honors the legacy `facts.enabled` name with a one-time warning |
-| `consolidation.py` | Unimplemented stub |
 | `selftest.py` | `python -m memory.selftest` |
 
 ## Operator contract

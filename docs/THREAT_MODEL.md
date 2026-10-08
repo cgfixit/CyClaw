@@ -894,7 +894,7 @@ every account now carries a `role` of `admin`, `operator`, or `audit`
 A default-off facts/episodes store (SQLite + FTS5) now exists alongside the
 corpus. Every `memory:` key in `config.yaml` ships `false`
 (`memory.enabled` is the master switch; `facts`, `episodes`,
-`retrieval_fusion`, `propose_apply`, `export_html`, and `consolidation` each
+`retrieval_fusion`, `propose_apply`, and `export_html` each
 carry their own independent switch, also `false`). With shipped defaults,
 `/query` behavior is identical to a checkout with no `memory/` package at
 all — `memory/README.md` states this explicitly, and `gate_memory.py` lazy
@@ -920,9 +920,8 @@ an unenabled checkout never even imports it.
 - **Privacy default inside the feature itself.** Even if `episodes.enabled`
   were turned on, `episodes.store_raw_query` ships `false` — episodes record
   a query hash, not raw text, by the same convention `utils/logger.py` uses
-  for the audit log. `consolidation.enabled` is a stub wired to always
-  no-op regardless of its own flag; `config.yaml` says it "must stay false
-  in v1," which is a documentation intent, not a code-enforced ceiling.
+  for the audit log. Episode-to-fact consolidation is not implemented; the
+  former no-op stub and its `consolidation.enabled` flag were removed.
 - **Failures never fail `/query`.** The memory package's own contract
   (`memory/README.md`) states retrieval-fusion and episode-staging hooks are
   lazy and non-fatal — this amendment does not independently re-verify that

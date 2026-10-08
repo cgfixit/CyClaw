@@ -220,8 +220,6 @@ memory:
     enabled: false                  # /memory/propose|apply|reject
   export_html:
     enabled: false                  # GET /query/export/html
-  consolidation:
-    enabled: false                  # stub; true does nothing in v1
 
 policy:
   fallback:
