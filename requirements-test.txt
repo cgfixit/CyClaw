@@ -2,8 +2,8 @@
 # These are intentionally kept out of requirements.txt so the production
 # Docker image does not ship the pytest toolchain.
 # Install alongside the platform runtime lock:
-#   pip install --require-hashes -r requirements-lock-<os>.txt
-#   pip install --require-hashes -r requirements-test-lock-<os>.txt
+#   pip install --require-hashes -r locks/requirements-lock-<os>.txt
+#   pip install --require-hashes -r locks/requirements-test-lock-<os>.txt
 #
 # pygments is a required pytest dependency (pytest>=8.2, `pygments>=2.7.2`).
 # Pin a patched version here so lockfile-less scanners (OSV) cannot resolve

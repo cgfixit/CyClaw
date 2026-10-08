@@ -173,13 +173,13 @@ if [ "$SKIP_PYTHON_DEPS" -eq 0 ]; then
     # Apple Silicon has no separate CPU/CUDA torch build to disambiguate, so
     # macOS uses the plain arm64 Torch wheel from PyPI. The separate hashed
     # Torch lock keeps that source choice out of the non-Torch runtime graph.
-    "$VENV_PY" -m pip install --require-hashes --no-deps -r "$REPO_DIR/requirements-torch-lock-macos.txt"
-    "$VENV_PY" -m pip install --require-hashes -r "$REPO_DIR/requirements-lock-macos.txt"
+    "$VENV_PY" -m pip install --require-hashes --no-deps -r "$REPO_DIR/locks/requirements-torch-lock-macos.txt"
+    "$VENV_PY" -m pip install --require-hashes -r "$REPO_DIR/locks/requirements-lock-macos.txt"
   else
     # Linux uses the +cpu wheel from the exclusive PyTorch CPU index. The
     # separate hashed runtime lock supplies the reviewed non-Torch graph.
-    "$VENV_PY" -m pip install --require-hashes --no-deps -r "$REPO_DIR/requirements-torch-lock-linux.txt" --index-url https://download.pytorch.org/whl/cpu
-    "$VENV_PY" -m pip install --require-hashes -r "$REPO_DIR/requirements-lock-linux.txt"
+    "$VENV_PY" -m pip install --require-hashes --no-deps -r "$REPO_DIR/locks/requirements-torch-lock-linux.txt" --index-url https://download.pytorch.org/whl/cpu
+    "$VENV_PY" -m pip install --require-hashes -r "$REPO_DIR/locks/requirements-lock-linux.txt"
   fi
   step "dependencies installed"
 fi

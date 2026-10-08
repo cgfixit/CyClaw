@@ -599,19 +599,19 @@ Skills reference this section; keep it the single canonical copy.
 
 ```bash
 # Install — Linux (order matters — torch CPU FIRST)
-pip install --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
-pip install --require-hashes -r requirements-lock-linux.txt
-pip install -r requirements-test.txt -c constraints.txt
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r locks/requirements-lock-linux.txt
+pip install --require-hashes -r locks/requirements-test-lock-linux.txt
 
 # Install — Windows (both lock files are platform-specific)
-pip install --require-hashes --no-deps -r requirements-torch-lock-windows.txt --index-url https://download.pytorch.org/whl/cpu
-pip install --require-hashes -r requirements-lock-windows.txt
-pip install -r requirements-test.txt -c constraints.txt
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-windows.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r locks/requirements-lock-windows.txt
+pip install --require-hashes -r locks/requirements-test-lock-windows.txt
 
 # Install — macOS (Apple Silicon): plain torch, then the arm64 macOS lock.
-pip install --require-hashes --no-deps -r requirements-torch-lock-macos.txt
-pip install --require-hashes -r requirements-lock-macos.txt
-pip install -r requirements-test.txt -c constraints.txt
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-macos.txt
+pip install --require-hashes -r locks/requirements-lock-macos.txt
+pip install --require-hashes -r locks/requirements-test-lock-macos.txt
 
 # Install — conda (fourth surface)
 conda env create -f environment.yml

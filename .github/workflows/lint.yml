@@ -81,14 +81,14 @@ jobs:
           cache: 'pip'
           # flake8/wemake are pinned directly in this workflow's run: steps, so
           # the workflow file is part of the key. ruff installs from
-          # requirements-ci-ruff-lock-linux.txt (ruff==0.16.8, compiled
+          # locks/requirements-ci-ruff-lock-linux.txt (ruff==0.16.8, compiled
           # against constraints.txt).
           cache-dependency-path: |
-            requirements-ci-ruff-lock-linux.txt
+            locks/requirements-ci-ruff-lock-linux.txt
             .github/workflows/lint.yml
 
       - name: Install ruff
-        run: pip install --require-hashes -r requirements-ci-ruff-lock-linux.txt
+        run: pip install --require-hashes -r locks/requirements-ci-ruff-lock-linux.txt
 
       - name: Ruff F/B/S gate
         run: ruff check --select F,B,S .

@@ -625,8 +625,8 @@ def test_linux_ci_leg_runs_the_cel_evaluator_instead_of_skipping() -> None:
     """
     ci = (_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
     ci_code = "\n".join(_code_lines(ci))
-    lock = (REPO_ROOT / "requirements-ci-cel-lock-linux.txt").read_text(encoding="utf-8")
-    assert "pip install --require-hashes -r requirements-ci-cel-lock-linux.txt" in ci_code
+    lock = (REPO_ROOT / "locks/requirements-ci-cel-lock-linux.txt").read_text(encoding="utf-8")
+    assert "pip install --require-hashes -r locks/requirements-ci-cel-lock-linux.txt" in ci_code
     assert "cel-python==0.5.0" in lock
     assert 'CYCLAW_REQUIRE_CELPY: "1"' in ci
     assert "tests/test_gate.py::TestCelMonitorRequestPath" in ci

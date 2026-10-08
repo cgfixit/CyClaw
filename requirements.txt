@@ -4,7 +4,7 @@
 # Pins below are synced with pyproject.toml [project.dependencies].
 # Test tools now live in requirements-test.txt (kept out of the Docker image).
 # This file is the human-maintained lock input. Normal installations consume
-# the platform requirements-lock-*.txt with --require-hashes after installing
+# the platform locks/requirements-lock-*.txt with --require-hashes after installing
 # Torch alone.
 #
 # Package metadata does not select the CPU index. Keep the CPU-first install

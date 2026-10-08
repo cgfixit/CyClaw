@@ -112,7 +112,7 @@ echo "env drift mutation (E1 split tool pin): PASS (exit 2)"
 d="$(mktemp -d)"
 printf '# deepagents lives in its optional extra, not here\nhttpx==0.28.1\n' > "$d/requirements.txt"
 printf 'pytest==9.1.1\n' > "$d/requirements-test.txt"
-printf 'COPY pyproject.toml constraints.txt requirements.txt requirements-lock-linux.txt requirements-torch-lock-linux.txt ./\nRUN pip install --no-cache-dir --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt\n' > "$d/Dockerfile"
+printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nCOPY locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt locks/\nRUN pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt\n' > "$d/Dockerfile"
 out="$(python3 "$drift" --repo-root "$d" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ]; then
   echo "env drift mutation (E4 comment is not an install): FAIL — a commented package must not trip E4, got rc=$rc" >&2
@@ -151,7 +151,7 @@ echo "strict environment clean tree: PASS (exit 0)"
 
 # 9. Docker must retain both hashed runtime and CPU Torch installs.
 f="$(mktemp -d)"
-printf 'COPY pyproject.toml constraints.txt requirements.txt requirements-lock-linux.txt requirements-torch-lock-linux.txt ./\nRUN pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt\n' > "$f/Dockerfile"
+printf 'COPY pyproject.toml constraints.txt requirements.txt locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt ./\nRUN pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt\n' > "$f/Dockerfile"
 out="$(python3 "$drift" --repo-root "$f" 2>&1)"; rc=$?
 rm -rf "$f"
 if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\]"; then
@@ -164,15 +164,16 @@ echo "environment mutation (E5 Docker contract): PASS (exit 2)"
 # 9b. A silently-swallowed or fallback-branched dependency install must FAIL E5.
 # This is the shape that hid the dead uv resolver: the build stayed green while
 # installing a different tree than the reviewed one.
-for bad_run in \
-  'RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt 2>/dev/null' \
-  'RUN some-resolver install -r requirements.txt -c constraints.txt || ( pip install --no-cache-dir --require-hashes --no-deps -r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt )'
+for case in \
+  'discards stderr@@RUN pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt 2>/dev/null' \
+  'branches on @@RUN some-resolver install -r requirements.txt -c constraints.txt || ( pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt )'
 do
   f="$(mktemp -d)"
-  printf 'COPY pyproject.toml constraints.txt requirements.txt requirements-lock-linux.txt requirements-torch-lock-linux.txt ./\n%s\n' "$bad_run" > "$f/Dockerfile"
+  want="${case%%@@*}"; bad_run="${case#*@@}"
+  printf 'COPY pyproject.toml constraints.txt requirements.txt ./\nCOPY locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt locks/\n%s\n' "$bad_run" > "$f/Dockerfile"
   out="$(python3 "$drift" --repo-root "$f" 2>&1)"; rc=$?
   rm -rf "$f"
-  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\]"; then
+  if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q "FAIL  \[E5\].*$want"; then
     echo "environment mutation (E5 silent install fallback): FAIL - expected exit 2 + E5 line, got rc=$rc" >&2
     echo "$out" >&2
     exit 1
@@ -190,7 +191,7 @@ f="$(mktemp -d)"
 for m in pyproject.toml constraints.txt requirements.txt requirements-test.txt; do
   cp "$repo_root/$m" "$f/$m"
 done
-sed 's#^    pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt$#    pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt 2>/dev/null#' \
+sed 's#^    pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt$#    pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt 2>/dev/null#' \
   "$repo_root/Dockerfile" > "$f/Dockerfile"
 if cmp -s "$repo_root/Dockerfile" "$f/Dockerfile"; then
   echo "environment mutation (E5 real Dockerfile swallow): FAIL - the mutation did not apply; the install line's shape changed, update this scenario" >&2
@@ -241,7 +242,8 @@ _mkdockertree() {
   local d; d="$(_mktree)"
   mkdir -p "$d/.github/workflows"
   cp "$repo_root/Dockerfile" "$repo_root/docker-compose.yml" "$repo_root/.dockerignore" "$d/"
-  cp "$repo_root/requirements-lock-linux.txt" "$repo_root/requirements-torch-lock-linux.txt" "$d/"
+  mkdir -p "$d/locks"
+  cp "$repo_root/locks/requirements-lock-linux.txt" "$repo_root/locks/requirements-torch-lock-linux.txt" "$d/locks/"
   cp "$repo_root/.github/workflows/publish-ghcr.yml" "$d/.github/workflows/"
   echo "$d"
 }
@@ -272,7 +274,7 @@ echo "docker surface clean copy: PASS (exit 0)"
 # 11. E5: the fallback torch pre-install lags constraints.txt -- the exact miss
 #     the Dockerfile's own comment records (2.12.1 -> 2.13.0).
 h="$(_mkdockertree)"
-sed -i.bak 's/^torch==[^ ]*/torch==0.0.0+cpu/' "$h/requirements-torch-lock-linux.txt"
+sed -i.bak 's/^torch==[^ ]*/torch==0.0.0+cpu/' "$h/locks/requirements-torch-lock-linux.txt"
 _expect_docker_fail "$h" "E5 torch lock-step" "keep the two in lock-step"
 
 # 12. E6: .dockerignore swallows a manifest the build stage COPYs.

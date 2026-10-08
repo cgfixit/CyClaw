@@ -141,21 +141,21 @@ pygments==2.21.0 \
     --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9 \
     --hash=sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c
     # via
-    #   -c /var/folders/p7/470fj0x92_93rx1mbw7d97yr0000gn/T//cyclaw-constraints.5kzURX
+    #   -c constraints.txt
     #   -r requirements-test.txt
     #   pytest
 pytest==9.1.1 \
     --hash=sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313 \
     --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
     # via
-    #   -c /var/folders/p7/470fj0x92_93rx1mbw7d97yr0000gn/T//cyclaw-constraints.5kzURX
+    #   -c constraints.txt
     #   -r requirements-test.txt
     #   pytest-cov
 pytest-cov==7.1.0 \
     --hash=sha256:30674f2b5f6351aa09702a9c8c364f6a01c27aae0c1366ae8016160d1efc56b2 \
     --hash=sha256:a0461110b7865f9a271aa1b51e516c9a95de9d696734a2f71e3e78f46e1d4678
     # via
-    #   -c /var/folders/p7/470fj0x92_93rx1mbw7d97yr0000gn/T//cyclaw-constraints.5kzURX
+    #   -c constraints.txt
     #   -r requirements-test.txt
 sqlite-vec==0.1.9 \
     --hash=sha256:1515727990b49e79bcaf75fdee2ffc7d461f8b66905013231251f1c8938e7786 \
@@ -164,11 +164,11 @@ sqlite-vec==0.1.9 \
     --hash=sha256:4a28dc12fa4b53d7b1dced22da2488fade444e96b5d16fd2d698cd670675cf32 \
     --hash=sha256:4e921e592f24a5f9a18f590b6ddd530eb637e2d474e3b1972f9bbeb773aa3cb9
     # via
-    #   -c /var/folders/p7/470fj0x92_93rx1mbw7d97yr0000gn/T//cyclaw-constraints.5kzURX
+    #   -c constraints.txt
     #   -r requirements-test.txt
 tzdata==2026.2 \
     --hash=sha256:9173fde7d80d9018e02a662e168e5a2d04f87c41ea174b139fbef642eda62d10 \
     --hash=sha256:bbe9af844f658da81a5f95019480da3a89415801f6cc966806612cc7169bffe7
     # via
-    #   -c /var/folders/p7/470fj0x92_93rx1mbw7d97yr0000gn/T//cyclaw-constraints.5kzURX
+    #   -c constraints.txt
     #   -r requirements-test.txt

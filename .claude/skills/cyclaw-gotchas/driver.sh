@@ -110,15 +110,11 @@ cmd_venv() {
     echo "       (import fails on libcudart.so.13); the CUDA deps come along, ~2 GB."
     inst "torch==2.13.0" || return 2
   fi
-  grep -v -e '^torch==' -e '^--extra-index-url https://download.pytorch.org' requirements.txt > "$SCRATCH/requirements-notorch.txt" # DevSkim: ignore DS205001 - removes the index directive before installation
-  # Keep torch pinned (minus +cpu) in the constraints copy: --ignore-installed
-  # below reinstalls every package, torch included, and an unconstrained copy
-  # floated it to 2.14.0 here on 2026-09-06 despite the explicit 2.13.0 above.
-  sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' constraints.txt > "$SCRATCH/constraints-plain-torch.txt"
-  # --ignore-installed is a pip flag; uv installs into the fresh venv as-is.
-  local extra=(); [ "$use_uv" = 1 ] || extra=(--ignore-installed PyYAML)
-  inst -r "$SCRATCH/requirements-notorch.txt" -r requirements-test.txt \
-      -c "$SCRATCH/constraints-plain-torch.txt" ${extra[@]+"${extra[@]}"} || return 2
+  # Runtime and test locks omit torch. Hash-check them after the torch step
+  # above. The CPU-index fallback stays: this sandbox often cannot fetch the
+  # +cpu wheel, and the Linux torch lock lists only those hashes.
+  inst --require-hashes -r locks/requirements-lock-linux.txt || return 2
+  inst --require-hashes -r locks/requirements-test-lock-linux.txt || return 2
   "$PY" -c "import torch, chromadb, langgraph, pytest; print('venv ready:', torch.__version__)"
 }
 

@@ -1144,7 +1144,7 @@ def test_installer_macos_installs_hashed_plain_torch_lock() -> None:
     """
     install_text = (_REPO_ROOT / "macos" / "install-cyclaw.sh").read_text(encoding="utf-8")
     assert (
-        '-m pip install --require-hashes --no-deps -r "$REPO_DIR/requirements-torch-lock-macos.txt"'
+        '-m pip install --require-hashes --no-deps -r "$REPO_DIR/locks/requirements-torch-lock-macos.txt"'
         in install_text
     ), "install-cyclaw.sh's Darwin branch must install the hashed macOS torch lock"
     assert "sed 's/^" not in install_text, "the constraints rewrite was retired; torch comes from the hashed lock"
@@ -1153,9 +1153,9 @@ def test_installer_macos_installs_hashed_plain_torch_lock() -> None:
     pinned = re.search(r"^torch==(\d+\.\d+\.\d+)\+cpu$", constraints, re.MULTILINE)
     assert pinned, "constraints.txt no longer pins torch==X.Y.Z+cpu -- update this test"
 
-    lock = (_REPO_ROOT / "requirements-torch-lock-macos.txt").read_text(encoding="utf-8")
+    lock = (_REPO_ROOT / "locks/requirements-torch-lock-macos.txt").read_text(encoding="utf-8")
     assert re.search(rf"^torch=={re.escape(pinned.group(1))} \\$", lock, re.MULTILINE), (
-        f"requirements-torch-lock-macos.txt must pin plain torch=={pinned.group(1)} "
+        f"locks/requirements-torch-lock-macos.txt must pin plain torch=={pinned.group(1)} "
         "(no +cpu), in lock-step with constraints.txt"
     )
     assert "+cpu" not in lock.split("--hash", 1)[0], "the macOS torch lock must not carry a +cpu build"

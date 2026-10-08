@@ -71,11 +71,11 @@ jobs:
           # pytest comes from the hashed test lock (pytest==9.1.1). Paths are
           # workspace-root relative, not the job working-directory.
           cache-dependency-path: |
-            requirements-test-lock-linux.txt
+            locks/requirements-test-lock-linux.txt
             .github/workflows/lora-finetune.yml
 
       - name: Install pytest
-        run: pip install --require-hashes -r ../../requirements-test-lock-linux.txt
+        run: pip install --require-hashes -r ../../locks/requirements-test-lock-linux.txt
 
       - name: Run the kit's own test suite (mocked unsloth/trl/datasets, no GPU)
         run: python -m pytest tests/ -q --tb=short

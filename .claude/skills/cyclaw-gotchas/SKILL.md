@@ -53,10 +53,11 @@ session 2026-09-06):
    `--no-deps` was tried and is a dead end: the Linux wheel dlopens
    `libcudart.so.13` at import and raises before anything else loads. The
    fallback costs ~2 GB and ~7 minutes; disk had 30 GB free.
-4. Installs `requirements.txt` + `requirements-test.txt` with the `torch==`
-   and `--extra-index-url` lines stripped (same shape as the macOS recipe in
-   CLAUDE.md §8), constrained by a copy of `constraints.txt` that keeps the
-   torch pin minus its `+cpu` suffix (see the `--ignore-installed` gotcha).
+4. Installs the hashed Linux locks `locks/requirements-lock-linux.txt` and
+   `locks/requirements-test-lock-linux.txt` with `--require-hashes`. No
+   resolver runs and no constraints copy is built; both locks omit torch, so
+   they go in after the torch step above. The `--ignore-installed` gotcha
+   below still describes the macOS recipe in CLAUDE.md §8.
 
 Re-running is idempotent: it exits 0 immediately once
 `import torch, chromadb, langgraph, pytest` succeeds.

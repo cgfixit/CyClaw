@@ -392,14 +392,15 @@ def check_docker_install_contract() -> None:
 
     text = dockerfile.read_text(encoding="utf-8")
     required = {
-        "copies dependency manifests and lock":
-            "COPY pyproject.toml constraints.txt requirements.txt requirements-lock-linux.txt "
-            "requirements-torch-lock-linux.txt ./",
+        "copies dependency manifests":
+            "COPY pyproject.toml constraints.txt requirements.txt ./",
+        "copies hashed linux locks":
+            "COPY locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt locks/",
         "enforces hashes from the Linux Torch lock":
             "pip install --no-cache-dir --require-hashes --no-deps "
-            "-r requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu",
+            "-r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu",
         "enforces hashes from the Linux lock":
-            "pip install --no-cache-dir --require-hashes -r requirements-lock-linux.txt",
+            "pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt",
     }
     missing = [label for label, fragment in required.items() if fragment not in text]
     if missing:
@@ -409,7 +410,7 @@ def check_docker_install_contract() -> None:
         fail("E5", "Dockerfile must not copy or install requirements-test.txt -- "
                    "the production image stays test-tool-free")
         return
-    ok("E5", "Docker copies manifests and enforces hashes from requirements-lock-linux.txt")
+    ok("E5", "Docker copies manifests and enforces hashes from locks/requirements-lock-linux.txt")
 
     # The install used to read `uv pip install ... 2>/dev/null || ( pip ... )`.
     # uv could not resolve it (constraints.txt pins setuptools, the PyTorch CPU
@@ -424,14 +425,14 @@ def check_docker_install_contract() -> None:
     joined = text.replace("\\\n", " ")
     install_runs = [
         line for line in joined.splitlines()
-        if line.startswith("RUN ") and "requirements-lock-linux.txt" in line
+        if line.startswith("RUN ") and "locks/requirements-lock-linux.txt" in line
     ]
     if not install_runs:
-        fail("E5", "no RUN line installs requirements-lock-linux.txt -- the image's dependency install is unreadable "
+        fail("E5", "no RUN line installs locks/requirements-lock-linux.txt -- the image's dependency install is unreadable "
                    "to this check, so none of the guards below mean anything")
         return
     if len(install_runs) > 1:
-        fail("E5", f"{len(install_runs)} separate RUN lines install requirements-lock-linux.txt -- keep one install "
+        fail("E5", f"{len(install_runs)} separate RUN lines install locks/requirements-lock-linux.txt -- keep one install "
                    f"path so there is a single reviewed dependency tree")
         return
     install_run = install_runs[0]
@@ -451,7 +452,7 @@ def check_docker_install_contract() -> None:
     # resolve. A check that only asks "is there some torch==" is exactly the
     # check that passed that tree.
     constraints = REPO / "constraints.txt"
-    torch_lock = REPO / "requirements-torch-lock-linux.txt"
+    torch_lock = REPO / "locks" / "requirements-torch-lock-linux.txt"
     if not constraints.is_file() or not torch_lock.is_file():
         info("E5", "constraints.txt or Linux Torch lock missing; torch lock-step not checked")
         return
@@ -460,7 +461,7 @@ def check_docker_install_contract() -> None:
     if not pin:
         fail("E5", "constraints.txt carries no torch== pin to hold the Dockerfile pre-install to")
     elif not locked_torch:
-        fail("E5", "requirements-torch-lock-linux.txt carries no hashed torch pin")
+        fail("E5", "locks/requirements-torch-lock-linux.txt carries no hashed torch pin")
     elif pin.group(1) != locked_torch.group(1):
         fail("E5", f"Linux Torch lock pins torch=={locked_torch.group(1)} but constraints.txt "
                    f"pins torch=={pin.group(1)} -- keep the two in lock-step on every torch bump")
