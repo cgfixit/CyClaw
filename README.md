@@ -444,7 +444,8 @@ requires `--confirm` and a non-empty `--reason`
 **Fine-tuning.** The separate QLoRA kit is excluded from runtime installs and
 audited separately; `finetune_qwen38.py` can download its base checkpoint, so
 seed caches before a no-egress run. GPU-free dry run:
-`tools/lora_finetune/build_cyclaw_corpus.py` then `dryrun_finetune.py`
+`python tools/lora_finetune/build_cyclaw_corpus.py`, then
+`python tools/lora_finetune/dryrun_finetune.py`
 ([toolkit](tools/lora_finetune/README.md)).
 
 **Agentic coding.** `agentic.enabled: false` makes the out-of-band CLI a

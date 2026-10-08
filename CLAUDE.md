@@ -140,8 +140,9 @@ container `CMD` (`uvicorn gate:app --host 0.0.0.0`, no bind guard) and under
 Docker NAT (set `CYCLAW_API_KEY` in the container). `_require_loopback_bind`
 refuses a non-loopback `api.host` while the flag is `true` (config-guard C13);
 `CYCLAW_ALLOW_NON_LOOPBACK_BIND` outranks the bind guard, never the peer check.
-The daily launchers generate a missing key into the OS keystore (`gate.py` never
-does). Full contract and tests: `INVARIANTS.md` Rule 6 and
+The daily launchers generate a missing key into the OS keystore, or on Linux
+without `secret-tool` into an owner-only `$XDG_CONFIG_HOME/cyclaw/api-key`
+file (`gate.py` never does). Full contract and tests: `INVARIANTS.md` Rule 6 and
 `docs/THREAT_MODEL.md` (eighteenth amendment).
 
 The bypass never touches the session/RBAC `/auth/*` system (`gate_auth.py`,
@@ -742,11 +743,12 @@ mid-session `/model` switch fires no hook). In the cloud only,
 `session-start-venv.sh` starts `driver.sh venv` in the background; a manual
 `driver.sh venv` waits for that build instead of starting a second one.
 
-**Git hooks.** The tracked `.githooks/` (`pre-commit`, `commit-msg`, `pre-push`,
-all sourcing `_security.sh` + `security.conf`) enforce the branch-prefix
-allowlist, the `[prefix] - subject` title, fresh-`origin/main` ancestry on push,
-and a secrets/private-data/protected-path/main-and-force-push gate
-(`docs/GITHOOKS.md`). A refusal is a finding to fix, not a hook to bypass (§7).
+**Git hooks.** The tracked `.githooks/` enforce the branch-prefix allowlist
+(`pre-commit`, `pre-push`), the `[prefix] - subject` title (`commit-msg`),
+fresh-`origin/main` ancestry on push, and the security gate that `pre-commit`
+and `pre-push` source from `_security.sh` + `security.conf`: secrets, private
+data, protected paths (blocking at commit, reminder at push), and main/force
+pushes (`docs/GITHOOKS.md`). A refusal is a finding to fix, not a hook to bypass (§7).
 
 **Commit identity.** Claude Code commits as the runtime's identity, never as
 `CyClaw Agent` (owner decision, 2026-09-26): `Claude <noreply@anthropic.com>`
