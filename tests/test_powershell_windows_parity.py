@@ -486,3 +486,49 @@ Dump "FOO='abc'\''def'"
         "CYCLAW_GATE_PORT|=|8788",
         "FOO|=|abc'def",
     ]
+
+
+_HOST_HELPER_SCRIPTS = (
+    "CyClaw-CredMan-Set.ps1", "CyClaw-SecretStore.ps1", "Install-CyClaw.ps1",
+    "Invoke-CyClaw.ps1", "Setup-FsConnect.ps1", "Uninstall-CyClaw.ps1",
+)
+
+
+def _write_cyclaw_host_source(script: str) -> str:
+    text = (_PS / script).read_text(encoding="utf-8-sig")
+    match = re.search(r"^function Write-CyClawHost \{.*?^\}\n", text, re.S | re.M)
+    assert match, f"{script} lost its Write-CyClawHost helper"
+    return match.group(0)
+
+
+def test_write_cyclaw_host_copies_stay_identical_and_use_the_information_stream() -> None:
+    # The helper is copied into six standalone scripts, so drift is the failure mode.
+    # [Console]::Out bypasses PowerShell's streams (`*> log`, Start-Transcript), which
+    # is how operator warnings were lost from redirected install logs.
+    sources = {name: _write_cyclaw_host_source(name) for name in _HOST_HELPER_SCRIPTS}
+    assert len(set(sources.values())) == 1, "Write-CyClawHost copies have drifted apart"
+    body = next(iter(sources.values()))
+    assert "[Console]::Out" not in body
+    assert "Write-Host $msg" in body
+    assert "SuppressMessageAttribute('PSAvoidUsingWriteHost'" in body
+
+
+def test_write_cyclaw_host_output_is_captured_by_the_information_stream() -> None:
+    shell = shutil.which("powershell") if os.name == "nt" else shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell is not installed")
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. ./powershell/CyClaw-SecretStore.ps1
+$rec = & { Write-CyClawHost 'marker-captured' } 6>&1
+'CAPTURED=' + [bool](@($rec).Count -eq 1 -and "$(@($rec)[0])" -eq 'marker-captured')
+"""
+    result = subprocess.run(
+        [shell, "-NoProfile", "-Command", script], cwd=_REPO_ROOT,
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[-1] == "CAPTURED=True"
+    # A [Console]::Out writer would have printed the marker to the console instead.
+    assert "marker-captured" not in lines
