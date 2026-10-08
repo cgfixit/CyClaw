@@ -717,7 +717,7 @@ _migrate_one_line() {
 # Pattern matches that are not on the Keychain allowlist stay on disk.
 # Deleting them would destroy the only copy. Launchers still do not load them.
 _warn_unmapped_secret_lines() {
-  local file="" line name _op _val
+  local file="$1" line name _op _val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     while IFS=$'\x1f' read -r name _op _val; do
