@@ -26,8 +26,10 @@ Anything in this repository or code we distribute as part of CyClaw including, b
 - Configuration parsing and policy enforcement components included here.
 
 Out-of-scope:
-- Third-party closed-source models and hosted model providers (OpenAI, Anthropic, etc.) — report issues to those vendors unless the problem is caused by our code or integration logic.
+- Third-party models and hosted model providers (xAI/Grok, Anthropic/Claude, the local Ollama model) — report issues to those vendors unless the problem is caused by our code or integration logic.
 - Plugins or third-party services not hosted in this repository (unless we maintain the integration code here).
+- Findings that require stepping outside the documented threat model ([`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md)): CyClaw is a loopback-bound, single-tenant gateway for one or a few mutually trusted operators, and it is not a sandbox for untrusted code. The agentic executor's `production_sandbox()` is process confinement (Seatbelt or bubblewrap), not a microVM or a host-read isolation boundary, so "the sandbox can read world-readable host files" is a documented limitation, not a vulnerability. A report that shows one of those documented boundaries failing to hold as described is in scope.
+- Already-accepted dependency risks (the chromadb HTTP-server CVE cluster and the nltk model-artifact finding) recorded in the root [`SECURITY.md`](../SECURITY.md) register, unless you can show the vulnerable surface is reachable in CyClaw's embedded, loopback deployment.
 
 ---
 

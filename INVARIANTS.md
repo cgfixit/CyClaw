@@ -10,8 +10,8 @@ holds only by convention so you do not mistake a comment for an enforcement.
 Authority order (from `CLAUDE.md`): running code wins over `config.yaml` wins over
 docs. This file describes the code as it actually behaves, cross-checked against
 `docs/audits/2026-07-08-due-diligence-invariants.md` (the original findings) and
-resynced against the tree on 2026-10-08 (every claim and named test re-checked;
-no rule changed since 2026-09-28). Every "proven by" reference is a test in
+resynced against the tree on 2026-10-08 at `main` 3b37788 (every claim and named
+test re-checked; no rule changed since 2026-09-28). Every "proven by" reference is a test in
 `tests/test_due_diligence_invariants.py` unless another file is named. `CLAUDE.md`
 §2 summarizes Rule 6's API-key bypass and defers to this file for the detail.
 
@@ -305,11 +305,14 @@ packages). A narrower characterization (`gate` / `gate_ops` / `graph` / `mcp` vs
 - **`/health` `embeddings_local: healthy`** is a hardcoded literal, not a probe — a
   broken embedding model still reports healthy. Use `index_ready`/`graph_ready` for
   retrieval readiness. (`TestHealthEmbeddingsSignalIsStatic`.)
-- **`policy.fallback.require_user_confirm`** is **unwired** — no production code
-  reads it. The confirmation pause is hardcoded in `graph.user_gate_router`
-  (`confirmed is None` pauses, `False` declines). It sits beside the real, wired
-  `send_local_context_to_*` / `*_max_prompt_chars` knobs, which invites the wrong
-  assumption that it gates the prompt; setting it `false` changes nothing.
+- **`policy.fallback.require_user_confirm`** is **unwired** — neither `gate.py`
+  nor `graph.py` reads it. The confirmation pause is hardcoded in
+  `graph.user_gate_router` (`confirmed is None` pauses, `False` declines). It sits
+  beside the real, wired `send_local_context_to_*` / `*_max_prompt_chars` knobs,
+  which invites the wrong assumption that it gates the prompt. The only reader is
+  boot-time validation: `utils/config_validation.validate_fallback_confirm_placeholder`
+  (called from `gate.py`) refuses `false` with a `ConfigError`, so the key cannot
+  be mistaken for a live safety switch; `true` or absent is the only accepted state.
   (`TestFallbackRequireUserConfirmIsUnwired`.)
 - **`app.debug: true`** is shipped on and read by **no** code path in `gate.py`,
   `graph.py`, `utils/`, or `llm/`. It is pinned so that whoever wires it to
