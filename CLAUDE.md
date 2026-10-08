@@ -526,6 +526,27 @@ rule that prevents it.
   surrounding density).
 - Data-modifying scripts default to a safe dry-run (`--apply` to act).
 
+### Verification policy (run code, lint, let Actions run the suites)
+Owner decision, 2026-10-08, for this repo only, in local and cloud sessions
+alike. Agents verify a change in this order and stop at the first step that
+actually exercises it:
+1. **Run the code.** Execute the changed function, script, or endpoint
+   directly (`python -I -c ...`, a small probe script, `bash script.sh` against
+   a scratch repo, `curl` against a running `gate.py`) and look at the real
+   output. A failing-then-passing probe is the evidence.
+2. **Lint and static checks.** `ruff`, `bash -n`/`shellcheck`, `actionlint`,
+   and the `.claude/skills/*/check_*.py` checkers (§8).
+3. **GitHub Actions.** Push the draft PR and let CI run the suites and the
+   coverage gate; read the result instead of reproducing it locally.
+4. **One targeted test file**, only when steps 1-3 cannot exercise the path.
+
+Do **not** run the full suite (`pytest tests/`), the CI-style `--cov` run, or
+`tools/lora_finetune/tests/` as a routine step. This changes how agents verify,
+not what is enforced: CI still runs the full suites, the 80% `fail_under` and
+the three OS legs as release gates, and a test you add must still be
+deterministic and discovered without editing `ci.yml` (§6). Say plainly in the
+PR body which checks you ran directly and which only CI has run.
+
 ### Commits, branches, PRs
 - **Conventional commits:** `feat:`/`fix:`/`perf:`/`chore:`/`test:`/`docs:`/`ci:`
   (`feat(scope):` when scoped).
@@ -570,10 +591,11 @@ A deliverable is done only when its box is fully checked.
 - [ ] `ruff check --select E,F,I,B,C4,UP,S --ignore E501 .` clean (advisory — keep it clean locally)
 - [ ] `mypy --strict --python-version 3.12 --explicit-package-bases` clean on
       the lines you wrote (best-effort, §4)
-- [ ] `GROK_API_KEY=dummy pytest tests/ -q --tb=short` green
-- [ ] if the diff touches `tools/lora_finetune/`, also
-      `GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short`
-- [ ] CI-style coverage run ≥ 80% and the gate not lowered
+- [ ] the changed code was run directly and its real output checked (§5
+      Verification policy); no full-suite run is expected locally
+- [ ] CI is green on the pushed head (it runs the full suites, including
+      `tools/lora_finetune/tests/` when that tree is in the diff) and the 80%
+      coverage gate was not lowered
 - [ ] no new dependency without an exact pin in `pyproject.toml` AND
       `constraints.txt`
 - [ ] the diff touches only files named in the task (no drive-by edits)
@@ -672,8 +694,10 @@ pip install -e . -c constraints.txt
 # Build the retrieval index (required before /query returns hits)
 python -m retrieval.indexer            # or: cyclaw-index
 
-# Tests (GROK_API_KEY must be any non-empty value)
-GROK_API_KEY=dummy pytest tests/ -q --tb=short
+# Tests (GROK_API_KEY must be any non-empty value). Per the §5 Verification
+# policy agents do NOT run the full suite or the --cov run; CI does. These
+# commands are for the owner, CI, or the rare targeted file in policy step 4.
+GROK_API_KEY=dummy pytest tests/ -q --tb=short   # full suite: CI/owner only
 GROK_API_KEY=dummy pytest tests/test_graph.py -q --tb=short   # single file
 GROK_API_KEY=dummy pytest tests/test_agentic_*.py -q          # agentic only
 GROK_API_KEY=dummy python tests/ci_rag_smoke.py               # real-index RAG smoke
