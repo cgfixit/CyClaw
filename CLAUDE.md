@@ -787,12 +787,15 @@ via explicit `/fable-protocol`.
 
 ## 10. Session Protocol
 
-**Start.** Two SessionStart hooks run. `session-start-sync-check.sh` reports
+**Start.** Three SessionStart hooks run. `session-start-sync-check.sh` reports
 local↔remote divergence without mutating anything (never resets, rebases,
 pushes, or deletes; always exits 0). `fable-protocol-loader.sh` injects
 `/fable-protocol` only when the stdin model id contains `sonnet` (an opt-in
 allowlist; Opus, Haiku, Fable, and unknown ids are skipped). A mid-session
 `/model` switch fires no hook — run `/fable-protocol` by hand if wanted.
+In the cloud only, `session-start-venv.sh` starts `driver.sh venv` in the
+background (see `.claude/README.md`); run `driver.sh venv` before `pytest` and it
+waits for that build instead of starting a second one.
 
 **Commit identity.** Claude Code commits as the runtime's identity, never as
 `CyClaw Agent` (owner decision, 2026-09-26): `Claude <noreply@anthropic.com>`
