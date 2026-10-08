@@ -5,9 +5,10 @@
 #
 # Idempotent and never fatal: setup must not fail because of it.
 #   - Outside a git work tree, or without .githooks/: does nothing.
-#   - core.hooksPath unset in this repo: sets it to .githooks.
+#   - core.hooksPath unset at every scope (local, global, system): sets it to
+#     .githooks in this repo.
 #   - Already .githooks: says so.
-#   - Set to anything else: leaves it alone and says how to switch, so an
+#   - Set to anything else, at any scope: leaves it alone and says how to switch, so an
 #     operator's deliberate hook manager is never overwritten.
 #   - GITHOOKS_SKIP_INSTALL=1: does nothing (operator opt-out).
 #
@@ -23,7 +24,9 @@ root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$root" || exit 0
 [ -d .githooks ] || { say "no .githooks/ in this checkout; nothing to install."; exit 0; }
 
-current="$(git config --local --get core.hooksPath 2>/dev/null || true)"
+# No --local: the effective value, so a global or system hook manager (husky,
+# a shared template) is seen and kept rather than shadowed by a repo-local write.
+current="$(git config --get core.hooksPath 2>/dev/null || true)"
 case "$current" in
   .githooks | .githooks/ | "$root/.githooks" | "$root/.githooks/")
     say "core.hooksPath is already .githooks." ;;

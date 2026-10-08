@@ -671,3 +671,39 @@ def test_conda_workflow_does_not_call_a_missing_root_verify_script() -> None:
         assert "./verify.sh" not in code
     assert ".claude/skills/CyClaw-Sandbox/verify.sh" in text
 
+
+
+def _run_ensure_githooks(repo: Path, global_cfg: Path) -> str:
+    # GIT_CONFIG_GLOBAL/NOSYSTEM isolate the run from the developer's own git
+    # config, which is exactly the scope the script must not shadow.
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": str(global_cfg), "GIT_CONFIG_NOSYSTEM": "1"}
+    env.pop("GITHOOKS_SKIP_INSTALL", None)
+    script = REPO_ROOT / "scripts" / "ensure-githooks.sh"
+    subprocess.run(["bash", str(script)], cwd=repo, env=env, check=True, capture_output=True)  # noqa: S603, S607
+    got = subprocess.run(  # noqa: S603, S607
+        ["git", "config", "--show-origin", "--get", "core.hooksPath"],  # noqa: S607
+        cwd=repo, env=env, check=True, capture_output=True, text=True,
+    )
+    return got.stdout.strip()
+
+
+@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="needs git and bash")
+def test_ensure_githooks_keeps_a_global_hook_manager(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".githooks").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)  # noqa: S603, S607
+    global_cfg = tmp_path / "gitconfig"
+    global_cfg.write_text("[core]\n\thooksPath = /opt/husky\n", encoding="utf-8")
+    # A global manager must survive; a repo-local .githooks would shadow it.
+    assert _run_ensure_githooks(repo, global_cfg).endswith("/opt/husky")
+
+
+@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="needs git and bash")
+def test_ensure_githooks_sets_local_path_when_nothing_sets_one(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".githooks").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)  # noqa: S603, S607
+    global_cfg = tmp_path / "gitconfig"
+    global_cfg.write_text("", encoding="utf-8")
+    out = _run_ensure_githooks(repo, global_cfg)
+    assert out.startswith("file:") and out.endswith(".githooks")
