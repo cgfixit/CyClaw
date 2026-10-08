@@ -135,7 +135,8 @@ def test_login_auth_busy_is_audited_without_credentials(manager: AuthManager) ->
 
     _assert_busy_response(resp, "AUTH_BUSY")
     events = _new_events(app, 0)
-    assert events, "AUTH_BUSY on /auth/login must emit an audit event"
+    busy = [e for e in events if e.get("event") == "auth_busy"]
+    assert len(busy) == 1, f"AUTH_BUSY on /auth/login must emit exactly one auth_busy audit event, got {events!r}"
     _assert_no_secret(events)
     for event in events:
         assert _USER_MARKER not in str(event), f"unauthenticated username in audit event: {event!r}"
@@ -151,7 +152,10 @@ def test_bootstrap_auth_busy_is_audited_without_credentials(manager: AuthManager
 
     _assert_busy_response(resp, "AUTH_BUSY")
     events = _new_events(app, 0)
-    assert events, "AUTH_BUSY on /auth/bootstrap-password must emit an audit event"
+    busy = [e for e in events if e.get("event") == "auth_busy"]
+    assert len(busy) == 1, (
+        f"AUTH_BUSY on /auth/bootstrap-password must emit exactly one auth_busy audit event, got {events!r}"
+    )
     _assert_no_secret(events)
     assert manager.needs_password_setup() is True
 
@@ -185,5 +189,6 @@ def test_admin_auth_busy_is_audited_without_passwords(
 
     _assert_busy_response(resp, "AUTH_BUSY")
     events = _new_events(app, start)
-    assert events, f"AUTH_BUSY on {path} must emit an audit event"
+    busy = [e for e in events if e.get("event") == "auth_busy"]
+    assert len(busy) == 1, f"AUTH_BUSY on {path} must emit exactly one auth_busy audit event, got {events!r}"
     _assert_no_secret(events)

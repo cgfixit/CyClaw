@@ -186,6 +186,9 @@ $service"
 }
 
 purge_cyclaw_keychain() {
+  # Optional $1: pre-built service list (same text shown in the prompt). When
+  # empty, rebuild via cyclaw_keychain_services so ad-hoc callers still work.
+  local services="${1-}"
   local uname_s
   uname_s="$(uname -s 2>/dev/null || echo unknown)"
   if [ "$uname_s" != "Darwin" ] && [ "${CYCLAW_UNINSTALL_TEST_MODE:-}" != "1" ]; then
@@ -203,13 +206,16 @@ purge_cyclaw_keychain() {
     echo "[cyclaw] WARNING: security(1) not found; Keychain items were not removed" >&2
     return 0
   fi
+  if [ -z "$services" ]; then
+    services="$(cyclaw_keychain_services)"
+  fi
   echo "[cyclaw] removing documented CyClaw Keychain items for account=$ACCOUNT..."
   local service
   # fd 3, so nothing remove_keychain_item runs can consume the service list.
   while IFS= read -r service <&3; do
     [ -n "$service" ] && remove_keychain_item "$service"
   done 3<<EOF_SERVICES
-$(cyclaw_keychain_services)
+$services
 EOF_SERVICES
 }
 
@@ -438,7 +444,7 @@ elif [ "$REMOVE_KEYCHAIN" -eq 1 ]; then
   echo "[cyclaw] --remove-keychain targets these $keychain_count Keychain services (account=$ACCOUNT):"
   printf '%s\n' "$keychain_services" | sed 's/^/[cyclaw]   /'
   if confirm_destructive "Delete these $keychain_count CyClaw Keychain items for $ACCOUNT?"; then
-    purge_cyclaw_keychain
+    purge_cyclaw_keychain "$keychain_services"
   else
     echo "[cyclaw] kept Keychain items"
   fi
