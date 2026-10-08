@@ -1162,6 +1162,7 @@ def test_installer_macos_installs_hashed_plain_torch_lock() -> None:
 
 
 @_BASH_EXECUTION_REQUIRED
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX shell path and HOME semantics")
 def test_dotenv_secret_helpers_keep_their_path_argument(tmp_path: Path) -> None:
     # The SC2034 cleanup once rewrote `local file="$1"` to `local file=""` in
     # these helpers. Every caller still passed the path, so the helpers saw an
