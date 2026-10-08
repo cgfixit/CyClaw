@@ -279,8 +279,8 @@ sec__label_lines() {
 
 # sec__check_files FILES WHERE [BLOCK_FILES [PROTECTED_FILES]]   (newline-separated)
 # FILES drives the reminders. BLOCK_FILES (default FILES) is the list the
-# blocked-filename test runs on: git diff-filter ACR, so editing an already
-# tracked file is not newly blocked on every change. PROTECTED_FILES (default
+# blocked-filename test runs on: git diff-filter ACMR, so a blocked name stays
+# blocked after it is tracked (exempt a fixture with SEC_BLOCKED_EXCEPT). PROTECTED_FILES (default
 # FILES) also carries deletions and old rename paths, so removing a control
 # file needs the same operator ack as editing it.
 sec__check_files() {
@@ -383,10 +383,16 @@ sec__validate_config() {
 
 # sec__drop_binary_paths HITS   drops path:line:content hits in SEC_BINARY_GLOBS files.
 sec__drop_binary_paths() {
-  local line
+  local line body
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    sec__match_any "${line%%:*}" ${SEC_BINARY_GLOBS[@]+"${SEC_BINARY_GLOBS[@]}"} || printf '%s\n' "$line"
+    if sec__match_any "${line%%:*}" ${SEC_BINARY_GLOBS[@]+"${SEC_BINARY_GLOBS[@]}"}; then
+      # The name alone is not proof: a binary's bytes are almost never valid
+      # UTF-8, while a hidden mark in a text file renamed .pdf is.
+      body="${line#*:}"; body="${body#*:}"
+      printf '%s' "$body" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || continue
+    fi
+    printf '%s\n' "$line"
   done <<<"$1"
 }
 
@@ -507,11 +513,29 @@ sec__check_identity() {
   return 0
 }
 
+# New files over SEC_MAX_NEW_FILE_KB in the index.
+sec__check_new_sizes() {
+  local rc=0 f size
+  [[ "$SEC_MAX_NEW_FILE_KB" -gt 0 ]] || return 0
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    size="$(git cat-file -s ":$f" 2>/dev/null || echo 0)"
+    if [[ "$size" -gt $((SEC_MAX_NEW_FILE_KB * 1024)) ]]; then
+      sec__say "security gate: new file over ${SEC_MAX_NEW_FILE_KB} KiB: $f ($((size / 1024)) KiB)" \
+        "  History keeps it forever and scanners skip it. Host it elsewhere, or raise SEC_MAX_NEW_FILE_KB with the operator."
+      rc=1
+    fi
+  done <<<"$(git -c core.quotePath=false diff --cached --name-only --diff-filter=A)"
+  return "$rc"
+}
+
 # Staged-tree checks that need the index, not a diff stream.
 sec__check_tree() {
-  local rc=0 f size probe lost=''
+  local rc=0 f probe lost=''
   # 1. .gitignore must not lose rules without the operator.
-  git diff --cached --no-color --no-ext-diff --no-textconv --text -U0 -- '.gitignore' '*/.gitignore' |
+  # --no-renames: a .gitignore moved to another directory drops its rules
+  # where they were, which a rename (no hunk) would hide.
+  git diff --cached --no-color --no-ext-diff --no-textconv --text --no-renames -U0 -- '.gitignore' '*/.gitignore' |
     sec__gitignore_removed "staged changes" || rc=1
   for probe in ${SEC_IGNORE_PROBES[@]+"${SEC_IGNORE_PROBES[@]}"}; do
     git check-ignore -q --no-index "$probe" 2>/dev/null || lost+=" $probe"
@@ -520,15 +544,9 @@ sec__check_tree() {
     sec__say "security gate (reminder, not blocking): .gitignore does not cover:$lost" \
       "  Add the rule; the filename block above still catches a staged copy."
   fi
-  # 2. New large files and media.
+  # 2. New media and archives (size: sec__check_new_sizes, before the scans).
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
-    size="$(git cat-file -s ":$f" 2>/dev/null || echo 0)"
-    if [[ "$SEC_MAX_NEW_FILE_KB" -gt 0 && "$size" -gt $((SEC_MAX_NEW_FILE_KB * 1024)) ]]; then
-      sec__say "security gate: new file over ${SEC_MAX_NEW_FILE_KB} KiB: $f ($((size / 1024)) KiB)" \
-        "  History keeps it forever and scanners skip it. Host it elsewhere, or raise SEC_MAX_NEW_FILE_KB with the operator."
-      rc=1
-    fi
     case "$f" in
       *.png|*.jpg|*.jpeg|*.heic|*.gif|*.webp|*.mp4|*.mov|*.pdf|*.docx|*.xlsx|*.pptx|*.PNG|*.JPG|*.JPEG|*.PDF)
         if command -v exiftool >/dev/null 2>&1 &&
@@ -574,19 +592,25 @@ sec_pre_commit() {
   sec__check_identity || rc=1
 
   # Three views of the staged change. Content and reminders: ACMRT (T is a
-  # type change, e.g. a file replaced by a symlink to a key). Blocked names: ACR,
-  # so editing an already tracked file is not newly blocked. Protected paths:
+  # type change, e.g. a file replaced by a symlink to a key). Blocked names:
+  # ACMR, so a blocked file that slipped in stays blocked. Protected paths:
   # every status incl. D, with renames split so the old path counts.
   files="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMRT)"
-  bfiles="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACR)"
+  bfiles="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR)"
   pfiles="$(git -c core.quotePath=false diff --cached --name-only --no-renames --diff-filter=ACMRTD)"
   SEC_FILES="$files"
 
   if [[ -n "$pfiles" ]]; then
     sec__check_files "$files" "staged changes" "$bfiles" "$pfiles" || rc=1
-    git diff --cached "${SEC__DIFF_OPTS[@]}" -U0 --diff-filter=ACMRT |
-      sec__scan_diff "staged changes" || rc=1
-    sec__gitleaks "staged changes" --pre-commit --staged || rc=1
+    # An oversized new file is refused before the scans, which would read a
+    # large binary in full as text first.
+    if sec__check_new_sizes; then
+      git diff --cached "${SEC__DIFF_OPTS[@]}" -U0 --diff-filter=ACMRT |
+        sec__scan_diff "staged changes" || rc=1
+      sec__gitleaks "staged changes" --pre-commit --staged || rc=1
+    else
+      rc=1
+    fi
     sec__check_tree || rc=1
 
     if declare -F sec_repo_pre_commit >/dev/null; then
@@ -703,14 +727,14 @@ sec_pre_push_ref() {
   # content (lines in the merge and in neither parent), which plain `git log`
   # never shows; side branches' own commits are in the range as usual.
   files="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --diff-filter=ACMRT "${range[@]}" | sed '/^$/d' | sort -u)"
-  bfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --diff-filter=ACR "${range[@]}" | sed '/^$/d' | sort -u)"
+  bfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --diff-filter=ACMR "${range[@]}" | sed '/^$/d' | sort -u)"
   pfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --no-renames --diff-filter=ACMRTD "${range[@]}" | sed '/^$/d' | sort -u)"
   if [[ -n "$pfiles" ]]; then
     SEC__PUSH_FILES+="$files"$'\n'
     sec__check_files "$files" "$where" "$bfiles" "$pfiles" || rc=1
     git log "${SEC__DIFF_OPTS[@]}" --cc -U0 --format='commit %H' "${range[@]}" |
       sec__scan_diff "$where" || rc=1
-    git log "${SEC__DIFF_OPTS[@]}" --cc -U0 --format='commit %H' "${range[@]}" -- '.gitignore' '*/.gitignore' |
+    git log "${SEC__DIFF_OPTS[@]}" --cc --no-renames -U0 --format='commit %H' "${range[@]}" -- '.gitignore' '*/.gitignore' |
       sec__gitignore_removed "$where" || rc=1
     sec__gitleaks "commits being pushed" "--log-opts=${range[*]}" || rc=1
   fi
