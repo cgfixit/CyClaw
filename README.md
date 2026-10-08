@@ -558,7 +558,7 @@ forces `user_confirmed_online: false` and writes drafts by default;
 | `/auth/*` | Present either way; 503 while auth is off. When on, `/query` needs a session or device token; the last `admin` cannot be removed |
 | Container | Non-root, `no-new-privileges`, dropped caps, read-only rootfs; optional Falco (`deploy/falco/`) ships off |
 | Dependency risk | `chromadb==1.5.9` carries CVE-2026-45829, accepted only for embedded `PersistentClient`. [`SECURITY.md`](SECURITY.md) |
-| Commit-time gate | Tracked `.githooks/` refuse secrets, private data, protected-path edits, and main/force pushes before they leave the machine ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)) |
+| Commit-time gate | Tracked `.githooks/` refuse secrets and private data at commit and push, protected-path edits at commit (reminder only at push), and main/force pushes without an operator override ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)) |
 
 Full threat model: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Design
 notes: [`docs/security-philosophy/`](docs/security-philosophy/).
