@@ -321,9 +321,10 @@ sec__check_files() {
     rc=1
   fi
   if [[ -n "$protected" ]]; then
-    if [[ "$where" == commits* ]]; then
-      # Already committed: the ask-first moment was the commit. Surface it again
-      # so a commit made without hooks is still visible before it is published.
+    if [[ "$where" == commits* || "$where" == *" published as "* ]]; then
+      # Already committed (or a pushed tag's tree): the ask-first moment was the
+      # commit. Surface it again so a commit made without hooks is still visible
+      # before it is published.
       sec__say "security gate (reminder, not blocking): protected control file in $where:" "${protected%$'\n'}" \
         "  If the operator has not approved this change, stop and ask before pushing."
     elif [[ "${HOOK_OPERATOR_ACK:-}" == "1" ]]; then
