@@ -687,7 +687,7 @@ def _run_ensure_githooks(repo: Path, global_cfg: Path) -> str:
     return got.stdout.strip()
 
 
-@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="needs git and bash")
+@_needs_posix_bash_and_git
 def test_ensure_githooks_keeps_a_global_hook_manager(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / ".githooks").mkdir(parents=True)
@@ -698,7 +698,7 @@ def test_ensure_githooks_keeps_a_global_hook_manager(tmp_path: Path) -> None:
     assert _run_ensure_githooks(repo, global_cfg).endswith("/opt/husky")
 
 
-@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="needs git and bash")
+@_needs_posix_bash_and_git
 def test_ensure_githooks_sets_local_path_when_nothing_sets_one(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / ".githooks").mkdir(parents=True)
