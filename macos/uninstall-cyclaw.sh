@@ -181,7 +181,7 @@ $service"
       printf '%s\n' "$service"
     done < "$policy_file"
   else
-    echo "[cyclaw] WARNING: secret-policy.tsv missing or unreadable ($policy_file). The five built-in Keychain services are still covered. Policy-named services are not." >&2
+    echo "[cyclaw] WARNING: $policy_file is missing or not a secret-policy v1 file. The five built-in Keychain services are still covered. Policy-named services are not." >&2
   fi
 }
 
