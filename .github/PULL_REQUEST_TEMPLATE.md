@@ -75,7 +75,7 @@ Core graph/gate/soul path | Out-of-band agentic/fsconnect/sync layer | RAG retri
 ## Checklist
 _Put an `x` in the boxes that apply. You can fill these out after creating the PR. If you're unsure about any item, ask before opening the PR._
 
-- [ ] I have read the latest `docs/CyClaw Architecture Guide` (and any relevant Phase docs) and `SECURITY.md`
+- [ ] I have read `docs/THREAT_MODEL.md`, `INVARIANTS.md` and `SECURITY.md` (and any relevant Phase docs)
 - [ ] This change preserves all 6 security invariants and I6 module isolation (explicit evidence or invariant matrix included for core changes)
 - [ ] Full sandbox validation has been run (`GROK_API_KEY=dummy pytest tests/ -q --tb=short`, and `bash .claude/skills/CyClaw-Sandbox/verify.sh` for core RAG/agentic paths) and passes with no regressions
 - [ ] No new external network dependencies or mandatory online LLM assumptions were introduced without explicit justification + offline fallback path
