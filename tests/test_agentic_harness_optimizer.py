@@ -457,7 +457,7 @@ def test_artifact_lock_serializes_stale_reclaim(tmp_path: Path, monkeypatch: pyt
         assert lock.exists(), "a competing reclaimer must not delete this lock"
         real_rmtree(path)
 
-    monkeypatch.setattr("agentic.harness_optimizer.patching.shutil.rmtree", _interleaved_rmtree)
+    monkeypatch.setattr("agentic.registry.shutil.rmtree", _interleaved_rmtree)
     _acquire_artifact_lock(lock)
 
     assert second_attempted is True

@@ -12,9 +12,7 @@ import hmac
 import json
 import os
 import re
-import shutil
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,9 +21,9 @@ from agentic.harness_optimizer.core import CandidateDecision, Variant
 from agentic.harness_optimizer.governance import inspect_candidate_text
 from agentic.harness_optimizer.proposer import ProposerWorkspace
 from agentic.registry import (
-    _can_reclaim_lock,
     _is_lock_owner,
     _lock_token_path,
+    _reclaim_lock,
     _write_lock_token,
 )
 from utils.errors import AgenticError, AgenticWriteRefused
@@ -33,73 +31,7 @@ from utils.logger import audit_log
 
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
-# An apply completes in milliseconds, so a lock directory older than this is from
-# a crashed run and is safe to reclaim. Reuses the same token helpers
-# ``agentic.registry`` uses so the two atomic-mkdir mutexes stay consistent.
 _write_lock = threading.Lock()
-
-
-def _reclaim_guard_path(lock_dir: Path) -> Path:
-    return lock_dir.with_name(lock_dir.name + ".reclaim.d")
-
-
-def _reclaim_artifact_lock(lock_dir: Path) -> bool:
-    """Reclaim one stale lock without deleting a concurrent winner's lock.
-
-    Same atomic-mkdir reclaim-guard pattern as ``agentic.registry._reclaim_registry_lock``.
-    A bare ``rmtree`` + ``mkdir`` lets two reclaimers both pass ``_can_reclaim_lock``
-    and the later ``rmtree`` remove the winner's lock while it is writing artifacts.
-    """
-    reclaim_guard = _reclaim_guard_path(lock_dir)
-    try:
-        reclaim_guard.mkdir()
-    except FileExistsError:
-        return False
-    except OSError as exc:
-        # FileExistsError is "another reclaimer won". Disk-full / EACCES here
-        # is not contention -- returning False would lie as "another accept is
-        # in progress". Fail closed as a typed agentic error.
-        raise AgenticError(
-            "could not create harness-optimizer reclaim guard",
-            details={
-                "lock_dir": str(lock_dir),
-                "guard": str(reclaim_guard),
-                "errno": getattr(exc, "errno", None),
-            },
-        ) from exc
-
-    try:
-        try:
-            age = time.time() - lock_dir.stat().st_mtime
-        except FileNotFoundError:
-            # The prior owner released between our failed acquire and guard win.
-            age = 0.0
-            lock_was_present = False
-        except OSError:
-            return False
-        else:
-            lock_was_present = True
-
-        if lock_was_present:
-            if not _can_reclaim_lock(lock_dir, age):
-                return False
-            shutil.rmtree(lock_dir)
-
-        try:
-            lock_dir.mkdir()
-        except FileExistsError:
-            # A normal acquirer won after the stale directory was removed. Its
-            # fresh lock must remain intact.
-            return False
-        _write_lock_token(lock_dir)
-        return True
-    except OSError:
-        return False
-    finally:
-        try:
-            reclaim_guard.rmdir()
-        except OSError:
-            pass
 
 
 def _acquire_artifact_lock(lock_dir: Path) -> None:
@@ -118,7 +50,7 @@ def _acquire_artifact_lock(lock_dir: Path) -> None:
     except FileExistsError:
         # Lock is already held; fall through to the stale-age check below.
         pass
-    if _reclaim_artifact_lock(lock_dir):
+    if _reclaim_lock(lock_dir, AgenticError, "harness-optimizer"):
         return
     raise AgenticError(
         "another harness-optimizer accept is in progress for this candidate",

@@ -39,7 +39,7 @@ from guardrails.rails import (
     compile_injection_patterns,
     scan_injection_patterns,
 )
-from utils.errors import PromptInjectionError, SkillRegistryError
+from utils.errors import AgenticError, PromptInjectionError, SkillRegistryError
 from utils.logger import audit_log
 
 logger = logging.getLogger(__name__)
@@ -126,8 +126,17 @@ def _reclaim_guard_path(lock_dir: Path) -> Path:
     return lock_dir.with_name(lock_dir.name + ".reclaim.d")
 
 
-def _reclaim_registry_lock(lock_dir: Path) -> bool:
-    """Reclaim one stale lock without deleting a concurrent winner's lock."""
+def _reclaim_lock(
+    lock_dir: Path,
+    error_cls: type[AgenticError] = SkillRegistryError,
+    label: str = "skills-registry",
+) -> bool:
+    """Reclaim one stale lock without deleting a concurrent winner's lock.
+
+    Shared by this registry and ``agentic.harness_optimizer.patching``. A bare
+    ``rmtree`` + ``mkdir`` lets two reclaimers both pass ``_can_reclaim_lock``
+    and the later ``rmtree`` remove the winner's lock while it is writing.
+    """
     reclaim_guard = _reclaim_guard_path(lock_dir)
     try:
         reclaim_guard.mkdir()
@@ -136,9 +145,9 @@ def _reclaim_registry_lock(lock_dir: Path) -> bool:
     except OSError as exc:
         # FileExistsError is "another reclaimer won". Disk-full / EACCES here
         # is not contention -- returning False would lie as "another apply is
-        # in progress" (issue #1275 P2.4). Fail closed as a typed registry error.
-        raise SkillRegistryError(
-            "could not create skills-registry reclaim guard",
+        # in progress" (issue #1275 P2.4). Fail closed as a typed error.
+        raise error_cls(
+            f"could not create {label} reclaim guard",
             details={
                 "lock_dir": str(lock_dir),
                 "guard": str(reclaim_guard),
@@ -199,7 +208,7 @@ def _acquire_registry_lock(lock_dir: Path) -> None:
     except FileExistsError:
         # Lock is already held; fall through to the stale-age check below.
         pass
-    if _reclaim_registry_lock(lock_dir):
+    if _reclaim_lock(lock_dir):
         return
     raise SkillRegistryError(
         "another skills-registry apply is in progress",
