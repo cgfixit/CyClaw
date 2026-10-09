@@ -93,6 +93,16 @@ def test_fusion_caps_hits(mem_on, tmp_path):
     assert len(mem) <= 3
 
 
+@pytest.mark.parametrize("key", ["max_hits", "rrf_k"])
+@pytest.mark.parametrize("value", [-1, 0, True, "3", None])
+def test_fusion_refuses_unusable_bounds(mem_on, key, value):
+    # max_hits: -1 reached SQLite as LIMIT -1, which means "no limit".
+    cfg = {**mem_on, "memory": {**mem_on["memory"],
+                                "retrieval_fusion": {**mem_on["memory"]["retrieval_fusion"], key: value}}}
+    with pytest.raises(ValueError, match=key):
+        fuse_memory_hits("MacBook", _corpus(), cfg)
+
+
 # -- the facts flag itself: renamed key + legacy fallback -----------------------
 #
 # Before this suite existed, NO test asserted that the facts flag gates fusion at

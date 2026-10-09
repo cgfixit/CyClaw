@@ -34,8 +34,14 @@ def fuse_memory_hits(
     if not facts_retrieval_enabled(mem):
         return list(corpus_hits)
 
-    max_hits = int(fusion.get("max_hits", 3) or 3)
-    rrf_k = int(fusion.get("rrf_k", 60) or 60)
+    max_hits = fusion.get("max_hits", 3)
+    rrf_k = fusion.get("rrf_k", 60)
+    for name, value in (("max_hits", max_hits), ("rrf_k", rrf_k)):
+        # SQLite reads a negative LIMIT as "no limit", so -1 would merge every
+        # matching fact into the context. The caller audits this as
+        # memory_fusion_error and serves corpus hits only.
+        if type(value) is not int or value < 1:
+            raise ValueError(f"memory.retrieval_fusion.{name} must be an integer >= 1, got: {value!r}")
     source_prefix = str(fusion.get("source_prefix") or "memory:fact:")
 
     from memory.store import search_facts_fts

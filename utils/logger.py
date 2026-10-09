@@ -1082,8 +1082,13 @@ def _resolve_redactors(cfg: dict) -> tuple[tuple[re.Pattern, str], ...]:
     re-enumerating redact_secrets_like into two fresh tuples and re-hashing
     the 4-element lru_cache key -- for every string in the record.
     """
-    privacy = cfg.get("policy", {}).get("privacy", {})
+    privacy = _privacy_cfg(cfg)
     configured_patterns = privacy.get("redact_secrets_like", []) or []
+    if not isinstance(configured_patterns, list):
+        # A lone YAML string is one pattern: enumerating it would compile each
+        # character as its own pattern and redact every "s", "k", "-" logged.
+        # Any other scalar becomes one entry the warning below names.
+        configured_patterns = [configured_patterns]
     configured = _compiled_redactors(
         privacy.get("redact_emails", False),
         privacy.get("redact_ips", False),
