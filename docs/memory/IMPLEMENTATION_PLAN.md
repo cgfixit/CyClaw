@@ -574,6 +574,12 @@ Dataclasses only:
 - Schema migrate/create idempotent
 - `stage_episode(cfg, state: Mapping) -> None`
 - `list_facts`, `get_fact`, `insert_fact`, `update_fact`, `deactivate_fact`
+  - *Shipped differently:* the three public fact writers were removed in
+    #1606 because nothing in production called them and they skipped the
+    required `reason` and the injection scan. Facts are written only through
+    `apply_proposal`, which uses the private `_insert_fact_conn`,
+    `_update_fact_conn` and `_deactivate_fact_conn` helpers. Tests seed rows
+    via `tests/memory_seed.py`.
 - `create_proposal`, `get_proposal`, `apply_proposal`, `reject_proposal`
 - `search_facts_fts(query, limit) -> list[tuple[id, content, rank]]`
 - Thread lock around writes (mirror personality `threading.Lock`)
