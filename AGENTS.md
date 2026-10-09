@@ -48,11 +48,13 @@ From the repository root, with the selected interpreter:
 
 Set `GROK_API_KEY=dummy` for isolated verification; never spend real provider tokens routinely. Use disposable personality, index, and log paths when execution needs them, preserving the committed soul. Directly exercise changed behavior and inspect output and side effects first. Then use relevant lint/static checks (`actionlint` for changed workflows); let draft-PR Actions run broad suites and the 80% coverage gate. Run one focused test file when direct execution and static/CI evidence cannot exercise a concrete risk or an applicable gate requires it. Do not run full local suites, CI-style coverage, or LoRA tests routinely. Four Python 3.12 platform test legs gate shared routing, retrieval, auth, and security changes on the exact PR head. Ruff F/B/S blocks; broader Ruff/WPS is advisory; mypy needs `--explicit-package-bases` and is best-effort. Distinguish local, mock, native, live-provider, and hosted-CI evidence.
 
+Before drafting a moderate or larger PR, update the README, the `docs/*.md` pages, and the dependency/install files the change touches, and delete stale or duplicated statements while there (`doc-sync`, `dep-guard`, `verify-dep`).
+
 Use four-space indentation, typed Python, snake_case, the existing 120-column style, named logging, and config-owned tunables. Docstrings begin modules/functions; use `#` for class or inline commentary.
 
 ## Skills and routines map
 
-`.codex/README.md` mirrors the Codex skill map; update both when skills change. Each Codex skill has `.codex/skills/<name>/SKILL.md` and `agents/openai.yaml`. Other drivers use `.claude/skills/` equivalents where available.
+`.codex/README.md` mirrors the Codex skill map; update both when skills change. Each Codex skill has `.codex/skills/<name>/SKILL.md` and `agents/openai.yaml`. Other drivers use `.claude/skills/` equivalents where available; a skill missing from a local sandbox may still exist on GitHub `main`, so check there before declaring it absent. Live memory lives only in `docs/memories/`.
 
 | Skill/directory | Use |
 |---|---|
@@ -66,25 +68,9 @@ Use four-space indentation, typed Python, snake_case, the existing 120-column st
 
 Use `.codex/routines/` for review, bugfix, feature, refactor, test/verify, PR, and security workflows; checklists and prompts live beside it.
 
-## NOTE regarding skills and routines for non-codex AI agents: There are potentially 3 skills directories depending on which skill files make more sense - .claude/skills/, .codex/skills, and occasionally under .github/
-
---
-
-## Critical Project Rules:
--Tests/Verification: Keep tests/ updated and remove stale tests, **but** prefer the following for testing and verifying code in agentic coding sessions:
--Documentation and Dependency Sync: Update readme.md files, docs/*.md files related to code changes, and dependency files for the install/build of the project
-before any moderate to large sized PR being drafted, but be sure to remove old/stale/otherwise duplicate information as well during those updates (doc-sync and dep-sync)
-to avoid file and context bloat for information about the codebase that may no longer be true
-
--Local verification/testing of code changes:
-
-> Lint (fmt, clippy), then run the changed code. Never the full suite locally; CI runs it with GROK_API_KEY, ANTHROPIC_API_KEY and DEEPAGENT_API_KEY blanked. After any .md edit, wc -w it against its DOCS_BUDGET cap (CLAUDE.md 300, AGENTS.md 2000).
-
---
-
 ## Git, reviews, and completion
 
-Develop on `<driver>/<topic>` using the tracked hook allowlist (`grok/`, `claude/`, `codex/`, `kimi/`, `agent/`, `CyClaw/`, `cyclaw/`). Commit subjects use `[prefix] - subject` per the PR template. Preserve an existing PR branch when fixing it, even if another driver created it. Never commit or push `main` or merge without explicit authorization. Never bypass hooks or set their operator overrides.
+Develop on `<driver>/<topic>` using the tracked hook allowlist (`grok/`, `claude/`, `codex/`, `kimi/`, `agent/`, `CyClaw/`, `cyclaw/`). Commit subjects use `[prefix] - subject` per the PR template. Preserve an existing PR branch when fixing it, even if another driver created it. Never commit or push `main` or merge without explicit authorization. Never bypass hooks or set their operator overrides. Commit as the runtime's own identity, never as `CyClaw Agent`, which belongs to CyClaw's agentic loop.
 
 Map overlapping files before multiple PRs. Consolidate related edits or stack real dependencies, trial-merge in the intended order, and reverify after integration. Refresh `origin/main` and the PR head before publication or readiness claims. Rewrite published history only with authorization and an exact-SHA `--force-with-lease`; never overwrite concurrent remote work.
 
