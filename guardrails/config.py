@@ -174,6 +174,11 @@ class GuardrailsConfig:
             )
 
     def _validate_base_url(self) -> None:
+        if not isinstance(self.base_url, str):
+            raise GuardrailsConfigError(
+                f"guardrails.base_url must be a string, got {type(self.base_url).__name__}",
+                details={"received_type": type(self.base_url).__name__},
+            )
         if not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
             raise GuardrailsConfigError(
                 f"guardrails.base_url must be an http(s) URL, got: {self.base_url!r}",
