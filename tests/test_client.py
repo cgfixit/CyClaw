@@ -1459,6 +1459,18 @@ class TestRetryConfigBounds:
 # =============================================================================
 
 class TestResolveLocalBackend:
+    @pytest.mark.parametrize("fallback", [True, "off", ["x"]])
+    def test_non_dict_fallback_is_disabled_not_a_crash(self, monkeypatch, fallback):
+        # The cache key used to call .get() on the raw value before the
+        # isinstance guard below it ever ran.
+        monkeypatch.setattr("llm.client._probe_openai_models", lambda *a, **kw: pytest.fail("probed"))
+        llm_cfg = {
+            "base_url": "http://127.0.0.1:11434/v1",  # DevSkim: ignore DS162092
+            "model": "qwen3.8:27b-mlx",
+            "fallback": fallback,
+        }
+        assert resolve_local_backend(llm_cfg, force=True).source == "primary"
+
     def test_fallback_disabled_no_probe(self, monkeypatch):
         probes: list[str] = []
 

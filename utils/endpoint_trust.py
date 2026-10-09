@@ -20,15 +20,25 @@ class EndpointTrustError(ValueError):
 
 
 def hostname_of(url: str) -> str:
+    # urlparse's .hostname is already lowercased and has IPv6 brackets removed.
     try:
-        host = (urlparse(url).hostname or "").lower()
+        return urlparse(url).hostname or ""
     except ValueError:
         # Keep malformed URLs on the same typed failure path as denied hosts so
         # graph callers can return an audited error instead of a parser traceback.
         raise EndpointTrustError("malformed endpoint URL") from None
-    if host.startswith("[") and host.endswith("]"):
-        host = host[1:-1]
-    return host
+
+
+def is_loopback_url(url: str) -> bool:
+    """True when ``url``'s host is loopback. Malformed input is NOT loopback.
+
+    The one shared copy: llm/, utils/health.py, agentic/ and guardrails/ each
+    used to keep their own, and the guardrails one raised on a malformed URL.
+    """
+    try:
+        return hostname_of(url) in _LOOPBACK
+    except EndpointTrustError:
+        return False
 
 
 def assert_local_destination(base_url: str, trusted_hosts: object = ()) -> None:
