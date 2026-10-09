@@ -27,6 +27,7 @@ from urllib.parse import urlparse
 
 import yaml  # type: ignore[import-untyped]  # project intentionally carries no PyYAML stubs
 
+from utils.endpoint_trust import url_for_details
 from utils.errors import TelegramConfigError
 from utils.logger import _get_config
 
@@ -107,20 +108,23 @@ def _validate_loopback_url(url: str, field_name: str) -> str:
     if any(c in url for c in _SHELL_METACHARS):
         raise TelegramConfigError(
             f"{field_name} contains disallowed characters",
-            details={"received": url},
+            details={"received": url_for_details(url)},
         )
     try:
         parsed = urlparse(url)
         _ = parsed.port
     except ValueError as exc:
         raise TelegramConfigError(f"{field_name} is not a valid URL") from exc
+    # Credentials are refused before any check that echoes the URL, so a
+    # userinfo password can never reach error details (mirrors #1547's
+    # opentweet fix). Tested on netloc, not ParseResult.password, for CodeQL.
+    if "@" in parsed.netloc:
+        raise TelegramConfigError(f"{field_name} must not contain URL credentials")
     if parsed.scheme not in ("http", "https"):
         raise TelegramConfigError(
             f"{field_name} must be http or https, got scheme={parsed.scheme!r}",
-            details={"received": url},
+            details={"received": url_for_details(url)},
         )
-    if parsed.username is not None or parsed.password is not None:
-        raise TelegramConfigError(f"{field_name} must not contain URL credentials")
     if parsed.query or parsed.fragment:
         raise TelegramConfigError(f"{field_name} must not contain a query or fragment")
     host = (parsed.hostname or "").lower()
@@ -128,7 +132,7 @@ def _validate_loopback_url(url: str, field_name: str) -> str:
         raise TelegramConfigError(
             f"{field_name} must target loopback (127.0.0.1/localhost), got host={host!r}",
             details={
-                "received": url,
+                "received": url_for_details(url),
                 "hint": "Telegram talks to CyClaw only over loopback; do not point this at a LAN or public host.",
             },
         )
