@@ -35,8 +35,8 @@ _FTS_TOKEN_RE = re.compile(r"\w+")
 # per DB path and reuses it for the lifetime of that thread.
 _conn_local = threading.local()
 
-# RLock: apply_proposal holds the lock while calling insert/update helpers that
-# re-enter the same lock on the public API paths.
+# Serializes every store write. Fact writes go only through apply_proposal,
+# which calls the *_conn helpers on its own connection, so it never re-enters.
 _write_lock = threading.RLock()
 _episode_counter = 0
 _episode_counter_lock = threading.Lock()
@@ -353,38 +353,6 @@ def _insert_fact_conn(
     return _row_to_fact(row)
 
 
-def insert_fact(
-    cfg: Mapping[str, Any],
-    content: str,
-    *,
-    category: str = "general",
-    tags: list[str] | None = None,
-    confidence: float = 1.0,
-    source: str = "human",
-    reason: str = "",
-) -> Fact:
-    with _write_lock:
-        conn = connect(cfg)
-        try:
-            fact = _insert_fact_conn(
-                conn,
-                cfg,
-                content,
-                category=category,
-                tags=tags,
-                confidence=confidence,
-                source=source,
-                reason=reason,
-            )
-            conn.commit()
-            return fact
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
-
 def _update_fact_conn(
     conn: sqlite3.Connection,
     cfg: Mapping[str, Any],
@@ -437,38 +405,6 @@ def _update_fact_conn(
     return _row_to_fact(row)
 
 
-def update_fact(
-    cfg: Mapping[str, Any],
-    fact_id: int,
-    *,
-    content: str | None = None,
-    category: str | None = None,
-    tags: list[str] | None = None,
-    confidence: float | None = None,
-    reason: str = "",
-) -> Fact:
-    with _write_lock:
-        conn = connect(cfg)
-        try:
-            fact = _update_fact_conn(
-                conn,
-                cfg,
-                fact_id,
-                content=content,
-                category=category,
-                tags=tags,
-                confidence=confidence,
-                reason=reason,
-            )
-            conn.commit()
-            return fact
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
-
 def _deactivate_fact_conn(
     conn: sqlite3.Connection,
     fact_id: int,
@@ -490,20 +426,6 @@ def _deactivate_fact_conn(
     if row is None:
         raise RuntimeError("fact row missing after write")
     return _row_to_fact(row)
-
-
-def deactivate_fact(cfg: Mapping[str, Any], fact_id: int, *, reason: str = "") -> Fact:
-    with _write_lock:
-        conn = connect(cfg)
-        try:
-            fact = _deactivate_fact_conn(conn, fact_id, reason=reason)
-            conn.commit()
-            return fact
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
 
 
 def create_proposal(

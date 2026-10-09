@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 
 from memory.retrieval_adapter import fuse_memory_hits
-from memory.store import insert_fact
+from tests.memory_seed import insert_fact
 
 # Distinctive enough that a substring check cannot collide with body text,
 # boilerplate, or a source label.

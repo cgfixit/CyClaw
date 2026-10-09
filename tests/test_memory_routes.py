@@ -12,8 +12,9 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 
 from gate_memory import register_memory_routes
-from memory.store import apply_proposal, get_fact, insert_fact
+from memory.store import apply_proposal, get_fact
 from schemas.api import MemoryProposeRequest
+from tests.memory_seed import insert_fact
 
 
 @pytest.fixture

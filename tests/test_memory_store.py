@@ -13,10 +13,8 @@ from memory.store import (
     connect,
     count_active_facts,
     create_proposal,
-    deactivate_fact,
     get_fact,
     get_proposal,
-    insert_fact,
     list_episodes,
     list_facts,
     list_proposals,
@@ -24,8 +22,8 @@ from memory.store import (
     reject_proposal,
     search_facts_fts,
     stage_episode,
-    update_fact,
 )
+from tests.memory_seed import deactivate_fact, insert_fact, update_fact
 from utils.errors import PromptInjectionError
 
 
