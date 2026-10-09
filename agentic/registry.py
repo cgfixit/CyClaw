@@ -27,7 +27,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import threading
 import time
 from datetime import UTC, datetime
@@ -170,7 +169,11 @@ def _reclaim_lock(
         if lock_was_present:
             if not _can_reclaim_lock(lock_dir, age):
                 return False
-            shutil.rmtree(lock_dir)
+            # A lock dir only ever holds its owner token. Remove exactly that,
+            # then rmdir: anything else inside makes rmdir fail (OSError below,
+            # reclaim refused) instead of being deleted wholesale by rmtree.
+            _lock_token_path(lock_dir).unlink(missing_ok=True)
+            lock_dir.rmdir()
 
         try:
             lock_dir.mkdir()
