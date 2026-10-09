@@ -127,7 +127,8 @@ def test_metadata_only_update_still_cannot_reach_the_prompt(seeded):
     shape an attacker with API-key access would use. It must still be inert.
     """
     from graph import _format_context_chunks
-    from memory.store import list_facts, update_fact
+    from memory.store import list_facts
+    from tests.memory_seed import update_fact
 
     fact_id = list_facts(seeded)[0].id
     update_fact(
