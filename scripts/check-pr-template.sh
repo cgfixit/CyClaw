@@ -17,6 +17,8 @@
 #
 # Options (each also readable from the env var in brackets):
 #   --title TITLE          PR title [CYCLAW_PR_TITLE]; title check skipped if unset
+#   --fork                 the head branch lives in a fork: skip the branch
+#                          rule, as the workflow does (hooks cannot govern it)
 #   --branch BRANCH        head branch [CYCLAW_PR_BRANCH]; defaults to the
 #                          current git branch, skipped on a detached HEAD
 #   --changed-files FILE   newline list of changed paths for the core-path
@@ -54,6 +56,7 @@ usage() {
 
 title="${CYCLAW_PR_TITLE:-}"
 branch="${CYCLAW_PR_BRANCH:-}"
+fork=0
 changed_files=""
 base=""
 input=""
@@ -61,6 +64,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --title) [[ $# -ge 2 ]] || usage; title="$2"; shift 2 ;;
     --branch) [[ $# -ge 2 ]] || usage; branch="$2"; shift 2 ;;
+    --fork) fork=1; shift ;;
     --changed-files) [[ $# -ge 2 ]] || usage; changed_files="$2"; shift 2 ;;
     --base) [[ $# -ge 2 ]] || usage; base="$2"; shift 2 ;;
     -h|--help) usage ;;
@@ -90,7 +94,10 @@ else
 fi
 
 notes=()
-if [[ -z "$branch" ]]; then
+if [[ "$fork" -eq 1 ]]; then
+  branch=""
+  notes+=("branch not checked (fork head; hooks cannot govern it)")
+elif [[ -z "$branch" ]]; then
   branch="$(git -C "$repo_root" symbolic-ref --short -q HEAD 2>/dev/null || true)"
   [[ -n "$branch" ]] || notes+=("branch not checked (detached HEAD; pass --branch)")
 fi

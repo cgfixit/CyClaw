@@ -58,6 +58,11 @@ jobs:
             const body = pr.body || "";
             const title = pr.title || "";
             const branch = (pr.head && pr.head.ref) || "";
+            // A head in another repository (a contributor fork, or a deleted
+            // one) is outside .githooks' reach, and the template scopes branch
+            // naming to agent-opened PRs, so the branch rule skips it.
+            const headRepo = pr.head && pr.head.repo && pr.head.repo.full_name;
+            const isFork = !headRepo || headRepo !== (pr.base && pr.base.repo && pr.base.repo.full_name);
 
             // Rules mirror scripts/check-pr-template.sh one for one, keys
             // included. tests/test_pr_template_check_parity.py runs both.
@@ -135,11 +140,11 @@ jobs:
               fail("title", `Title must read \`[prefix] - Short sentence\` with prefix one of ${prefixes}`);
             }
 
-            // Same allowlist as .githooks/pre-commit and pre-push.
+            // Same allowlist as .githooks/pre-commit and pre-push; fork heads skip it.
             const branchOk =
               /^(main|master|develop)$/.test(branch) ||
               /^(grok|claude|codex|kimi|agent|CyClaw|cyclaw|dependabot|renovate|release|hotfix)\/.+/.test(branch);
-            if (!branchOk) {
+            if (!isFork && !branchOk) {
               fail("branch", `Head branch \`${branch}\` needs a vendor prefix (claude/, codex/, grok/, kimi/, agent/, CyClaw/, cyclaw/)`);
             }
 

@@ -118,6 +118,9 @@ CASES: dict[str, tuple[dict, set[str]]] = {
     ),
     "core-path-with-invariant": (_case(files=["config.yaml"]), set()),
     "bad-title-and-branch": (_case(title="fix the thing", branch="cc/sweet-goodall"), {"title", "branch"}),
+    # A contributor fork's branch is outside .githooks' reach (Codex P2 on #1621).
+    "fork-with-any-branch-name": (_case(branch="feature/fix", fork=True), set()),
+    "same-repo-feature-branch": (_case(branch="feature/fix"), {"branch"}),
     "title-without-space-dash": (_case(title="[fix]- Fix"), {"title"}),
     "exempt-title-and-bot-branch": (_case(title='Revert "[fix] - Fix the thing"', branch="dependabot/pip/x"), set()),
     "deps-title": (_case(title="chore(deps): bump x", branch="renovate/x"), set()),
@@ -156,6 +159,7 @@ def _script_keys(case: dict, tmp_path: Path, body_path: Path | None = None) -> t
             case["branch"],
             "--changed-files",
             str(files),
+            *(["--fork"] if case.get("fork") else []),
             str(body_path),
         ],
         capture_output=True,
@@ -185,7 +189,13 @@ const github = {
 };
 const context = {
   repo: { owner: "o", repo: "r" },
-  payload: { pull_request: { number: 1, body: input.body, title: input.title, head: { ref: input.branch } } },
+  payload: {
+    pull_request: {
+      number: 1, body: input.body, title: input.title,
+      head: { ref: input.branch, repo: { full_name: input.fork ? "someone/r" : "o/r" } },
+      base: { repo: { full_name: "o/r" } },
+    },
+  },
 };
 const core = { setFailed: (m) => { out.failed = m; }, info: () => {} };
 (async () => {
