@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import time
 import uuid
 from pathlib import Path
@@ -487,18 +486,19 @@ def test_registry_lock_serializes_stale_reclaim(tmp_path: Path, monkeypatch):
     lock.joinpath("owner.json").write_text(json.dumps(token), encoding="utf-8")
     old = time.time() - (_LOCK_STALE_SEC + 60)
     os.utime(lock, (old, old))
-    real_rmtree = shutil.rmtree
+    real_rmdir = Path.rmdir
     second_attempted = False
 
-    def _interleaved_rmtree(path):
+    def _interleaved_rmdir(self):
         nonlocal second_attempted
-        second_attempted = True
-        with pytest.raises(SkillRegistryError, match="another skills-registry apply"):
-            _acquire_registry_lock(lock)
-        assert lock.exists(), "a competing reclaimer must not delete this lock"
-        real_rmtree(path)
+        if self == lock and not second_attempted:
+            second_attempted = True
+            with pytest.raises(SkillRegistryError, match="another skills-registry apply"):
+                _acquire_registry_lock(lock)
+            assert lock.exists(), "a competing reclaimer must not delete this lock"
+        real_rmdir(self)
 
-    monkeypatch.setattr("agentic.registry.shutil.rmtree", _interleaved_rmtree)
+    monkeypatch.setattr(Path, "rmdir", _interleaved_rmdir)
     _acquire_registry_lock(lock)
 
     assert second_attempted is True

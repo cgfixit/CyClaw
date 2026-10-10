@@ -214,7 +214,7 @@ def list_entries(roots: ScopedRoots, root: str | None) -> list[TrashEntry]:
     return out
 
 
-def _parse_iso(value: str) -> datetime | None:
+def parse_iso(value: str) -> datetime | None:
     try:
         return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except (ValueError, TypeError):
@@ -230,7 +230,7 @@ def expired(entries: list[TrashEntry], now: datetime) -> list[TrashEntry]:
     ref = now.astimezone(UTC)
     out: list[TrashEntry] = []
     for e in entries:
-        exp = _parse_iso(e.retention_expires_at)
+        exp = parse_iso(e.retention_expires_at)
         if exp is None or exp <= ref:
             out.append(e)
     return out

@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
 from agentic.fsconnect.pathsafe import SafeRoot, ScopedRoots, _is_macos_artifact_name
-from agentic.fsconnect.trash import iso
+from agentic.fsconnect.trash import iso, parse_iso
 
 QUOTA_FILE = ".cyclaw-quota.json"
 _MAX_LEDGER_BYTES = 64 * 1024
@@ -128,18 +128,11 @@ def is_stale(ledger: QuotaLedger | None, now: datetime, recompute_hours: int) ->
     """True if the ledger is missing, undated, or older than ``recompute_hours``."""
     if ledger is None:
         return True
-    dt = _parse_iso(ledger.computed_at)
+    dt = parse_iso(ledger.computed_at)
     if dt is None:
         return True
     age_hours = (now.astimezone(UTC) - dt).total_seconds() / 3600.0
     return age_hours >= recompute_hours
-
-
-def _parse_iso(value: str) -> datetime | None:
-    try:
-        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-    except (ValueError, TypeError):
-        return None
 
 
 __all__ = [
