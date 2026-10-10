@@ -514,7 +514,7 @@ def test_run_env_errors_on_an_empty_checks_list(cfg_path, tmp_path):
         ("[{\"name\": \"x\"}]", "'name' and 'argv'"),
         ("[{\"name\": \"x\", \"argv\": \"not-a-list\"}]", "non-empty list of strings"),
         ("[{\"name\": \"x\", \"argv\": []}]", "non-empty list of strings"),
-        ("[{\"name\": 123, \"argv\": [\"true\"]}]", "non-empty string"),
+        ("[{\"name\": 123, \"argv\": [\"true\"]}]", "must be a string"),
     ],
 )
 def test_run_env_errors_on_a_malformed_checks_manifest(cfg_path, tmp_path, content, match):

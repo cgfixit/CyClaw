@@ -509,10 +509,11 @@ def _load_checks_file(path: str) -> tuple[Check, ...]:
     for entry in data:
         if not isinstance(entry, dict) or "name" not in entry or "argv" not in entry:
             raise AgenticError("each check entry needs 'name' and 'argv'", details={"path": path, "entry": entry})
-        if not isinstance(entry["name"], str) or not entry["name"].strip():
+        if not isinstance(entry["name"], str):
             # Check() only rejects a falsy name, so `"name": 123` used to pass
-            # and later crash the PR-body renderer, which expects text.
-            raise AgenticError("check 'name' must be a non-empty string", details={"path": path})
+            # and later crash the PR-body renderer, which expects text. An
+            # empty string is still Check's own error, below.
+            raise AgenticError("check 'name' must be a string", details={"path": path})
         argv = entry["argv"]
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
             raise AgenticError("check 'argv' must be a non-empty list of strings", details={"path": path})
