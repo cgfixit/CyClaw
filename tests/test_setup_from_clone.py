@@ -218,6 +218,29 @@ def test_home_dir_literal_matches_install_and_invoke() -> None:
     assert match.group(1) == ".CyClaw"
 
 
+def test_derived_tag_is_accepted_and_not_created() -> None:
+    """qwen3.8:27b-mlx-cg matches the tag character class. The script only prints it."""
+    text = _script_text()
+    assert "qwen3.8:27b-mlx-cg" in text
+    assert "macos/Modelfile.cg" in text
+    assert not re.search(r"^\s*ollama create\b", text, re.M)
+    env = os.environ.copy()
+    env["CYCLAW_SETUP_FROM_CLONE_SKIP_PLATFORM"] = "1"
+    result = subprocess.run(
+        [_BASH, str(_SCRIPT), "--dry-run", "--skip-prompts", "--ollama-model", "qwen3.8:27b-mlx-cg"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        cwd=_REPO_ROOT,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "qwen3.8:27b-mlx-cg" in result.stdout
+    assert "ollama create" in result.stdout
+    assert "not run here" in result.stdout
+
+
 def test_default_and_small_ollama_tags_are_documented() -> None:
     text = _script_text()
     assert 'DEFAULT_MODEL="qwen3.8:27b-mlx"' in text

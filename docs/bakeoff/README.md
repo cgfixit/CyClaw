@@ -1,0 +1,5 @@
+# Shared zsh and bash shell setup (optional, macOS)
+
+This is how the setup was made on one Mac. It is not required for the bake-off. Nothing in this repository edits these files.
+
+`~/.shell_common` is the portable slice of that Mac's shell startup: `PYENV_ROOT`, `OLLAMA_NOHISTORY`, `runbash`, and PATH entries that used to live only in zsh (`python@3.12`, `~/.local/bin`, and a few CLI tool dirs). Login zsh still reads `~/.zprofile` (Homebrew shellenv) then `~/.zshrc` (completions, compinit, pyenv init). Both source the shared file. Login bash reaches it through `~/.bash_profile` and `~/.bashrc`. Each PATH line is wrapped in a `case ":${PATH}:"` guard, and `_SHELL_COMMON_LOADED` makes a second source a no-op, so a login interactive zsh does not prepend directories twice. Zsh-only syntax stayed in `~/.zshrc`, and `pyenv init` runs only when `command -v pyenv` succeeds. The login shell is still `/bin/zsh`. A bash login, an interactive bash, and `#!/usr/bin/env bash` see the same exports and tools without copying zsh syntax into bash.

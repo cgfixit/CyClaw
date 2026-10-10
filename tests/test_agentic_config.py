@@ -216,6 +216,15 @@ def test_deepagent_config_accepts_a_custom_planner_max_tokens(tmp_path: Path) ->
     assert cfg.deepagent_github.planner_max_tokens == 3072
 
 
+def test_deepagent_config_accepts_derived_ollama_tag(tmp_path: Path) -> None:
+    block = _base_block(
+        deepagent_github={"provider": "ollama", "model": "qwen3.8:27b-mlx-cg"}
+    )
+    cfg = load_agentic_config(_write_config(tmp_path, block))
+    assert cfg.deepagent_github.model == "qwen3.8:27b-mlx-cg"
+    assert cfg.deepagent_github.provider == "ollama"
+
+
 def test_deepagent_config_rejects_shell_metachar_model(tmp_path: Path) -> None:
     block = _base_block(deepagent_github={"model": "good;bad"})
     with pytest.raises(AgenticConfigError):

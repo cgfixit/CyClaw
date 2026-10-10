@@ -222,6 +222,18 @@ case "$OLLAMA_MODEL" in
     ;;
 esac
 
+# Text only. A derived tag exists only where an operator already ran
+# `ollama create`. This script must not create one, and the shipped default
+# stays the registry tag from config.yaml.
+_print_derived_tag_hint() {
+  if [ "$SMALL_MODEL" -eq 1 ] || [ "$SKIP_OLLAMA" -eq 1 ]; then
+    return 0
+  fi
+  echo "  optional, not run here: ollama create qwen3.8:27b-mlx-cg -f macos/Modelfile.cg"
+  echo "  Then set models.local_llm.model, guardrails.model, and agentic.deepagent_github.model together."
+  echo "  Docs: docs/! How-To-Guides/OLLAMA_SETUP.md (Pin the context window with a derived tag)."
+}
+
 # -- confirm helper -----------------------------------------------------------
 
 _confirm() {
@@ -271,6 +283,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "  6. optional gh auth status (never prints a token)"
   if [ "$SKIP_OLLAMA" -eq 0 ]; then
     echo "  7. Ollama check + optional pull of $OLLAMA_MODEL (source macos/ollama-mlx.env before serve)"
+    _print_derived_tag_hint
   else
     echo "  7. skip Ollama"
   fi
@@ -536,8 +549,9 @@ fi
 _SHIPPED_MODEL="$(_read_shipped_model)"
 if [ -n "$_SHIPPED_MODEL" ] && [ "$OLLAMA_MODEL" != "$_SHIPPED_MODEL" ]; then
   warn "using Ollama tag $OLLAMA_MODEL but config.yaml ships $_SHIPPED_MODEL."
-  warn "update BOTH models.local_llm.model and guardrails.model (config-guard C11) or /query will 404."
+  warn "update models.local_llm.model, guardrails.model, and agentic.deepagent_github.model together (config-guard C11 checks the first two) or /query will 404."
 fi
+_print_derived_tag_hint
 
 # -- 8. retrieval index -------------------------------------------------------
 

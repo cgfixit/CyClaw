@@ -236,8 +236,11 @@ runs CyClaw: **MacBook Pro, Apple M5 Pro, 48 GB unified memory**, Ollama
 M5 Max (more GPU / 128 GB ceiling). Full doctrine:
 [`docs/m5-48gb-coding-expectations.md`](../m5-48gb-coding-expectations.md).
 
-48 GB can hold more context than the product uses. The operator window is
-now **32k `num_ctx`**. The design point is unchanged: an **~8,000-char**
+48 GB can hold more context than the product uses. The operator window the
+repo ships is **32k `num_ctx`**, meaning `OLLAMA_CONTEXT_LENGTH` in
+`macos/ollama-mlx.env`. The registry tag `qwen3.8:27b-mlx` does not bake
+that parameter; see [`OLLAMA_SETUP.md`](../%21%20How-To-Guides/OLLAMA_SETUP.md)
+when the Ollama app is serving without that env. The design point is unchanged: an **~8,000-char**
 local agentic prompt, a **6,000-char** plan file, and **3072**
 `planner_max_tokens`. Local remains a supervised executor. Volume changed,
 not judgment. `max_handoff_chars: 200000` is cloud egress, not local

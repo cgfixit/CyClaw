@@ -46,6 +46,7 @@ grepping.
 | `plans/` | Living forward-looking roadmaps (e.g. `plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md`). Plans, not authorities — the code and `config.yaml` still win. |
 | `mailtag/IMPLEMENTATION_PLAN.md` | **DRAFT** mailtag (provider-neutral email tagging) plan. Not shipped, not a graph node, not approved. Do not implement from this file without an explicit owner sign-off. |
 | `analysis/`, `zIdeas/`, `zWork/`, `! How-To-Guides/`, `screenshots/` | Working material and archives; not authorities. |
+| [`bakeoff/local-model-bakeoff-2026-10-10.md`](bakeoff/local-model-bakeoff-2026-10-10.md) | Latest of two ordered local-tag passes on 2026-10-10. The earlier pass is a comparison line. Picks no winner. Not a shipped-tag change. The measurement script is not stored in this repo. Optional macOS shell note: [`bakeoff/README.md`](bakeoff/README.md). |
 
 Keep each `##` section understandable on its own. The indexer uses overlapping
 token windows, not Markdown heading boundaries, and only configured corpus
