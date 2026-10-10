@@ -9,10 +9,13 @@ Subcommands:
              the offline heuristic floor (no LLM, no NeMo needed).
     metrics  Summarize the guardrail metrics stream (logs/guardrails.jsonl).
     test     Run the pre-flight self-test.
+    model    Compare the installed Ollama model's digest with the pin in
+             guardrails/qwen_manifest.yaml. Read-only; informational unless
+             the manifest sets strict: true.
 
 Exit codes:
     0    success (also the clean no-op when guardrails.enabled is false)
-    2    operation failed
+    2    operation failed (for `model`: strict manifest and a problem found)
     3    config / environment problem (config invalid)
 
 This module never imports gate.py, graph.py, or mcp_hybrid_server.py.
@@ -24,6 +27,7 @@ import argparse
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from guardrails.config import GuardrailsConfig, load_guardrails_config
 from guardrails.errors import GuardrailsConfigError
@@ -117,6 +121,36 @@ def cmd_test(args: argparse.Namespace) -> int:
     return EXIT_OK if passed == total else EXIT_FAIL
 
 
+def cmd_model(args: argparse.Namespace) -> int:
+    from guardrails.qwen_registry import check_model_digest, load_qwen_manifest
+
+    cfg = _load(args)
+    if cfg is None:
+        return EXIT_ENV
+    try:
+        manifest = load_qwen_manifest(args.manifest)
+    except GuardrailsConfigError as exc:
+        _err(f"Manifest error: {exc.message}")
+        return EXIT_ENV
+    result = check_model_digest(manifest, base_url=cfg.base_url, model=cfg.model)
+    _heading("Qwen model digest")
+    _kv("tag", manifest["tag"])
+    _kv("strict", manifest["strict"])
+    _kv("pinned", result["expected"] or "(none)")
+    _kv("installed", result["observed"][:12] or "(unknown)")
+    _kv("status", result["status"])
+    for problem in result["problems"]:
+        if manifest["strict"]:
+            _err(problem)
+        else:
+            print(f"  [WARN] {problem}")
+    if result["status"] == "unpinned":
+        print(f"  To pin, set sha256: {result['observed']} in guardrails/qwen_manifest.yaml")
+    if result["status"] == "match":
+        _ok("installed model matches the pinned digest")
+    return EXIT_FAIL if (manifest["strict"] and result["problems"]) else EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m guardrails.cli",
@@ -142,6 +176,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_test = sub.add_parser("test", help="Run the pre-flight self-test.")
     p_test.set_defaults(func=cmd_test)
+
+    p_model = sub.add_parser("model", help="Check the installed Ollama model digest against the manifest pin.")
+    p_model.add_argument("--manifest", type=Path, default=None, help="Manifest to check (default: the shipped one).")
+    p_model.set_defaults(func=cmd_model)
 
     return parser
 
