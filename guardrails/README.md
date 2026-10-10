@@ -75,7 +75,7 @@ a model when the engine is available. The gateway instead uses non-generating
 | `tool_broker.py` | Re-export of `utils.tool_broker` (canonical name-gate) for guardrails-side tests. Out-of-band callers import `utils.tool_broker` directly, not this package (I6) |
 | `call_inventory.py` | Fail-closed AST inventory of `ChatOpenAI`/`ChatXAI`/`ChatAnthropic`/`generate_async` call sites. Unregistered files fail pytest and `python -m guardrails.call_inventory` (exit 1) |
 | `profiles.py` / `profiles.yaml` | Machine-readable guardrail profile matrix; rejects any profile claiming `mode: enforced` for a rail outside `IMPLEMENTED_RAILS` |
-| `qwen_registry.py` / `qwen_manifest.yaml` | Optional Qwen/Ollama tag manifest; strict mode default-off, no weight fetch. Production code has no caller; tests cover manifest loading and provenance IDs. |
+| `qwen_registry.py` / `qwen_manifest.yaml` | Optional Qwen/Ollama tag manifest; strict mode default-off, no weight fetch. `python -m guardrails.cli model` checks the pinned digest against the local Ollama (operator-run, read-only, not on the request path). `provenance_ids_for_docs` has no production caller. |
 | `config/` | NeMo `config.yml` + Colang templates |
 
 ## Status (code, not the package docstring)
