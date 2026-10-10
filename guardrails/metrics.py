@@ -6,7 +6,6 @@ surface is left completely untouched. The two streams can be cross-referenced
 later by ``query_hash`` (both use the same keyed query fingerprint), but the
 guardrails stream is the authoritative source for:
 
-  * agentic / tool-call activity            -> event "tool_call"
   * blocked generations (input or output)   -> event "blocked_generation"
   * logged hallucinations (ungrounded)      -> event "hallucination_flagged"
   * individual rail firings                  -> event "rail_triggered"
@@ -31,7 +30,6 @@ from utils.logger import query_fingerprint
 logger = logging.getLogger("cyclaw.guardrails.metrics")
 
 # Canonical event types. Kept as constants so producers and the analyzer agree.
-EVENT_TOOL_CALL = "tool_call"
 EVENT_BLOCKED = "blocked_generation"
 EVENT_HALLUCINATION = "hallucination_flagged"
 EVENT_RAIL_TRIGGERED = "rail_triggered"
@@ -59,7 +57,6 @@ _ALWAYS_ALLOWED_FIELDS = frozenset({"event", "timestamp", "query_hash"})
 
 # Per-event allowlist. Unknown kwargs (e.g. payload=) are stripped before persist.
 _EVENT_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
-    EVENT_TOOL_CALL: frozenset({"tool", "ok"}),
     EVENT_BLOCKED: frozenset({"stage", "rail", "reason"}),
     EVENT_HALLUCINATION: frozenset({"grounding_score", "threshold"}),
     EVENT_RAIL_TRIGGERED: frozenset({"rail", "stage"}),
@@ -111,7 +108,6 @@ class GuardrailMetrics:
         self.persist = persist
         self.counters: Counter[str] = Counter()
         self.rails_fired: Counter[str] = Counter()
-        self.tools_called: Counter[str] = Counter()
 
     # --- Recording --------------------------------------------------------
 
@@ -139,11 +135,6 @@ class GuardrailMetrics:
                     type(exc).__name__,
                 )
         return record
-
-    def record_tool_call(self, tool: str, *, ok: bool = True, query: str | None = None, **fields: Any) -> dict:
-        """Record an agentic / external tool invocation."""
-        self.tools_called[tool] += 1
-        return self._record(EVENT_TOOL_CALL, tool=tool, ok=ok, query=query, **fields)
 
     def record_blocked(self, *, stage: str, rail: str | None = None, reason: str = "",
                        query: str | None = None, **fields: Any) -> dict:
@@ -213,9 +204,6 @@ def compute_guardrail_metrics(events: list[dict]) -> dict:
     summary: dict[str, Any] = {
         "total_events": len(events),
         "event_breakdown": {},
-        "tool_calls": 0,
-        "tool_call_failures": 0,
-        "tools_by_name": {},
         "blocked_generations": 0,
         "blocks_by_stage": {},
         "hallucinations_flagged": 0,
@@ -231,13 +219,6 @@ def compute_guardrail_metrics(events: list[dict]) -> dict:
         return summary
 
     summary["event_breakdown"] = dict(Counter(e.get("event", "unknown") for e in events).most_common())
-
-    tool_events = [e for e in events if e.get("event") == EVENT_TOOL_CALL]
-    summary["tool_calls"] = len(tool_events)
-    summary["tool_call_failures"] = sum(1 for e in tool_events if e.get("ok") is False)
-    summary["tools_by_name"] = dict(
-        Counter(e.get("tool", "unknown") for e in tool_events).most_common()
-    )
 
     blocked = [e for e in events if e.get("event") == EVENT_BLOCKED]
     summary["blocked_generations"] = len(blocked)
@@ -269,8 +250,8 @@ def compute_guardrail_metrics(events: list[dict]) -> dict:
             "max": max(scores),
         }
 
-    # Block rate over decided generations (allowed + blocked); skipped turns and
-    # tool calls are excluded from the denominator.
+    # Block rate over decided generations (allowed + blocked); skipped turns are
+    # excluded from the denominator.
     decided = summary["generations_allowed"] + summary["blocked_generations"]
     if decided:
         summary["block_rate"] = summary["blocked_generations"] / decided
@@ -288,10 +269,6 @@ def print_metrics(metrics_path: str | Path = "logs/guardrails.jsonl") -> None:
     print("\nEvent breakdown:")
     for event, count in s["event_breakdown"].items():
         print(f"  {event}: {count}")
-    print(f"\nTool calls: {s['tool_calls']} (failures: {s['tool_call_failures']})")
-    if s["tools_by_name"]:
-        for tool, count in s["tools_by_name"].items():
-            print(f"  {tool}: {count}")
     print(f"\nBlocked generations: {s['blocked_generations']}  (stages: {s['blocks_by_stage']})")
     print(f"Hallucinations flagged: {s['hallucinations_flagged']}")
     print(f"Soul-topic hits: {s['soul_topic_hits']}")
