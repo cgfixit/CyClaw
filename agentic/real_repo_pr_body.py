@@ -139,7 +139,7 @@ def render_pr_body(record: RealRepoRunRecord, *, now: datetime) -> str:
     parts: list[str] = [
         "## Proposed changes",
         "Automated candidate from CyClaw's real-repo-run loop (`agentic/real_repo_loop.py`): "
-        "plan, patch, verify in a jailed clone, then a human approved the commit and its push.",
+        + "plan, patch, verify in a jailed clone, then a human approved the commit and its push.",
         "",
         f"- **Run id:** {_md_inline(record.run_id)}",
         f"- **Repository:** {_md_inline(record.repo)}",
@@ -154,8 +154,8 @@ def render_pr_body(record: RealRepoRunRecord, *, now: datetime) -> str:
         *instruction,
         "",
         "**Invariant / Governance impact:** not assessed by the loop. A reviewer must check the diff "
-        "against the six invariants (`CLAUDE.md` section 3) before merge, and run "
-        "`python3 .claude/skills/invariant-guard/check_invariants.py` if a core file changed.",
+        + "against the six invariants (`CLAUDE.md` section 3) before merge, and run "
+        + "`python3 .claude/skills/invariant-guard/check_invariants.py` if a core file changed.",
         "",
         "## Types of changes",
         "_The loop cannot classify its own change; the reviewer re-ticks these._",
@@ -169,13 +169,13 @@ def render_pr_body(record: RealRepoRunRecord, *, now: datetime) -> str:
         "",
         "## Benefits / why",
         "The operator asked for the change quoted above; every check below passed on the accepted "
-        "iteration in a disposable copy before a human approved the commit.",
+        + "iteration in a disposable copy before a human approved the commit.",
         "",
         "## Risks to monitor",
         "- The patch was written by a model. Passing checks proves only what those checks test.",
         "- Review the full diff, not just this summary: this body lists paths, not content.",
         "- A file written by a rejected earlier iteration stays in the commit when the accepted "
-        "iteration's checks depended on it (see `RealRepoLoopResult.changed_files`).",
+        + "iteration's checks depended on it (see `RealRepoLoopResult.changed_files`).",
         "",
         "## Checklist",
         _box(False, "I have read `docs/THREAT_MODEL.md`, `INVARIANTS.md` and `SECURITY.md`"),
@@ -200,7 +200,7 @@ def render_pr_body(record: RealRepoRunRecord, *, now: datetime) -> str:
         "",
         "## Suggested merge order of open PRs",
         "_No trial merge was run: the loop does not inspect other open PRs. "
-        "Run the template's trial-merge recipe against current `main` before merging._",
+        + "Run the template's trial-merge recipe against current `main` before merging._",
         "",
         f"**This PR** (branch {branch}) · Blocked ⛔  ",
         "Impact: automated candidate, unreviewed.  ",
@@ -208,8 +208,8 @@ def render_pr_body(record: RealRepoRunRecord, *, now: datetime) -> str:
         "",
         "## ELI5",
         "A helper robot was asked to make the change quoted at the top. It wrote the files in a sealed "
-        "copy of the repo, ran the listed checks until they passed, and a person said yes to saving and "
-        "uploading it. Nobody has read the code yet: this PR is the place to do that.",
+        + "copy of the repo, ran the listed checks until they passed, and a person said yes to saving and "
+        + "uploading it. Nobody has read the code yet: this PR is the place to do that.",
         "",
         last_updated_stamp(now),
     ]
