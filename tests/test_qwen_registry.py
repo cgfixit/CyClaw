@@ -83,6 +83,7 @@ def test_non_loopback_base_url_is_refused_before_any_request() -> None:
         raise AssertionError("no request may leave the box")
 
     res = check_model_digest(
+        # DevSkim: ignore DS137138 - deliberately non-loopback fixture; the test asserts nothing connects
         _manifest(), base_url="http://example.com:11434/v1", model="qwen3.8:27b-mlx",
         client=httpx.Client(transport=httpx.MockTransport(boom)),
     )
