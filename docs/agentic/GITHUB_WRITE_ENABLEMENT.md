@@ -170,9 +170,12 @@ an unauthorized change.*
       Both CLI paths open the PR with the run's commit message as title and a
       complete `.github/PULL_REQUEST_TEMPLATE.md` fill built from the run record
       by `agentic/real_repo_pr_body.py` (operator text and fixed tokens only, no
-      model prose; the instruction and check names pass `redact_sensitive` and
-      every `@` is defused so nobody is mentioned), so `pr-template-check.yml`
-      does not fail the loop's own PRs.
+      model prose; check names pass `redact_sensitive` and every `@` is defused
+      so nobody is mentioned), so `pr-template-check.yml` does not fail the
+      loop's own PRs. The operator's `--instruction` appears only as a SHA-256
+      unless `--publish-instruction` is passed, and then redacted: the redactor
+      matches known secret shapes only, and instructions are often pasted
+      tickets.
 
       **A GitHub mutation is therefore network-triggerable once the flag is
       flipped** — by an authenticated, same-origin caller on loopback, against

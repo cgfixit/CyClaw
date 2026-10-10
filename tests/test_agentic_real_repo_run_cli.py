@@ -1142,6 +1142,8 @@ def test_publish_sends_a_template_complete_body_built_from_the_record(
     for heading in ("## Proposed changes", "## Types of changes", "## Checklist", "## Suggested merge order"):
         assert heading in body
     assert run_id in body and "target.txt" in body
+    # The instruction ("add the marker") is withheld unless --publish-instruction.
+    assert "add the marker" not in body and "SHA-256" in body
     assert [line for line in body.splitlines() if line.startswith("#")][-1] == "## ELI5"
     assert body.rstrip().splitlines()[-1].startswith("Last updated: ")
 
@@ -1213,6 +1215,21 @@ def test_publish_keeps_a_repos_own_title_convention_when_it_has_no_template_chec
     ])
     assert code == EXIT_OK
     assert sent["title"] == "feat: add target.txt"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["real-repo-run-publish", "--run-id", "a" * 32, "--reason", "r", "--confirm"],
+        ["real-repo-run-decide", "--run-id", "a" * 32, "--decision", "approve"],
+    ],
+)
+def test_publish_instruction_is_opt_in_on_both_publish_paths(argv):
+    from agentic.cli import build_parser
+
+    parser = build_parser()
+    assert parser.parse_args(argv).publish_instruction is False
+    assert parser.parse_args([*argv, "--publish-instruction"]).publish_instruction is True
 
 
 # --- standalone push/publish subcommands (their own decision points) ---------

@@ -24,6 +24,7 @@ headings), or a trailing ``Last updated:`` line.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -120,14 +121,26 @@ def _box(ticked: bool, label: str) -> str:
     return f"- [{'x' if ticked else ' '}] {label}"
 
 
-def render_pr_body(record: RealRepoRunRecord, *, now: datetime, redact: Callable[[str], str]) -> str:
+def render_pr_body(
+    record: RealRepoRunRecord,
+    *,
+    now: datetime,
+    redact: Callable[[str], str],
+    include_instruction: bool = False,
+) -> str:
     """Build a complete ``.github/PULL_REQUEST_TEMPLATE.md`` fill for a pushed run.
 
-    Pure: the same record, ``now`` and ``redact`` always produce the same
-    string. ``redact`` is required, not defaulted, because the instruction and
-    check names are free operator text about to be published: the injection
+    Pure: the same arguments always produce the same string. ``redact`` is
+    required, not defaulted, because check names (and an opted-in
+    instruction) are free operator text about to be published: the injection
     scan they passed does not remove secrets or PII, so the caller supplies the
     repository's redactor (``utils.logger.redact_sensitive``).
+
+    The instruction is published as a SHA-256 by default, the same treatment
+    ``plan_sha256`` gives the plan: it is often text pasted from a ticket or
+    chat, and a regex redactor fails open on any secret shape it does not
+    know. ``include_instruction`` (the CLI's ``--publish-instruction``) is the
+    operator's explicit choice to quote the redacted text instead.
     """
     title_ok = pr_title_problem(record.commit_message) is None
     files = record.changed_files
@@ -138,11 +151,13 @@ def render_pr_body(record: RealRepoRunRecord, *, now: datetime, redact: Callable
     outcome_lines = [
         f"- iteration {step}: {_md_inline(outcome)}" for step, outcome in enumerate(record.iteration_outcomes, 1)
     ] or [f"- {record.iterations} iteration(s); per-iteration outcomes not recorded on this run"]
-    instruction = (
-        _quote_block(redact(record.instruction), MAX_INSTRUCTION_CHARS)
-        if record.instruction
-        else ["> (not recorded on this run; it predates the instruction field)"]
-    )
+    if not record.instruction:
+        instruction = ["> (not recorded on this run; it predates the instruction field)"]
+    elif include_instruction:
+        instruction = _quote_block(redact(record.instruction), MAX_INSTRUCTION_CHARS)
+    else:
+        digest = hashlib.sha256(record.instruction.encode("utf-8")).hexdigest()
+        instruction = [f"> SHA-256 {digest} (text withheld; the operator can publish it with --publish-instruction)"]
     provider = _md_inline(record.provider) if record.provider else "local model (LocalProposerClient)"
     branch = _md_inline(record.branch_name or "(none)")
 

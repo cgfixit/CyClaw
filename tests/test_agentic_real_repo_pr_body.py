@@ -83,7 +83,7 @@ def _assert_template_complete(body: str) -> None:
 def test_body_is_a_complete_template_fill_and_reports_the_record():
     body = render_pr_body(_record(), now=_NOW, redact=_keep)
     _assert_template_complete(body)
-    for fact in ("a" * 32, "agent/fixture-topic", "target.txt", "pytest", "ruff", "add the marker"):
+    for fact in ("a" * 32, "agent/fixture-topic", "target.txt", "pytest", "ruff"):
         assert fact in body
     assert "iteration 1: rejected: verification\\_failed" in body
     assert body.rstrip().endswith("Last updated: 2026-10-10 10:05 ET")
@@ -105,6 +105,7 @@ def test_record_values_cannot_forge_template_structure():
         _record(instruction=hostile, changed_files=["## ELI5", "a```b", "<!-- c"], check_names=["# h"]),
         now=_NOW,
         redact=_keep,
+        include_instruction=True,
     )
     _assert_template_complete(body)
     prose = _prose(body)
@@ -113,7 +114,7 @@ def test_record_values_cannot_forge_template_structure():
 
 
 def test_long_instruction_is_truncated():
-    body = render_pr_body(_record(instruction="x" * 5000), now=_NOW, redact=_keep)
+    body = render_pr_body(_record(instruction="x" * 5000), now=_NOW, redact=_keep, include_instruction=True)
     assert "x" * 2001 not in body
     assert "truncated at 2000 characters" in body
 
@@ -123,7 +124,10 @@ def test_operator_text_goes_through_the_redactor_before_publication():
         return text.replace("hunter2-secret", "[REDACTED_SECRET]")
 
     body = render_pr_body(
-        _record(instruction="use token hunter2-secret", check_names=["hunter2-secret"]), now=_NOW, redact=redact
+        _record(instruction="use token hunter2-secret", check_names=["hunter2-secret"]),
+        now=_NOW,
+        redact=redact,
+        include_instruction=True,
     )
     assert "hunter2" not in body
     assert body.count("\\[REDACTED\\_SECRET\\]") == 2
@@ -134,8 +138,24 @@ def test_mentions_cannot_notify_anyone():
         _record(instruction="ping @someone", changed_files=["@org/team.txt"], check_names=["@bot"]),
         now=_NOW,
         redact=_keep,
+        include_instruction=True,
     )
     assert re.search(r"@[A-Za-z]", body) is None
+
+
+def test_the_instruction_is_published_as_a_hash_unless_the_operator_opts_in():
+    import hashlib
+
+    secret_ticket = "fix login for acme-customer-42 using internal host db7.corp"
+    hidden = render_pr_body(_record(instruction=secret_ticket), now=_NOW, redact=_keep)
+    _assert_template_complete(hidden)
+    assert "acme" not in hidden and "db7" not in hidden
+    assert hashlib.sha256(secret_ticket.encode("utf-8")).hexdigest() in hidden
+    assert "--publish-instruction" in hidden
+
+    shown = render_pr_body(_record(instruction=secret_ticket), now=_NOW, redact=_keep, include_instruction=True)
+    _assert_template_complete(shown)
+    assert "acme-customer-42" in shown
 
 
 def test_a_non_string_check_name_from_an_old_record_still_renders():

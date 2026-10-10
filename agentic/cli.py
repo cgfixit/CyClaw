@@ -1114,7 +1114,7 @@ def _push_record(tools: RepoWorkspaceTools, record: RealRepoRunRecord, runs_dir:
 
 def _publish_record(
     cfg: AgenticConfig, record: RealRepoRunRecord, runs_dir: Path,
-    *, reason: str, confirm: bool, config_path: str,
+    *, reason: str, confirm: bool, config_path: str, include_instruction: bool = False,
 ) -> int:
     """Open a draft PR for an already-pushed run, recording the URL on ``record``.
 
@@ -1155,7 +1155,12 @@ def _publish_record(
             cfg, "pr_create", reason, confirm=confirm,
             head=record.branch_name,
             title=record.commit_message,
-            body=render_pr_body(record, now=datetime.now(UTC), redact=lambda text: redact_sensitive(text, app_cfg)),
+            body=render_pr_body(
+                record,
+                now=datetime.now(UTC),
+                redact=lambda text: redact_sensitive(text, app_cfg),
+                include_instruction=include_instruction,
+            ),
             config_path=config_path,
         )
         result = execute_write(plan, cfg=cfg, confirm=confirm, config_path=config_path)
@@ -1319,6 +1324,7 @@ def cmd_real_repo_run_decide(args: argparse.Namespace) -> int:
                 code = _publish_record(
                     cfg, record, runs_dir,
                     reason=args.reason, confirm=args.confirm_publish, config_path=args.config,
+                    include_instruction=args.publish_instruction,
                 )
                 if code != EXIT_OK:
                     return code
@@ -1439,6 +1445,7 @@ def cmd_real_repo_run_publish(args: argparse.Namespace) -> int:
     try:
         code = _publish_record(
             cfg, record, runs_dir, reason=args.reason, confirm=args.confirm, config_path=args.config,
+            include_instruction=args.publish_instruction,
         )
         if code != EXIT_OK:
             return code
@@ -1693,6 +1700,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Required with --publish: a fresh confirmation for agentic.writer's own write gate, "
              "distinct from --decision approve.",
     )
+    p_run_decide.add_argument(
+        "--publish-instruction", action="store_true",
+        help="Quote the run's --instruction (redacted) in the PR body. Without it the body shows only "
+             "the instruction's SHA-256, since redaction cannot catch every secret or PII shape.",
+    )
     p_run_decide.set_defaults(func=cmd_real_repo_run_decide)
 
     p_run_push = sub.add_parser(
@@ -1709,6 +1721,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_run_publish.add_argument("--run-id", required=True)
     p_run_publish.add_argument("--reason", required=True, help="Human reason string (required).")
     p_run_publish.add_argument("--confirm", action="store_true", help="Required to actually open the PR.")
+    p_run_publish.add_argument(
+        "--publish-instruction", action="store_true",
+        help="Quote the run's --instruction (redacted) in the PR body. Without it the body shows only "
+             "the instruction's SHA-256, since redaction cannot catch every secret or PII shape.",
+    )
     p_run_publish.set_defaults(func=cmd_real_repo_run_publish)
 
     p_run_discard = sub.add_parser(
