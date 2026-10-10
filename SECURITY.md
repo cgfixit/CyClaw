@@ -141,4 +141,4 @@ image ENV instead.
 
 Sensitive paths are listed in `.github/CODEOWNERS`; changes there are review-requested automatically.
 
-Bidi and tag-character checks in `.githooks/_security.sh` skip a hit only when the file name matches `SEC_BINARY_GLOBS` and the line is invalid UTF-8 (and `iconv` is available). That list currently includes archives and executables (`*.whl`, `*.jar`, `*.so`, `*.dll`, `*.exe`, `*.dylib`), so executable archives are not exempt: a hit in such a file is skipped when its line is invalid UTF-8. Narrowing the list is tracked as a follow-up issue. Secret patterns still run on these files.
+Bidi and tag-character checks in `.githooks/_security.sh` skip a hit only when the file name matches `SEC_BINARY_GLOBS` and the line is invalid UTF-8 (and `iconv` is available). Executable and archive types (`*.whl`, `*.jar`, `*.so`, `*.dll`, `*.exe`, `*.dylib`) are currently exempt under that condition; #1624 tracks narrowing. Secret patterns still run on these files.
