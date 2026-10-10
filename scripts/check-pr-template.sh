@@ -1,132 +1,239 @@
 #!/usr/bin/env bash
-# Local PR-body gate against .github/PULL_REQUEST_TEMPLATE.md minimums.
+# Local PR gate: is this PR body (and, when given, its title and head branch) a
+# complete fill of .github/PULL_REQUEST_TEMPLATE.md?
+#
+# Who runs it: whoever is about to open a PR against this repo, human or coding
+# agent (Claude Code, Codex, Grok Build, Kimi), before `gh pr create` or a
+# GitHub connector create_pull_request. Git hooks cannot see PR bodies, so this
+# is the local half; .github/workflows/pr-template-check.yml is the blocking
+# CI half. The two apply the SAME rules and tag each failure with the SAME
+# [key]; tests/test_pr_template_check_parity.py runs both on shared fixtures,
+# so change them together.
 #
 # Usage:
-#   scripts/check-pr-template.sh PATH/TO/body.md
-#   gh pr view --json body -q .body | scripts/check-pr-template.sh -
-#   CYCLAW_PR_BODY_FILE=body.md scripts/check-pr-template.sh
+#   scripts/check-pr-template.sh [options] PATH/TO/body.md
+#   gh pr view N --json body -q .body | scripts/check-pr-template.sh [options] -
+#   CYCLAW_PR_BODY_FILE=body.md scripts/check-pr-template.sh [options]
 #
-# Also requires (owner decision 2026-10-10) the merge-order section with a
-# trial-merge note, `## ELI5` as the last heading, and `Last updated:
-# YYYY-MM-DD HH:MM ET` as the last non-blank line, mirroring the workflow.
-# The shipped template may keep the YYYY-MM-DD HH:MM ET placeholder.
+# Options (each also readable from the env var in brackets):
+#   --title TITLE          PR title [CYCLAW_PR_TITLE]; title check skipped if unset
+#   --branch BRANCH        head branch [CYCLAW_PR_BRANCH]; defaults to the
+#                          current git branch, skipped on a detached HEAD
+#   --changed-files FILE   newline list of changed paths for the core-path
+#                          invariant rule; overrides --base
+#   --base REF             diff REF...HEAD for that list (default origin/main
+#                          when it resolves; otherwise the rule is skipped)
 #
-# Exit 0 = ok; exit 1 = missing required sections.
-# Git hooks cannot intercept GitHub API / gh pr create bodies — agents and
-# humans should run this before opening a PR. CI runs the same headers as a
-# blocking check (.github/workflows/pr-template-check.yml).
+# Rules (keys match the workflow):
+#   proposed-changes types benefits risks checklist further-comments
+#   merge-order eli5   every body heading of the template is present
+#   types-ticked checklist-ticked   at least one [x] under each
+#   trial-merge        the merge-order note says trial merges were verified
+#   eli5-last          `## ELI5` is the last heading
+#   stamp              last non-blank line is `Last updated: YYYY-MM-DD HH:MM ET`
+#   too-short          body under 40 characters
+#   invariant          a core-path change must mention an invariant
+#   title              `[prefix] - Short sentence` (commit-msg hook's prefixes
+#                      and exemptions)
+#   branch             a .githooks pre-commit/pre-push allowed branch name
+# Fenced code blocks and HTML comments are ignored, so the template's own
+# example section does not count. Run against the template file itself, the
+# fill-in rules (stamp placeholder, ticked boxes) are skipped so the template
+# can be self-checked.
+#
+# Exit 0 = ok; 1 = rules failed; 2 = usage error.
 set -euo pipefail
 
-input="${1:-${CYCLAW_PR_BODY_FILE:-}}"
-if [[ -z "$input" ]]; then
+usage() {
   printf '%s\n' \
-    "usage: scripts/check-pr-template.sh <body.md|->" \
-    "   or: CYCLAW_PR_BODY_FILE=body.md scripts/check-pr-template.sh" \
+    "usage: scripts/check-pr-template.sh [--title T] [--branch B] [--changed-files F | --base REF] <body.md|->" \
+    "   or: CYCLAW_PR_BODY_FILE=body.md scripts/check-pr-template.sh [options]" \
     >&2
   exit 2
-fi
+}
+
+title="${CYCLAW_PR_TITLE:-}"
+branch="${CYCLAW_PR_BRANCH:-}"
+changed_files=""
+base=""
+input=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --title) [[ $# -ge 2 ]] || usage; title="$2"; shift 2 ;;
+    --branch) [[ $# -ge 2 ]] || usage; branch="$2"; shift 2 ;;
+    --changed-files) [[ $# -ge 2 ]] || usage; changed_files="$2"; shift 2 ;;
+    --base) [[ $# -ge 2 ]] || usage; base="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    -) input="-"; shift ;;
+    -*) printf 'check-pr-template: unknown option: %s\n' "$1" >&2; usage ;;
+    *) input="$1"; shift ;;
+  esac
+done
+input="${input:-${CYCLAW_PR_BODY_FILE:-}}"
+[[ -n "$input" ]] || usage
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 
 if [[ "$input" == "-" ]]; then
-  body="$(cat)"
+  cat >"$tmp/body.md"
+  is_template=0
 elif [[ -f "$input" ]]; then
-  body="$(cat "$input")"
+  cp "$input" "$tmp/body.md"
+  input_abs="$(cd "$(dirname "$input")" && pwd)/$(basename "$input")"
+  is_template=0
+  [[ "$input_abs" == "$repo_root/.github/PULL_REQUEST_TEMPLATE.md" ]] && is_template=1
 else
   printf 'check-pr-template: file not found: %s\n' "$input" >&2
   exit 2
 fi
 
-fail=0
-missing=()
+notes=()
+if [[ -z "$branch" ]]; then
+  branch="$(git -C "$repo_root" symbolic-ref --short -q HEAD 2>/dev/null || true)"
+  [[ -n "$branch" ]] || notes+=("branch not checked (detached HEAD; pass --branch)")
+fi
+[[ -n "$title" ]] || notes+=("title not checked (pass --title)")
 
-require_header() {
-  local label="$1"
-  local pattern="$2"
-  if ! printf '%s' "$body" | grep -Eiq "$pattern"; then
-    missing+=("$label")
-    fail=1
+check_core=1
+if [[ -n "$changed_files" ]]; then
+  [[ -r "$changed_files" ]] || { printf 'check-pr-template: file not found: %s\n' "$changed_files" >&2; exit 2; }
+  cat "$changed_files" >"$tmp/files.txt"
+else
+  base="${base:-origin/main}"
+  if git -C "$repo_root" rev-parse --verify -q "$base^{commit}" >/dev/null 2>&1; then
+    git -C "$repo_root" diff --name-only "$base...HEAD" >"$tmp/files.txt"
+  else
+    check_core=0
+    notes+=("core-path invariant rule not checked ($base does not resolve; pass --base or --changed-files)")
   fi
+fi
+[[ -f "$tmp/files.txt" ]] || : >"$tmp/files.txt"
+
+set +e
+PR_TITLE="$title" PR_BRANCH="$branch" IS_TEMPLATE="$is_template" CHECK_CORE="$check_core" \
+  perl -e '
+use strict;
+use warnings;
+my ($body_path, $files_path) = @ARGV;
+local $/;
+open(my $bh, "<:encoding(UTF-8)", $body_path) or die "read body: $!";
+my $body = <$bh>;
+close $bh;
+open(my $fh, "<", $files_path) or die "read files: $!";
+my @files = grep { length } split /\r?\n/, (<$fh> // "");
+close $fh;
+$body =~ s/\r\n/\n/g;
+
+my $is_template = $ENV{IS_TEMPLATE} eq "1";
+my $title = $ENV{PR_TITLE} // "";
+my $branch = $ENV{PR_BRANCH} // "";
+my @missing;
+sub fail { push @missing, "[$_[0]] $_[1]"; }
+
+(my $prose = $body) =~ s/```.*?```//gs;
+$prose =~ s/<!--.*?-->//gs;
+
+my @sections = (
+  ["proposed-changes", "## Proposed changes", qr/^#{1,4}\s*proposed changes\b/im],
+  ["types", "## Types of changes", qr/^#{1,4}\s*types of changes\b/im],
+  ["benefits", "## Benefits / why", qr/^#{1,4}\s*benefits\b/im],
+  ["risks", "## Risks to monitor", qr/^#{1,4}\s*risks to monitor\b/im],
+  ["checklist", "## Checklist", qr/^#{1,4}\s*checklist\b/im],
+  ["further-comments", "## Further comments", qr/^#{1,4}\s*further comments\b/im],
+  ["merge-order", "## Suggested merge order of open PRs", qr/^#{1,4}\s*suggested merge order\b/im],
+  ["eli5", "## ELI5", qr/^#{1,4}\s*eli5\b/im],
+);
+for my $s (@sections) {
+  fail($s->[0], "Missing section `$s->[1]`") unless $prose =~ $s->[2];
+}
+fail("trial-merge", "Merge-order section must say trial merges were verified (the words `trial merge`)")
+  unless $prose =~ /trial[- ]merge/i;
+
+# Text between a heading and the next heading of any level.
+sub section_text {
+  my ($re) = @_;
+  my @lines = split /\n/, $prose, -1;
+  for my $i (0 .. $#lines) {
+    next unless $lines[$i] =~ $re;
+    my @out;
+    for my $j ($i + 1 .. $#lines) {
+      last if $lines[$j] =~ /^#{1,6}\s/;
+      push @out, $lines[$j];
+    }
+    return join "\n", @out;
+  }
+  return undef;
+}
+my $ticked = qr/^\s*[-*]\s*\[[xX]\]/m;
+unless ($is_template) {
+  my $types = section_text($sections[1][2]);
+  fail("types-ticked", "Tick at least one box under `## Types of changes`")
+    if defined $types && $types !~ $ticked;
+  my $check = section_text($sections[4][2]);
+  fail("checklist-ticked", "Tick at least one box under `## Checklist`")
+    if defined $check && $check !~ $ticked;
 }
 
-# Align with template + advisory CI loose matching, but require the CyClaw-
-# named sections that Grok Build / agents must fill.
-require_header "Proposed changes (or Why/Benefits/Summary)" \
-  '^#{1,4}[[:space:]]*(proposed changes|benefits|why|summary|what)\b'
-require_header "Types of changes" \
-  '^#{1,4}[[:space:]]*types of changes\b'
-require_header "Benefits / why" \
-  '^#{1,4}[[:space:]]*(benefits|why)\b'
-require_header "Risks to monitor" \
-  '^#{1,4}[[:space:]]*risks?([[:space:]]*(to[[:space:]]*monitor|impact))?\b'
-require_header "Checklist" \
-  '^#{1,4}[[:space:]]*checklist\b'
-
-# Headings inside fenced examples or HTML comments do not count; the workflow
-# strips them the same way.
-prose="$(printf '%s' "$body" | perl -0pe 's/```.*?```//gs; s/<!--.*?-->//gs')"
-
-require_prose_header() {
-  local label="$1"
-  local pattern="$2"
-  if ! printf '%s' "$prose" | grep -Eiq "$pattern"; then
-    missing+=("$label")
-    fail=1
-  fi
+my @headings = ($prose =~ /^(#{1,6}\s+.*)$/gm);
+if ($prose =~ $sections[7][2] && @headings && $headings[-1] !~ /^#{1,6}\s*eli5\b/i) {
+  fail("eli5-last", "`## ELI5` must be the last heading (the last one is `$headings[-1]`)");
 }
 
-require_prose_header "Suggested merge order of open PRs" \
-  '^#{1,4}[[:space:]]*suggested merge order\b'
-require_prose_header "A note that trial merges were verified (the words 'trial merge')" \
-  'trial[- ]merge'
-require_prose_header "ELI5" \
-  '^#{1,4}[[:space:]]*eli5\b'
+my @nonblank = grep { /\S/ } map { (my $l = $_) =~ s/\s+$//; $l } split /\n/, $prose;
+my $last = @nonblank ? $nonblank[-1] : "";
+my $stamp_ok = $last =~ /^Last updated: \d{4}-\d{2}-\d{2} \d{2}:\d{2} ET$/
+  || ($is_template && $last eq "Last updated: YYYY-MM-DD HH:MM ET");
+fail("stamp", "Last non-blank line must be `Last updated: YYYY-MM-DD HH:MM ET`") unless $stamp_ok;
 
-last_heading="$(printf '%s\n' "$prose" | grep -E '^#{1,6}[[:space:]]+' | tail -n 1 || true)"
-if printf '%s' "$prose" | grep -Eiq '^#{1,4}[[:space:]]*eli5\b' \
-  && ! printf '%s' "$last_heading" | grep -Eiq '^#{1,6}[[:space:]]*eli5\b'; then
-  missing+=("ELI5 must be the last heading (the last one is: ${last_heading})")
-  fail=1
-fi
+(my $trimmed = $body) =~ s/^\s+|\s+$//g;
+fail("too-short", "Body is under 40 characters") if length($trimmed) < 40;
 
-last_nonempty="$(printf '%s\n' "$prose" | tr -d '\r' | sed -e 's/[[:space:]]*$//' | awk 'NF { line = $0 } END { print line }')"
-filled_stamp='^Last updated: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} ET$'
-stamp_ok=0
-if grep -Eq "$filled_stamp" <<<"$last_nonempty"; then
-  stamp_ok=1
-elif [[ "$input" != "-" && -f "$input" ]]; then
-  input_abs="$(cd "$(dirname "$input")" && pwd)/$(basename "$input")"
-  if [[ "$input_abs" == "$(cd "$(dirname "$0")/.." && pwd)/.github/PULL_REQUEST_TEMPLATE.md" ]] \
-    && grep -Eq '^Last updated: YYYY-MM-DD HH:MM ET$' <<<"$last_nonempty"; then
-    stamp_ok=1
-  fi
-fi
-if [[ "$stamp_ok" -ne 1 ]]; then
-  missing+=("Last updated timestamp (last line, YYYY-MM-DD HH:MM ET)")
-  fail=1
-fi
+if ($ENV{CHECK_CORE} eq "1") {
+  my $core = qr/^(gate\.py|gate_ops\.py|gate_auth\.py|gate_memory\.py|graph\.py|mcp_hybrid_server\.py|utils\/personality\.py|config\.yaml)$/;
+  if ((grep { $_ =~ $core } @files) && $prose !~ /invariant/i) {
+    fail("invariant", "Touches a core-path file (gate*.py, graph.py, mcp_hybrid_server.py, "
+      . "utils/personality.py, config.yaml) but never mentions an invariant");
+  }
+}
 
-if [[ "${#body}" -lt 40 ]]; then
-  missing+=("Body too short (< 40 chars)")
-  fail=1
-fi
+if (length $title) {
+  my $exempt = $title =~ /^(Merge |Revert |fixup! |squash! |Amend! )/ || $title =~ /^(chore|build|ci)\(deps\)/;
+  my $prefixes = "invariant|governance|fsconnect|agentic|rag|harness|security|docs|infra|fix|feat";
+  fail("title", "Title must read `[prefix] - Short sentence` with prefix one of $prefixes")
+    unless $exempt || $title =~ /^\[($prefixes)\] - \S/;
+}
 
-if [[ "$fail" -ne 0 ]]; then
-  printf '%s\n' \
-    "check-pr-template: PR body is missing required sections from" \
-    "  .github/PULL_REQUEST_TEMPLATE.md" \
-    "" \
-    "Missing:" \
-    >&2
-  for m in "${missing[@]}"; do
-    printf '  - %s\n' "$m" >&2
-  done
-  printf '%s\n' \
-    "" \
-    "Fill the full template before: gh pr create / GitHub connector create_pull_request" \
-    "Grok Build branch prefix: grok/<feature>" \
-    "Title format: [prefix] - Short descriptive sentence" \
-    >&2
+if (length $branch) {
+  my $ok = $branch =~ /^(main|master|develop)$/
+    || $branch =~ m{^(grok|claude|codex|kimi|agent|CyClaw|cyclaw|dependabot|renovate|release|hotfix)/.+};
+  fail("branch", "Head branch `$branch` needs a vendor prefix (claude/, codex/, grok/, kimi/, agent/, CyClaw/, cyclaw/)")
+    unless $ok;
+}
+
+binmode STDOUT, ":encoding(UTF-8)";
+print "$_\n" for @missing;
+exit(@missing ? 1 : 0);
+' "$tmp/body.md" "$tmp/files.txt" >"$tmp/missing.txt"
+rc=$?
+set -e
+
+for n in "${notes[@]+"${notes[@]}"}"; do
+  printf 'check-pr-template: note: %s\n' "$n" >&2
+done
+
+if [[ "$rc" -eq 1 ]]; then
+  {
+    printf '%s\n' "check-pr-template: not a complete fill of .github/PULL_REQUEST_TEMPLATE.md" "" "Missing:"
+    sed 's/^/  - /' "$tmp/missing.txt"
+    printf '%s\n' "" "Fill the full template before: gh pr create / GitHub connector create_pull_request"
+  } >&2
   exit 1
+elif [[ "$rc" -ne 0 ]]; then
+  printf 'check-pr-template: internal error (perl exit %s)\n' "$rc" >&2
+  exit 2
 fi
 
-printf 'check-pr-template: OK — required template sections present\n'
+printf 'check-pr-template: OK — complete template fill\n'
 exit 0

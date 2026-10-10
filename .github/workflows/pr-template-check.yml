@@ -1,21 +1,26 @@
-# Blocking check: does this PR's description follow .github/PULL_REQUEST_TEMPLATE.md?
+# Blocking check: is this PR a complete fill of .github/PULL_REQUEST_TEMPLATE.md?
 #
-# Same required headers as scripts/check-pr-template.sh (Proposed changes /
-# Why / What, Types of changes, Benefits / why, Risks, Checklist). Core-path
-# PRs must also mention an invariant. Dependabot is skipped (changelog tables).
-# Also required (owner decision 2026-10-10): `## Suggested merge order of open PRs`
-# with a trial-merge note, and `## ELI5` as the LAST heading. Fenced code blocks
-# and HTML comments are ignored, so the template's own example does not count.
-# The last non-blank line must be `Last updated: YYYY-MM-DD HH:MM ET` (the same
-# rule cg-agent-harness's checker has).
-# Verify / Base stay Grok-local extras and are not required here.
+# Same rules, and the same [key] per failure, as scripts/check-pr-template.sh
+# (the local pre-flight humans and coding agents run before opening a PR);
+# tests/test_pr_template_check_parity.py runs both on shared fixtures, so
+# change them together. Required: every body heading of the template
+# (Proposed changes, Types of changes, Benefits / why, Risks to monitor,
+# Checklist, Further comments, Suggested merge order of open PRs, ELI5), at
+# least one ticked box under Types of changes and under Checklist, a
+# trial-merge note, `## ELI5` as the LAST heading, `Last updated: YYYY-MM-DD
+# HH:MM ET` as the last non-blank line, an invariant mention when a core-path
+# file changes, a `[prefix] - Sentence` title (the commit-msg hook's prefixes
+# and exemptions), and a .githooks-allowed head branch name. Fenced code
+# blocks and HTML comments are ignored, so the template's own example does not
+# count. Dependabot is skipped (changelog tables). Verify / Base stay
+# Grok-local extras and are not required here.
 #
-# Posts a sticky comment AND fails the job when sections are missing so every
-# vendor (Kimi, Codex, Grok, GitHub UI) is gated the same way. Git hooks cannot
-# see gh pr create / GitHub API bodies.
+# Posts a sticky comment AND fails the job when rules fail so every vendor
+# (Kimi, Codex, Grok, GitHub UI) is gated the same way. Git hooks cannot see
+# gh pr create / GitHub API bodies.
 #
 # No checkout, no execution of anything from the PR: this only reads the PR
-# body string already present in the pull_request event payload.
+# body, title, head ref and changed-file list from the event payload and API.
 
 name: PR Template Check
 
@@ -49,93 +54,93 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const marker = "<!-- cyclaw-pr-template-check -->";
-            const body = context.payload.pull_request.body || "";
+            const pr = context.payload.pull_request;
+            const body = pr.body || "";
+            const title = pr.title || "";
+            const branch = (pr.head && pr.head.ref) || "";
 
-            // Keep these regexes in lock-step with scripts/check-pr-template.sh.
-            const checks = [
-              {
-                key: "rationale",
-                label: "Why this change / benefits (e.g. `## Proposed changes`, `## Why`, `## Benefits`, `## Summary`, `## What`)",
-                re: /^#{1,4}\s*(proposed changes|benefits|why|summary|what)\b/im,
-              },
-              {
-                key: "types",
-                label: "Types of changes (e.g. `## Types of changes`)",
-                re: /^#{1,4}\s*types of changes\b/im,
-              },
-              {
-                key: "benefits",
-                label: "Benefits / why (e.g. `## Benefits`, `## Why`)",
-                re: /^#{1,4}\s*(benefits|why)\b/im,
-              },
-              {
-                key: "risk",
-                label: "Risks to monitor (e.g. `## Risks to monitor`, `## Risk`)",
-                re: /^#{1,4}\s*risks?(\s*(to\s*monitor|impact))?\b/im,
-              },
-              {
-                key: "checklist",
-                label: "Checklist (e.g. `## Checklist`)",
-                re: /^#{1,4}\s*checklist\b/im,
-              },
-            ];
+            // Rules mirror scripts/check-pr-template.sh one for one, keys
+            // included. tests/test_pr_template_check_parity.py runs both.
+            const missing = [];
+            const fail = (key, label) => missing.push({ key, label });
 
             // Headings inside fenced examples or HTML comments do not count.
-            const prose = body.replace(/```[\s\S]*?```/g, "").replace(/<!--[\s\S]*?-->/g, "");
-            checks.push(
-              {
-                key: "merge-order",
-                prose: true,
-                label: "Suggested merge order of open PRs (`## Suggested merge order of open PRs`)",
-                re: /^#{1,4}\s*suggested merge order\b/im,
-              },
-              {
-                key: "trial-merge",
-                prose: true,
-                label: "A note that trial merges were verified (the words `trial merge`)",
-                re: /trial[- ]merge/i,
-              },
-              {
-                key: "eli5",
-                prose: true,
-                label: "ELI5 (`## ELI5`)",
-                re: /^#{1,4}\s*eli5\b/im,
-              },
-            );
-            const missing = checks.filter((c) => !c.re.test(c.prose ? prose : body));
+            const prose = body.replace(/\r\n/g, "\n").replace(/```[\s\S]*?```/g, "").replace(/<!--[\s\S]*?-->/g, "");
+
+            const sections = [
+              ["proposed-changes", "## Proposed changes", /^#{1,4}\s*proposed changes\b/im],
+              ["types", "## Types of changes", /^#{1,4}\s*types of changes\b/im],
+              ["benefits", "## Benefits / why", /^#{1,4}\s*benefits\b/im],
+              ["risks", "## Risks to monitor", /^#{1,4}\s*risks to monitor\b/im],
+              ["checklist", "## Checklist", /^#{1,4}\s*checklist\b/im],
+              ["further-comments", "## Further comments", /^#{1,4}\s*further comments\b/im],
+              ["merge-order", "## Suggested merge order of open PRs", /^#{1,4}\s*suggested merge order\b/im],
+              ["eli5", "## ELI5", /^#{1,4}\s*eli5\b/im],
+            ];
+            for (const [key, heading, re] of sections) {
+              if (!re.test(prose)) fail(key, `Missing section \`${heading}\``);
+            }
+            if (!/trial[- ]merge/i.test(prose)) {
+              fail("trial-merge", "Merge-order section must say trial merges were verified (the words `trial merge`)");
+            }
+
+            // Text between a heading and the next heading of any level.
+            const sectionText = (re) => {
+              const lines = prose.split("\n");
+              const i = lines.findIndex((l) => re.test(l));
+              if (i < 0) return null;
+              const out = [];
+              for (let j = i + 1; j < lines.length && !/^#{1,6}\s/.test(lines[j]); j++) out.push(lines[j]);
+              return out.join("\n");
+            };
+            const ticked = /^\s*[-*]\s*\[[xX]\]/m;
+            const types = sectionText(sections[1][2]);
+            if (types !== null && !ticked.test(types)) fail("types-ticked", "Tick at least one box under `## Types of changes`");
+            const checklist = sectionText(sections[4][2]);
+            if (checklist !== null && !ticked.test(checklist)) fail("checklist-ticked", "Tick at least one box under `## Checklist`");
+
+            const headings = prose.match(/^#{1,6}\s+.*$/gm) || [];
+            const lastHeading = headings[headings.length - 1];
+            if (sections[7][2].test(prose) && lastHeading && !/^#{1,6}\s*eli5\b/i.test(lastHeading)) {
+              fail("eli5-last", "`## ELI5` must be the last heading (the last one is `" + lastHeading + "`)");
+            }
+
             const lastLine = prose.split("\n").map((l) => l.trimEnd()).filter((l) => l.trim() !== "").pop() || "";
             if (!/^Last updated: \d{4}-\d{2}-\d{2} \d{2}:\d{2} ET$/.test(lastLine)) {
-              missing.push({ key: "stamp", label: "Last updated timestamp as the last line (`Last updated: YYYY-MM-DD HH:MM ET`)" });
+              fail("stamp", "Last non-blank line must be `Last updated: YYYY-MM-DD HH:MM ET`");
             }
-            const headings = prose.match(/^#{1,6}\s+.*$/gm) || [];
-            if (!missing.some((c) => c.key === "eli5") && !/^#{1,6}\s*eli5\b/i.test(headings[headings.length - 1])) {
-              missing.push({ key: "eli5-last", label: "`## ELI5` must be the last heading (the last one is `" + headings[headings.length - 1] + "`)" });
-            }
-            const tooShort = body.trim().length < 40;
+            if (body.trim().length < 40) fail("too-short", "Body is under 40 characters");
 
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
+              pull_number: pr.number,
               per_page: 100,
             });
-            // The full I6 "core six" from CLAUDE.md section 3, not just the
-            // original three: gate_ops.py, gate_auth.py and gate_memory.py are
-            // core-path files by the same invariant, so a PR rewriting the
-            // auth/RBAC surface or the /ops shims was exempt from the
-            // invariant-mention requirement that gate.py's own edits trigger.
-            // utils/personality.py (I5 soul governance) and config.yaml (every
-            // tunable) stay in scope as before.
+            // The full I6 "core six" from CLAUDE.md section 3, plus
+            // utils/personality.py (I5 soul governance) and config.yaml.
             const corePathRe = /^(gate\.py|gate_ops\.py|gate_auth\.py|gate_memory\.py|graph\.py|mcp_hybrid_server\.py|utils\/personality\.py|config\.yaml)$/;
-            const touchesCore = files.some((f) => corePathRe.test(f.filename));
-            const mentionsInvariant = /invariant/i.test(body);
-            if (touchesCore && !mentionsInvariant) {
-              missing.push({
-                label:
-                  "Invariant / Governance impact statement -- this PR touches a core-path file " +
-                  "(gate.py/gate_ops.py/gate_auth.py/gate_memory.py/graph.py/mcp_hybrid_server.py/" +
-                  "utils/personality.py/config.yaml) but its body never mentions an invariant",
-              });
+            if (files.some((f) => corePathRe.test(f.filename)) && !/invariant/i.test(prose)) {
+              fail(
+                "invariant",
+                "Touches a core-path file (gate*.py, graph.py, mcp_hybrid_server.py, utils/personality.py, config.yaml) but never mentions an invariant",
+              );
+            }
+
+            // Same prefixes and exemptions as .githooks/commit-msg, since the
+            // squash-merge commit subject is this title.
+            const prefixes = "invariant|governance|fsconnect|agentic|rag|harness|security|docs|infra|fix|feat";
+            const titleExempt = /^(Merge |Revert |fixup! |squash! |Amend! )/.test(title) || /^(chore|build|ci)\(deps\)/.test(title);
+            if (!titleExempt && !new RegExp(`^\\[(${prefixes})\\] - \\S`).test(title)) {
+              fail("title", `Title must read \`[prefix] - Short sentence\` with prefix one of ${prefixes}`);
+            }
+
+            // Same allowlist as .githooks/pre-commit and pre-push.
+            const branchOk =
+              /^(main|master|develop)$/.test(branch) ||
+              /^(grok|claude|codex|kimi|agent|CyClaw|cyclaw|dependabot|renovate|release|hotfix)\/.+/.test(branch);
+            if (!branchOk) {
+              fail("branch", `Head branch \`${branch}\` needs a vendor prefix (claude/, codex/, grok/, kimi/, agent/, CyClaw/, cyclaw/)`);
             }
 
             const comments = await github.paginate(github.rest.issues.listComments, {
@@ -148,16 +153,16 @@ jobs:
               (c) => c.user?.login === "github-actions[bot]" && c.body?.includes(marker),
             );
 
-            if (!tooShort && missing.length === 0) {
+            if (missing.length === 0) {
               if (existing) {
                 await github.rest.issues.updateComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   comment_id: existing.id,
-                  body: `${marker}\nPR body covers the sections \`.github/PULL_REQUEST_TEMPLATE.md\` requires (rationale, types, benefits, risk, checklist, merge order, ELI5, last-updated stamp${touchesCore ? ", invariant impact" : ""}).`,
+                  body: `${marker}\nPR is a complete fill of \`.github/PULL_REQUEST_TEMPLATE.md\` (every section, ticked boxes, merge order, ELI5 last, last-updated stamp, title, branch).`,
                 });
               }
-              core.info("PR body covers the expected template sections.");
+              core.info("PR is a complete template fill.");
               return;
             }
 
@@ -165,13 +170,11 @@ jobs:
               marker,
               "**PR template check** (blocking)",
               "",
-              tooShort
-                ? "This PR body is very short. `.github/PULL_REQUEST_TEMPLATE.md` requires Types of changes, Benefits/why, Risks, and Checklist — even for light out-of-band/docs/tests changes."
-                : "This PR body is missing required sections from `.github/PULL_REQUEST_TEMPLATE.md`:",
+              "This PR is not a complete fill of `.github/PULL_REQUEST_TEMPLATE.md`:",
               "",
-              ...missing.map((c) => `- ${c.label}`),
+              ...missing.map((c) => `- [${c.key}] ${c.label}`),
               "",
-              "This check **fails the job**. Copy `.github/PULL_REQUEST_TEMPLATE.md`, fill those headers, and edit the PR description. Verify / Base are optional here (Grok-local push extras).",
+              "This check **fails the job**. Copy `.github/PULL_REQUEST_TEMPLATE.md`, fill every section, and edit the PR. Check locally first with `scripts/check-pr-template.sh --title ... --branch ... body.md`. Verify / Base are optional here (Grok-local push extras).",
             ];
             const commentBody = lines.join("\n");
 
@@ -186,13 +189,9 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
+                issue_number: pr.number,
                 body: commentBody,
               });
             }
 
-            core.setFailed(
-              tooShort
-                ? "PR body too short for .github/PULL_REQUEST_TEMPLATE.md"
-                : `PR body missing: ${missing.map((c) => c.key || c.label).join(", ")}`,
-            );
+            core.setFailed(`PR template check failed: ${missing.map((c) => c.key).join(", ")}`);
