@@ -363,6 +363,8 @@ rather than maximizing it up front on the assumption that more is free.
 
 The shipped default stays `qwen3.8:27b-mlx`. `ollama pull qwen3.8:27b-mlx` and a fresh install keep using that registry tag. A derived tag exists only on a machine where someone ran `ollama create`. Do not put `qwen3.8:27b-mlx-cg` in `config.yaml` as the default.
 
+`qwen3.8:27b-mlx-cg` is a local tag built from `macos/Modelfile.cg` on the author's machine, not a published model. Use your own tag name: drop the `-cg` suffix or choose another. Set `num_ctx` and the sampling parameters to fit your Ollama max context, unified memory, and model.
+
 CyClaw talks to Ollama on the OpenAI-compatible path, `POST /v1/chat/completions` (`llm/client.py`). That body sends `model`, `messages`, `max_tokens`, `temperature`, and, when `models.local_llm.provider` is `ollama`, `reasoning_effort`. It does not send `num_ctx`. Ollama's compatibility endpoint does not accept `num_ctx` (maintainer note on [ollama/ollama#16814](https://github.com/ollama/ollama/issues/16814)). A `PARAMETER num_ctx` stored on the model is what loads, and nothing in a `/v1` request can override it.
 
 `OLLAMA_CONTEXT_LENGTH` is also not a substitute when it is unset in the process that is actually serving. `macos/ollama-mlx.env` sets it to 32768, and `macos/setup-from-clone.sh` sources that file only when *that script* launches `ollama serve`. An already-running Ollama.app ignores the file until it is quit. This checkout did not measure which value wins when a Modelfile `num_ctx` and `OLLAMA_CONTEXT_LENGTH` are both set. The derived tag is the pin that does not depend on the app process environment.
