@@ -174,7 +174,7 @@ def _run_start(cfg_path, checks_file, *, block=_RIGHT_BLOCK, extra=()):
         "--config", cfg_path, "real-repo-run",
         "--repo", "--instruction", "add the marker",
         "--checks-file", checks_file,
-        "--branch", "agent/fixture-topic", "--commit-message", "add target.txt",
+        "--branch", "agent/fixture-topic", "--commit-message", "[agentic] - Add target.txt",
         "--reason", "test run", "--confirm", *extra,
     ])
 
@@ -514,6 +514,7 @@ def test_run_env_errors_on_an_empty_checks_list(cfg_path, tmp_path):
         ("[{\"name\": \"x\"}]", "'name' and 'argv'"),
         ("[{\"name\": \"x\", \"argv\": \"not-a-list\"}]", "non-empty list of strings"),
         ("[{\"name\": \"x\", \"argv\": []}]", "non-empty list of strings"),
+        ("[{\"name\": 123, \"argv\": [\"true\"]}]", "must be a string"),
     ],
 )
 def test_run_env_errors_on_a_malformed_checks_manifest(cfg_path, tmp_path, content, match):
@@ -784,7 +785,7 @@ def test_decide_approve_commits_and_updates_status(cfg_path, checks_file, monkey
     log = subprocess.run(
         [git_bin, "log", "-1", "--format=%an <%ae> %s"], cwd=dest, capture_output=True, text=True, check=True,
     ).stdout.strip()
-    assert log == "CyClaw Agent <cyclaw-agent@users.noreply.github.com> add target.txt"
+    assert log == "CyClaw Agent <cyclaw-agent@users.noreply.github.com> [agentic] - Add target.txt"
 
 
 def test_decide_reject_never_commits_and_discards_the_clone(cfg_path, checks_file, monkeypatch, capsys):
@@ -941,7 +942,7 @@ def test_decide_push_fails_but_the_commit_still_stands_when_there_is_no_remote(
     log = subprocess.run(
         [git_bin, "log", "-1", "--format=%s"], cwd=dest, capture_output=True, text=True, check=True,
     ).stdout.strip()
-    assert log == "add target.txt"
+    assert log == "[agentic] - Add target.txt"
 
 
 def test_decide_push_lands_a_real_ref_on_a_real_remote(tmp_path, cfg_path, checks_file, monkeypatch, capsys):
@@ -1103,6 +1104,132 @@ def test_publish_records_an_indeterminate_timeout_so_a_retry_cannot_duplicate_th
     ])
     assert code == EXIT_FAIL
     assert "already has a pull request" in capsys.readouterr().err
+
+
+def test_publish_sends_a_template_complete_body_built_from_the_record(
+    tmp_path, cfg_path, checks_file, monkeypatch, capsys,
+):
+    """pr-template-check.yml is blocking, so the loop's own PR body must be a
+    complete template fill; it is built from the persisted record only."""
+    _use_real_origin_remote(tmp_path, monkeypatch)
+    monkeypatch.setattr(LocalProposerClient, "invoke", _fake_model(_RIGHT_BLOCK))
+    _run_start(cfg_path, checks_file)
+    record = json.loads(capsys.readouterr().out)
+    assert record["instruction"] == "add the marker"
+    assert record["check_names"] and record["iteration_outcomes"][-1] == "accepted"
+    run_id = record["run_id"]
+    _approve(cfg_path, run_id)
+    capsys.readouterr()
+    assert main(["--config", cfg_path, "real-repo-run-push", "--run-id", run_id]) == EXIT_OK
+    capsys.readouterr()
+
+    import agentic.writer as writer_mod
+
+    sent: dict = {}
+
+    def capture_plan(*args, **kwargs):
+        sent.update(kwargs)
+        return {"op": "pr_create"}
+
+    monkeypatch.setattr(writer_mod, "plan_write", capture_plan)
+    monkeypatch.setattr(writer_mod, "execute_write", lambda *a, **k: {"stdout": "https://example.invalid/pr/1"})
+    code = main([
+        "--config", cfg_path, "real-repo-run-publish", "--run-id", run_id, "--reason", "ship it", "--confirm",
+    ])
+    assert code == EXIT_OK
+    assert sent["title"] == "[agentic] - Add target.txt"
+    body = sent["body"]
+    for heading in ("## Proposed changes", "## Types of changes", "## Checklist", "## Suggested merge order"):
+        assert heading in body
+    assert run_id in body and "target.txt" in body
+    # The instruction ("add the marker") is withheld unless --publish-instruction.
+    assert "add the marker" not in body and "SHA-256" in body
+    assert [line for line in body.splitlines() if line.startswith("#")][-1] == "## ELI5"
+    assert body.rstrip().splitlines()[-1].startswith("Last updated: ")
+
+
+def test_publish_refuses_a_title_outside_the_prefix_format_before_any_network_write(
+    tmp_path, cfg_path, checks_file, monkeypatch, capsys,
+):
+    """A record whose commit message is not `[prefix] - Sentence` (one written
+    before this check existed) would open a PR that is red on arrival."""
+    _use_real_origin_remote(tmp_path, monkeypatch)
+    monkeypatch.setattr(LocalProposerClient, "invoke", _fake_model(_RIGHT_BLOCK))
+    _run_start(cfg_path, checks_file)
+    record = json.loads(capsys.readouterr().out)
+    run_id = record["run_id"]
+    _approve(cfg_path, run_id)
+    capsys.readouterr()
+    assert main(["--config", cfg_path, "real-repo-run-push", "--run-id", run_id]) == EXIT_OK
+    capsys.readouterr()
+    record_path = Path(record["dest"]).parent.parent / "runs" / f"{run_id}.json"
+    on_disk = json.loads(record_path.read_text(encoding="utf-8"))
+    on_disk["commit_message"] = "add target.txt"
+    record_path.write_text(json.dumps(on_disk), encoding="utf-8")
+    # The rule applies only to a target repo that runs the template check itself.
+    workflow = Path(record["dest"]) / ".github" / "workflows" / "pr-template-check.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text("name: PR Template Check\n", encoding="utf-8")
+
+    import agentic.writer as writer_mod
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("no write may be planned for a nonconforming title")
+
+    monkeypatch.setattr(writer_mod, "plan_write", must_not_run)
+    monkeypatch.setattr(writer_mod, "execute_write", must_not_run)
+    code = main([
+        "--config", cfg_path, "real-repo-run-publish", "--run-id", run_id, "--reason", "ship it", "--confirm",
+    ])
+    assert code == EXIT_REFUSED
+    assert "[prefix] - Short sentence" in capsys.readouterr().err
+    assert json.loads(record_path.read_text(encoding="utf-8"))["pushed"] is True
+
+
+def test_publish_keeps_a_repos_own_title_convention_when_it_has_no_template_check(
+    tmp_path, cfg_path, checks_file, monkeypatch, capsys,
+):
+    """agentic.repo may name any repository; CyClaw's `[prefix] - Sentence`
+    rule must not refuse a target whose clone does not run pr-template-check."""
+    _use_real_origin_remote(tmp_path, monkeypatch)
+    monkeypatch.setattr(LocalProposerClient, "invoke", _fake_model(_RIGHT_BLOCK))
+    _run_start(cfg_path, checks_file)
+    record = json.loads(capsys.readouterr().out)
+    run_id = record["run_id"]
+    _approve(cfg_path, run_id)
+    capsys.readouterr()
+    assert main(["--config", cfg_path, "real-repo-run-push", "--run-id", run_id]) == EXIT_OK
+    capsys.readouterr()
+    record_path = Path(record["dest"]).parent.parent / "runs" / f"{run_id}.json"
+    on_disk = json.loads(record_path.read_text(encoding="utf-8"))
+    on_disk["commit_message"] = "feat: add target.txt"
+    record_path.write_text(json.dumps(on_disk), encoding="utf-8")
+
+    import agentic.writer as writer_mod
+
+    sent: dict = {}
+    monkeypatch.setattr(writer_mod, "plan_write", lambda *a, **k: sent.update(k) or {"op": "pr_create"})
+    monkeypatch.setattr(writer_mod, "execute_write", lambda *a, **k: {"stdout": "https://example.invalid/pr/2"})
+    code = main([
+        "--config", cfg_path, "real-repo-run-publish", "--run-id", run_id, "--reason", "ship it", "--confirm",
+    ])
+    assert code == EXIT_OK
+    assert sent["title"] == "feat: add target.txt"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["real-repo-run-publish", "--run-id", "a" * 32, "--reason", "r", "--confirm"],
+        ["real-repo-run-decide", "--run-id", "a" * 32, "--decision", "approve"],
+    ],
+)
+def test_publish_instruction_is_opt_in_on_both_publish_paths(argv):
+    from agentic.cli import build_parser
+
+    parser = build_parser()
+    assert parser.parse_args(argv).publish_instruction is False
+    assert parser.parse_args([*argv, "--publish-instruction"]).publish_instruction is True
 
 
 # --- standalone push/publish subcommands (their own decision points) ---------
@@ -1397,7 +1524,7 @@ def test_decide_still_resolves_a_pending_run_when_deepagent_github_is_disabled(
         [__import__("shutil").which("git"), "log", "-1", "--format=%s"],
         cwd=dest, capture_output=True, text=True, check=True,
     ).stdout.strip()
-    assert log == "add target.txt"
+    assert log == "[agentic] - Add target.txt"
 
 
 def test_status_and_discard_still_work_when_deepagent_github_is_disabled(cfg_path, checks_file, monkeypatch, capsys):
@@ -1466,7 +1593,7 @@ def _run_start_cloud(cfg_path, checks_file, *, confirm_online=True, provider="gr
         "--config", cfg_path, "real-repo-run",
         "--repo", "--instruction", "add the marker",
         "--checks-file", checks_file,
-        "--branch", "agent/fixture-topic", "--commit-message", "add target.txt",
+        "--branch", "agent/fixture-topic", "--commit-message", "[agentic] - Add target.txt",
         "--reason", "test run", "--confirm", "--provider", provider,
     ]
     if confirm_online:

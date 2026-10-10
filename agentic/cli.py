@@ -53,7 +53,7 @@ from utils.errors import (
     PromptInjectionError,
     SkillRegistryError,
 )
-from utils.logger import _get_config, audit_log, setup_logging
+from utils.logger import _get_config, audit_log, redact_sensitive, setup_logging
 
 if TYPE_CHECKING:
     # Types needed only for annotations -- the actual imports stay lazy,
@@ -509,6 +509,11 @@ def _load_checks_file(path: str) -> tuple[Check, ...]:
     for entry in data:
         if not isinstance(entry, dict) or "name" not in entry or "argv" not in entry:
             raise AgenticError("each check entry needs 'name' and 'argv'", details={"path": path, "entry": entry})
+        if not isinstance(entry["name"], str):
+            # Check() only rejects a falsy name, so `"name": 123` used to pass
+            # and later crash the PR-body renderer, which expects text. An
+            # empty string is still Check's own error, below.
+            raise AgenticError("check 'name' must be a string", details={"path": path})
         argv = entry["argv"]
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
             raise AgenticError("check 'argv' must be a non-empty list of strings", details={"path": path})
@@ -976,6 +981,9 @@ def cmd_real_repo_run(args: argparse.Namespace) -> int:
             plan_sha256=plan_sha256,
             acceptance_digest=_acceptance_digest,
             acceptance_base_head=_acceptance_base_head,
+            instruction=args.instruction,
+            check_names=[check.name for check in checks],
+            iteration_outcomes=[iteration.decision.reason for iteration in result.iterations],
         )
         # Keep the accepted clone for the later human decision, but release
         # ScopedRoots' authority handles now.  On Windows they deliberately
@@ -1106,7 +1114,7 @@ def _push_record(tools: RepoWorkspaceTools, record: RealRepoRunRecord, runs_dir:
 
 def _publish_record(
     cfg: AgenticConfig, record: RealRepoRunRecord, runs_dir: Path,
-    *, reason: str, confirm: bool, config_path: str,
+    *, reason: str, confirm: bool, config_path: str, include_instruction: bool = False,
 ) -> int:
     """Open a draft PR for an already-pushed run, recording the URL on ``record``.
 
@@ -1117,15 +1125,42 @@ def _publish_record(
     caller by design (an earlier version fabricated one internally, which an
     external review caught as making gate 5 unconditional).
     """
+    from datetime import UTC, datetime
+
+    from agentic.real_repo_pr_body import pr_title_problem, render_pr_body
     from agentic.real_repo_run_store import save_run
     from agentic.writer import execute_write, plan_write
 
+    # Checked before any network write, but only when the target repository
+    # itself carries pr-template-check.yml (read from the retained clone):
+    # that job rejects a title outside `[prefix] - Sentence`, so publishing one
+    # would open a PR that is red on arrival. agentic.repo may name any
+    # repository, and imposing CyClaw's prefixes on one without that check
+    # would refuse its own conventions. The title is the caller's fixed commit
+    # message and is never rewritten. Saved like every other refusal below: on
+    # the decide --push --publish path the push has just set record.pushed.
+    enforces_titles = (Path(record.dest) / ".github" / "workflows" / "pr-template-check.yml").is_file()
+    title_problem = pr_title_problem(record.commit_message) if enforces_titles else None
+    if title_problem is not None:
+        save_run(runs_dir, record)
+        _err(f"publish refused: {title_problem}")
+        print(json.dumps(record.to_dict(), indent=2))
+        return EXIT_REFUSED
+    # Same loader every other command uses for the app config: the redactor
+    # needs its privacy section, and a config that fails to load must stop
+    # the publish rather than send the body unredacted.
+    app_cfg = _get_config(config_path)
     try:
         plan = plan_write(
             cfg, "pr_create", reason, confirm=confirm,
             head=record.branch_name,
             title=record.commit_message,
-            body=f"Automated real-repo-run candidate (run_id={record.run_id}).",
+            body=render_pr_body(
+                record,
+                now=datetime.now(UTC),
+                redact=lambda text: redact_sensitive(text, app_cfg),
+                include_instruction=include_instruction,
+            ),
             config_path=config_path,
         )
         result = execute_write(plan, cfg=cfg, confirm=confirm, config_path=config_path)
@@ -1289,6 +1324,7 @@ def cmd_real_repo_run_decide(args: argparse.Namespace) -> int:
                 code = _publish_record(
                     cfg, record, runs_dir,
                     reason=args.reason, confirm=args.confirm_publish, config_path=args.config,
+                    include_instruction=args.publish_instruction,
                 )
                 if code != EXIT_OK:
                     return code
@@ -1409,6 +1445,7 @@ def cmd_real_repo_run_publish(args: argparse.Namespace) -> int:
     try:
         code = _publish_record(
             cfg, record, runs_dir, reason=args.reason, confirm=args.confirm, config_path=args.config,
+            include_instruction=args.publish_instruction,
         )
         if code != EXIT_OK:
             return code
@@ -1663,6 +1700,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Required with --publish: a fresh confirmation for agentic.writer's own write gate, "
              "distinct from --decision approve.",
     )
+    p_run_decide.add_argument(
+        "--publish-instruction", action="store_true",
+        help="Quote the run's --instruction (redacted) in the PR body. Without it the body shows only "
+             "the instruction's SHA-256, since redaction cannot catch every secret or PII shape.",
+    )
     p_run_decide.set_defaults(func=cmd_real_repo_run_decide)
 
     p_run_push = sub.add_parser(
@@ -1679,6 +1721,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_run_publish.add_argument("--run-id", required=True)
     p_run_publish.add_argument("--reason", required=True, help="Human reason string (required).")
     p_run_publish.add_argument("--confirm", action="store_true", help="Required to actually open the PR.")
+    p_run_publish.add_argument(
+        "--publish-instruction", action="store_true",
+        help="Quote the run's --instruction (redacted) in the PR body. Without it the body shows only "
+             "the instruction's SHA-256, since redaction cannot catch every secret or PII shape.",
+    )
     p_run_publish.set_defaults(func=cmd_real_repo_run_publish)
 
     p_run_discard = sub.add_parser(
