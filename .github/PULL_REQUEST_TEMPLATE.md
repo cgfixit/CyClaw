@@ -140,7 +140,7 @@ Merge the foundation first. If a later PR was written against an older base, reb
 ```
 
 ## ELI5
-_Required on every PR, and it must stay the **last heading** in the body (`pr-template-check.yml` enforces both)._
+_Required on every PR, and it must stay the **last heading** in the body (`pr-template-check.yml` enforces both). The body's last non-blank line is the stamp below, nothing after it; refresh it whenever you edit the body._
 
 Explain the **whole** diff against `main`, not just the first commit. Re-read it whenever a later commit changes what the PR does. Plain words, no jargon you would not say out loud, but keep the specifics:
 
@@ -149,3 +149,4 @@ Explain the **whole** diff against `main`, not just the first commit. Re-read it
 - **What could still go wrong**, and the exact signal that would show it (a log line, a test, an audit field).
 - Be blunt about anything you did not run or could not check.
 
+Last updated: YYYY-MM-DD HH:MM ET

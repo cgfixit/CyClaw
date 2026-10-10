@@ -201,8 +201,10 @@ assumption that every branch starts at `main`:
    Why / Summary / What) — a body missing either of the first two fails the
    job immediately, even if the content is otherwise good. The check now also
    requires `## Suggested merge order of open PRs` (with a "trial merge" note)
-   and `## ELI5` as the **last heading**; the template has the canonical hybrid
-   format. These replace the old repo-local `## Merge order` extra: state the
+   and `## ELI5` as the **last heading**, then `Last updated: YYYY-MM-DD HH:MM ET`
+   as the body's last non-blank line (same rule as cg-agent-harness's checker;
+   put any "Generated with" attribution above it, not after it); the template
+   has the canonical hybrid format. These replace the old repo-local `## Merge order` extra: state the
    topology (independent / stacked-on `<parent-branch or #N>` / consolidated)
    in each PR's `Impact:` or `Action:` line instead.
 
@@ -214,7 +216,7 @@ assumption that every branch starts at `main`:
      base="main", head="<branch-name>",
      draft=true,
      title="<concise title>",
-     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Suggested merge order of open PRs\n_Trial merges verified against main @ <sha> on <date>._\n\n**#<n>** · Safe ✅  \nImpact: independent.  \nAction: merge anytime.\n\n## ELI5\n...")
+     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Suggested merge order of open PRs\n_Trial merges verified against main @ <sha> on <date>._\n\n**#<n>** · Safe ✅  \nImpact: independent.  \nAction: merge anytime.\n\n## ELI5\n...\n\nLast updated: <YYYY-MM-DD HH:MM ET>")
    ```
 
    Stacked child (PR `base` must be the **parent branch**, not `main`):
@@ -225,7 +227,7 @@ assumption that every branch starts at `main`:
      base="<parent-branch-name>", head="<child-branch-name>",
      draft=true,
      title="<concise title>",
-     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Suggested merge order of open PRs\n_Trial merges verified against main @ <sha> on <date>._\n\n**#<n>** · Dirty ⚠️  \nImpact: stacked on <parent-branch> / #<parent-PR>.  \nAction: merge the parent first, then retarget to main and re-verify.\n\n## ELI5\n...")
+     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Suggested merge order of open PRs\n_Trial merges verified against main @ <sha> on <date>._\n\n**#<n>** · Dirty ⚠️  \nImpact: stacked on <parent-branch> / #<parent-PR>.  \nAction: merge the parent first, then retarget to main and re-verify.\n\n## ELI5\n...\n\nLast updated: <YYYY-MM-DD HH:MM ET>")
    ```
 
 **Merge order for this skill run:** after drafts exist, prefer merging **lowest

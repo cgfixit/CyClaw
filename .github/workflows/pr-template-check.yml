@@ -6,6 +6,8 @@
 # Also required (owner decision 2026-10-10): `## Suggested merge order of open PRs`
 # with a trial-merge note, and `## ELI5` as the LAST heading. Fenced code blocks
 # and HTML comments are ignored, so the template's own example does not count.
+# The last non-blank line must be `Last updated: YYYY-MM-DD HH:MM ET` (the same
+# rule cg-agent-harness's checker has).
 # Verify / Base stay Grok-local extras and are not required here.
 #
 # Posts a sticky comment AND fails the job when sections are missing so every
@@ -101,6 +103,10 @@ jobs:
               },
             );
             const missing = checks.filter((c) => !c.re.test(c.prose ? prose : body));
+            const lastLine = prose.split("\n").map((l) => l.trimEnd()).filter((l) => l.trim() !== "").pop() || "";
+            if (!/^Last updated: \d{4}-\d{2}-\d{2} \d{2}:\d{2} ET$/.test(lastLine)) {
+              missing.push({ key: "stamp", label: "Last updated timestamp as the last line (`Last updated: YYYY-MM-DD HH:MM ET`)" });
+            }
             const headings = prose.match(/^#{1,6}\s+.*$/gm) || [];
             if (!missing.some((c) => c.key === "eli5") && !/^#{1,6}\s*eli5\b/i.test(headings[headings.length - 1])) {
               missing.push({ key: "eli5-last", label: "`## ELI5` must be the last heading (the last one is `" + headings[headings.length - 1] + "`)" });
@@ -148,7 +154,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   comment_id: existing.id,
-                  body: `${marker}\nPR body covers the sections \`.github/PULL_REQUEST_TEMPLATE.md\` requires (rationale, types, benefits, risk, checklist, merge order, ELI5${touchesCore ? ", invariant impact" : ""}).`,
+                  body: `${marker}\nPR body covers the sections \`.github/PULL_REQUEST_TEMPLATE.md\` requires (rationale, types, benefits, risk, checklist, merge order, ELI5, last-updated stamp${touchesCore ? ", invariant impact" : ""}).`,
                 });
               }
               core.info("PR body covers the expected template sections.");

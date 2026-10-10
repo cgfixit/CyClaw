@@ -7,7 +7,9 @@
 #   CYCLAW_PR_BODY_FILE=body.md scripts/check-pr-template.sh
 #
 # Also requires (owner decision 2026-10-10) the merge-order section with a
-# trial-merge note and `## ELI5` as the last heading, mirroring the workflow.
+# trial-merge note, `## ELI5` as the last heading, and `Last updated:
+# YYYY-MM-DD HH:MM ET` as the last non-blank line, mirroring the workflow.
+# The shipped template may keep the YYYY-MM-DD HH:MM ET placeholder.
 #
 # Exit 0 = ok; exit 1 = missing required sections.
 # Git hooks cannot intercept GitHub API / gh pr create bodies — agents and
@@ -82,6 +84,23 @@ last_heading="$(printf '%s\n' "$prose" | grep -E '^#{1,6}[[:space:]]+' | tail -n
 if printf '%s' "$prose" | grep -Eiq '^#{1,4}[[:space:]]*eli5\b' \
   && ! printf '%s' "$last_heading" | grep -Eiq '^#{1,6}[[:space:]]*eli5\b'; then
   missing+=("ELI5 must be the last heading (the last one is: ${last_heading})")
+  fail=1
+fi
+
+last_nonempty="$(printf '%s\n' "$prose" | tr -d '\r' | sed -e 's/[[:space:]]*$//' | awk 'NF { line = $0 } END { print line }')"
+filled_stamp='^Last updated: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} ET$'
+stamp_ok=0
+if grep -Eq "$filled_stamp" <<<"$last_nonempty"; then
+  stamp_ok=1
+elif [[ "$input" != "-" && -f "$input" ]]; then
+  input_abs="$(cd "$(dirname "$input")" && pwd)/$(basename "$input")"
+  if [[ "$input_abs" == "$(cd "$(dirname "$0")/.." && pwd)/.github/PULL_REQUEST_TEMPLATE.md" ]] \
+    && grep -Eq '^Last updated: YYYY-MM-DD HH:MM ET$' <<<"$last_nonempty"; then
+    stamp_ok=1
+  fi
+fi
+if [[ "$stamp_ok" -ne 1 ]]; then
+  missing+=("Last updated timestamp (last line, YYYY-MM-DD HH:MM ET)")
   fail=1
 fi
 
