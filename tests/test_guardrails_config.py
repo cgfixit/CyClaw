@@ -105,6 +105,14 @@ def test_invalid_base_url_raises(tmp_path):
     reset_config_cache()
 
 
+def test_unparseable_base_url_raises_typed_error(tmp_path):
+    # An unclosed IPv6 bracket used to escape as a bare ValueError from urlparse.
+    path = _write_config(tmp_path, {"base_url": "http://[::1"})  # DevSkim: ignore DS137138 - malformed URL fixture; no connection
+    with pytest.raises(GuardrailsConfigError):
+        load_guardrails_config(path)
+    reset_config_cache()
+
+
 def test_non_mapping_block_raises(tmp_path):
     path = _write_config(tmp_path, ["not", "a", "dict"])
     with pytest.raises(GuardrailsConfigError):

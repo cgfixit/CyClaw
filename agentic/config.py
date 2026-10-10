@@ -23,8 +23,8 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from urllib.parse import urlparse
 
+from utils.endpoint_trust import is_loopback_url
 from utils.errors import AgenticConfigError
 from utils.logger import _get_config
 
@@ -133,27 +133,6 @@ def _validate_bool(value: object, field_name: str) -> None:
             f"{field_name} must be a boolean, got: {value!r}",
             details={"field": field_name, "received": value},
         )
-
-
-# Duplicated rather than imported from llm/client.py, which holds the same
-# frozenset. NOT an I6 constraint -- I6 names six core modules (gate*.py,
-# graph.py, mcp_hybrid_server.py) and llm/client.py is not one of them. The
-# actual reasons are the out-of-band convention (no agentic/guardrails/sync/
-# telegram/opentweet module imports llm/ today) and cost: importing that
-# module for three strings pulls httpx, yaml and utils.spend into agentic's
-# import graph. guardrails/config.py keeps its own copy on the same grounds.
-# The values are a closed set (the three spellings of localhost), not a tunable.
-_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
-
-
-def _is_loopback_url(url: str) -> bool:
-    """True when ``url``'s host is loopback. Malformed input is NOT loopback."""
-    try:
-        return (urlparse(url).hostname or "") in _LOOPBACK_HOSTS
-    except ValueError:
-        # urlparse raises on some malformed IPv6 literals -- fail closed rather
-        # than letting an unparseable URL through as "not obviously remote".
-        return False
 
 
 def _validate_no_shell_metachars(value: str, field_name: str) -> None:
@@ -295,10 +274,10 @@ class DeepAgentGitHubConfig:
         # providers.<name>.enabled, the API key and --confirm-online all stay
         # false and are never consulted. Refusing a non-loopback base_url here
         # is that same decision, made for the planner's own client.
-        if not _is_loopback_url(self.base_url):
+        if not is_loopback_url(self.base_url):
             raise AgenticConfigError(
                 "agentic.deepagent_github.base_url must be a loopback URL "
-                f"(one of {list(_LOOPBACK_HOSTS)}); it addresses the local model only",
+                "(127.0.0.1, localhost or ::1); it addresses the local model only",
                 details={"received": self.base_url},
             )
         self.workspace_root = _resolve_data_path(

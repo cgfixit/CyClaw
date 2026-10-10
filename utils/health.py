@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import httpx
 import yaml
 
-from .endpoint_trust import EndpointTrustError, assert_local_destination
+from .endpoint_trust import EndpointTrustError, assert_local_destination, is_loopback_url
 from .errors import HealthStatus
 from .logger import redact_sensitive
 
@@ -67,8 +67,6 @@ def _http_get(
 
 def _health_probe_timeout(base_url: str) -> float | httpx.Timeout:
     """Preserve normal budgets except for a plain-HTTP loopback TCP connect."""
-    from llm.client import is_loopback_url
-
     if is_loopback_url(base_url) and urlparse(base_url).scheme == "http":
         return httpx.Timeout(
             _HEALTH_PROBE_TIMEOUT_SEC,
