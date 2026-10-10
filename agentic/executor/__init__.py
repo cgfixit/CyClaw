@@ -11,9 +11,11 @@ adding code execution to a layer previously documented as "deliberately
 non-executing" is a real, named change to the threat model, not a detail.
 
 Never imported by ``gate.py``/``graph.py``/``mcp_hybrid_server.py`` (I6).
-Nothing in this repository invokes this package automatically as of this
-change -- see ``runner.py``'s module docstring for exactly what is, and is
-not, wired.
+Its callers are the operator-run, CLI-only real-repo path:
+``agentic/real_repo_loop.py`` runs ``run_verification`` and the manifest
+checks, and ``agentic/cli.py`` builds ``Check`` objects from the operator's
+required checks manifest. Both ship gated off (``agentic.enabled: false``),
+and no HTTP route reaches either.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from agentic.executor.runner import (
     Check,
     CheckResult,
     VerificationReport,
-    default_checks,
     run_verification,
 )
 
@@ -32,7 +33,6 @@ __all__ = [
     "CheckResult",
     "HardSandboxUnavailable",
     "VerificationReport",
-    "default_checks",
     "production_sandbox",
     "run_verification",
 ]

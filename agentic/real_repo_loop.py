@@ -764,9 +764,9 @@ def run_real_repo_loop(
     caller constructed and must eventually ``close()``, whether this run
     accepts or not).
 
-    ``checks`` is REQUIRED, not defaulted: ``agentic.executor.default_checks``
-    assumes THIS repo's own toolchain (pytest/ruff/the invariant guard at a
-    CyClaw-specific path) and is only appropriate when the configured target
+    ``checks`` is REQUIRED, not defaulted: the executor ships no default check
+    set, because CyClaw's own toolchain (pytest/ruff/the invariant guard at a
+    CyClaw-specific path) is only appropriate when the configured target
     happens to be this same repository. For any other repository, guessing a
     test/lint command would be exactly the kind of invented default this
     codebase avoids -- the caller must state what "passing" means for the

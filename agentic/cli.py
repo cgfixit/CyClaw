@@ -489,9 +489,9 @@ def _load_checks_file(path: str) -> tuple[Check, ...]:
 
     Format: a non-empty JSON list of ``{"name": str, "argv": [str, ...],
     "timeout_sec": int (optional)}``. Required, not optional, and never
-    defaulted to ``agentic.executor.default_checks()`` -- that function
-    assumes THIS repository's own toolchain (a CyClaw-specific invariant-guard
-    path); guessing a test/lint command for an arbitrary configured repo would
+    defaulted: the executor ships no default check set, because any default
+    would assume one repository's own toolchain (a CyClaw-specific
+    invariant-guard path); guessing a test/lint command for an arbitrary configured repo would
     be exactly the kind of invented default this codebase avoids. ``argv`` is
     already a JSON list of literal strings, never a single command string --
     there is no shell-splitting anywhere in this path.
