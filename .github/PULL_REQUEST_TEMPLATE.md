@@ -44,14 +44,17 @@ If it fixes a bug or resolves a feature request, link the issue.
 
 ## Types of changes
 What types of changes does your code introduce to CyClaw?  
-_Put an `x` in the boxes that apply_
+_Put an `x` in every box that applies. Other is only for a change that fits none of the named boxes. Do not use Documentation update or Other for a security, dependency, or CI change._
 
 - [ ] Bugfix (non-breaking change which fixes an issue)
 - [ ] New feature (non-breaking change which adds functionality)
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
-- [ ] Maintenance (refactor, tests, CI, or dependencies)
+- [ ] Security (auth, privacy, injection, egress, redaction, or secrets)
 - [ ] Invariant / Governance refinement (use this for changes that strengthen or evolve the 6 invariants, I6 isolation, or harness phases)
+- [ ] Dependencies (added, removed, or bumped)
+- [ ] CI / infrastructure (workflows, hooks, templates, or checkers)
+- [ ] Refactor or tests (behavior-preserving, no new capability)
+- [ ] Documentation update
 - [ ] Other (none of the boxes above fit)
 
 **Optional free-text scope note** (recommended):  
