@@ -113,8 +113,12 @@ cmd_venv() {
   # Runtime and test locks omit torch. Hash-check them after the torch step
   # above. The CPU-index fallback stays: this sandbox often cannot fetch the
   # +cpu wheel, and the Linux torch lock lists only those hashes.
-  inst --require-hashes -r locks/requirements-lock-linux.txt || return 2
-  inst --require-hashes -r locks/requirements-test-lock-linux.txt || return 2
+  # --no-deps: each lock is a complete resolution minus torch, and uv's
+  # --require-hashes refuses any dependency it would have to resolve itself
+  # ("must be pinned upfront with ==, but found: torch", from
+  # sentence-transformers). pip tolerates the installed torch; uv does not.
+  inst --no-deps --require-hashes -r locks/requirements-lock-linux.txt || return 2
+  inst --no-deps --require-hashes -r locks/requirements-test-lock-linux.txt || return 2
   "$PY" -c "import torch, chromadb, langgraph, pytest; print('venv ready:', torch.__version__)"
 }
 
