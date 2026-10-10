@@ -53,8 +53,8 @@ producer deduplication before changing observation behavior.
 
 ## Out-of-band execution
 
-The ToolBroker in `utils/tool_broker.py` gates tool names; empty allowlists
-deny, and broker approval does not replace reason/confirm. Agentic execution
+No tool name-gate ships today: `utils/tool_broker.py` was removed on
+2026-10-10 after it lost its last caller (PR #1367). Agentic execution
 travels through `ops_runner`, not direct core imports.
 
 Real-repo approval uses acceptance manifests bound to run/base/path hashes and
