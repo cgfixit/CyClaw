@@ -685,14 +685,15 @@ def test_windows_launcher_doubles_percent_and_quotes(tmp_path) -> None:
     # codex #592: a config path containing %VAR% must be written into the .bat
     # with % doubled (so cmd.exe cannot expand it at run time) and quoted (so
     # spaces are safe). _write_windows_launcher builds the .bat on any OS.
-    from sync.scheduler import _bat_quote, _write_windows_launcher
+    from sync.scheduler import _write_windows_launcher
+    from utils.win_schtasks import bat_quote
 
     cfg = _make_cfg(log_dir=str(tmp_path / "logs"))
     cfg._config_path = r"C:\cfg %TEMP% dir\config.yaml"
     bat = _write_windows_launcher(cfg)
     content = Path(bat).read_text(encoding="utf-8")
 
-    assert _bat_quote(cfg._config_path) in content       # quoted + %-doubled
+    assert bat_quote(cfg._config_path) in content       # quoted + %-doubled
     assert "%%TEMP%%" in content                          # not expandable
     assert '"%TEMP%"' not in content                      # never a bare, expandable form
     assert content.startswith("@echo off")               # (read_text normalizes CRLF->LF)

@@ -224,25 +224,16 @@ def cmd_schedule_plist(args: argparse.Namespace) -> int:
     wrapper = launchd_plist.keychain_wrapper_path(repo_root)
     program_args = launchd_plist.wrap_with_keychain_secrets(inner_argv, secrets, wrapper)
 
-    log_path = str(launchd_plist.logs_dir() / "opentweet.log")
     weekday = args.weekday if args.weekday is not None else cfg.weekday
     hour = args.hour if args.hour is not None else cfg.fire_hour
     minute = args.minute if args.minute is not None else cfg.fire_minute
-    document = {
-        "Label": _LAUNCHD_LABEL,
-        "WorkingDirectory": str(repo_root),
-        "ProgramArguments": program_args,
-        # launchd hands a job a near-empty environment; deliver the
-        # canonical telemetry/update-check block before anything starts.
-        # Non-secret fixed literals; secrets stay on the Keychain wrapper.
-        "EnvironmentVariables": scheduler_env_overlay(),
-        "StartCalendarInterval": {"Weekday": weekday, "Hour": hour, "Minute": minute},
-        "RunAtLoad": False,
-        "StandardOutPath": log_path,
-        "StandardErrorPath": log_path,
-    }
-    path = launchd_plist.plist_path(_LAUNCHD_LABEL)
-    launchd_plist.write_plist(document, path)
+    path = launchd_plist.write_job(
+        _LAUNCHD_LABEL,
+        program_args,
+        repo_root,
+        "opentweet.log",
+        StartCalendarInterval={"Weekday": weekday, "Hour": hour, "Minute": minute},
+    )
 
     _kv("plist", path)
     _kv("weekday", weekday)

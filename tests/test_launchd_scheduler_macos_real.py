@@ -58,7 +58,7 @@ def _make_cfg(**overrides: object) -> RcloneConfig:
 
 def test_install_writes_a_real_plist_under_a_fake_home(tmp_path: Path) -> None:
     cfg = _make_cfg(schedule_hour=4, schedule_min=30)
-    with patch("sync.scheduler.Path.home", return_value=tmp_path):
+    with patch("utils.launchd_plist.Path.home", return_value=tmp_path):
         entry = LaunchdScheduler(cfg).install()
 
     plist_path = tmp_path / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
@@ -77,7 +77,7 @@ def test_status_probes_the_real_launchctl_binary(tmp_path: Path) -> None:
     the real binary is actually invoked and its real exit code interpreted,
     not that an agent is running."""
     cfg = _make_cfg()
-    with patch("sync.scheduler.Path.home", return_value=tmp_path):
+    with patch("utils.launchd_plist.Path.home", return_value=tmp_path):
         LaunchdScheduler(cfg).install()
         entry = LaunchdScheduler(cfg).status()
 
@@ -87,7 +87,7 @@ def test_status_probes_the_real_launchctl_binary(tmp_path: Path) -> None:
 
 def test_status_is_none_when_nothing_is_installed(tmp_path: Path) -> None:
     cfg = _make_cfg()
-    with patch("sync.scheduler.Path.home", return_value=tmp_path):
+    with patch("utils.launchd_plist.Path.home", return_value=tmp_path):
         entry = LaunchdScheduler(cfg).status()
     assert entry is None
 
@@ -95,7 +95,7 @@ def test_status_is_none_when_nothing_is_installed(tmp_path: Path) -> None:
 def test_remove_probes_the_real_launchctl_binary_and_deletes_the_plist(tmp_path: Path) -> None:
     cfg = _make_cfg()
     plist_path = tmp_path / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
-    with patch("sync.scheduler.Path.home", return_value=tmp_path):
+    with patch("utils.launchd_plist.Path.home", return_value=tmp_path):
         LaunchdScheduler(cfg).install()
         assert plist_path.exists()
         removed = LaunchdScheduler(cfg).remove()
@@ -106,7 +106,7 @@ def test_remove_probes_the_real_launchctl_binary_and_deletes_the_plist(tmp_path:
 
 def test_remove_on_a_never_installed_plist_is_a_no_op(tmp_path: Path) -> None:
     cfg = _make_cfg()
-    with patch("sync.scheduler.Path.home", return_value=tmp_path):
+    with patch("utils.launchd_plist.Path.home", return_value=tmp_path):
         removed = LaunchdScheduler(cfg).remove()
     assert removed is False
 
@@ -132,7 +132,7 @@ def test_launchd_lifecycle_bootstrap_status_and_remove_report_real_state(tmp_pat
     assert launchctl, "launchctl must be on PATH on a real macOS runner"
     uid = os.getuid()
     cfg = _make_cfg()
-    with patch("sync.scheduler.Path.home", return_value=tmp_path):
+    with patch("utils.launchd_plist.Path.home", return_value=tmp_path):
         scheduler = LaunchdScheduler(cfg)
         entry = scheduler.install()
         plist_path = Path(entry.raw)

@@ -47,11 +47,20 @@ _SUNDAY_ANCHOR = "2026-01-04"
 
 
 def python_executable() -> str:
-    """Best-guess python interpreter for a generated task (mirrors launchd_plist)."""
+    """Best-guess python interpreter for a generated task or scheduled job.
+
+    Also ``sync.scheduler``'s interpreter for cron, launchd and schtasks.
+    ``sys.executable`` wins whenever it is a real file; the PATH fallback is
+    OS-dependent. On Windows ``python`` comes first: python.org installs ship
+    no ``python3.exe``, and a ``python3`` on PATH is usually the Microsoft
+    Store alias stub. On POSIX ``python3`` comes first (PEP 394): a bare
+    ``python`` may be missing or Python 2.
+    """
     candidate = sys.executable or "python"
     if candidate and os.path.isfile(candidate):
         return candidate
-    found = shutil.which("python") or shutil.which("python3")
+    names = ("python", "python3") if os.name == "nt" else ("python3", "python")
+    found = shutil.which(names[0]) or shutil.which(names[1])
     return found or "python"
 
 
@@ -88,7 +97,14 @@ def cmd_path(task_name: str) -> Path:
 
 
 def bat_quote(s: str) -> str:
-    """Quote a token for a ``.cmd`` line (spaces + doubled ``%``)."""
+    """Quote a token for a ``.cmd``/``.bat`` line (spaces + doubled ``%``).
+
+    Double quotes make spaces, ``&``, ``(`` and ``)`` inert; doubling every
+    ``%`` stops ``%TEMP%``-style expansion when the task runs (codex #592).
+    Windows filenames cannot contain ``"``, so no inner-quote escaping is
+    needed, and the launchers leave delayed expansion off, so ``!`` stays
+    literal. CR/LF is refused because it would start a new command line.
+    """
     if "\r" in s or "\n" in s:
         raise ValueError("token must not contain CR/LF")
     return '"' + s.replace("%", "%%") + '"'

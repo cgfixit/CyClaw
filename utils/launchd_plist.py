@@ -5,7 +5,7 @@ hand-edited ``REPLACE_*`` template.
 
 Never imported by ``gate.py``/``graph.py``/``mcp_hybrid_server.py`` (I6) --
 those never touch launchd, and this module has no reason to reach them either
-(pure stdlib: ``os``, ``plistlib``, ``shutil``, ``subprocess``, ``pathlib``).
+(stdlib plus the stdlib-only ``utils.telemetry_kill`` overlay).
 
 Design contract every caller follows (see
 ``docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md``):
@@ -16,18 +16,17 @@ Design contract every caller follows (see
   - Generate, don't auto-load. Nothing here ever calls ``launchctl
     load``/``bootstrap`` -- :func:`bootstrap_hint` returns the command an
     operator must run by hand.
-  - No secrets in the file. Whether a generated plist's
-    ``EnvironmentVariables`` (if any) stays secret-free is the caller's
-    responsibility -- this module only writes whatever document dict it
-    is given. Use :func:`wrap_with_keychain_secrets` to
-    inject a runtime secret via the macOS Keychain instead of ever writing
-    one into ``EnvironmentVariables``.
+  - No secrets in the file. :func:`write_job` fills
+    ``EnvironmentVariables`` only with the fixed, non-secret
+    ``scheduler_env_overlay()`` literals; :func:`write_plist` writes whatever
+    document dict it is given, so a caller using it directly owns that
+    guarantee. Use :func:`wrap_with_keychain_secrets` to inject a runtime
+    secret via the macOS Keychain instead of ever writing one into
+    ``EnvironmentVariables``.
 
-This module intentionally does NOT depend on ``sync.scheduler``'s
-``LaunchdScheduler`` (and vice versa): both implement a small, similar
-plist-write/bootout pattern independently rather than sharing code
-across the two, so each stays a self-contained, independently reviewable
-change. See the PR that introduced this module for the reasoning.
+``sync.scheduler``'s ``LaunchdScheduler`` uses these helpers (it used to
+carry its own copies); this module still never imports ``sync`` or any
+other out-of-band package.
 """
 
 from __future__ import annotations
@@ -38,6 +37,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+from utils.telemetry_kill import scheduler_env_overlay
 
 # Repo-relative path to the Keychain env-injection wrapper -- see
 # macos/cyclaw-keychain-env.sh's own header for the full contract.
@@ -69,9 +71,9 @@ def _probe_python(candidate: str) -> None:
 def python_executable() -> str:
     """Best-guess python interpreter to invoke from a generated plist.
 
-    Mirrors ``sync/scheduler.py``'s own ``_python_executable()`` -- kept here
-    independently too, per this module's documented decision not to couple
-    with ``sync.scheduler`` (see the module docstring).
+    Stricter than ``utils.win_schtasks.python_executable`` (which
+    ``sync.scheduler`` uses): it honours ``CYCLAW_PYTHON``/``CYCLAW_HOME`` and
+    probes the runtime deps, because these plists run CyClaw channels.
 
     Resolution order:
       1. ``CYCLAW_PYTHON`` environment variable.
@@ -127,10 +129,8 @@ def logs_dir() -> Path:
     Creates the directory if missing: every caller uses this path only to
     build a ``StandardOutPath``/``StandardErrorPath`` value, and launchd does
     not create that directory itself -- an agent whose log directory is
-    missing fails to launch. ``sync/scheduler.py``'s independently-implemented
-    ``LaunchdScheduler`` already ``mkdir``s its own copy of this same path for
-    exactly that reason; this makes the shared helper do it too instead of
-    requiring every caller to remember the same line.
+    missing fails to launch. Doing it here means no caller has to remember
+    the same line.
     """
     path = Path.home() / "Library" / "Logs" / "CyClaw"
     path.mkdir(parents=True, exist_ok=True)
@@ -155,6 +155,41 @@ def write_plist(document: dict, path: Path) -> None:
     with open(tmp_path, "wb") as f:
         plistlib.dump(document, f, fmt=plistlib.FMT_XML)
     os.replace(tmp_path, path)
+
+
+def write_job(
+    label: str,
+    program_args: list[str],
+    repo_root: str | Path,
+    log_name: str,
+    **schedule_keys: Any,
+) -> Path:
+    """Write the standard CyClaw LaunchAgent for *label* and return its path.
+
+    Every generated CyClaw plist shares one skeleton: run *program_args* from
+    *repo_root*, never at load, with stdout and stderr both appended to
+    ``logs_dir()/<log_name>``. *schedule_keys* carries the per-job launchd
+    keys verbatim (``StartCalendarInterval``, ``StartInterval``,
+    ``KeepAlive``, ``ThrottleInterval``). plistlib sorts keys on dump, so the
+    file bytes do not depend on dict insertion order.
+    """
+    log_path = str(logs_dir() / log_name)
+    document = {
+        "Label": label,
+        "WorkingDirectory": str(repo_root),
+        "ProgramArguments": program_args,
+        # launchd hands a job a near-empty environment; deliver the canonical
+        # telemetry/update-check block before anything starts. Non-secret
+        # fixed literals; secrets stay on the Keychain wrapper.
+        "EnvironmentVariables": scheduler_env_overlay(),
+        **schedule_keys,
+        "RunAtLoad": False,
+        "StandardOutPath": log_path,
+        "StandardErrorPath": log_path,
+    }
+    path = plist_path(label)
+    write_plist(document, path)
+    return path
 
 
 def bootstrap_hint(path: Path) -> str:
