@@ -138,6 +138,20 @@ def test_rejects_non_loopback_query_url(tmp_path: Path) -> None:
         load_telegram_config(path)
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "ftp://bot:supersecret@127.0.0.1:8787",  # scheme error used to echo the URL
+        "http://bot:supersecret@127.0.0.1:8787/ x",  # DevSkim: ignore DS137138 - metachar error used to echo it too
+    ],
+)
+def test_query_url_credentials_never_echoed(tmp_path: Path, base_url: str) -> None:
+    path = _write_config(tmp_path, {"enabled": False, "query": {"base_url": base_url}})
+    with pytest.raises(TelegramConfigError) as exc:
+        load_telegram_config(path)
+    assert "supersecret" not in f"{exc.value.message}{exc.value.details}"
+
+
 def test_accepts_ipv6_loopback_query_url(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,

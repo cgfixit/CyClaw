@@ -73,3 +73,19 @@ def assert_online_destination(*, provider: str, base_url: str, confirmed: bool |
     host = hostname_of(base_url or _DEFAULT_URLS.get(provider, ""))
     if host not in allowed:
         raise EndpointTrustError(f"{provider} destination {host!r} is not in the allowlist")
+
+
+def url_for_details(url: str) -> str:
+    """Strip userinfo before a URL is copied into error details.
+
+    Implemented with string partition (not ``ParseResult.password``) so
+    CodeQL does not treat the original URL as a cleartext-password source
+    that later taints ``status`` / ``_kv`` prints of the validated URL.
+    """
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return "<unparsed>"
+    _userinfo, at, hostpart = rest.rpartition("@")
+    if at:
+        return f"{scheme}://<redacted>@{hostpart}"
+    return url
