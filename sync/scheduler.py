@@ -47,14 +47,17 @@ import plistlib
 import shlex
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 from sync.config import RcloneConfig
+from utils import launchd_plist
 from utils.child_environment import child_environment
 from utils.errors import SchedulerError
 from utils.telemetry_kill import SCRUBBED_ENV_KEYS, scheduler_env_overlay
+
+# bat_quote doubles % (no %VAR% expansion at run time) and refuses CR/LF, so a
+# path cannot smuggle an extra line into the generated .bat (codex #592).
+from utils.win_schtasks import bat_quote, python_executable
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +88,6 @@ class ScheduleEntry:
     note: str = ""
 
 
-def _python_executable() -> str:
-    """Best guess at the python interpreter to invoke from the scheduler."""
-    candidate = sys.executable or "python"
-    if candidate and os.path.isfile(candidate):
-        return candidate
-    found = shutil.which("python3") or shutil.which("python")
-    return found or "python"
-
-
 def _repo_root(cfg: RcloneConfig) -> str:
     """Directory the scheduled command should cd into before running sync.
 
@@ -112,19 +106,6 @@ def _repo_root(cfg: RcloneConfig) -> str:
     return repo_root
 
 
-def _bat_quote(s: str) -> str:
-    """Quote a path for safe literal use inside a cmd.exe ``.bat`` line.
-
-    Wraps in double quotes (so spaces, ``&``, ``(``, ``)`` are inert) and doubles
-    every ``%`` so a segment like ``%TEMP%`` is not expanded as an environment
-    variable when the scheduled task runs (codex #592: a naive ``f'"{path}"'``
-    let ``%VAR%`` expansion and unbalanced quoting through). Windows filenames
-    cannot contain a literal ``"``, so no inner-quote escaping is needed; our
-    ``.bat`` leaves delayed expansion off, so ``!`` stays literal too.
-    """
-    return '"' + s.replace("%", "%%") + '"'
-
-
 def _cron_escape_command(cmd: str) -> str:
     """Escape crontab(5) command-field specials so paths with ``%`` stay intact.
 
@@ -132,7 +113,7 @@ def _cron_escape_command(cmd: str) -> str:
     the shell ever sees ``<command>``, crontab treats an unescaped ``%`` as a
     newline and feeds everything after it as stdin — silently truncating a
     schedule whose repo or ``--config`` path contains ``%`` (Windows ``.bat``
-    already doubles ``%`` via :func:`_bat_quote`; this is the POSIX twin).
+    already doubles ``%`` via :func:`utils.win_schtasks.bat_quote`; this is the POSIX twin).
     Backslash-escaped ``\\%`` is the documented fix.
     """
     return cmd.replace("%", r"\%")
@@ -157,12 +138,12 @@ def _sync_command(cfg: RcloneConfig) -> str:
     ``cmd /c`` string through ``schtasks /TR`` is quote-fragile, so a ``.bat``
     launcher is used instead; this string is kept only for status output.
     """
-    py = _python_executable()
+    py = python_executable()
     root = _repo_root(cfg)
     cfg_path = getattr(cfg, "_config_path", None)
     if platform.system() == "Windows":
-        config_arg = f"--config {_bat_quote(cfg_path)} " if cfg_path else ""
-        return f'cmd /c "cd /d {_bat_quote(root)} && {_bat_quote(py)} -m sync.cli {config_arg}sync"'
+        config_arg = f"--config {bat_quote(cfg_path)} " if cfg_path else ""
+        return f'cmd /c "cd /d {bat_quote(root)} && {bat_quote(py)} -m sync.cli {config_arg}sync"'
     # env(1) prefix so the canonical telemetry/update-check block exists
     # BEFORE the interpreter starts -- cron hands a job a near-empty
     # environment, and sync/__init__.py's import-time apply (the second
@@ -224,18 +205,18 @@ def _write_windows_launcher(cfg: RcloneConfig) -> str:
 
     Registering a path to a one-line batch file via ``schtasks /TR`` avoids the
     fragile quoting of embedding a full ``cmd /c`` command string. Every path in
-    the file is ``_bat_quote``-d: quoted against spaces and ``%``-doubled so no
+    the file is ``bat_quote``-d: quoted against spaces and ``%``-doubled so no
     path segment is reinterpreted as an environment variable at run time
     (codex #592).
     """
     root = _repo_root(cfg)
-    py = _python_executable()
+    py = python_executable()
     bat_dir = cfg.log_dir or root
     os.makedirs(bat_dir, exist_ok=True)
     bat_path = os.path.join(bat_dir, "cyclaw_sync.bat")
     cfg_path = getattr(cfg, "_config_path", None)
-    config_arg = f"--config {_bat_quote(cfg_path)} " if cfg_path else ""
-    # CRLF line endings + _bat_quote so paths with spaces or % are safe.
+    config_arg = f"--config {bat_quote(cfg_path)} " if cfg_path else ""
+    # CRLF line endings + bat_quote so paths with spaces or % are safe.
     # The set-lines deliver the canonical telemetry/update-check block before
     # the interpreter starts. Task Scheduler jobs DO inherit machine/user
     # environment values, so the scrub names are explicitly DELETED first:
@@ -251,8 +232,8 @@ def _write_windows_launcher(cfg: RcloneConfig) -> str:
     content = (
         "@echo off\r\n"
         f"{env_lines}"
-        f"cd /d {_bat_quote(root)}\r\n"
-        f"{_bat_quote(py)} -m sync.cli {config_arg}sync\r\n"
+        f"cd /d {bat_quote(root)}\r\n"
+        f"{bat_quote(py)} -m sync.cli {config_arg}sync\r\n"
     )
     with open(bat_path, "w", encoding="utf-8", newline="") as f:
         f.write(content)
@@ -459,7 +440,7 @@ def _launchd_program_arguments(cfg: RcloneConfig) -> list[str]:
     ``_sync_command``'s content (cd is unnecessary -- ``WorkingDirectory``
     covers it) so both backends invoke the identical CLI surface.
     """
-    argv = [_python_executable(), "-m", "sync.cli"]
+    argv = [python_executable(), "-m", "sync.cli"]
     cfg_path = getattr(cfg, "_config_path", None)
     if cfg_path:
         argv += ["--config", cfg_path]
@@ -535,48 +516,6 @@ class LaunchdScheduler:
                 details={"platform": platform.system().lower()},
             )
 
-    @staticmethod
-    def _agents_dir() -> Path:
-        return Path.home() / "Library" / "LaunchAgents"
-
-    @staticmethod
-    def _log_dir() -> Path:
-        return Path.home() / "Library" / "Logs" / "CyClaw"
-
-    @classmethod
-    def _plist_path(cls) -> Path:
-        return cls._agents_dir() / f"{LAUNCHD_LABEL}.plist"
-
-    @staticmethod
-    def _launchctl() -> str | None:
-        """Best-effort launchctl lookup; None (not an error) when absent.
-
-        Unlike CronScheduler/WindowsTaskScheduler's binary lookups (which
-        raise), a missing launchctl must not block install() from writing the
-        plist -- the file is useful evidence/state even before the operator's
-        own launchctl bootstrap step. remove()/status() degrade to
-        file-only behavior when this returns None.
-        """
-        return shutil.which("launchctl")
-
-    @staticmethod
-    def _uid() -> int:
-        """POSIX uid, or 0 as an inert placeholder on a non-POSIX Python.
-
-        This class only ever runs for real on Darwin (every public method
-        calls _require_darwin() first), where os.getuid always exists. The
-        fallback exists solely so this class's own tests -- which mock
-        platform.system() to "Darwin" but still execute on whatever
-        interpreter CI actually is -- don't crash: CPython's os module omits
-        getuid entirely on Windows, independent of what platform.system() is
-        mocked to return (confirmed via CI: AttributeError, not a permission
-        or value problem).
-        """
-        return os.getuid() if hasattr(os, "getuid") else 0
-
-    def _bootstrap_hint(self, plist_path: Path) -> str:
-        return f"launchctl bootstrap gui/{self._uid()} {plist_path}"
-
     def install(self) -> ScheduleEntry:
         """Write (or overwrite) the CyClaw sync LaunchAgent plist.
 
@@ -586,32 +525,15 @@ class LaunchdScheduler:
         under ~/.config/rclone, untouched by this plist).
         """
         self._require_darwin()
-        agents_dir = self._agents_dir()
-        log_dir = self._log_dir()
-        agents_dir.mkdir(parents=True, exist_ok=True)
-        log_dir.mkdir(parents=True, exist_ok=True)
-
-        log_path = str(log_dir / "sync.log")
         interval = _launchd_calendar_interval(self.cfg)
-        document = {
-            "Label": LAUNCHD_LABEL,
-            "WorkingDirectory": _repo_root(self.cfg),
-            "ProgramArguments": _launchd_program_arguments(self.cfg),
-            # launchd hands a job a near-empty environment; deliver the
-            # canonical telemetry/update-check block before the interpreter
-            # starts. Non-secret by construction (fixed literals only).
-            "EnvironmentVariables": scheduler_env_overlay(),
-            "StartCalendarInterval": interval,
-            "RunAtLoad": False,
-            "StandardOutPath": log_path,
-            "StandardErrorPath": log_path,
-        }
-
-        plist_path = self._plist_path()
-        tmp_path = plist_path.with_suffix(".plist.tmp")
-        with open(tmp_path, "wb") as f:
-            plistlib.dump(document, f, fmt=plistlib.FMT_XML)
-        os.replace(tmp_path, plist_path)  # atomic on POSIX -- never a partial plist on disk
+        # Atomic write (temp file + os.replace), so never a partial plist.
+        plist_path = launchd_plist.write_job(
+            LAUNCHD_LABEL,
+            _launchd_program_arguments(self.cfg),
+            _repo_root(self.cfg),
+            "sync.log",
+            StartCalendarInterval=interval,
+        )
 
         return ScheduleEntry(
             platform_name="darwin",
@@ -620,25 +542,25 @@ class LaunchdScheduler:
             raw=str(plist_path),
             note=(
                 f"Plist written to {plist_path} but NOT loaded. Run "
-                f"'{self._bootstrap_hint(plist_path)}' to activate it."
+                f"'{launchd_plist.bootstrap_hint(plist_path)}' to activate it."
             ),
         )
 
     def remove(self) -> bool:
         """Best-effort unload, then delete the plist. Returns True if a plist was removed."""
         self._require_darwin()
-        plist_path = self._plist_path()
+        plist_path = launchd_plist.plist_path(LAUNCHD_LABEL)
         if not plist_path.exists():
             return False
 
-        launchctl = self._launchctl()
+        launchctl = launchd_plist.launchctl_bin()
         if launchctl:
             # Tolerate "not loaded"/"no such process" -- bootout on an agent
             # that was written but never bootstrapped is an expected no-op,
             # not a failure; we only need the file gone afterward either way.
             try:
                 subprocess.run(  # noqa: S603  # argv list, launchctl resolved via shutil.which
-                    [launchctl, "bootout", f"gui/{self._uid()}", str(plist_path)],
+                    [launchctl, "bootout", f"gui/{launchd_plist.current_uid()}", str(plist_path)],
                     env=child_environment("filesystem"),
                     capture_output=True,
                     text=True,
@@ -662,7 +584,7 @@ class LaunchdScheduler:
         can't fully resolve on this host).
         """
         self._require_darwin()
-        plist_path = self._plist_path()
+        plist_path = launchd_plist.plist_path(LAUNCHD_LABEL)
         if not plist_path.exists():
             return None
 
@@ -680,11 +602,11 @@ class LaunchdScheduler:
             ) from exc
 
         loaded_note = "load state unknown (launchctl unavailable)"
-        launchctl = self._launchctl()
+        launchctl = launchd_plist.launchctl_bin()
         if launchctl:
             try:
                 probe = subprocess.run(  # noqa: S603  # argv list, launchctl resolved via shutil.which
-                    [launchctl, "print", f"gui/{self._uid()}/{LAUNCHD_LABEL}"],
+                    [launchctl, "print", f"gui/{launchd_plist.current_uid()}/{LAUNCHD_LABEL}"],
                     env=child_environment("filesystem"),
                     capture_output=True,
                     text=True,

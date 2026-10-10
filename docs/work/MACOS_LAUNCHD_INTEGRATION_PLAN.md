@@ -258,8 +258,8 @@ Added to `sync/scheduler.py`, gated to `platform.system() == "Darwin"`:
   written via `plistlib` — no hand-built XML string, so no injection surface
   in the plist body itself.
 - **Generated, not templated.** The plist's `ProgramArguments` uses the same
-  `_python_executable()` / `_repo_root(cfg)` helpers `CronScheduler` already
-  uses — real, resolved paths at generation time, not `REPLACE_*`
+  `python_executable()` (now shared from `utils/win_schtasks.py`) /
+  `_repo_root(cfg)` helpers `CronScheduler` already uses — real, resolved paths at generation time, not `REPLACE_*`
   placeholders. `WorkingDirectory` is the real repo root. Log paths are
   `~/Library/Logs/CyClaw/sync.log` under the real invoking user's home
   (`Path.home()`), matching the shipped templates' log-path convention.

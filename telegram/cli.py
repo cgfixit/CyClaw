@@ -301,24 +301,14 @@ def cmd_poll_plist(args: argparse.Namespace) -> int:
     wrapper = launchd_plist.keychain_wrapper_path(repo_root)
     program_args = launchd_plist.wrap_with_keychain_secrets(inner_argv, secrets, wrapper)
 
-    log_path = str(launchd_plist.logs_dir() / "telegram-poll.log")
-    document = {
-        "Label": _POLL_LAUNCHD_LABEL,
-        "WorkingDirectory": str(repo_root),
-        "ProgramArguments": program_args,
-        # launchd hands a job a near-empty environment; deliver the
-        # canonical telemetry/update-check block before anything starts.
-        # Non-secret fixed literals; secrets stay on the Keychain wrapper.
-        "EnvironmentVariables": scheduler_env_overlay(),
-        "KeepAlive": True,
-        "ThrottleInterval": 10,
-        "RunAtLoad": False,
-        "StandardOutPath": log_path,
-        "StandardErrorPath": log_path,
-    }
-
-    path = launchd_plist.plist_path(_POLL_LAUNCHD_LABEL)
-    launchd_plist.write_plist(document, path)
+    path = launchd_plist.write_job(
+        _POLL_LAUNCHD_LABEL,
+        program_args,
+        repo_root,
+        "telegram-poll.log",
+        KeepAlive=True,
+        ThrottleInterval=10,
+    )
 
     _kv("plist", path)
     _kv("token Keychain service", args.token_service)
@@ -383,23 +373,13 @@ def cmd_health_plist(args: argparse.Namespace) -> int:
         inner_argv, [(args.token_service, cfg.bot_token_env)], wrapper
     )
 
-    log_path = str(launchd_plist.logs_dir() / "telegram-health.log")
-    document = {
-        "Label": _HEALTH_LAUNCHD_LABEL,
-        "WorkingDirectory": str(repo_root),
-        "ProgramArguments": program_args,
-        # launchd hands a job a near-empty environment; deliver the
-        # canonical telemetry/update-check block before anything starts.
-        # Non-secret fixed literals; secrets stay on the Keychain wrapper.
-        "EnvironmentVariables": scheduler_env_overlay(),
-        "StartInterval": args.interval_sec,
-        "RunAtLoad": False,
-        "StandardOutPath": log_path,
-        "StandardErrorPath": log_path,
-    }
-
-    path = launchd_plist.plist_path(_HEALTH_LAUNCHD_LABEL)
-    launchd_plist.write_plist(document, path)
+    path = launchd_plist.write_job(
+        _HEALTH_LAUNCHD_LABEL,
+        program_args,
+        repo_root,
+        "telegram-health.log",
+        StartInterval=args.interval_sec,
+    )
 
     _kv("plist", path)
     _kv("chat_id", chat_id)

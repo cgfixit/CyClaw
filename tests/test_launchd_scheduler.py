@@ -133,7 +133,7 @@ def test_get_scheduler_launchd_backend_off_darwin_raises(system: str) -> None:
 def _install(cfg: RcloneConfig, home: Path) -> ScheduleEntry:
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=home),
+        patch("utils.launchd_plist.Path.home", return_value=home),
     ):
         return LaunchdScheduler(cfg).install()
 
@@ -211,7 +211,7 @@ def test_install_returns_bootstrap_hint_and_never_calls_subprocess(tmp_path: Pat
     cfg = _make_cfg()
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.subprocess.run") as mock_run,
     ):
         entry = LaunchdScheduler(cfg).install()
@@ -252,7 +252,7 @@ def test_remove_missing_plist_returns_false_with_no_subprocess_call(tmp_path: Pa
     cfg = _make_cfg()
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.subprocess.run") as mock_run,
     ):
         result = LaunchdScheduler(cfg).remove()
@@ -269,7 +269,7 @@ def test_remove_existing_plist_boots_out_then_deletes(tmp_path: Path) -> None:
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value="/bin/launchctl"),
         patch("sync.scheduler.subprocess.run", return_value=_completed()) as mock_run,
     ):
@@ -290,7 +290,7 @@ def test_remove_tolerates_missing_launchctl_binary(tmp_path: Path) -> None:
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value=None),
         patch("sync.scheduler.subprocess.run") as mock_run,
     ):
@@ -310,7 +310,7 @@ def test_status_returns_none_when_no_plist(tmp_path: Path) -> None:
     cfg = _make_cfg()
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
     ):
         assert LaunchdScheduler(cfg).status() is None
 
@@ -321,7 +321,7 @@ def test_status_reports_loaded_state_from_launchctl_print(tmp_path: Path) -> Non
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value="/bin/launchctl"),
         patch("sync.scheduler.subprocess.run", return_value=_completed(returncode=0)) as mock_run,
     ):
@@ -341,7 +341,7 @@ def test_status_reports_not_loaded_when_launchctl_print_fails(tmp_path: Path) ->
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value="/bin/launchctl"),
         patch("sync.scheduler.subprocess.run", return_value=_completed(returncode=1)),
     ):
@@ -357,7 +357,7 @@ def test_status_tolerates_missing_launchctl_binary(tmp_path: Path) -> None:
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value=None),
         patch("sync.scheduler.subprocess.run") as mock_run,
     ):
@@ -380,7 +380,7 @@ def test_status_preserves_saved_schedule_when_launchctl_probe_raises(tmp_path: P
     saved = plist_path.read_bytes()
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value="/bin/launchctl"),
         patch("sync.scheduler.subprocess.run", side_effect=failure),
     ):
@@ -403,7 +403,7 @@ def test_status_reflects_on_disk_plist_not_live_config(tmp_path: Path) -> None:
     drifted_cfg = _make_cfg(schedule_frequency="weekly", schedule_weekday=5)
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value=None),
     ):
         entry = LaunchdScheduler(drifted_cfg).status()
@@ -435,7 +435,7 @@ def test_remove_tolerates_launchctl_timeout_and_still_deletes(tmp_path: Path) ->
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value="/bin/launchctl"),
         patch(
             "sync.scheduler.subprocess.run",
@@ -459,7 +459,7 @@ def test_status_malformed_plist_raises_typed_scheduler_error(tmp_path: Path) -> 
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
     ):
         with pytest.raises(SchedulerError, match="could not parse"):
             LaunchdScheduler(cfg).status()
@@ -478,7 +478,7 @@ def test_status_out_of_range_weekday_does_not_raise(tmp_path: Path) -> None:
 
     with (
         patch("sync.scheduler.platform.system", return_value="Darwin"),
-        patch("sync.scheduler.Path.home", return_value=tmp_path),
+        patch("utils.launchd_plist.Path.home", return_value=tmp_path),
         patch("sync.scheduler.shutil.which", return_value=None),
     ):
         entry = LaunchdScheduler(cfg).status()
