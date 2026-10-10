@@ -105,6 +105,14 @@ class RealRepoRunRecord:
     # must fail closed if this is missing.
     acceptance_digest: str | None = None
     acceptance_base_head: str | None = None
+    # What the draft-PR body (agentic/real_repo_pr_body.py) reports, stored on
+    # an accepted run so publish needs no clone. All operator-supplied or fixed
+    # tokens, never model prose: the scanned --instruction, the checks
+    # manifest's names, and each iteration's RealRepoDecision.reason (built only
+    # from fixed gate names). Empty/None on records written before they existed.
+    instruction: str | None = None
+    check_names: list[str] = field(default_factory=list)
+    iteration_outcomes: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 

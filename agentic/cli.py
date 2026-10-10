@@ -976,6 +976,9 @@ def cmd_real_repo_run(args: argparse.Namespace) -> int:
             plan_sha256=plan_sha256,
             acceptance_digest=_acceptance_digest,
             acceptance_base_head=_acceptance_base_head,
+            instruction=args.instruction,
+            check_names=[check.name for check in checks],
+            iteration_outcomes=[iteration.decision.reason for iteration in result.iterations],
         )
         # Keep the accepted clone for the later human decision, but release
         # ScopedRoots' authority handles now.  On Windows they deliberately
@@ -1117,15 +1120,29 @@ def _publish_record(
     caller by design (an earlier version fabricated one internally, which an
     external review caught as making gate 5 unconditional).
     """
+    from datetime import UTC, datetime
+
+    from agentic.real_repo_pr_body import pr_title_problem, render_pr_body
     from agentic.real_repo_run_store import save_run
     from agentic.writer import execute_write, plan_write
 
+    # Checked before any network write: pr-template-check.yml rejects a title
+    # outside `[prefix] - Sentence`, so publishing one would open a PR that is
+    # red on arrival. The title is the caller's fixed commit message and is
+    # never rewritten here. Saved like every other refusal below: on the
+    # decide --push --publish path the push has just set record.pushed.
+    title_problem = pr_title_problem(record.commit_message)
+    if title_problem is not None:
+        save_run(runs_dir, record)
+        _err(f"publish refused: {title_problem}")
+        print(json.dumps(record.to_dict(), indent=2))
+        return EXIT_REFUSED
     try:
         plan = plan_write(
             cfg, "pr_create", reason, confirm=confirm,
             head=record.branch_name,
             title=record.commit_message,
-            body=f"Automated real-repo-run candidate (run_id={record.run_id}).",
+            body=render_pr_body(record, now=datetime.now(UTC)),
             config_path=config_path,
         )
         result = execute_write(plan, cfg=cfg, confirm=confirm, config_path=config_path)
