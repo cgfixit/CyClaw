@@ -327,3 +327,7 @@ packages). A narrower characterization (`gate` / `gate_ops` / `graph` / `mcp` vs
   `/health` is unauthenticated and un-rate-limited, so probing there would be
   operator-triggerable third-party egress on the operator's own key.
   (`TestShippedCoreConfigContract.test_health_does_not_probe_providers_by_default`.)
+
+## Git hooks are not a gate
+
+Git hooks are a speed bump, not a boundary. CI is the enforcement layer; never count a hook as a gate.

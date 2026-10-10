@@ -136,3 +136,9 @@ or launcher lands unclassified:
 but read by no code — a decorative marker advertising enforcement that
 Python-side maps actually provided. The real canonical values now ride the
 image ENV instead.
+
+## Sensitive paths and hook limits
+
+Sensitive paths are listed in `.github/CODEOWNERS`; changes there are review-requested automatically.
+
+Bidi and tag-character checks in `.githooks/_security.sh` skip a hit only when the file name matches `SEC_BINARY_GLOBS` and the line is invalid UTF-8 (and `iconv` is available). That list currently includes archives and executables (`*.whl`, `*.jar`, `*.so`, `*.dll`, `*.exe`, `*.dylib`), so executable archives are not exempt: a hit in such a file is skipped when its line is invalid UTF-8. Narrowing the list is tracked as a follow-up issue. Secret patterns still run on these files.

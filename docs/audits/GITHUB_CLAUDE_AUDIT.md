@@ -121,8 +121,7 @@ scaffold step.
 
 ## 6. 🟢 Missing governance files
 
-- **No `CODEOWNERS`** — reviews are not auto-requested. A one-line
-  `* @CGFixIT` (or finer-grained) file would enforce review routing.
+- **`CODEOWNERS` restored** — `.github/CODEOWNERS` now routes review requests for sensitive paths (workflows, locks, Docker, hooks, guardrails, policy docs). Originally absent: reviews were not auto-requested.
 - **No PR template** — the existing PRs are well-structured by convention only.
   A `.github/pull_request_template.md` would standardize Summary / Test plan.
 - Issue templates (bug_report, feature_request) and `SECURITY.md` are present and
