@@ -35,8 +35,8 @@ from utils.bounded_executor import WorkCapacityExceeded
 
 _PEER = ("127.0.0.47", 51234)  # DevSkim: ignore DS162092,DS137138 - test loopback peer
 _PASSWORD = "correct horse battery staple"
-_SECRET_MARKER = "pyshield-secret-marker-9f3c"
-_USER_MARKER = "pyshield-user-marker-7d1a"
+_SECRET_MARKER = "test-secret-marker-9f3c"
+_USER_MARKER = "test-user-marker-7d1a"
 
 
 def _busy() -> AsyncMock:
