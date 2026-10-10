@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 import agentic.executor.runner as runner_module
-from agentic.executor import Check, VerificationReport, default_checks, run_verification
+from agentic.executor import Check, VerificationReport, run_verification
 from agentic.executor.hard_sandbox import ArgvListSandbox
 
 
@@ -56,6 +56,10 @@ def _temp_audit(tmp_path, monkeypatch):
     reset_config_cache()
 
 
+def _failed_names(report: VerificationReport) -> tuple[str, ...]:
+    return tuple(r.name for r in report.results if not r.ok)
+
+
 # --- basic execution ---------------------------------------------------------
 
 
@@ -65,14 +69,14 @@ def test_a_passing_check_reports_ok(tmp_path):
     assert report.ok is True
     assert report.results[0].exit_code == 0
     assert report.results[0].ok is True
-    assert report.failed_names() == ()
+    assert _failed_names(report) == ()
 
 
 def test_a_failing_check_reports_not_ok(tmp_path):
     report = run_verification(tmp_path, [_py("import sys; sys.exit(1)")])
     assert report.ok is False
     assert report.results[0].exit_code == 1
-    assert report.failed_names() == ("probe",)
+    assert _failed_names(report) == ("probe",)
 
 
 def test_one_failure_among_several_fails_the_whole_report(tmp_path):
@@ -83,7 +87,7 @@ def test_one_failure_among_several_fails_the_whole_report(tmp_path):
     ]
     report = run_verification(tmp_path, checks)
     assert report.ok is False
-    assert report.failed_names() == ("b",)
+    assert _failed_names(report) == ("b",)
     assert len(report.results) == 3
 
 
@@ -270,28 +274,6 @@ def test_check_rejects_empty_name():
 def test_check_rejects_empty_argv():
     with pytest.raises(ValueError, match="argv"):
         Check("x", ())
-
-
-# --- default_checks ----------------------------------------------------------
-
-
-def test_default_checks_shape():
-    checks = default_checks(Path("/some/repo"))
-    names = [c.name for c in checks]
-    assert names == ["pytest", "ruff", "invariant_guard"]
-    pytest_check, ruff_check, guard_check = checks
-    assert pytest_check.argv[:3] == (sys.executable, "-m", "pytest")
-    assert ruff_check.argv[:3] == (sys.executable, "-m", "ruff")
-    assert (
-        str(Path("/some/repo") / ".claude" / "skills" / "invariant-guard" / "check_invariants.py") in guard_check.argv
-    )
-
-
-def test_default_checks_defaults_to_this_repos_own_root():
-    checks = default_checks()
-    guard_check = next(c for c in checks if c.name == "invariant_guard")
-    assert "invariant-guard" in guard_check.argv[-1]
-    assert Path(guard_check.argv[-1]).name == "check_invariants.py"
 
 
 def test_fifo_in_worktree_does_not_hang_mirror_copy(tmp_path):

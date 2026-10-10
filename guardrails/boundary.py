@@ -9,7 +9,8 @@ This module is NEVER imported by ``gate.py``, ``graph.py``, or
 
 STATUS (verified 2026-09-04): the consumer never arrived. Phases 2a, 3, 4
 and 5 of #1134 all shipped and none of them import these types -- Phase 5's
-name gate went out as ``utils/tool_broker.py``, and ``guardrails/profiles.py``
+name gate went out as ``utils/tool_broker.py`` (removed 2026-10-10 once PR
+#1367 took away its only caller), and ``guardrails/profiles.py``
 mirrors the ``GuardrailStage`` values by hand rather than importing them.
 Outside its own tests this module has no caller. It is kept deliberately
 (owner decision) as the typed vocabulary a future broker would adopt, not
@@ -135,31 +136,3 @@ def guardrail_decision(**kwargs: Any) -> GuardrailDecision:
         return GuardrailDecision(**kwargs)
     except TypeError as exc:
         raise TypeError(str(exc)) from exc
-
-
-# --- Phase 3+ stubs (empty; not wired yet) ---------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class SafetyEnvelope:
-    """Egress/consent facts. Hashes and hosts only — never raw query/corpus/soul."""
-
-    destination_host: str = ""
-    trust: TrustLevel = TrustLevel.UNTRUSTED
-    confirm_digest: str = ""
-    send_local_context: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ToolIntent:
-    """ponytail: stub -- normalized tool call intent not wired until Phase 3+."""
-
-
-@dataclass(frozen=True, slots=True)
-class ToolObservation:
-    """ponytail: stub -- post-tool observation not wired until Phase 3+."""
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactManifest:
-    """ponytail: stub -- immutable acceptance manifest not wired until Phase 3+."""
