@@ -39,6 +39,9 @@ def _bind_hybrid_helpers(fake: SimpleNamespace) -> SimpleNamespace:
     # Memory fusion is config-gated; fakes without cfg must default off.
     if not hasattr(fake, "cfg"):
         fake.cfg = {}
+    # Degrade/fusion audits go to the retriever's own config, as __init__ sets it.
+    if not hasattr(fake, "config_path"):
+        fake.config_path = "config.yaml"
     return fake
 
 

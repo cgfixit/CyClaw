@@ -93,6 +93,31 @@ def test_fusion_caps_hits(mem_on, tmp_path):
     assert len(mem) <= 3
 
 
+@pytest.mark.parametrize("key", ["max_hits", "rrf_k"])
+@pytest.mark.parametrize("value", [-1, 0, True, "3", None])
+def test_fusion_refuses_unusable_bounds(mem_on, key, value):
+    # max_hits: -1 reached SQLite as LIMIT -1, which means "no limit".
+    cfg = {**mem_on, "memory": {**mem_on["memory"],
+                                "retrieval_fusion": {**mem_on["memory"]["retrieval_fusion"], key: value}}}
+    with pytest.raises(ValueError, match=key):
+        fuse_memory_hits("MacBook", _corpus(), cfg)
+
+
+def test_fusion_error_is_audited_to_the_retrievers_config(mem_on, monkeypatch):
+    # A retriever built from a non-default config must not audit into the
+    # default config.yaml's log, or the refused bound looks like a clean run.
+    cfg = {**mem_on, "memory": {**mem_on["memory"],
+                                "retrieval_fusion": {**mem_on["memory"]["retrieval_fusion"], "max_hits": -1}}}
+    calls: list[tuple[dict, dict]] = []
+    monkeypatch.setattr("retrieval.hybrid_search.audit_log", lambda event, **kw: calls.append((event, kw)))
+    retriever = SimpleNamespace(cfg=cfg, config_path="/elsewhere/config.yaml")
+    corpus = _corpus()
+    assert HybridRetriever._maybe_fuse_memory(retriever, "MacBook", corpus) == corpus
+    assert calls == [({"event": "memory_fusion_error", "path": "hybrid_search",
+                       "error": "memory.retrieval_fusion.max_hits must be an integer >= 1, got: -1"},
+                      {"config_path": "/elsewhere/config.yaml"})]
+
+
 # -- the facts flag itself: renamed key + legacy fallback -----------------------
 #
 # Before this suite existed, NO test asserted that the facts flag gates fusion at
