@@ -29,7 +29,7 @@ Follow-up contract (Advisor FAIL on PR #1561, Expert DECISION):
   without the code).
 
 Security properties of the same change (0600 mode, key absent from output,
-pairing URL absent from non-TTY output) are PyShield's, in tests/security*;
+pairing URL absent from non-TTY output) are covered in tests/security*;
 this file only checks behavior.
 
 Each run executes the real launcher with a temp HOME / XDG_CONFIG_HOME /
@@ -41,7 +41,7 @@ interpreter. PATH is a shadow of the host PATH with ``secret-tool`` and
 ``curl`` removed, so "no secret-tool" holds even on hosts that have one; tests
 that want libsecret put a recording stub first on PATH.
 
-Interface assumptions PyForge should align with (or change here) are the
+Interface assumptions the launcher should align with (or change here) are the
 module constants below.
 """
 
@@ -93,10 +93,10 @@ def _login_name() -> str:
 
 SECRET_TOOL_ATTRS: tuple[str, ...] | None = ("service", "com.cgfixit.cyclaw.api-key", "account", _login_name())
 
-# Sourced key helper beside the launcher (PyForge, PR B); exercised directly
+# Sourced key helper beside the launcher (launcher PR B); exercised directly
 # only for the folder-mode return code.
 KEY_HELPER = _REPO_ROOT / "macos" / "cyclaw-linux-key.sh"
-# cyclaw_linux_load_api_key return codes (PyForge contract): 1 no key stored,
+# cyclaw_linux_load_api_key return codes (launcher contract): 1 no key stored,
 # 2 refused (bad folder/file mode or a key that is not 40 lowercase hex).
 HELPER_MISSING_RC = 1
 HELPER_REFUSED_RC = 2
