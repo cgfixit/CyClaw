@@ -1277,6 +1277,102 @@ jobs:
       - name: Final status
         run: echo "CI workflow completed on ${{ matrix.os }} (reproducible gate passed)"
 
+  # Throwaway canary for issue #1626. GitHub's ubuntu-26.04 label is GA for
+  # public repos (changelog 2026-09-17: runs-on ubuntu-26.04 / ubuntu-26.04-arm).
+  # ubuntu-latest stays the required 24.04 leg until the 2026-10-19..11-19
+  # migration. This job copies that leg's three bwrap probes, including the
+  # stock-refusal strictness, and does not write kernel.apparmor_restrict_unprivileged_userns.
+  # continue-on-error keeps a 26.04 miss from gating merges. The matrix `if:`
+  # filters are omitted because this job is not the test matrix; `!cancelled()`
+  # only lets a failed probe still run the later ones. Delete the job once the
+  # migration window has answered the question.
+  ubuntu-26-04-bwrap-canary:
+    name: ubuntu-26-04-bwrap-canary
+    # actionlint 1.7.12 (the workflow-lint pin) has no built-in ubuntu-26.04
+    # label and no disable-comment. .github/actionlint.yaml allowlists it.
+    # The label is GitHub-hosted (changelog 2026-09-17), not a self-hosted runner.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install bubblewrap
+        shell: bash
+        run: |
+          # Noble pin from the ubuntu-latest test leg (apt has no digest pin).
+          # If 26.04 does not publish that exact version, install the distro
+          # package and still print the version. The required 24.04 leg keeps
+          # its hard pin. A pin that is present still has to match
+          # `bubblewrap <upstream>`.
+          . /etc/os-release
+          echo "image_id=${ID:-} image_version=${VERSION_ID:-} pretty=${PRETTY_NAME:-}"
+          ver='0.9.0-1ubuntu0.3'
+          sudo apt-get update
+          policy="$(apt-cache policy bubblewrap)"
+          printf '%s\n' "${policy}"
+          if printf '%s\n' "${policy}" | grep -Fq "${ver}"; then
+            sudo apt-get install --yes --no-install-recommends "bubblewrap=${ver}"
+            echo "installed_pin=${ver}"
+            bwrap --version
+            echo "bwrap_version=$(bwrap --version)"
+            test "$(bwrap --version)" = "bubblewrap ${ver%%-*}"
+          else
+            echo "::warning::noble pin bubblewrap=${ver} is not in this image apt cache; installing the distro bubblewrap package"
+            sudo apt-get install --yes --no-install-recommends bubblewrap
+            echo "installed_pin=distro"
+            bwrap --version
+            echo "bwrap_version=$(bwrap --version)"
+          fi
+          command -v bwrap
+
+      - name: Prove stock AppArmor refuses bwrap (24.04 leg)
+        # Same script as the ubuntu-latest test leg: sysctl must be 1, and
+        # bwrap must fail with a userns/permission denial. A 26.04 miss is
+        # the finding; this step does not retune the check.
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          restrict="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo missing)"
+          echo "kernel.apparmor_restrict_unprivileged_userns=${restrict}"
+          if [ "${restrict}" != "1" ]; then
+            echo "::error::expected stock kernel.apparmor_restrict_unprivileged_userns=1, got '${restrict}'"
+            exit 1
+          fi
+          probe_err="${RUNNER_TEMP}/bwrap-stock-probe.err"
+          if bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true 2>"${probe_err}"; then
+            echo "::error::bwrap succeeded under stock AppArmor; expected a refusal before the cyclaw-bwrap profile loads"
+            exit 1
+          fi
+          cat "${probe_err}" >&2
+          if ! grep -Eqi 'permission denied|operation not permitted|no permissions to create new namespace|user namespace' "${probe_err}"; then
+            echo "::error::bwrap failed, but not with a userns/permission denial; refusing to count it as the stock AppArmor refusal"
+            exit 1
+          fi
+          echo "Stock AppArmor refused bwrap with a userns/permission denial, as expected."
+
+      - name: Load the bwrap-scoped AppArmor profile (24.04 leg)
+        # Same load commands as the ubuntu-latest test leg. The global
+        # sysctl is not written.
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          sudo install -m 0644 deploy/apparmor/cyclaw-bwrap /etc/apparmor.d/cyclaw-bwrap
+          sudo apparmor_parser -r /etc/apparmor.d/cyclaw-bwrap
+
+      - name: Prove bwrap confinement (both Linux legs)
+        # Same probe as both Linux test legs.
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev /bin/true
+
   # Real-socket smoke for LocalLLMClient against a mock OpenAI-compatible
   # Ollama endpoint. tests/test_client.py already covers every error-mapping/
   # retry branch via a monkeypatched httpx.Client.post (real Request/Response
