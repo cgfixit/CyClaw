@@ -25,6 +25,7 @@ headings), or a trailing ``Last updated:`` line.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from agentic.real_repo_run_store import RealRepoRunRecord
@@ -65,10 +66,15 @@ def pr_title_problem(title: str | None) -> str | None:
     return f"commit_message must read `[prefix] - Short sentence` with prefix one of {', '.join(TITLE_PREFIXES)}"
 
 
-def _md_inline(text: str) -> str:
-    """Escape ``text`` for one line of Markdown: no line breaks, no live markup."""
-    flat = " ".join(text.split())
-    return _MD_SPECIAL_RE.sub(r"\\\1", flat)
+def _md_inline(text: object) -> str:
+    """Escape ``text`` for one line of Markdown: no line breaks, no live markup.
+
+    ``str()`` first: a record written before check names were type-checked can
+    hold a non-string. A zero-width space after ``@`` keeps a model-chosen path
+    or pasted text from @-mentioning, and so notifying, a GitHub user or team.
+    """
+    flat = " ".join(str(text).split())
+    return _MD_SPECIAL_RE.sub(r"\\\1", flat).replace("@", "@\u200b")
 
 
 def _quote_block(text: str, limit: int) -> list[str]:
@@ -114,22 +120,26 @@ def _box(ticked: bool, label: str) -> str:
     return f"- [{'x' if ticked else ' '}] {label}"
 
 
-def render_pr_body(record: RealRepoRunRecord, *, now: datetime) -> str:
+def render_pr_body(record: RealRepoRunRecord, *, now: datetime, redact: Callable[[str], str]) -> str:
     """Build a complete ``.github/PULL_REQUEST_TEMPLATE.md`` fill for a pushed run.
 
-    Pure: the same record and ``now`` always produce the same string.
+    Pure: the same record, ``now`` and ``redact`` always produce the same
+    string. ``redact`` is required, not defaulted, because the instruction and
+    check names are free operator text about to be published: the injection
+    scan they passed does not remove secrets or PII, so the caller supplies the
+    repository's redactor (``utils.logger.redact_sensitive``).
     """
     title_ok = pr_title_problem(record.commit_message) is None
     files = record.changed_files
     file_lines = [f"- {_md_inline(path)}" for path in files] or ["- (none recorded)"]
-    check_lines = [f"- {_md_inline(name)}" for name in record.check_names] or [
+    check_lines = [f"- {_md_inline(redact(str(name)))}" for name in record.check_names] or [
         "- (check names not recorded on this run; it predates check_names)"
     ]
     outcome_lines = [
         f"- iteration {step}: {_md_inline(outcome)}" for step, outcome in enumerate(record.iteration_outcomes, 1)
     ] or [f"- {record.iterations} iteration(s); per-iteration outcomes not recorded on this run"]
     instruction = (
-        _quote_block(record.instruction, MAX_INSTRUCTION_CHARS)
+        _quote_block(redact(record.instruction), MAX_INSTRUCTION_CHARS)
         if record.instruction
         else ["> (not recorded on this run; it predates the instruction field)"]
     )

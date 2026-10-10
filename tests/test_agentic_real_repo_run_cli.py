@@ -514,6 +514,7 @@ def test_run_env_errors_on_an_empty_checks_list(cfg_path, tmp_path):
         ("[{\"name\": \"x\"}]", "'name' and 'argv'"),
         ("[{\"name\": \"x\", \"argv\": \"not-a-list\"}]", "non-empty list of strings"),
         ("[{\"name\": \"x\", \"argv\": []}]", "non-empty list of strings"),
+        ("[{\"name\": 123, \"argv\": [\"true\"]}]", "non-empty string"),
     ],
 )
 def test_run_env_errors_on_a_malformed_checks_manifest(cfg_path, tmp_path, content, match):
@@ -1163,6 +1164,10 @@ def test_publish_refuses_a_title_outside_the_prefix_format_before_any_network_wr
     on_disk = json.loads(record_path.read_text(encoding="utf-8"))
     on_disk["commit_message"] = "add target.txt"
     record_path.write_text(json.dumps(on_disk), encoding="utf-8")
+    # The rule applies only to a target repo that runs the template check itself.
+    workflow = Path(record["dest"]) / ".github" / "workflows" / "pr-template-check.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text("name: PR Template Check\n", encoding="utf-8")
 
     import agentic.writer as writer_mod
 
@@ -1177,6 +1182,37 @@ def test_publish_refuses_a_title_outside_the_prefix_format_before_any_network_wr
     assert code == EXIT_REFUSED
     assert "[prefix] - Short sentence" in capsys.readouterr().err
     assert json.loads(record_path.read_text(encoding="utf-8"))["pushed"] is True
+
+
+def test_publish_keeps_a_repos_own_title_convention_when_it_has_no_template_check(
+    tmp_path, cfg_path, checks_file, monkeypatch, capsys,
+):
+    """agentic.repo may name any repository; CyClaw's `[prefix] - Sentence`
+    rule must not refuse a target whose clone does not run pr-template-check."""
+    _use_real_origin_remote(tmp_path, monkeypatch)
+    monkeypatch.setattr(LocalProposerClient, "invoke", _fake_model(_RIGHT_BLOCK))
+    _run_start(cfg_path, checks_file)
+    record = json.loads(capsys.readouterr().out)
+    run_id = record["run_id"]
+    _approve(cfg_path, run_id)
+    capsys.readouterr()
+    assert main(["--config", cfg_path, "real-repo-run-push", "--run-id", run_id]) == EXIT_OK
+    capsys.readouterr()
+    record_path = Path(record["dest"]).parent.parent / "runs" / f"{run_id}.json"
+    on_disk = json.loads(record_path.read_text(encoding="utf-8"))
+    on_disk["commit_message"] = "feat: add target.txt"
+    record_path.write_text(json.dumps(on_disk), encoding="utf-8")
+
+    import agentic.writer as writer_mod
+
+    sent: dict = {}
+    monkeypatch.setattr(writer_mod, "plan_write", lambda *a, **k: sent.update(k) or {"op": "pr_create"})
+    monkeypatch.setattr(writer_mod, "execute_write", lambda *a, **k: {"stdout": "https://example.invalid/pr/2"})
+    code = main([
+        "--config", cfg_path, "real-repo-run-publish", "--run-id", run_id, "--reason", "ship it", "--confirm",
+    ])
+    assert code == EXIT_OK
+    assert sent["title"] == "feat: add target.txt"
 
 
 # --- standalone push/publish subcommands (their own decision points) ---------

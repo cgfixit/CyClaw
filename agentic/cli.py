@@ -53,7 +53,7 @@ from utils.errors import (
     PromptInjectionError,
     SkillRegistryError,
 )
-from utils.logger import _get_config, audit_log, setup_logging
+from utils.logger import _get_config, audit_log, redact_sensitive, setup_logging
 
 if TYPE_CHECKING:
     # Types needed only for annotations -- the actual imports stay lazy,
@@ -509,6 +509,10 @@ def _load_checks_file(path: str) -> tuple[Check, ...]:
     for entry in data:
         if not isinstance(entry, dict) or "name" not in entry or "argv" not in entry:
             raise AgenticError("each check entry needs 'name' and 'argv'", details={"path": path, "entry": entry})
+        if not isinstance(entry["name"], str) or not entry["name"].strip():
+            # Check() only rejects a falsy name, so `"name": 123` used to pass
+            # and later crash the PR-body renderer, which expects text.
+            raise AgenticError("check 'name' must be a non-empty string", details={"path": path})
         argv = entry["argv"]
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
             raise AgenticError("check 'argv' must be a non-empty list of strings", details={"path": path})
@@ -1126,23 +1130,31 @@ def _publish_record(
     from agentic.real_repo_run_store import save_run
     from agentic.writer import execute_write, plan_write
 
-    # Checked before any network write: pr-template-check.yml rejects a title
-    # outside `[prefix] - Sentence`, so publishing one would open a PR that is
-    # red on arrival. The title is the caller's fixed commit message and is
-    # never rewritten here. Saved like every other refusal below: on the
-    # decide --push --publish path the push has just set record.pushed.
-    title_problem = pr_title_problem(record.commit_message)
+    # Checked before any network write, but only when the target repository
+    # itself carries pr-template-check.yml (read from the retained clone):
+    # that job rejects a title outside `[prefix] - Sentence`, so publishing one
+    # would open a PR that is red on arrival. agentic.repo may name any
+    # repository, and imposing CyClaw's prefixes on one without that check
+    # would refuse its own conventions. The title is the caller's fixed commit
+    # message and is never rewritten. Saved like every other refusal below: on
+    # the decide --push --publish path the push has just set record.pushed.
+    enforces_titles = (Path(record.dest) / ".github" / "workflows" / "pr-template-check.yml").is_file()
+    title_problem = pr_title_problem(record.commit_message) if enforces_titles else None
     if title_problem is not None:
         save_run(runs_dir, record)
         _err(f"publish refused: {title_problem}")
         print(json.dumps(record.to_dict(), indent=2))
         return EXIT_REFUSED
+    # Same loader every other command uses for the app config: the redactor
+    # needs its privacy section, and a config that fails to load must stop
+    # the publish rather than send the body unredacted.
+    app_cfg = _get_config(config_path)
     try:
         plan = plan_write(
             cfg, "pr_create", reason, confirm=confirm,
             head=record.branch_name,
             title=record.commit_message,
-            body=render_pr_body(record, now=datetime.now(UTC)),
+            body=render_pr_body(record, now=datetime.now(UTC), redact=lambda text: redact_sensitive(text, app_cfg)),
             config_path=config_path,
         )
         result = execute_write(plan, cfg=cfg, confirm=confirm, config_path=config_path)

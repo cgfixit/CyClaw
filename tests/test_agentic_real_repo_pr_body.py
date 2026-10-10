@@ -17,6 +17,11 @@ from agentic.real_repo_run_store import RealRepoRunRecord
 
 _NOW = datetime(2026, 10, 10, 14, 5, tzinfo=UTC)
 
+
+def _keep(text: str) -> str:
+    return text
+
+
 # The workflow's section, tick, ELI5-last and stamp rules, applied to prose
 # with fenced blocks and HTML comments stripped exactly as the workflow does.
 _SECTIONS = (
@@ -76,7 +81,7 @@ def _assert_template_complete(body: str) -> None:
 
 
 def test_body_is_a_complete_template_fill_and_reports_the_record():
-    body = render_pr_body(_record(), now=_NOW)
+    body = render_pr_body(_record(), now=_NOW, redact=_keep)
     _assert_template_complete(body)
     for fact in ("a" * 32, "agent/fixture-topic", "target.txt", "pytest", "ruff", "add the marker"):
         assert fact in body
@@ -85,11 +90,11 @@ def test_body_is_a_complete_template_fill_and_reports_the_record():
 
 
 def test_body_is_pure():
-    assert render_pr_body(_record(), now=_NOW) == render_pr_body(_record(), now=_NOW)
+    assert render_pr_body(_record(), now=_NOW, redact=_keep) == render_pr_body(_record(), now=_NOW, redact=_keep)
 
 
 def test_a_record_written_before_the_new_fields_still_renders_complete():
-    body = render_pr_body(_record(instruction=None, check_names=[], iteration_outcomes=[]), now=_NOW)
+    body = render_pr_body(_record(instruction=None, check_names=[], iteration_outcomes=[]), now=_NOW, redact=_keep)
     _assert_template_complete(body)
     assert "predates" in body
 
@@ -99,6 +104,7 @@ def test_record_values_cannot_forge_template_structure():
     body = render_pr_body(
         _record(instruction=hostile, changed_files=["## ELI5", "a```b", "<!-- c"], check_names=["# h"]),
         now=_NOW,
+        redact=_keep,
     )
     _assert_template_complete(body)
     prose = _prose(body)
@@ -107,9 +113,34 @@ def test_record_values_cannot_forge_template_structure():
 
 
 def test_long_instruction_is_truncated():
-    body = render_pr_body(_record(instruction="x" * 5000), now=_NOW)
+    body = render_pr_body(_record(instruction="x" * 5000), now=_NOW, redact=_keep)
     assert "x" * 2001 not in body
     assert "truncated at 2000 characters" in body
+
+
+def test_operator_text_goes_through_the_redactor_before_publication():
+    def redact(text: str) -> str:
+        return text.replace("hunter2-secret", "[REDACTED_SECRET]")
+
+    body = render_pr_body(
+        _record(instruction="use token hunter2-secret", check_names=["hunter2-secret"]), now=_NOW, redact=redact
+    )
+    assert "hunter2" not in body
+    assert body.count("\\[REDACTED\\_SECRET\\]") == 2
+
+
+def test_mentions_cannot_notify_anyone():
+    body = render_pr_body(
+        _record(instruction="ping @someone", changed_files=["@org/team.txt"], check_names=["@bot"]),
+        now=_NOW,
+        redact=_keep,
+    )
+    assert re.search(r"@[A-Za-z]", body) is None
+
+
+def test_a_non_string_check_name_from_an_old_record_still_renders():
+    body = render_pr_body(_record(check_names=[123]), now=_NOW, redact=_keep)
+    assert "- 123" in body
 
 
 @pytest.mark.parametrize(

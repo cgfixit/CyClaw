@@ -163,14 +163,16 @@ an unauthorized change.*
 
       | Caller | Path | Additional gates on that path |
       |---|---|---|
-      | CLI | `real-repo-run-decide --push --publish` | `--decision approve`, `--reason`, `--confirm-publish`, commit message in `[prefix] - Sentence` form |
-      | CLI | `real-repo-run-publish` | run must be `approved` AND `pushed`, `--reason`, `--confirm`, commit message in `[prefix] - Sentence` form |
+      | CLI | `real-repo-run-decide --push --publish` | `--decision approve`, `--reason`, `--confirm-publish`, commit message in `[prefix] - Sentence` form when the target clone carries `pr-template-check.yml` |
+      | CLI | `real-repo-run-publish` | run must be `approved` AND `pushed`, `--reason`, `--confirm`, commit message in `[prefix] - Sentence` form when the target clone carries `pr-template-check.yml` |
       | ~~HTTP~~ | ~~`POST /api/agent/runs/{id}/publish`~~ | **Removed 2026-09-11 (PR #1367)** with the Python coding-harness console; `POST /ops/agentic` does not accept `real-repo-run*`, so no HTTP route reaches `execute_write` today |
 
       Both CLI paths open the PR with the run's commit message as title and a
       complete `.github/PULL_REQUEST_TEMPLATE.md` fill built from the run record
       by `agentic/real_repo_pr_body.py` (operator text and fixed tokens only, no
-      model prose), so `pr-template-check.yml` does not fail the loop's own PRs.
+      model prose; the instruction and check names pass `redact_sensitive` and
+      every `@` is defused so nobody is mentioned), so `pr-template-check.yml`
+      does not fail the loop's own PRs.
 
       **A GitHub mutation is therefore network-triggerable once the flag is
       flipped** — by an authenticated, same-origin caller on loopback, against
