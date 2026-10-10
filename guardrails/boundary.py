@@ -136,31 +136,3 @@ def guardrail_decision(**kwargs: Any) -> GuardrailDecision:
         return GuardrailDecision(**kwargs)
     except TypeError as exc:
         raise TypeError(str(exc)) from exc
-
-
-# --- Phase 3+ stubs (empty; not wired yet) ---------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class SafetyEnvelope:
-    """Egress/consent facts. Hashes and hosts only — never raw query/corpus/soul."""
-
-    destination_host: str = ""
-    trust: TrustLevel = TrustLevel.UNTRUSTED
-    confirm_digest: str = ""
-    send_local_context: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ToolIntent:
-    """ponytail: stub -- normalized tool call intent not wired until Phase 3+."""
-
-
-@dataclass(frozen=True, slots=True)
-class ToolObservation:
-    """ponytail: stub -- post-tool observation not wired until Phase 3+."""
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactManifest:
-    """ponytail: stub -- immutable acceptance manifest not wired until Phase 3+."""
