@@ -436,7 +436,9 @@ the PR body which checks you ran directly and which only CI has run.
 - **Branches:** short-lived, vendor-prefixed (§10 table), deleted after merge;
   never develop on `main`.
 - **PRs are draft**, one reviewable concern each, body populated from
-  `.github/PULL_REQUEST_TEMPLATE.md`. A human decides when to merge.
+  `.github/PULL_REQUEST_TEMPLATE.md`, ending with `## Suggested merge order of
+  open PRs` and then `## ELI5` as the last heading (`pr-template-check.yml`
+  enforces both). A human decides when to merge.
 
 ### Docs
 - Dated audit/report docs go in `docs/audits/`; live memory lives ONLY in

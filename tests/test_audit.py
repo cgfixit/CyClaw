@@ -119,6 +119,15 @@ class TestRedactSensitive:
         # The invalid pattern produced a visible warning rather than a silent drop.
         assert any("failed to compile" in r.message for r in caplog.records)
 
+    def test_lone_string_secret_pattern_is_one_pattern(self):
+        cfg = {"policy": {"privacy": {"redact_emails": False, "redact_ips": False,
+            "redact_secrets_like": r"AKIA[0-9A-Z]{16}"}}}  # a string, not a list
+        result = redact_sensitive("Ask key AKIAIOSFODNN7EXAMPLE", cfg)
+        assert result == "Ask key [REDACTED_SECRET]"
+
+    def test_null_privacy_section_does_not_crash(self):
+        assert redact_sensitive("plain text", {"policy": {"privacy": None}}) == "plain text"
+
     def test_redacts_api_key_assignment(self):
         for s in ("api_key=SUPERSECRETVALUE", '"api-key": "XYZ12345"', "apikey = longsecret123"):
             result = redact_sensitive(s, self._SECRET_CFG)

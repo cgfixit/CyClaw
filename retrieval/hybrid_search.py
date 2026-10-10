@@ -351,11 +351,10 @@ class HybridRetriever:
             return fuse_memory_hits(query, hits, self.cfg)
         except Exception as exc:  # noqa: BLE001 — memory must never fail retrieval
             try:
-                audit_log({
-                    "event": "memory_fusion_error",
-                    "path": "hybrid_search",
-                    "error": str(exc),
-                })
+                audit_log(
+                    {"event": "memory_fusion_error", "path": "hybrid_search", "error": str(exc)},
+                    config_path=self.config_path,
+                )
             except Exception:  # noqa: BLE001, S110 — audit best-effort only
                 logger.debug("memory fusion error audit failed", exc_info=True)
             return hits
@@ -367,14 +366,18 @@ class HybridRetriever:
         try:
             semantic_hits = self.semantic_search(query)
         except EmbeddingServiceError as e:
-            audit_log({"event": "retrieval_degraded", "path": "semantic", "error": str(e)})
+            audit_log(
+                {"event": "retrieval_degraded", "path": "semantic", "error": str(e)}, config_path=self.config_path,
+            )
         try:
             keyword_hits = self.keyword_search(query)
         except (json.JSONDecodeError, KeyError, AttributeError, IndexError, TypeError, ValueError) as e:
             # IndexError/TypeError: corrupt metadata shape after a partial write
             # or manual edit; ValueError: BM25 edge cases. Soft-degrade like the
             # semantic EmbeddingServiceError path so hybrid still answers.
-            audit_log({"event": "retrieval_degraded", "path": "keyword", "error": str(e)})
+            audit_log(
+                {"event": "retrieval_degraded", "path": "keyword", "error": str(e)}, config_path=self.config_path,
+            )
 
         if not semantic_hits and not keyword_hits:
             return self._maybe_fuse_memory(query, [])

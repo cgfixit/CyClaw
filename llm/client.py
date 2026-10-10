@@ -34,6 +34,7 @@ import httpx
 import yaml
 
 from utils.config_validation import resolve_grok_reasoning_effort, resolve_reasoning_effort
+from utils.endpoint_trust import is_loopback_url
 from utils.errors import (
     ClaudeServiceError,
     GrokServiceError,
@@ -96,7 +97,6 @@ def _call_timeout(cap: float) -> httpx.Timeout:
 _RETRYABLE_STATUS_FLOOR = 500
 _RETRYABLE_EXTRA_STATUS = frozenset({429})
 _DEFAULT_PROBE_TIMEOUT_SEC = 1.5
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def _is_retryable_status(status: int) -> bool:
@@ -468,17 +468,6 @@ def _provider_label(provider: str) -> str:
     return labels.get(provider, provider or "local LLM")
 
 
-def is_loopback_url(url: str) -> bool:
-    """Whether ``url`` resolves to one of the supported loopback hostnames."""
-    try:
-        host = (urlparse(url).hostname or "").lower()
-    except ValueError:
-        # Keep malformed operator configuration on the existing fail-soft
-        # health/error path instead of raising while selecting probe policy.
-        return False
-    return host in _LOOPBACK_HOSTS
-
-
 def _hostport(url: str) -> str:
     """Host and port for an error string. No userinfo, path, or query."""
     try:
@@ -523,22 +512,26 @@ def _probe_openai_models(
 
 
 def _cache_key_for_local_llm(llm_cfg: dict) -> str:
-    fb = llm_cfg.get("fallback") or {}
+    fb = llm_cfg.get("fallback")
+    # A non-dict fallback (e.g. ``fallback: true``) means "disabled" to
+    # resolve_local_backend; keying it as {} keeps this from raising first.
+    if not isinstance(fb, dict):
+        fb = {}
     return "|".join(
         [
             str(llm_cfg.get("base_url", "")),
             str(llm_cfg.get("model", "")),
             str(llm_cfg.get("provider", "ollama")),
-            str(bool((fb or {}).get("enabled", False))),
-            str((fb or {}).get("base_url", "")),
-            str((fb or {}).get("model", "")),
-            str((fb or {}).get("provider", "")),
-            str((fb or {}).get("probe_timeout_sec", _DEFAULT_PROBE_TIMEOUT_SEC)),
+            str(bool(fb.get("enabled", False))),
+            str(fb.get("base_url", "")),
+            str(fb.get("model", "")),
+            str(fb.get("provider", "")),
+            str(fb.get("probe_timeout_sec", _DEFAULT_PROBE_TIMEOUT_SEC)),
             # Part of the key so editing reasoning_effort and reloading actually
             # takes effect instead of returning a backend cached with the old value.
             str(llm_cfg.get("reasoning_effort", "")),
             str(llm_cfg.get("api_key_env", "CYCLAW_LOCAL_LLM_API_KEY")),
-            str((fb or {}).get("api_key_env", "CYCLAW_LOCAL_LLM_FALLBACK_API_KEY")),
+            str(fb.get("api_key_env", "CYCLAW_LOCAL_LLM_FALLBACK_API_KEY")),
         ]
     )
 
@@ -702,7 +695,7 @@ class LocalLLMClient:
         )
         self._label = _provider_label(self.provider)
         # Kept so a boot that found nothing reachable can be re-resolved later
-        # (see _readopt_backend_if_degraded); resolve_local_backend is pure with
+        # (see _readopt_backend_if_stale); resolve_local_backend is pure with
         # respect to this dict, so holding it costs nothing.
         self._llm_cfg = llm_cfg
         self._degraded = resolved.degraded

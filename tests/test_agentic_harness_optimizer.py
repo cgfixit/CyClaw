@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import time
 from pathlib import Path
 
@@ -439,31 +438,48 @@ def test_artifact_lock_refuses_live_owner(tmp_path: Path) -> None:
 
 
 def test_artifact_lock_serializes_stale_reclaim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two reclaimers must not rmtree a winner's freshly acquired lock."""
+    """Two reclaimers must not delete a winner's freshly acquired lock."""
     lock = tmp_path / "artifact.lock.d"
     lock.mkdir()
     token = {"pid": 999999, "started_at": time.time() - 9999}
     lock.joinpath("owner.json").write_text(json.dumps(token), encoding="utf-8")
     old = time.time() - (_LOCK_STALE_SEC + 60)
     os.utime(lock, (old, old))
-    real_rmtree = shutil.rmtree
+    real_rmdir = Path.rmdir
     second_attempted = False
 
-    def _interleaved_rmtree(path: Path, *args: object, **kwargs: object) -> None:
+    def _interleaved_rmdir(self: Path) -> None:
         nonlocal second_attempted
-        second_attempted = True
-        with pytest.raises(AgenticError, match="another harness-optimizer accept"):
-            _acquire_artifact_lock(lock)
-        assert lock.exists(), "a competing reclaimer must not delete this lock"
-        real_rmtree(path)
+        if self == lock and not second_attempted:
+            second_attempted = True
+            with pytest.raises(AgenticError, match="another harness-optimizer accept"):
+                _acquire_artifact_lock(lock)
+            assert lock.exists(), "a competing reclaimer must not delete this lock"
+        real_rmdir(self)
 
-    monkeypatch.setattr("agentic.harness_optimizer.patching.shutil.rmtree", _interleaved_rmtree)
+    monkeypatch.setattr(Path, "rmdir", _interleaved_rmdir)
     _acquire_artifact_lock(lock)
 
     assert second_attempted is True
     assert _is_lock_owner(lock) is True
     assert not lock.with_name(lock.name + ".reclaim.d").exists()
     _release_artifact_lock(lock)
+
+
+def test_stale_lock_with_foreign_content_is_refused_not_deleted(tmp_path: Path) -> None:
+    """Reclaim removes only the owner token; it never deletes what it did not write."""
+    lock = tmp_path / "artifact.lock.d"
+    lock.mkdir()
+    lock.joinpath("owner.json").write_text(json.dumps({"pid": 999999, "started_at": 0}), encoding="utf-8")
+    keep = lock / "not-a-lock-file.txt"
+    keep.write_text("operator data", encoding="utf-8")
+    old = time.time() - (_LOCK_STALE_SEC + 60)
+    os.utime(lock, (old, old))
+
+    with pytest.raises(AgenticError, match="another harness-optimizer accept"):
+        _acquire_artifact_lock(lock)
+    assert keep.read_text(encoding="utf-8") == "operator data"
+    assert not lock.with_name(lock.name + ".reclaim.d").exists()
 
 
 def test_artifact_lock_reclaim_guard_mkdir_oserror_is_agentic_error(

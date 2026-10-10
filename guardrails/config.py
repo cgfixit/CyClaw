@@ -26,16 +26,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from guardrails.errors import GuardrailsConfigError
+from utils.endpoint_trust import is_loopback_url
 from utils.logger import _get_config
-
-# Defined locally rather than imported from llm/client.py: that module is the
-# core request path, and guardrails must not import it (out-of-band isolation).
-# agentic/config.py keeps its own copy for the same reason.
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-
-
-def _is_loopback_url(url: str) -> bool:
-    return (urlparse(url).hostname or "").lower() in _LOOPBACK_HOSTS
 
 # Defaults -- every key here can be overridden by config.yaml.
 DEFAULT_ENGINE = "openai"  # Ollama exposes an OpenAI-compatible API
@@ -182,11 +174,24 @@ class GuardrailsConfig:
             )
 
     def _validate_base_url(self) -> None:
+        if not isinstance(self.base_url, str):
+            raise GuardrailsConfigError(
+                f"guardrails.base_url must be a string, got {type(self.base_url).__name__}",
+                details={"received_type": type(self.base_url).__name__},
+            )
         if not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
             raise GuardrailsConfigError(
                 f"guardrails.base_url must be an http(s) URL, got: {self.base_url!r}",
                 details={"received": self.base_url},
             )
+        try:
+            urlparse(self.base_url)
+        except ValueError:
+            # e.g. an unclosed IPv6 bracket: a typed config error, not a traceback.
+            raise GuardrailsConfigError(
+                f"guardrails.base_url is not a parseable URL, got: {self.base_url!r}",
+                details={"received": self.base_url},
+            ) from None
 
     def _validate_threshold(self) -> None:
         if not (0.0 <= self.hallucination_threshold <= 1.0):
@@ -314,7 +319,7 @@ def load_guardrails_config(config_path: str = "config.yaml") -> GuardrailsConfig
         resolve_reasoning_effort(models.get("local_llm"))
         if isinstance(models, dict)
         and effective_engine in ("openai", "ollama")
-        and _is_loopback_url(effective_base_url)
+        and is_loopback_url(effective_base_url)
         else None
     )
 

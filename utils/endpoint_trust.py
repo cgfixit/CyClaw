@@ -20,15 +20,28 @@ class EndpointTrustError(ValueError):
 
 
 def hostname_of(url: str) -> str:
+    # A YAML typo can hand us None/int/bool; urlparse would raise AttributeError.
+    if not isinstance(url, str):
+        raise EndpointTrustError("endpoint URL must be a string")
+    # urlparse's .hostname is already lowercased and has IPv6 brackets removed.
     try:
-        host = (urlparse(url).hostname or "").lower()
+        return urlparse(url).hostname or ""
     except ValueError:
         # Keep malformed URLs on the same typed failure path as denied hosts so
         # graph callers can return an audited error instead of a parser traceback.
         raise EndpointTrustError("malformed endpoint URL") from None
-    if host.startswith("[") and host.endswith("]"):
-        host = host[1:-1]
-    return host
+
+
+def is_loopback_url(url: str) -> bool:
+    """True when ``url``'s host is loopback. Malformed input is NOT loopback.
+
+    The one shared copy: llm/, utils/health.py, agentic/ and guardrails/ each
+    used to keep their own, and the guardrails one raised on a malformed URL.
+    """
+    try:
+        return hostname_of(url) in _LOOPBACK
+    except EndpointTrustError:
+        return False
 
 
 def assert_local_destination(base_url: str, trusted_hosts: object = ()) -> None:
@@ -60,3 +73,19 @@ def assert_online_destination(*, provider: str, base_url: str, confirmed: bool |
     host = hostname_of(base_url or _DEFAULT_URLS.get(provider, ""))
     if host not in allowed:
         raise EndpointTrustError(f"{provider} destination {host!r} is not in the allowlist")
+
+
+def url_for_details(url: str) -> str:
+    """Strip userinfo before a URL is copied into error details.
+
+    Implemented with string partition (not ``ParseResult.password``) so
+    CodeQL does not treat the original URL as a cleartext-password source
+    that later taints ``status`` / ``_kv`` prints of the validated URL.
+    """
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return "<unparsed>"
+    _userinfo, at, hostpart = rest.rpartition("@")
+    if at:
+        return f"{scheme}://<redacted>@{hostpart}"
+    return url
