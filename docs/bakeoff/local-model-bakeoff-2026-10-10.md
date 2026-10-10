@@ -9,17 +9,14 @@ Earlier 11:25 pass, comparison only (`/tmp/bakeoff5-out/20261010-112553/`): cg d
 ## Installed tags (`ollama list` on the Mac, 2026-10-10)
 
 ```
-NAME                                                                    ID              SIZE
-qwen3.8:27b-mlx-cg                                                      9cc0a664d861    18 GB
-hf.co/unsloth/Qwen3.5-9B-GGUF:Q6_K                                      abd804440780    8.4 GB
-hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q4_K_XL                        0a19ba0680db    18 GB
-hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:Q8_0                              976c98849907    28 GB
-hf.co/Jackrong/Qwen3.5-9B-DeepSeek-V4-Flash-GGUF:Q8_0                   7ace0c9d142c    10 GB
-hf.co/unsloth/Qwen3.5-9B-GGUF:Q8_0                                      121e6c9b508b    10 GB
-huggingface.co/orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF:latest    5c0e23b2092b    15 GB
-hf.co/jialinyyzz/humanizer:Q8_0                                         3d241c2f1bf6    12 GB
-qwen3.8:27b-mlx                                                         c69cc4be857d    18 GB
-qwen3.8:27b                                                             22130167c4c2    17 GB
+NAME                                                                    
+qwen3.8:27b-mlx-cg                                                      
+hf.co/unsloth/Qwen3.5-9B-GGUF:Q6_K
+hf.co/unsloth/Qwen3.5-9B-GGUF:Q8_0                                                
+hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:Q8_0                              
+hf.co/Jackrong/Qwen3.5-9B-DeepSeek-V4-Flash-GGUF:Q8_0                   
+huggingface.co/orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF:latest    
+hf.co/jialinyyzz/humanizer:Q8_0                                         
 ```
 
 ## Latest Modelfile for `qwen3.8:27b-mlx-cg`
