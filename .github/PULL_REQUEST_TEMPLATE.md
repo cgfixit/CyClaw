@@ -49,7 +49,8 @@ _Put an `x` in the boxes that apply_
 - [ ] Bugfix (non-breaking change which fixes an issue)
 - [ ] New feature (non-breaking change which adds functionality)
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation Update (if none of the other choices apply)
+- [ ] Documentation update
+- [ ] Maintenance (refactor, tests, CI, or dependencies, when it is not a docs-only change and none of the other boxes fit)
 - [ ] Invariant / Governance refinement (use this for changes that strengthen or evolve the 6 invariants, I6 isolation, or harness phases)
 
 **Optional free-text scope note** (recommended):  
