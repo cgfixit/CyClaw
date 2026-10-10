@@ -199,12 +199,14 @@ assumption that every branch starts at `main`:
    regex-matches specific headers (`## Types of changes` and `## Checklist`
    are both required on every PR, plus one of Proposed changes / Benefits /
    Why / Summary / What) — a body missing either of the first two fails the
-   job immediately, even if the content is otherwise good. Add the merge
-   topology info (independent / stacked-on `<parent-branch or #N>` /
-   consolidated; planned merge order) as its own `## Merge order` section;
-   that's an accepted repo-local extra beyond the template's required set
-   (same pattern #1352-#1355 used), not a replacement for the required
-   headers.
+   job immediately, even if the content is otherwise good. The check now also
+   requires `## Suggested merge order of open PRs` (with a "trial merge" note)
+   and `## ELI5` as the **last heading**, then `Last updated: YYYY-MM-DD HH:MM ET`
+   as the body's last non-blank line (same rule as cg-agent-harness's checker;
+   put any "Generated with" attribution above it, not after it); the template
+   has the canonical hybrid format. These replace the old repo-local `## Merge order` extra: state the
+   topology (independent / stacked-on `<parent-branch or #N>` / consolidated)
+   in each PR's `Impact:` or `Action:` line instead.
 
    Independent chunk (only when Step 3.5 says it has no stack parent):
 
@@ -214,7 +216,7 @@ assumption that every branch starts at `main`:
      base="main", head="<branch-name>",
      draft=true,
      title="<concise title>",
-     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Merge order\n\n- independent\n- merge order: ...")
+     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Suggested merge order of open PRs\n_Trial merges verified against main @ <sha> on <date>._\n\n**#<n>** · Safe ✅  \nImpact: independent.  \nAction: merge anytime.\n\n## ELI5\n...\n\nLast updated: <YYYY-MM-DD HH:MM ET>")
    ```
 
    Stacked child (PR `base` must be the **parent branch**, not `main`):
@@ -225,15 +227,29 @@ assumption that every branch starts at `main`:
      base="<parent-branch-name>", head="<child-branch-name>",
      draft=true,
      title="<concise title>",
-     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Merge order\n\n- stacked on <parent-branch> / #<parent-PR>\n- merge parent first, then this PR")
+     body="## Proposed changes\n...\n\n## Types of changes\n\n- [x] Bugfix\n- [ ] New feature\n- [ ] Breaking change\n- [ ] Documentation Update\n- [ ] Invariant / Governance refinement\n\n## Benefits / why\n...\n\n## Risks to monitor\n...\n\n## Checklist\n\n- [x] Six invariants + I6 isolation preserved\n- [x] <verification actually run this session>\n\n## Suggested merge order of open PRs\n_Trial merges verified against main @ <sha> on <date>._\n\n**#<n>** · Dirty ⚠️  \nImpact: stacked on <parent-branch> / #<parent-PR>.  \nAction: merge the parent first, then retarget to main and re-verify.\n\n## ELI5\n...\n\nLast updated: <YYYY-MM-DD HH:MM ET>")
    ```
 
 **Merge order for this skill run:** after drafts exist, prefer merging **lowest
 PR number → highest** among the PRs this session opened, except where Step 3.5
-stacking requires **parent before child** (parent may have the lower number if
-you opened in order; if not, parent-first wins over number order). When a parent
-lands on `main` (often via squash), refresh each open child onto current
-`origin/main` (or retarget base to `main` after rebase) before merging the next.
+stacking requires **parent before child**. Write the order into every open PR
+using the template's `## Suggested merge order of open PRs` format (3 short
+lines per PR: status, impact, action), and re-run the trial merges whenever
+`main` moves.
+
+Edge cases (each one was hit or reproduced in this repo, or is plain git):
+
+| Situation | What to do |
+|---|---|
+| Stacked child, parent **squash**-merged | The child still carries the parent's original commits, so merging it conflicts (reproduced: #1612 onto a squashed #1608 conflicts in `utils/endpoint_trust.py`). Either merge the parent with a merge commit, or `git rebase --onto origin/main <parent-tip-sha> <child>` and `--force-with-lease` (own branch, owner's OK). Never merge `main` into the child as a first resort: it hides the duplicate. |
+| Stacked child shows fewer checks | A PR whose base is not `main` skipped CodeQL, Semgrep, Trivy, osv-scanner, secrets and the template check (#1612: 47 checks vs 58-76). Retarget to `main` and wait for the full set before calling it green. |
+| PR is still a draft | Drafts cannot be merged. Mark ready for review first; that event re-runs the template check. |
+| `main` moved since the trial merge | "Safe" has a shelf life. Re-run the trial merge right before merging, and update the SHA in the note. |
+| Dirty PR | Rebase locally, re-run the checks, push. GitHub's "Update branch" adds a merge commit to the PR branch and diverges from any local copy. |
+| Force-push | Only on a branch only you push to, only with `--force-with-lease`, only with the owner's OK. It resets review state and the bots' reviewed head. |
+| Two PRs edit one shared file (`ci.yml`, `config.yaml`, `CLAUDE.md`, manifests) | Trial-merge both orders before opening either. Lockfiles and generated files are regenerated, never hand-merged. |
+| Diff is far larger than the change | Line endings. Compare `git diff --numstat` with `git diff --numstat --ignore-cr-at-eol`; if they differ, restore the original endings (found in #1610: 742/739 lines for a 3-line change; the repo has CRLF files and the owner works on Windows). |
+| Squash-merge | The squash message is the permanent record. Edit it; do not leave the concatenated WIP titles. |
 
 If, after scanning, no clear optimization opportunities remain (all covered by
 open PRs or out of scope), **confirm that briefly and stop** — do not
