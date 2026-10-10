@@ -50,8 +50,9 @@ _Put an `x` in the boxes that apply_
 - [ ] New feature (non-breaking change which adds functionality)
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
 - [ ] Documentation update
-- [ ] Maintenance (refactor, tests, CI, or dependencies, when it is not a docs-only change and none of the other boxes fit)
+- [ ] Maintenance (refactor, tests, CI, or dependencies)
 - [ ] Invariant / Governance refinement (use this for changes that strengthen or evolve the 6 invariants, I6 isolation, or harness phases)
+- [ ] Other (none of the boxes above fit)
 
 **Optional free-text scope note** (recommended):  
 Core graph/gate/soul path | Out-of-band agentic/fsconnect/sync layer | RAG retrieval/sanitization | Docs + audits | Infrastructure / CI only
