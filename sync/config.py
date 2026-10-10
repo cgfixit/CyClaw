@@ -111,6 +111,16 @@ def _default_rclone_state_dir() -> Path:
     return Path.home() / ".config" / "rclone"
 
 
+def _require_str(value: object, field_name: str) -> None:
+    # YAML hands back None/int/bool/list for a typo'd value; refuse it as a
+    # typed error before any str method runs on it.
+    if not isinstance(value, str):
+        raise SyncConfigError(
+            f"{field_name} must be a string, got {type(value).__name__}",
+            details={"received_type": type(value).__name__},
+        )
+
+
 @dataclass
 class RcloneConfig:
     """Parsed and validated sync: block from config.yaml."""
@@ -315,6 +325,7 @@ class RcloneConfig:
         # "-foo:path", which rclone parses as a flag, not a remote -- the same
         # argument-injection vector already guarded against in remote_path. The
         # regex below would otherwise accept it ('-' is in the character class).
+        _require_str(self.remote_name, "sync.remote_name")
         if self.remote_name.startswith("-"):
             raise SyncConfigError(
                 f"sync.remote_name must not start with '-' (would be parsed as an rclone flag): {self.remote_name!r}",
@@ -327,6 +338,7 @@ class RcloneConfig:
             )
 
     def _validate_remote_path(self) -> None:
+        _require_str(self.remote_path, "sync.remote_path")
         if self.remote_path.startswith("-"):
             raise SyncConfigError(
                 f"sync.remote_path must not start with '-' (would be parsed as a flag): {self.remote_path!r}",

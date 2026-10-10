@@ -20,6 +20,9 @@ class EndpointTrustError(ValueError):
 
 
 def hostname_of(url: str) -> str:
+    # A YAML typo can hand us None/int/bool; urlparse would raise AttributeError.
+    if not isinstance(url, str):
+        raise EndpointTrustError("endpoint URL must be a string")
     # urlparse's .hostname is already lowercased and has IPv6 brackets removed.
     try:
         return urlparse(url).hostname or ""
