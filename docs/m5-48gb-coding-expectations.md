@@ -1,9 +1,12 @@
 # M5 Pro 48 GB coding expectations (local cached 27B)
 
-**Status (2026-08-27):** Operator doctrine for the CyClaw real-repo loop on the
+**Status (2026-08-27, context note 2026-10-10):** Operator doctrine for the CyClaw real-repo loop on the
 machine this repo is developed on: **MacBook Pro, Apple M5 Pro, 48 GB unified
-memory.** Local stack: Ollama `qwen3.8:27b-mlx`, `reasoning_effort: none`,
-`num_ctx` 32768. This is not a hardware upgrade guide and not an invariant.
+memory.** Local stack: Ollama `qwen3.8:27b-mlx`, `reasoning_effort: none`.
+The shipped context budget is `num_ctx` 32768 via `OLLAMA_CONTEXT_LENGTH` in
+`macos/ollama-mlx.env`, or the derived tag in
+[`OLLAMA_SETUP.md`](%21%20How-To-Guides/OLLAMA_SETUP.md). The registry tag does
+not bake that parameter. This is not a hardware upgrade guide and not an invariant.
 
 This box is **not** an M5 Max and **not** a base M5. Do not copy Max tok/s
 benchmarks (70+ decode on 27B+DFlash, 128 GB residency) onto this SKU.
@@ -77,17 +80,19 @@ What you ship and run is the constraint:
 
 | Knob | Shipped / recommended value | Why it exists |
 |---|---|---|
-| Ollama `num_ctx` | **32768** | Prompt + reserved `max_tokens` must fit or Ollama stalls at "0% processing" |
+| Ollama `num_ctx` | **32768** | Shipped `OLLAMA_CONTEXT_LENGTH` in `macos/ollama-mlx.env`. The registry tag does not set this; pin it with that env file in the serving process, or with the derived tag in OLLAMA_SETUP.md. Prompt + reserved `max_tokens` must fit or Ollama stalls at "0% processing" |
 | RAG budget | `max_context_tokens` 16000 + `max_tokens` 4096 + ~1500 headroom = 21,596 | The `/query`-path floor inside the 32k window (raised from 4000 on 2026-08-28, then 8000 on the 16k window; `num_ctx` — not this budget — bounds KV memory, so the bigger budget costs prefill time, not a new memory ceiling) |
 | Query deadlines | **720s** local LLM timeout; **780s** graph timeout | The inner timeout must fire first so a stalled Ollama request reports its LLM failure before the outer request deadline; the 60-second margin covers retrieval, routing, audit work, and cold embedding startup |
 | Agentic local prompt | **~8,000 chars** GitHub context (`_MAX_LOOP_CONTEXT_CHARS`) — but a worst-case real-repo-run iteration (plan + read_paths + feedback + instruction) can reach **~39–40k chars ≈ 10k tokens**; see OLLAMA_SETUP.md "The agentic real-repo coding loop needs more headroom" (shipped 32768 already covers it; `num_ctx` 24576 remains a lower optional size for that pathway) | Not 200k. `max_handoff_chars: 200000` is the **cloud egress** cap |
 | Plan file | `_MAX_PLAN_CHARS` **6,000**; `planner_max_tokens` **3072** | A plan the size of a diff means the planner misbehaved |
 | Local model | `qwen3.8:27b-mlx`, `reasoning_effort: none` | Thinking-on burns the 32k window before a patch exists |
 
-The machine can physically hold 64k–128k context. The product ships 32k so
-Ollama does not sit at 0% processing on the RAG floor. Raising `num_ctx` to
-64k on this Mac is still feasible. It makes TTFT worse and still leaves you
-with a 27B. That is "more than burst" on **volume**, not on **judgment**.
+The machine can physically hold 64k–128k context. The shipped env file sets
+`OLLAMA_CONTEXT_LENGTH` to 32768 so a sourced `ollama serve` does not sit at
+0% processing on the RAG floor. That number is not a parameter of the
+registry tag. Raising `num_ctx` to 64k on this Mac is still feasible. It
+makes TTFT worse and still leaves you with a 27B. That is "more than burst"
+on **volume**, not on **judgment**.
 
 Project decision: local 27B is a **supervised executor**. Claude Code / Grok
 stays the architect for anything that touches invariants. Burst pattern stays

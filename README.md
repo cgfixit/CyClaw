@@ -173,7 +173,11 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
    `retrieval.min_score`); the cross-encoder runs in shadow mode
    (`retrieval.min_rerank_score: null`). [Retrieval reference](retrieval/README.md).
 3. **Local generation.** Ollama runs `models.local_llm.model`, shipped as
-   `qwen3.8:27b-mlx`. Tunables live in `config.yaml`.
+   `qwen3.8:27b-mlx`. Tunables live in `config.yaml`. The `-cg` tag is a
+   local tag built from `macos/Modelfile.cg` on the author's machine, not a
+   published model. Use your own tag name: drop the `-cg` suffix or choose
+   another. Set `num_ctx` and the sampling parameters to fit your Ollama max
+   context, unified memory, and model.
 4. **Governed soul.** `data/personality/soul.md` has SHA-256 drift detection
    and atomic writes; `POST /soul/apply` requires a human `reason` and an
    enforced injection scan. Restore, `/soul/reload`, and startup drift

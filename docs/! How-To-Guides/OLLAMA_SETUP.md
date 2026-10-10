@@ -84,7 +84,7 @@ ollama run qwen3.8:27b-mlx "Say hello"
 | Model | Command | Notes |
 |-------|---------|-------|
 | Qwen 3.8 27B MLX 4-bit (default) | `ollama pull qwen3.8:27b-mlx` | What `config.yaml` ships. Apple Silicon MLX 4-bit, ~18 GB. Third-party M5 Pro 48 GB reports ~29–34 tok/s decode — **measure on your machine** (`python3 scripts/measure_local_llm_throughput.py`). |
-| Qwen 3.8 27B MLX NVFP4 | `ollama pull qwen3.8:27b-nvfp4` | Same ~18 GB. NVFP4 4-bit (higher quality than q4_K_M per Ollama's MLX blog). Candidate upgrade on 48 GB; switch **both** `models.local_llm.model` and `guardrails.model` (C11) only after measuring tok/s + answer quality. |
+| Qwen 3.8 27B MLX NVFP4 | `ollama pull qwen3.8:27b-nvfp4` | Same ~18 GB. NVFP4 4-bit (higher quality than q4_K_M per Ollama's MLX blog). Candidate upgrade on 48 GB; switch `models.local_llm.model`, `guardrails.model`, and `agentic.deepagent_github.model` together (C11 checks the first two) only after measuring tok/s + answer quality. |
 | Qwen 3.8 27B MLX MXFP8 | `ollama pull qwen3.8:27b-mxfp8` | ~32 GB 8-bit MLX. Fits 48 GB only with a tight KV budget — measure, watch Activity Monitor, do not assume. |
 | Qwen 3.8 27B MLX BF16 | `ollama pull qwen3.8:27b-mlx-bf16` | ~56 GB. **Does not fit 48 GB unified.** |
 | Qwen 3.8 27B (generic GGUF) | `ollama pull qwen3.8:27b` | Same weights without the MLX tag. Use on Intel/Windows/Linux, then set `models.local_llm.model` and `guardrails.model` to this tag |
@@ -95,7 +95,7 @@ ollama run qwen3.8:27b-mlx "Say hello"
 
 > **Note:** Model tags are case-sensitive in Ollama. Use the exact lowercase tag `ollama list` prints (e.g. `qwen3.8:27b-mlx`), not a display name like `Qwen3.8-27B-Instruct`.
 >
-> **Changing model = changing `config.yaml`.** `models.local_llm.model` AND `guardrails.model` must both match the tag you pulled — `config-guard`'s C11 check **warns** if they drift (it only fails under `--strict`). Smaller model? Everything still works. Larger? Re-check `num_ctx` below.
+> **Changing model = changing `config.yaml`.** Set `models.local_llm.model`, `guardrails.model`, and `agentic.deepagent_github.model` to the same tag. `config-guard`'s C11 check **warns** if the first two drift (it only fails under `--strict`; it does not read the agentic field). Smaller model? Everything still works. Larger? Re-check `num_ctx` below.
 
 ---
 
@@ -146,7 +146,7 @@ models:
     max_tokens: 4096
 ```
 
-**If you pulled a different model in Step 2,** update **both** `models.local_llm.model` and `guardrails.model` to match it exactly (e.g. `mistral:7b`, `llama3.1:8b`) — `config-guard`'s C11 check **warns** if the two drift (fails only under `--strict`).
+**If you pulled a different model in Step 2,** set `models.local_llm.model`, `guardrails.model`, and `agentic.deepagent_github.model` to that tag (e.g. `mistral:7b`, `llama3.1:8b`). `config-guard`'s C11 check **warns** if the first two drift (fails only under `--strict`).
 
 ---
 
@@ -195,16 +195,17 @@ You should get a JSON response with an `answer` field and `model_used: "local"`.
 ## Switching Models
 
 Ollama makes swapping models cheap — no reindex, no reinstall. It does take a
-small config edit (two keys, see below):
+small config edit (three keys, see below):
 
 ```bash
 # Pull a new model
 ollama pull mistral:7b
 
-# Edit config.yaml -> BOTH keys must match the tag you pulled:
-#   models.local_llm.model: "mistral:7b"
-#   guardrails.model:       "mistral:7b"
-# (config-guard's C11 check warns if they disagree; --strict makes it fail)
+# Edit config.yaml -> these three must match the tag you pulled:
+#   models.local_llm.model:          "mistral:7b"
+#   guardrails.model:                "mistral:7b"
+#   agentic.deepagent_github.model:  "mistral:7b"
+# (config-guard's C11 check warns if the first two disagree; --strict makes it fail)
 
 # Restart CyClaw (no need to reindex — the index is model-independent;
 # it is built from the embedding model, not the chat model)
@@ -293,7 +294,7 @@ ollama run qwen3.8:27b-mlx
 >>> /set parameter num_ctx 32768
 ```
 
-> Note: setting this explicitly is **not optional** with the default config. Older Ollama builds default the context window to 4096 tokens — below the ~25,600-token floor CyClaw's no-stall formula requires, producing the silent stall. Newer builds instead derive the default from available VRAM (per [docs.ollama.com/context-length](https://docs.ollama.com/context-length): 4k below 24 GiB, 32k from 24–48 GiB, 256k above), which on a 48 GB Mac over-provisions KV memory instead. An explicit `32768` is deterministic across Ollama versions and matches what the KV budget in `macos/ollama-mlx.env` was sized for.
+> Note: setting this explicitly is **not optional** with the default config. Older Ollama builds default the context window to 4096 tokens — below the ~25,600-token floor CyClaw's no-stall formula requires, producing the silent stall. Newer builds instead derive the default from available VRAM (per [docs.ollama.com/context-length](https://docs.ollama.com/context-length): 4k below 24 GiB, 32k from 24–48 GiB, 256k above), which on a 48 GB Mac over-provisions KV memory instead. An explicit `32768` is deterministic across Ollama versions and matches what the KV budget in `macos/ollama-mlx.env` was sized for. That variable is read only by the `ollama serve` process. It does not replace a `PARAMETER num_ctx` stored on the model, and an already-running Ollama.app ignores `macos/ollama-mlx.env` until quit. The published registry tag does not set `num_ctx` (see the next section). To pin 32768 on the model itself, use the derived tag there.
 
 The config.yaml formula: `Ollama num_ctx >= max_context_tokens + max_tokens + ~1500 headroom`
 With defaults: `16000 + 4096 + 1500 = 21596`, so **32768** is the shipped RAG recommendation (~11.2k tokens spare — deliberate, because the ~4-chars/token estimate under-counts Qwen3 BPE on technical text; see the `retrieval.max_context_tokens` comment in `config.yaml`).
@@ -358,6 +359,73 @@ rather than maximizing it up front on the assumption that more is free.
 
 ---
 
+## Pin the context window with a derived tag
+
+The shipped default stays `qwen3.8:27b-mlx`. `ollama pull qwen3.8:27b-mlx` and a fresh install keep using that registry tag. A derived tag exists only on a machine where someone ran `ollama create`. Do not put `qwen3.8:27b-mlx-cg` in `config.yaml` as the default.
+
+`qwen3.8:27b-mlx-cg` is a local tag built from `macos/Modelfile.cg` on the author's machine, not a published model. Use your own tag name: drop the `-cg` suffix or choose another. Set `num_ctx` and the sampling parameters to fit your Ollama max context, unified memory, and model.
+
+CyClaw talks to Ollama on the OpenAI-compatible path, `POST /v1/chat/completions` (`llm/client.py`). That body sends `model`, `messages`, `max_tokens`, `temperature`, and, when `models.local_llm.provider` is `ollama`, `reasoning_effort`. It does not send `num_ctx`. Ollama's compatibility endpoint does not accept `num_ctx` (maintainer note on [ollama/ollama#16814](https://github.com/ollama/ollama/issues/16814)). A `PARAMETER num_ctx` stored on the model is what loads, and nothing in a `/v1` request can override it.
+
+`OLLAMA_CONTEXT_LENGTH` is also not a substitute when it is unset in the process that is actually serving. `macos/ollama-mlx.env` sets it to 32768, and `macos/setup-from-clone.sh` sources that file only when *that script* launches `ollama serve`. An already-running Ollama.app ignores the file until it is quit. This checkout did not measure which value wins when a Modelfile `num_ctx` and `OLLAMA_CONTEXT_LENGTH` are both set. The derived tag is the pin that does not depend on the app process environment.
+
+The published registry tag does not bake 32768. Its library params blob does not set `num_ctx` (library manifest for `qwen3.8:27b-mlx`, checked 2026-10-10). Docs that say this tag runs at `num_ctx` 32768 mean the shipped env-file budget, not a parameter inside the tag. Re-check a local copy with `ollama show qwen3.8:27b-mlx --modelfile`.
+
+To pin 32768 on the model itself, create a derived tag once. The file in the repo is `macos/Modelfile.cg`:
+
+```
+FROM qwen3.8:27b-mlx
+PARAMETER num_ctx 32768
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+PARAMETER top_k 20
+PARAMETER min_p 0
+PARAMETER presence_penalty 0
+PARAMETER repeat_penalty 1
+```
+
+From the repo root, after `ollama pull qwen3.8:27b-mlx`:
+
+```bash
+ollama create qwen3.8:27b-mlx-cg -f macos/Modelfile.cg
+```
+
+The new tag shares the base weights (Ollama reuses layers). Verify the pin:
+
+```bash
+ollama run qwen3.8:27b-mlx-cg "Say hello"
+ollama ps
+```
+
+`ollama ps` should show CONTEXT 32768 while that tag is the one loaded. A native request with `think` false answers directly:
+
+```bash
+curl -sS http://127.0.0.1:11434/api/chat -H 'Content-Type: application/json' -d '{"model":"qwen3.8:27b-mlx-cg","messages":[{"role":"user","content":"2+2"}],"think":false,"stream":false}'
+```
+
+This Modelfile does not disable thinking. Send `think: false` on the native API when you check the tag by hand. CyClaw does not send `think`. It sends `reasoning_effort: none` whenever the resolved provider is `ollama`, including when the model string is `qwen3.8:27b-mlx-cg`. Leave `models.local_llm.reasoning_effort` at `none`.
+
+Two ordered passes over eight local tags are recorded in [`local-model-bakeoff-2026-10-10.md`](../bakeoff/local-model-bakeoff-2026-10-10.md). The latest pass is the 12:20:44 capture. That record picks no winner and is not a reason to change the shipped default. The measurement script is not stored in this repo.
+
+Point all three config fields at the derived tag together, then restart CyClaw:
+
+```yaml
+models:
+  local_llm:
+    model: "qwen3.8:27b-mlx-cg"
+agentic:
+  deepagent_github:
+    model: "qwen3.8:27b-mlx-cg"
+guardrails:
+  model: "qwen3.8:27b-mlx-cg"
+```
+
+C11 warns if `guardrails.model` and `models.local_llm.model` differ. It does not read `agentic.deepagent_github.model`; set that one by hand so the planner hits the same tag. `python -m guardrails.cli model` compares `guardrails.model` with `guardrails/qwen_manifest.yaml`, which stays the registry tag. A derived tag reports a tag mismatch there. That command is operator-run and is not on the request path.
+
+`macos/setup-from-clone.sh` prints these steps as a hint. It does not run `ollama create`.
+
+---
+
 ## Measure tok/s (do this on the Mac, not from a remote agent)
 
 A remote checkout cannot see `127.0.0.1:11434` on your laptop. The numbers
@@ -373,8 +441,15 @@ python3 scripts/measure_local_llm_throughput.py --model qwen3.8:27b-nvfp4 --json
 
 The script calls Ollama's native `/api/generate` and prints prefill tok/s,
 decode tok/s, load ms. Warmup is on by default so the first 27B cold-load
-does not poison the decode sample. Exit 2 = Ollama down; exit 3 = generate
-failed (wrong tag, stall, timeout).
+does not poison the decode sample. It sends `think: false` and does not set
+`num_ctx`, so the rate is for whatever window the loaded tag already has.
+Exit 2 = Ollama down; exit 3 = generate failed (wrong tag, stall, timeout).
+
+The table above cites a third-party decode band of about 29–34 tok/s.
+That citation stays a third-party report. The 170.6 tok/s prefill figure in
+`docs/audits/2026-08-28-timeout-token-budget-audit.md` is the oMLX page
+`Qwen3.8-27B-MLX-oQ4e-mtp` at context 65,536 (page checked 2026-10-10), not
+an Ollama 32k run. `docs/EVALS.md` does not state a tok/s figure.
 
 ## MLX quant tunings (48 GB M5 Pro)
 

@@ -207,6 +207,24 @@ def _local_config(tmp_path, base_url: str, **local_extra) -> str:
 
 
 class TestCoreRagOutboundPayload:
+    def test_derived_tag_still_sends_reasoning_effort_none(self, tmp_path, mock_ollama):
+        """The provider gate is "ollama", not the shipped tag string."""
+        base_url, server = mock_ollama()
+        client = LocalLLMClient(
+            _local_config(
+                tmp_path,
+                base_url,
+                reasoning_effort="none",
+                model="qwen3.8:27b-mlx-cg",
+            )
+        )
+        client.generate("2+2")
+        client.close()
+        body = server.received[0]
+        assert body["model"] == "qwen3.8:27b-mlx-cg"
+        assert body["reasoning_effort"] == "none"
+        assert "think" not in body
+
     def test_ollama_request_carries_reasoning_effort_none_on_the_wire(self, tmp_path, mock_ollama):
         base_url, server = mock_ollama()
         client = LocalLLMClient(_local_config(tmp_path, base_url, reasoning_effort="none"))
