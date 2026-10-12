@@ -437,6 +437,8 @@ closed without them (Windows refuses); no platform uses a microVM
 (`POST /ops/agentic` returns 422).
 Git origin identity is pinned across reopened runs, and timed-out Git calls
 reap helper processes ([workspace controls](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools)).
+Windows Git helper launch waits for Job Object containment before starting Git.
+Orphan cleanup is limited to generated clone directories, preserving workspace metadata.
 
 ```bash
 python -m agentic.cli status
@@ -589,6 +591,3 @@ Source-available, all rights reserved; personal use is permitted. See
 
 *Designed and built by Chris Grady, with AI tooling used under human review,
 CI, and the invariant guard.*
-
-Windows Git helper launch waits for Job Object containment before starting Git.
-Orphan cleanup is limited to generated clone directories, preserving workspace metadata.
