@@ -158,10 +158,13 @@ none of these coding-loop actions, so `POST /ops/agentic` rejects them with
 422.
 
 Workspace Git calls disable hooks and fsmonitor and reject unexpected local
-Git config entries or values against a post-clone snapshot, including remote
-URL rewrites. This does not replace executor confinement or human approval.
-Global/system Git config remains operator-trusted, and Linux/Windows checks
-can still write outside the clone and alter that snapshot. See the
+Git config entries or values against a post-clone snapshot. A separate signed
+origin record outside the clone is checked on reopen, and the expected URL is
+held in memory during Git calls. Rewriting both the clone config and its
+snapshot cannot redirect a push. Timed-out Git helpers are reaped with a POSIX
+process group or Windows Job Object. This does not replace executor confinement
+or human approval. Global/system Git config remains operator-trusted. Checks
+run in a disposable gitless mirror; Windows verification remains disabled. See the
 [workspace controls](../../agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
 
 Before #1524 merged, a failure while saving the first run record could leave the

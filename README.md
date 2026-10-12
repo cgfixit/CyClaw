@@ -435,6 +435,8 @@ run in fresh gitless copies under Linux bubblewrap or macOS Seatbelt and fail
 closed without them (Windows refuses); no platform uses a microVM
 ([threat model](docs/THREAT_MODEL.md)). `real-repo-run*` is CLI-only
 (`POST /ops/agentic` returns 422).
+Git origin identity is pinned across reopened runs, and timed-out Git calls
+reap helper processes ([workspace controls](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools)).
 
 ```bash
 python -m agentic.cli status
