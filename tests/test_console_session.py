@@ -292,3 +292,17 @@ def test_admin_session_works_without_the_key(with_auth, monkeypatch):
     _login(test_client, manager, "ada", password)
     monkeypatch.delenv("CYCLAW_API_KEY")
     assert test_client.get("/soul").status_code == 200
+
+
+@pytest.mark.parametrize("tls", [False, True])
+def test_logout_cookie_matches_tls_prefix_contract(gw, monkeypatch, tls):
+    client, gate = gw
+    monkeypatch.setattr(gate, "_TLS_ENABLED", tls)
+    response = client.post("/console/session/end")
+    assert response.status_code == 200
+    header = response.headers["set-cookie"]
+    name = console_session.SECURE_COOKIE_NAME if tls else console_session.COOKIE_NAME
+    assert header.startswith(name + "=")
+    assert "Max-Age=0" in header and "Path=/" in header
+    assert ("Secure" in header) is tls
+    assert "HttpOnly" in header and "SameSite=strict" in header

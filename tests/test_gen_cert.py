@@ -219,3 +219,45 @@ def test_force_overwrites_and_forwards_extra_san(tmp_path, monkeypatch):
     assert "subjectAltName=" in " ".join(seen["cmd"])
     assert "IP:10.0.0.5" in " ".join(seen["cmd"])
     assert cert.read_text(encoding="utf-8") == "new-cert"
+
+
+def test_private_output_failure_happens_before_key_generation(monkeypatch, tmp_path):
+    def refuse(_path):
+        raise OSError("cannot protect output")
+    monkeypatch.setattr(gen_cert, "_restrict_private_output", refuse)
+    cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
+    assert gen_cert.main(["--certfile", str(cert), "--keyfile", str(key)]) == gen_cert.EXIT_FAIL
+    assert not cert.exists() and not key.exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_native_private_output_permissions(tmp_path):
+    import os
+    import stat
+    output = gen_cert._temporary_output_path(tmp_path / "key.pem")
+    if os.name != "nt":
+        assert stat.S_IMODE(output.stat().st_mode) == 0o600
+        return
+    import ctypes
+    from ctypes import wintypes
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    get_security = advapi.GetFileSecurityW
+    get_security.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                            ctypes.POINTER(wintypes.DWORD)]
+    get_security.restype = wintypes.BOOL
+    size = wintypes.DWORD()
+    get_security(str(output), 4, None, 0, ctypes.byref(size))
+    buffer = ctypes.create_string_buffer(size.value)
+    assert get_security(str(output), 4, buffer, size, ctypes.byref(size))
+    convert = advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW
+    convert.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
+                       ctypes.POINTER(wintypes.LPWSTR), ctypes.c_void_p]
+    convert.restype = wintypes.BOOL
+    sddl = wintypes.LPWSTR()
+    assert convert(buffer, 1, 4, ctypes.byref(sddl), None)
+    try:
+        assert sddl.value == "D:P(A;;FA;;;OW)"
+    finally:
+        kernel = ctypes.WinDLL("kernel32")
+        kernel.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel.LocalFree(sddl)

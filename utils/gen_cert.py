@@ -112,7 +112,43 @@ def _temporary_output_path(target: Path) -> Path:
     """Reserve a private same-directory path for an OpenSSL output file."""
     fd, raw_path = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
     os.close(fd)
-    return Path(raw_path)
+    path = Path(raw_path)
+    try:
+        _restrict_private_output(path)
+    except OSError:
+        path.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def _restrict_private_output(path: Path) -> None:
+    """Protect empty output before OpenSSL or a backup copy writes key bytes."""
+    if os.name != "nt":
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    convert = advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW
+    convert.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    convert.restype = wintypes.BOOL
+    set_security = advapi.SetFileSecurityW
+    set_security.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
+    set_security.restype = wintypes.BOOL
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel.LocalFree.restype = ctypes.c_void_p
+    descriptor = ctypes.c_void_p()
+    # Protected DACL, full access for OWNER RIGHTS only. Do not inherit a
+    # shared parent ACL. This does not isolate the owner from administrators.
+    if not convert("D:P(A;;FA;;;OW)", 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not set_security(str(path), 0x80000004, descriptor):  # PROTECTED_DACL | DACL_SECURITY_INFORMATION
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.LocalFree(descriptor)
 
 
 def _remove_temporary_output(path: Path | None) -> None:
@@ -224,8 +260,8 @@ def main(argv: list[str] | None = None) -> int:
         "-addext",
         f"subjectAltName={san}",
     ]
-    # Restrict the openssl-created key to owner-only on POSIX. Windows umask
-    # is a no-op; chmod below remains best-effort against NTFS ACLs.
+    # Outputs are already private before OpenSSL writes them. The umask is
+    # additional protection for any POSIX files OpenSSL itself creates.
     previous_umask: int | None = None
     try:
         previous_umask = os.umask(0o077)
@@ -278,13 +314,6 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         _remove_temporary_output(temp_certfile)
         _remove_temporary_output(temp_keyfile)
-    try:
-        keyfile.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        # Best-effort hardening only: on Windows the POSIX mode bits are a
-        # partial no-op against ACLs anyway, and a failed chmod must not
-        # report failure for a cert pair that was written successfully.
-        pass
     print(f"wrote {certfile}")
     print(f"wrote {keyfile}")
     print(f"SAN {san}")

@@ -5,10 +5,12 @@ from pathlib import Path, PureWindowsPath
 
 from utils.logger import redact_sensitive
 
-_ABSOLUTE_PATH = re.compile(
-    r"\"(?:[A-Za-z]:[\\/]|/)[^\"\r\n]*\"|'(?:[A-Za-z]:[\\/]|/)[^'\r\n]*'"
-    r"|(?<![\w:/])(?:[A-Za-z]:[\\/]|/)[^\s'\"<>]+"
-)
+_PATH_START = r"(?:[A-Za-z]:[\\/]|\\\\|/)"
+# Paths may contain spaces, quotes and brackets. Unstructured diagnostics have
+# no reliable end delimiter, so discard the remainder of the diagnostic once a
+# local absolute path starts, including any diagnostic prose after it.
+# POSIX filenames can contain newlines, so a line break is not a safe delimiter.
+_ABSOLUTE_PATH = re.compile(rf"""(?<![\w:/\\])["']?{_PATH_START}[\s\S]*""")
 
 
 def public_error(value: object, cfg: dict) -> str:
@@ -17,12 +19,19 @@ def public_error(value: object, cfg: dict) -> str:
 
 def source_label(source: str, corpus: str) -> str:
     """Preserve corpus-relative citations without publishing host directories."""
-    if PureWindowsPath(source).is_absolute():
-        return PureWindowsPath(source).name
+    windows_source = PureWindowsPath(source)
+    if windows_source.drive or source.startswith("\\"):
+        windows_corpus = PureWindowsPath(corpus)
+        if windows_source.is_absolute() and windows_corpus.is_absolute() and ".." not in windows_source.parts:
+            try:
+                return windows_source.relative_to(windows_corpus).as_posix()
+            except ValueError:
+                pass
+        return windows_source.name
     path = Path(source)
     if not path.is_absolute():
         return source
     try:
-        return str(path.relative_to(Path(corpus).expanduser().resolve()))
-    except ValueError:
+        return str(path.resolve().relative_to(Path(corpus).expanduser().resolve()))
+    except (ValueError, OSError, RuntimeError):
         return path.name

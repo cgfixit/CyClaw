@@ -471,3 +471,21 @@ a freshly rotated `csrf_token`; the response is sent `Cache-Control: no-store`. 
 rotate is load-bearing: without it a reload leaves logout and Users writes 403.
 Telegram still uses a named
 device token (`cyclaw-user token create <user> telegram`).
+
+## TLS logout and public diagnostics
+
+Both console and account logout expire their cookies with the same `Secure`,
+`HttpOnly`, `SameSite=Strict`, and `Path=/` attributes used when creating them.
+Under TLS this is required for browsers to accept deletion of `__Host-` cookies.
+Cookies cannot be isolated by port; use a dedicated trusted hostname and TLS.
+Public errors suppress whole local paths, including paths containing spaces, newlines
+and Windows UNC paths. Redaction consumes trailing diagnostic prose because
+filename boundaries in error text are ambiguous. Citations retain distinct corpus-relative subpaths on
+Windows and POSIX; files outside the corpus expose only a basename.
+
+`cyclaw-gen-cert` protects its empty temporary outputs before writing key bytes:
+0600 on POSIX and a protected owner-rights-only DACL on Windows. Failure to set
+permissions aborts generation, including replacement backups. A same-directory
+rename preserves those permissions. This does not repair existing keys; regenerate
+or explicitly secure them. Windows ACL behavior is checked by the native Windows
+CI leg; POSIX mode checks alone are not Windows evidence.

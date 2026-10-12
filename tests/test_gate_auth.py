@@ -596,13 +596,18 @@ class TestLogoutAndCsrf:
         r = client.post("/auth/logout", headers={"x-cyclaw-csrf": "not-the-real-token"})
         assert r.status_code == 403
 
-    def test_logout_with_correct_csrf_succeeds(self, manager, user):
+    @pytest.mark.parametrize("tls", [False, True])
+    def test_logout_with_correct_csrf_succeeds(self, manager, user, tls):
         username, password = user
-        client = _client(manager)
+        client = _client(manager, cfg=_cfg(tls_enabled=tls))
         csrf = self._login(client, username, password)
         r = client.post("/auth/logout", headers={"x-cyclaw-csrf": csrf})
         assert r.status_code == 200
         assert r.json() == {"ok": True}
+        header = r.headers["set-cookie"]
+        assert ("Secure" in header) is tls
+        assert "Max-Age=0" in header and "Path=/" in header
+        assert "HttpOnly" in header and "SameSite=strict" in header
 
     def test_logout_actually_revokes_the_session(self, manager, user):
         username, password = user

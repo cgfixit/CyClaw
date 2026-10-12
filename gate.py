@@ -1425,7 +1425,10 @@ async def console_session_end(request: Request, response: Response) -> dict[str,
     deletes the caller's own cookie, and SameSite=Strict plus the cross-site
     check keep another site from triggering it."""
     _reject_cross_site_query(request)
-    response.delete_cookie(key=console_session.SECURE_COOKIE_NAME if _TLS_ENABLED else console_session.COOKIE_NAME, path="/", httponly=True, samesite="strict")
+    response.delete_cookie(
+        key=console_session.SECURE_COOKIE_NAME if _TLS_ENABLED else console_session.COOKIE_NAME,
+        path="/", secure=_TLS_ENABLED, httponly=True, samesite="strict",
+    )
     await _audit({"event": "console_session_ended"})
     return {"active": False}
 
