@@ -53,3 +53,23 @@ def test_stale_symlink_citation_falls_back_to_basename(tmp_path):
     path = tmp_path / "loop.md"
     path.symlink_to(path)
     assert source_label(str(path), str(tmp_path)) == "loop.md"
+
+
+def test_slash_rooted_path_outside_corpus_is_basename_only():
+    assert source_label("/private/outside/book.md", "/private/vault") == "book.md"
+
+
+def test_slash_rooted_citations_with_windows_path_semantics(monkeypatch):
+    from pathlib import PureWindowsPath
+    from utils import public_errors
+
+    class WindowsPathProbe(PureWindowsPath):
+        def resolve(self):
+            return self
+
+        def expanduser(self):
+            return self
+
+    monkeypatch.setattr(public_errors, "Path", WindowsPathProbe)
+    assert source_label("/private/vault/team/runbook.md", "/private/vault") == "team/runbook.md"
+    assert source_label("/private/outside/book.md", "/private/vault") == "book.md"

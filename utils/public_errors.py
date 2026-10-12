@@ -29,9 +29,11 @@ def source_label(source: str, corpus: str) -> str:
                 pass
         return windows_source.name
     path = Path(source)
-    if not path.is_absolute():
+    # Windows slash-rooted paths have a root but no drive; resolve them against
+    # the current drive rather than exposing them as already-relative labels.
+    if not path.is_absolute() and not path.root:
         return source
     try:
-        return str(path.resolve().relative_to(Path(corpus).expanduser().resolve()))
+        return path.resolve().relative_to(Path(corpus).expanduser().resolve()).as_posix()
     except (ValueError, OSError, RuntimeError):
         return path.name
