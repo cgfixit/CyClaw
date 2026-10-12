@@ -8,8 +8,8 @@ import subprocess
 import sys
 
 from utils.child_environment import child_environment, configured_path_names
-from utils.secret_policy import POLICY_PATH, load_secret_policy
 from utils.errors import SyncConfigError
+from utils.secret_policy import POLICY_PATH, load_secret_policy
 
 
 def _service() -> str:
@@ -116,13 +116,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         os.environ.clear()
         os.environ.update(env)
-        from sync.cli import main as sync_main
-
-        return sync_main(args)
     except (OSError, ValueError, SyncConfigError, subprocess.TimeoutExpired):
         # Never echo OS-tool stderr or credential bytes, even on failure.
         print("Scheduled sync credential setup failed; check the OS keystore and rclone configuration.", file=sys.stderr)
         return 3
+    # Outside the setup handler: a failure in the sync run itself keeps the
+    # sync CLI's own exit codes and tracebacks instead of a keystore message.
+    from sync.cli import main as sync_main
+
+    return sync_main(args)
 
 
 if __name__ == "__main__":

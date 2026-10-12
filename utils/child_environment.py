@@ -101,22 +101,26 @@ def configured_path_names(block: object) -> tuple[str, ...]:
                     visit(item)
 
     visit(block)
-    names = {
-        match[0] or match[1] or match[2]
-        for value in values
-        for match in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%", value)
-    }
-    if not names:
-        return ()
     from utils.secret_policy import is_secret_name
 
+    def forbidden(name: str) -> bool:
+        return is_secret_name(name) or name.upper().startswith(("PYTHON", "NODE", "LD_", "DYLD_", "GIT_", "GH_"))
+
+    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%"
+    names: set[str] = set()
+    for value in values:
+        for brace, bare, percent in re.findall(pattern, value):
+            # A Windows %NAME% that is neither allow-listed nor secret/loader
+            # shaped is literal path text (D:\\50%off%) or a discovery variable
+            # (%USERPROFILE%) the child already receives, as before #1526.
+            if percent and percent not in _ALLOWED_PATH_ENV_NAMES and not forbidden(percent):
+                continue
+            names.add(brace or bare or percent)
+    if not names:
+        return ()
+
     for name in names:
-        upper = name.upper()
-        if (
-            is_secret_name(name)
-            or name not in _ALLOWED_PATH_ENV_NAMES
-            or upper.startswith(("PYTHON", "NODE", "LD_", "DYLD_", "GIT_", "GH_"))
-        ):
+        if forbidden(name) or name not in _ALLOWED_PATH_ENV_NAMES:
             raise ValueError(f"configuration path variable {name} is not an allowed directory capability")
         if not os.path.isabs(os.environ.get(name, "")):
             raise ValueError(f"configuration path variable {name} must contain an absolute path")
