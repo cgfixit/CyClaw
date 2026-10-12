@@ -378,6 +378,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/candidate-patch"
           git_safe diff --cached --binary --no-ext-diff --no-textconv "$ORIGINAL_HEAD" \
             > "$RUNNER_TEMP/candidate-patch/fixes.patch"
+          [ "$(wc -c < "$RUNNER_TEMP/candidate-patch/fixes.patch")" -le 1048576 ]
       - name: Upload data-only patch
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -444,7 +445,7 @@ jobs:
           [ "$(git_safe rev-parse HEAD)" = "$ORIGINAL_HEAD" ]
           patch="$RUNNER_TEMP/candidate-patch/fixes.patch"
           [ -f "$patch" ] && [ ! -L "$patch" ]
-          [ "$(wc -c < "$patch")" -le 5242880 ]
+          [ "$(wc -c < "$patch")" -le 1048576 ]
           if [ ! -s "$patch" ]; then
             echo 'changed=false' >> "$GITHUB_OUTPUT"
             exit 0
@@ -477,7 +478,7 @@ jobs:
             -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit --no-gpg-sign -m 'fix(pr): apply owner-approved bot comment fixes'
           echo 'changed=true' >> "$GITHUB_OUTPUT"
-      - name: Push exact approved branch without force
+      - name: Push only while the approved head is unchanged
         id: publish
         if: steps.prepare.outputs.changed == 'true'
         shell: bash
@@ -505,9 +506,12 @@ jobs:
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           tip="$(git_safe ls-remote "https://github.com/$REPOSITORY.git" "refs/heads/$HEAD_REF" | cut -f1)"
           [ "$tip" = "$ORIGINAL_HEAD" ]
-          # Normal push rejects a concurrent non-fast-forward update; no lease
-          # or force mode can overwrite the owner's newer work.
-          git_safe push "https://github.com/$REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
+          # The candidate must be exactly one commit atop the approved head.
+          # An exact lease is a server-side old-SHA precondition, including
+          # concurrent rewinds/deletion; --atomic alone would not supply it.
+          [ "$(git_safe rev-parse HEAD^)" = "$ORIGINAL_HEAD" ]
+          git_safe push --force-with-lease="refs/heads/$HEAD_REF:$ORIGINAL_HEAD" \
+            "https://github.com/$REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
           echo 'changed=true' >> "$GITHUB_OUTPUT"
 
   report:

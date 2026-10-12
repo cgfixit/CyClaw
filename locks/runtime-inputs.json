@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "inputs": {
+    "constraints.txt": "52881ff4940120d3af39cb2c94c3636e99e290fb4263ea7b5872fba0f7a65728",
+    "pyproject.toml": "a222d439d98f40f6c1af002466152744ab75e9c4098e9a2221b31915e7d2e263",
+    "requirements-torch.txt": "6746f14d1205a0c5d8b3f8763a9c8cb2ac2e94b0c6003b864f50f9d3043b4092",
+    "requirements.txt": "46144d04367a2f77fa152be0a4cc72109a7517d79a83d63a88359b1746c149c1",
+    "scripts/check_lock_contract.py": "6659989ceda1c8d680c21523fa020377ad58bdb490fa181498d1e521fa1eb5e9",
+    "scripts/refresh-runtime-lock.sh": "fd50c71e757547434229086506c74de6b5aa142761844bc5f763cc55086a84d4"
+  },
+  "outputs": {
+    "requirements-lock-linux.txt": "2e19ad090640acb6fbe3ccda2a6aae0e171636bbcd0b788e942c5c606a252e30",
+    "requirements-lock-macos.txt": "2e19ad090640acb6fbe3ccda2a6aae0e171636bbcd0b788e942c5c606a252e30",
+    "requirements-lock-windows.txt": "3d456568d0351240e3e2c5cb4744ee5a7a8d8662b92e86ae88409233e0827e23",
+    "requirements-torch-lock-linux.txt": "0ea2b053e441e42fa03815efc60c7a9dcccdd925802dfadd69ff50d41c00189e",
+    "requirements-torch-lock-macos.txt": "e17755fb894512b0fcd2eb775575178d1397be104c48281816241be5661a8b53",
+    "requirements-torch-lock-windows.txt": "0ea2b053e441e42fa03815efc60c7a9dcccdd925802dfadd69ff50d41c00189e"
+  }
+}

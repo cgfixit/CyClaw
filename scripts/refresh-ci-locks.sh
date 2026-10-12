@@ -6,13 +6,20 @@
 # requirements file, so each install set is compiled here.
 set -euo pipefail
 
-repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+repo_root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 uv_bin="${UV_BIN:-uv}"
 python_bin="${PYTHON_BIN:-python3.12}"
 cache_dir="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/cyclaw-uv-cache}"
 inputs="$repo_root/scripts/ci-lock-inputs"
-lock_dir="$repo_root/locks"
+if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
+  echo "lock generation requires the supported arm64 macOS host" >&2
+  exit 1
+fi
+stage_dir="$(mktemp -d "$repo_root/.lock-refresh.XXXXXX")"
+lock_dir="$stage_dir/locks"
 mkdir -p "$lock_dir"
+macos_constraints_dir=""
+trap 'rm -rf "$stage_dir"; if [ -n "$macos_constraints_dir" ]; then rm -rf "$macos_constraints_dir"; fi' EXIT
 
 # uv records the --constraints path in comments. Rewrite temp paths back to
 # the stable name constraints.txt, and fail if one remains.
@@ -42,13 +49,9 @@ PY
   fi
 }
 
-if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
-  echo "CI lock generation requires the supported arm64 macOS host" >&2
-  exit 1
-fi
 
 macos_constraints_dir="$(mktemp -d "${TMPDIR:-/tmp}/cyclaw-constraints.XXXXXX")"
-trap 'rm -rf "$macos_constraints_dir"' EXIT
+
 macos_constraints="$macos_constraints_dir/constraints.txt"
 sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' "$repo_root/constraints.txt" > "$macos_constraints"
 
@@ -136,3 +139,5 @@ compile_lock "$linux" requirements-extra-lock-agentic-deepagents-linux.txt "$inp
 compile_lock "$linux" requirements-extra-lock-agentic-deepagents-cloud-linux.txt "$inputs/extra-agentic-deepagents-cloud.txt"
 
 echo "ci locks written"
+
+"$python_bin" "$repo_root/scripts/check_lock_contract.py" --publish ci --staged "$lock_dir"
