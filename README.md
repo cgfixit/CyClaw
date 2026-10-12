@@ -33,6 +33,12 @@ and the tracked git-hook gate in [`docs/GITHOOKS.md`](docs/GITHOOKS.md).
 
 ---
 
+Security review #1526 has an explicit [residual decision register](SECURITY.md#issue-1526-residual-decisions-2026-10-12):
+TLS logout and path privacy, Git helper containment, lock/metadata drift checks,
+approved-head patch publication, and encrypted scheduled sync. Native Windows
+verification remains disabled; supported confinement still permits host reads.
+The register distinguishes implemented controls, accepted limits, and optional research.
+
 ## Quick Start
 
 **macOS (Apple Silicon)** — install, keys, Ollama, index, and startup:
