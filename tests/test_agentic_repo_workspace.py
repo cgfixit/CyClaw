@@ -1642,3 +1642,14 @@ def test_windows_git_waiter_preserves_argv_and_exit_status(tmp_path):
     )
     assert result.stdout.strip() == "argument with spaces"
     assert result.returncode == 17
+
+
+def test_origin_pin_key_preserves_binary_control_bytes(tmp_path, monkeypatch):
+    # Windows text-mode reads truncate at Ctrl-Z and translate CRLF.
+    candidate = b"\x1a\r\n" + bytes(range(29))
+    monkeypatch.setattr(repo_workspace.secrets, "token_bytes", lambda size: candidate)
+    dest = tmp_path / "cyclaw-repo-clone-binary" / "repo"
+    dest.mkdir(parents=True)
+    repo_workspace._write_origin_pin(dest, "https://example.test/org/repo.git")
+    assert repo_workspace._origin_pin_key(tmp_path / "origin-pins", create=False) == candidate
+    assert repo_workspace._load_origin_pin(dest) == "https://example.test/org/repo.git"

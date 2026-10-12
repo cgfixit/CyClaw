@@ -237,7 +237,10 @@ def _origin_pin_path(dest: Path) -> Path:
 
 def _read_private_file(path: Path, *, max_bytes: int) -> bytes:
     """Read a bounded regular file, refusing symlinks and special files."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    flags = (
+        os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    )
     if not stat.S_ISREG(path.lstat().st_mode):
         raise ValueError("origin pin is not a regular file")
     fd = os.open(path, flags)
