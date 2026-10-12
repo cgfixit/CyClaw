@@ -577,7 +577,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "`command` engine (utils/external_pre_hook.py::_run_command) runs "
                     "policy.fallback.pre_action_hook.command verbatim, JSON on stdin, exit 0 allow / 2 deny; "
                     "(b) agentic/executor/runner.py::run_verification runs each caller-declared Check.argv "
-                    "(CyClaw's own default_checks are pytest/ruff/invariant-guard)",
+                    "(the operator's checks manifest; no default check set ships)",
         "enforcement": "both ship off (hook enabled: false with command: []; agentic.enabled false) and both "
                        "can only deny or verify, never widen an external call. Both use explicit capability "
                        "environments through child_environment and build_telemetry_safe_env (T12); (b) also "

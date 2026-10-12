@@ -4,8 +4,8 @@ Phase 3 of issue #1134: NVIDIA's non-generating ``LLMRails.check`` wraps
 ``client.generate``. This module never grants I3 and never calls
 ``generate_async``. Graph sees it only via ``utils/guardrail_bridge``.
 
-Not a tool broker. Tool name-gating is ``utils.tool_broker``
-(re-exported as ``guardrails.tool_broker``).
+Not a tool broker. No tool name-gate ships: ``utils/tool_broker.py`` was
+removed once its only caller, the harness console, went away (PR #1367).
 """
 
 from __future__ import annotations

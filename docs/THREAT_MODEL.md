@@ -352,8 +352,8 @@ narrower and more precise reason than "nothing executes":
     skips verification entirely (no point running tests against known-bad
     content) and forces rejection.
   - Verification `checks` are a REQUIRED caller argument, never defaulted —
-    `agentic.executor.default_checks()` assumes this repository's own
-    toolchain (a CyClaw-specific invariant-guard path) and would be a wrong,
+    the executor ships no default check set, since this repository's own
+    toolchain (a CyClaw-specific invariant-guard path) would be a wrong,
     invented assumption for an arbitrary configured target. An empty check
     list is rejected outright rather than silently accepting everything.
   - The git commit message is always a caller-supplied fixed string, never
