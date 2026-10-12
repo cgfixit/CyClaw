@@ -18,8 +18,8 @@ unit: it gives inherent overlap protection, journald logging, and
 here; **cron is the implemented portable baseline** (works on macOS/WSL/BSD
 too). Operators who prefer systemd should run the sync via a ``--user`` timer
 calling ``python -m sync.cli sync`` and skip ``schedule``/``unschedule``. The
-cron baseline has no built-in single-instance guard, so a wrapper-level lockfile
-(or systemd) is recommended if manual and scheduled runs might collide.
+sync runner uses an OS-backed lock for manual and scheduled invocations;
+systemd is optional, not an extra correctness requirement.
 
 macOS note: ``LaunchdScheduler`` below is a second, opt-in Darwin-only backend
 (``sync.scheduler_backend: "launchd"`` in config.yaml; the shipped default
@@ -143,7 +143,7 @@ def _sync_command(cfg: RcloneConfig) -> str:
     cfg_path = getattr(cfg, "_config_path", None)
     if platform.system() == "Windows":
         config_arg = f"--config {bat_quote(cfg_path)} " if cfg_path else ""
-        return f'cmd /c "cd /d {bat_quote(root)} && {bat_quote(py)} -m sync.cli {config_arg}sync"'
+        return f'cmd /c "cd /d {bat_quote(root)} && {bat_quote(py)} -m sync.scheduled {config_arg}sync"'
     # env(1) prefix so the canonical telemetry/update-check block exists
     # BEFORE the interpreter starts -- cron hands a job a near-empty
     # environment, and sync/__init__.py's import-time apply (the second
@@ -156,7 +156,7 @@ def _sync_command(cfg: RcloneConfig) -> str:
     # env (Codex P1).
     env_unsets = [arg for name in SCRUBBED_ENV_KEYS for arg in ("-u", name)]
     env_pairs = [shlex.quote(f"{k}={v}") for k, v in scheduler_env_overlay().items()]
-    tokens = ["cd", shlex.quote(root), "&&", "env", *env_unsets, *env_pairs, shlex.quote(py), "-m", "sync.cli"]
+    tokens = ["cd", shlex.quote(root), "&&", "env", *env_unsets, *env_pairs, shlex.quote(py), "-m", "sync.scheduled"]
     if cfg_path:
         tokens += ["--config", shlex.quote(cfg_path)]
     tokens.append("sync")
@@ -233,7 +233,7 @@ def _write_windows_launcher(cfg: RcloneConfig) -> str:
         "@echo off\r\n"
         f"{env_lines}"
         f"cd /d {bat_quote(root)}\r\n"
-        f"{bat_quote(py)} -m sync.cli {config_arg}sync\r\n"
+        f"{bat_quote(py)} -m sync.scheduled {config_arg}sync\r\n"
     )
     with open(bat_path, "w", encoding="utf-8", newline="") as f:
         f.write(content)
@@ -440,7 +440,7 @@ def _launchd_program_arguments(cfg: RcloneConfig) -> list[str]:
     ``_sync_command``'s content (cd is unnecessary -- ``WorkingDirectory``
     covers it) so both backends invoke the identical CLI surface.
     """
-    argv = [python_executable(), "-m", "sync.cli"]
+    argv = [python_executable(), "-m", "sync.scheduled"]
     cfg_path = getattr(cfg, "_config_path", None)
     if cfg_path:
         argv += ["--config", cfg_path]

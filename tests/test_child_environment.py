@@ -136,13 +136,14 @@ def test_isolated_helper_environment_uses_disposable_home(tmp_path: Path) -> Non
     assert not home.exists()
 
 
+@pytest.mark.parametrize("template", ["${CYCLAW_FS_ROOT}/docs", "$CYCLAW_FS_ROOT/docs", "%CYCLAW_FS_ROOT%/docs"])
 def test_configured_path_names_retains_absolute_directory_vars(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, template: str
 ) -> None:
     root = tmp_path / "share"
     root.mkdir()
     monkeypatch.setenv("CYCLAW_FS_ROOT", str(root.resolve()))
-    names = configured_path_names({"allowed_roots": ["${CYCLAW_FS_ROOT}/docs"]})
+    names = configured_path_names({"allowed_roots": [template]})
     assert names == ("CYCLAW_FS_ROOT",)
 
 
@@ -166,12 +167,13 @@ def test_configured_path_names_rejects_relative_values(monkeypatch: pytest.Monke
         configured_path_names({"allowed_roots": ["$CYCLAW_FS_ROOT"]})
 
 
+@pytest.mark.parametrize("template", ["$DATABASE_PASSWORD", "%DATABASE_PASSWORD%"])
 def test_configured_path_names_rejects_secret_shaped_names(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, template: str,
 ) -> None:
     monkeypatch.setenv("DATABASE_PASSWORD", "/tmp/keys")
     with pytest.raises(ValueError, match="not an allowed directory capability"):
-        configured_path_names({"workdir": "$DATABASE_PASSWORD"})
+        configured_path_names({"workdir": template})
 
 
 def test_configured_path_names_rejects_loader_and_git_prefixes(

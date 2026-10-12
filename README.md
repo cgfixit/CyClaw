@@ -407,7 +407,7 @@ for details.
 
 ## Optional layers
 
-**Dropbox sync.** `rclone` pulls into `data/corpus/` outside the request
+**Dropbox sync.** Generated schedules retrieve the encrypted-config password from macOS Keychain or Windows Credential Manager at run time; [setup and limits](docs/SYNC_README.md#encrypted-rclone-configuration-in-scheduled-jobs). `rclone` pulls into `data/corpus/` outside the request
 path, bounded by `max_delete`, `max_transfer`, and a single-instance lock;
 exit code 10 signals a reindex. `python -m sync.cli setup`, then `test`,
 `sync --dry-run`, `sync`, `status`, `schedule`, or `unschedule`

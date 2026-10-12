@@ -149,7 +149,7 @@ def test_install_writes_valid_plist(tmp_path: Path) -> None:
     assert document["Label"] == LAUNCHD_LABEL
     assert document["RunAtLoad"] is False
     assert document["StartCalendarInterval"] == {"Hour": 3, "Minute": 15}
-    assert document["ProgramArguments"][1:3] == ["-m", "sync.cli"]
+    assert document["ProgramArguments"][1:3] == ["-m", "sync.scheduled"]
     assert document["ProgramArguments"][-1] == "sync"
     assert document["WorkingDirectory"] == str(_REPO_ROOT)
     log_path = str(tmp_path / "Library" / "Logs" / "CyClaw" / "sync.log")

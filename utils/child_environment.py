@@ -31,7 +31,10 @@ def child_environment(
     """Copy only the named capability and explicitly selected configuration keys."""
     parent = os.environ if source is None else source
     names = (*_BASE, *_CAPABILITIES[capability], *secret_names)
-    return build_telemetry_safe_env({name: parent[name] for name in names if name in parent})
+    env = build_telemetry_safe_env({name: parent[name] for name in names if name in parent})
+    if capability == "sync":
+        env["RCLONE_ASK_PASSWORD"] = "false"  # noqa: S105 -- fixed noninteractive flag, not a credential
+    return env
 
 
 @contextmanager
@@ -99,9 +102,9 @@ def configured_path_names(block: object) -> tuple[str, ...]:
 
     visit(block)
     names = {
-        match[0] or match[1]
+        match[0] or match[1] or match[2]
         for value in values
-        for match in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", value)
+        for match in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%", value)
     }
     if not names:
         return ()
