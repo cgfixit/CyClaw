@@ -1,6 +1,6 @@
 """Linux launcher: the API key and the pairing code must not leak.
 
-Contract (e2e-fixes card, PR B; interface posted by PyForge):
+Contract (e2e-fixes card, PR B; interface posted by the launcher author):
 
 * ``macos/cyclaw-linux-key.sh`` is sourced, never executed. It stores a
   generated key in libsecret (``secret-tool``, secret on stdin only) or, when

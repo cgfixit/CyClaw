@@ -2,8 +2,8 @@
 # CyClaw script lint — shellcheck (macos/) + PSScriptAnalyzer (powershell/)
 #
 # Fail-closed gates for native installer/helper scripts (#1558). No rule
-# exclusions, no severity downgrades, no continue-on-error. PyForge owns script
-# fixes when findings block; Feature Mapper adds the jobs only.
+# exclusions, no severity downgrades, no continue-on-error. The script owner
+# fixes findings when they block; this workflow only adds the jobs.
 #
 # Supply-chain: every third-party action ref is pinned to a full commit SHA
 # (trailing "# vX.Y.Z" comments), matching ci.yml / lint.yml / gitleaks.yml.
@@ -135,6 +135,6 @@ jobs:
           }
           if ($results -and @($results).Count -gt 0) {
             $results | Format-Table -AutoSize | Out-String | Write-Host
-            throw ("PSScriptAnalyzer found {0} finding(s); fail-closed (NEED @PyForge script fixes)" -f @($results).Count)
+            throw ("PSScriptAnalyzer found {0} finding(s); fail-closed (script fixes needed from the script owner)" -f @($results).Count)
           }
           Write-Host "PSScriptAnalyzer: 0 findings"
