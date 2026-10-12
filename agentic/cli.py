@@ -1488,7 +1488,6 @@ def cmd_real_repo_run_discard(args: argparse.Namespace) -> int:
     from agentic.deepagent_github.repo_workspace import RepoWorkspaceTools
     from agentic.real_repo_run_store import PENDING_DECISION, load_run, save_run
 
-    app_cfg = _get_config(args.config)
     runs_dir = _real_repo_runs_dir(cfg)
     try:
         record = load_run(runs_dir, args.run_id)
@@ -1503,11 +1502,10 @@ def cmd_real_repo_run_discard(args: argparse.Namespace) -> int:
     dest = Path(record.dest)
     if dest.is_dir():
         try:
-            tools = RepoWorkspaceTools.attach(cfg, dest, config_path=args.config, cfg=app_cfg)
+            RepoWorkspaceTools.discard_existing(cfg, dest)
         except AgenticError as exc:
             _err(exc.message)
             return EXIT_FAIL
-        tools.close()
 
     record.status = "discarded"
     save_run(runs_dir, record)

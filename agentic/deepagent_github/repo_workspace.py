@@ -594,6 +594,27 @@ def _clone(cfg: AgenticConfig, deep_cfg: DeepAgentGitHubConfig, *, config_path: 
     return dest
 
 
+def _existing_clone_dest(agentic_cfg: AgenticConfig, dest: Path) -> Path:
+    """Validate a saved clone location before reopening or deleting it."""
+    workspace_root = Path(agentic_cfg.deepagent_github.workspace_root).resolve()
+    if dest.is_symlink() or dest.parent.is_symlink():
+        raise AgenticError("clone path may not be a symlink", details={"dest": str(dest)})
+    dest_resolved = dest.resolve()
+    if dest_resolved != workspace_root and workspace_root not in dest_resolved.parents:
+        raise AgenticError(
+            "attach target is outside the configured workspace root",
+            details={"dest": str(dest), "workspace_root": str(workspace_root)},
+        )
+    if dest_resolved.parent.parent != workspace_root:
+        raise AgenticError(
+            "attach target is not a clone() output (must be workspace_root/<tempdir>/repo)",
+            details={"dest": str(dest), "workspace_root": str(workspace_root)},
+        )
+    if not dest_resolved.is_dir():
+        raise AgenticError("cannot attach: clone directory does not exist", details={"dest": str(dest)})
+    return dest_resolved
+
+
 @dataclass
 class RepoWorkspaceTools:
     """A read-only, jailed view over one freshly-cloned repository.
@@ -707,21 +728,7 @@ class RepoWorkspaceTools:
         every other run's clone and the ``runs/`` directory tracking them --
         instead of just this one clone.
         """
-        deep_cfg = agentic_cfg.deepagent_github
-        workspace_root = Path(deep_cfg.workspace_root).resolve()
-        dest_resolved = dest.resolve()
-        if dest_resolved != workspace_root and workspace_root not in dest_resolved.parents:
-            raise AgenticError(
-                "attach target is outside the configured workspace root",
-                details={"dest": str(dest), "workspace_root": str(workspace_root)},
-            )
-        if dest_resolved.parent.parent != workspace_root:
-            raise AgenticError(
-                "attach target is not a clone() output (must be workspace_root/<tempdir>/repo)",
-                details={"dest": str(dest), "workspace_root": str(workspace_root)},
-            )
-        if not dest_resolved.is_dir():
-            raise AgenticError("cannot attach: clone directory does not exist", details={"dest": str(dest)})
+        dest_resolved = _existing_clone_dest(agentic_cfg, dest)
         try:
             # allow_macos_volume_roots=True: see clone()'s identical opt-in --
             # dest_resolved was already verified above to be a real clone()
@@ -748,9 +755,30 @@ class RepoWorkspaceTools:
             _dest=dest_resolved,
             config_path=config_path,
             cfg=cfg,
-            allow_git_write_tools=deep_cfg.allow_git_write_tools,
+            allow_git_write_tools=agentic_cfg.deepagent_github.allow_git_write_tools,
             _expected_origin=expected_origin,
         )
+
+    @classmethod
+    def discard_existing(cls, agentic_cfg: AgenticConfig, dest: Path) -> None:
+        """Reclaim a saved clone without granting an unauthenticated run Git access.
+
+        An interrupted or pre-pin run may have no origin record. It cannot be
+        attached for Git operations, but the operator must still be able to
+        discard its clone after validating the same workspace location.
+        """
+        dest_resolved = _existing_clone_dest(agentic_cfg, dest)
+        try:
+            scoped = ScopedRoots([str(dest_resolved)], allow_macos_volume_roots=True)
+        except Exception as exc:
+            raise AgenticError(
+                "failed to jail the existing cloned repository",
+                details={"dest": str(dest), "error": str(exc)},
+            ) from exc
+        scoped.close()
+        _rmtree_best_effort(dest_resolved.parent)
+        with suppress(OSError):
+            _origin_pin_path(dest_resolved).unlink(missing_ok=True)
 
     def _audit(self, event: str, **fields: object) -> None:
         audit_log({"event": event, **fields}, config_path=self.config_path, cfg=self.cfg)

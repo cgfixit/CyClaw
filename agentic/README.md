@@ -502,8 +502,9 @@ altered record refuses attach, and a changed origin refuses Git operations even
 if the clone config and its sibling snapshot were changed together. The record
 is removed when the clone is discarded. Narrow display settings and
 branch-tracking additions are allowed.
-Runs created before this pin existed cannot be reopened; discard and recreate
-them rather than trusting an unauthenticated old snapshot.
+Runs created before this pin existed cannot be reopened for Git operations;
+`real-repo-run-discard` can reclaim them without loading the pin, then the
+operator can start a new run.
 Git commands and config reads reap helper processes on timeout through a POSIX
 process group or a Windows Job Object. A POSIX helper that creates a new session
 can escape the process group; a Windows helper spawned before Job Object

@@ -1145,6 +1145,17 @@ def test_attach_rejects_a_destination_outside_the_workspace_root(tmp_path, monke
         RepoWorkspaceTools.attach(cfg, outside)
 
 
+def test_discard_existing_refuses_to_delete_outside_the_workspace_root(tmp_path, monkeypatch):
+    cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
+    outside = tmp_path / "outside" / "repo"
+    outside.mkdir(parents=True)
+    marker = outside / "keep.txt"
+    marker.write_text("keep", encoding="utf-8")
+    with pytest.raises(AgenticError, match="outside the configured workspace root"):
+        RepoWorkspaceTools.discard_existing(cfg, outside)
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
 def test_attach_rejects_a_missing_directory(tmp_path, monkeypatch):
     cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
     workspace_root = Path(cfg.deepagent_github.workspace_root)
