@@ -507,9 +507,8 @@ Runs created before this pin existed cannot be reopened for Git operations;
 operator can start a new run.
 Git commands and config reads reap helper processes on timeout through a POSIX
 process group or a Windows Job Object. A POSIX helper that creates a new session
-can escape the process group; a Windows helper spawned before Job Object
-assignment has a short race window. Failed Job Object assignment refuses the
-Git operation.
+can escape the process group. Windows releases Git from a fixed isolated waiter
+only after Job assignment; assignment failure never starts Git.
 Operator-owned global/system Git config remains trusted. Verification runs in
 a fresh gitless mirror with no copyback. Linux requires bubblewrap filesystem,
 PID and network isolation; macOS uses Seatbelt to confine writes to the mirror
@@ -761,3 +760,6 @@ python -m agentic.netconnect.cli test
 | [`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`](../docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md) | Skills registry governance |
 | [`macos/README.md`](../macos/README.md) | launchd glue — the fsconnect trash-empty plist generator's runtime home |
 | [`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md) | Threat-model amendments for this layer |
+
+Orphan cleanup only deletes the generated `cyclaw-repo-clone-*/repo` directory
+shape; workspace metadata such as `origin-pins` cannot be a discard target.

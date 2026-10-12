@@ -417,14 +417,22 @@ def _run_git_command(
     """Run Git with a bounded lifetime for the direct child and its helpers."""
     job = _WindowsGitJob() if sys.platform == "win32" else None
     proc: subprocess.Popen[str] | None = None
+    command = argv
+    if job is not None:
+        # Git starts only after this fixed isolated waiter belongs to the Job.
+        # subprocess preserves Windows argv quoting and the Git exit status.
+        wrapper = "import subprocess,sys; line=sys.stdin.readline(); " \
+                  "sys.exit(125 if line != 'go\\n' else subprocess.call(sys.argv[1:],stdin=subprocess.DEVNULL))"
+        command = [sys.executable, "-I", "-c", wrapper, *argv]
     try:
         proc = subprocess.Popen(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
-            argv, cwd=str(dest), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            command, cwd=str(dest), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE if job is not None else subprocess.DEVNULL,
             text=True, encoding=encoding, start_new_session=sys.platform != "win32",
         )
         if job is not None:
             job.assign(proc)
-        stdout, stderr = proc.communicate(timeout=timeout)
+        stdout, stderr = proc.communicate(input="go\n" if job is not None else None, timeout=timeout)
         return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
     finally:
         # Closing a Job Object kills every assigned descendant, including one
@@ -441,7 +449,7 @@ def _run_git_command(
                 if proc.poll() is None:
                     with suppress(OSError):
                         proc.kill()
-                for pipe in (proc.stdout, proc.stderr):
+                for pipe in (proc.stdin, proc.stdout, proc.stderr):
                     if pipe is not None:
                         pipe.close()
                 with suppress(subprocess.TimeoutExpired):
@@ -768,6 +776,8 @@ class RepoWorkspaceTools:
         discard its clone after validating the same workspace location.
         """
         dest_resolved = _existing_clone_dest(agentic_cfg, dest)
+        if dest_resolved.name != "repo" or not dest_resolved.parent.name.startswith("cyclaw-repo-clone-"):
+            raise AgenticError("discard target is not a generated clone directory")
         try:
             scoped = ScopedRoots([str(dest_resolved)], allow_macos_volume_roots=True)
         except Exception as exc:

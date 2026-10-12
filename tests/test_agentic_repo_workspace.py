@@ -1584,3 +1584,61 @@ def test_attach_checks_git_against_the_snapshot_the_clone_wrote(tmp_path, monkey
     with RepoWorkspaceTools.attach(cfg, dest) as reattached:
         with pytest.raises(AgenticError, match="modified outside this tool"):
             reattached.diff()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows process assignment")
+@pytest.mark.parametrize("refuse", [False, True])
+def test_git_cannot_start_before_job_assignment(tmp_path, monkeypatch, refuse):
+    marker = tmp_path / "git-started"
+    original = repo_workspace._WindowsGitJob.assign
+
+    def delayed_assign(job, process):
+        time.sleep(0.3)
+        assert not marker.exists(), "Git ran before job containment"
+        if refuse:
+            raise OSError("synthetic assignment refusal")
+        original(job, process)
+
+    monkeypatch.setattr(repo_workspace._WindowsGitJob, "assign", delayed_assign)
+    argv = [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('started')", str(marker), "argument with spaces"]
+    if refuse:
+        with pytest.raises(OSError):
+            repo_workspace._run_git_command(argv, tmp_path, repo_workspace._git_env(), 5)
+        assert not marker.exists()
+    else:
+        result = repo_workspace._run_git_command(argv, tmp_path, repo_workspace._git_env(), 5)
+        assert result.returncode == 0
+        assert marker.read_text() == "started"
+
+
+@pytest.mark.parametrize("shape", ["outside", "root", "shallow"])
+def test_discard_orphan_preserves_workspace_boundary(tmp_path, monkeypatch, shape):
+    cfg = _cfg(tmp_path, monkeypatch)
+    root = Path(cfg.deepagent_github.workspace_root)
+    dest = {"outside": tmp_path / "outside", "root": root, "shallow": root / "one"}[shape]
+    dest.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(AgenticError):
+        RepoWorkspaceTools.discard_existing(cfg, dest)
+    assert dest.exists()
+
+
+def test_discard_cannot_remove_origin_pin_store(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch)
+    directory = Path(cfg.deepagent_github.workspace_root) / "origin-pins"
+    dest = directory / "repo"
+    dest.mkdir(parents=True)
+    key = directory / "key"
+    key.write_text("synthetic")
+    with pytest.raises(AgenticError, match="generated clone"):
+        RepoWorkspaceTools.discard_existing(cfg, dest)
+    assert key.read_text() == "synthetic"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows argv and exit code")
+def test_windows_git_waiter_preserves_argv_and_exit_status(tmp_path):
+    result = repo_workspace._run_git_command(
+        [sys.executable, "-c", "import sys; print(sys.argv[1]); sys.exit(17)", "argument with spaces"],
+        tmp_path, repo_workspace._git_env(), 5,
+    )
+    assert result.stdout.strip() == "argument with spaces"
+    assert result.returncode == 17

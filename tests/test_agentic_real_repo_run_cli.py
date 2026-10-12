@@ -1449,7 +1449,7 @@ def test_discard_reclaims_an_orphaned_running_record(cfg_path, checks_file, monk
     from agentic.real_repo_run_store import RealRepoRunRecord, save_run
 
     real_cfg = agentic_config_module.load_agentic_config(cfg_path)
-    dest = Path(real_cfg.deepagent_github.workspace_root) / "orphan-clone" / "repo"
+    dest = Path(real_cfg.deepagent_github.workspace_root) / "cyclaw-repo-clone-orphan" / "repo"
     dest.mkdir(parents=True)
     (dest / ".git").mkdir()  # enough for ScopedRoots to jail; no real git needed for discard
     runs_dir = Path(real_cfg.deepagent_github.workspace_root) / "runs"

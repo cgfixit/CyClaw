@@ -589,3 +589,6 @@ Source-available, all rights reserved; personal use is permitted. See
 
 *Designed and built by Chris Grady, with AI tooling used under human review,
 CI, and the invariant guard.*
+
+Windows Git helper launch waits for Job Object containment before starting Git.
+Orphan cleanup is limited to generated clone directories, preserving workspace metadata.
