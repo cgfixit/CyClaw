@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import html
+import logging
 from collections.abc import Mapping
 from typing import Any
 
 from memory.flags import facts_retrieval_enabled
 from memory.store import count_active_facts, count_episodes, list_episodes, list_facts
+
+logger = logging.getLogger("cyclaw.memory")
 
 
 def status_dict(cfg: Mapping[str, Any]) -> dict[str, Any]:
@@ -38,6 +41,7 @@ def status_dict(cfg: Mapping[str, Any]) -> dict[str, Any]:
         # Never echo raw SQLite/OS exception text: it can contain absolute
         # filesystem paths and schema details. Log the full exception for the
         # operator and return only the exception type to the API consumer.
+        logger.warning("memory status: store unavailable", exc_info=True)
         out["error"] = f"{type(exc).__name__}: memory store unavailable"
     return out
 

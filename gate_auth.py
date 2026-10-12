@@ -274,7 +274,7 @@ def register_auth_routes(
             ) from None
         # The host comparison is against THIS request's own Host header, not
         # against the allow-list. allowed_hosts ships with two distinct LAN
-        # machines (10.0.0.111 and 10.0.0.112) alongside the loopback names, so
+        # machines (two private LAN hosts) alongside the loopback names, so
         # an allow-list membership test would call a page served by one of them
         # "same-origin" with a CyClaw running on the other -- which is exactly
         # the "another device on the LAN" adversary

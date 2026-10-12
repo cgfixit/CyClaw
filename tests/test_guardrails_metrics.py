@@ -11,7 +11,6 @@ from guardrails.metrics import (
     EVENT_RAIL_TRIGGERED,
     EVENT_SKIPPED,
     EVENT_SOUL_TOPIC,
-    EVENT_TOOL_CALL,
     FORBIDDEN_METRIC_KEYS,
     GuardrailMetrics,
     compute_guardrail_metrics,
@@ -20,7 +19,6 @@ from guardrails.metrics import (
 )
 
 _ALL_EVENT_TYPES = (
-    EVENT_TOOL_CALL,
     EVENT_BLOCKED,
     EVENT_HALLUCINATION,
     EVENT_RAIL_TRIGGERED,
@@ -48,10 +46,9 @@ def test_record_persists_jsonl_and_hashes_query(tmp_path):
 def test_persist_false_does_not_write(tmp_path):
     path = tmp_path / "guardrails.jsonl"
     m = GuardrailMetrics(path, persist=False)
-    m.record_tool_call("gh_pr_view")
+    m.record_skipped(reason="disabled")
     assert not path.exists()
-    assert m.counters[EVENT_TOOL_CALL] == 1
-    assert m.tools_called["gh_pr_view"] == 1
+    assert m.counters[EVENT_SKIPPED] == 1
 
 
 def test_persistence_failure_does_not_break_metrics_call(tmp_path, caplog):
@@ -142,7 +139,6 @@ def test_forbidden_keys_stripped_from_persist_and_sanitize(tmp_path):
 def test_response_never_persisted_for_any_event_type(tmp_path):
     path = tmp_path / "guardrails.jsonl"
     m = GuardrailMetrics(path)
-    m.record_tool_call("gh_pr_view", ok=True, response="RAW")
     m.record_blocked(stage="input", rail="check_injection", reason="x", response="RAW")
     m.record_hallucination(score=0.1, threshold=0.2, response="RAW")
     m.record_rail("check_injection", stage="input", response="RAW")
@@ -162,8 +158,6 @@ def test_response_never_persisted_for_any_event_type(tmp_path):
 def test_compute_summary_aggregates(tmp_path):
     path = tmp_path / "guardrails.jsonl"
     m = GuardrailMetrics(path)
-    m.record_tool_call("gh_pr_view", ok=True)
-    m.record_tool_call("gh_issue_view", ok=False)
     m.record_blocked(stage="input", rail="check_soul_mutation", reason="mutation")
     m.record_blocked(stage="output", rail="check_grounding", reason="ungrounded")
     m.record_hallucination(score=0.05, threshold=0.18)
@@ -172,9 +166,6 @@ def test_compute_summary_aggregates(tmp_path):
     m.record_skipped(reason="disabled")
 
     summary = compute_guardrail_metrics(load_events(path))
-    assert summary["tool_calls"] == 2
-    assert summary["tool_call_failures"] == 1
-    assert summary["tools_by_name"]["gh_pr_view"] == 1
     assert summary["blocked_generations"] == 2
     assert summary["blocks_by_stage"] == {"input": 1, "output": 1}
     assert summary["hallucinations_flagged"] == 1

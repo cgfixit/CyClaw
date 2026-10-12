@@ -352,8 +352,8 @@ narrower and more precise reason than "nothing executes":
     skips verification entirely (no point running tests against known-bad
     content) and forces rejection.
   - Verification `checks` are a REQUIRED caller argument, never defaulted —
-    `agentic.executor.default_checks()` assumes this repository's own
-    toolchain (a CyClaw-specific invariant-guard path) and would be a wrong,
+    the executor ships no default check set, since this repository's own
+    toolchain (a CyClaw-specific invariant-guard path) would be a wrong,
     invented assumption for an arbitrary configured target. An empty check
     list is rejected outright rather than silently accepting everything.
   - The git commit message is always a caller-supplied fixed string, never
@@ -771,7 +771,7 @@ server to the network, and nothing at startup objected.
 committed and pushed. An operator editing their working copy and running
 `python gate.py` reached no check. `security.allowed_hosts` is not a backstop
 either: it ships as
-`['127.0.0.1', 'localhost', '10.0.0.112', '10.0.0.111']`, so
+`['127.0.0.1', 'localhost', '<LAN_HOST_1>', '<LAN_HOST_2>']`, so
 `TrustedHostMiddleware` **admits** those LAN Hosts rather than rejecting them —
 verified by probing the middleware directly with the shipped list.
 

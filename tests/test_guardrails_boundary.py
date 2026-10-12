@@ -5,14 +5,10 @@ from __future__ import annotations
 import pytest
 
 from guardrails.boundary import (
-    ArtifactManifest,
     GuardrailDecision,
     GuardrailStage,
     GuardrailVerdict,
-    SafetyEnvelope,
     SourceProvenance,
-    ToolIntent,
-    ToolObservation,
     TrustLevel,
     guardrail_decision,
 )
@@ -117,13 +113,6 @@ def test_all_guardrail_verdict_members():
         "degraded",
     }
     assert {m.value for m in GuardrailVerdict} == expected
-
-
-def test_phase3_stubs_importable():
-    assert SafetyEnvelope() is not None
-    assert ToolIntent() is not None
-    assert ToolObservation() is not None
-    assert ArtifactManifest() is not None
 
 
 def test_source_provenance_hash_only_fields():

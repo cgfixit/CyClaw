@@ -29,12 +29,6 @@ logger = logging.getLogger("cyclaw.memory")
 
 _FTS_TOKEN_RE = re.compile(r"\w+")
 
-# Thread-local SQLite connection cache. SQLite connections cannot safely be
-# shared across threads, but creating a connection per store call is expensive
-# (PRAGMAs + full schema script every time). Each thread keeps one connection
-# per DB path and reuses it for the lifetime of that thread.
-_conn_local = threading.local()
-
 # Serializes every store write. Fact writes go only through apply_proposal,
 # which calls the *_conn helpers on its own connection, so it never re-enters.
 _write_lock = threading.RLock()
@@ -98,25 +92,6 @@ def connect(cfg: Mapping[str, Any]) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=5000")
     _ensure_schema(conn)
-    return conn
-
-
-def get_connection(cfg: Mapping[str, Any]) -> sqlite3.Connection:
-    """Return a cached SQLite connection for this thread and DB path.
-
-    Creates and caches on first use; subsequent calls on the same thread reuse
-    the connection without re-running PRAGMAs or the schema script. Callers
-    still own transaction/lock discipline and must not close the connection.
-    """
-    path = str(_db_path(cfg))
-    cache = getattr(_conn_local, "conns", None)
-    if cache is None:
-        cache = {}
-        _conn_local.conns = cache
-    conn = cache.get(path)
-    if conn is None:
-        conn = connect(cfg)
-        cache[path] = conn
     return conn
 
 
@@ -749,7 +724,11 @@ def stage_episode(cfg: Mapping[str, Any], state: Mapping[str, Any]) -> None:
 
     # Amortized TTL prune
     global _episode_counter
-    prune_every = int(ep_cfg.get("prune_every", 100) or 100)
+    # None (key present, no value) means the default; 0 means never prune. An
+    # `or 100` here turned a configured 0 back into 100, so the `> 0` guard
+    # below could never fire for it.
+    raw_every = ep_cfg.get("prune_every")
+    prune_every = 100 if raw_every is None else int(raw_every)
     with _episode_counter_lock:
         _episode_counter += 1
         should_prune = prune_every > 0 and (_episode_counter % prune_every == 0)
@@ -760,7 +739,9 @@ def stage_episode(cfg: Mapping[str, Any], state: Mapping[str, Any]) -> None:
 def prune_episodes(cfg: Mapping[str, Any]) -> int:
     mem = _mem_cfg(cfg)
     ep_cfg = mem.get("episodes") or {}
-    ttl_days = int(ep_cfg.get("ttl_days", 365) or 365)
+    # Same shape as prune_every: None means the default, 0 disables the TTL.
+    raw_ttl = ep_cfg.get("ttl_days")
+    ttl_days = 365 if raw_ttl is None else int(raw_ttl)
     if ttl_days <= 0:
         return 0
     cutoff = (datetime.now(UTC) - timedelta(days=ttl_days)).isoformat()
@@ -792,12 +773,18 @@ def list_episodes(
 
 
 def count_active_facts(cfg: Mapping[str, Any]) -> int:
-    conn = get_connection(cfg)
-    row = conn.execute("SELECT COUNT(*) AS c FROM facts WHERE active = 1").fetchone()
-    return int(row["c"]) if row else 0
+    conn = connect(cfg)
+    try:
+        row = conn.execute("SELECT COUNT(*) AS c FROM facts WHERE active = 1").fetchone()
+        return int(row["c"]) if row else 0
+    finally:
+        conn.close()
 
 
 def count_episodes(cfg: Mapping[str, Any]) -> int:
-    conn = get_connection(cfg)
-    row = conn.execute("SELECT COUNT(*) AS c FROM episodes").fetchone()
-    return int(row["c"]) if row else 0
+    conn = connect(cfg)
+    try:
+        row = conn.execute("SELECT COUNT(*) AS c FROM episodes").fetchone()
+        return int(row["c"]) if row else 0
+    finally:
+        conn.close()

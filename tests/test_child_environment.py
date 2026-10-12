@@ -1,6 +1,6 @@
 """Unit tests for utils.child_environment public contracts.
 
-PyForge owns the module. These assert current main behavior: capability
+The module owner is separate from this test file. These assert current main behavior: capability
 allow-lists, explicit secret_names, telemetry scrubbing, and configured
 path-variable retention. No app-code edits.
 """
@@ -154,7 +154,7 @@ def test_configured_path_names_rejects_suffix_decoys_under_allowlist(
     monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
     # Explicit allow-list (CYCLAW_FS_ROOT only) rejects suffix decoys even with
-    # absolute values — closes #1557 item 4 after PyForge cf09a0cd.
+    # absolute values — closes #1557 item 4 after commit cf09a0cd.
     monkeypatch.setenv(name, "/tmp/absolute-decoy")
     with pytest.raises(ValueError, match="not an allowed directory capability"):
         configured_path_names({"workdir": f"${{{name}}}"})

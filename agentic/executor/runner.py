@@ -11,7 +11,6 @@ import hashlib
 import json
 import shutil
 import stat
-import sys
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -151,9 +150,6 @@ class VerificationReport:
     ok: bool
     results: tuple[CheckResult, ...] = field(default_factory=tuple)
 
-    def failed_names(self) -> tuple[str, ...]:
-        return tuple(r.name for r in self.results if not r.ok)
-
 
 def run_verification(
     worktree: Path,
@@ -263,37 +259,11 @@ def run_verification(
     return VerificationReport(ok=all(r.ok for r in results), results=tuple(results))
 
 
-def default_checks(repo_root: Path | None = None) -> tuple[Check, ...]:
-    """CyClaw's own three checks: pytest, ruff, and the invariant guard.
-
-    These are CyClaw-specific defaults, not something ``run_verification``
-    itself assumes -- the shipped ``agentic.repo`` default IS
-    ``"cgfixit/CyClaw"`` (config.yaml), so the harness's own first target is
-    its own repository, and these are exactly the three commands
-    ``CLAUDE.md``'s own quality bar names. ``repo_root`` locates
-    ``invariant-guard``'s script inside the worktree being verified (it must
-    be the SAME worktree ``run_verification`` runs against, not this
-    process's own checkout, or the guard checks the wrong tree); defaults to
-    this repo's own root for convenience when verifying CyClaw against
-    itself.
-    """
-    root = repo_root or Path(__file__).resolve().parent.parent.parent
-    return (
-        Check("pytest", (sys.executable, "-m", "pytest", "-q", "--tb=short")),
-        Check("ruff", (sys.executable, "-m", "ruff", "check", "--select", "E,F,I,B,C4,UP,S", ".")),
-        Check(
-            "invariant_guard",
-            (sys.executable, str(root / ".claude" / "skills" / "invariant-guard" / "check_invariants.py")),
-        ),
-    )
-
-
 __all__ = [
     "DEFAULT_CHECK_TIMEOUT_SEC",
     "MAX_OUTPUT_CHARS",
     "Check",
     "CheckResult",
     "VerificationReport",
-    "default_checks",
     "run_verification",
 ]

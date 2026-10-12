@@ -78,8 +78,6 @@ MCP `tools/call` remains unwrapped.
 | Module | Role |
 |---|---|
 | `guardrails.broker.GuardrailBroker` | NeMo `check()` and deterministic fallback around existing generation. Never grants external access |
-| `utils.tool_broker` | Provider-neutral tool-name allowlist. Unknown or empty names deny. Audit stores a tool name and argv digest, not raw arguments |
-| `guardrails.tool_broker` | Re-export for guardrails-side tests. Out-of-band callers import `utils.tool_broker` |
 
 `python -m guardrails.call_inventory` fails closed on unregistered
 `ChatOpenAI`, `ChatXAI`, `ChatAnthropic`, or `generate_async` call sites.

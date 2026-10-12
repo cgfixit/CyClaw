@@ -251,8 +251,8 @@ outside the approved scope of this pass.
   `soul.md` write two lines below doesn't fsync either, so adding it only to
   `.bak` would be an inconsistent partial fix rather than a matched one.)
 - **S7 remains open** from `docs/audits/SECURITY_REVIEW_STATUS.md`, corrected:
-  `security.allowed_origins` lists a hardcoded LAN IP (`10.0.0.112`), which is
-  documented as intentional (`config.yaml`'s own comment: "personal home-lab
+  `security.allowed_origins` lists a hardcoded private LAN IP (`<LAN_HOST_1>`), which is
+  documented as intentional (`config.yaml`'s own comment: "personal
   tool — not internet-exposed"). The literal `"null"` entry this bullet
   originally also named is **not** present in the current config — it carries
   an explicit `# NOTE: "null" is deliberately absent from this list — do not
