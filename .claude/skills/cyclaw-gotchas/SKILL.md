@@ -54,9 +54,15 @@ session 2026-09-06):
    `libcudart.so.13` at import and raises before anything else loads. The
    fallback costs ~2 GB and ~7 minutes; disk had 30 GB free.
 4. Installs the hashed Linux locks `locks/requirements-lock-linux.txt` and
-   `locks/requirements-test-lock-linux.txt` with `--require-hashes`. No
-   resolver runs and no constraints copy is built; both locks omit torch, so
-   they go in after the torch step above. The `--ignore-installed` gotcha
+   `locks/requirements-test-lock-linux.txt` with `--no-deps --require-hashes`.
+   No resolver runs and no constraints copy is built; both locks omit torch, so
+   they go in after the torch step above. `--no-deps` is load-bearing on the
+   uv path: a lock is a complete resolution, and without it uv's
+   `--require-hashes` fails on the one package it would have to resolve
+   itself (`must be pinned upfront with ==, but found: torch`, pulled in by
+   sentence-transformers). pip accepts the installed torch, which is why CI
+   and CLAUDE.md §8 need no `--no-deps` on the locks. This is unrelated to the
+   torch `--no-deps` dead end in step 3. The `--ignore-installed` gotcha
    below still describes the macOS recipe in CLAUDE.md §8.
 
 Re-running is idempotent: it exits 0 immediately once
