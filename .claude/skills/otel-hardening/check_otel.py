@@ -616,7 +616,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
                     "pyyaml/rank-bm25/pygments/websockets/tzdata/wcmatch and the dev/test/build tools "
-                    "(pytest*/ruff/mypy/bandit/pip/python/setuptools==84.0.0; hatchling==1.32.0 is the "
+                    "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.0.0; hatchling==1.32.0 is the "
                     "[build-system] backend, swept from build-system.requires, never installed at "
                     "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
@@ -626,7 +626,8 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "bulk negative classification -- a NEW dependency outside every row here trips T13. "
                     "Membership re-read against pyproject.toml/constraints.txt/requirements*.txt/"
                     "environment.yml 2026-09-28: no pinned name is unaccounted for and no aliased name has "
-                    "left the manifests",
+                    "left the manifests. packaging==26.3 added 2026-10-12: local requirement/version/marker "
+                    "parsing for the wheel metadata checker; no network or analytics API is invoked",
     },
 )
 
@@ -707,6 +708,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "ruff": "core web/runtime libs", "mypy": "core web/runtime libs",
     "bandit": "core web/runtime libs", "pip": "core web/runtime libs",
     "python": "core web/runtime libs",
+    "packaging": "core web/runtime libs",
     "pydantic-core": "core web/runtime libs",
     "pydantic-settings": "core web/runtime libs",
     "wcmatch": "core web/runtime libs",
