@@ -91,7 +91,7 @@ def contract(root: Path, group: str, lock_dir: Path) -> dict:
                      f"scripts/refresh-{'runtime-lock' if group == 'runtime' else 'ci-locks'}.sh",
                      "scripts/check_lock_contract.py"})
     def digest(path: Path) -> str:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
     return {"version": 1, "inputs": {p: digest(root / p) for p in inputs},
             "outputs": {p: digest(lock_dir / p) for p in sorted(mapping)}}
 

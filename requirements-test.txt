@@ -11,6 +11,8 @@
 
 pytest==9.1.1
 pytest-cov==7.1.0
+# Direct import for the wheel Requires-Dist contract checker; already locked.
+packaging==26.3
 pygments==2.21.0
 
 # tzdata gives zoneinfo a PEP 615 fallback on hosts without a system IANA
