@@ -56,3 +56,14 @@ def test_all_platform_constraints_are_checked_even_if_records_are_rewritten(lock
     record.write_text(json.dumps({}))
     with pytest.raises(ValueError, match="numpy"):
         contract(lock_tree, "runtime", lock_tree / "locks")
+
+
+def test_windows_checkout_line_endings_are_not_dependency_drift(lock_tree):
+    paths = set()
+    for group in ("runtime", "ci"):
+        paths.update(contract(lock_tree, group, lock_tree / "locks")["inputs"])
+        paths.update("locks/" + name for name in catalog(group))
+    for relative in paths:
+        path = lock_tree / relative
+        path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    check(lock_tree)

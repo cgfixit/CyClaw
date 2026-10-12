@@ -4,7 +4,7 @@
     "constraints.txt": "sha256:f5574f0bbad73e9d3793657488941c77f16f5b2967260f007ad69cfdbb5cb92d",
     "pyproject.toml": "sha256:a222d439d98f40f6c1af002466152744ab75e9c4098e9a2221b31915e7d2e263",
     "requirements-test.txt": "sha256:f0eb43ff8ef4092ac72293de8e9b2157e27b6246a8939e126458ebbf1a92fa27",
-    "scripts/check_lock_contract.py": "sha256:d242dd08669115fc4a933f511cc514ad1dc7101f08c95ea4e8533a4094196522",
+    "scripts/check_lock_contract.py": "sha256:6830fe7be861079e2d3e5c4dc2089dcb94a01c4ff854be135cbd49d3ea2abada",
     "scripts/ci-lock-inputs/bandit.txt": "sha256:77949e1d765740ff3826bbe7dae91a23c9466b6690365dcbdcd3148943b42da8",
     "scripts/ci-lock-inputs/cel.txt": "sha256:e8970a6909fad27e7c81a2c580a46daa47adfa066bbf726e2c4ed10065d8677b",
     "scripts/ci-lock-inputs/deepagents.txt": "sha256:b6166f542d3c9c9be90799b4d25bf5a6b70e128e14d298874223b9e268db8f2e",

@@ -5,7 +5,7 @@
     "pyproject.toml": "sha256:a222d439d98f40f6c1af002466152744ab75e9c4098e9a2221b31915e7d2e263",
     "requirements-torch.txt": "sha256:6746f14d1205a0c5d8b3f8763a9c8cb2ac2e94b0c6003b864f50f9d3043b4092",
     "requirements.txt": "sha256:46144d04367a2f77fa152be0a4cc72109a7517d79a83d63a88359b1746c149c1",
-    "scripts/check_lock_contract.py": "sha256:d242dd08669115fc4a933f511cc514ad1dc7101f08c95ea4e8533a4094196522",
+    "scripts/check_lock_contract.py": "sha256:6830fe7be861079e2d3e5c4dc2089dcb94a01c4ff854be135cbd49d3ea2abada",
     "scripts/refresh-runtime-lock.sh": "sha256:fd50c71e757547434229086506c74de6b5aa142761844bc5f763cc55086a84d4"
   },
   "outputs": {

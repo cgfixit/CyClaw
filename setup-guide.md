@@ -1225,6 +1225,8 @@ config, manifests, and workflows on 2026-09-21; install execution last verified
 
 ## Lock freshness and refresh failures
 
+Checksums use canonical LF text so Windows Git line-ending conversion is not drift.
+
 `python scripts/check_lock_contract.py` checks all 25 runtime, Torch, test,
 CI-tool and extra locks against their direct inputs and every applicable exact
 constraint. Committed input/output SHA-256 records also require regeneration
