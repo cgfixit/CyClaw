@@ -132,10 +132,12 @@ or launcher lands unclassified:
    it reads none of the canonical names), the vendored Unslop scanners, and
    the core web/runtime/dev libraries. The operator install and setup
    surface's own fetches are category 3, not here: the installers' `git
-   clone`/`pull` of the repository, `uv` index access in the lock-refresh
-   scripts and the cloud venv driver, the confirmed Ollama model pull and the
-   Ollama installer/download page, and the loopback readiness probes (`curl`,
-   the Windows smoke suite's PowerShell HTTP cmdlets) -- all operator- or
+   clone`/`pull` of the repository and the agentic workspace's doubly-gated
+   `git push`, `pip` and `uv` index access in the installers, the Dockerfile,
+   the lock-refresh scripts and the cloud venv driver, the confirmed Homebrew
+   Python install, the confirmed Ollama model pull and the Ollama
+   installer/download page, and the loopback readiness probes (`curl`, the
+   Windows smoke suite's PowerShell HTTP cmdlets) -- all operator- or
    sandbox-initiated, never telemetry, pinned to their spawn sites by the
    `otel-hardening` checker.
 

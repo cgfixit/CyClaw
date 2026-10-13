@@ -618,6 +618,48 @@ text = text.replace("export HOMEBREW_NO_ANALYTICS=1", "export ZZ_HOMEBREW_UNSET=
 assert "brew analytics off >/dev/null" in text and "HOMEBREW_NO_ANALYTICS=1" not in text'
 _expect "T13 homebrew export gone mutation" 0 "WARN  \[T13\] fixed launcher .brew.: macos/setup-from-clone.sh no longer carries"
 
+# 42. T13: an inventory row's url is an absolute path. `root / "/etc/passwd"`
+#     discards root, so the existence check alone would pass; the schema must
+#     refuse anything that is not repository-relative (Codex P2 on PR #1637,
+#     tenth round). 43 is the '..' traversal form of the same rule.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("\"url\": \"setup-guide.md\",", "\"url\": \"/etc/passwd\",", 1)'; then
+  echo "T13 absolute evidence path mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\].*/etc/passwd.*must be a repository-relative path"; then
+    echo "T13 absolute evidence path mutation: PASS"
+  else
+    echo "T13 absolute evidence path mutation: FAIL — expected rc=2 + the repository-relative FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("\"url\": \"setup-guide.md\",", "\"url\": \"docs/../../etc/passwd\",", 1)'; then
+  echo "T13 traversal evidence path mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\].*etc/passwd.*must be a repository-relative path"; then
+    echo "T13 traversal evidence path mutation: PASS"
+  else
+    echo "T13 traversal evidence path mutation: FAIL — expected rc=2 + the repository-relative FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"

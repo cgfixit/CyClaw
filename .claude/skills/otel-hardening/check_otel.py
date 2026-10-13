@@ -577,8 +577,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "local-only subcommands under _GIT_ENV_ALLOWLIST at the runtime sites (repo_workspace, "
                        "the executor manifest, the eval dogfood script, the git-hook installers); reads none of "
                        "the canonical names, so the overlay is deliberately NOT applied there (documented "
-                       "in-module). The installers' `git clone` / `git pull` of the repository are network "
-                       "operations and sit on their own category-3 row (git-remote), not here",
+                       "in-module). The installers' `git clone` / `git pull` and the workspace's gated "
+                       "`git push` are network operations and sit on their own category-3 row (git-remote), "
+                       "not here",
         "scope": "repo workspace ops", "reviewed": "2026-08-27",
         "evidence": "documented exclusion, not an oversight",
     },
@@ -700,22 +701,54 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "PR #1637, fourth round)",
     },
     {
-        "name": "git remote fetch (installers)", "category": 3, "controls": {},
+        "name": "git remote operations (installers + gated push)", "category": 3, "controls": {},
         "url": "setup-guide.md",
-        "versions": "`git clone` / `git pull` of the CyClaw repository in the operator installers: "
-                    "macos/setup-cyclaw.sh, macos/install-cyclaw.sh and powershell/Install-CyClaw.ps1. No "
-                    "runtime path runs a network git subcommand (the agentic workspace's remote operations are "
-                    "gated separately under allow_git_write_tools and live on the repo-workspace rows)",
-        "enforcement": "repository acquisition from github.com at install time, run by the operator by hand: "
-                       "intentional functional egress, the same class as the uv/pip index access and the "
-                       "confirmed Ollama pull. git itself carries no telemetry mechanism (the category-5 git row); "
-                       "this row exists because clone/pull are network operations and the local row's "
-                       "'local-only subcommands' claim must stay true",
-        "scope": "operator install scripts only",
+        "versions": "`git clone` / `git pull` of the CyClaw repository in the operator installers "
+                    "(macos/setup-cyclaw.sh, macos/install-cyclaw.sh, powershell/Install-CyClaw.ps1), and the "
+                    "one runtime network git call: RepoWorkspaceTools.push_branch's `git push --set-upstream "
+                    "origin` in agentic/deepagent_github/repo_workspace.py, reachable only with "
+                    "deepagent_github.allow_git_write_tools true (ships false) and agentic.enabled true "
+                    "(ships false), against the clone's pinned origin",
+        "enforcement": "repository acquisition from github.com at install time, run by the operator by hand, "
+                       "and a doubly-gated push the operator must switch on: intentional functional egress, "
+                       "the same class as the uv/pip index access and the confirmed Ollama pull. git itself "
+                       "carries no telemetry mechanism (the category-5 git row); this row exists because "
+                       "clone/pull/push are network operations and the local row's 'local-only subcommands' "
+                       "claim must stay true",
+        "scope": "operator install scripts; the agentic workspace push when explicitly enabled",
         "reviewed": "2026-10-13",
         "evidence": "setup-cyclaw.sh:252, install-cyclaw.sh:113 and the pull beside it, Install-CyClaw.ps1:134/139 "
-                    "(Codex P2 on PR #1637, ninth round); split from the local git row by call kind, the "
-                    "ollama-pull precedent",
+                    "(Codex P2 on PR #1637, ninth round); repo_workspace.py push_branch argv (tenth round); split "
+                    "from the local git row by call kind, the ollama-pull precedent",
+    },
+    {
+        "name": "pip index access (installers)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`pip install` of the hashed locks (and the pinned pip itself) in macos/install-cyclaw.sh, "
+                    "powershell/Install-CyClaw.ps1 and the Dockerfile, plus the venv driver's pip fallback when "
+                    "uv is absent. No runtime path runs pip; the agentic verifier's children run with "
+                    "PIP_NO_INDEX set",
+        "enforcement": "package-index downloads (PyPI and, for torch, the CPU wheel index) at install time, "
+                       "hash-pinned by the locks so the content is fixed even though the transfer is network: "
+                       "intentional functional egress, the same class as uv's index access. pip itself has only "
+                       "the category-2 version check (PIP_DISABLE_PIP_VERSION_CHECK in the canonical map) and no "
+                       "telemetry; the library row stays category 5",
+        "scope": "operator installers, the container build and the cloud sandbox venv",
+        "reviewed": "2026-10-13",
+        "evidence": "install-cyclaw.sh:171-182, Install-CyClaw.ps1:191-195, Dockerfile:63-65, driver.sh inst() "
+                    "(Codex P2 on PR #1637, tenth round); split from the core-libs row by call kind",
+    },
+    {
+        "name": "homebrew package install (setup)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`brew install python@3.12` in macos/setup-from-clone.sh, offered only when no Python 3.12 is "
+                    "found and the operator confirms",
+        "enforcement": "a Homebrew bottle download at setup time: intentional functional egress behind an "
+                       "interactive confirm. Homebrew's own analytics are the category-2 row (HOMEBREW_NO_ANALYTICS "
+                       "exported and `brew analytics off` run before this install can happen)",
+        "scope": "interactive macOS setup only",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh:360-362 (_confirm gate + brew install; Codex P2 on PR #1637, tenth round)",
     },
     {
         "name": "browser launch (open URL)", "category": 3, "controls": {},
@@ -788,7 +821,8 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
                        "is caller policy (all CyClaw clients set trust_env=False); nltk data downloads are "
-                       "avoided by design (local Porter stemmer, no punkt)",
+                       "avoided by design (local Porter stemmer, no punkt). pip's index access at install time "
+                       "is the category-3 pip-install row, not this one",
         "scope": "runtime + dev", "reviewed": "2026-09-28",
         "evidence": "bulk negative classification -- a NEW dependency outside every row here trips T13. "
                     "Membership re-read against pyproject.toml/constraints.txt/requirements*.txt/"
@@ -873,8 +907,13 @@ INVENTORY_ALIASES: dict[str, str] = {
     "open-url": "browser launch (open URL)",
     # Invoke-RestMethod / Invoke-WebRequest in the Windows sandbox smoke suite
     "pwsh-http": "powershell http probes (sandbox smoke)",
-    # the installers' git clone / pull: network git, split from the local git row
-    "git-remote": "git remote fetch (installers)",
+    # the installers' git clone / pull and the gated runtime push: network git,
+    # split from the local git row
+    "git-remote": "git remote operations (installers + gated push)",
+    # `pip install` in the installers, the Dockerfile and the venv driver, and
+    # `brew install` in the setup script: package-index downloads, category 3
+    "pip-install": "pip index access (installers)",
+    "brew-install": "homebrew package install (setup)",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -926,6 +965,7 @@ KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollam
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
                              "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http", "git-remote",
+                             "pip-install", "brew-install",
                              "pre-action-hook-command", "executor-check")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
@@ -975,14 +1015,24 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("rclone", "sync/scheduled.py", ('shutil.which("rclone")', '[binary, "listremotes"]')),
     # the export is the pre-execution protection the Homebrew row claims; it
     # matters when `brew analytics off` fails before the later `brew install`
-    ("brew", "macos/setup-from-clone.sh", ("export HOMEBREW_NO_ANALYTICS=1", "brew analytics off >/dev/null",
-                                           "brew install python@3.12")),
+    ("brew", "macos/setup-from-clone.sh", ("export HOMEBREW_NO_ANALYTICS=1", "brew analytics off >/dev/null")),
     ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")', '[binary, "config"',
                                                            "[binary, *argv]")),
     ("git", "agentic/executor/manifest.py", ('git_bin = shutil.which("git")', '[git_bin, "rev-parse", "HEAD"]')),
     ("git", "scripts/cyclaw-eval-dogfood.py", ('[git, "rev-parse", "HEAD"]',)),
     ("git", "scripts/ensure-githooks.sh", ("git rev-parse --show-toplevel", "git config --local core.hooksPath")),
     ("git", "scripts/install-githooks.sh", ("git config core.hooksPath .githooks",)),
+    # the gated runtime push (allow_git_write_tools, ships false): network git
+    ("git-remote", "agentic/deepagent_github/repo_workspace.py", ('["push", "--set-upstream", "origin", "--", name]',)),
+    # package-index downloads at install time
+    ("pip-install", "macos/install-cyclaw.sh", ('"$VENV_PY" -m pip install --upgrade "pip==26.2.1"',
+                                                '"$VENV_PY" -m pip install --require-hashes -r')),
+    ("pip-install", "powershell/Install-CyClaw.ps1", ('& $VenvPy -m pip install --upgrade "pip==26.2.1"',
+                                                      '& $VenvPy -m pip install --require-hashes -r')),
+    ("pip-install", "Dockerfile", ('pip install --no-cache-dir --upgrade "pip==26.2.1"',
+                                   'pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt')),
+    ("pip-install", ".claude/skills/cyclaw-gotchas/driver.sh", ('"$pip" install -q "$@"',)),
+    ("brew-install", "macos/setup-from-clone.sh", ("brew install python@3.12",)),
     # the installers' repository acquisition: network git, its own component
     ("git-remote", "macos/setup-cyclaw.sh", ("git clone --branch main --single-branch https://github.com/CGFixIT/CyClaw.git",)),
     ("git-remote", "macos/install-cyclaw.sh", ('git clone --depth 1 "$REPO_URL" "$REPO_DIR"', 'git -C "$REPO_DIR" pull --ff-only --autostash')),
@@ -1571,8 +1621,23 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
         # nobody can open is the stale documentation this checker exists to
         # prevent (Codex P2 on PR #1637, fourth round: docs/setup-guide.md)
         url = str(row.get("url", "")).strip()
-        if url and not url.startswith(("http://", "https://")) and not (root / url).exists():
-            schema_problems.append(f"{name}: url {url!r} is a repo path that does not exist")
+        if url and not url.startswith(("http://", "https://")):
+            # repository-relative only: no absolute path, no '..' component, and
+            # the resolved target (symlinks followed) must stay under the root
+            # (Codex P2 on PR #1637, tenth round)
+            if url.startswith("/") or ".." in url.split("/"):
+                schema_problems.append(f"{name}: url {url!r} must be a repository-relative path "
+                                       "(no absolute path, no '..' component)")
+            else:
+                target = root / url
+                try:
+                    inside = target.resolve().is_relative_to(root.resolve())
+                except OSError:
+                    inside = False
+                if not inside:
+                    schema_problems.append(f"{name}: url {url!r} resolves outside the repository")
+                elif not target.exists():
+                    schema_problems.append(f"{name}: url {url!r} is a repo path that does not exist")
     # category-2 rows with EMPTY controls are the documented shell-only pair;
     # they must say so in their enforcement text.
     for row in INVENTORY:
