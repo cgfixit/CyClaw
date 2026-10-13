@@ -647,7 +647,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "scripts/refresh-ci-locks.sh (operator-run, arm64 macOS only, `uv pip compile` into a "
                     "staged lock dir) and .claude/skills/cyclaw-gotchas/driver.sh (cloud sandbox venv, "
                     "`uv pip install` when uv is on PATH, pip otherwise). The Dockerfile's uv stage was "
-                    "removed 2026-09-11 and has not returned; no runtime code path spawns uv",
+                    "removed 2026-09-11 and has not returned; no runtime code path spawns uv. The lock "
+                    "scripts' UV_BIN (like their PYTHON_BIN) is the operator's path to their own uv install, "
+                    "the same operator-resolved-binary shape as shutil.which(); it is not a second launcher",
         "enforcement": "no telemetry, analytics or crash-reporting mechanism exists to switch off; "
                        "self-update runs only on an explicit `uv self update`, and the post-`uv sync` OSV "
                        "malware check is opt-in (UV_MALWARE_CHECK=1) and never reached by `uv pip`. Its "
@@ -788,6 +790,9 @@ INVENTORY_ALIASES: dict[str, str] = {
 # future spawn site that adds a NEW binary still needs a row.
 # The third line (2026-10-13 AST re-sweep): the macOS Keychain CLI that
 # sync/scheduled.py started spawning in PR #1632, and uv as above.
+# Every name here must also appear in FIXED_LAUNCHER_SITES, DYNAMIC_LAUNCHER_SITES
+# or FRONTED_SERVICES below, so T13 can tell when its spawn site is gone
+# (Codex P2 on PR #1637: a binary named only here stays "classified" forever).
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
@@ -804,6 +809,49 @@ KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollam
 DYNAMIC_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pre-action-hook-command", "utils/external_pre_hook.py", ("def _run_command", "subprocess.run(")),
     ("executor-check", "agentic/executor/runner.py", ("def run_verification", "check.argv")),
+)
+
+# Components CyClaw fronts over the network but never spawns: there is no
+# spawn site whose marker could prove or disprove them, so they are exempt
+# from FIXED_LAUNCHER_SITES by name, with the reason.
+FRONTED_SERVICES: dict[str, str] = {
+    # loopback HTTP inference daemon the operator runs; utils/health.py probes it
+    "ollama": "independently-running daemon reached over loopback HTTP (utils/health.py), never spawned",
+}
+
+# Spawn sites for every FIXED external binary in KNOWN_EXTERNAL_COMPONENTS:
+# (component, repo-relative file, source markers that only exist while that
+# file still launches it). T13 warns when a marker disappears, exactly as it
+# does for DYNAMIC_LAUNCHER_SITES, and FAILS when a known component has no
+# site at all -- the uv retirement of 2026-09-11 was caught by a human, and
+# the security(1) site of PR #1632 was missed for a day, because until
+# PR #1637 the fixed list was never checked against the tree. Shell and
+# PowerShell launchers count: a marker is a text match, not a Python one.
+# One row per line so verify.sh can delete a row with a line mutation.
+FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("gh", "agentic/gh_client.py", ('gh_bin: str = "gh"',)),
+    ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"',)),
+    ("brew", "macos/setup-from-clone.sh", ("brew analytics off >/dev/null",)),
+    ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")',)),
+    ("openssl", "utils/gen_cert.py", ('shutil.which("openssl")',)),
+    ("numbat", "utils/numbat_gate.py", ('DEFAULT_BINARY = "numbat"',)),
+    ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")',)),
+    ("crontab", "sync/scheduler.py", ('shutil.which("crontab")',)),
+    ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")',)),
+    ("cmd.exe", "utils/win_schtasks.py", ('f"{_slug(task_name)}.cmd"',)),
+    ("powershell", "utils/win_schtasks.py", ('shutil.which("powershell")',)),
+    ("bwrap", "agentic/executor/hard_sandbox.py", ('shutil.which("bwrap")',)),
+    ("sandbox-exec", "agentic/executor/hard_sandbox.py", ('shutil.which("sandbox-exec")',)),
+    ("xdg-open", "agentic/fsconnect/osutil.py", ('["xdg-open", path]',)),
+    ("open", "agentic/fsconnect/osutil.py", ('["open", path]',)),
+    ("explorer", "agentic/fsconnect/osutil.py", ('["explorer", path]',)),
+    ("ip", "agentic/netconnect/client.py", ("def _neighbor_command(", '"/usr/sbin/ip"')),
+    ("arp", "agentic/netconnect/client.py", ("def _neighbor_command(", '"arp.exe"')),
+    ("security", "sync/scheduled.py", ('["/usr/bin/security", "find-generic-password"',)),
+    ("security", "macos/cyclaw-keychain-env.sh", ('SECURITY_BIN="/usr/bin/security"',)),
+    ("uv", "scripts/refresh-runtime-lock.sh", ('uv_bin="${UV_BIN:-uv}"',)),
+    ("uv", "scripts/refresh-ci-locks.sh", ('uv_bin="${UV_BIN:-uv}"',)),
+    ("uv", ".claude/skills/cyclaw-gotchas/driver.sh", ("uv pip install",)),
 )
 
 _fails: list[dict[str, str]] = []
@@ -1340,6 +1388,40 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
                         "longer exists; retire or re-point it")
         else:
             ok("T13", f"dynamic launcher {component!r} still spawns from {rel} (row present)")
+    # -- fixed launchers: every known binary must name a site, and the site
+    #    must still carry its marker (Codex P2 on PR #1637)
+    dynamic_names = {component for component, _rel, _markers in DYNAMIC_LAUNCHER_SITES}
+    fixed_names = {component for component, _rel, _markers in FIXED_LAUNCHER_SITES}
+    unsited = sorted(
+        c for c in KNOWN_EXTERNAL_COMPONENTS
+        if c not in fixed_names and c not in dynamic_names and c not in FRONTED_SERVICES
+    )
+    if unsited:
+        fail("T13", f"known external component(s) with no spawn-site row: {unsited} -- add a "
+                    "FIXED_LAUNCHER_SITES row (or FRONTED_SERVICES with the reason), else the "
+                    "classification can never go stale")
+    stray = sorted(c for c in fixed_names | set(FRONTED_SERVICES) if c not in KNOWN_EXTERNAL_COMPONENTS)
+    if stray:
+        fail("T13", f"spawn-site row(s) for a component KNOWN_EXTERNAL_COMPONENTS does not name: {stray}")
+    fixed_missing = 0
+    for component, rel, markers in FIXED_LAUNCHER_SITES:
+        path = root / rel
+        if not path.exists():
+            fixed_missing += 1
+            warn("T13", f"fixed launcher {component!r}: {rel} is missing -- if the spawn site was removed, "
+                        "drop this row (and, when it was the last one, the alias and KNOWN_EXTERNAL_COMPONENTS "
+                        "entry); if it moved, re-point it")
+            continue
+        text = path.read_text(encoding="utf-8")
+        gone = [m for m in markers if m not in text]
+        if gone:
+            fixed_missing += 1
+            warn("T13", f"fixed launcher {component!r}: {rel} no longer carries {gone} -- the site may have "
+                        "stopped spawning it, so the classification would describe a binary nobody runs; "
+                        "retire or re-point the row")
+    if not fixed_missing:
+        ok("T13", f"all {len(FIXED_LAUNCHER_SITES)} fixed launcher sites still carry their spawn markers "
+                  f"({len(fixed_names)} binaries; {sorted(FRONTED_SERVICES)} fronted, never spawned)")
     for name in UNBOUNDED_TELEMETRY_CAPABLE:
         # Recorded review findings (issue #1135): bounding these is a
         # dependency decision, not a checker fix, so an unbound one is

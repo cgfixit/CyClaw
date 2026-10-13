@@ -109,7 +109,18 @@ these values silence vendor telemetry readers; they do not close sockets.
    `sync/scheduled.py` began spawning in PR #1632 two weeks after that sweep —
    a grep for literal first-argv strings misses a site like it, so sweep with
    an AST walk over every `subprocess.*` call and resolve each non-literal
-   first element by hand).
+   first element by hand — and then sweep the non-Python launch surfaces the
+   AST cannot see: the maintained `macos/*.sh`, `scripts/*.sh`,
+   `powershell/*.ps1`, the Dockerfile/compose command lines and the
+   `.claude/skills/*/driver.sh` helpers, grepping each for executed binaries.
+   `brew`, two of the three `uv` sites and the Keychain scripts' `security`
+   live only there). Every fixed binary in `KNOWN_EXTERNAL_COMPONENTS` also
+   needs a `FIXED_LAUNCHER_SITES` row naming its file and a source marker
+   that exists only while that file still launches it (a shell or
+   PowerShell file is a fine site: the marker is a text match); a service
+   CyClaw fronts but never spawns goes in `FRONTED_SERVICES` with the reason.
+   T13 warns when a marker disappears and fails when a known binary has no
+   site row at all, so a retired binary can no longer stay "classified".
    Python dependencies are read from `project.dependencies`, every
    `optional-dependencies` group, AND `[build-system].requires` (the build
    backend is an install surface too; it was skipped until PR #1502). A spawn
@@ -118,9 +129,10 @@ these values silence vendor telemetry readers; they do not close sockets.
    by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the source
    marker that proves it spawns, and its row describes the surface and the
    gate around it, never a binary. The reverse holds too: when a pin or spawn
-   site is removed, delete its alias and row (the `uv` precedent — T13 warns
-   when a dynamic site loses its marker; and when the binary comes back, as
-   `uv` did in PR #1572, the row comes back with it), and keep each row's `versions` text
+   site is removed, delete its site row, alias and inventory row (the `uv`
+   precedent — T13 now warns when a fixed or dynamic site loses its marker;
+   and when the binary comes back, as `uv` did in PR #1572, the rows come
+   back with it), and keep each row's `versions` text
    in step with the pins so T13's "classified" never means "classified
    against a version nobody ships". Categories:
    1 unsolicited telemetry with an official control (control pairs must exist

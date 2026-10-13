@@ -75,6 +75,20 @@ _mktree() {
   cp "$repo_root/sync/cli.py" "$repo_root/sync/scheduler.py" "$d/sync/"
   cp "$repo_root/telegram/cli.py" "$d/telegram/"
   cp "$repo_root/opentweet/cli.py" "$d/opentweet/"
+  # Every FIXED_LAUNCHER_SITES file, read from the checker's own table so the
+  # scratch tree and the rule can never drift apart (a site file absent here
+  # would surface as a spurious "is missing" WARN in every scenario).
+  python3 - "$checker" <<'PY' | while IFS= read -r rel; do
+import ast, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+for node in tree.body:
+    if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "FIXED_LAUNCHER_SITES":
+        for _component, rel, _markers in ast.literal_eval(node.value):
+            print(rel)
+PY
+    mkdir -p "$d/$(dirname "$rel")"
+    cp "$repo_root/$rel" "$d/$rel"
+  done
   echo "$d"
 }
 
@@ -385,6 +399,43 @@ _mutate "$a/utils/external_pre_hook.py" '
 text = text.replace("subprocess.run(", "zz_spawn_removed_zz(")
 assert "subprocess.run(" not in text'
 _expect "T13 dynamic-launcher site gone mutation" 0 "WARN  \[T13\] dynamic launcher .pre-action-hook-command.*no longer carries"
+
+# 30. T13: a FIXED launcher site stops spawning its binary. The security(1)
+#     row is only true while sync/scheduled.py still execs /usr/bin/security;
+#     removing that argv must be reported so the row (and, when it is the last
+#     site, the alias and KNOWN_EXTERNAL_COMPONENTS entry) is retired rather
+#     than left classifying a binary nobody runs (Codex P2 on PR #1637).
+a="$(_mktree)"
+_mutate "$a/sync/scheduled.py" '
+text = text.replace("[\"/usr/bin/security\", \"find-generic-password\"", "[\"zz_removed_zz\", \"find-generic-password\"")
+assert "/usr/bin/security" not in text'
+_expect "T13 fixed-launcher site gone mutation" 0 "WARN  \[T13\] fixed launcher .security.*no longer carries"
+
+# 31. T13: a known external binary loses its spawn-site rows entirely. Until
+#     PR #1637 a name in KNOWN_EXTERNAL_COMPONENTS was never checked against
+#     the tree, which is how the uv row went stale; now a name with no
+#     FIXED/DYNAMIC/FRONTED row is a hard failure.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+lines = text.splitlines(keepends=True)
+kept = [l for l in lines if not l.lstrip().startswith("(\"uv\", ")]
+assert len(kept) == len(lines) - 3, "expected exactly three uv site rows"
+text = "".join(kept)'; then
+  echo "T13 known binary without a spawn-site row mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] known external component.*no spawn-site row.*uv"; then
+    echo "T13 known binary without a spawn-site row mutation: PASS"
+  else
+    echo "T13 known binary without a spawn-site row mutation: FAIL — expected rc=2 + the no-spawn-site-row FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
 
 echo
 if [ "$fails" -eq 0 ]; then
