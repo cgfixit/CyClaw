@@ -40,6 +40,12 @@ _DEFAULT_STAGING = Path("data/corpus/fsconnect")
 # forcing a full re-stage. A dotfile + non-corpus extension, so the retrieval
 # indexer (corpus.extensions = .md/.txt) never ingests it.
 _CACHE_NAME = ".fsindex_cache.json"
+# Ceiling on how many directory levels _walk descends, matching fs_glob's
+# _MAX_GLOB_DEPTH in client.py. _walk recurses once per level, so a deeper tree
+# raised RecursionError -- not an FsConnectError, so the CLI exited outside its
+# 0/2/3/4 contract, and apply() died after staging files but before saving the
+# ownership cache, leaving those staged copies unprunable.
+_MAX_INDEX_DEPTH = 64
 
 
 class FsIndexer:
@@ -81,12 +87,18 @@ class FsIndexer:
         manifest: list[dict],
         on_file: Callable[[str, bytes], None] | None = None,
         cached_entry_for: Callable[[str, dict], dict | None] | None = None,
+        depth: int = 0,
     ) -> None:
         for entry in roots.list_dir(rel, skip_macos_metadata=True):
             name = entry["name"]
             child = f"{rel}/{name}" if rel else name
             if entry["type"] == "dir":
-                self._walk(roots, child, manifest, on_file, cached_entry_for)
+                if depth >= _MAX_INDEX_DEPTH:
+                    # Record the un-walked subtree rather than raise, as fs_glob
+                    # does: siblings at this level are still enumerated.
+                    manifest.append({"path": child, "size": 0, "skipped": "too_deep"})
+                    continue
+                self._walk(roots, child, manifest, on_file, cached_entry_for, depth + 1)
             elif entry["type"] == "file":
                 ext = os.path.splitext(name)[1].lower()
                 if ext not in self.fs_cfg.index_extensions:
@@ -195,9 +207,16 @@ class FsIndexer:
                 "sha256": m["sha256"],
                 "injection_flag_count": m.get("injection_flag_count", 0),
             }
-        tmp = staging / (_CACHE_NAME + ".tmp")
-        tmp.write_text(json.dumps({"files": files}, indent=2, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, staging / _CACHE_NAME)
+        # Per-PID temp name so two concurrent applies never interleave writes into
+        # one temp file, and unlink it on failure so a disk-full or permission
+        # error does not leave a stray temp file in the corpus staging dir.
+        tmp = staging / f"{_CACHE_NAME}.{os.getpid()}.tmp"
+        try:
+            tmp.write_text(json.dumps({"files": files}, indent=2, sort_keys=True), encoding="utf-8")
+            os.replace(tmp, staging / _CACHE_NAME)
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def _cache_probe(self, cache: dict, staging: Path) -> Callable[[str, dict], dict | None]:
         """Return a predicate: cached manifest entry if *rel* is unchanged, else None."""

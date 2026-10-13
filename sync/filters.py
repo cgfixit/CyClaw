@@ -56,7 +56,7 @@ _HARDENED_EXCLUDES: list[str] = [
     "- .chroma/**",
     # 3b. fsconnect ownership/skip cache under corpus staging — host-local;
     # Dropbox must not clobber or publish it (wrong incremental index/prune).
-    # The trailing * also covers the `.fsindex_cache.json.tmp` sibling that
+    # The trailing * also covers the `.fsindex_cache.json.<pid>.tmp` sibling that
     # agentic/fsconnect/indexer.py stages before its os.replace: a crash in
     # that window leaves the temp file behind in the sync root.
     "- **/.fsindex_cache.json*",

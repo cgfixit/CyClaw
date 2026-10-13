@@ -542,3 +542,75 @@ def test_prune_failure_retains_ownership_and_prevents_reindex(env, monkeypatch, 
     assert result["pruned"] == 2
     assert not stale.exists() and not (staging / "new.md").exists()
     assert (staging / "unowned.md").read_text(encoding="utf-8") == "operator fixture"
+
+
+def _deep_share(tmp_path, depth: int):
+    """A share with one chain of `depth` nested dirs, a top file and a sibling dir."""
+    share = tmp_path / "deepshare"
+    leaf = share
+    for level in range(depth):
+        leaf = leaf / f"d{level}"
+    leaf.mkdir(parents=True)
+    (leaf / "deep.md").write_text("bottom", encoding="utf-8")
+    (share / "top.md").write_text("top", encoding="utf-8")
+    (share / "sib").mkdir()
+    (share / "sib" / "s.md").write_text("s", encoding="utf-8")
+    cfg_doc = {
+        "logging": {"audit_file": str(tmp_path / "audit.jsonl"), "audit_fields": {}},
+        "policy": {"prompt_filter": {"banned_patterns": []}, "privacy": {}},
+        "fsconnect": {"enabled": True, "index_enabled": True, "index_root": str(share), "index_extensions": [".md"]},
+    }
+    cfg_path = tmp_path / "deep_config.yaml"
+    cfg_path.write_text(yaml.safe_dump(cfg_doc), encoding="utf-8")
+    return FsIndexer(_get_config(str(cfg_path)), load_fsconnect_config(str(cfg_path)), config_path=str(cfg_path))
+
+
+def test_walk_depth_is_bounded_and_reports_the_unwalked_subtree(tmp_path):
+    # _walk recursed once per level, so a tree deeper than the frame limit raised
+    # RecursionError (not an FsConnectError) out of scan()/apply(). Prove the
+    # bound by observing descent, as test_fsconnect_glob_depth.py does for fs_glob.
+    from agentic.fsconnect.indexer import _MAX_INDEX_DEPTH
+
+    idx = _deep_share(tmp_path, _MAX_INDEX_DEPTH + 10)
+    seen: list[int] = []
+    real_list_dir = pathsafe.ScopedRoots.list_dir
+
+    def _spy(self, rel, *args, **kwargs):
+        seen.append(len(rel.split("/")) if rel else 0)
+        return real_list_dir(self, rel, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pathsafe.ScopedRoots, "list_dir", _spy)
+        res = idx.scan()
+    assert max(seen) <= _MAX_INDEX_DEPTH
+    paths = {f["path"]: f for f in res["files"]}
+    assert {"top.md", "sib/s.md"} <= paths.keys(), "siblings of the deep branch must still be enumerated"
+    assert [p for p, f in paths.items() if f.get("skipped") == "too_deep"], "an un-walked subtree must be reported"
+    assert not any(p.endswith("deep.md") for p in paths)
+
+
+def test_walk_inside_the_depth_cap_is_complete_and_apply_saves_the_cache(tmp_path):
+    from agentic.fsconnect.indexer import _CACHE_NAME, _MAX_INDEX_DEPTH
+
+    idx = _deep_share(tmp_path, _MAX_INDEX_DEPTH - 1)
+    staging = tmp_path / "staging"
+    res = idx.apply(staging_dir=str(staging))
+    assert res["staged"] == 3  # top.md, sib/s.md and the bottom deep.md
+    assert (staging / _CACHE_NAME).exists()
+
+
+def test_save_cache_removes_its_temp_file_when_the_write_fails(env, monkeypatch):
+    from agentic.fsconnect.indexer import _CACHE_NAME
+
+    cfg, fs_cfg, cp, _idx, tmp = env
+    staging = tmp / "staging_fail"
+    staging.mkdir()
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk full fixture")
+
+    monkeypatch.setattr(os, "replace", _boom)
+    with pytest.raises(OSError, match="disk full"):
+        FsIndexer(cfg, fs_cfg, config_path=cp)._save_cache(staging, [])
+    assert [p.name for p in staging.iterdir()] == [], "no temp file or partial cache may be left behind"
+    assert not (staging / _CACHE_NAME).exists()
