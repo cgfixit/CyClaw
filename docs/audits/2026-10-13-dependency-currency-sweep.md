@@ -145,7 +145,11 @@ Grouped by blast radius. A bump touches only the manifests and lock group that
   `pgvector`, `pyodbc`, `psycopg*`):
   `pyproject.toml` optional-dependencies + `constraints.txt` only — never
   `requirements.txt` or `environment.yml` (`check_env_drift.py` E4 fails on
-  that).
+  that). One off-table input: `scripts/ci-lock-inputs/extra-postgres.txt`
+  carries exact `psycopg==3.3.6` / `psycopg-binary==3.3.6` pins (the only
+  extra lock input that does; the others are unversioned), and
+  `refresh-ci-locks.sh` compiles the postgres extra lock from it, so a
+  psycopg bump edits that file too or the refresh fails on the stale pin.
 - Constraints-only transitives (`pydantic-core`, `langsmith`,
   `langchain-google-genai`, `wcmatch`, `pendulum`, `pydantic-settings`,
   `lark`): `constraints.txt` alone.
@@ -160,14 +164,19 @@ Grouped by blast radius. A bump touches only the manifests and lock group that
   not with the manifests, so that comment goes stale silently — update it
   by hand with the bump.
 
-Whichever group owns the package, **both** refresh scripts run afterwards on
-the arm64 macOS host: `scripts/check_lock_contract.py::contract` hashes
-`constraints.txt` and `pyproject.toml`'s dependency tables into the runtime
-*and* the CI lock inputs, so a change to either shared manifest invalidates
-every group's recorded inputs even when only one group's resolved pins move,
-and `check()` refuses with "regenerate the entire <group> set" until
-`refresh-runtime-lock.sh` and `refresh-ci-locks.sh` have both been rerun.
-Then CI's four test legs.
+Which refresh scripts run afterwards (on the arm64 macOS host) follows
+`scripts/check_lock_contract.py::contract`, not the package's group:
+`constraints.txt` and `pyproject.toml`'s `[project]` tables
+(`requires-python`, `dependencies`, `optional-dependencies` — the digest
+reads only those, not the raw file) are inputs to **both** the runtime and
+the CI contract, so any pin bump that touches either shared manifest
+invalidates both recorded input sets and `check()` refuses with "regenerate
+the entire <group> set" until `refresh-runtime-lock.sh` and
+`refresh-ci-locks.sh` have both been rerun. A change confined to one
+group's own input (`requirements-test.txt`, a `scripts/ci-lock-inputs/*.txt`)
+needs only that group's script; `[build-system]`, `environment.yml`, and the
+tool tables are not lock inputs and need no refresh (which is why the
+`hatchling` item below has none). Then CI's four test legs.
 
 1. **LangChain stack (patch/minor, same majors):** `langchain` 1.4.2→1.4.5,
    `langchain-core` 1.6.3→1.6.10, `langgraph` 1.2.11→1.2.15,
@@ -239,7 +248,11 @@ Then CI's four test legs.
    `tests/test_memory_routes.py`, and `tests/test_telegram_runner.py` — before
    CI's full legs.
 5. **Small runtime:** `onnxruntime` 1.30.0→1.31.0 (telemetry suppression in
-   `utils/onnx_telemetry.py` must be re-verified — `otel-hardening`),
+   `utils/onnx_telemetry.py` must be re-verified — `otel-hardening`; and
+   `.claude/skills/otel-hardening/verify.sh` carries three live `1.30.0`
+   literals — an exact-version assertion on strict output at `:48` and the
+   mutation target at `:338`/`:344` — so the bump edits them and reruns that
+   `verify.sh`, or the maintained verifier fails before its mutation suite),
    `nemoguardrails` 0.24.0→0.24.1 (same telemetry contract as the ONNX bump:
    `.claude/skills/otel-hardening/check_otel.py` pins the last-verified
    vendor version in `LAST_VERIFIED_VENDOR_PINS`, so the bump needs a

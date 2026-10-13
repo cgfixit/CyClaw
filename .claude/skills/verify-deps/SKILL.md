@@ -463,7 +463,7 @@ delegates Step 1 to it rather than duplicating it).
 - **The Step 6 bump recipe is a set of claims; derive each from a checker,
   not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
   *measured* row of the sweep report survived review, while the "how to
-  bump" prose took thirty-four correct Codex findings across nine passes. Each one
+  bump" prose took thirty-seven correct Codex findings across ten passes. Each one
   had a file that would have caught it first: a package's files-to-edit are
   exactly the non-empty columns of its `extract_pins.py` row (extras-only
   and constraints-only packages never enter `requirements.txt` or
@@ -474,7 +474,10 @@ delegates Step 1 to it rather than duplicating it).
   parent exists on PyPI is a candidate, not an exception; `tzdata` is the `test` extra + `requirements-test.txt` + the
   `python-tzdata` conda pin, not base runtime — and a reclassified package
   moves in the pin table *and* the summary totals, in the same edit), with
-  one input the table does not show: `requirements-torch.txt`, which
+  two inputs the table does not show — `scripts/ci-lock-inputs/extra-postgres.txt`,
+  the only extra lock input with exact pins (`psycopg`/`psycopg-binary`),
+  which a psycopg bump edits or `refresh-ci-locks.sh` fails on the stale
+  pin — and `requirements-torch.txt`, which
   `refresh-runtime-lock.sh` compiles the three torch locks from and the
   Dockerfile installs by lock (no versioned torch line of its own), so a
   torch bump edits it too — while `requirements.txt` stays torch-free on
@@ -505,7 +508,10 @@ delegates Step 1 to it rather than duplicating it).
   `nemoguardrails`, `onnxruntime`, `langchain`, `langchain-core`,
   `langgraph`, and `langsmith`, the NeMo exact-version checks in
   `guardrails/verify_install.py`, `ci.yml`'s wheel-metadata assert, and
-  the `nemo_runtime` test, the `ruff==0.16.8` *comment* in `lint.yml`
+  the `nemo_runtime` test, the three live `1.30.0` literals in
+  `otel-hardening/verify.sh` (an exact assertion and two mutation targets
+  that make that verifier fail after an `onnxruntime` bump until edited),
+  the `ruff==0.16.8` *comment* in `lint.yml`
   (E1 compares workflow pins only with each other, so it never flags that
   comment against the manifests), and five
   docs that `doc_sync.py` does **not** check (it has no dependency-version
@@ -529,9 +535,11 @@ delegates Step 1 to it rather than duplicating it).
   major bump needs the dependents' `requires_dist` read on PyPI first
   (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
   "candidate" cannot resolve and is an exception); `check_lock_contract.py`
-  hashes `constraints.txt` and `pyproject.toml` into **every** group's
-  inputs, so both refresh scripts run after any manifest change, never just
-  the group whose pins moved; name a test file only after `ls tests/<name>*`
+  hashes `constraints.txt` and `pyproject.toml`'s `[project]` dependency
+  tables (not the raw file) into **every** group's inputs, so a bump that
+  touches either runs both refresh scripts, a change confined to one group's
+  own input file runs that group's script, and `[build-system]` or
+  `environment.yml` edits run neither; name a test file only after `ls tests/<name>*`
   returns it (`test_schemas*` did not exist); and a `--dry-run` that
   resolves in a venv with packages already installed is **conditional**, not
   PASS — the runtime lock omits torch by design and resolved only because a
