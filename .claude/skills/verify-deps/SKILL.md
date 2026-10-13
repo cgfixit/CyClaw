@@ -460,3 +460,88 @@ delegates Step 1 to it rather than duplicating it).
   `dep-guard`'s parsing helpers change their names/signature, this script
   breaks with an `ImportError`, which is the intended failure mode (loud,
   not a silent drift between two parallel parsers).
+- **The Step 6 bump recipe is a set of claims; derive each from a checker,
+  not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
+  *measured* row of the sweep report survived review, while the "how to
+  bump" prose took thirty-seven correct Codex findings across ten passes. Each one
+  had a file that would have caught it first: a package's files-to-edit are
+  exactly the non-empty columns of its `extract_pins.py` row (extras-only
+  and constraints-only packages never enter `requirements.txt` or
+  `environment.yml`; of the LangChain family only `langchain-core` and
+  `langgraph` are base, `langchain` itself is the `agentic-deepagents`
+  extra; `pydantic-core` is constraints-only even though it moves in
+  lock-step with base-runtime `pydantic`, and a lock-step pair whose new
+  parent exists on PyPI is a candidate, not an exception; `tzdata` is the `test` extra + `requirements-test.txt` + the
+  `python-tzdata` conda pin, not base runtime — and a reclassified package
+  moves in the pin table *and* the summary totals, in the same edit), with
+  two inputs the table does not show — `scripts/ci-lock-inputs/extra-postgres.txt`,
+  the only extra lock input with exact pins (`psycopg`/`psycopg-binary`),
+  which a psycopg bump edits or `refresh-ci-locks.sh` fails on the stale
+  pin — and `requirements-torch.txt`, which
+  `refresh-runtime-lock.sh` compiles the three torch locks from and the
+  Dockerfile installs by lock (no versioned torch line of its own), so a
+  torch bump edits it too — while `requirements.txt` stays torch-free on
+  purpose. The inventory of
+  hard-coded contracts that move with a pin is a **command**, never a list
+  written from memory: `git grep -nF '<version>' -- ':!locks'` on the bare
+  version string over tracked files (never a bare `grep -rn`, which walks
+  ignored `logs/`, `data/`, and venvs and prints whatever line matched,
+  so audit or query content could land in a transcript or report) — and
+  that output is **discovery**, not the edit set: `0.24.0` also matches
+  `trl<=0.24.0` in `tools/lora_finetune/requirements.txt` and every
+  dated `docs/audits/` snapshot, so filter each hit by package context and
+  never rewrite a historical audit; because the string appears in
+  forms a `<package>==` grep misses — `torch-cpu-2.13.0-` cache keys in
+  `ci.yml`/`pip-audit.yml`/`nemo-guardrails.yml` (the reason `dep-guard`
+  D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
+  `tests/nemo_runtime/`, `"0.24.0"` in `guardrails/verify_install.py` and
+  `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS`, and `pendulum==3.2.0` /
+  `pgvector==0.5.0` / `wcmatch==11.0`, the cloud-adapter row's
+  `deepagents`/`langchain-*` versions, the `langgraph-cli analytics` row's
+  `langgraph==1.2.11 family`, and the core-libs row's `hatchling==1.32.0`
+  in `check_otel.py`'s *prose* inventory, which `--strict` never reads —
+  then `dep-guard` and
+  `check_otel.py --strict` as the authoritative re-check, knowing the
+  strict run covers only the pin dict. On 2026-10-13
+  that grep surfaced, beyond the manifests: `dep-guard` `_PYDANTIC_LOCKSTEP`
+  and D11 (plus its `verify.sh` fixture), `LAST_VERIFIED_VENDOR_PINS` for
+  `nemoguardrails`, `onnxruntime`, `langchain`, `langchain-core`,
+  `langgraph`, and `langsmith`, the NeMo exact-version checks in
+  `guardrails/verify_install.py`, `ci.yml`'s wheel-metadata assert, and
+  the `nemo_runtime` test, the three live `1.30.0` literals in
+  `otel-hardening/verify.sh` (an exact assertion and two mutation targets
+  that make that verifier fail after an `onnxruntime` bump until edited),
+  the `ruff==0.16.8` *comment* in `lint.yml`
+  (E1 compares workflow pins only with each other, so it never flags that
+  comment against the manifests), and five
+  docs that `doc_sync.py` does **not** check (it has no dependency-version
+  rule), so they are fixed by hand and re-verified by the search. A new
+  dependency edge is part of the same check, in two steps: read the bumped
+  package's `requires_dist` on PyPI, then grep the runtime lock before
+  calling anything "new" (`fastapi` 0.143.0 adds an unconditional
+  `opentelemetry-api`, but `opentelemetry-api`/`-sdk`/the gRPC exporter were
+  already in every runtime lock via `chromadb` and already under
+  `OTEL_SDK_DISABLED`, so the review is of FastAPI's *use* of an installed,
+  suppressed stack — not a new package, and not a new `constraints.txt`
+  line); and `extract_pins.py` reads `[project]` tables only, so
+  `[build-system].requires` (`hatchling`) is checked by hand, and its
+  exercise is a full `python -m build` (wheel + sdist, as the release
+  workflow runs it), not CI's `--wheel`. Advisories are queried at
+  `/pypi/<package>/<pinned-version>/json`: the project endpoint's
+  `vulnerabilities` array describes only the latest release, so for a pin
+  behind latest it hides anything fixed since — and the report must say
+  which endpoint it used (the 2026-10-13 sweep did query per-release but
+  did not say so, which reads the same as not having done it); a
+  major bump needs the dependents' `requires_dist` read on PyPI first
+  (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
+  "candidate" cannot resolve and is an exception); `check_lock_contract.py`
+  hashes `constraints.txt` and `pyproject.toml`'s `[project]` dependency
+  tables (not the raw file) into **every** group's inputs, so a bump that
+  touches either runs both refresh scripts, a change confined to one group's
+  own input file runs that group's script, and `[build-system]` or
+  `environment.yml` edits run neither; name a test file only after `ls tests/<name>*`
+  returns it (`test_schemas*` did not exist); and a `--dry-run` that
+  resolves in a venv with packages already installed is **conditional**, not
+  PASS — the runtime lock omits torch by design and resolved only because a
+  torch build was present. Hold the recipe to the same standard as the pin
+  table: every sentence traceable to a command.
