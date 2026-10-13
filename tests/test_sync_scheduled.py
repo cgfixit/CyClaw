@@ -160,3 +160,20 @@ def test_check_credentials_uses_the_selected_config(tmp_path, capsys):
         assert "custom_remote" not in capsys.readouterr().out
     finally:
         reset_config_cache()
+
+
+@pytest.mark.parametrize("document", [None, "sync: [unterminated\n"])
+def test_check_credentials_fails_when_the_selected_config_cannot_load(tmp_path, document):
+    from utils.logger import reset_config_cache
+
+    config = tmp_path / "config.yaml"
+    if document is not None:
+        config.write_text(document)
+    reset_config_cache()
+    try:
+        with patch.object(scheduled, "prepare_environment", return_value={"RCLONE_ASK_PASSWORD": "false"}), \
+                patch.object(scheduled.shutil, "which", return_value="rclone"), \
+                patch.object(scheduled.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"other:\n")):
+            assert scheduled.main(["--config", str(config), "--check-credentials"]) == 3
+    finally:
+        reset_config_cache()

@@ -130,13 +130,16 @@ def main(argv: list[str] | None = None) -> int:
             # the configured remote (or, without a readable config, any remote).
             remotes = {line.strip() for line in bytes(result.stdout or b"").decode("utf-8", "replace").splitlines()}
             remotes.discard("")
-            try:
-                from sync.config import load_sync_config
+            from sync.config import load_sync_config
 
-                sync_config = load_sync_config(check_config) if check_config else load_sync_config()
-                wanted = f"{sync_config.remote_name}:"
-            except (OSError, ValueError, SyncConfigError):
-                wanted = None
+            if check_config:
+                # An explicitly selected config must load; its errors exit 3.
+                wanted: str | None = f"{load_sync_config(check_config).remote_name}:"
+            else:
+                try:
+                    wanted = f"{load_sync_config().remote_name}:"
+                except (OSError, ValueError, SyncConfigError):
+                    wanted = None
             if result.returncode or not remotes or (wanted is not None and wanted not in remotes):
                 raise OSError("rclone cannot read its configuration")
             print("rclone configuration is readable (no transfer performed)")
