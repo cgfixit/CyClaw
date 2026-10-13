@@ -24,7 +24,7 @@ grepping.
 | `channels/TELEGRAM_DESIGN.md` | Telegram channel architecture, T1–T4 phase gates. |
 | `channels/OPENTWEET_DESIGN.md` | OpenTweet X channel: weekly OOB poster, draft-default, I6 isolation. |
 | `agentic/AGENTIC_README.md`, `agentic/SKILLS_REGISTRY_GOVERNANCE.md`, `agentic/GITHUB_WRITE_ENABLEMENT.md` | Agentic layer governance (binding). |
-| `AUTHENTICATION_DESIGN.md` | Per-user auth: all six stages landed — `utils/authn.py` (1), sessions + `/auth/*` (2), credential on `/query` when `auth.enabled` (3), TLS via `gate._serve` + `cyclaw-gen-cert` (4), the re-keyed bind guard (5), and RBAC roles `admin`/`operator`/`audit` with HTTP user admin (6). |
+| `AUTHENTICATION_DESIGN.md` | Per-user auth, all six stages landed: primitives, sessions + `/auth/*`, the credential on `/query` when `auth.enabled`, TLS (`cyclaw-gen-cert`), the re-keyed bind guard, and RBAC roles `admin`/`operator`/`audit`. |
 | `memory/` | Optional memory subsystem plan and README. |
 | [`../spend/README.md`](../spend/README.md) | Online-LLM token ledger: what `logs/spend.jsonl` records, why dollars are derived at read time, and how `cyclaw-metrics` reports them. |
 | `EVALS.md` | Benchmarks and evals: the four planes (PR retrieval gate, operator dogfood, Anthropic judge, local judge + calibration), what has been measured with dates and commits, and what has not. Dated run records go to `audits/`. |

@@ -195,38 +195,26 @@ which subcommand carries them** — this is easy to get backwards:
   plan. `real-repo-run` and `real-repo-run-plan` each read `--provider`
   independently; there is no cross-check between them.
 
-To get "cloud plans, local Qwen implements": pass `--provider`/
-`--confirm-online` to `real-repo-run-plan` only, and **omit `--provider`
-entirely on the follow-up `real-repo-run` call**. Passing `--provider` to
-*both* is allowed and does something real (the plan text still reaches the
-prompt) but silently defeats the two-stage economics above — the cloud model
-is now billed on every `--max-iterations` attempt, not once, with no warning
-from the CLI either way. As of this writing the whole pipeline, this two-stage recipe
-included, is CLI-only (see the reachability note above), so drive this step
-from a terminal.
+For "cloud plans, local Qwen implements": pass `--provider`/`--confirm-online`
+to `real-repo-run-plan` only and **omit `--provider` on the follow-up
+`real-repo-run`**. Passing it to both is allowed and works, but bills the
+cloud model on every `--max-iterations` attempt instead of once, with no CLI
+warning. The whole pipeline is CLI-only, so drive this from a terminal.
 
 **The DeepAgents-graph path, retired (owner decision, 2026-07-31)**
-(`agentic/deepagent_github/builder.py`'s `create_deep_agent` integration,
-plus the harness optimizer's fixture-based evaluation loop): this is the
-subsystem the now-superseded "fixture-only evaluation... does not write the
-real repo" description below used to describe accurately. It was never
-live-fired against a real model -- `agentic.cli`'s `deepagent-plan`
-subcommand deliberately probes the build's gate state without ever calling
-`.invoke()` on the constructed agent -- and no further development is
-planned on it: the pipeline above is the one live real-repo coding path
-going forward. The code, its tests, and its `deepagents-harness` CI lane
-remain in the repository unmodified (this is a documentation-only decision,
-not a deletion), so the rest of this description stays accurate for anyone
-reading it: it remains disabled by default and out-of-band. Its canonical
-plan is `docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md` (see its
-own retirement note); the implemented phase 6-9 controls and operator
-boundaries are in `docs/work/DEEP_AGENT_HARNESS_PHASES_6_9.md`. It uses
-scoped proposer-workspace tools, a virtual in-state Deep Agents backend,
-local-only memory/skills, fixture-only evaluation, and human-gated local
-candidate artifacts, and does not execute shell commands, write the real
-repo, write GitHub, expose unrestricted filesystem tools, or import from the
-core request path -- all still true of THIS subsystem specifically, not of
-the agentic layer as a whole now that the pipeline above exists.
+(`agentic/deepagent_github/builder.py`'s `create_deep_agent` integration plus
+the harness optimizer's fixture-based evaluation loop) was never live-fired
+against a real model — `deepagent-plan` probes the build's gate state without
+ever calling `.invoke()` — and gets no further development; the pipeline above
+is the one live coding path. Its code, tests, and `deepagents-harness` CI lane
+stay in the repository unmodified, disabled by default and out-of-band. It
+uses scoped proposer-workspace tools, a virtual in-state backend, local-only
+memory/skills, fixture-only evaluation, and human-gated local candidate
+artifacts, and does not execute shell commands, write the real repo or GitHub,
+expose unrestricted filesystem tools, or import from the core request path —
+true of this subsystem, not of the layer as a whole. Plan and phase 6–9
+controls: `docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md` and
+`docs/work/DEEP_AGENT_HARNESS_PHASES_6_9.md`.
 
 > **Egress classification** (SECURITY.md): the agentic layer's GitHub reads/writes via `gh` and the gated cloud-planner adapters are class-3 intentional policy-gated traffic. Every `gh` child is spawned with `build_telemetry_safe_env()` so `GH_TELEMETRY=false` and the update-notifier opt-outs always win over ambient values, and the verifier's minimal child env re-applies the full canonical telemetry block (`agentic/executor/runner.py`) — note `NO_PROXY="*"` there means "bypass any proxy", a best-effort control, not fail-closed networking.
 

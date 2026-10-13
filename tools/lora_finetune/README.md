@@ -49,11 +49,10 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m pytest tests/ -q --tb=short
 python dryrun_finetune.py
 ```
 
-The offline flags prevent an installed Transformers package from fetching
-tokenizer assets during tests. The root command `python -m pytest tests/` targets the main repository's
-`tests/` directory. It does not collect this kit's tests. The dedicated LoRA
-workflow runs the commands above with only pytest installed. It does not install
-the blocked training profile.
+The offline flags stop an installed Transformers from fetching tokenizer assets
+during tests. The repo-root `python -m pytest tests/` does not collect this
+kit's tests; the dedicated LoRA workflow runs the commands above with only
+pytest installed and never installs the blocked training profile.
 
 To regenerate the canonical dataset and JSONL preview:
 
@@ -76,15 +75,12 @@ datasets==5.0.1
 accelerate==1.15.0
 ```
 
-The conflict is deliberate. The patched Transformers and Datasets floors must
-not be lowered merely to make the resolver succeed. `requirements.txt` records
-the specific upstream constraints and vulnerability rationale that established
-this block.
-
-OSV-Scanner excludes `tools/lora_finetune` from the repository-wide dependency
-walk because this optional file is neither installed nor a lockfile. After a
-compatible CUDA profile is established and installed on its target host, audit
-that environment from the repository root with:
+The conflict is deliberate: the patched Transformers and Datasets floors must
+not be lowered to make the resolver succeed, and `requirements.txt` records the
+upstream constraints and vulnerability rationale. OSV-Scanner excludes
+`tools/lora_finetune` from the repository-wide walk because this optional file
+is neither installed nor a lockfile; once a compatible CUDA profile is
+installed on its target host, audit that environment from the repository root with:
 
 ```bash
 pip-audit -r tools/lora_finetune/requirements.txt

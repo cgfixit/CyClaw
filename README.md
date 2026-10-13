@@ -31,13 +31,9 @@ Step-by-step installs and every REST call: [Full Setup Guide](setup-guide.md).
 Contributor rules for people and agents: [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md),
 and the tracked git-hook gate in [`docs/GITHOOKS.md`](docs/GITHOOKS.md).
 
----
-
-Security review #1526 has an explicit [residual decision register](SECURITY.md#issue-1526-residual-decisions-2026-10-12):
-TLS logout and path privacy, Git helper containment, lock/metadata drift checks,
-approved-head patch publication, and encrypted scheduled sync. Native Windows
-verification remains disabled; supported confinement still permits host reads.
-The register distinguishes implemented controls, accepted limits, and optional research.
+Security review #1526's [residual decision register](SECURITY.md#issue-1526-residual-decisions-2026-10-12)
+separates implemented controls, accepted limits (native Windows verification
+stays disabled; supported confinement still permits host reads), and optional research.
 
 ## Quick Start
 
@@ -69,12 +65,10 @@ CI checks every lock group against recorded inputs and hashes, and checks wheel 
 [Windows](setup-guide.md#windows-powershell), [Linux](setup-guide.md#linux-bash).
 
 Confirm: `curl http://127.0.0.1:8787/health`, then open
-`http://127.0.0.1:8787/`.
-
-Updating an existing environment? Rerun the install, then the
-[NeMo verification](setup-guide.md#verify-the-installed-nemo-runtime). A manual
-macOS install uses plain `torch==2.13.0` (no `+cpu` wheel) then the hashed
-macOS lock ([macOS (Apple Silicon)](setup-guide.md#macos-apple-silicon)).
+`http://127.0.0.1:8787/`. A manual macOS install uses plain `torch==2.13.0`
+(no `+cpu` wheel) then the hashed macOS lock
+([macOS (Apple Silicon)](setup-guide.md#macos-apple-silicon)); updating an
+existing environment ends with the [NeMo verification](setup-guide.md#verify-the-installed-nemo-runtime).
 
 ---
 
@@ -137,10 +131,8 @@ is now the separate [CG-agent-harness](https://github.com/cgfixit/CG-agent-harne
   `/query` always rejects cross-site requests.
 - Restart the gateway after editing sanitizer config (it is cached).
   `CYCLAW_EMBED_CACHE_SIZE` (default 2048) is an env var, not a YAML key.
-
-Check policy offline with
-`python .claude/skills/invariant-guard/check_invariants.py`; the unit suite is
-`GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short` with no live provider.
+- Offline checks: `python .claude/skills/invariant-guard/check_invariants.py`
+  and `GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short` (no live provider).
 
 **Local records.** Paths are relative to the repository.
 
@@ -203,11 +195,9 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
 7. **Audit convergence.** Every path converges at `audit_logger` before END;
    `cyclaw-metrics` reads the audit offline.
 
-[The six invariants](CLAUDE.md#3-the-six-invariants) cover retrieval-first
-entry, topology, external consent, audit convergence, soul governance, and
-import isolation (core modules never import `agentic`, `sync`, `guardrails`,
-`telegram`, or `opentweet`; the invariant checker enforces it).
-[`INVARIANTS.md`](INVARIANTS.md) states Rules 1–9 and the test behind each.
+[The six invariants](CLAUDE.md#3-the-six-invariants) pin these guarantees plus
+import isolation of the core modules; [`INVARIANTS.md`](INVARIANTS.md) states
+Rules 1–9 and the test behind each.
 
 **Storage and console.** `indexing.vector_backend` defaults to embedded
 `chroma` (optional `pgvector`); BM25 is JSON, never pickle.
@@ -234,10 +224,9 @@ when auth is on.
 
 ## Architecture
 
-`gate.py` initializes the soul at startup. Requests pass the body cap, Host
-allowlist, any required authentication, the **60/min per-IP limit (before
-injection filtering)**, and the config-driven filter, then enter the graph as
-`GraphState`, where edges control routing.
+`gate.py` initializes the soul at startup; requests pass the body cap, Host
+allowlist, any required authentication, the 60/min per-IP limit, and the
+injection filter (in that order), then enter the graph as `GraphState`.
 
 ```mermaid
 flowchart TD
@@ -410,12 +399,11 @@ no judge result is published yet.
 
 ## Current development
 
-Checked against [`origin/main` at `2d7191a`](https://github.com/cgfixit/CyClaw/commit/2d7191a5036a04cd090061bcea3e406e44744c24)
-on 2026-10-08. Recent work has gone into the tracked git-hook secrets gate
-([`docs/GITHOOKS.md`](docs/GITHOOKS.md)), sandboxed agentic verification,
-hashed installs, credential and request-body hardening, and console first-run
-fixes; see [merged PRs](https://github.com/cgfixit/CyClaw/pulls?q=is%3Apr+is%3Amerged)
-for details.
+Recent work: the tracked git-hook secrets gate ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)),
+sandboxed agentic verification, hashed installs, credential and request-body
+hardening, and console first-run fixes. The
+[merged PRs](https://github.com/cgfixit/CyClaw/pulls?q=is%3Apr+is%3Amerged)
+and [`docs/changelog.txt`](docs/changelog.txt) are the record.
 
 ---
 
@@ -448,11 +436,8 @@ decision before committing; push and draft PR are separate decisions. Checks
 run in fresh gitless copies under Linux bubblewrap or macOS Seatbelt and fail
 closed without them (Windows refuses); no platform uses a microVM
 ([threat model](docs/THREAT_MODEL.md)). `real-repo-run*` is CLI-only
-(`POST /ops/agentic` returns 422).
-Git origin identity is pinned across reopened runs, and timed-out Git calls
-reap helper processes ([workspace controls](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools)).
-Windows Git helper launch waits for Job Object containment before starting Git.
-Orphan cleanup is limited to generated clone directories, preserving workspace metadata.
+(`POST /ops/agentic` returns 422). Git helper containment, identity pinning,
+and orphan cleanup: [workspace controls](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
 
 ```bash
 python -m agentic.cli status
@@ -485,9 +470,8 @@ to `guardrails/`.
 
 Active rails are Python checks and add no model calls; NVIDIA's
 model-assisted `self_check_*` rails are inactive. NeMo failures audit
-`guardrail_degraded`. Existing environments: rerun the install, then
-`python -m pip check` and `python -m guardrails.verify_install`
-([setup guide](setup-guide.md#verify-the-installed-nemo-runtime),
+`guardrail_degraded`. Verify an install with `python -m pip check` and
+`python -m guardrails.verify_install` ([setup guide](setup-guide.md#verify-the-installed-nemo-runtime),
 [package guide](guardrails/README.md), [NeMo reference](docs/NeMo/README.md),
 [Track B record](docs/audits/2026-10-03-nemo-track-b.md)).
 
@@ -504,12 +488,11 @@ vendors or imports it.
 | Offline scoring | None | Operator CLI and `numbat-rules.yml`; fixture, stream-contract, and CEL checks block CI |
 
 Nothing scores the live file during a request. The CLI and CEL extra are not
-in standard installs, so keep their switches off until installed (an enabled
-hook without the binary denies every confirmed external call), trial rules
-before promoting any to `enforce: true`, and never use `numbat hook` as the
-command engine (it exits 0 on errors). Stream events include hostname, user,
-and uid. Once enabled, `/health` reports hook and CEL readiness and
-`/audit/summary` shows `pre_action_hook_last_verdict`.
+in standard installs: keep their switches off until installed (an enabled hook
+without the binary denies every confirmed external call), trial rules before
+promoting any to `enforce: true`, and never use `numbat hook` as the command
+engine (it exits 0 on errors). Once enabled, `/health` reports hook and CEL
+readiness and `/audit/summary` shows `pre_action_hook_last_verdict`.
 [Pre-action gate](docs/security-philosophy/numbat_pre_action_gate.md),
 [stream](docs/security-philosophy/numbat_secondary_evaluator.md),
 [phase status](docs/plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md), and the

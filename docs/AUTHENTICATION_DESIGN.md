@@ -59,84 +59,63 @@ credential is not readable on the wire.
 
 ---
 
-## 2. What exists today (verified, not assumed)
+## 2. Starting point and current state
 
-| Fact | Evidence |
-|---|---|
-| `/query`, `/`, `/health`, `/static/*` require **no** authentication | route introspection of `gate.py` |
-| `/soul/*`, `/audit/summary`, `/ops/*` require a **single shared** bearer secret | `require_api_key`, `gate.py:105` |
-| The secret is compared in constant time and **fails closed** when unset | `hmac.compare_digest`, `gate.py:150`; unset `CYCLAW_API_KEY` → 401 |
-| Failed auth is **already rate-limited** | `dependencies=[Depends(_enforce_rate_limit), Depends(require_api_key)]` — limiter runs *before* auth, pinned by `TestFailedAuthDoesNotBypassRateLimit` |
-| The console **already sends** a bearer token on every call, including `/query` | `static/terminal.js` `authHeaders()` |
-| Telegram **already sends** one to `/query` | `telegram/client.py:769`; config field documented *"Optional CyClaw API key for POST /query"* |
-| No password, session, or TLS infrastructure exists | no argon2/bcrypt/passlib/itsdangerous/`SessionMiddleware`/`ssl_keyfile` anywhere |
+At proposal time (2026-08-08) `/query`, `/`, `/health`, and `/static/*` took
+no credential; `/soul/*`, `/audit/summary`, and `/ops/*` took one shared
+bearer secret (`require_api_key`, constant-time compare, failing closed when
+`CYCLAW_API_KEY` was unset, rate-limited *before* auth — pinned by
+`TestFailedAuthDoesNotBypassRateLimit`); both real clients (the console and
+Telegram) already sent `Authorization: Bearer`; and no password, session, or
+TLS infrastructure existed. Two consequences drove the design: **the transport
+was already built**, so requiring a credential on `/query` meant turning on a
+check the clients already satisfied, and **what was missing was identity, not
+authentication** — a shared secret cannot say *which* machine asked or revoke
+one device without rotating every other, which is the gap that matters on a
+LAN.
 
-**Amendment (2026-08-09, Stages 1-2 landed; amended 2026-08-15, Stages 3-4
-and 6 landed, PR #940).** The table above reflects the state at proposal
-time. Several rows are now stale. Password, session, AND TLS infrastructure
-all exist: `utils/authn.py` (Stage 1, PR #829), the account/session/token
-store (Stage 2, PR #830), and `gate._serve` passing
-`ssl_certfile`/`ssl_keyfile` to `uvicorn.run` when `api.tls.enabled` is the
-literal boolean true (Stage 4, PR #940 — missing or unreadable files fail
-closed at boot). `/auth/login`, `/auth/logout`, and `/auth/whoami` also now
-exist and are registered regardless of `auth.enabled` (returning 503 when
-it is false, matching `gate_ops.py`'s convention for `/ops/*`) — so the
-unauthenticated-route row above is stale too: `/auth/login` carries no
-authentication either, by necessity (a caller has no credential yet to
-present), gated only by the standard rate limit and the same-origin check.
-Stage 3 attaches `require_session_or_token` to `POST /query` when
-`auth.enabled` is the literal boolean `true` (session cookie or device
-token; no CSRF on the query path). The shipped default still leaves
-`/query` open. The console row is stale as well: `terminal.js` no longer
-sends the typed API key on `/query` at all — once auth is on, `/query`
-authenticates with the `cyclaw_session` cookie (or a named device token
-for programmatic clients), and the key field serves `/soul/*` and `/ops/*`
-only. The Telegram row stays accurate in form — it still sends a bearer
-token to `/query` — but the token must now be a named device token, not
-the shared `CYCLAW_API_KEY`.
+**Current state (Stages 1–6 landed, PRs #829/#830/#940).** Password, session,
+and TLS infrastructure exist: `utils/authn.py`, the account/session/token
+store, and `gate._serve` passing `ssl_certfile`/`ssl_keyfile` to
+`uvicorn.run` when `api.tls.enabled` is the literal boolean `true` (missing or
+unreadable files fail closed at boot). Every `/auth/*` route is registered
+regardless of `auth.enabled` and answers 503 while it is false (the `/ops/*`
+convention); `/auth/login` itself carries no credential, by necessity, behind
+the rate limit and the same-origin check. Stage 3 attaches
+`require_session_or_token` to `POST /query` when `auth.enabled` is the literal
+`true` (session cookie or named device token; no CSRF on the query path); the
+shipped default leaves `/query` open. `terminal.js` no longer sends the typed
+API key on `/query` — with auth on, `/query` authenticates with the
+`cyclaw_session` cookie and the key field serves `/soul/*` and `/ops/*` only;
+Telegram still sends a bearer token, which must now be a named device token,
+not the shared `CYCLAW_API_KEY`.
 
-**Amendment (2026-08-15).** A second, independent escape hatch landed
-alongside the session/RBAC system this document specifies:
-`config.yaml`'s `security.api_key_optional` (default `false`). It bypasses
-`require_api_key` — the shared-secret mechanism row 2 above describes — for
-every route it gates (`/soul/*`/`/ops/*`/`/memory/*`/`/audit/summary`). It is orthogonal to everything in
-this document: it does not touch `auth.enabled`, sessions, device tokens, or
-`/auth/*`, and an operator can run with `auth.enabled: true` (this design)
-and `api_key_optional: true` (bypassing the older mechanism) at the same
-time without either one affecting the other. The bypass is granted only to
-a request that is simultaneously from a **loopback socket peer**, carries **no reverse-proxy forwarding header** (`X-Forwarded-For`/`-Host`/`-Proto`, `X-Real-IP`, `Forwarded` — a proxy on this host makes every remote caller present a loopback peer), and is **not cross-site** (the operator's own browser is a loopback peer too, and a CORS-simple POST executes before CORS withholds the response). `gate.py`'s `_api_key_bypass_allowed` treats every one as necessary. It never widens what a remote caller can
-reach; `config-guard`'s C13 check warns when it is combined with a
-non-loopback `api.host`. (C13 deliberately ignores `security.allowed_hosts`:
-that list filters `Host` headers and opens no listening socket.)
+**The orthogonal escape hatch (2026-08-15).** `security.api_key_optional`
+(ships `false`) bypasses `require_api_key` on every route it gates
+(`/soul/*`, `/ops/*`, `/memory/*`, `/audit/summary`) and touches nothing in
+this document — not `auth.enabled`, sessions, device tokens, or `/auth/*`; the
+two can be on at once without affecting each other. The bypass is granted only
+to a request that is simultaneously from a **loopback socket peer**, carries
+**no reverse-proxy forwarding header** (`X-Forwarded-For`/`-Host`/`-Proto`,
+`X-Real-IP`, `Forwarded` — a proxy on this host makes every remote caller a
+loopback peer), and is **not cross-site** (the operator's own browser is a
+loopback peer too, and a CORS-simple POST executes before CORS withholds the
+response); `gate.py`'s `_api_key_bypass_allowed` treats each as necessary.
+`config-guard`'s C13 warns when it is combined with a non-loopback `api.host`
+(C13 ignores `security.allowed_hosts`, which filters `Host` headers and opens
+no socket).
 
-One place the two systems **do** interact, and must not: §7's rule below
-("a non-loopback bind is allowed when authentication is enabled and TLS is
-enabled") is satisfied by `auth.enabled` + `api.tls.enabled` + a real
-`/query` credential — all properties of the SESSION system. None of them
-say anything about the API-key routes `api_key_optional` opens. Composed,
-they would admit a LAN bind on the strength of a session while `/soul/*`
-and the `/ops/*` subprocess shims sit unauthenticated. `_require_loopback_bind`
-therefore refuses that route while `api_key_optional` is true; the
-`CYCLAW_ALLOW_NON_LOOPBACK_BIND` env override (an explicit operator
-statement of "my own auth is in front") still outranks it.
-
-That bind-time refusal is defence in depth, not the primary control. The
-primary one is per-request: the bypass requires all of a loopback peer, no forwarding header, and a non-cross-site request, which holds
-regardless of how the process was launched — including the container's
+The one place the two systems interact, and must not compose: §7's bind rule
+is satisfied by `auth.enabled` + `api.tls.enabled` + a real `/query`
+credential, all properties of the SESSION system that say nothing about the
+API-key routes `api_key_optional` opens. Composed, they would admit a LAN bind
+on the strength of a session while `/soul/*` and the `/ops/*` shims sat
+unauthenticated, so `_require_loopback_bind` refuses that route while
+`api_key_optional` is true; `CYCLAW_ALLOW_NON_LOOPBACK_BIND` ("my own auth is
+in front") still outranks it. That bind-time refusal is defence in depth; the
+primary control is the per-request three-condition check, which holds however
+the process was launched — including the container's
 `uvicorn gate:app --host 0.0.0.0`, which reaches no bind guard at all.
-
-Two consequences worth stating plainly.
-
-**The transport is already built.** Both real clients speak `Authorization:
-Bearer`. Requiring credentials on `/query` is not a new protocol — it is turning
-on a check the clients already satisfy.
-
-**What is missing is identity, not authentication.** A single shared secret *is*
-authentication in the "something you know" sense. What it cannot do is say
-*which* machine asked, or let one device be revoked without rotating the
-credential for every other device. For a LAN with several machines, that is the
-gap that matters, and it is why this design is per-user rather than a wider
-allow-list on the existing key.
 
 ---
 
@@ -346,30 +325,21 @@ implemented in `gate.py`'s `_require_loopback_bind`/`_auth_and_tls_enabled` is
 > enabled **and** `/query` demonstrably enforces a credential; otherwise
 > refuse.
 
-The third condition is load-bearing, not optional. The two config flags are a
-statement of *intent*; an operator who sets `auth.enabled: true` reasonably
-believes authentication is on. `gate.py`'s
-`_request_path_enforcement_active()` probes the live FastAPI app for the
-`/query` credential dependency rather than trusting the flag. Stage 3
-(PR #940) attaches that dependency when `auth.enabled` is the literal
-boolean `true`, so the path past loopback opens by itself once both flags
-are on — no further edit to the guard is required. The shipped default
-(auth off) still leaves the probe false. This is a strictly better gate
-than the env-var-only guard: it permits the operator's goal (LAN + TLS +
-auth) and refuses the genuinely unsafe case (LAN + no auth, LAN + auth
-claimed but not enforced). With Stage 4 landed in the same PR, the guard's
-TLS half is now real too: `gate._serve` passes
-`ssl_certfile`/`ssl_keyfile` to `uvicorn.run` when `api.tls.enabled` is the
-literal boolean true, and missing or unreadable cert files refuse to boot
-rather than falling back to plaintext. The residual gap is narrower than
-the one this section previously documented: the Docker `CMD` and a hand-run
-`uvicorn gate:app` bypass `_serve` entirely, so the guard's proof covers
-the documented entry points (`python gate.py`, `cyclaw-server`) only — see
-`docs/THREAT_MODEL.md`'s ninth amendment §5 for the precise scope.
-`CYCLAW_ALLOW_NON_LOOPBACK_BIND` is retained only as a
-deliberate escape hatch for someone fronting CyClaw with their own reverse
-proxy. See `docs/THREAT_MODEL.md`'s ninth amendment for the fully verified,
-currently-accurate statement of this rule.
+The third condition is load-bearing: the two flags state *intent*, and
+`gate.py`'s `_request_path_enforcement_active()` probes the live FastAPI app
+for the `/query` credential dependency rather than trusting them. Stage 3
+attaches that dependency when `auth.enabled` is the literal boolean `true`, so
+the path past loopback opens by itself once both flags are on, and the shipped
+default (auth off) leaves the probe false. The guard therefore permits the
+operator's goal (LAN + TLS + auth) and refuses LAN + no auth and LAN + auth
+claimed but not enforced. Its TLS half is real too: `gate._serve` passes the
+cert files to `uvicorn.run`, and missing or unreadable files refuse to boot
+rather than fall back to plaintext. Residual gap: the Docker `CMD` and a
+hand-run `uvicorn gate:app` bypass `_serve`, so the proof covers the
+documented entry points (`python gate.py`, `cyclaw-server`) only — see
+`docs/THREAT_MODEL.md`'s ninth amendment §5. `CYCLAW_ALLOW_NON_LOOPBACK_BIND`
+remains only as the escape hatch for an operator fronting CyClaw with their own
+reverse proxy.
 
 ---
 
@@ -420,21 +390,15 @@ Each stage is independently reviewable and leaves the tree working.
 3. **Should `/health` stay open?** **Resolved: yes** (§6). It reports status,
    mode, and timeouts — no corpus content — and stays unauthenticated even
    with `auth.enabled: true`.
-4. **Bootstrap.** Proposed: `cyclaw-user add` refuses to run over HTTP and must
-   be run locally, so there is never a window where a default credential exists.
-   No default account is ever created.
-   **Resolved (2026-08-08, amended 2026-08-09):** first enable with an empty
-   users table creates `admin` seeded with the hash of a random secret that is
-   discarded inside the same call — never returned, printed, logged, or stored
-   in plaintext — so the account exists but cannot be logged into until
-   `cyclaw-user passwd admin` sets a real password locally via `getpass`.
-   The first iteration of this decision printed a generated one-time password
-   to the server console instead; CodeQL flagged it (alert #1057), and the
-   objection is substantive, not pedantic: a service's stdout is persisted by
-   systemd's journal, Docker's log driver, and any log shipper, so
-   "printed once" was never really once. The discard design keeps this
-   decision's actual requirement — no fixed default credential, ever — while
-   removing every output channel a credential could reach.
+4. **Bootstrap.** **Resolved (2026-08-08, amended 2026-08-09):** first enable
+   with an empty users table creates `admin` seeded with the hash of a random
+   secret discarded inside the same call — never returned, printed, logged, or
+   stored — so the account exists but cannot be logged into until
+   `cyclaw-user passwd admin` (local `getpass`) or the loopback-only console
+   panel in §4.6 sets a real password. The first iteration printed a one-time
+   password to the server console; CodeQL #1057 flagged it, and rightly: a
+   service's stdout persists in journald, Docker's log driver, and any log
+   shipper, so "printed once" never was. No default credential ever exists.
 
 ---
 
