@@ -940,6 +940,23 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("curl", ".claude/skills/CyClaw-Sandbox/macos-smoke.sh", ('HTTP_CODE=$(curl -sS -o "$tmp" -w "%{http_code}"',)),
 )
 
+# Inventory boundary for agent tooling (owner decision on PR #1637,
+# 2026-10-13). The inventory covers CyClaw's runtime, the operator setup and
+# launch surfaces (macos/, powershell/, windows/, scripts/, the Dockerfile and
+# compose file) and the two sandbox surfaces below, which exercise the gateway
+# itself. Every other script under .claude/ -- the session hooks, the skills'
+# verify/bootstrap helpers, the babysit-github-pr gh wrappers -- is agent
+# tooling that runs on the agent's own machine or sandbox, outside the
+# gateway's process tree, and is OUT of this inventory by decision, not by
+# oversight: their gh/git calls are not findings and get no rows. T13 fails a
+# FIXED_LAUNCHER_SITES row under .claude/ that is not inside one of these
+# prefixes, so widening the boundary is a deliberate edit here, never a row
+# slipped in during a review round.
+SWEPT_AGENT_SURFACES: tuple[str, ...] = (
+    ".claude/skills/cyclaw-gotchas/driver.sh",
+    ".claude/skills/CyClaw-Sandbox/",
+)
+
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []
 
@@ -1497,6 +1514,15 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
     if stray:
         fail("T13", f"spawn-site row(s) for a component KNOWN_EXTERNAL_COMPONENTS does not name: {stray} -- "
                     "a site row alone never enters the classification sweep")
+    # -- agent-tooling boundary: a .claude/ site must be one of the swept
+    #    sandbox surfaces (owner decision, PR #1637); anything else under
+    #    .claude/ is out of the inventory and the row itself is the error
+    outside = sorted({rel for _c, rel, _m in FIXED_LAUNCHER_SITES
+                      if rel.startswith(".claude/") and not rel.startswith(SWEPT_AGENT_SURFACES)})
+    if outside:
+        fail("T13", f"site row(s) under .claude/ outside the agent-tooling boundary: {outside} -- agent "
+                    "tooling is out of this inventory by owner decision; widen SWEPT_AGENT_SURFACES "
+                    "deliberately or drop the row")
     fixed_missing = 0
     for component, rel, markers in FIXED_LAUNCHER_SITES:
         path = root / rel

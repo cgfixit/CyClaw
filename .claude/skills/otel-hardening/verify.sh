@@ -521,6 +521,32 @@ text = text.replace("\"$SECURITY_BIN\" find-generic-password", "\"$SECURITY_BIN\
 assert "SECURITY_BIN=\"/usr/bin/security\"" in text and "\"$SECURITY_BIN\" find-generic-password" not in text'
 _expect "T13 keychain invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .security.: macos/cyclaw-keychain-env.sh no longer carries"
 
+# 37. T13: a site row for agent tooling under .claude/ outside the swept
+#     sandbox surfaces. Agent tooling is out of the inventory by owner
+#     decision (PR #1637); the row itself must fail so the boundary is only
+#     ever widened by editing SWEPT_AGENT_SURFACES on purpose.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n"
+    "    (\"git\", \".claude/hooks/session-start-sync-check.sh\", (\"git \",)),\n", 1)'; then
+  echo "T13 agent-tooling boundary mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] site row.*outside the agent-tooling boundary.*session-start-sync-check"; then
+    echo "T13 agent-tooling boundary mutation: PASS"
+  else
+    echo "T13 agent-tooling boundary mutation: FAIL — expected rc=2 + the boundary FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"
