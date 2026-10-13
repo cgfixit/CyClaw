@@ -97,11 +97,9 @@ jobs:
         # requirements.txt/constraints.txt triggers don't force a re-download of
         # the heaviest dependency on every run. macOS skips this cache entirely
         # -- see the macOS-specific install step below (same split ci.yml uses).
-        # The torch==2.13.0+cpu pin (and this cache key) is duplicated in
-        # ci.yml and copilot-setup-steps.yml -- grep for the version string
-        # under .github/workflows/ before bumping it here. (devskim.yml was
-        # listed too until it dropped its install entirely; it now has no torch
-        # pin, so that cross-reference would send a future bump on a dead end.)
+        # The torch==2.13.0+cpu pin (and this cache key) is repeated in other
+        # workflows -- grep for the version string under .github/workflows/
+        # before bumping it here.
         id: torch-wheel-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:

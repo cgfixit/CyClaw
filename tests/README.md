@@ -85,6 +85,7 @@ auto-discovered and need no coverage-source entry.
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
 | `nemo_runtime/` | Real NeMo engine, combined NeMo/Numbat CLI/CEL gateway HTTP acceptance, and logging privacy checks with a loopback-only harness (`network_jail.py`, `mock_openai.py`); collected with the main suite and skipped unless `CYCLAW_NEMO_RUNTIME=1`. |
 | `executor_sandbox_double.py`, `spend_live_probe.py` | Helper doubles/probes, not `test_*`-named, so not collected. |
+| `import_graph.py` | The AST import walker shared by the six `test_*_isolation.py` I6 guards; not collected. |
 | `numbat_shaped_events.py` | Drives one representative event per producer family (mainline audit projection, pre-action hook verdicts, CEL monitor, ops/fsconnect/sqlconnect; not the executor or `real_repo_loop`) into a throwaway stream; `python -m tests.numbat_shaped_events --frozen --out ...` regenerates `fixtures/numbat/cyclaw-shaped-*.ndjson`. Not collected; `test_numbat_cyclaw_shaped.py` and `numbat-rules.yml`'s `numbat-stream-contract` job hold its output to the pinned Numbat CLI and schema (issue #1458). |
 
 ## Conventions that bite

@@ -823,9 +823,9 @@ jobs:
         # The wheel is downloaded once per (os, pin) pair and reused on every
         # subsequent run until the pin changes in pyproject.toml. macOS skips
         # this cache entirely -- see the macOS-specific install step below.
-        # The torch==2.13.0+cpu pin (and this cache key) is duplicated in
-        # pip-audit.yml, copilot-setup-steps.yml, and devskim.yml -- grep for
-        # the version string under .github/workflows/ before bumping it here.
+        # The torch==2.13.0+cpu pin (and this cache key) is repeated in other
+        # workflows -- grep for the version string under .github/workflows/
+        # before bumping it here.
         id: torch-wheel-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:

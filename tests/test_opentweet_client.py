@@ -169,3 +169,89 @@ def test_post_query_non_object_json_is_not_retryable(
         with pytest.raises(OpenTweetRuntimeError) as exc_info:
             client.post_query(cfg, "hello topic")
     assert exc_info.value.details.get("retryable") is False
+
+
+def _transport_client(handler) -> httpx.Client:
+    return httpx.Client(transport=httpx.MockTransport(handler), trust_env=False)
+
+
+def _refuse(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("connection refused to secret-host", request=request)
+
+
+def test_post_query_transport_error_is_audited_without_query_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dead loopback gateway raises a retryable error naming only the exception type, and audits a fingerprint."""
+    monkeypatch.setenv("OPENTWEET_API_KEY", "ot_test")
+    cfg = load_opentweet_config(_cfg(tmp_path))
+    with patch("opentweet.client._get_loopback_http_client", return_value=_transport_client(_refuse)):
+        with pytest.raises(OpenTweetRuntimeError) as exc:
+            client.post_query(cfg, "private topic words")
+    assert exc.value.details == {"method": "POST /query", "retryable": True}
+    assert "ConnectError" in str(exc.value)
+    assert "secret-host" not in str(exc.value)
+    audit = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    assert '"opentweet_query"' in audit
+    assert '"error_type": "ConnectError"' in audit
+    assert "private topic words" not in audit
+
+
+def test_get_me_sends_bearer_and_returns_object(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/v1/me authenticates with the resolved key and returns the JSON object."""
+    monkeypatch.setenv("OPENTWEET_API_KEY", "ot_test")
+    cfg = load_opentweet_config(_cfg(tmp_path))
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers["Authorization"]
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"plan": "free"})
+
+    with patch("opentweet.client._get_opentweet_http_client", return_value=_transport_client(handler)):
+        assert client.get_me(cfg) == {"plan": "free"}
+    assert seen == {"auth": "Bearer ot_test", "path": "/api/v1/me"}
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "retryable"),
+    [(401, {"error": "bad key"}, False), (503, {}, True), (200, ["not", "an", "object"], False)],
+)
+def test_get_me_rejections_classify_retryability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int, body: object, retryable: bool
+) -> None:
+    """Non-200 or non-object replies raise; only 5xx/429 are marked retryable."""
+    monkeypatch.setenv("OPENTWEET_API_KEY", "ot_test")
+    cfg = load_opentweet_config(_cfg(tmp_path))
+    transport = _transport_client(lambda request: httpx.Response(status, json=body))
+    with patch("opentweet.client._get_opentweet_http_client", return_value=transport):
+        with pytest.raises(OpenTweetRuntimeError) as exc:
+            client.get_me(cfg)
+    assert exc.value.details["retryable"] is retryable
+    assert "ot_test" not in str(exc.value)
+
+
+@pytest.mark.parametrize("call", ["get_me", "create_post"])
+def test_opentweet_transport_errors_never_echo_key_or_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, call: str
+) -> None:
+    """Transport failures toward OpenTweet surface only the exception type, retryable."""
+    monkeypatch.setenv("OPENTWEET_API_KEY", "ot_test")
+    cfg = load_opentweet_config(_cfg(tmp_path))
+    with patch("opentweet.client._get_opentweet_http_client", return_value=_transport_client(_refuse)):
+        with pytest.raises(OpenTweetRuntimeError) as exc:
+            client.get_me(cfg) if call == "get_me" else client.create_post(cfg, "body")
+    assert exc.value.details["retryable"] is True
+    assert "ot_test" not in str(exc.value)
+    assert "secret-host" not in str(exc.value)
+
+
+def test_create_post_non_json_reply_is_not_retryable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 201 whose body is not JSON is a hard failure, not a silent success."""
+    monkeypatch.setenv("OPENTWEET_API_KEY", "ot_test")
+    cfg = load_opentweet_config(_cfg(tmp_path))
+    transport = _transport_client(lambda request: httpx.Response(201, text="<html>"))
+    with patch("opentweet.client._get_opentweet_http_client", return_value=transport):
+        with pytest.raises(OpenTweetRuntimeError) as exc:
+            client.create_post(cfg, "body")
+    assert exc.value.details["retryable"] is False

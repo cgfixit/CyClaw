@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.import_graph import all_imports as _all_imports
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Modules that must not top-level-import the memory package.
@@ -46,19 +48,6 @@ def _toplevel_imports(source: str) -> set[str]:
     names: set[str] = set()
     tree = ast.parse(source)
     for node in tree.body:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            if node.module and node.level == 0:
-                names.add(node.module.split(".")[0])
-    return names
-
-
-def _all_imports(source: str) -> set[str]:
-    names: set[str] = set()
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 names.add(alias.name.split(".")[0])

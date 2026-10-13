@@ -177,3 +177,101 @@ def test_check_credentials_fails_when_the_selected_config_cannot_load(tmp_path, 
             assert scheduled.main(["--config", str(config), "--check-credentials"]) == 3
     finally:
         reset_config_cache()
+
+
+def test_service_comes_from_the_shipped_secret_policy():
+    """The keystore service name is the shared policy's RCLONE_CONFIG_PASS row, not a literal."""
+    assert scheduled._service() == "com.cgfixit.cyclaw.rclone-config-pass"
+
+
+def test_policy_without_the_rclone_mapping_refuses(tmp_path):
+    """A policy file missing the RCLONE_CONFIG_PASS row raises instead of guessing a service."""
+    policy = scheduled.POLICY_PATH.read_text(encoding="ascii")
+    stripped = tmp_path / "secret-policy.tsv"
+    stripped.write_text(
+        "".join(line for line in policy.splitlines(keepends=True) if "RCLONE_CONFIG_PASS" not in line),
+        encoding="ascii",
+    )
+    with patch.object(scheduled, "POLICY_PATH", stripped), pytest.raises(OSError, match="missing rclone"):
+        scheduled._service()
+
+
+def test_linux_has_no_automatic_keystore(monkeypatch):
+    """Linux returns None so an encrypted rclone config fails noninteractively in rclone."""
+    monkeypatch.setattr(scheduled.sys, "platform", "linux")
+    with patch.object(scheduled.subprocess, "run", side_effect=AssertionError("must not spawn a keystore tool")):
+        assert scheduled._password() is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the macOS branch imports pwd")
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "expected"),
+    [
+        (44, "", None),
+        (0, "synthetic\n", "synthetic"),
+        (0, "ends-in-newline\n\n", "ends-in-newline\n"),
+    ],
+)
+def test_macos_keychain_exit_codes(monkeypatch, returncode, stdout, expected):
+    """Exit 44 means no item (optional); success strips exactly the one newline security(1) appends."""
+    monkeypatch.setattr(scheduled.sys, "platform", "darwin")
+    done = subprocess.CompletedProcess([], returncode, stdout, "")
+    with patch.object(scheduled.subprocess, "run", return_value=done) as run:
+        assert scheduled._password() == expected
+    argv = run.call_args.args[0]
+    assert argv[:2] == ["/usr/bin/security", "find-generic-password"]
+    assert argv[-3:] == ["-s", "com.cgfixit.cyclaw.rclone-config-pass", "-w"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the macOS branch imports pwd")
+def test_macos_keychain_failure_is_an_error_not_absence(monkeypatch):
+    """Any nonzero exit other than 44 (locked, denied) raises rather than running without a credential."""
+    monkeypatch.setattr(scheduled.sys, "platform", "darwin")
+    done = subprocess.CompletedProcess([], 51, "", "secret diagnostic")
+    with patch.object(scheduled.subprocess, "run", return_value=done), pytest.raises(OSError, match="Keychain read failed"):
+        scheduled._password()
+
+
+def test_check_credentials_rejects_unknown_arguments(capsys):
+    """Anything besides an optional --config PATH is a usage error (exit 2), before any keystore read."""
+    with patch.object(scheduled, "prepare_environment", side_effect=AssertionError("must not read keystore")):
+        assert scheduled.main(["--check-credentials", "--bogus"]) == 2
+    assert "usage:" in capsys.readouterr().err
+
+
+def test_check_credentials_without_rclone_is_an_environment_error(capsys):
+    """A missing rclone binary exits 3 with the generic message."""
+    with patch.object(scheduled, "prepare_environment", return_value={"RCLONE_ASK_PASSWORD": "false"}), \
+            patch.object(scheduled.shutil, "which", return_value=None):
+        assert scheduled.main(["--check-credentials"]) == 3
+    assert "credential setup failed" in capsys.readouterr().err
+
+
+def test_enabled_run_replaces_process_environment_before_sync(tmp_path):
+    """The sync CLI runs with only the prepared environment; unrelated credentials are gone."""
+    from utils.logger import reset_config_cache
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        'sync:\n  enabled: true\n  local_path: "data/corpus"\n'
+        '  remote_name: "dropbox_cyclaw"\n  remote_path: "CyClaw/corpus"\n'
+    )
+    seen: dict = {}
+
+    def fake_sync_main(args):
+        seen["args"] = args
+        seen["env"] = dict(os.environ)
+        return 0
+
+    prepared = {"PATH": os.defpath, "RCLONE_CONFIG_PASS": "synthetic"}
+    reset_config_cache()
+    try:
+        # No clear=True: Windows resolves Path.home() from USERPROFILE while the config loads.
+        with patch.dict(os.environ, {"GH_TOKEN": "synthetic-unrelated"}), \
+                patch.object(scheduled, "prepare_environment", return_value=prepared), \
+                patch("sync.cli.main", side_effect=fake_sync_main):
+            assert scheduled.main(["--config", str(config), "status"]) == 0
+    finally:
+        reset_config_cache()
+    assert seen["args"] == ["--config", str(config), "status"]
+    assert seen["env"] == prepared
