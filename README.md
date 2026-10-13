@@ -173,8 +173,10 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
    `retrieval.min_score`); the cross-encoder runs in shadow mode
    (`retrieval.min_rerank_score: null`). [Retrieval reference](retrieval/README.md).
 3. **Local generation.** Ollama runs `models.local_llm.model`, shipped as
-   `qwen3.8:27b-mlx`. Tunables live in `config.yaml`. The `-cg` tag is a
-   local tag built from `macos/Modelfile.cg` on the author's machine, not a
+   `qwen3.8:27b-mlx`. Tunables live in `config.yaml`. Optionally, build a
+   local tag that stores `num_ctx` on the model itself
+   ([derived tag](docs/%21%20How-To-Guides/OLLAMA_SETUP.md#pin-the-context-window-with-a-derived-tag)).
+   `macos/Modelfile.cg` builds the author's `qwen3.8:27b-mlx-cg`, which is not a
    published model. Use your own tag name: drop the `-cg` suffix or choose
    another. Set `num_ctx` and the sampling parameters to fit your Ollama max
    context, unified memory, and model.
