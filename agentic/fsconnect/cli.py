@@ -186,60 +186,35 @@ def cmd_largest(args: argparse.Namespace) -> int:
     return _run_read(args, "fs_largest")
 
 
-def _run_write(args: argparse.Namespace, op: str) -> int:
-    fc = _load(args)
-    if fc is None:
-        return EXIT_ENV
-    if not getattr(fc, "enabled", False):
-        return _disabled_noop()
-    cfg = _get_config(args.config)
-    from agentic.fsconnect.writer import FsWriter
-    try:
-        with FsWriter(cfg, fc, config_path=args.config) as w:
-            if op == "fs_write":
-                res = w.fs_write(args.path, _read_body(args), reason=args.reason or "",
-                                 confirm=args.confirm, overwrite=args.overwrite, root=args.root)
-            elif op == "fs_append":
-                res = w.fs_append(args.path, _read_body(args), reason=args.reason or "",
-                                  confirm=args.confirm, root=args.root)
-            elif op == "fs_mkdir":
-                res = w.fs_mkdir(args.path, reason=args.reason or "",
-                                 confirm=args.confirm, root=args.root)
-            else:  # fs_move
-                res = w.fs_move(args.src, args.dst, reason=args.reason or "",
-                                confirm=args.confirm, overwrite=args.overwrite, root=args.root)
-    except FsWriteRefused as exc:
-        _err(f"Write refused: {exc.message}")
-        return EXIT_REFUSED
-    except FsConnectError as exc:
-        _err(exc.message)
-        return EXIT_FAIL
-    _emit(res)
-    return EXIT_OK
-
-
 def cmd_write(args: argparse.Namespace) -> int:
-    return _run_write(args, "fs_write")
+    return _run_writer(args, lambda w: w.fs_write(
+        args.path, _read_body(args), reason=args.reason or "", confirm=args.confirm,
+        overwrite=args.overwrite, root=args.root))
 
 
 def cmd_append(args: argparse.Namespace) -> int:
-    return _run_write(args, "fs_append")
+    return _run_writer(args, lambda w: w.fs_append(
+        args.path, _read_body(args), reason=args.reason or "", confirm=args.confirm,
+        root=args.root))
 
 
 def cmd_mkdir(args: argparse.Namespace) -> int:
-    return _run_write(args, "fs_mkdir")
+    return _run_writer(args, lambda w: w.fs_mkdir(
+        args.path, reason=args.reason or "", confirm=args.confirm, root=args.root))
 
 
 def cmd_move(args: argparse.Namespace) -> int:
-    return _run_write(args, "fs_move")
+    return _run_writer(args, lambda w: w.fs_move(
+        args.src, args.dst, reason=args.reason or "", confirm=args.confirm,
+        overwrite=args.overwrite, root=args.root))
 
 
 def _run_writer(args: argparse.Namespace, call: Callable[[FsWriter], dict]) -> int:
     """Load config, open an FsWriter, and run ``call(writer)`` with the exit-code map.
 
-    Shared by the delete/trash/quota subcommands so each maps FsWriteRefused -> exit 4,
-    other FsConnectError -> exit 2, and the disabled/config-error no-ops identically to
-    the read/write helpers above.
+    Shared by every write-side subcommand (write/append/mkdir/move/delete/trash/quota)
+    so each maps FsWriteRefused -> exit 4, other FsConnectError -> exit 2, and the
+    disabled/config-error no-ops identically to the read helpers above.
     """
     fc = _load(args)
     if fc is None:
