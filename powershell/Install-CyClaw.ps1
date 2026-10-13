@@ -186,6 +186,33 @@ if (-not $SkipPythonDeps) {
             throw "Existing virtual environment at '$Venv' is not Python 3.12.x (detected: $VenvVersion). Remove or rename it manually, then re-run; the installer will not replace it automatically."
         }
     }
+    # Canonical telemetry/update-check block, set in THIS process before the
+    # pip calls below so they inherit PIP_DISABLE_PIP_VERSION_CHECK (and the
+    # rest of the map) instead of whatever the operator's shell carries: pip's
+    # periodic PyPI version check is the one egress it adds beyond the hashed
+    # downloads themselves. Same shape as Invoke-CyClaw.ps1: the lines are
+    # parsed as DATA (two rigid shapes over a validated name), never piped to
+    # Invoke-Expression (DevSkim DS104456); -S -E keeps site init and ambient
+    # PYTHONPATH out of the helper interpreter. Non-fatal: pip carries no
+    # telemetry and the version check is a category-2 update check.
+    Push-Location $Repo
+    try {
+        $killLines = & $VenvPy -S -E -m utils.telemetry_kill --export powershell 2>$null
+        if ($LASTEXITCODE -eq 0 -and $killLines) {
+            foreach ($line in @($killLines)) {
+                if ($line -match "^\`$env:([A-Za-z_][A-Za-z0-9_]*) = '(.*)'$") {
+                    Set-Item -Path ("Env:" + $Matches[1]) -Value $Matches[2]
+                } elseif ($line -match "^Remove-Item -ErrorAction SilentlyContinue Env:([A-Za-z_][A-Za-z0-9_]*)$") {
+                    Remove-Item -ErrorAction SilentlyContinue -Path ("Env:" + $Matches[1])
+                }
+            }
+            Write-Step "telemetry-kill block exported for the pip installs"
+        } else {
+            Write-Warn "could not export the telemetry-kill block; pip runs with the ambient environment (its PyPI version check may fire)"
+        }
+    } finally {
+        Pop-Location
+    }
     Write-Step "installing dependencies (CPU torch first, then requirements; this can take a few minutes)"
     # Match ci.yml's exact pip pin (CVE/repro); never float to latest on installers.
     & $VenvPy -m pip install --upgrade "pip==26.2.1" | Out-Null

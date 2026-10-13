@@ -133,10 +133,13 @@ these values silence vendor telemetry readers; they do not close sockets.
    `optional-dependencies` group, AND `[build-system].requires` (the build
    backend is an install surface too; it was skipped until PR #1502). A spawn
    site whose executable is chosen at run time (the pre-action hook's
-   `command` engine, the executor's caller-declared checks) cannot be named
-   by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the source
-   marker that proves it spawns, and its row describes the surface and the
-   gate around it, never a binary. The reverse holds too: when a pin or spawn
+   `command` engine, the executor's caller-declared checks, the
+   secret-injecting exec wrappers `cyclaw-keychain-env.sh` and
+   `CyClaw-CredMan-Env.ps1` that run whatever follows their `--`) cannot be
+   named by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the
+   source marker that proves it spawns (the `exec "$@"` / `& $exe @exeArgs`
+   line, not the usage text), and its row describes the surface and who
+   supplies the argv, never a binary. The reverse holds too: when a pin or spawn
    site is removed, delete its site row, alias and inventory row (the `uv`
    precedent — T13 now warns when a fixed or dynamic site loses its marker;
    and when the binary comes back, as `uv` did in PR #1572, the rows come
@@ -153,6 +156,15 @@ these values silence vendor telemetry readers; they do not close sockets.
    `CyClaw-Sandbox/`); T13 fails a `.claude/` site row outside them.
    A row's `url` is its evidence source: an `https://` vendor page, or a
    repo-relative path that must exist (T13 fails the schema otherwise).
+   Every site row path and every repo-relative `url` must be a clean
+   relative path (no leading `/`, no `.`/`..` component, no doubled
+   separator) that resolves inside the repository; T13 fails the row
+   before the boundary prefix test or any marker read trusts it, so
+   `.claude/skills/CyClaw-Sandbox/../../hooks/x` cannot smuggle a hook in.
+   A pip call site is classified `pip-install` and its row says per site
+   whether the calling shell exported the canonical block first (the two
+   operator installers do, immediately before their pip calls) or runs pip
+   ambient (the Dockerfile build stage, the sandbox and venv driver).
    One binary can need two rows when its calls differ in kind: `ollama
    serve` is the category-4 daemon, `ollama pull` is category-3 registry
    egress, so the pull is its own `ollama-pull` component and site.
