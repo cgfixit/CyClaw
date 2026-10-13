@@ -521,7 +521,7 @@ def register_auth_routes(
     async def auth_logout(response: Response, session: SessionInfo = Depends(_enforce_csrf)) -> dict[str, bool]:
         manager = _require_enabled()
         await asyncio.to_thread(manager.logout, session.session_id)
-        response.delete_cookie(key=session_cookie, path="/")
+        response.delete_cookie(key=session_cookie, path="/", secure=tls_enabled, httponly=True, samesite="strict")
         await audit({_EVENT_KEY: "auth_logout", "username": session.username})
         return {"ok": True}
 

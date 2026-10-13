@@ -307,7 +307,7 @@ or device token when `auth.enabled` is true. Operator credentials are:
   `hmac.compare_digest`).
 - **The console cookie.** "Unlock operator tools" trades the key once for
   an HttpOnly, `SameSite=Strict` cookie (`security.console_session_ttl_sec`,
-  1 h shipped); "Lock" deletes it, and rotating the key revokes every cookie.
+  1 h shipped); "Lock" deletes it with matching TLS attributes, and rotating the key revokes every cookie.
 - **An admin login**, when `auth.enabled` is on (no key needed); `operator`
   and `audit` accounts do not get operator access.
 

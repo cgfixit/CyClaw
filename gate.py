@@ -77,7 +77,7 @@ from schemas.api import (
     ConsoleSessionRequest, ConsoleSessionResponse,
 )
 from utils.logger import audit_file_path, audit_log, hash_query, query_fingerprint, setup_logging
-from utils.public_errors import public_error, source_label
+from utils.public_errors import public_answer, public_error, source_label
 from utils.config_validation import validate_no_inline_credentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -407,7 +407,7 @@ async def _enforce_rate_limit(request: Request) -> None:
         raise HTTPException(
             status_code=429,
             detail={
-                "error": f"Rate limit exceeded ({RATE_LIMIT_REQUESTS} req / {RATE_LIMIT_WINDOW}s)",
+                "error": f"Rate limit exceeded ({RATE_LIMIT_REQUESTS} req per {RATE_LIMIT_WINDOW}s)",
                 "code": "RATE_LIMIT",
             },
         )
@@ -1147,7 +1147,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
     if result.get("error"):
         result["error"] = public_error(result["error"], cfg)
         if result.get("answer"):
-            result["answer"] = public_error(result["answer"], cfg)
+            result["answer"] = public_answer(result["answer"], cfg)
     answer_model = result.get("answer_model", "")
     # Same mapping graph.py's audit_logger_node uses for audit.jsonl, reused
     # here so the console's model badge and the audit trail can never disagree
@@ -1425,7 +1425,10 @@ async def console_session_end(request: Request, response: Response) -> dict[str,
     deletes the caller's own cookie, and SameSite=Strict plus the cross-site
     check keep another site from triggering it."""
     _reject_cross_site_query(request)
-    response.delete_cookie(key=console_session.SECURE_COOKIE_NAME if _TLS_ENABLED else console_session.COOKIE_NAME, path="/", httponly=True, samesite="strict")
+    response.delete_cookie(
+        key=console_session.SECURE_COOKIE_NAME if _TLS_ENABLED else console_session.COOKIE_NAME,
+        path="/", secure=_TLS_ENABLED, httponly=True, samesite="strict",
+    )
     await _audit({"event": "console_session_ended"})
     return {"active": False}
 
