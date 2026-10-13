@@ -148,8 +148,11 @@ Grouped by blast radius. A bump touches only the manifests and lock group that
   in `environment.yml` — never `requirements.txt` (no production module
   imports it; the wheel and Docker image stay without it).
 - Dev tools (`ruff`, `mypy`): `pyproject.toml` dev extra + `constraints.txt`
-  + `environment.yml` (they are not in `requirements-test.txt`); `ruff` is
-  also pinned inline in `lint.yml` (E1 flags a split).
+  + `environment.yml` (they are not in `requirements-test.txt`). `lint.yml`
+  installs `ruff` from its hashed lock and names `ruff==0.16.8` only in a
+  comment (`lint.yml:84`); E1 compares inline workflow pins with each other,
+  not with the manifests, so that comment goes stale silently — update it
+  by hand with the bump.
 
 Whichever group owns the package, **both** refresh scripts run afterwards on
 the arm64 macOS host: `scripts/check_lock_contract.py::contract` hashes
@@ -176,6 +179,12 @@ Then CI's four test legs.
    sources are re-grepped for telemetry/analytics/usage-stat hooks (the
    `langsmith` tracing-precedence check in particular), the four pins are
    updated in the checker, and the strict run is green — before CI's legs.
+   The strict run covers the pin dict only: the category-3 cloud-adapter
+   `INVENTORY` row (`check_otel.py:410-413`) records `deepagents`,
+   `langchain`, `langchain-openai`, `langchain-anthropic`,
+   `langchain-google-genai`, `langsmith`, and `wcmatch` versions in prose
+   that `--strict` never compares with the manifests, so that row is
+   reviewed and rewritten in the same commit.
 2. **Web stack (minor):** `fastapi` 0.141.1→0.143.0, `starlette` 1.6.0→1.7.0,
    `uvicorn` 0.53.0→0.54.0. `gate.py` imports `starlette` directly, so bump
    the three together. Not a test-only bump: `fastapi` 0.143.0's PyPI
@@ -186,11 +195,14 @@ Then CI's four test legs.
    telemetry-capable transitive on the base install path, so the bump needs
    the `otel-hardening` classification pass (`check_otel.py` already lists
    `opentelemetry-sdk` among its transitive vendors to report), an exact
-   `opentelemetry-api` pin added to `constraints.txt` (the repo's rule that
-   no transitive floats — `pyproject.toml`'s own comment on
-   `langchain-anthropic` states it; no E-check catches a missing one, so
-   diff the regenerated lock against `constraints.txt` by hand), the locks
-   regenerated, and then `test_gate`/`test_terminal_contract` in CI.
+   `opentelemetry-api` pin in `constraints.txt` on the same ground the file's
+   header gives for the pydantic family and torch — it pins direct
+   dependencies plus *selected critical* transitives and leaves complete
+   transitive reproducibility to the hashed locks, so a telemetry-capable
+   package newly on the base path qualifies as a selected constraint, while
+   ordinary new transitives simply ride the regenerated locks (no checker
+   decides this; it is a review judgement) — then the locks regenerated and
+   `test_gate`/`test_terminal_contract` in CI.
 3. **`huggingface-hub` 1.32.0→2.2.0 — blocked, not a candidate.**
    `sentence-transformers==6.1.0` declares `huggingface-hub<2.0.0,>=1.3.0`, so
    a standalone 2.x bump cannot resolve. It is pinned directly only because
@@ -220,7 +232,9 @@ Then CI's four test legs.
    source-level re-check of NeMo's usage-stat opt-outs and telemetry sink,
    the pin updated in the checker, `check_otel.py --strict` green — plus
    every other site that hard-codes `0.24.0`. That inventory is the output
-   of `grep -rn '0\.24\.0' --exclude-dir=locks .`, not a list to copy; on
+   of `git grep -nF '0.24.0' -- ':!locks'` (tracked files only — a bare
+   `grep -rn` also walks ignored `logs/`, `data/`, and venvs and would print
+   whatever line matched), not a list to copy; on
    2026-10-13 it returned, besides the five manifests, these fail-closed
    sites: `guardrails/verify_install.py` (raises unless exactly 0.24.0),
    `dep-guard` D11 and its `verify.sh` fixture (`nemoguardrails==0.24.0`
@@ -242,14 +256,18 @@ Then CI's four test legs.
    the skill gotcha finds these rows, the strict run does not.
 6. **Test and dev tools (low blast radius, but re-run lint before merging):**
    `tzdata` 2026.2→2026.5 (test-only surface, see above), `ruff`
-   0.16.8→0.17.0 (`lint.yml` also pins it inline — E1 will flag a split),
+   0.16.8→0.17.0 (`lint.yml:84` names the version in a comment E1 does not
+   check against the manifests — update it by hand),
    `mypy` 2.3.0→2.4.0.
 
 Deliberately not recommended: `torch` 2.13.0→2.14.1 (CPU wheel pin across
-the four manifests plus `requirements-torch.txt` — the input
+`pyproject.toml`, `constraints.txt`, and `environment.yml` — **never**
+`requirements.txt`, which excludes torch on purpose so the CPU index stays
+out of the ordinary resolve — plus `requirements-torch.txt`, the input
 `refresh-runtime-lock.sh` compiles the three `requirements-torch-lock-*.txt`
-from, which `extract_pins.py` has no column for — the Docker torch line, and
-the `torch-cpu-2.13.0-` cache keys in `ci.yml`, `pip-audit.yml`, and
+from, which `extract_pins.py` has no column for; the Dockerfile installs the
+Linux torch lock and carries no versioned torch line of its own; and the
+`torch-cpu-2.13.0-` cache keys in `ci.yml`, `pip-audit.yml`, and
 `nemo-guardrails.yml`, which no `torch==` grep finds and `dep-guard` D8
 exists to catch; a release of its own), `numpy` <2,
 `websockets` 15.0.1 (langgraph-sdk import compatibility), `setuptools` floor,
