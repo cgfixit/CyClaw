@@ -69,7 +69,7 @@ RESULTS_FILE = Path("query_results.json")
 _REPORT_NAMES = ("verification_report.json", "query_results.json")
 
 # Which of the 3-tier Ollama realism ladder this run actually exercised (see
-# SKILL.md's "3-tier realism" section). Set once in main()
+# SKILL.md's "Operator map" realism tiers). Set once in main()
 # by _probe_ollama_tier() before any phase that talks to the local-LLM base_url
 # runs, then stamped into both report files this script writes.
 OLLAMA_TIER: int | None = None
@@ -955,34 +955,34 @@ def phase_key_redaction() -> PhaseResult:
     banner("Phase 6: API Key Redaction (Grok + Claude Parity)")
     phase = PhaseResult("Key Redaction")
 
-    gate_src = Path("gate.py").read_text()
+    # Redaction lives in utils/logger.py (redact_sensitive: every os.environ
+    # value plus _MINIMUM_SECRET_PATTERNS) and reaches HTTP errors through
+    # utils/public_errors.public_error; gate.py no longer carries its own
+    # tuple (the old gate.py greps failed on every run once it moved).
+    logger_src = Path("utils/logger.py").read_text()
 
-    # Check ANTHROPIC_API_KEY in env-var redaction tuple
-    has_anthropic_env = "ANTHROPIC_API_KEY" in gate_src
-    log(f"  [{'PASS' if has_anthropic_env else 'FAIL'}] ANTHROPIC_API_KEY in env-var redaction")
-    phase.checks.append(Check("anthropic_key_env_redaction", has_anthropic_env))
+    has_env_scan = "os.environ.items()" in logger_src and "def redact_sensitive" in logger_src
+    log(f"  [{'PASS' if has_env_scan else 'FAIL'}] redact_sensitive scans every os.environ value (Grok + Anthropic parity)")
+    phase.checks.append(Check("env_value_redaction", has_env_scan))
 
-    # Check sk-ant-* pattern in _SECRET_PATTERNS
-    has_sk_ant_pattern = "sk-ant-" in gate_src
-    log(f"  [{'PASS' if has_sk_ant_pattern else 'FAIL'}] sk-ant-* pattern in _SECRET_PATTERNS")
-    phase.checks.append(Check("sk_ant_pattern_in_gate", has_sk_ant_pattern))
+    has_sk_ant_pattern = "sk-ant-" in logger_src
+    log(f"  [{'PASS' if has_sk_ant_pattern else 'FAIL'}] sk-ant-* pattern in utils/logger.py _MINIMUM_SECRET_PATTERNS")
+    phase.checks.append(Check("sk_ant_pattern_in_logger", has_sk_ant_pattern))
 
-    # Check GROK_API_KEY is still there (regression check)
-    has_grok_env = "GROK_API_KEY" in gate_src
-    log(f"  [{'PASS' if has_grok_env else 'FAIL'}] GROK_API_KEY in env-var redaction (regression)")
-    phase.checks.append(Check("grok_key_env_redaction", has_grok_env))
+    has_public_error = "redact_sensitive" in Path("utils/public_errors.py").read_text()
+    log(f"  [{'PASS' if has_public_error else 'FAIL'}] public_error routes HTTP error text through redact_sensitive")
+    phase.checks.append(Check("public_error_uses_redaction", has_public_error))
 
     # Test redaction of an Anthropic key in error messages
     try:
-        # Import and test _sanitize_error if available
-        from gate import _sanitize_error
+        from utils.public_errors import public_error
         test_msg = "Error: API call failed with key sk-ant-api03-testkey123456789"
-        sanitized = _sanitize_error(test_msg)
-        redacted = "sk-ant" not in sanitized or "[REDACTED]" in sanitized
+        sanitized = public_error(test_msg, {})
+        redacted = "sk-ant-api03" not in sanitized
         log(f"  [{'PASS' if redacted else 'FAIL'}] Anthropic key sk-ant-api03-... redacted in errors")
         phase.checks.append(Check("anthropic_key_sanitized", redacted))
     except (ImportError, AttributeError) as e:
-        log(f"  {Y}SKIP{N}] _sanitize_error not importable: {e}")
+        log(f"  {Y}SKIP{N}] public_error not importable: {e}")
         phase.checks.append(Check("anthropic_key_sanitized", False, str(e)))
 
     # Verify in config.yaml -- policy.privacy, not logging.audit (Phase 1's
