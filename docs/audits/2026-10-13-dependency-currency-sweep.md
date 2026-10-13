@@ -174,10 +174,19 @@ Then CI's four test legs.
    dependency contract in `.claude/skills/dep-guard/check_deps.py`
    (`_PYDANTIC_LOCKSTEP`) and in CLAUDE.md §4 "Dependencies"; D1 fails until
    both are updated in the same commit. `schemas/api.py` uses
-   `strict=True`/`extra='forbid'`, so CI must run `test_schemas*` after.
+   `strict=True`/`extra='forbid'`; there is no `test_schemas*` file, so the
+   focused re-check is the files that import those models —
+   `tests/test_gate.py` (request/response strictness), `tests/test_ops_runner.py`,
+   `tests/test_memory_routes.py`, and `tests/test_telegram_runner.py` — before
+   CI's full legs.
 5. **Small runtime:** `onnxruntime` 1.30.0→1.31.0 (telemetry suppression in
    `utils/onnx_telemetry.py` must be re-verified — `otel-hardening`),
-   `nemoguardrails` 0.24.0→0.24.1 (re-run `guardrails.verify_install`),
+   `nemoguardrails` 0.24.0→0.24.1 (same telemetry contract as the ONNX bump:
+   `.claude/skills/otel-hardening/check_otel.py` pins the last-verified
+   vendor version in `LAST_VERIFIED_VENDOR_PINS`, so the bump needs a
+   source-level re-check of NeMo's usage-stat opt-outs and telemetry sink,
+   the pin updated in the checker, `check_otel.py --strict` green, and then
+   `guardrails.verify_install`),
    `pendulum` 3.2.0→3.3.0, `pgvector` 0.5.0→0.5.1, `wcmatch` 11.0→11.1.
 6. **Test and dev tools (low blast radius, but re-run lint before merging):**
    `tzdata` 2026.2→2026.5 (test-only surface, see above), `ruff`
