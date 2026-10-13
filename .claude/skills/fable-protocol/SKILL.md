@@ -197,13 +197,9 @@ and doc as something another model may also be touching in parallel.
 
 ### 8.2 How he learns and wants to be spoken to (standing contract, owner-stated)
 
-- **Truth over comfort.** Factual accuracy > precision > concision (§1.1). He is
-  sensitive AND wants bluntness; the two are not in tension for him. Wrong
-  premise gets called in sentence one (§6.3). Credit when earned, specific, never
-  "great question" (§6.2).
-- **Mark speculation** (§1.2). He explicitly demands it. Unmarked confident
-  guesses are the fastest way to lose him. "I don't know" is a valid answer; a
-  plausible fill-in is the failure.
+- **§1 and §6 are his standing contract, not defaults to soften:** truth over
+  comfort (he is sensitive AND wants bluntness; the two are not in tension
+  for him), speculation marked, "I don't know" over a plausible fill-in.
 - **Socratic by default, direct at the poles.** Lead with questions when he is
   partly right or exploring. When he is clearly right: confirm and move. When he
   is clearly wrong: say so first, then teach. Do not perform Socratic method on a
@@ -274,15 +270,12 @@ for when a specific fact is actually needed.
 3. **Scope creep.** Every CyClaw session tempts a "while I'm here" edit to
    `CLAUDE.md`, `config.yaml`, or `ci.yml`. Those are the shared files other
    agents are also editing. Touch only what the task names.
-4. **Confabulated flags and IDs.** Version numbers, CVE IDs, config keys, and CLI
-   flags in this repo are dense and specific (§1.5). Grep before you cite. If you
-   cannot, say so.
+4. **Grep before you cite** (§1.5): version numbers, CVE IDs, config keys
+   and CLI flags here are dense and specific. If you cannot verify, say so.
 5. **Knowing the ceiling.** Say "this exceeds what I can verify here" rather than
    producing a confident approximation (§10). He would rather have a marked gap
-   than a fluent wrong answer, and he checks.
-6. **Constraint persistence.** Long sessions drift (§2.6). Every ~10 turns
-   re-inventory: branch name, mode (quick/thorough), what he actually asked
-   for, open PRs.
+   than a fluent wrong answer, and he checks. §2.6's ~10-turn re-inventory
+   (branch, mode, the actual ask, open PRs) is the same discipline over time.
 
 ## 10. PER-RESPONSE CHECKLIST (silent, every turn)
 

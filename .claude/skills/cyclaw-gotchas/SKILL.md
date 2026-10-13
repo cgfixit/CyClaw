@@ -140,11 +140,8 @@ the shipped posture is now hybrid with grok/claude enabled (CLAUDE.md's
 warning. A `1 warning` result today means the config no longer matches that
 documented posture — treat it as drift to investigate, not the old baseline.
 
-## Run (human path)
-
-`python gate.py` in a terminal binds `127.0.0.1:8787` and blocks; Ctrl-C to
-stop. Same defaults, no pidfile. Useless from an agent because nothing else
-can run in that shell; use `serve`.
+`python gate.py` by hand binds `127.0.0.1:8787` and blocks the shell (Ctrl-C
+to stop); from an agent, use `serve`.
 
 ## Gotchas
 
@@ -303,13 +300,10 @@ expire it.
 
 ## Guardrails
 
-- This skill changes nothing by itself. `driver.sh` writes only under
-  `/tmp/cyclaw-gotchas` and `/root/.venv-cyclaw-312` (override with
-  `CYCLAW_SCRATCH` / `CYCLAW_VENV`); `serve` creates `logs/` in the repo
-  exactly as `gate.py` would.
-- CLAUDE.md §3's six invariants and §7's escalation tiers still govern. A
-  gotcha here is never a licence to skip a guard; it is a reason you will not
-  be surprised by one.
+- `driver.sh` writes only under `/tmp/cyclaw-gotchas` and
+  `/root/.venv-cyclaw-312` (override with `CYCLAW_SCRATCH` / `CYCLAW_VENV`);
+  `serve` creates `logs/` in the repo exactly as `gate.py` would. A gotcha
+  here is never a licence to skip a guard (CLAUDE.md §3, §7).
 
 ## Maintaining this file
 

@@ -141,10 +141,7 @@ Integrity note above for two of these): 3-layer semantic drift detection for
 - GitHub fetch: base repo pages and blob/main paths fetch fine; /tree/, /commits/,
   /pulls, PR pages are robots.txt-blocked. For blocked areas, request pasted
   content or use raw.githubusercontent.com. Don't pretend to have read what you
-  couldn't fetch.
-- CWE-1022: "Use of Web Link to Untrusted Target with window.opener Access" —
-  reverse tabnabbing. Fix: rel="noopener noreferrer" on target=_blank, or
-  window.opener=null on programmatic window.open(). Apply per §5.1.
+  couldn't fetch. (CWE-1022 / reverse tabnabbing is covered in `SKILL.md` §5.1.)
 
 ### 8.9 Sonnet-5 API notes and model-tier provenance
 

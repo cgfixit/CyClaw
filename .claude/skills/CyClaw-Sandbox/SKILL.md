@@ -369,16 +369,13 @@ subdirectory -- invoke them by that path.
 Track as KNOWN -- confirm they still exist at each full audit; never
 report one of these as a new finding.
 
-1. `check_jailbreak` is listed in the guardrails config but has no rail of
-   its own: the offline floor implements only `check_injection` and
-   `check_soul_mutation` on input, the NeMo flow `check cyclaw jailbreak`
-   runs the same injection markers, and no LLM-backed rail is active, so a
-   persona prompt worded off those markers passes. `topical_rails` is
-   display-only. `guardrail_output` runs `check_soul_leak` and
-   `check_grounding`, but on the `local_llm` answer only. The generation
-   broker also checks soul-leak markers on all four answer routes through
-   NeMo `check()` or deterministic fallback when a live check is unavailable.
-   Grounding remains scoped to retrieved local answers.
+1. `check_jailbreak` has no rail of its own: input rails are
+   `check_injection` and `check_soul_mutation` (the NeMo flow reuses the
+   same markers) and no LLM-backed rail is active, so a persona prompt worded
+   off those markers passes; `topical_rails` is display-only. Output rails
+   (`check_soul_leak`, `check_grounding`) apply to the `local_llm` answer;
+   the broker checks soul-leak markers on all four answer routes, grounding
+   only on retrieved local answers.
 2. Telegram's T4 media handling is partial and POSIX-only.
 3. Episode-to-fact consolidation is not implemented (the former
    `memory/consolidation.py` stub was removed).
@@ -402,11 +399,7 @@ report, never assume.
 
 | # | Invariant | Check |
 |---|---|---|
-| 1 | RAG-First | `retrieve` is always the unconditional graph entry point |
-| 2 | Topology = Policy | Routing via the named routers, never a prompt or ad-hoc branch |
-| 3 | Triple-Gated External | `app.mode=="hybrid"` AND `<provider>.enabled` AND per-request `user_confirmed_online`, all three, for whichever provider is selected |
-| 4 | Audit Convergence | Every path -- including `hook-denied`, `external-unavailable`, `guardrail-blocked` -- reaches `audit_logger` exactly once before END |
-| 5 | Soul Governance | Evolution requires a non-empty human `reason` string; write is atomic |
+| 1–5 | The five graph invariants I1–I5 | As `CLAUDE.md` §3 states them (RAG-first entry, routing by the named routers only, the per-request triple gate for the selected provider, every path -- `hook-denied`, `external-unavailable`, `guardrail-blocked` included -- reaching `audit_logger` exactly once, a human `reason` for soul evolution); `invariant-guard` is the checker |
 | 6 | Telemetry Contract | Owned by `otel-hardening`, not this skill: canonical maps in `utils/telemetry_kill.py` applied at import (G1 anchor); `python3 .claude/skills/otel-hardening/check_otel.py --strict` is the authority, not a count copied into this document |
 | 7 | Loopback Only | `api.host == "127.0.0.1"` |
 | 8 | FsConnect Read-Only Default | `fsconnect.writes_enabled=false`, `follow_symlinks=false` |
@@ -427,12 +420,6 @@ report, never assume.
 
 ## Gotchas
 
-- **`python3` may not be 3.12.** See Step 2 above -- point explicitly at
-  `python3.12` (or the session venv's `bin/python`) rather than trusting
-  the default.
-- **Quick Mode and the full audit test different things.** See the
-  Operator map's Ladder D row -- treat them as complementary, never
-  substitutable in either direction.
 - **Three local-LLM realism tiers, not one.** In the in-process swarm, Tier 0
   means no responding HTTP backend; Tier 1 = `mock_ollama.py`; Tier 2 = a real daemon.
   `run_full_verification.py` auto-detects which one is live and reports it;
