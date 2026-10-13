@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import utils.gen_cert as gen_cert
 
 
@@ -231,10 +233,18 @@ def test_private_output_failure_happens_before_key_generation(monkeypatch, tmp_p
     assert not list(tmp_path.glob("*.tmp"))
 
 
-def test_native_private_output_permissions(tmp_path):
+@pytest.mark.parametrize("backup", [False, True])
+def test_native_private_output_permissions(tmp_path, backup):
     import os
     import stat
-    output = gen_cert._temporary_output_path(tmp_path / "key.pem")
+    target = tmp_path / "key.pem"
+    if backup:
+        target.write_bytes(b"synthetic-key")
+        target.chmod(0o644)
+        output = gen_cert._backup_existing_output(target)
+        assert output.read_bytes() == b"synthetic-key"
+    else:
+        output = gen_cert._temporary_output_path(target)
     if os.name != "nt":
         assert stat.S_IMODE(output.stat().st_mode) == 0o600
         return
