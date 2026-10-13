@@ -16,27 +16,23 @@ dependency.
 is a fast, pure-stdlib, no-network static checker — it is the correct tool
 for "did this PR break a pin invariant," and it should stay that way (no
 network dependency in a merge gate). But it has two blind spots by design:
-it never reads `requirements.txt` (grep `check_deps.py` — zero references),
-and it cannot tell you whether `numpy==1.26.4` is still a reasonable choice
-in July 2026 versus May 2024, because that requires a live PyPI lookup.
-This skill closes both gaps. It was built after discovering, by hand, that
-the "preferred" `uv pip install -r pyproject.toml --constraint
-constraints.txt` recipe documented in three files (and actually *executed*
-as the Dockerfile's primary install path) had been silently failing and
-falling through to its pip fallback on every single build — a bug no
-existing check would have caught, because it's a install-command-shaped
-bug, not a pin-agreement-shaped one.
+it reads `requirements*.txt` only for the NeMo contract (D11), never for pin
+agreement, and it cannot tell you whether `numpy==1.26.4` is still a
+reasonable choice today versus when it was pinned, because that requires a
+live PyPI lookup. This skill closes both gaps.
 
-The same shape recurred 2026-09-11, which is why Step 4 is not optional: the
-rewritten uv line resolved fine until `constraints.txt` gained a `setuptools`
-pin (2026-09-07, for a pip-audit advisory floor). The PyTorch CPU index
-mirrors `setuptools` at a different version, and uv's **default**
-`first-index` strategy then refuses to consult PyPI for a package an earlier
-index already carried — so uv failed on `setuptools`, not on torch, and
-`2>/dev/null ||` sent every build down the pip branch again. Nothing static
-caught it: the pins agreed, and pip (which searches all indexes) kept CI
-green. The Dockerfile now runs pip as its only path, and E5 fails any
-dependency-install `RUN` that redirects stderr or branches on `||`.
+It was built after two install-command-shaped bugs that no pin-agreement
+check could see. In 2026-07 the "preferred" `uv pip install` recipe, executed
+as the Dockerfile's primary path, had been failing silently and falling
+through to its pip fallback on every build. On 2026-09-11 the rewritten uv
+line failed again, this time on a `setuptools` pin: the PyTorch CPU index
+mirrors `setuptools` at another version and uv's default `first-index`
+strategy refuses to consult PyPI for a package an earlier index already
+carried, so `2>/dev/null ||` sent every build down the pip branch while CI
+stayed green. uv was removed from the Dockerfile (it now installs the hashed
+`locks/`, pip only), and E5 fails any dependency-install `RUN` that redirects
+stderr or branches on `||`. The lesson behind Step 4: the pins can agree
+perfectly while the command that consumes them is broken.
 
 ---
 
@@ -49,9 +45,10 @@ tree:
 
 | Surface | What it installs | Extras? |
 |---|---|---|
-| `pip install -r requirements.txt -c constraints.txt` | Base runtime, NeMo, and torch CPU (test tools live in `requirements-test.txt`, kept out of the Docker image). Header declares itself a **legacy compatibility surface**, kept in sync with `pyproject.toml`/`constraints.txt` for the Dockerfile and legacy CI/tools | **None.** Zero extras, by design |
+| Hashed locks: `pip install --require-hashes -r locks/requirements-{torch,,test}-lock-<os>.txt` (CLAUDE.md §8, `driver.sh venv`, the Dockerfile) | The documented install: the torch CPU wheel first (`--no-deps`, CPU index on Linux/Windows, plain torch on macOS), then the fully resolved runtime and test sets. Generated from the manifests below by `scripts/refresh-runtime-lock.sh` / `refresh-ci-locks.sh` on arm64 macOS; `scripts/check_lock_contract.py` refuses locks whose recorded inputs no longer match `constraints.txt`/`pyproject.toml` | **None** — a lock is one resolved set |
+| `pip install -r requirements.txt -c constraints.txt` | Base runtime and NeMo, **torch deliberately absent** (its header says so; test tools live in `requirements-test.txt`). Declares itself a **legacy compatibility surface** kept in sync with `pyproject.toml`/`constraints.txt` for older CI/tools | **None.** Zero extras, by design |
 | `pip install -e ".[<extra>]" -c constraints.txt` | The base dependencies in `pyproject.toml` `[project.dependencies]`, plus whichever extras are named | **Yes — the only surface that can install one** |
-| `Dockerfile` (+ `docker-compose.yml`, `.dockerignore`, `.github/workflows/publish-ghcr.yml`) | Runs `pip install --upgrade pip==<ci pin>`, then the CPU torch wheel, then `pip install --no-cache-dir -r requirements.txt -c constraints.txt` — one path, no `||` branch, no stderr redirect. Compose runs the image (loopback publish, runtime-state mounts), `.dockerignore` shapes the build context, `publish-ghcr.yml` ships the image compose pulls — E5/E6 pin the four files to each other | **None** — it *is* surface #1, containerized |
+| `Dockerfile` (+ `docker-compose.yml`, `.dockerignore`, `.github/workflows/publish-ghcr.yml`) | `pip install --upgrade pip==<ci pin>`, then `--require-hashes` from `locks/requirements-torch-lock-linux.txt` and `locks/requirements-lock-linux.txt` — one path, no `||` branch, no stderr redirect, no `torch==` line of its own. Compose runs the image (loopback publish, runtime-state mounts), `.dockerignore` shapes the build context, `publish-ghcr.yml` ships the image compose pulls — E5/E6 pin the four files to each other | **None** — the hashed-lock surface, containerized |
 | `conda env create -f environment.yml` | Base runtime + test/dev tools from conda-forge, plus a `pip:` tail for NeMo, Chroma/FastAPI/Starlette, and the remaining PyPI packages | **None** |
 
 Two consequences that drive every judgement in this skill:
@@ -103,9 +100,10 @@ environment.yml}` table and flags any `requirements.txt` `<->`
 Add `--json` for a machine-readable version if you're about to hand the
 package list to Step 3.
 
-This is reporting-only (always exits 0 on a parseable tree, 3 if
-`pyproject.toml`/`constraints.txt` are missing) — a drift line here is a
-finding to act on, not a gate failure to unblock.
+By default this is reporting-only (exit 0 on a parseable tree, 3 if
+`pyproject.toml`/`constraints.txt` are missing) — a drift line is a finding
+to act on. `--strict` turns a `requirements*.txt` ↔ `constraints.txt` drift
+into exit 2; `verify.sh` relies on that.
 
 ### Step 3 — Environment drift *outside* the pin manifests
 
@@ -120,8 +118,8 @@ places no manifest checker reads, and nothing cross-checks those. Seven classes:
 - **E1 — tool versions pinned inline in workflow YAML.** `flake8==7.3.0` and
   `wemake-python-styleguide==1.6.2` run in the (advisory) lint lane
   (`lint.yml`); `actionlint-py==1.7.12.24` and `zizmor==1.28.0` gate CI
-  (`ci.yml`); `pip` is pinned at **14 separate sites** across 6 workflow
-  files (the checker prints the live count). None appears in
+  (`ci.yml`); `pip` is pinned inline at well over a dozen sites across six
+  workflow files (the checker prints the live count). None appears in
   any manifest. The failure this catches is not a wrong version — it is the
   *same* tool pinned at two different versions in two jobs, which makes one
   lane's result silently unreproducible against the other's.
@@ -140,13 +138,13 @@ places no manifest checker reads, and nothing cross-checks those. Seven classes:
 - **E4 — the install-surface scope contract** from the table above: asserts
   `requirements.txt` carries no extras-only package.
 - **E5 — the Docker build's dependency-install contract**: asserts the
-  Dockerfile copies the manifests, uses `requirements.txt` + `constraints.txt`
-  on both the uv path and the pip fallback, never installs
-  `requirements-test.txt` into the image, and pre-installs the **same**
-  `torch==` the `constraints.txt` pin names — the Dockerfile's own comment
-  records the miss (constraints moved `2.12.1 -> 2.13.0`, the fallback line
-  did not, and the fallback installed the old wheel then failed the
-  constrained resolve). A "some `torch==` is present" check passed that tree.
+  Dockerfile installs from the hashed Linux locks with `--require-hashes` on a
+  single pip path (no `||` fallback, no stderr redirect), never installs the
+  test lock into the image, and that the torch the torch lock pins is the
+  **same** release `constraints.txt` names — the Dockerfile's own history
+  records the miss (constraints moved `2.12.1 -> 2.13.0`, the old fallback
+  line did not, and it installed the old wheel then failed the constrained
+  resolve). A "some `torch==` is present" check passed that tree.
 - **E6 — the rest of the Docker surface**: `docker-compose.yml`,
   `.dockerignore`, and `.github/workflows/publish-ghcr.yml` must agree with
   the Dockerfile and each other. `.dockerignore` keeps the three COPYed
@@ -190,13 +188,15 @@ versions from a fresh-venv install, not guessed. Both pins also appear in
 Conda matches the base package metadata. Any new name this check reports
 requires investigation.
 
-`pyodbc` is a *third* undeclared import and is **intentional**, so it lives in
-`_IMPORT_ALLOWLIST` with its reason rather than being reported:
-`agentic/sqlconnect/client.py` imports it inside a function and raises a
-friendly "pyodbc is not installed" if absent, so a disabled connector needs
-nothing installed. Declaring it would put an MSSQL driver on every box for a
-connector that ships off. Keep the allowlist an argued exception list — a new
-entry needs its reason written next to it, or it becomes a silencer.
+`pyodbc` is declared only in the `mssql` extra (and pinned in
+`constraints.txt`), never in the base dependencies: `agentic/sqlconnect/client.py`
+imports it inside a function and raises a friendly "pyodbc is not installed"
+if absent, so a disabled connector needs nothing installed, and a base
+declaration would put an MSSQL driver on every box for a connector that ships
+off. It still carries an `_IMPORT_ALLOWLIST` entry with that reason so E3
+never flags it as a base-surface gap. Keep the allowlist an argued exception
+list — a new entry needs its reason written next to it, or it becomes a
+silencer.
 
 ### Step 4 — Verify each install surface's primary command actually resolves
 
@@ -205,26 +205,29 @@ skill was born from had perfectly agreeing pins and a still-broken install
 line. For each surface, dry-run the documented/executed primary command
 against a real Python 3.12 venv:
 
-Use the installer each surface actually names — `pip`, not `uv`. CyClaw
-invokes `uv` nowhere: no workflow, no documented command, and since
-2026-09-11 not the Dockerfile either. Dry-running `uv` here tests a command
-the repo does not run, and (per the failure classes below) fails today for a
-reason that has nothing to do with the manifests.
+Use the installer each surface actually names — `pip`, not `uv`. No
+install surface runs `uv` (no workflow, no documented command, and since
+2026-09-11 not the Dockerfile); `uv pip compile` is used only by the lock
+*refresh* scripts. Dry-running `uv` here tests a command the repo does not
+run, and (per the failure classes below) fails today for a reason that has
+nothing to do with the manifests.
 
 ```bash
 python3.12 -m venv /tmp/verify-deps-venv
 source /tmp/verify-deps-venv/bin/activate
-# 1. Local dev (CLAUDE.md §8 / AGENTS.md) — the --extra-index-url is required:
+# 1. The documented install (CLAUDE.md §8), which is also the Dockerfile's
+#    path: the hashed torch lock first, then the runtime and test locks.
+pip install --dry-run --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --dry-run --require-hashes -r locks/requirements-lock-linux.txt
+pip install --dry-run --require-hashes -r locks/requirements-test-lock-linux.txt
+# 2. Editable install for console scripts — the --extra-index-url is required:
 #    constraints.txt pins torch==...+cpu, which sentence-transformers pulls in,
 #    and that wheel exists only on the CPU index. Omit it and you get a
 #    ResolutionImpossible that is your invocation's fault, not the tree's.
 pip install --dry-run -e . -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
-# 2. Legacy/CI (CLAUDE.md §8) — requirements.txt carries its own
-#    --extra-index-url line, so none is needed here:
-pip install --dry-run -r requirements.txt -r requirements-test.txt -c constraints.txt
-# 3. Dockerfile's install path, in the same three steps the builder stage runs:
-pip install --dry-run torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-pip install --dry-run -r requirements.txt -c constraints.txt
+# 3. The legacy requirements surface (torch absent there, so the constraint
+#    still needs the CPU index):
+pip install --dry-run -r requirements.txt -r requirements-test.txt -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
 # 4. The packaging config itself — the one check a dry-run cannot make. This
 #    really builds the wheel through hatchling, so a stale entry in
 #    [tool.hatch.build] `packages`/`force-include` (a deleted module left
@@ -240,7 +243,7 @@ docker compose config --quiet
 Read the failure class if any command errors:
 - `no version of torch==...+cpu` (or similar unresolvable pin) → the CPU
   wheel index isn't being reached; check for a missing `--extra-index-url`
-  or a stripped `[tool.uv.sources]` route (see Gotchas).
+  / `--index-url` (see Gotchas).
 - `no version of setuptools==<pin> and torch==...+cpu depends on
   setuptools==<pin>` **from uv** → read past the first clause. This is NOT
   the torch case above, even though torch is what the message blames and
@@ -292,8 +295,8 @@ serially.
 | Gap | Action |
 |---|---|
 | Matches latest, or pin is the newest release on an intentionally-held line (e.g. numpy `1.26.x`) | Report "current," no action |
-| Behind latest, **no CVE found**, dev-tool-only (`ruff`, `mypy`, `bandit`, `pytest*`) | Report as a bump *candidate* — low blast radius, but `dep-guard`'s own Gotchas note that a `ruff`/`mypy` bump can silently change lint/type-check behavior mid-CI, so don't bump without re-running lint/tests |
-| Behind latest, **no CVE found**, runtime dependency (`fastapi`, `uvicorn`, `langgraph`, ...) | Report as a bump candidate for explicit review — **do not bump without asking**. This is CLAUDE.md §7 Medium-High risk tier, the same tier `dep-guard`'s Guardrails already name for "bumping a pinned [dependency]" |
+| Behind latest, **no CVE found**, dev-tool-only (`ruff`, `mypy`, `bandit`, `pytest*`) | Report as a bump *candidate* — low blast radius, but a `ruff`/`mypy` bump can silently change lint/type-check behavior mid-CI (`constraints.txt`'s own comment), so don't bump without re-running lint/tests |
+| Behind latest, **no CVE found**, runtime dependency (`fastapi`, `uvicorn`, `langgraph`, ...) | Report as a bump candidate for explicit review — **do not bump without asking**. CLAUDE.md §7 puts a new runtime dependency in the High tier and a bump at Medium or above; `dep-guard`'s Guardrails say the same |
 | Behind latest, **CVE found affecting the pin's version** | Escalate clearly — this is the one case worth flagging even without being asked, since it's a live security gap, not a staleness preference |
 | Pin is a documented, deliberate exception (chromadb CVE-2026-45829 risk-accepted, numpy `<2`, pydantic/pydantic-core lock-step, `websockets` pinned direct for `langgraph-sdk` import-time compatibility) | Do not recommend bumping — report the gap for awareness only, cite the documented reason |
 
@@ -320,44 +323,22 @@ new finding — list each one; never summarize them away as "known".
 bash .claude/skills/verify-deps/verify.sh
 ```
 
-Eighteen checks, pure stdlib, no install needed:
-
-1. `extract_pins.py` on the clean tree — exit 0, no `requirements.txt` drift
-2. Mutation: drift `httpx` in a copy of `requirements.txt`, assert the `DRIFT` line
-   (and 2b: the same for a `requirements-test.txt` pin — `pytest` drifted away
-   from `constraints.txt`)
-3. Missing pin files — must fail closed (exit 3)
-4. `check_env_drift.py` on the clean tree — exit 0. Asserts the **exit code, not
-   a warning count**: a clean tree reports zero E3 warnings today, and a future
-   undeclared transitive should surface as a warning to read, not fail this test
-5. Mutation E1: the same tool pinned at two versions in two workflow files —
-   exit 2. This is the drift class nothing else in the repo can see
-6. Mutation E4: an extras-only package leaking into `requirements.txt` — exit 2,
-   *preceded* by a negative test that the same package named in a **comment**
-   does not trip it (`requirements.txt` discusses extras in prose)
-7. Strict mutation: a `requirements.txt` pin omitted from `constraints.txt` —
-   `--strict` must reject it (exit 2)
-8. The clean tree must also satisfy the strict import/environment checks
-   (`check_env_drift.py --strict` exit 0)
-9. Mutation E5: a Dockerfile that loses the constrained install contract —
-   exit 2 (the E5 self-test)
-10. Negative control: the shipped Docker surface (`Dockerfile`,
-    `docker-compose.yml`, `.dockerignore`, `publish-ghcr.yml`) copied whole
-    beside the pin manifests — exit 0 with the E6 ok lines
-11. Mutation E5: the fallback `torch==` pre-install lags `constraints.txt` —
-    exit 2 (the lock-step the Dockerfile comment asks for)
-12. Mutation E6: `.dockerignore` swallows a COPYed manifest — exit 2
-13. Mutation E6: `.dockerignore` stops excluding `index/` — exit 2 (private
-    vectors would bake into a published image)
-14. Mutation E6: the compose publish leaves `127.0.0.1` — exit 2
-15. Mutation E6: compose drops the `./index` mount — exit 2 (503
-    `INDEX_NOT_FOUND` with a green healthcheck)
-16. Mutation E6: compose's default `CYCLAW_IMAGE_TAG` no longer matches
-    `pyproject.toml`'s `version` — exit 2
-17. Mutation E6: `publish-ghcr.yml`'s `IMAGE_NAME` is not the image compose
-    pulls — exit 2
-18. Mutation E6: `.dockerignore` replaces `data/` with nested `data/personality/`
-    — exit 2 (`startswith("data/")` on a subpath must not green the `data` tree)
+Pure stdlib, no install needed. It runs both scripts on the clean tree (exit
+0, with `--strict` too; the E3 assertion is on the exit code, not a warning
+count, so a future undeclared transitive surfaces as a warning to read) and
+fails closed on missing pin files (exit 3), then a mutation per rule, each
+asserting exit 2: a `requirements*.txt` pin drifting from `constraints.txt`
+(and its `--strict` rejection), the same tool pinned at two versions in two
+workflow files (E1 — the drift class nothing else in the repo can see), an
+extras-only package leaking into `requirements.txt` (E4, preceded by a
+negative test that the same name in a *comment* does not trip it), a
+Dockerfile that loses the hashed-lock contract, grows a silent `||` fallback,
+or whose torch lock lags `constraints.txt` (E5), the Docker surface losing a
+COPYed manifest, the `index/` or `data/` exclusions, the loopback publish,
+the `./index` mount, the `CMD --port`, the image-tag/version agreement or
+the `IMAGE_NAME` compose pulls (E6, with the shipped files copied whole as
+the negative control), and a dead or orphaned E7 exemption. The script
+enumerates its checks as it runs (24 at last count).
 
 Both scripts take `--repo-root`, which is what lets the mutations run against a
 `mktemp -d` tree instead of the real repo. Does not re-test `dep-guard`'s own
@@ -369,15 +350,15 @@ delegates Step 1 to it rather than duplicating it).
 ## Guardrails
 
 - **Never bump a runtime dependency's pin without explicit user approval.**
-  This is CLAUDE.md §7 Medium-High risk tier by `dep-guard`'s own
-  Guardrails ("Adding a new runtime dependency, or bumping a pinned one, is
-  the Medium–High risk tier"). This skill's job is to make an *informed*
-  bump decision possible, not to make the decision.
+  CLAUDE.md §7 makes a new runtime dependency High tier (ask first) and a
+  bump Medium or above. This skill's job is to make an *informed* bump
+  decision possible, not to make the decision.
 - **A bump touches at minimum two files** (`pyproject.toml` AND
-  `constraints.txt`, per CLAUDE.md §6's code-change bar), often three or
+  `constraints.txt`, per CLAUDE.md §6's code-change bar), usually three or
   four (`requirements.txt`, `environment.yml` if the package is conda-side
-  too) — never bump one pin file and leave the others stale; that's the
-  exact class of bug this skill exists to catch.
+  too), **and then the hashed `locks/`** regenerated on arm64 macOS — never
+  bump one pin file and leave the others stale; that's the exact class of bug
+  this skill exists to catch.
 - **The pydantic pair, numpy `<2`, torch `+cpu`, and the chromadb CVE
   pin are load-bearing exceptions `dep-guard` already enforces** — this
   skill inherits those constraints rather than re-deciding them. If a real
@@ -392,33 +373,21 @@ delegates Step 1 to it rather than duplicating it).
 
 ## Gotchas
 
-- **`uv pip install` (uv's pip-compatible interface) does not honor
-  `pyproject.toml`'s `[tool.uv.sources]`/`[[tool.uv.index]]`** — only uv's
-  project commands (`uv sync`, `uv add`, `uv lock`) do. Any "preferred uv
-  recipe" that omits `--extra-index-url https://download.pytorch.org/whl/cpu`
-  (or doesn't pre-install torch before running) will fail to resolve
-  `torch==...+cpu`, because that wheel only exists on the CPU index, never
-  on PyPI. Verified by dry-run against this repo's real pins,
-  2026-07 — this is not a hypothetical.
-- **`--extra-index-url` plus an exactly-pinned transitive is unresolvable
-  under uv's default index strategy**, and that combination is one
-  `constraints.txt` line away at all times. uv resolves each package from the
-  *first* index that carries it at all; the PyTorch CPU index mirrors a slice
-  of PyPI (`setuptools` among it), so pinning one of those mirrored packages
-  to a version the mirror lacks makes uv stop rather than fall back. pip has
-  no such rule. Reproduced 2026-09-11 on uv 0.7.22 and 0.8.17 against Python
-  3.12 for both `-r requirements.txt` and `-e .`; the resolution was to take
-  uv out of the Dockerfile, not to relax the strategy. **Do not "fix" a uv
-  resolution failure with `--index-strategy unsafe-best-match`** without
-  owner sign-off: it is the dependency-confusion control, not a verbosity
-  flag.
-- **A build stage that copies only manifest files (`pyproject.toml`,
-  `constraints.txt`, `requirements.txt`) before installing** (the
-  Dockerfile's layer-caching pattern) cannot use `-e .` or `-r
-  pyproject.toml` to install the local `cyclaw` package itself — hatchling
-  has no `gate.py`/`graph.py`/etc. to build a wheel from yet at that point.
-  Point that specific install line at `requirements.txt` (a concrete
-  external-package list, no local build needed) instead.
+- **uv is not an install surface here, and two uv traps are why.** `uv pip
+  install` ignores `pyproject.toml`'s `[tool.uv.*]` tables (only `uv sync`/
+  `uv lock` honor them; the repo has none anyway), so it needs
+  `--extra-index-url https://download.pytorch.org/whl/cpu` to find
+  `torch==...+cpu` at all; and under uv's default `first-index` strategy an
+  exactly-pinned package the PyTorch index also mirrors (`setuptools`) makes
+  uv stop rather than fall back to PyPI (reproduced 2026-09-11 on uv 0.7.22
+  and 0.8.17). pip has neither rule. **Do not "fix" a uv resolution failure
+  with `--index-strategy unsafe-best-match`** without owner sign-off: it is
+  the dependency-confusion control, not a verbosity flag.
+- **A build stage that copies only lock/manifest files before installing**
+  (the Dockerfile's layer-caching pattern) cannot use `-e .` to install the
+  local `cyclaw` package itself — hatchling has no `gate.py`/`graph.py`/etc.
+  to build a wheel from yet at that point. That stage installs the hashed
+  locks (a concrete external-package list, no local build needed).
 - **`--dry-run` does not prove a real install succeeds.** It validates
   resolution planning, not the final build/link step — an `-e .` dry-run
   can pass even when source files a real (non-dry-run) install would need

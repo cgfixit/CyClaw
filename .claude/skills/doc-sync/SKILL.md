@@ -19,8 +19,7 @@ report a healthy server as broken.
 **Why it matters:** the repo carries two agent manuals (`CLAUDE.md`,
 `AGENTS.md`), a README, config comments, command docs, and a skills table — six
 places one fact can rot. The deterministic checker covers mechanical claims;
-the manual pass owns prose
-semantics and directory-only project trees.
+the manual pass owns prose semantics and directory-only project trees.
 
 ---
 
@@ -75,11 +74,10 @@ keeps the history reviewable. Examples of the fix direction:
 - D6 → reword the doc to say the enforcement is applied by the session runtime
   (not wired in repo `settings.json`), OR wire the hook if that is the intent —
   the latter is a settings change, so confirm with the user first.
-- D8 → replace the stale node-count claim with the real `graph.py` count
+- D8 → replace the stale node-count claim with the real `graph.py` count (never edit `graph.py` to match the doc)
 - D9 → fix the path, or say plainly in the doc that the file is gone (the checker reads "deleted"/"removed"/"excluded"/"not yet generated" as a deliberate absence)
 - D10 → repoint the link, or fix the anchor to match the heading's real GitHub slug
 - D11 → correct the module path, or add a genuinely-external runner to `_D11_EXTERNAL` in `doc_sync.py` **with a reason**
-  (never edit `graph.py` to match the doc).
 
 ### Step 3 — Manual pass for prose claims the checker can't parse
 
@@ -90,15 +88,13 @@ correct any claim the code contradicts:
   risk drift class (the `check-soul.md` example). For each command doc, confirm
   every behavioral claim ("the server will…", "look for constant X") against the
   code path it describes.
-- **Boot/failure semantics** in CLAUDE.md "Environment Quirks" — verify against
+- **Boot/failure semantics** in CLAUDE.md §4 "Boot semantics" — verify against
   `gate.py`/`utils/personality.py`: soul.md self-heals; a missing index is a
   503 fail-soft, not a crash; startup does not require `GROK_API_KEY`.
 - **AGENTS.md ↔ CLAUDE.md** — the two manuals must not contradict each other on
   invariants, install steps, or the current project mode.
-- **Two session-note locations** — `docs/memories/` is live; `.claude/memory/`
-  was the legacy location and no longer exists on disk (deleted 2026-09-16,
-  issue #1351). Docs should point at the live one and never re-create the old
-  path.
+- **Session notes live only in `docs/memories/`** — a doc that names
+  `.claude/memory/` (deleted 2026-09-16, issue #1351) is drift.
 - **Directory-only project trees** — compare README tree entries against the
   real directories. D9 checks cited file paths with extensions; it deliberately
   does not infer nesting from box-drawing trees.
@@ -122,18 +118,14 @@ bash .claude/skills/doc-sync/verify.sh
 ```
 
 Confirms the checker runs on the live tree (drift there is expected and does not
-fail the check) and passes a detection self-test: it builds a stub CLAUDE.md
-missing real skills/routes and asserts the checker flags drift (exit 2). A
-drift-checker that can't detect planted drift is useless; the self-test keeps it
-honest. Skips cleanly if PyYAML is absent.
+fail the check) and passes detection self-tests: a stub CLAUDE.md missing real
+skills/routes must be flagged (exit 2), the D7 adjacency positive/negative
+cases must behave, a 13-scenario D9–D11 mutation suite must trip each rule and
+only that rule, and `test_contracts.py` (D12/D13) must pass. A drift-checker
+that can't detect planted drift is useless; the self-tests keep it honest.
+Skips cleanly if PyYAML is absent.
 
 ---
-
-## Current baseline (2026-09-16)
-
-The checker is clean at `571388a0`. The same manual pass found the root README's
-`.claude/` tree still naming directories deleted by issue #1351; that is now the
-canonical example of drift D9 cannot see because it is a directory-only tree.
 
 ## Guardrails
 
