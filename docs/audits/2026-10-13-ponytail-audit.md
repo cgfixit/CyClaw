@@ -38,7 +38,7 @@ every candidate. Nothing was applied; selection is the owner's call. Tiers
 follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
 (shared paths, tests move with the code), Tier 3 needs an owner decision.
 
-### Tier 1 — safe cuts (about 140 source lines, zero dependencies)
+### Tier 1 — safe cuts (about 135 source lines, zero dependencies)
 
 - `shrink:` `utils/numbat_emitter.py:329` `_source_agent` reads
   `numbat.source_agent` and then returns `DEFAULT_SOURCE_AGENT` on every path
@@ -64,14 +64,20 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
   `_run_writer` (`:240-262`); route write/append/mkdir/move through
   `_run_writer` lambdas the way `cmd_delete` already does. Same 0/2/3/4 exit
   codes. **~12 lines.**
-- `shrink:` unused parameters (ruff ARG001): `cfg` on `graph.py:365`
-  `retrieve_node` and `graph.py:646` `user_gate_node` (bound by `partial` at
-  `:1282`/`:1287`, never read); `label` on `guardrails/broker.py:144`
-  `guarded_generate` (dropped after `utils/guardrail_bridge.py:105` forwards
-  it, so trim the broker only and keep the bridge signature the graph calls);
-  `allow_demand` on `utils/win_schtasks.py:202` `_settings_xml` (the only
-  caller at `:332` never passes it). **~6 lines.** The two `graph.py` edits
-  touch a core file but no edge or router; run `check_invariants.py` after.
+- `shrink:` unused parameters (ruff ARG001): `label` on
+  `guardrails/broker.py:144` `guarded_generate` (dropped after
+  `utils/guardrail_bridge.py:105` forwards it, so trim the broker only and keep
+  the bridge signature the graph calls); `allow_demand` on
+  `utils/win_schtasks.py:202` `_settings_xml` (the only caller at `:332` never
+  passes it). **~4 lines.**
+- `keep:` the unread `cfg` on `graph.py:365` `retrieve_node` and `graph.py:646`
+  `user_gate_node` (ruff ARG001; bound by `partial` at `:1282`/`:1287`). Not a
+  free cut: both nodes are called positionally with `cfg` by the two Sandbox
+  verifiers (`.claude/skills/CyClaw-Sandbox/run_full_verification.py:709/730/738`,
+  the `.codex` copy `:728/749/757`), `tests/ci_rag_smoke.py:343`,
+  `tests/test_rerank.py` (four sites) and `tests/test_graph.py:1310`, so
+  dropping the parameter is a 13-call-site signature change plus a core-file
+  edit for two unread words. The ponytail call is to leave the signature alone.
 - `shrink:` one-use private helpers where inlining is shorter:
   `utils/spend.py:174` `_tokens_for_provider`; `agentic/executor/apply.py:25`
   `_null_config_path` (`os.devnull` is already `nul` on Windows);
@@ -92,7 +98,7 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
   `--config ../x.yaml` yields a different path string than `metrics.py:47`
   produces for the same input. Zero lines saved; one-line consistency fix.
 
-### Tier 2 — worth doing, tests move with the code (about 190 source lines)
+### Tier 2 — worth doing, tests move with the code (about 185 source lines)
 
 - `shrink:` `utils/authn_store.py:36-86` vs `utils/personality_db.py:62-111`
   `connect()`: the Postgres branch plus the SQLite owner-only 0600
@@ -113,10 +119,14 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
   `_fetch_context_bundle`; site `:157` passes `include_diff` and does not
   refuse, and the refusal verb differs ("plan"/"run"), so pass the verb in or
   keep the refusal inline. **~30 lines.**
-- `shrink:` `telegram/cli.py` (six commands) and `opentweet/cli.py` (four):
-  the 7-line load-config / `EXIT_ENV` / disabled-notice preamble. Extract
+- `shrink:` `telegram/cli.py` (six commands: `cmd_send`, `cmd_poll`,
+  `cmd_poll_plist`, `cmd_health_plist`, `cmd_poll_task`, `cmd_health_task`) and
+  `opentweet/cli.py` (two: `cmd_schedule_plist`, `cmd_schedule_task`): the
+  load-config / `EXIT_ENV` / `_disabled_notice()` preamble. Extract
   `_load_enabled_cfg(args)`; the per-command mode and platform checks stay
-  inline. **~28 lines.**
+  inline. **~24 lines.** Not part of the set: OpenTweet `cmd_post` refuses with
+  `EXIT_ENV` when disabled (a different exit contract that must stay),
+  `cmd_status` continues when disabled, and `cmd_test` has no such preamble.
 - `shrink:` 30 identical 2-line print helpers (`_err` ×9, `_heading` ×8, `_ok`
   ×6, `_kv` ×4, `_warn` ×3) across the nine out-of-band CLIs and
   `retrieval/clear_cache.py`. A stdlib-only `utils/cli_out.py` saves **~80
@@ -130,9 +140,11 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
   `retrieval/embeddings.py:264-288`), and `policy.fallback.enabled` (`:228`,
   comment says "Read by no code"; I3 governs). PR #1636 removes `app.debug` and edits
   `tests/test_due_diligence_invariants.py:744`, which pins it as inert, and
-  `policy.fallback.enabled` is set to no effect by `tests/conftest.py:189` and
-  `tests/judge_eval.py:401`. `config.yaml` is a shared file: trial-merge
-  against open PRs first (`CLAUDE.md` §4).
+  `policy.fallback.enabled` is set to no effect by `tests/conftest.py:189`.
+  (`tests/judge_eval.py:401` is not evidence here: it disables
+  `models.local_llm.fallback.enabled`, a live switch `llm/client.py` reads.)
+  `config.yaml` is a shared file: trial-merge against open PRs first
+  (`CLAUDE.md` §4).
 - `docs:` three env vars read in code and documented nowhere: `CYCLAW_PYTHON`
   (`utils/launchd_plist.py:88`; the error at `:67` tells users to set it),
   `CYCLAW_LOCAL_LLM_API_KEY` (`llm/client.py:558`) and
@@ -187,13 +199,17 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
 - No empty abstractions: `HardSandbox` has three implementations,
   `HarnessRunner` and `ProposerClient` two each, `_GeneratingClient` covers
   three clients, `_PgVectorBase` two stores. There are no factory classes.
-- Lint posture: `ruff --select F401,F811,F841,B007` is clean under the project
-  config. The five F401 hits visible only with `--isolated` are in the
-  vendored `agentic/vendor/unslop/` (excluded in `pyproject.toml`, upstream
-  code left verbatim). The 18 unused `request: Request` handler arguments in
+- Lint posture: the repo-wide walk CI runs, `ruff check --select
+  F401,F811,F841,B007 .`, is clean under the project config, but that walk
+  never visits `docs/memories/zOld/`; naming
+  `docs/memories/zOld/run_full_verification.py` explicitly reports 7 hits
+  (4 F401, 1 B007, 2 F841). That file is already a whole-file Tier 3
+  candidate above, so the hits add no new symbol. The five F401 hits visible
+  only with `--isolated` are in the vendored `agentic/vendor/unslop/`
+  (excluded in `pyproject.toml`, upstream code left verbatim). The 18 unused `request: Request` handler arguments in
   `gate.py`/`gate_memory.py`/`gate_ops.py` are FastAPI DI shape and were scoped out.
 
-Potential total: about 330 source lines in Tiers 1-2, zero dependencies
+Potential total: about 320 source lines in Tiers 1-2, zero dependencies
 added or removed, plus about 1,750 lines of archived scripts under `docs/`
 and about 420 lines of test-only production code that are the owner's call.
 
@@ -226,7 +242,11 @@ Run directly in this session: the three `ast`/grep passes (stdlib `python3`,
 no third-party imports), `ruff check --select F401,F811,F841,B007,ARG`
 (57 hits across the tree, all triaged above; 3 confirmed unused parameters
 in non-test code), and hand re-verification of each Tier 1 claim by reading
-the definition and grepping its name. Not run: the test suite, `--cov`,
+the definition and grepping its name. After review, four rows were corrected
+against the tree: the `graph.py` `cfg` parameters have 13 positional callers
+(now a keep), the OpenTweet preamble set is two commands, not four,
+`tests/judge_eval.py:401` sets a different key and was dropped as evidence,
+and the lint-posture line now states the zOld walk exclusion. Not run: the test suite, `--cov`,
 `ci_rag_smoke.py`, or any live server (nothing executable changed). The
 Python 3.12 venv was still building for most of the session, so PyYAML was
 unavailable and `config.yaml` keys were enumerated with an indentation
