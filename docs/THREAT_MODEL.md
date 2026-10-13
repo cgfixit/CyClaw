@@ -285,7 +285,7 @@ narrower and more precise reason than "nothing executes":
   different threat than "run whatever an anonymous multi-tenant user uploads,"
   which is the threat gVisor/Firecracker primarily target. The later amendments
   supersede the "nothing yet" state: the real-repo path now exists, remains
-  default-off and human-gated, and is only a soft process boundary. If the
+  default-off and human-gated, and uses the required process confinement in §4. If the
   target repository or its tests are untrusted, Stage 5 becomes mandatory.
 
   **[Second amendment, added alongside the loop driver and git-write surface.]**
@@ -360,18 +360,12 @@ narrower and more precise reason than "nothing executes":
     raw model output — the one place in this pipeline that deliberately does
     NOT trust the planner's own words.
 
-  **The residual risk is real, and is exactly the executor's own risk,
-  inherited unchanged.** `run_verification`'s environment scrub is still a
-  soft, software-only control (§4's bullet above); it does not become a
-  hard sandbox by having a real caller. A verification check that itself
-  executes attacker-shaped code (a hostile test file the model proposed, that
-  the caller's own declared checks happen to run) carries the same residual
-  as before — a pinned working directory (not a filesystem jail), scrubbed env,
-  and wall-clock timeout. API-key variables are removed, but `HOME` remains
-  inherited and ordinary sockets remain available. An operator should read "accepted" as "the
-  checks I named passed against this patch," not as "this patch is safe" —
-  the human `reason` and `confirm` gates exist so that reading is a deliberate
-  choice, not an assumption baked into the tooling.
+  **Current residual risk.** Checks execute repository code inside the required
+  filesystem/network boundary in §4, with a disposable HOME and a gitless mirror.
+  They cannot write the authoritative checkout or use ordinary network sockets.
+  Host-readable files remain visible, and detached macOS descendants may outlive
+  process-group cleanup while retaining Seatbelt restrictions. Passing a check
+  is evidence about that check, not proof that a patch is safe.
 
   Verification uses a disposable HOME and a gitless mirror under the filesystem
   and network boundary described above. Its output is evidence only. Publication
@@ -424,31 +418,16 @@ narrower and more precise reason than "nothing executes":
   Containment is a separate and already-closed concern — `tools.add` routes each
   path through `_validate_write_path`, so nothing can be staged outside the
   clone regardless.
-- **The residual risk this changes is real and is named, not hidden.** A
-  hostile test file (for example a `conftest.py` with a direct network or file
-  operation) can run arbitrary code with the executor subprocess's privileges.
-  The compensating controls are a pinned `cwd`, a scrubbed but not empty
-  environment, fixed caller-declared argv, a hard per-check wall-clock timeout,
-  and `check=False` so non-zero exit is data rather than an exception. None is a
-  filesystem or network jail. In the shipped Compose container, the process can
-  read anything UID 1000 can read and write the six mounted carve-outs. In a
-  native macOS run, it executes as the operator account and can reach every
-  operator-readable or operator-writable path. Both variants can use ordinary
-  TCP/UDP sockets and see the inherited `HOME`. API keys are removed from the
-  child environment, but files or credential helpers beneath `HOME` are not
-  made unreachable.
-- **What this does NOT change:** GitHub writes remain unreachable on a shipped
-  checkout — though as of 2026-08-07 that is held by `agentic.enabled: false`
-  alone rather than by four independent gates (see the fourth and eighth
-  amendments below), SQL is still
-  read-only-guarded, and filesystem writes are still triple-gated. The executor
-  itself never chooses WHAT to run — the argv is fixed, non-attacker-chosen,
-  operator- or config-supplied — but correcting an earlier overclaim: it does
-  not follow that nothing it runs can write. Its `cwd` is the same worktree
-  `run_real_repo_loop` just wrote model-authored content into, so the shipped
-  default check (`pytest`) can and does write there in the ordinary course of
-  test collection and execution — a hostile `conftest.py` reaching disk is
-  exactly the residual risk named in the bullet above, not a separate one.
+- **Current execution boundary.** A hostile test file executes inside a
+  disposable gitless mirror under required Seatbelt or bubblewrap confinement
+  (§4). Writes are limited to the mirror and scratch; network access is denied.
+  Windows verification refuses. Host reads and detached macOS descendants remain
+  documented limitations. The caller selects checks; repository code can execute
+  during collection, so named checks are not a code-safety guarantee.
+- **Publication stays separate.** GitHub publication requires the configured
+  gates and human approval. SQL remains read-only-guarded and filesystem writes
+  remain separately governed.
+
 
 ### Fourth amendment — the GitHub write path is implemented (P10)
 
@@ -486,13 +465,11 @@ narrower and more precise reason than "nothing executes":
 - **The residual risk, named.** With the flag armed and the config gates opened,
   this code can push a `claude/*` branch and open a draft PR against the
   configured repo as the authenticated `gh` identity. It cannot push to `main`,
-  force-push, or delete. Two honest gaps: `push_branch` inherits the operator's
-  ambient git credential helper (CyClaw passes no token of its own, deliberately
-  — the environment it would live in is shared with the executor that runs
-  model-proposed commands), and `agentic/executor`'s operator-supplied check
-  argv can already run `git push` inside the clone, bypassing the `claude/*`
-  scoping. The second is pre-existing, operator-supplied rather than
-  model-supplied, and is called out as item H of the enablement checklist.
+  force-push, or delete. The publisher trusts the operator's global/system Git
+  configuration and credential helper. Verification has a disposable HOME,
+  no Git metadata and denied network access; the former inherited-HOME/network
+  bypass described here is superseded by §4's confinement boundary. A malicious
+  operator-supplied command remains outside the trusted-operator threat model.
 - **What still does not exist:** `pr_comment` and `issue_comment` execution,
   and any `/ops/*` route reaching a write. **Superseded in part by the sixth
   amendment below:** the other three items this bullet used to claim — a
@@ -669,20 +646,10 @@ describing its own point in time and is retained as a historical record.
 - **Rollback.** `CYCLAW_AGENTIC_WRITE_DISABLE=1` closes the code-level gate with
   no source edit. Disable-only by construction (AND-ed with `EXECUTION_ENABLED`,
   never OR-ed), so it cannot arm a build that ships disarmed.
-- **Item H's sharpening is real but not yet live.** The checklist's accepted
-  executor-argv gap (a `--checks-file` entry invoking `git push` reaches the
-  operator's `HOME`-resident credential helper, bypassing `push_branch`'s
-  `claude/*` scoping) requires `agentic.enabled` **and**
-  `deepagent_github.enabled` **and** `allow_git_write_tools` — all still
-  `false`, so the executor is unreachable today. What changed is that arming
-  step 2 (`gh auth setup-git`) puts the ambient credential on the operator's
-  machine permanently, where no in-repo control can see it. Before: two
-  barriers. After: one. The harness HTTP path is unaffected — it sends check
-  *profile names* against a fixed four-entry allowlist and never raw argv, so
-  this remains a local-CLI-only gap.
-- **A `--checks-file` is now a credential-bearing artifact.** It is parsed into
-  arbitrary argv with no allowlist and executed with `HOME` present. Never
-  accept one from a model, a PR diff, an issue body, or a corpus document.
+- **Current check-file boundary.** The historical inherited-HOME/network gap is
+  superseded by required confinement (§4). A `--checks-file` still selects
+  executable argv and must be operator-authored; never accept it from a model,
+  PR diff, issue body or corpus. Confinement limits effects, not trust in code.
 - **`/health` egress.** `/health` carries neither auth nor a rate limit, and
   under `mode: hybrid` its provider-liveness probes were authenticated outbound
   calls any local process — or any page in the operator's browser, `GET` being

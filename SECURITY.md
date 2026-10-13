@@ -8,7 +8,7 @@ Open a private security advisory on GitHub ([cgfixit/CyClaw](https://github.com/
 
 ## Security Model (Summary)
 
-CyClaw is an **offline-first, loopback-only** local AI gateway. Items 1–6 are the pinned security invariants, each with its test in [`INVARIANTS.md`](INVARIANTS.md) and its history in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (eighteen numbered amendments as of 2026-10-03); items 7–9 are supplementary controls that sit beside them, not invariants:
+CyClaw is an **offline-first, loopback-only** local AI gateway. Items 1–6 are the pinned security invariants, each with its test in [`INVARIANTS.md`](INVARIANTS.md) and its history in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md); items 7–9 are supplementary controls that sit beside them, not invariants:
 
 1. **RAG-first** — `retrieve` is the unconditional LangGraph entry node; no bypass edge exists.
 2. **Topology = policy** — routing is done by score gates in graph edges, never by prompts.
@@ -142,3 +142,41 @@ image ENV instead.
 Sensitive paths are listed in `.github/CODEOWNERS`; changes there are review-requested automatically.
 
 Bidi and tag-character checks in `.githooks/_security.sh` skip a hit only when the file name matches `SEC_BINARY_GLOBS` and the line is invalid UTF-8 (and `iconv` is available). Executable and archive types (`*.whl`, `*.jar`, `*.so`, `*.dll`, `*.exe`, `*.dylib`) are currently exempt under that condition; #1624 tracks narrowing. Secret patterns still run on these files.
+
+## Issue #1526 residual decisions (2026-10-12)
+
+This register records the closure scope of [#1526](https://github.com/cgfixit/CyClaw/issues/1526).
+It is not a new exhaustive security scan. Merge the linked implementation drafts
+and require their platform checks before closing the umbrella.
+
+| Concern | Disposition and boundary |
+|---|---|
+| TLS cookie deletion and public paths | Correct secure deletion attributes; redact paths containing spaces and UNC paths; retain distinct Windows corpus-relative citations. Implemented by [#1635](https://github.com/cgfixit/CyClaw/pull/1635); see [authentication design](docs/AUTHENTICATION_DESIGN.md). |
+| Git origin and helper lifetime | Independent origin pin and bounded helper-tree lifetime are owned by [#1630](https://github.com/cgfixit/CyClaw/pull/1630) (including startup/cleanup corrections), linked to [#1558](https://github.com/cgfixit/CyClaw/issues/1558). Require its checks and review; this umbrella does not duplicate that implementation. Global/system Git config and credential helpers remain operator-trusted. |
+| Lock and wheel truthfulness ([#1631](https://github.com/cgfixit/CyClaw/pull/1631)) | Validate every maintained runtime/CI lock against its inputs, constraints and recorded hashes; stage whole refresh groups before publication; compare base wheel metadata. This detects drift, not reproducibility against a changing package index. Abrupt host failure during multi-file publication is detected by the stamp; it is not a filesystem transaction. |
+| Codex patch publication (#1631) | Bound the patch before upload and after download; require the exact approved old head at the remote update and a single child commit. Same-repository gating is already present. Workflow trust/ruleset governance and alert 1726 remain recorded in #1558 and the workflow-risk register above; accepted alert status is not remediation. |
+| Encrypted scheduled sync ([#1632](https://github.com/cgfixit/CyClaw/pull/1632)) | Retrieve only `RCLONE_CONFIG_PASS` at execution time from macOS Keychain or Windows Credential Manager; never write it into a schedule. Missing interactive unlock, inaccessible credentials or unavailable rclone must fail noninteractively. Linux automatic keystore retrieval is unsupported; secure operator-managed environment injection remains available. See [sync setup](docs/SYNC_README.md). |
+| Verification confinement | Accept host-readable files and detached macOS descendants as documented limits; use trusted worktrees. Windows verification remains refused. No native isolation parity or hostile multi-tenant execution claim. Mirror preparation's cooperative time/disk limitation was dispositioned in #1557. |
+| MSSQL read-only behavior | Least-privilege DB roles are mandatory. ODBC access-mode hints and SQL screening are defense in depth; no deployed MSSQL enforcement evidence is claimed. Native integration validation is follow-up before expanding deployment claims. |
+| Windows TLS private keys | [#1635](https://github.com/cgfixit/CyClaw/pull/1635) applies an owner-only protected DACL to temporary outputs before writing secret bytes; fail if restriction fails. Native Windows CI must validate the descriptor before merge. Administrator/backup privileges and pre-existing copies are outside this per-file control. |
+| Cookie transmission to other ports | Accepted browser limitation: cookies cannot be port-scoped. Use a dedicated hostname and TLS when other local services are untrusted. Origin-bound tokens do not prevent theft and replay. |
+| `key_configured` / 401 setup-state disclosure | Accepted low-impact configuration-state disclosure for the single-operator loopback service; no key value is disclosed. Revisit for remote or multi-tenant deployments. |
+| `GET /auth/whoami` CSRF rotation | Accepted session-local behavior; clients must use the latest returned token. Multi-tab token ergonomics are optional research, not a bypass of CSRF checks. |
+| CSP `style-src 'unsafe-inline'` | Accepted styling compatibility; `script-src 'self'`, output escaping and other headers remain required. A style nonce/hash migration is optional hardening. |
+| Chroma and scanner acceptances | Existing time-bounded dependency register above remains authoritative; [#1255](https://github.com/cgfixit/CyClaw/issues/1255) owns the Chroma replacement/retention decision. #1556's DevSkim and scanner work is already closed. Do not renew advisory dates without a new review. |
+
+Original F1–F14 mitigations and the remaining low-severity fixes landed in the
+preceding linked PRs: shared secret policy and redaction, Unicode/SQL guards,
+proxy/cross-site checks, bounded auth/graph pools, current-password verification,
+external attempt budgets, private audit logs and HMAC fingerprints, COOP/no-store,
+nonblocking protected filesystem reads, corpus size caps, scheduled OpenTweet
+screening, private curl headers and temporary launcher logs. These controls retain
+their documented limits: pattern screening is heuristic; attempt ceilings do not
+measure dollar spend; operator configuration and code review remain trust inputs.
+Request bodies are counted while streaming, including absent/false Content-Length.
+
+Optional follow-up research: stronger host-read and detached-process isolation,
+a native Windows verification sandbox, idle/reboot keystore availability under
+real service identities, deployed MSSQL role verification, CSP styling migration,
+and browser multi-tab CSRF ergonomics. A live-provider transfer or installed-service
+reboot test is not implied by disposable local-config or hosted CI evidence.
