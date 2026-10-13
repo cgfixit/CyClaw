@@ -116,9 +116,17 @@ these values silence vendor telemetry readers; they do not close sockets.
    `brew`, two of the three `uv` sites and the Keychain scripts' `security`
    live only there). Every fixed binary in `KNOWN_EXTERNAL_COMPONENTS` also
    needs a `FIXED_LAUNCHER_SITES` row naming its file and a source marker
-   that exists only while that file still launches it (a shell or
-   PowerShell file is a fine site: the marker is a text match); a service
-   CyClaw fronts but never spawns goes in `FRONTED_SERVICES` with the reason.
+   that exists only while that file still launches it: the invocation line
+   itself (the argv literal or the shell command), never only a default
+   parameter, a `shutil.which()` lookup or an env override, all of which
+   outlive the call (a shell or PowerShell file is a fine site: the marker
+   is a text match); a service CyClaw fronts but never spawns goes in
+   `FRONTED_SERVICES` with the reason, and "never spawned" has to survive
+   the shell sweep too (`ollama serve` in the setup script took it out of
+   that table). A shell site that runs a telemetry-capable binary must
+   also eval the canonical `--export shell` block first, as
+   `invoke-cyclaw.sh` and `setup-from-clone.sh` do; pin that eval line as
+   one of the site's markers.
    T13 warns when a marker disappears and fails when a known binary has no
    site row at all, so a retired binary can no longer stay "classified".
    Python dependencies are read from `project.dependencies`, every

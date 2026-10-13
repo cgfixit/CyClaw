@@ -472,6 +472,15 @@ text = text.replace("\"$uv_bin\" pip compile", "\"$uv_bin\" zz_no_longer_compile
 assert "\"$uv_bin\" pip compile" not in text and "uv_bin=\"${UV_BIN:-uv}\"" in text'
 _expect "T13 fixed-launcher invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .uv.: scripts/refresh-ci-locks.sh no longer carries"
 
+# 34. T13: the setup script's canonical-export eval is removed while its gh
+#     calls stay. The gh row's claim that the shell site carries the block is
+#     only true while that eval exists, so it is pinned as a marker.
+a="$(_mktree)"
+_mutate "$a/macos/setup-from-clone.sh" '
+text = text.replace("-m utils.telemetry_kill --export shell", "-m zz_no_export_zz")
+assert "gh auth login --with-token" in text'
+_expect "T13 setup-script export eval gone mutation" 0 "WARN  \[T13\] fixed launcher .gh.: macos/setup-from-clone.sh no longer carries"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"

@@ -350,8 +350,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "controls": {"GH_TELEMETRY": "false"},
         "url": "https://cli.github.com/manual/gh_help_environment",
         "versions": "external binary >= 2.40 (agentic floor); telemetry shipped in 2.83",
-        "enforcement": "env forced at all three spawn sites (agentic/gh_client.py x2, agentic/writer.py) via "
-                       "build_telemetry_safe_env -- an ambient true/log can never reach a child",
+        "enforcement": "env forced at all three Python spawn sites (agentic/gh_client.py x2, agentic/writer.py) "
+                       "via build_telemetry_safe_env -- an ambient true/log can never reach a child. The one "
+                       "shell site, macos/setup-from-clone.sh's `gh auth status`/`gh auth login` (step 6), "
+                       "evals the canonical `--export shell` block first since PR #1637, the same way "
+                       "invoke-cyclaw.sh does; that eval line is a FIXED_LAUNCHER_SITES marker",
         "scope": "agentic read/write ops", "reviewed": "2026-10-13",
         "evidence": "gh help environment documents GH_TELEMETRY true/false/log; re-read from cli/cli "
                     "pkg/cmd/root/help_topic.go 2026-10-13: 'false' or '0' disables, 'log' prints to stderr "
@@ -484,13 +487,18 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "ollama daemon", "category": 4, "controls": {},
         "url": "https://docs.ollama.com",
-        "versions": "external daemon on 127.0.0.1:11434",
+        "versions": "external daemon on 127.0.0.1:11434. Never spawned by a runtime path; the interactive "
+                    "macos/setup-from-clone.sh may start `ollama serve` in the background and run "
+                    "`ollama pull` after an operator confirm (FIXED_LAUNCHER_SITES pins both lines), under "
+                    "the canonical block that script now evals before its gh/ollama steps",
         "enforcement": "CyClaw's own traffic is loopback inference only. The daemon's cloud/web features are "
                        "DAEMON policy CyClaw cannot set: local-only mode requires OLLAMA_NO_CLOUD=1 (or "
                        "disable_ollama_cloud) in the independently-running daemon's environment, then a "
                        "daemon restart -- document, don't claim",
-        "scope": "local LLM path", "reviewed": "2026-08-27",
-        "evidence": "no CyClaw-side switch exists for a foreign daemon; noted in SECURITY.md classification",
+        "scope": "local LLM path", "reviewed": "2026-10-13",
+        "evidence": "no CyClaw-side switch exists for a foreign daemon; noted in SECURITY.md classification. "
+                    "Setup-script spawn sites found 2026-10-13 (Codex P2 on PR #1637): serve at "
+                    "setup-from-clone.sh:517, pull at :545, both operator-interactive",
     },
     {
         "name": "lm studio", "category": 5, "controls": {},
@@ -840,8 +848,10 @@ DYNAMIC_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 # spawn site whose marker could prove or disprove them, so they are exempt
 # from FIXED_LAUNCHER_SITES by name, with the reason.
 FRONTED_SERVICES: dict[str, str] = {
-    # loopback HTTP inference daemon the operator runs; utils/health.py probes it
-    "ollama": "independently-running daemon reached over loopback HTTP (utils/health.py), never spawned",
+    # Empty since 2026-10-13: ollama lived here until the setup-script sweep
+    # found `ollama serve` / `ollama pull` in macos/setup-from-clone.sh (Codex
+    # P2 on PR #1637, third round), so it is a FIXED_LAUNCHER_SITES row now.
+    # The mechanism stays for the next genuinely never-spawned service.
 }
 
 # Spawn sites for every FIXED external binary in KNOWN_EXTERNAL_COMPONENTS:
@@ -852,14 +862,27 @@ FRONTED_SERVICES: dict[str, str] = {
 # the security(1) site of PR #1632 was missed for a day, because until
 # PR #1637 the fixed list was never checked against the tree. Shell and
 # PowerShell launchers count: a marker is a text match, not a Python one.
+# Every row carries the INVOCATION (the argv literal or the shell command
+# line), not only the name's declaration: a default parameter, a
+# shutil.which() lookup or an env override survives the removal of the
+# call that spawns (Codex P2s on PR #1637, rounds two and three).
 # One row per line so verify.sh can delete a row with a line mutation.
 FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("gh", "agentic/gh_client.py", ('gh_bin: str = "gh"',)),
-    ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"',)),
+    ("gh", "agentic/gh_client.py", ('gh_bin: str = "gh"', '[gh_bin, "pr", "view"')),
+    ("gh", "agentic/writer.py", ('gh_bin: str = "gh"', '[gh_bin, "pr", "create"')),
+    # the operator setup script's own gh calls carry the canonical block via the
+    # same --export eval the launcher uses; the third marker pins that eval
+    ("gh", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token",
+                                         "-m utils.telemetry_kill --export shell")),
+    ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"', 'rclone_bin, "copy",', 'rclone_bin, "bisync",')),
     ("brew", "macos/setup-from-clone.sh", ("brew analytics off >/dev/null",)),
-    ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")',)),
-    ("openssl", "utils/gen_cert.py", ('shutil.which("openssl")',)),
-    ("numbat", "utils/numbat_gate.py", ('DEFAULT_BINARY = "numbat"',)),
+    ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")', '[binary, "config"',
+                                                           "[binary, *argv]")),
+    ("openssl", "utils/gen_cert.py", ('shutil.which("openssl")', '"req",')),
+    ("numbat", "utils/numbat_gate.py", ('DEFAULT_BINARY = "numbat"', 'argv = [binary, "rules", "check"')),
+    # the daemon is independent at runtime, but the interactive setup script
+    # starts it and pulls the model when the operator says yes
+    ("ollama", "macos/setup-from-clone.sh", ('ollama serve >"$OLLAMA_LOG" 2>&1 &', 'ollama pull "$OLLAMA_MODEL"')),
     ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")',)),
     ("crontab", "sync/scheduler.py", ('shutil.which("crontab")',)),
     ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")',)),
