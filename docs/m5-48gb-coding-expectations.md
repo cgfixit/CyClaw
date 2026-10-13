@@ -20,12 +20,10 @@ mistakes durable.
 
 ## Operator SKU
 
-Recorded facts only. The Pro bin was **verified 2026-09-06** from the
-operator's System Information (Hardware overview + Graphics/Displays panes):
-this is the **18-core CPU / 20-core GPU** bin, not the 15/16 one. Serial number,
-Hardware UUID, and Provisioning UDID were deliberately left out — per-device
-identifiers do not belong in a public repo; the Model Identifier and SKU below
-are shared by every unit of this configuration and are what a reader needs.
+Recorded facts only, verified 2026-09-06 from System Information: the
+**18-core CPU / 20-core GPU** bin, not the 15/16 one. Per-device identifiers
+(serial, Hardware UUID, Provisioning UDID) are deliberately omitted; the Model
+Identifier and SKU below are shared by every unit of this configuration.
 
 | Field | This machine |
 |---|---|
@@ -42,15 +40,12 @@ are shared by every unit of this configuration and are what a reader needs.
 | Not this machine | **M5 Max** (18/32 or 18/40, ~460 or ~614 GB/s, max **128 GB**) |
 | Local coder | `qwen3.8:27b-mlx`, 4-bit, `reasoning_effort: none`, `num_ctx` 32768 |
 
-48 GB on an M5 Pro is a mid-high Pro config (Pro ceiling is 64 GB). It is also
-a valid Max *option* on the 40-core GPU SKU — that coincidence is why Max
-review units get quoted as if they were this laptop. They are not.
-
 ## Which chip this is (M5 vs M5 Pro vs M5 Max)
 
-"MacBook Pro M5 48 GB" in operator speech means **M5 Pro + 48 GB**. Base M5
-cannot be configured with 48 GB. M5 Max can be configured with 48 GB on the
-40-core GPU SKU, but that is a different SoC.
+"MacBook Pro M5 48 GB" in operator speech means **M5 Pro + 48 GB** (Pro
+ceiling 64 GB). Base M5 cannot be configured with 48 GB; M5 Max can, on the
+40-core GPU SKU — that coincidence is why Max review units get quoted as if
+they were this laptop. They are a different SoC.
 
 | Chip | Typical CPU / GPU | Memory bandwidth | Unified memory ceiling | 48 GB available? |
 |---|---|---|---|---|
@@ -87,22 +82,19 @@ What you ship and run is the constraint:
 | Plan file | `_MAX_PLAN_CHARS` **6,000**; `planner_max_tokens` **3072** | A plan the size of a diff means the planner misbehaved |
 | Local model | `qwen3.8:27b-mlx`, `reasoning_effort: none` | Thinking-on burns the 32k window before a patch exists |
 
-The machine can physically hold 64k–128k context. The shipped env file sets
+The machine can physically hold 64k–128k context; the shipped env file sets
 `OLLAMA_CONTEXT_LENGTH` to 32768 so a sourced `ollama serve` does not sit at
-0% processing on the RAG floor. That number is not a parameter of the
-registry tag. Raising `num_ctx` to 64k on this Mac is still feasible. It
-makes TTFT worse and still leaves you with a 27B. That is "more than burst"
-on **volume**, not on **judgment**.
+0% processing on the RAG floor (the registry tag carries no such parameter).
+Raising `num_ctx` to 64k is feasible, worsens TTFT, and still leaves you with a
+27B: "more than burst" on **volume**, not on **judgment**.
 
-Project decision: local 27B is a **supervised executor**. Claude Code / Grok
-stays the architect for anything that touches invariants. Burst pattern stays
-one implementation file + one test, thinking off, I6 list off-limits
-(`gate.py` / `graph.py` / `mcp_hybrid_server.py` / `agentic/` for the 27B
-job itself / `soul.md` / `INVARIANTS.md` / `config.yaml`).
-
-You can give Qwen a bigger slice of one file, a test, and a short plan. You
-should not give it a whole implementation plan and hope 48 GB turns it into
-Claude.
+Project decision: the local 27B is a **supervised executor**; Claude Code /
+Grok stays the architect for anything touching invariants. The burst pattern
+is one implementation file + one test, thinking off, with the I6 list
+off-limits (`gate.py` / `graph.py` / `mcp_hybrid_server.py` / `agentic/` for
+the 27B job itself / `soul.md` / `INVARIANTS.md` / `config.yaml`). A bigger
+slice of one file, a test, and a short plan is fine; a whole implementation
+plan is not what 48 GB buys.
 
 ## What this cached model can do on this Mac
 
@@ -219,14 +211,11 @@ Red flags:
 
 ## Bottom line
 
-M5 Pro 48 GB can run more than burst. You chose 32k and one-file jobs because
-a 27B at long context is slow, stall-prone, and bad at architecture. That was
-the correct product call on this SKU. An M5 Max would change decode speed and
-the ceiling for a second resident model. It would not change the 27B's job.
-
-A pre-compact scratchpad is worth doing as **paging**, identical in spirit to
-`plan.md` + session notes. It does not mitigate "only a 27B." It mitigates
-forgetting the test failure from two turns ago. If you want better plans, keep
-planning on Claude/Grok (or a human), keep Qwen as the executor, and make the
-scratchpad a short, typed, human-owned working set — not a place the 27B
-journals its feelings before the window collapses.
+M5 Pro 48 GB can run more than burst; 32k and one-file jobs were chosen
+because a 27B at long context is slow, stall-prone, and bad at architecture.
+An M5 Max would change decode speed and the ceiling for a second resident
+model, not the 27B's job. A pre-compact scratchpad is worth doing as
+**paging** (same spirit as `plan.md` + session notes): it mitigates forgetting
+the test failure from two turns ago, not "only a 27B." Keep planning on
+Claude/Grok or a human, keep Qwen as the executor, and keep the scratchpad a
+short, typed, human-owned working set.

@@ -7,55 +7,18 @@ comments; code fixes and review responses require the agent or operator.
 
 ## Installation
 
-### Project-Local (`.claude/skills/`)
-
-Already installed in CyClaw. For other repos:
-
-```bash
-# Copy the skill into your repo's .claude/skills/ directory
-mkdir -p .claude/skills
-cp -r ~/.claude/skills/babysit-github-pr .claude/skills/
-```
-
-Then invoke with `/babysit-github-pr <pr-number>` from within Claude Code.
-
-### User-Wide (`~/.claude/skills/`)
-
-```bash
-# Copy to your home directory's skills folder (once per machine)
-mkdir -p ~/.claude/skills
-cp -r /path/to/babysit-github-pr ~/.claude/skills/
-```
-
-Then invoke `/babysit-github-pr` from any repo.
+Already installed in CyClaw (`.claude/skills/babysit-github-pr/`). For another
+repo, copy the folder into its `.claude/skills/` (project scope) or into
+`~/.claude/skills/` (user scope, once per machine), then invoke
+`/babysit-github-pr <pr-number>` from Claude Code.
 
 ## Prerequisites
 
-Before using this skill, ensure:
-
-1. **`gh` CLI** (GitHub CLI) — authenticated with `repo` scope
-   ```bash
-   gh auth login
-   gh auth status  # Verify you see "✓ Token: ghu_..." and "✓ Scopes: repo, gist"
-   ```
-
-2. **`jq`** — JSON query tool (for parsing GitHub API responses)
-   ```bash
-   # macOS
-   brew install jq
-   
-   # Linux (Ubuntu/Debian)
-   sudo apt-get install jq
-   
-   # Windows (choco or scoop)
-   choco install jq  # or: scoop install jq
-   ```
-
-3. **`python3`** (3.8+) — for failure classification and command detection
-
-4. **`git`** — version control (already assumed)
-
-5. **Project's test/lint commands discoverable** from one of:
+1. **`gh` CLI** authenticated with `repo` scope (`gh auth login`; `gh auth
+   status` should show `✓ Scopes: repo, gist`).
+2. **`jq`** (`brew install jq` / `sudo apt-get install jq` / `choco install jq`).
+3. **`python3`** (3.8+) for failure classification and command detection, and `git`.
+4. **Project's test/lint commands discoverable** from one of:
    - `Makefile` (targets: `test`, `lint`)
    - `package.json` (scripts: `test`, `lint`)
    - `pyproject.toml` (pytest/tox config)
@@ -199,12 +162,10 @@ Address the blocker, then re-invoke.
 
 ## For Repository Owners
 
-This skill works on any GitHub repository with:
-- Checks reported on the GitHub PR. Automated retries use GitHub Actions runs
-- A detectable test/lint command (Makefile, package.json, pyproject.toml, or workflows)
-- Branch protection rules (optional but recommended)
-
-No configuration in the repo itself is needed — the skill auto-detects everything.
+Works on any GitHub repository whose checks report on the PR (automated
+retries use GitHub Actions runs) and whose test/lint command is detectable
+(Makefile, package.json, pyproject.toml, or workflows); branch protection is
+optional but recommended. No in-repo configuration is needed.
 
 ---
 

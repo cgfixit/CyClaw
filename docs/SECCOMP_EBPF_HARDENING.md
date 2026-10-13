@@ -32,14 +32,12 @@ Falco alert arrives after the syscall. `cap_drop: ALL` should deny privileged
 raw/packet sockets, but that is a negative test to retain, not a reason to claim
 kernel isolation.
 
-The former repository seccomp profiles were not a working Stage 3. The profile
-wired to the gate omitted normal Uvicorn/Python syscalls including `listen`,
-`accept*`, `exit_group`, clocks, and thread setup; the supposed gate floor was
-x86-64-only; and the legacy rclone file contained invalid syscall names. They
-have been removed. Compose now forces `seccomp:builtin`, so a daemon configured
-with another default or `unconfined` cannot silently weaken the service. Docker
-describes its builtin as a moderately protective compatibility baseline and
-recommends not replacing it casually.
+The former repository seccomp profiles were not a working Stage 3 and have been
+removed ([`deploy/seccomp/README.md`](../deploy/seccomp/README.md) records
+why). Compose now forces `seccomp:builtin`, so a daemon configured with another
+default or `unconfined` cannot silently weaken the service; Docker describes
+its builtin as a moderately protective compatibility baseline not to be
+replaced casually.
 
 ## 2. Stage 3 - tight gate-specific seccomp
 
@@ -501,13 +499,13 @@ plane. The actual enforcement bridge is:
    executor container.
 5. Keep Falco alerts as regression evidence after enforcement.
 
-Immediate repository tuning adds `/app/index` to expected writes and `git` to
-the monolithic optional-tool exec set. Optional `git`/`gh`/`rclone` network
-connections are logged separately at `NOTICE`; they are not broadly allowed by
-SaaS IP range. Python egress outside the configured local model endpoint stays
-`WARNING` because the same process can represent either an explicit cloud-model
-choice or hostile test code. Correlate it with CyClaw's audit event before
-adding a narrow actor + action + destination exception.
+The shipped Falco rules already reflect this: `/app/index` is an expected
+write, `git` is in the optional-tool exec set, optional `git`/`gh`/`rclone`
+egress logs at `NOTICE` rather than being allowed by SaaS IP range, and Python
+egress outside the configured local model endpoint stays `WARNING` because the
+same process can be an explicit cloud-model choice or hostile test code —
+correlate with the audit event before adding a narrow actor + action +
+destination exception.
 
 When roles are split, label and maintain separate Falco rules for
 `gate|agentic|sync|telegram|executor`:
@@ -536,18 +534,12 @@ sudo ig run ghcr.io/inspektor-gadget/gadget/trace_dns:latest \
 Pin gadget image digests before operational use. Custom bpftrace is YAGNI until
 these tools fail to answer a specific question.
 
-## 6. Final deliverable package
+## 6. Operator enablement checklist
 
-This hardening increment contains:
-
-- Updated Stage 3-5 and residual-risk text in `docs/THREAT_MODEL.md`.
-- This canonical trace/evaluation procedure.
-- `deploy/seccomp/README.md`; unsafe, untraced JSON profiles removed.
-- `deploy/apparmor/cyclaw-gate` and an opt-in Compose overlay.
-- Falco expected-path/process tuning and operator guidance.
-- A static regression test for the deploy contract.
-
-### Operator enablement checklist
+The hardening increment this document belongs to shipped the Stage 3–5 text in
+`docs/THREAT_MODEL.md`, this procedure, `deploy/seccomp/README.md` (untraced
+JSON profiles removed), `deploy/apparmor/cyclaw-gate` with its opt-in Compose
+overlay, Falco tuning, and a static deploy-contract regression test.
 
 Fail closed. Do not mark a stage complete from static parsing alone.
 

@@ -20,6 +20,7 @@ authority; this file is the in-tree map.
 | `filters.py` | Generates the rclone filter file (what syncs, what never does). |
 | `runner.py` | Drives `rclone copy` (pull, default) or `rclone bisync` (opt-in) as an argv-list subprocess with timeouts. |
 | `scheduler.py` | Scheduled-job backends: cron (default), launchd (Darwin-only, opt-in via `sync.scheduler_backend`, writes a plist but never auto-loads it), Windows Task Scheduler. |
+| `scheduled.py` | What the generated cron line / plist / task actually runs (`python -m sync.scheduled`): reads only `RCLONE_CONFIG_PASS` from the OS keystore at execution time through `utils.child_environment`, then invokes the normal CLI, so no scheduler artifact ever carries the password. `--check-credentials` verifies config decryption without transferring data. |
 | `selftest.py` | Pre-flight checks behind `sync test`. |
 
 ## Exit codes (an API — keep them)

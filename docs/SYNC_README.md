@@ -1,22 +1,16 @@
 # CyClaw Sync — Rclone Dropbox Corpus Integration
 
-**Module:** `sync/` (Dropbox corpus sync, v1.4.0 cycle)
-**Status:** Out-of-band, audit-logged, **zero new Python dependencies**. Not a graph node; core modules never import `sync/`.
+**Module:** `sync/` — out-of-band, audit-logged, **zero new Python
+dependencies**. Not a graph node; the core modules never import it.
 
-CyClaw's sync module mirrors a Dropbox folder into your local `data/corpus/`
-without weakening any of CyClaw's security invariants. It is a thin Python
-wrapper around the `rclone` binary and emits per-file audit events into the
-same `logs/audit.jsonl` the gateway uses. It runs as a **separate process**,
-registered via `sync/scheduler.py`'s own `cron` (Linux/macOS, the default) or
-`launchd` (macOS, opt-in — see "Scheduling" below) backends, or manually via a
-systemd `--user` timer if you prefer that over cron (`sync/scheduler.py` does
-not generate a systemd unit itself).
-
-> **Sync is NOT a graph node and is never imported by `gate.py` / `graph.py` /
-> `mcp_hybrid_server.py`.** Primary invocation is `python -m sync.cli`.
-> Optionally, authenticated loopback `POST /ops/sync` (`gate_ops.py`) reaches
-> the same CLI only through `utils/ops_runner.py` as an argv-list subprocess —
-> still no in-process `import sync`, no public listener, and no new Python dependency.
+The sync module mirrors a Dropbox folder into `data/corpus/` as a thin wrapper
+around the `rclone` binary, emitting per-file audit events into the same
+`logs/audit.jsonl` the gateway uses. It runs as a **separate process** —
+`python -m sync.cli`, scheduled through `sync/scheduler.py`'s `cron` (default)
+or opt-in `launchd` backend, or a systemd `--user` timer you write yourself —
+and the optional authenticated loopback `POST /ops/sync` (`gate_ops.py`)
+reaches the same CLI only through `utils/ops_runner.py`'s argv-list
+subprocess: no in-process `import sync`, no public listener.
 
 ---
 
@@ -66,19 +60,12 @@ sync root is confined to `data/corpus` and the soul filter rule is unconditional
 
 ### Why these invariants hold
 
-1. **RAG-First.** Sync only changes files on disk that are later consumed at
-   index time. The retrieve node remains the graph entry point. `graph.py` is
-   not modified.
-2. **Topology = Policy.** Sync adds no StateGraph node and no edge. Corpus
-   mutation stays *outside* the graph, exactly as soul evolution does.
-3. **Triple-Gated External.** Dropbox is contacted only by the `rclone`
-   subprocess you explicitly invoke — never triggered by a user query, never an
-   inbound surface.
-4. **Audit Convergence.** Sync events terminate in the same `audit.jsonl` with
-   the same PII redaction and timestamp handling as the gateway.
-5. **Soul Governance.** `data/personality/**` and `*.db*` are excluded by
-   default; a synced file can never overwrite `soul.md` / `cyclaw_soul.db` and
-   bypass the `apply_evolution()` injection scan behind `POST /soul/apply`.
+Sync only changes files on disk that the indexer consumes later, so `retrieve`
+stays the graph entry (I1) and no node or edge is added (I2). Dropbox is
+contacted only by the `rclone` subprocess you invoke, never by a query (I3).
+Events land in the same `audit.jsonl` with the same redaction (I4), and
+`data/personality/**` plus `*.db*` are excluded so a synced file can never
+reach `soul.md` or `cyclaw_soul.db` around the `POST /soul/apply` scan (I5).
 
 ---
 
@@ -182,22 +169,14 @@ python -m sync.cli test
 pytest tests/test_sync_*.py
 ```
 
-With rclone absent, `python -m sync.cli setup` exits **3** with
-`RCLONE_NOT_INSTALLED` — that clean failure is itself the not-installed path
-working as intended. The other two subcommands differ, and measured rather than
-assumed: `test` exits **2** (the self-test reports "7/8 passed" with the rclone
-point failed — it ran and failed, which is exit 2's meaning), and `status`
-exits **0**, printing `[ERR] rclone binary not found on PATH` and continuing,
-because `status` is an informational report rather than a health gate. Do not
-read `status` exiting 0 as "sync is healthy"; read the report.
-
-An unreadable or malformed `config.yaml` exits **3**. That is worth stating
-because it used to exit **1**, which this table already spends on the
-max-delete/max-transfer safety fuse — so `POST /ops/sync` labelled a missing
-config file as `safety_abort` and the console announced a tripped deletion fuse.
-`load_sync_config` now converts those load failures to `SYNC_CONFIG_INVALID`,
-and `sync/cli.py::main` has a dispatch-point handler so nothing else can escape
-the table either.
+With rclone absent, `setup` exits **3** (`RCLONE_NOT_INSTALLED`), `test` exits
+**2** (the self-test ran and one point failed), and `status` exits **0** while
+printing `[ERR] rclone binary not found on PATH` — it is an informational
+report, not a health gate, so read the report rather than the exit code. An
+unreadable or malformed `config.yaml` exits **3** (`SYNC_CONFIG_INVALID`); it
+once exited **1**, the safety-fuse code, so `POST /ops/sync` mislabelled a
+missing config as `safety_abort`. `sync/cli.py::main` now has a dispatch-point
+handler so nothing escapes the exit-code table below.
 
 ---
 
@@ -272,43 +251,28 @@ uses `sync.schedule_weekday`, `"monthly"` uses `sync.schedule_day`).
 | macOS only | `launchd` (opt-in: `scheduler_backend: "launchd"`) | Generates `~/Library/LaunchAgents/com.cgfixit.cyclaw.sync.plist` via `plistlib` from real, resolved install paths — no `REPLACE_*` placeholders to hand-edit. Supports `daily`/`weekly`/`monthly` via `StartCalendarInterval`. **`install()` never calls `launchctl load`/`bootstrap`** — it prints the exact `launchctl bootstrap gui/<uid> <path>` command; loading a persistent background agent is always an explicit operator step. `remove()` best-effort `launchctl bootout`s before deleting the file. No secret/token is embedded; `sync.scheduled` retrieves the config password at execution time, and rclone owns its OAuth state. | `Label` `com.cgfixit.cyclaw.sync` |
 | Windows | (only option) | `schtasks /Create` with `/SC DAILY`, `/SC WEEKLY /D <weekday>`, or `/SC MONTHLY /D <day>`, plus `/ST HH:MM /RL LIMITED /F`. | task name `CyClaw Dropbox Sync` |
 
-`cron`/`schtasks` scheduled commands `cd` into the repo root (so `config.yaml`
-resolves) and run `python -m sync.cli sync`, propagating `--config` when the
-loaded config's identity differs from the default (e.g. `--config
-/alt/cfg.yaml` at setup time); the `launchd` plist does the same via
-`WorkingDirectory` + `ProgramArguments` instead. Every path is safely
-escaped: the POSIX cron line is `shlex.quote`d per token, the Windows `.bat`
-launcher quotes and `%`-doubles each path, and the launchd `ProgramArguments`
-array is exec'd directly by the kernel with no shell involved at all (so none
-of the cron/`.bat` escaping applies or is needed there) — a repo or config
-path containing spaces or shell/batch metacharacters (`$()`, backticks,
-`%VAR%`) is passed through literally on every backend. On Windows the task
-points at the generated `cyclaw_sync.bat` launcher (written next to the rclone
-logs) rather than an inline `cmd /c` string — this avoids the quote fragility of
-passing a full command through `schtasks /TR`.
+Scheduled commands `cd` into the repo root (so `config.yaml` resolves) and run
+`python -m sync.cli sync`, propagating `--config` when the loaded config is not
+the default; the launchd plist does the same via `WorkingDirectory` +
+`ProgramArguments`. Every path is escaped for its transport — the cron line is
+`shlex.quote`d per token, the Windows `.bat` launcher (written beside the rclone
+logs, instead of a fragile inline `schtasks /TR` string) quotes and
+`%`-doubles each path, and launchd execs the argument array with no shell — so
+spaces and `$()`, backticks, or `%VAR%` pass through literally everywhere.
 
-> **Overlap protection:** `run_sync` holds a single-instance OS-backed lock
-> on `sync.lock` under the rclone log dir, storing PID + start timestamp while
-> held. A scheduled run and a manual run therefore cannot drive rclone
-> concurrently — the second exits with `SYNC_RUNTIME_ERROR` rather than racing. The
-> descriptor remains open through the optional post-sync check, and the OS
-> releases ownership automatically on a clean exit or crash. The empty lock file
-> remains for reuse; its existence does not mean a sync is active and it must not
-> be manually deleted while a run is in progress. This lock is shared by every
-> scheduler backend (cron, launchd, schtasks) since it lives inside `run_sync`
-> itself, not in the scheduler transport.
+> **Overlap protection:** `run_sync` holds a single-instance OS-backed lock on
+> `sync.lock` under the rclone log dir (PID + start timestamp while held), so a
+> scheduled and a manual run cannot drive rclone concurrently; the second exits
+> `SYNC_RUNTIME_ERROR`. The OS releases the lock on clean exit or crash; the
+> empty file remains for reuse and does not mean a sync is active, so never
+> delete it mid-run. The lock lives in `run_sync`, so every backend shares it.
 >
-> **More robust Linux option:** a systemd `--user` `Type=oneshot` service driven
-> by a timer unit additionally gives journald logging and `Persistent=true`
-> catch-up after downtime. Cron remains the implemented portable baseline (it
-> works on macOS/WSL/BSD too); `sync/scheduler.py` does not generate a systemd
-> unit.
->
-> See `docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md` for the launchd design
-> and historical validation limits. Current CI includes macOS, Windows, and
-> Linux; that does not prove a live `launchctl` load. The fsconnect and Telegram
-> CLIs also ship generate-only plist commands; see
-> [`macos/README.md`](../macos/README.md).
+> A systemd `--user` `Type=oneshot` service plus timer adds journald logging
+> and `Persistent=true` catch-up on Linux; cron stays the implemented portable
+> baseline and `sync/scheduler.py` generates no systemd unit. launchd design
+> and validation limits: `docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md` (CI does
+> not prove a live `launchctl` load); the fsconnect and Telegram CLIs ship the
+> same generate-only plist pattern ([`macos/README.md`](../macos/README.md)).
 
 ---
 
@@ -388,11 +352,11 @@ No field is ever named `query` (that would be SHA-256-hashed by the logger).
 
 ## Why rclone (and not Maestral or the Dropbox SDK)
 
-| Tool | Verdict |
-|---|---|
-| **rclone** ✅ | Battle-tested transport, **zero Python deps**, runs as a separate process, refresh token stays in `rclone.conf`. The CLI surface is the security boundary. Native Windows support. |
-| Maestral | Always-on **daemon** — wrong shape for an offline-first agent; no native Windows. |
-| `dropbox` Python SDK | Forces CyClaw to **hold the refresh token** and drags `requests`/`urllib3` into a deliberately minimal dependency tree. |
+rclone is a battle-tested separate-process transport with zero Python deps,
+native Windows support, and a refresh token that never leaves `rclone.conf`.
+Maestral is an always-on daemon (wrong shape for an offline-first agent, no
+native Windows); the `dropbox` SDK would make CyClaw hold the refresh token and
+pull `requests`/`urllib3` into a deliberately minimal dependency tree.
 
 ## Encrypted rclone configuration in scheduled jobs
 
