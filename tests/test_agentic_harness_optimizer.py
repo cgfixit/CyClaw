@@ -89,7 +89,13 @@ def test_run_report_rejects_non_finite_score(bad: float) -> None:
         RunReport("candidate", train_passed=True, holdout_passed=True, score=bad)
 
 
-@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_run_report_accepts_a_huge_int_score_without_overflow() -> None:
+    # math.isfinite(10**1000) raises OverflowError; ints are always finite, so
+    # the finiteness check must not run on them (Codex review on this PR).
+    assert RunReport("candidate", train_passed=True, holdout_passed=True, score=10**1000).score == 10**1000
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 10**1000])
 def test_case_result_rejects_non_finite_score(bad: float) -> None:
     with pytest.raises(AgenticError, match="between 0 and 1"):
         CaseResult("case-1", passed=True, score=bad)

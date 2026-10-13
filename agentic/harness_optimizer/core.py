@@ -155,7 +155,9 @@ class RunReport:
             raise AgenticError("run_report.score must be numeric", details={"variant_id": self.variant_id})
         # decide_candidate's "score_not_improved" gate is a <= comparison, which
         # is False for NaN on either side: a NaN score would fail that gate open.
-        if not math.isfinite(self.score):
+        # Floats only: an int is always finite, and math.isfinite(10**1000) raises
+        # OverflowError converting it.
+        if isinstance(self.score, float) and not math.isfinite(self.score):
             raise AgenticError("run_report.score must be finite", details={"variant_id": self.variant_id})
 
     @property

@@ -26,8 +26,9 @@ class CaseResult:
         if not isinstance(self.score, int | float) or isinstance(self.score, bool):
             raise AgenticError("case result score must be numeric", details={"case_id": self.case_id})
         # NaN compares False against everything, so it would slip past the
-        # range check below and poison score_cases()' average.
-        if not math.isfinite(self.score) or self.score < 0.0 or self.score > 1.0:
+        # range check below and poison score_cases()' average. Floats only:
+        # math.isfinite overflows on a huge int, which the range check rejects.
+        if (isinstance(self.score, float) and not math.isfinite(self.score)) or self.score < 0.0 or self.score > 1.0:
             raise AgenticError("case result score must be between 0 and 1", details={"case_id": self.case_id})
 
 
