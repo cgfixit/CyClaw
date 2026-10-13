@@ -463,16 +463,27 @@ delegates Step 1 to it rather than duplicating it).
 - **The Step 6 bump recipe is a set of claims; derive each from a checker,
   not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
   *measured* row of the sweep report survived review, while the "how to
-  bump" prose took nine correct Codex findings across three passes. Each one
+  bump" prose took fourteen correct Codex findings across four passes. Each one
   had a file that would have caught it first: a package's files-to-edit are
   exactly the non-empty columns of its `extract_pins.py` row (extras-only
   and constraints-only packages never enter `requirements.txt` or
-  `environment.yml`; `tzdata` is the `test` extra + `requirements-test.txt`
-  + the `python-tzdata` conda pin, not base runtime); `grep -rn <package>`
-  over `.claude/skills/*/check_*.py`, `CLAUDE.md`, and `.github/workflows/`
-  finds the hard-coded contracts that move with the pin (`dep-guard`
-  `_PYDANTIC_LOCKSTEP`, `otel-hardening` `LAST_VERIFIED_VENDOR_PINS` for
-  `nemoguardrails`/`onnxruntime`, the inline `ruff` pin in `lint.yml`); a
+  `environment.yml`; of the LangChain family only `langchain-core` and
+  `langgraph` are base, `langchain` itself is the `agentic-deepagents`
+  extra; `tzdata` is the `test` extra + `requirements-test.txt` + the
+  `python-tzdata` conda pin, not base runtime — and a reclassified package
+  moves in the pin table *and* the summary totals, in the same edit), with
+  one input the table does not show: `requirements-torch.txt`, which
+  `refresh-runtime-lock.sh` compiles the three torch locks from and the
+  Dockerfile installs, so a torch bump edits it too — a repo-wide
+  `grep -rn '<package>=='` is the check that catches such off-table
+  inputs; the same grep over `.claude/skills/*/check_*.py`, `CLAUDE.md`,
+  `guardrails/`, and `.github/workflows/` finds the hard-coded contracts
+  that move with the pin (`dep-guard` `_PYDANTIC_LOCKSTEP` and D11,
+  `otel-hardening` `LAST_VERIFIED_VENDOR_PINS` for `nemoguardrails`,
+  `onnxruntime`, `langchain`, `langchain-core`, `langgraph`, and
+  `langsmith`, `guardrails/verify_install.py`'s exact-version check and
+  `ci.yml`'s wheel-metadata assertion for `nemoguardrails`, the inline
+  `ruff` pin in `lint.yml`); a
   major bump needs the dependents' `requires_dist` read on PyPI first
   (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
   "candidate" cannot resolve and is an exception); `check_lock_contract.py`

@@ -17,7 +17,7 @@ Env drift (E1-E7):    0 failure(s), 0 warning(s) - no E3 undeclared imports
 Lock contract:        scripts/check_lock_contract.py passed
 Lock <-> manifest:    all 25 lock files agree with constraints.txt on every shared pin (+cpu local tag ignored)
 Install surfaces dry-run: local-dev=unverified* legacy-CI=unverified* Dockerfile=unverified* hashed-locks(runtime)=conditional** hashed-locks(test)=PASS wheel-build=PASS conda=not dry-run-verified compose=PASS (docker compose config --quiet)
-Currency:             19 current | 17 runtime bump candidates (needs review) | 2 dev-tool bump candidates | 9 documented or compatibility-blocked exceptions
+Currency:             19 current | 16 runtime bump candidates (needs review) | 1 test-only bump candidate | 2 dev-tool bump candidates | 9 documented or compatibility-blocked exceptions
 Verdict:              no fixes applied; findings for review below
 ```
 
@@ -115,7 +115,7 @@ Conda-only names (`pytorch`, `python-tzdata`) are omitted.
 | `sqlite-vec` | 0.1.9 | 0.1.9 | current |  |
 | `starlette` | 1.6.0 | 1.7.0 | bump candidate (runtime, needs review) |  |
 | `torch` | 2.13.0 | 2.14.1 | documented exception | CPU wheel pin; lock refresh on arm64 macOS |
-| `tzdata` | 2026.2 | 2026.5 | bump candidate (runtime, needs review) |  |
+| `tzdata` | 2026.2 | 2026.5 | bump candidate (test-only, needs review) | `test` extra / `requirements-test.txt`; not installed by the wheel or Docker image |
 | `uvicorn` | 0.53.0 | 0.54.0 | bump candidate (runtime, needs review) |  |
 | `wcmatch` | 11.0 | 11.1 | bump candidate (runtime, needs review) |  |
 | `websockets` | 15.0.1 | 17.2 | documented exception | pinned direct for langgraph-sdk import compatibility |
@@ -126,12 +126,15 @@ Grouped by blast radius. A bump touches only the manifests and lock group that
 **own** the package — the install surfaces are not four copies of one list
 (`.claude/skills/verify-deps/SKILL.md`):
 
-- Base runtime packages (`fastapi`, `starlette`, `uvicorn`, `langchain*`,
-  `langgraph`, `pydantic` pair, `onnxruntime`, `nemoguardrails`, …):
+- Base runtime packages (`fastapi`, `starlette`, `uvicorn`, `langchain-core`,
+  `langgraph`, `pydantic` pair, `onnxruntime`, `nemoguardrails`, …; of the
+  LangChain family only those two are base — `pyproject.toml`
+  `[project.dependencies]`):
   `pyproject.toml` + `constraints.txt` + `requirements.txt` +
   `environment.yml` in lock-step (`dep-guard` D6/D9).
-- Extras-only packages (`deepagents`, `pgvector`, `langchain-openai`,
-  `langchain-anthropic`, `pyodbc`, `psycopg*`):
+- Extras-only packages (`deepagents`, `langchain`, `langchain-openai`,
+  `langchain-anthropic` — all four in the `agentic-deepagents` extra —
+  `pgvector`, `pyodbc`, `psycopg*`):
   `pyproject.toml` optional-dependencies + `constraints.txt` only — never
   `requirements.txt` or `environment.yml` (`check_env_drift.py` E4 fails on
   that).
@@ -159,8 +162,18 @@ Then CI's four test legs.
    `langchain-core` 1.6.3→1.6.10, `langgraph` 1.2.11→1.2.15,
    `langchain-anthropic` 1.7.2→1.7.6, `langchain-openai` 1.6.2→1.7.1,
    `langchain-google-genai` 4.4.0→4.4.1, `langsmith` 0.13.0→0.14.8,
-   `deepagents` 0.6.12→0.7.24 (extras only). Move together; `graph.py` and
-   the retired DeepAgents path are the consumers.
+   `deepagents` 0.6.12→0.7.24. Move together, but by ownership: only
+   `langchain-core` and `langgraph` are base runtime (`graph.py` is the
+   consumer); `langchain`, `langchain-openai`, `langchain-anthropic`, and
+   `deepagents` are the `agentic-deepagents` extra; `langchain-google-genai`
+   and `langsmith` are constraints-only. Same telemetry contract as the NeMo
+   and ONNX items below: `.claude/skills/otel-hardening/check_otel.py`
+   `LAST_VERIFIED_VENDOR_PINS` records `langchain` 1.4.2, `langchain-core`
+   1.6.3, `langgraph` 1.2.11, and `langsmith` 0.13.0, so T5 warns on each
+   moved pin and `check_otel.py --strict` exits 2 until the installed
+   sources are re-grepped for telemetry/analytics/usage-stat hooks (the
+   `langsmith` tracing-precedence check in particular), the four pins are
+   updated in the checker, and the strict run is green — before CI's legs.
 2. **Web stack (minor):** `fastapi` 0.141.1→0.143.0, `starlette` 1.6.0→1.7.0,
    `uvicorn` 0.53.0→0.54.0. `gate.py` imports `starlette` directly, so bump
    the three together and re-run `test_gate`/`test_terminal_contract` in CI.
@@ -185,7 +198,12 @@ Then CI's four test legs.
    `.claude/skills/otel-hardening/check_otel.py` pins the last-verified
    vendor version in `LAST_VERIFIED_VENDOR_PINS`, so the bump needs a
    source-level re-check of NeMo's usage-stat opt-outs and telemetry sink,
-   the pin updated in the checker, `check_otel.py --strict` green, and then
+   the pin updated in the checker, `check_otel.py --strict` green — plus
+   the three other sites that hard-code `0.24.0` and fail until they move
+   in the same commit: `guardrails/verify_install.py` raises unless the
+   installed version is exactly 0.24.0, `dep-guard` D11 requires
+   `nemoguardrails==0.24.0` once per install surface, and `ci.yml`'s wheel
+   packaging job asserts that string in the built metadata; then
    `guardrails.verify_install`),
    `pendulum` 3.2.0→3.3.0, `pgvector` 0.5.0→0.5.1, `wcmatch` 11.0→11.1.
 6. **Test and dev tools (low blast radius, but re-run lint before merging):**
@@ -194,7 +212,10 @@ Then CI's four test legs.
    `mypy` 2.3.0→2.4.0.
 
 Deliberately not recommended: `torch` 2.13.0→2.14.1 (CPU wheel pin across
-four surfaces and the Docker torch line; a release of its own), `numpy` <2,
+the four manifests plus `requirements-torch.txt` — the input
+`refresh-runtime-lock.sh` compiles the three `requirements-torch-lock-*.txt`
+from, which `extract_pins.py` has no column for — and the Docker torch line;
+a release of its own), `numpy` <2,
 `websockets` 15.0.1 (langgraph-sdk import compatibility), `setuptools` floor,
 `chromadb`, `nltk`, and `huggingface-hub` 2.x (blocked by
 `sentence-transformers`, item 3).
