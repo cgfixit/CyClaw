@@ -114,7 +114,8 @@ Use checklists as lightweight reminders, not as a substitute for reading the rel
 - Advisory PR comments route through `.github/workflows/codex.yml`; they are
   read-only review assistance, not merge approval.
 - `.github/workflows/codex-apply-fixes.yml` is the owner-gated write path. An
-  owner `@codex apply fixes` or `@openai-code-agent apply fixes` trigger binds
+  owner `@codex apply fixes <full 40-character head SHA>` or
+  `@openai-code-agent apply fixes <full 40-character head SHA>` conversation trigger binds
   to a qualifying bot comment; a reply uses its exact parent, while the
   issue-comment fallback uses the most recent prior qualifying bot comment.
   Inspect the generated diff and its CI before merging.
@@ -138,3 +139,8 @@ canonical repo guidance. They drift; link to the live source instead.
 ## Scratch Work
 
 Generated scratch work, logs, local notes, and temporary outputs should not be committed unless the maintainer explicitly requests them. Use ignored runtime locations or local scratch space for experiments, then summarize results in the final response.
+
+Candidate patches are limited to 1 MiB before upload and after download. The
+publisher creates exactly one child of the approved commit, then pushes with an
+exact expected-SHA lease. A changed remote head requires a new approval, including
+a concurrent rewind or deletion; no unapproved history replacement is allowed.

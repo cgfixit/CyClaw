@@ -11,6 +11,9 @@
 
 pytest==9.1.1
 pytest-cov==7.1.0
+# Imported by scripts/check_lock_contract.py --wheel. Must match the pyproject
+# test extra / constraints.txt pin.
+packaging==26.3
 pygments==2.21.0
 
 # tzdata gives zoneinfo a PEP 615 fallback on hosts without a system IANA

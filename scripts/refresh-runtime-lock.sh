@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+repo_root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 uv_bin="${UV_BIN:-uv}"
 python_bin="${PYTHON_BIN:-python3.12}"
 cache_dir="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/cyclaw-uv-cache}"
-lock_dir="$repo_root/locks"
+if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
+  echo "lock generation requires the supported arm64 macOS host" >&2
+  exit 1
+fi
+stage_dir="$(mktemp -d "$repo_root/.lock-refresh.XXXXXX")"
+lock_dir="$stage_dir/locks"
 mkdir -p "$lock_dir"
+# Seed the stage with the tracked locks: uv pip compile keeps an existing
+# --output-file's pins as preferences, so an empty stage would silently
+# upgrade every transitive pin on each refresh (#1631 review).
+cp "$repo_root"/locks/requirements-*.txt "$lock_dir"/
+macos_constraints_dir=""
+trap 'rm -rf "$stage_dir"; if [ -n "$macos_constraints_dir" ]; then rm -rf "$macos_constraints_dir"; fi' EXIT
 
 # uv records the --constraints path in comments. The macOS compile uses a
 # temp copy so the +cpu pin is absent. Rewrite those comments to the stable
@@ -65,12 +76,8 @@ compile_lock() {
 
 compile_lock x86_64-unknown-linux-gnu requirements-lock-linux.txt "$repo_root/constraints.txt" --torch-backend cpu
 compile_lock x86_64-pc-windows-msvc requirements-lock-windows.txt "$repo_root/constraints.txt" --torch-backend cpu
-if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
-  echo "macOS lock generation requires the supported arm64 macOS host" >&2
-  exit 1
-fi
 macos_constraints_dir="$(mktemp -d "${TMPDIR:-/tmp}/cyclaw-constraints.XXXXXX")"
-trap 'rm -rf "$macos_constraints_dir"' EXIT
+
 macos_constraints="$macos_constraints_dir/constraints.txt"
 sed 's/^\(torch==[0-9][0-9.]*\)+cpu$/\1/' "$repo_root/constraints.txt" > "$macos_constraints"
 compile_lock native requirements-lock-macos.txt "$macos_constraints"
@@ -124,3 +131,5 @@ for lock in "$lock_dir"/requirements-torch-lock-*.txt; do
     exit 1
   fi
 done
+
+"$python_bin" "$repo_root/scripts/check_lock_contract.py" --publish runtime --staged "$lock_dir"

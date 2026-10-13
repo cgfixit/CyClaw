@@ -1222,3 +1222,28 @@ results are hints, not a complete or live reachability map.
 *v1.9.0 package train, Python 3.12 — documentation reconciled with code,
 config, manifests, and workflows on 2026-09-21; install execution last verified
 2026-07-29 / macOS 2026-08-02.*
+
+## Lock freshness and refresh failures
+
+Checksums use canonical LF text so Windows Git line-ending conversion is not drift.
+
+`python scripts/check_lock_contract.py` checks all 25 runtime, Torch, test,
+CI-tool and extra locks against their direct inputs and every applicable exact
+constraint. Committed input/output SHA-256 records fail CI when an input
+(`pyproject.toml` dependency tables, `constraints.txt`, a requirements input or
+a refresh script) or any transitive lock entry changes without a new record.
+A record detects unrecorded edits; it does not prove a resolver run produced
+the locks, and it is not a claim that re-resolving against a changing index
+would produce identical versions. Review lock and record changes together.
+
+Run `scripts/refresh-runtime-lock.sh` and `scripts/refresh-ci-locks.sh` on arm64
+macOS with Python 3.12 and uv. Both seed a staging copy from the tracked locks
+(so uv keeps existing pins as preferences instead of upgrading every transitive
+pin), compile and validate the complete set, then publish it with its
+input/output record. Unsupported hosts and resolver failures
+leave tracked locks unchanged. Ordinary publication errors roll back; abrupt
+process termination or machine failure is not a multi-file filesystem transaction
+and is detected by the freshness check. Re-run refresh after such an interruption.
+The wheel CI job separately compares every base `Requires-Dist` entry, including
+extras and platform markers, with `pyproject.toml`; preinstalling locks and using
+`--no-deps` cannot hide a missing wheel dependency.

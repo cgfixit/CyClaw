@@ -62,6 +62,8 @@ python -m retrieval.indexer                      # once; without this, /query is
 python gate.py                                   # http://127.0.0.1:8787
 ```
 
+CI checks every lock group against recorded inputs and hashes, and checks wheel dependency metadata. Refresh on arm64 macOS with the [maintained lock scripts](setup-guide.md#lock-freshness-and-refresh-failures); generation failures leave tracked locks unchanged.
+
 **Windows** uses the same pins with the `-windows` lock files
 (`py -3.12 -m venv .venv`, `.\.venv\Scripts\Activate.ps1`):
 [Windows](setup-guide.md#windows-powershell), [Linux](setup-guide.md#linux-bash).

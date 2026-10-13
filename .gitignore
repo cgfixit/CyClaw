@@ -143,3 +143,6 @@ cyclaw-sandbox-query-results.json
 # Manual backups of ignored runtime state (index, logs, embedding cache, soul DB)
 *.rootowned-bak
 *.rootowned-bak/
+
+# Lock refresh staging dirs (scripts/refresh-*-lock*.sh); removed on exit
+/.lock-refresh.*/

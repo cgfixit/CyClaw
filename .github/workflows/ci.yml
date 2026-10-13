@@ -260,6 +260,8 @@ jobs:
           python-version: '3.12'
       - name: Install checker dependency
         run: python -m pip install --require-hashes -r locks/requirements-ci-yaml-lock-linux.txt
+      - name: Check complete lock inputs and outputs (blocking)
+        run: python scripts/check_lock_contract.py
       - name: Check documentation contracts (blocking)
         run: python .claude/skills/doc-sync/doc_sync.py
       - name: Verify drift detection (blocking)
@@ -337,6 +339,12 @@ jobs:
           # artifact; keep them in step if that workflow's build stack changes.
           python -m pip install "build==1.6.0"
           python -m build --wheel
+
+      - name: Compare complete wheel dependency metadata
+        run: |
+          # The checker imports packaging; pin it rather than take whatever build pulled in.
+          python -m pip install "packaging==26.3"
+          python scripts/check_lock_contract.py --wheel dist/*.whl
 
       - name: Every [project.scripts] entry point resolves inside the wheel
         run: |
