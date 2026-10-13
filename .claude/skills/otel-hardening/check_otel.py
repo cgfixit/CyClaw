@@ -488,17 +488,17 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "ollama daemon", "category": 4, "controls": {},
         "url": "https://docs.ollama.com",
         "versions": "external daemon on 127.0.0.1:11434. Never spawned by a runtime path; the interactive "
-                    "macos/setup-from-clone.sh may start `ollama serve` in the background and run "
-                    "`ollama pull` after an operator confirm (FIXED_LAUNCHER_SITES pins both lines), under "
-                    "the canonical block that script now evals before its gh/ollama steps",
+                    "macos/setup-from-clone.sh may start `ollama serve` in the background (FIXED_LAUNCHER_SITES "
+                    "pins that line) under the canonical block that script evals first. The model pull the "
+                    "same script can run is registry egress and has its own category-3 row below",
         "enforcement": "CyClaw's own traffic is loopback inference only. The daemon's cloud/web features are "
                        "DAEMON policy CyClaw cannot set: local-only mode requires OLLAMA_NO_CLOUD=1 (or "
                        "disable_ollama_cloud) in the independently-running daemon's environment, then a "
                        "daemon restart -- document, don't claim",
         "scope": "local LLM path", "reviewed": "2026-10-13",
         "evidence": "no CyClaw-side switch exists for a foreign daemon; noted in SECURITY.md classification. "
-                    "Setup-script spawn sites found 2026-10-13 (Codex P2 on PR #1637): serve at "
-                    "setup-from-clone.sh:517, pull at :545, both operator-interactive",
+                    "Setup-script spawn site found 2026-10-13 (Codex P2 on PR #1637): `ollama serve` at "
+                    "setup-from-clone.sh:517, operator-interactive; serve binds loopback only",
     },
     {
         "name": "lm studio", "category": 5, "controls": {},
@@ -670,8 +670,24 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "PR #1572 (2026-10-07) after the 2026-09-11 retirement, which is why this row is back",
     },
     {
+        "name": "ollama model pull (setup)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`ollama pull \"$OLLAMA_MODEL\"` in macos/setup-from-clone.sh step 7 only; no runtime path "
+                    "pulls a model (the gateway fails soft when the tag is absent)",
+        "enforcement": "reached only when the selected tag is missing locally and the operator confirms the "
+                       "pull at an interactive prompt (or passed --small-model / the pull flag); the tag is "
+                       "validated as name:tag before it can reach argv. Destination is Ollama's model registry: "
+                       "intentional operator-initiated functional egress, the same class as the first-run "
+                       "embedding fetch, never a kill-map entry. The daemon itself stays the category-4 row above",
+        "scope": "interactive macOS setup only",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh:540-546 (_confirm gate + `ollama pull`); split out of the daemon row "
+                    "2026-10-13 because category 4 means local-only and a registry pull is not (Codex P2 on "
+                    "PR #1637, fourth round)",
+    },
+    {
         "name": "curl (setup + sandbox probes)", "category": 3, "controls": {},
-        "url": "docs/setup-guide.md",
+        "url": "setup-guide.md",
         "versions": "host binary, never pinned: macos/setup-from-clone.sh, macos/setup-cyclaw.sh, "
                     "macos/invoke-cyclaw.sh (operator setup/launch scripts), "
                     ".claude/skills/cyclaw-gotchas/driver.sh and .claude/skills/CyClaw-Sandbox/verify.sh "
@@ -779,6 +795,8 @@ INVENTORY_ALIASES: dict[str, str] = {
     # the setup scripts' and sandbox drivers' HTTP probe tool (Codex P2 on
     # PR #1637: a swept shell surface must classify every binary it runs)
     "curl": "curl (setup + sandbox probes)",
+    # `ollama pull` in the setup script: registry egress, not the local daemon
+    "ollama-pull": "ollama model pull (setup)",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -829,7 +847,7 @@ INVENTORY_ALIASES: dict[str, str] = {
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
-                             "security", "uv", "curl",
+                             "security", "uv", "curl", "ollama-pull",
                              "pre-action-hook-command", "executor-check")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
@@ -882,7 +900,9 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("numbat", "utils/numbat_gate.py", ('DEFAULT_BINARY = "numbat"', 'argv = [binary, "rules", "check"')),
     # the daemon is independent at runtime, but the interactive setup script
     # starts it and pulls the model when the operator says yes
-    ("ollama", "macos/setup-from-clone.sh", ('ollama serve >"$OLLAMA_LOG" 2>&1 &', 'ollama pull "$OLLAMA_MODEL"')),
+    ("ollama", "macos/setup-from-clone.sh", ('ollama serve >"$OLLAMA_LOG" 2>&1 &',)),
+    # the model pull is registry egress, so it is its own category-3 component
+    ("ollama-pull", "macos/setup-from-clone.sh", ('ollama pull "$OLLAMA_MODEL"',)),
     ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")',)),
     ("crontab", "sync/scheduler.py", ('shutil.which("crontab")',)),
     ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")',)),
@@ -896,7 +916,11 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("ip", "agentic/netconnect/client.py", ("def _neighbor_command(", '"/usr/sbin/ip"')),
     ("arp", "agentic/netconnect/client.py", ("def _neighbor_command(", '"arp.exe"')),
     ("security", "sync/scheduled.py", ('["/usr/bin/security", "find-generic-password"',)),
-    ("security", "macos/cyclaw-keychain-env.sh", ('SECURITY_BIN="/usr/bin/security"',)),
+    ("security", "macos/cyclaw-keychain-env.sh", ('SECURITY_BIN="/usr/bin/security"',
+                                                  '"$SECURITY_BIN" find-generic-password')),
+    ("security", "macos/cyclaw-keychain-set.sh", ('"$SECURITY_BIN" add-generic-password',)),
+    ("security", "macos/setup-cyclaw-keys.sh", ('"$_SECURITY_BIN" find-generic-password',
+                                                '"$_SECURITY_BIN" add-generic-password')),
     ("uv", "scripts/refresh-runtime-lock.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
     ("uv", "scripts/refresh-ci-locks.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
     ("uv", ".claude/skills/cyclaw-gotchas/driver.sh", ("uv pip install",)),
@@ -1392,6 +1416,12 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
         for field in ("url", "versions", "enforcement", "scope", "reviewed", "evidence"):
             if not str(row.get(field, "")).strip():
                 schema_problems.append(f"{name}: missing field {field}")
+        # a repo-relative evidence source must exist: a row pointing at a file
+        # nobody can open is the stale documentation this checker exists to
+        # prevent (Codex P2 on PR #1637, fourth round: docs/setup-guide.md)
+        url = str(row.get("url", "")).strip()
+        if url and not url.startswith(("http://", "https://")) and not (root / url).exists():
+            schema_problems.append(f"{name}: url {url!r} is a repo path that does not exist")
     # category-2 rows with EMPTY controls are the documented shell-only pair;
     # they must say so in their enforcement text.
     for row in INVENTORY:

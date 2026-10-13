@@ -143,6 +143,11 @@ these values silence vendor telemetry readers; they do not close sockets.
    back with it), and keep each row's `versions` text
    in step with the pins so T13's "classified" never means "classified
    against a version nobody ships". Categories:
+   A row's `url` is its evidence source: an `https://` vendor page, or a
+   repo-relative path that must exist (T13 fails the schema otherwise).
+   One binary can need two rows when its calls differ in kind: `ollama
+   serve` is the category-4 daemon, `ollama pull` is category-3 registry
+   egress, so the pull is its own `ollama-pull` component and site.
    1 unsolicited telemetry with an official control (control pairs must exist
    in the oracles — never invent one) · 2 ancillary update/version-check
    egress · 3 intentional policy-gated functional egress (controls stay
