@@ -17,20 +17,15 @@ bash scripts/ensure-githooks.sh         # idempotent; the one setup line every a
 git config core.hooksPath               # -> .githooks
 ```
 
-Put that one line in every agent's setup step. The Claude Code SessionStart
-hook (`.claude/hooks/session-start-sync-check.sh`), `copilot-setup-steps.yml`,
-and `.codex/Codex_instructions.md` already call it; add it to any container
-entrypoint or other setup script. A fresh cloud clone has no hooks until it
-runs. `ensure-githooks.sh` is never fatal and sets `core.hooksPath` only when
-no scope has set it, so an operator's own hook manager is left alone.
-
-Manual alternative: `bash scripts/install-githooks.sh` (or
-`git config core.hooksPath .githooks`) sets the path in this clone
-unconditionally, even over a value `ensure-githooks.sh` would have kept.
-
-Optional tools, used when present: `gitleaks` (entropy-based detection of
-unprefixed secrets) and `exiftool` (image and document metadata). Without them
-the gate still runs its own checks and says what it skipped.
+Put that line in every agent's setup step; the Claude Code SessionStart hook
+(`.claude/hooks/session-start-sync-check.sh`), `copilot-setup-steps.yml`, and
+`.codex/Codex_instructions.md` already call it. A fresh cloud clone has no
+hooks until it runs. `ensure-githooks.sh` is never fatal and sets
+`core.hooksPath` only when no scope has set it, so an operator's own hook
+manager is left alone; `bash scripts/install-githooks.sh` sets it
+unconditionally. Optional tools used when present: `gitleaks` (entropy-based
+detection of unprefixed secrets) and `exiftool` (image and document metadata);
+without them the gate says what it skipped.
 
 ## Files
 
@@ -112,20 +107,18 @@ blocking checks; the reminders were already shown at commit time.
 | `ALLOW_MAIN_PUSH=1` | a direct push to a protected branch |
 | `ALLOW_FORCE_WITH_LEASE=true` | a non-fast-forward push |
 
-An agent never sets these on its own. When the gate refuses, the agent stops,
-shows the operator the message and the diff, and waits. The operator reruns
-the command with the variable after reading the change, for example
-`HOOK_OPERATOR_ACK=1 git commit`. The variable is visible in the agent's
-transcript, so a self-granted override is detectable after the fact.
+An agent never sets these on its own: when the gate refuses, it stops, shows
+the operator the message and the diff, and waits for the operator to rerun
+with the variable (`HOOK_OPERATOR_ACK=1 git commit`). The variable is visible
+in the transcript, so a self-granted override is detectable after the fact.
 
-Findings about secrets, blocked files, identifiers, home paths and invisible
-characters have no override variable. Fix the content. For a confirmed
-synthetic fixture, put `gitleaks:allow` on the line (also honored by CI's
-gitleaks) or extend `SEC_ALLOW_REGEX` / `SEC_BLOCKED_EXCEPT` in
-`security.conf`, which is itself a protected path. `SEC_BLOCKED_EXCEPT` frees a
-path from every blocked glob. `SEC_BLOCKED_KEY_EXCEPT` (ships `*.pub`) frees a
-path only from the SSH key-name globs (`SEC_KEY_NAME_GLOBS`), so `id_rsa.pub`
-passes while `data/auth/backup.pub` is still blocked by its path-anchored rule.
+Secrets, blocked files, identifiers, home paths, and invisible characters have
+no override: fix the content. For a confirmed synthetic fixture, put
+`gitleaks:allow` on the line (CI's gitleaks honors it too) or extend
+`SEC_ALLOW_REGEX` / `SEC_BLOCKED_EXCEPT` in `security.conf`, itself a protected
+path. `SEC_BLOCKED_EXCEPT` frees a path from every blocked glob;
+`SEC_BLOCKED_KEY_EXCEPT` (ships `*.pub`) frees it only from the SSH key-name
+globs, so `id_rsa.pub` passes while `data/auth/backup.pub` stays blocked.
 
 ## Privacy setup
 
@@ -155,11 +148,9 @@ The gate sees text, not intent. These rules stay in `AGENTS.md` and review:
 
 ## Known limits
 
-- `git commit --no-verify` skips pre-commit; pre-push still scans those commits. `git push --no-verify` skips both; CI is the backstop.
-- A clone that never set `core.hooksPath` has no gate.
-- An agent can set an override variable itself. The gate makes that a visible rule violation, not an impossible one.
-- Regex detection misses secrets with no known prefix and low entropy, and flags look-alike fixtures.
-- It does not scan inside archives, images or binaries; it refuses large new files and reminds on media instead.
+- `git commit --no-verify` skips pre-commit (pre-push still scans those commits); `git push --no-verify` skips both, and a clone that never set `core.hooksPath` has no gate. CI is the backstop.
+- An agent can set an override variable itself; the gate makes that a visible rule violation, not an impossible one.
+- Regex detection misses unprefixed low-entropy secrets and flags look-alike fixtures; archives, images, and binaries are not scanned inside (large new files are refused, media gets a reminder).
 
 ## Reuse in another repository
 

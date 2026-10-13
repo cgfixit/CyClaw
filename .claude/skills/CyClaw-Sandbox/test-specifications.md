@@ -317,11 +317,8 @@ From `tests/test_due_diligence_invariants.py` (14 test classes):
   the armed values are the safe ones, only that changing them should be
   deliberate and visible in a diff
 - Also pins `policy.fallback.send_local_context_to_grok`/`_claude` are both
-  `false` (the load-bearing exfiltration guard), that `/health` does not probe
-  external providers by default, and that `app.debug` (ships `true`) is still
-  read by no production code path in `gate.py`/`graph.py` -- if that ever
-  changes, this test forces the wiring change to confront the shipped value in
-  the same diff
+  `false` (the load-bearing exfiltration guard) and that `/health` does not
+  probe external providers by default
 
 ---
 

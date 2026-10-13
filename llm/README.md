@@ -13,30 +13,25 @@ decided entirely by `graph.py`'s edges and `gate.py`'s construction gates
 | `GrokClient` | x.ai | OpenAI-compatible `/chat/completions`; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `GROK_API_KEY` cannot transit an operator proxy |
 | `ClaudeClient` | Anthropic | Messages API; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `ANTHROPIC_API_KEY` cannot transit an operator proxy |
 
-The two external clients are only ever **constructed** when
-`mode == "hybrid"` and the provider's `enabled` flag is true, and only ever
-**called** after per-request user confirmation — the triple gate (I3) is
-enforced in `gate.py` + `graph.py`, not here.
-
-Read that conditional against the shipped config before assuming it means
-"off": `app.mode` ships `"hybrid"` and both `models.grok.enabled` and
-`models.claude.enabled` ship `true` (armed 2026-08-07), so on a fresh clone
-**both external clients are constructed at boot** and two of the three gates
-are already open. The only remaining gate is the per-request
-`user_confirmed_online`, which cannot be pre-set in config. Billed calls are
-recorded to `logs/spend.jsonl` — see [`spend/README.md`](../spend/README.md).
+The two external clients are **constructed** only when `mode == "hybrid"` and
+the provider's `enabled` flag is true, and **called** only after per-request
+user confirmation — the triple gate (I3) lives in `gate.py` + `graph.py`, not
+here. Read that against the shipped config: `app.mode` is `"hybrid"` and both
+`models.grok.enabled` and `models.claude.enabled` are `true`, so on a fresh
+clone both clients are constructed at boot and the only closed gate is the
+per-request `user_confirmed_online`, which no config key can pre-set. Billed
+calls land in `logs/spend.jsonl` ([`spend/README.md`](../spend/README.md)).
 
 ## Guarded generation
 
-The gateway ships with `guardrails.enabled: true`. `graph.py` calls these
-clients through the callable injected by `utils/guardrail_bridge.py`, which
-checks input before generation and output afterward on all four answer
-routes. Missing or failed NeMo checks use deterministic input and
-soul-leak checks and audit `guardrail_degraded`. Grounding applies only to
-retrieved local answers. Active rails add no model calls. An unexpected
-wrapper failure returns `GUARDRAIL_ERROR` without replaying generation;
-the clients' bounded HTTP retry policy below remains separate.
-See the [NeMo reference](../docs/NeMo/README.md) for rail scope and limitations.
+With the shipped `guardrails.enabled: true`, `graph.py` calls these clients
+through the callable `utils/guardrail_bridge.py` injects: input checked before
+generation and output after on all four answer routes, deterministic input and
+soul-leak checks (audited `guardrail_degraded`) when NeMo is missing or fails,
+grounding on retrieved local answers only, no added model calls. An unexpected
+wrapper failure returns `GUARDRAIL_ERROR` without replaying generation; the
+HTTP retry policy below is separate. Rail scope and limits:
+[NeMo reference](../docs/NeMo/README.md).
 
 ## Shared behavior
 

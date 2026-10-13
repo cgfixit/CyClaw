@@ -20,18 +20,13 @@ OpenAI's `tiktoken` — Anthropic's billed `input_tokens` is the count to trust.
 
 ## What the ledger is not
 
-The spend ledger is not the audit log. `logs/audit.jsonl` is CyClaw's security
-evidence stream and stays authoritative for what happened on a request;
-`logs/spend.jsonl` is a separate append-only file for what a request cost.
-`utils/spend.py` deliberately does not route through `utils/logger.py`'s
-`audit_log`, so metrics can reprice cost history without rewriting or polluting
-the audit trail.
-
-The spend ledger is also not a policy decision point. Nothing on the `/query`
-path reads it to decide anything — it is written after a billed call completes
-and is consumed only by the `cyclaw-metrics` CLI. `gate.py`, `graph.py`, and
-`mcp_hybrid_server.py` never import the metrics or sequence-detection modules
-for a routing decision.
+Not the audit log: `logs/audit.jsonl` stays authoritative for what happened on
+a request; `logs/spend.jsonl` is a separate append-only file for what it cost,
+written outside `utils/logger.py`'s `audit_log` so history can be repriced
+without touching the audit trail. Not a policy point either: nothing on the
+`/query` path reads it; it is written after a billed call completes and
+consumed only by `cyclaw-metrics`, and the core modules never import the
+metrics or sequence-detection code.
 
 ## What is recorded
 
@@ -60,11 +55,10 @@ threading lock so concurrent calls cannot interleave a partial line.
 ### What is never recorded
 
 `utils/spend.py` never persists query text, prompt text, message content,
-response bodies, API keys, or authorization headers. The optional `query_hash`
-is a pseudonymous correlation key, not a request identity, and it is the only field that can
-be joined back to an audit record. The `route_path` and `query_hash` fields are
-both validated against strict patterns before being written, so a malformed or
-oversized value is dropped rather than stored.
+response bodies, API keys, or authorization headers. `query_hash` is a
+pseudonymous correlation key — the only field joinable to an audit record —
+and both it and `route_path` are pattern-validated before writing, so a
+malformed or oversized value is dropped rather than stored.
 
 ## API keys
 
@@ -106,40 +100,28 @@ logging:
   spend_file: "logs/spend.jsonl"
 ```
 
-Relative paths anchor to the repo root, not the current working directory, so
-`cyclaw-metrics` reports the same file no matter where it is invoked. When
-`logging.spend_file` is absent from a config, the ledger falls back to
-`logs/spend.jsonl`, and `cyclaw-metrics` silently omits its Spend section rather
-than inventing an empty one.
-
-Ledger writes are best-effort by design. A write failure logs a WARNING and
-returns; it never raises into the request path, because a full disk must not
-turn a successful paid answer into a failed one.
+Relative paths anchor to the repo root, so `cyclaw-metrics` reports the same
+file wherever it is invoked. Without `logging.spend_file` the ledger falls back
+to `logs/spend.jsonl` and `cyclaw-metrics` omits its Spend section. Writes are
+best-effort: a failure logs a WARNING and returns, never raising into the
+request path, because a full disk must not turn a paid answer into a failed one.
 
 ## Who writes to the ledger
 
-Two production call sites record usage, distinguished on the ledger by
-the `source` field:
+Two production call sites, distinguished by `source`:
 
-- **`llm/client.py`** — the `/query` online fallback path, recorded as
-  `source: "query"`. This is the triple-gated Grok/Claude escalation that a
-  human confirmed per request.
-- **`agentic/deepagent_github/chat_client.py`** — the out-of-band cloud planner
-  used by the agentic layer, recorded as `source: "agentic"`.
+- **`llm/client.py`** — the triple-gated `/query` fallback, `source: "query"`.
+- **`agentic/deepagent_github/chat_client.py`** — the out-of-band cloud
+  planner, `source: "agentic"`.
 
-The opt-in evaluators (`tests/judge_eval.py` and `tests/judge_calibrate.py`)
-also use `llm/client.py` with `source: "eval"`, overriding the destination to
-`logs/evals/spend.jsonl`. These synthetic evaluation costs are separate from
-the production ledger; a local judge makes no billed external call.
+The opt-in evaluators (`tests/judge_eval.py`, `tests/judge_calibrate.py`) also
+use `llm/client.py` with `source: "eval"` and write to
+`logs/evals/spend.jsonl` instead; a local judge makes no billed call. One file
+with a `source` tag keeps a monthly total a single pass while
+`utils/sequence_detect.py` restricts itself to `source == "query"` rows.
 
-Keeping both production paths on one file with a `source` tag means a monthly
-total is a single pass over one file, while `utils/sequence_detect.py` can still restrict itself
-to `source == "query"` rows so the two planes never mix in a forensic join.
-
-A billed non-JSON response is still recorded. If a provider returns 2xx with a
-body CyClaw cannot parse, the line is written with `usage_missing: true` rather
-than skipped — quota was consumed either way, and a silently missing line would
-understate the bill.
+A billed non-JSON response is still recorded, with `usage_missing: true`:
+quota was consumed either way, and a missing line would understate the bill.
 
 ## How dollars are derived
 
@@ -168,19 +150,15 @@ while Claude's `output_tokens` is already the inclusive billing total.
 
 ### Rate staleness
 
-The rate table derives a `PRICED_AS_OF` date (the oldest entry in
-`_RATE_VERIFIED`, one per `_RATES` row) and is considered stale after 30
-days. `rates_are_stale()` and `warn_if_priced_as_of_stale()` expose that check so
-a long-running deployment surfaces "these dollar figures are from an old rate
-card" instead of quietly reporting confident, wrong totals. The token counts
-remain correct regardless — only the derived dollars go stale, which is the
-entire reason dollars are not persisted.
-
-To re-price after a vendor changes rates, update the `_RATES` row and its
-verification date in `_RATE_VERIFIED` in `utils/spend.py`; `PRICED_AS_OF` is
-computed from those dates, never hand-edited (`tests/test_spend.py` asserts every
-rate row has one). Every historical line re-prices on the next
-`cyclaw-metrics` run; no migration or backfill is needed.
+`PRICED_AS_OF` is the oldest date in `_RATE_VERIFIED` (one per `_RATES` row)
+and the table counts as stale after `STALE_AFTER_DAYS` (30); `rates_are_stale()`
+and `warn_if_priced_as_of_stale()` surface that so a long-running deployment
+says "old rate card" instead of reporting confident, wrong totals. Token counts
+stay correct regardless — only derived dollars go stale, which is why dollars
+are not persisted. To re-price, update the `_RATES` row and its
+`_RATE_VERIFIED` date in `utils/spend.py` (never hand-edit `PRICED_AS_OF`;
+`tests/test_spend.py` asserts every row has a date). History re-prices on the
+next `cyclaw-metrics` run with no migration.
 
 ## Reading the ledger
 
@@ -190,20 +168,13 @@ The Spend section is part of the standard metrics output:
 python -m metrics
 ```
 
-The same report is available as `cyclaw-metrics` once the project itself is
-installed with `pip install -e .`, since the short name is a console script that
-pip only writes when the project is installed.
-
-The Spend section prints a `today` and a `last_7d` window. Each window reports
-total input and output tokens, a derived USD figure, a per-provider row count,
-and a per-source row count. When any row in the window carried vendor ticks, the
-output also shows `table_usd`, `ticked_table_usd`, `vendor_usd`, and
-`delta_usd` side by side, so a drift between CyClaw's rate table and the
-vendor's own billing is visible rather than hidden behind a single number.
-
-Two counters flag data-quality problems in the window: `usage_missing` counts
-billed calls whose usage could not be parsed, and `rate_unknown` counts rows
-whose model has no entry in the rate table.
+(`cyclaw-metrics` is the same report once the project is installed with
+`pip install -e .`.) The Spend section prints `today` and `last_7d` windows:
+input/output tokens, derived USD, and per-provider and per-source row counts.
+When any row carried vendor ticks it also shows `table_usd`,
+`ticked_table_usd`, `vendor_usd`, and `delta_usd` side by side so rate-table
+drift is visible. Two data-quality counters: `usage_missing` (billed calls with
+unparseable usage) and `rate_unknown` (models absent from the rate table).
 
 ### Verifying the rate table against the vendor
 
@@ -279,21 +250,14 @@ shared `query_hash` to surface offline forensic patterns — for example, a
 blocked injection attempt followed by an online escalation inside a 15-minute
 window. Its output is printed as a Sequences section by `cyclaw-metrics`.
 
-That detector is forensic and CLI-only. It restricts spend rows to
-`source == "query"`, counting and dropping agentic rows so the two planes never
-mix, and its findings carry only hashes, event names, timestamps, and
-provider/model tags — never query text, IP addresses, soul content, or secrets.
-
-The correlation-window rule assumes CyClaw's shipped threat model: a
-single-operator, loopback-bound host where a sequence within the window is the
-operator's own activity. The window is a correlation aid, not an actor
-identifier.
+The detector is forensic and CLI-only: it keeps `source == "query"` rows
+(counting and dropping agentic ones), and its findings carry only hashes, event
+names, timestamps, and provider/model tags — never query text, IPs, soul
+content, or secrets. The window assumes the shipped threat model (one operator
+on a loopback host): it is a correlation aid, not an actor identifier.
 
 ## Related documentation
 
-- `docs/online-llm/readme.md` — how the Grok and Claude fallbacks are gated and
-  configured, including the triple gate and the per-query provider selection.
-- `docs/THREAT_MODEL.md` — the security scope the ledger's redaction rules are
-  written against.
-- `CLAUDE.md` — the operating manual, including the audit-log privacy rules that
-  the spend ledger deliberately parallels.
+- `docs/online-llm/readme.md` — Grok/Claude gating and per-query provider selection.
+- `docs/THREAT_MODEL.md` — the scope the ledger's redaction rules are written against.
+- `CLAUDE.md` — the audit-log privacy rules the ledger parallels.

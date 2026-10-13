@@ -111,24 +111,16 @@ To load it at boot, install it to `/etc/apparmor.d/cyclaw-bwrap` first; the
 [setup guide](../../setup-guide.md) has those commands.
 
 **Why not Ubuntu's `bwrap-userns-restrict`.** AppArmor's extra-profiles ship a
-stricter option. Its `bwrap` profile is confined rather than unconfined, and
-it stacks every bwrap child under `unpriv_bwrap`, which denies capabilities
-inside the namespace. CyClaw uses the one-rule profile by default because:
-
-- `bwrap-userns-restrict` is not userns-only. Its `bwrap` profile also allows
-  `capability`, `mount`, `ptrace`, `dbus`, `network`, and `rwlkm` on `/**`.
-  That is a much larger policy to review, and it must match the host's
-  AppArmor ABI (the upstream copy declares `abi <abi/5.0>`).
-- Its main gain, children without capabilities, is what CyClaw's own sandbox
-  already gets from `--cap-drop ALL`. What it adds is protection against
-  *other* bwrap callers on the same host.
-- CI proves the one-rule profile on `ubuntu-latest` (stock refuses, the
-  profile loads, the verifier passes). CI does not exercise the stricter
-  profile.
+stricter option that confines `bwrap` and stacks every child under
+`unpriv_bwrap` (no capabilities inside the namespace). CyClaw defaults to the
+one-rule profile because the stricter one is not userns-only (it also allows
+`capability`, `mount`, `ptrace`, `dbus`, `network`, and `rwlkm` on `/**`, a
+much larger policy that must match the host ABI — upstream declares
+`abi <abi/5.0>`), its main gain is what `--cap-drop ALL` already provides
+(what it adds is protection against *other* bwrap callers on the host), and CI
+proves only the one-rule profile on `ubuntu-latest`.
 
 **Residual risk.** With `cyclaw-bwrap` loaded, any local user can run
-`/usr/bin/bwrap` to get a user namespace, so bwrap becomes an exemption from
-the host's userns restriction. That's acceptable on a single-user CyClaw
-workstation. On shared or multi-user hosts, load `bwrap-userns-restrict`
-instead and rerun the verifier. Don't load both, because both attach to
-`/usr/bin/bwrap`.
+`/usr/bin/bwrap` to get a user namespace — acceptable on a single-user CyClaw
+workstation. On shared hosts load `bwrap-userns-restrict` instead and rerun the
+verifier; never load both, since both attach to `/usr/bin/bwrap`.

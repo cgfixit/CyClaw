@@ -18,13 +18,11 @@ GROK_API_KEY=dummy pytest tests/test_graph.py -q        # one file
 GROK_API_KEY=dummy python -m tests.ci_rag_smoke         # real-index RAG smoke
 ```
 
-Use `GROK_API_KEY=dummy` for routine tests; they do not require a real provider
-key. The separate RAG smoke loads the embedding model and a real index; seed
-the model cache first if it must run with `HF_HUB_OFFLINE=1`.
-
-Python 3.12 is required (`requires-python >=3.12,<3.13`). Build a 3.12 venv
-and invoke pytest through it; an unsupported host interpreter can fail on
-3.12-only stdlib calls (full recipe in `CLAUDE.md` §4 "Environment & install").
+Routine tests need no real provider key (`GROK_API_KEY=dummy`). The RAG smoke
+loads the embedding model and a real index; seed the model cache first if it
+must run with `HF_HUB_OFFLINE=1`. Run pytest through a Python 3.12 venv
+(`requires-python >=3.12,<3.13`); a 3.11 host interpreter fails on 3.12-only
+stdlib calls (recipe in `CLAUDE.md` §4 "Environment & install").
 
 The optional groundedness evaluator is a separate live-spend command and is not
 part of required CI:
@@ -33,19 +31,15 @@ part of required CI:
 CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py
 ```
 
-It also requires `ANTHROPIC_API_KEY` and a running loopback local LLM. Missing
-either gate returns exit 2. It uses only the tracked synthetic corpus under
-`tests/fixtures/groundedness/`; reports and its isolated index stay ignored
-under `logs/evals/`. Exit 0 means the approved rubric passed, exit 1 means a
-complete run missed a threshold, and exit 2 means the run was refused or could
-not complete.
-
-Setting `evals.local_judge.enabled: true` in `config.yaml` (with a `model` tag
-that differs from `models.local_llm.model`) swaps the Anthropic judge for a
-second loopback model: the same command then needs no `ANTHROPIC_API_KEY` and
-nothing leaves the host. `CYCLAW_EVAL_LIVE=1` still gates the run. Before
-trusting any judge, run the hand-labeled calibration set (36 rows in
-`tests/fixtures/groundedness/calibration.json`, judge only, no contestant):
+It needs `ANTHROPIC_API_KEY` and a running loopback local LLM, uses only the
+tracked synthetic corpus under `tests/fixtures/groundedness/`, and keeps its
+reports and isolated index ignored under `logs/evals/`. Exit 0: rubric passed;
+1: a complete run missed a threshold; 2: refused or incomplete (including a
+missing gate). `evals.local_judge.enabled: true` (with a `model` tag different
+from `models.local_llm.model`) swaps the Anthropic judge for a second loopback
+model — no `ANTHROPIC_API_KEY`, nothing leaves the host, `CYCLAW_EVAL_LIVE=1`
+still gates. Before trusting any judge, run the hand-labeled calibration set
+(36 rows in `tests/fixtures/groundedness/calibration.json`, judge only):
 
 ```bash
 CYCLAW_EVAL_LIVE=1 python tests/judge_calibrate.py

@@ -77,23 +77,19 @@ fixture jobs run.
    advises; a different binary (`/bin/true`, another release) denies the call
    itself.
 3. A private temp directory receives the event, a byte-for-byte snapshot of
-   the rule files in each rule directory (every name ending in `.yaml` or
-   `.yml`, in any case, which is how Numbat finds them), and the
-   engine's canary rule. The read is bounded: past the caps on rule files,
-   rule bytes and directory entries (`_MAX_RULE_*` in
-   `utils/numbat_gate.py`, far above any real rule set), or past the call's
-   `timeout_sec`, the call is denied, so a `rules_dirs` pointed at a home
-   directory or a slow mount cannot stall a request. The whole decision
-   runs on a worker thread the call stops waiting for at `timeout_sec`, so
-   even a filesystem call that never returns (a stalled network mount under
-   `rules_dirs` or the binary) only holds the call until its deadline. A
-   stuck worker is left behind, and only a few can be stuck at once
-   (`_MAX_GATE_WORKERS`, `_MAX_RULE_READERS`). Then
-   `numbat rules test --fixture <file> --no-builtin-rules --rules-dir <snapshot> ... --rules-dir <canary>`
-   evaluates the event against the operator's rules only. The shipped catalog
-   is detection-only, so it is not loaded. The engine classifies the same
-   bytes Numbat reads, so an edit that lands mid-request cannot pair one
-   version's `enforce` flag with another version's match.
+   the rule files in each rule directory (every `.yaml`/`.yml` name in any
+   case, as Numbat finds them), and the engine's canary rule. The read is
+   bounded — past the caps on rule files, bytes, and directory entries
+   (`_MAX_RULE_*` in `utils/numbat_gate.py`) or past `timeout_sec` the call is
+   denied — and the whole decision runs on a worker thread the call stops
+   waiting for at `timeout_sec`, so a stalled mount under `rules_dirs` or a
+   hung binary holds the call only until its deadline; a stuck worker is left
+   behind and only a few can be (`_MAX_GATE_WORKERS`, `_MAX_RULE_READERS`).
+   Then `numbat rules test --fixture <file> --no-builtin-rules --rules-dir <snapshot> ... --rules-dir <canary>`
+   evaluates the event against the operator's rules only (the detection-only
+   shipped catalog is not loaded). The engine classifies the same bytes Numbat
+   reads, so a mid-request edit cannot pair one version's `enforce` flag with
+   another version's match.
 4. The canary rule, `cyclaw.gate.canary`, matches every call. A run that does
    not report it denies. Exit 0 with no output is also what `/bin/true` or a
    CLI that skipped the event prints, so only the canary's match shows that

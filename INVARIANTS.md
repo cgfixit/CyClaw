@@ -314,10 +314,6 @@ packages). A narrower characterization (`gate` / `gate_ops` / `graph` / `mcp` vs
   (called from `gate.py`) refuses `false` with a `ConfigError`, so the key cannot
   be mistaken for a live safety switch; `true` or absent is the only accepted state.
   (`TestFallbackRequireUserConfirmIsUnwired`.)
-- **`app.debug: true`** is shipped on and read by **no** code path in `gate.py`,
-  `graph.py`, `utils/`, or `llm/`. It is pinned so that whoever wires it to
-  something real (traceback echo, `FastAPI(debug=True)`) must confront the shipped
-  value in the same diff. (`TestShippedCoreConfigContract.test_app_debug_is_pinned_and_currently_inert`.)
 - **Gateway startup** does not require `GROK_API_KEY`; Grok reports unavailable
   when the key is absent.
 - **`banned_patterns`** is best-effort regex over raw text (40 patterns in the
