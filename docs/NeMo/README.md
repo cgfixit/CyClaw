@@ -24,11 +24,9 @@ grant or deny access. Guardrails can deny a request or replace an answer.
 They cannot select an online route, expand a tool registry, or override a
 deterministic denial.
 
-The request path reaches this package through `utils/guardrail_bridge.py`.
-The core six modules never import `guardrails` directly. They are `gate.py`,
-`gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, and
-`mcp_hybrid_server.py`. The graph remains 12 nodes, with no `safe_generate`
-call on its generation path.
+The request path reaches this package only through `utils/guardrail_bridge.py`
+(I6: the core six never import `guardrails`). The graph remains 12 nodes, with
+no `safe_generate` call on its generation path.
 
 The bridge activates only for literal boolean `True`. Startup rejects
 non-booleans such as `"true"`, `"false"`, and `1` through
@@ -65,22 +63,15 @@ billed an answer. All graph paths still converge on `audit_logger`.
 
 ## Other entry points
 
-`safe_generate` is a separate diagnostic path used by
-`python -m guardrails.cli check`. It applies offline input checks and can
-call NeMo `generate_async` when the engine is available. That call can invoke
-the model for intent generation. It is not the gateway broker and must not
-be wired into `/query`, where it would duplicate generation.
-
-`agentic/executor` has its own platform sandbox and approval contracts. It
-has no NeMo call. The former harness console routes were removed in PR #1367.
-MCP `tools/call` remains unwrapped.
-
-| Module | Role |
-|---|---|
-| `guardrails.broker.GuardrailBroker` | NeMo `check()` and deterministic fallback around existing generation. Never grants external access |
-
-`python -m guardrails.call_inventory` fails closed on unregistered
-`ChatOpenAI`, `ChatXAI`, `ChatAnthropic`, or `generate_async` call sites.
+`safe_generate` is the diagnostic path behind `python -m guardrails.cli check`:
+offline input checks plus, when the engine is available, a NeMo
+`generate_async` call that can invoke the model. It is not the gateway broker
+(`guardrails.broker.GuardrailBroker`, which never grants external access) and
+must not be wired into `/query`, where it would duplicate generation.
+`agentic/executor` has its own sandbox and approval contracts and no NeMo call;
+MCP `tools/call` remains unwrapped. `python -m guardrails.call_inventory` fails
+closed on unregistered `ChatOpenAI`, `ChatXAI`, `ChatAnthropic`, or
+`generate_async` call sites.
 
 ## Rail coverage
 
@@ -101,16 +92,13 @@ enforced offline and are absent from the active NeMo flow list.
 ### Model-assisted rails declined
 
 Track B phase 4 declines NVIDIA's model-assisted `self_check_input`,
-`self_check_output`, and `self_check_facts` rails. They are inactive and add
-no calls to `/query`. The retained input and facts prompt templates in
-`guardrails/config/config.yml` are inert historical material. Activating
-model-assisted rails requires a separate policy, privacy, latency, and
-model-call review.
-
-The active `check cyclaw facts` flow uses the same deterministic grounding
-action as `check grounding`. Its name does not mean that NVIDIA
-`self_check_facts` runs. This implementation provides neither a general
-jailbreak classifier nor claim-level fact verification.
+`self_check_output`, and `self_check_facts`; they are inactive, add no calls to
+`/query`, and their retained prompt templates in `guardrails/config/config.yml`
+are inert. Activating them needs a separate policy, privacy, latency, and
+model-call review. The active `check cyclaw facts` flow runs the same
+deterministic grounding action as `check grounding` — not NVIDIA's
+`self_check_facts` — so this layer provides neither a jailbreak classifier nor
+claim-level fact verification.
 
 ## Grounding
 
@@ -194,13 +182,11 @@ mismatch, a missing model or an unreachable Ollama exits `2`.
 ## Verification commands
 
 Run `python -m pip check` and `python -m guardrails.verify_install` after the
-normal platform install. The strict smoke constructs the production engine
-and requires exact input and output verdicts from the shipped rules with the
-offline loader flags set. Fallback checks cannot satisfy it. CI runs this on Linux,
-Windows, macOS, Conda, the installed wheel outside the checkout, and Docker.
-Docker runs it with networking disabled, including in the final build stage
-before GHCR can publish an image.
-
+platform install. The strict smoke constructs the production engine and
+requires exact input and output verdicts from the shipped rules with the
+offline loader flags set; fallback checks cannot satisfy it. CI runs it on
+Linux, Windows, macOS, Conda, the installed wheel outside the checkout, and
+Docker (networking disabled, including the final build stage before GHCR publish).
 
 The real-engine lane in
 [`.github/workflows/nemo-guardrails.yml`](../../.github/workflows/nemo-guardrails.yml)

@@ -26,52 +26,48 @@ Dropbox sync is already scheduled with `python -m sync.cli schedule`
 (live `schtasks /Create`, daily by default -- `sync.schedule_frequency` also
 accepts `weekly` / `monthly`; task name `CyClaw Dropbox Sync`).
 
-`Uninstall-CyClaw.ps1` best-effort deletes a **fixed** list of CyClaw task
-names (`CyClaw Dropbox Sync`, `CyClaw fsconnect-trash`,
-`CyClaw telegram-poll`, `CyClaw telegram-health`, `CyClaw gate`,
-`CyClaw harness` (the retired console's name, kept for older installs), `CyClaw opentweet`) so a later generator cannot outlive uninstall. It never
-uses a wildcard `/TN`. A missing task is a no-op (query-then-delete;
-Windows PowerShell 5.1 must not abort uninstall on `schtasks` stderr).
-Credential Manager items are **not** deleted unless `-RemoveCredentials` is
-passed (the macOS twin is `--remove-keychain`). That switch prompts y/N
-unless `-Yes` is also passed, and it leaves plaintext lines in place. The
-default uninstall never writes a credential.
-
-Telegram / API-key injection for those later generators goes through
-`CyClaw-CredMan-Env.ps1` so tokens never appear in task XML.
+`Uninstall-CyClaw.ps1` best-effort deletes a **fixed** list of task names
+(`CyClaw Dropbox Sync`, `CyClaw fsconnect-trash`, `CyClaw telegram-poll`,
+`CyClaw telegram-health`, `CyClaw gate`, `CyClaw opentweet`, and the retired
+`CyClaw harness`) so a later generator cannot outlive uninstall; never a
+wildcard `/TN`, and a missing task is a no-op (query-then-delete, so Windows
+PowerShell 5.1 does not abort on `schtasks` stderr). Credential Manager items
+go only with `-RemoveCredentials` (the macOS twin is `--remove-keychain`),
+which prompts y/N unless `-Yes` is passed and leaves plaintext lines in place;
+the default uninstall never writes a credential. Generators inject tokens
+through `CyClaw-CredMan-Env.ps1`, so none appears in task XML.
 
 ## Secret classification
 
 `%USERPROFILE%\.CyClaw\.env` stays the default home for ordinary settings
-(ports, paths, mode flags, model names, feature toggles). `cyclaw` still
-loads those lines. A name is secret-classified when `Test-CyclawSecretName`
-in `CyClaw-SecretStore.ps1` says so: the allowlist (`CYCLAW_API_KEY`,
-`TELEGRAM_BOT_TOKEN`, `GROK_API_KEY`, `ANTHROPIC_API_KEY`, `GH_TOKEN`,
-`GITHUB_TOKEN`, `CLAUDE_API_KEY`) or a name ending in `_API_KEY`, `_TOKEN`,
-`_SECRET`, or `_PASSWORD`.
+(ports, paths, mode flags, model names, feature toggles), and `cyclaw` loads
+those lines. `Test-CyclawSecretName` in `CyClaw-SecretStore.ps1` classifies a
+name as secret from `utils/secret-policy.tsv` (shared with the bash and Python
+loaders): an `exact` row mapped to its Credential Manager target
+(`CYCLAW_API_KEY`, `TELEGRAM_BOT_TOKEN`, `GROK_API_KEY`, `ANTHROPIC_API_KEY`,
+`GH_TOKEN`/`GITHUB_TOKEN`, `CYCLAW_SQL_DSN`, the `CYCLAW_*_DB_URL` family,
+`RCLONE_CONFIG_PASS`, …) or a `suffix` row (`API_KEY`, `CREDENTIALS`,
+`PASSWORD`, `SECRET`, `TOKEN`, `PAT`, `DSN`, `DB_URL`, `KEY`).
 
-Allowlisted secrets are stored in Credential Manager and are not written
-into `.env` unless `-WriteEnvFile` is passed. Even then, `Invoke-CyClaw.ps1`
-does not export secret-classified lines. Do not persist provider keys with
-`setx` or `[Environment]::SetEnvironmentVariable(..., "User")`. A name that
-matches the suffix pattern but has no Credential Manager target (for example
-`DB_PASSWORD`) is not loaded and is not deleted. `CLAUDE_API_KEY` is not
-loaded and is not copied; `llm/client.py` reads `ANTHROPIC_API_KEY`.
+Classified secrets live in Credential Manager and reach `.env` only with
+`-WriteEnvFile`; even then `Invoke-CyClaw.ps1` never exports those lines. Do
+not persist provider keys with `setx` or
+`[Environment]::SetEnvironmentVariable(..., "User")`. A suffix match with no
+Credential Manager target (`DB_PASSWORD`) is neither loaded nor deleted;
+`CLAUDE_API_KEY` is classified but never loaded or copied, because
+`llm/client.py` reads `ANTHROPIC_API_KEY`.
 
-Re-running install copies each allowlisted secret into Credential Manager
-when that item is missing, then removes the plaintext line only when the
-value read back is ordinal-equal. A mismatch keeps the line and warns.
-Uninstall never writes a credential; it only removes a matching line.
-Other lines stay. No backup file is written. If the store fails or the
-item is unreadable or empty, the plaintext line stays, because it is
-still the only copy. A missing optional credential stays unset and the
-gateway still starts. A present item that cannot be read, or is empty,
-aborts that launch. On Windows, `Invoke-CyClaw.ps1` generates a missing
-`CYCLAW_API_KEY` from 20 random bytes and stores it in Credential Manager
-before launch. If it cannot store the key, it warns and starts without one;
-key-based operator access then fails closed. An enabled admin login and the
-explicit constrained-loopback bypass retain their separate access rules
-([operator access](../README.md#api-key-setup-soul-mutations)).
+Re-running install copies each classified secret into Credential Manager when
+its item is missing, then removes the plaintext line only when the value reads
+back ordinal-equal; a mismatch, failed store, or unreadable/empty item keeps
+the line (still the only copy) and warns. Other lines stay and no backup is
+written; uninstall only ever removes a matching line. At launch a missing
+optional credential stays unset and the gateway starts, but a present item
+that cannot be read or is empty aborts. `Invoke-CyClaw.ps1` generates a missing
+`CYCLAW_API_KEY` (20 random bytes) into Credential Manager first; if it cannot
+store it, it warns and starts without one, so key-based operator access fails
+closed while an enabled admin login and the constrained-loopback bypass keep
+their own rules ([operator access](../README.md#api-key-setup-soul-mutations)).
 
 ## Related
 

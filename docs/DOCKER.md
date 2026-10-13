@@ -6,12 +6,10 @@ This document is the operator guide for running CyClaw from the published contai
 image. It does **not** replace [`setup-guide.md`](../setup-guide.md) (native install)
 or [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md) (threat scope).
 
-The base image includes `nemoguardrails==0.24.0`. Existing images must be
-rebuilt from the updated dependency manifests, published through the GHCR
-workflow, and pulled before recreating containers. The Dockerfile runs
-`pip check` and `python -m guardrails.verify_install` as the runtime user with
-build network access disabled. A failed engine or allow/refuse check stops
-the build before publication. Existing runtime fallback behavior is unchanged.
+The image includes `nemoguardrails==0.24.0`; the Dockerfile runs `pip check`
+and `python -m guardrails.verify_install` as the runtime user with build
+networking disabled, so a failed engine or allow/refuse check stops the build
+before publication. Runtime fallback behavior is unchanged.
 
 ## What is published
 
@@ -33,23 +31,14 @@ dedicated `linux/arm64` image is verified against the torch pin.
 
 ## What is *not* in the image (by design)
 
-`.dockerignore` + the multi-stage `Dockerfile` keep private / regenerable state out
-of layers:
-
-- `data/` corpus vectors, runtime caches
-- `index/` ChromaDB + BM25 state
-- `logs/`, `checkpoints/`
-- `.env`, keys, `*.pem`
-- tests, docs, `.git`, `.github`
-
-The image includes the repository default `config.yaml` through `COPY . .`.
-Compose overrides it with your read-only `./config.yaml` bind mount. Build only
-from a checkout whose config is safe to distribute; keep production settings in
-the operator mount.
-
-The image is the **gate + graph + retrieval runtime** only. `data/` (corpus,
-soul.md, agentic registry) is not baked into layers; compose bind-mounts `./data`
-at runtime. Treat production `soul.md` as operator-owned.
+`.dockerignore` + the multi-stage `Dockerfile` keep private and regenerable
+state out of layers: `data/` (corpus, soul.md, agentic registry), `index/`,
+`logs/`, `checkpoints/`, `.env`/keys/`*.pem`, tests, docs, `.git`, `.github`.
+The image is the gate + graph + retrieval runtime only; compose bind-mounts
+`./data` at runtime, and production `soul.md` is operator-owned. The
+repository default `config.yaml` does ride along via `COPY . .` (compose
+overrides it with your read-only `./config.yaml` mount), so build only from a
+checkout whose config is safe to distribute.
 
 ## Security posture (must preserve)
 
@@ -101,33 +90,24 @@ required for GHCR pull/run.
 
 ### Prepare host storage
 
-Before either Compose or `docker run`, create the bind directories next to
-`docker-compose.yml` and ensure container UID/GID `1000:1000` can read and write
-them, including existing files the application updates. Image-layer ownership
-is hidden by bind mounts. Compose refuses missing writable sources instead of
-letting rootful Docker create root-owned directories that the app cannot write.
+Before Compose or `docker run`, create the bind directories next to
+`docker-compose.yml` and make sure container UID/GID `1000:1000` can read and
+write them, existing files included (bind mounts hide image-layer ownership;
+compose refuses a missing writable source rather than letting rootful Docker
+create a root-owned directory the app cannot write):
 
 ```bash
 mkdir -p data index logs checkpoints
+# new, empty deployment directory on rootful Linux only:
+sudo chown 1000:1000 data index logs checkpoints && sudo chmod 0750 data index logs checkpoints
 ```
 
-For a **new, empty deployment directory on rootful Linux**, an administrator can
-set ownership on just those directories before adding data:
-
-```bash
-sudo chown 1000:1000 data index logs checkpoints
-sudo chmod 0750 data index logs checkpoints
-```
-
-For existing state, review its ownership and permissions first. Grant UID 1000
-the required access using your host's ownership or ACL policy; do not recursively
-change an existing corpus or deployment tree blindly. `config.yaml` must be a
-regular file readable by the container. Docker Desktop and rootless/user-namespace
-Docker translate host identities differently; verify access under that runtime
-instead of assuming the Linux ownership command applies.
-
-After pulling or building the image, this probe exercises the configured mounts
-as the service user without starting the gateway or calling any model:
+For existing state, grant UID 1000 access through your host's ownership or ACL
+policy instead of recursively changing a corpus blindly; `config.yaml` must be
+a regular file readable by the container. Docker Desktop and rootless or
+user-namespace Docker translate identities differently — verify under that
+runtime. This probe then exercises the mounts as the service user without
+starting the gateway or calling a model:
 
 ```bash
 docker compose run --rm --no-deps --entrypoint python cyclaw -c \

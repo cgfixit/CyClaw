@@ -68,7 +68,7 @@ a model when the engine is available. The gateway instead uses non-generating
 | `integration.py` | NeMo wrapper + `check_input` / `check_output` |
 | `rails.py` | Offline floor (injection, soul-mutation intent, grounding) |
 | `metrics.py` | Separate `logs/guardrails.jsonl` (hashes, not the core audit stream) |
-| `cli.py` / `selftest.py` | Operator surface |
+| `cli.py` / `selftest.py` / `verify_install.py` | Operator surface; `verify_install` is the strict install smoke (real engine, shipped rules, exact verdicts) CI runs on every platform |
 | `errors.py` | `GuardrailsError` hierarchy, rooted at `utils.errors.RAGError` |
 | `boundary.py` | Provider-independent typed decisions + provenance (#1134 Phase 1). Hashes and reason codes only. Never imported by the core six (I6). Production code does not consume these types; only tests import them. `profiles.py` mirrors `GuardrailStage` by hand. |
 | `broker.py` | NeMo non-generating `LLMRails.check` around the existing generation helper (#1134 Phase 3). Never grants I3, never calls `generate_async`; graph reaches it only via `utils/guardrail_bridge` |
@@ -94,15 +94,10 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 | `check_jailbreak` input rail | **Not enforced as a rail of its own** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. With NeMo installed, the Colang flow `check cyclaw jailbreak` runs the same injection-marker action as `check_injection`, and no LLM-backed rail (`self_check_input`) is active. So no layer has a jailbreak classifier: a persona prompt is caught only when it matches those markers (`you are now …`, `from now on you are …`), and one worded differently passes. |
 | Topical rails (`stay_in_local_knowledge`, `no_unauthed_external_advice`) | **Not enforced offline** — configured but not referenced in `integration.py`. |
 
-When `nemoguardrails` is absent, the enabled floor enforces `check_injection`,
-`check_soul_mutation`, `check_grounding`, and `check_soul_leak` within their
-route scopes. `check_jailbreak` and the topical rails still skip. A configured
-name alone is not evidence that a rail runs.
-
-Issue #1486 Track B declines model-assisted `self_check_input`,
-`self_check_output`, and `self_check_facts`. No such flow is active. The retained
-prompt templates are inert. Active `/query` flows add no model calls.
-
-See the [Track B verification record](../docs/audits/2026-10-03-nemo-track-b.md)
-for phase acceptance and remaining limits. The older #1134 history includes
-separate follow-ups for NLI and platform sandbox acceptance.
+Without `nemoguardrails` the enabled floor still enforces `check_injection`,
+`check_soul_mutation`, `check_grounding`, and `check_soul_leak` in their route
+scopes; `check_jailbreak` and the topical rails skip either way. A configured
+name alone is not evidence that a rail runs. Model-assisted `self_check_*`
+rails are declined (issue #1486 Track B) and inert; active `/query` flows add
+no model calls. Phase acceptance and remaining limits:
+[Track B record](../docs/audits/2026-10-03-nemo-track-b.md).
