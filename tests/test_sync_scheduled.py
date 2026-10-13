@@ -141,3 +141,22 @@ def test_retained_discovery_variables_are_not_capability_selections(monkeypatch,
     monkeypatch.setenv("HOME", "/home/op")
     monkeypatch.setenv("XDG_CONFIG_HOME", "/home/op/.config")
     assert configured_path_names({"log_dir": template}) == ()
+
+
+def test_check_credentials_uses_the_selected_config(tmp_path, capsys):
+    from utils.logger import reset_config_cache
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        'sync:\n  enabled: true\n  local_path: "data/corpus"\n'
+        '  remote_name: "custom_remote"\n  remote_path: "CyClaw/corpus"\n'
+    )
+    reset_config_cache()
+    try:
+        with patch.object(scheduled, "prepare_environment", return_value={"RCLONE_ASK_PASSWORD": "false"}), \
+                patch.object(scheduled.shutil, "which", return_value="rclone"), \
+                patch.object(scheduled.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"custom_remote:\n")):
+            assert scheduled.main(["--config", str(config), "--check-credentials"]) == 0
+        assert "custom_remote" not in capsys.readouterr().out
+    finally:
+        reset_config_cache()

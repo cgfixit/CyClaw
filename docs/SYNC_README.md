@@ -417,7 +417,7 @@ service that securely injects `RCLONE_CONFIG_PASS`, or an unencrypted configurat
 with appropriately restricted filesystem permissions. Do not store this secret in
 a dotenv file, crontab, plist or task command.
 
-Run `python -m sync.scheduled --check-credentials` under the scheduled account to
+Run `python -m sync.scheduled [--config PATH] --check-credentials` under the scheduled account to
 check whether rclone can read its configuration without transferring data or
 printing remote names. This verifies config decryption, not remote authorization
 or unattended OS-keystore access after logout/reboot. Existing environment-supplied

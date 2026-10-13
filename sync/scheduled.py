@@ -90,9 +90,19 @@ def prepare_environment(path_names: tuple[str, ...] = ()) -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    # --check-credentials accepts the schedule's own --config, so a custom
+    # config's remote_name is the one verified.
+    check = "--check-credentials" in args
+    check_config: str | None = None
+    if check:
+        rest = [arg for arg in args if arg != "--check-credentials"]
+        if rest and (len(rest) != 2 or rest[0] != "--config"):
+            print("usage: python -m sync.scheduled [--config PATH] --check-credentials", file=sys.stderr)
+            return 2
+        check_config = rest[1] if rest else None
     try:
         path_names = ()
-        if args != ["--check-credentials"]:
+        if not check:
             from sync.cli import build_parser
             from sync.config import load_sync_config
             from utils.logger import _get_config
@@ -108,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
             config = _get_config(parsed.config) or {}
             path_names = configured_path_names(config.get("sync"))
         env = prepare_environment(path_names)
-        if args == ["--check-credentials"]:
+        if check:
             binary = shutil.which("rclone")
             if binary is None:
                 raise OSError("rclone is unavailable")
@@ -123,7 +133,8 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 from sync.config import load_sync_config
 
-                wanted = f"{load_sync_config().remote_name}:"
+                sync_config = load_sync_config(check_config) if check_config else load_sync_config()
+                wanted = f"{sync_config.remote_name}:"
             except (OSError, ValueError, SyncConfigError):
                 wanted = None
             if result.returncode or not remotes or (wanted is not None and wanted not in remotes):
