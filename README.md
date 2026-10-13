@@ -177,9 +177,9 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
    local tag that stores `num_ctx` on the model itself
    ([derived tag](docs/%21%20How-To-Guides/OLLAMA_SETUP.md#pin-the-context-window-with-a-derived-tag)).
    `macos/Modelfile.cg` builds the author's `qwen3.8:27b-mlx-cg`, which is not a
-   published model. Use your own tag name: drop the `-cg` suffix or choose
-   another. Set `num_ctx` and the sampling parameters to fit your Ollama max
-   context, unified memory, and model.
+   published model. Use your own tag name, but keep a suffix so it never
+   overwrites the registry tag `qwen3.8:27b-mlx`. Set `num_ctx` and the
+   sampling parameters to fit your Ollama max context, unified memory, and model.
 4. **Governed soul.** `data/personality/soul.md` has SHA-256 drift detection
    and atomic writes; `POST /soul/apply` requires a human `reason` and an
    enforced injection scan. Restore, `/soul/reload`, and startup drift

@@ -229,8 +229,14 @@ _print_derived_tag_hint() {
   if [ "$SMALL_MODEL" -eq 1 ] || [ "$SKIP_OLLAMA" -eq 1 ]; then
     return 0
   fi
-  echo "  optional, not run here: ollama create qwen3.8:27b-mlx-cg -f macos/Modelfile.cg"
-  echo "  Then set models.local_llm.model, guardrails.model, and agentic.deepagent_github.model together."
+  # macos/Modelfile.cg builds FROM qwen3.8:27b-mlx; another --ollama-model gets no Qwen hint.
+  case "$OLLAMA_MODEL" in
+    qwen3.8:27b-mlx|qwen3.8:27b-mlx-*) ;;
+    *) return 0 ;;
+  esac
+  # Anchored to the checkout: setup-cyclaw.sh runs this script from any cwd.
+  printf '  optional, not run here: ollama create qwen3.8:27b-mlx-cg -f %q\n' "$REPO_DIR/macos/Modelfile.cg"
+  echo "  Then set models.local_llm.model and guardrails.model together (and agentic.deepagent_github.model if the planner uses this Ollama)."
   echo "  Docs: docs/! How-To-Guides/OLLAMA_SETUP.md (Pin the context window with a derived tag)."
 }
 
