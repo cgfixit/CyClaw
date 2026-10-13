@@ -173,6 +173,9 @@ sudo apt-get update
 sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
 # Ubuntu 24.04 amd64/i386:
 # sudo apt-get install --yes --no-install-recommends bubblewrap=0.9.0-1ubuntu0.3
+# Ubuntu 26.04 and newer: do not use the 24.04 pin. Install the candidate
+# listed in `apt-cache policy bubblewrap`'s version table. On the 2026-10-13
+# GitHub ubuntu-26.04 image that candidate was 0.11.1-1ubuntu0.3.
 # Ubuntu ARM or Debian (inspect and use the distribution's current candidate):
 # apt-cache policy bubblewrap
 # sudo apt-get install --yes --no-install-recommends bubblewrap
@@ -195,7 +198,7 @@ policy that prevents isolation must fail this check; do not disable AppArmor or
 kernel restrictions to make it pass. Use a host
 with an administrator-approved bubblewrap policy instead.
 
-#### Stock Ubuntu 24.04 and newer: load the bubblewrap AppArmor profile
+#### Stock Ubuntu 24.04: load the bubblewrap AppArmor profile
 
 Stock Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor, so
 bubblewrap cannot create its sandbox there. `scripts/verify_agentic_sandbox.py`
@@ -230,6 +233,20 @@ fine on a single-user CyClaw workstation. On a shared or multi-user host, load
 Ubuntu's stricter `bwrap-userns-restrict` profile instead, as described in
 [`deploy/apparmor/README.md`](deploy/apparmor/README.md). Never load both;
 they attach to the same binary.
+
+#### Ubuntu 26.04 and newer: do not load `cyclaw-bwrap`
+
+Ubuntu 26.04 already loads `/etc/apparmor.d/bwrap-userns-restrict`
+(`profile bwrap /usr/bin/bwrap`) in enforce mode, and
+`kernel.apparmor_restrict_unprivileged_userns` stays 1. `/usr/bin/bwrap` can
+create its namespaces. A copy of `bwrap` at any other path is still refused
+(`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`).
+
+Do not load `cyclaw-bwrap` on that host. Both profiles attach to
+`/usr/bin/bwrap`, and with both loaded the confinement command fails the same
+way. Do not install the Ubuntu 24.04 pin `0.9.0-1ubuntu0.3` there; it is not
+in the `apt-cache policy bubblewrap` version table. Install the candidate
+that table lists. Do not write the sysctl.
 
 Do not turn off the system-wide user-namespace restriction to make the probe
 pass; that removes the protection for every program on the host, not just

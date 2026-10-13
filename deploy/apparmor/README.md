@@ -77,15 +77,16 @@ sudo apparmor_parser -R deploy/apparmor/cyclaw-gate
 docker compose up
 ```
 
-## `cyclaw-bwrap`: user namespaces for the agentic sandbox (Ubuntu 24.04+)
+## `cyclaw-bwrap`: user namespaces for the agentic sandbox (Ubuntu 24.04)
 
 **Status: opt-in host profile, separate from `cyclaw-gate`.** Stock Ubuntu
-24.04 and newer set `kernel.apparmor_restrict_unprivileged_userns=1`, so
-bubblewrap cannot create its namespaces and
-`scripts/verify_agentic_sandbox.py` refuses (fails closed). The
-`deploy/apparmor/cyclaw-bwrap` profile lifts that block for one binary only.
-Never set the global sysctl to `0` instead: that removes the restriction for
-every program on the host.
+24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`, so bubblewrap
+cannot create its namespaces and `scripts/verify_agentic_sandbox.py` refuses
+(fails closed). The `deploy/apparmor/cyclaw-bwrap` profile lifts that block
+for one binary only. Never set the global sysctl to `0` instead: that removes
+the restriction for every program on the host. Ubuntu 26.04 and newer already
+ship an enforce-mode `bwrap` profile; do not load this one beside it (see
+below).
 
 What the profile grants:
 
@@ -113,12 +114,22 @@ To load it at boot, install it to `/etc/apparmor.d/cyclaw-bwrap` first; the
 **Why not Ubuntu's `bwrap-userns-restrict`.** AppArmor's extra-profiles ship a
 stricter option that confines `bwrap` and stacks every child under
 `unpriv_bwrap` (no capabilities inside the namespace). CyClaw defaults to the
-one-rule profile because the stricter one is not userns-only (it also allows
-`capability`, `mount`, `ptrace`, `dbus`, `network`, and `rwlkm` on `/**`, a
-much larger policy that must match the host ABI — upstream declares
-`abi <abi/5.0>`), its main gain is what `--cap-drop ALL` already provides
-(what it adds is protection against *other* bwrap callers on the host), and CI
-proves only the one-rule profile on `ubuntu-latest`.
+one-rule profile on Ubuntu 24.04 because the stricter one is not userns-only
+(it also allows `capability`, `mount`, `ptrace`, `dbus`, `network`, and
+`rwlkm` on `/**`, a much larger policy that must match the host ABI — upstream
+declares `abi <abi/5.0>`), its main gain is what `--cap-drop ALL` already
+provides (what it adds is protection against *other* bwrap callers on the
+host), and CI on Ubuntu 24.04 proves the one-rule profile.
+
+**Ubuntu 26.04 and newer.** Those images already load
+`/etc/apparmor.d/bwrap-userns-restrict` (`profile bwrap /usr/bin/bwrap`) in
+enforce mode while the sysctl stays 1. `/usr/bin/bwrap` passes confinement.
+A copy at another path is refused with
+`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`. CI on those
+versions does not load `cyclaw-bwrap`. Loading it beside the stock profile
+makes `/usr/bin/bwrap` fail the same way. Do not install the 24.04 package pin
+`bubblewrap=0.9.0-1ubuntu0.3` there; use the candidate in `apt-cache policy
+bubblewrap`'s version table.
 
 **Residual risk.** With `cyclaw-bwrap` loaded, any local user can run
 `/usr/bin/bwrap` to get a user namespace — acceptable on a single-user CyClaw

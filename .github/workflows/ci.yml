@@ -519,6 +519,26 @@ jobs:
             $env:USERPROFILE = $OriginalUserProfile
           }
 
+  # Same script as the test job's Linux bwrap step (#1626, measured on
+  # #1641 run 38352458013). continue-on-error keeps the job off the required
+  # check set. The assertions are the strict 26.04+ branch of that script.
+  # This job does not write kernel.apparmor_restrict_unprivileged_userns.
+  ubuntu-26-04-bwrap:
+    name: ubuntu-26.04 bwrap
+    runs-on: ubuntu-26.04
+    continue-on-error: true
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version-aware bwrap AppArmor proof
+        shell: bash
+        run: bash scripts/ci/bwrap-apparmor-check.sh
+
   test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -538,17 +558,22 @@ jobs:
         # because torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu
         # for macOS -- confirmed on this matrix leg's first run, and documented
         # in setup-guide.md.
-        # Native bwrap confinement is proven on both Linux legs. ubuntu-latest
-        # (24.04) is the required check: stock AppArmor there refuses bwrap's
-        # user namespaces, so the leg proves the refusal, loads the bwrap-scoped
-        # profile deploy/apparmor/cyclaw-bwrap, then proves confinement. It never
-        # relaxes the global userns sysctl. ubuntu-22.04 proves confinement under
-        # stock policy. Each check is named for its real runner.
-        # GitHub moves ubuntu-latest to Ubuntu 26 starting 2026-10-19. If the
-        # stock refusal changes there, the refusal step below fails loudly on
-        # purpose; re-check it then rather than pinning (a pin renames the check).
+        # Native bwrap confinement is proven on both Linux legs. Check names
+        # stay ubuntu-latest and ubuntu-22.04. Which proof runs is VERSION_ID
+        # from /etc/os-release inside scripts/ci/bwrap-apparmor-check.sh, shared
+        # with the non-required ubuntu-26.04 job:
+        #   22.04 keeps the jammy pin and stock confinement.
+        #   24.04 keeps the noble pin, the stock refusal, cyclaw-bwrap, then
+        #   confinement. It never writes the userns sysctl.
+        #   26.04+ does not load cyclaw-bwrap and does not install the noble
+        #   pin. It requires the sysctl to read 1, Ubuntu's bwrap profile in
+        #   enforce mode, a non-/usr/bin copy to be refused, and /usr/bin/bwrap
+        #   confinement to pass.
+        #   Any other version fails the job.
+        # GitHub moves ubuntu-latest to Ubuntu 26 between 2026-10-19 and
+        # 2026-11-19. The required check name stays ubuntu-latest.
         os: [ubuntu-latest, ubuntu-22.04, windows-latest, macos-latest]
-    # All four legs (Linux 24.04 and 22.04, Windows, macOS) are release gates.
+    # All four legs (ubuntu-latest, ubuntu-22.04, Windows, macOS) are release gates.
     # Platform-specific skips are reported below with `pytest -rs`; a failing
     # Windows result is not masked.
 
@@ -557,70 +582,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Linux verification filesystem/PID/network sandbox
+      - name: Version-aware bwrap AppArmor proof
+        # 22.04, 24.04, and 26.04+ share scripts/ci/bwrap-apparmor-check.sh with
+        # the non-required ubuntu-26.04 job. The script never writes
+        # kernel.apparmor_restrict_unprivileged_userns. 24.04 still proves the
+        # stock refusal, loads deploy/apparmor/cyclaw-bwrap, then proves
+        # confinement. 26.04+ does not load that profile.
         if: runner.os == 'Linux'
         shell: bash
-        run: |
-          # Version pin (apt has no digest pin). ubuntu-latest is 24.04 until
-          # GitHub's 2026-10-19 move to 26; re-check the noble pin then.
-          case "${{ matrix.os }}" in
-            ubuntu-22.04) ver='0.6.1-1ubuntu0.3' ;;
-            *) ver='0.9.0-1ubuntu0.3' ;;  # ubuntu-latest (24.04 noble)
-          esac
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends "bubblewrap=${ver}"
-          bwrap --version
-          test "$(bwrap --version)" = "bubblewrap ${ver%%-*}"
-
-      - name: Prove stock AppArmor refuses bwrap (24.04 leg)
-        # Stock 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1, so
-        # bwrap cannot create its namespaces until a profile grants it userns.
-        # This is what a stock 24.04 user sees, and CyClaw must fail closed on it.
-        # If the probe unexpectedly succeeds, the profile below proves nothing.
-        # Both preconditions are asserted, so neither a relaxed image nor an
-        # unrelated bwrap failure can pass for "refused".
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          restrict="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo missing)"
-          echo "kernel.apparmor_restrict_unprivileged_userns=${restrict}"
-          if [ "${restrict}" != "1" ]; then
-            echo "::error::expected stock kernel.apparmor_restrict_unprivileged_userns=1, got '${restrict}'"
-            exit 1
-          fi
-          probe_err="${RUNNER_TEMP}/bwrap-stock-probe.err"
-          if bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
-            --ro-bind / / --proc /proc --dev /dev /bin/true 2>"${probe_err}"; then
-            echo "::error::bwrap succeeded under stock AppArmor; expected a refusal before the cyclaw-bwrap profile loads"
-            exit 1
-          fi
-          cat "${probe_err}" >&2
-          if ! grep -Eqi 'permission denied|operation not permitted|no permissions to create new namespace|user namespace' "${probe_err}"; then
-            echo "::error::bwrap failed, but not with a userns/permission denial; refusing to count it as the stock AppArmor refusal"
-            exit 1
-          fi
-          echo "Stock AppArmor refused bwrap with a userns/permission denial, as expected."
-
-      - name: Load the bwrap-scoped AppArmor profile (24.04 leg)
-        # Grants userns to /usr/bin/bwrap only (deploy/apparmor/cyclaw-bwrap).
-        # The global sysctl is left at its stock value. These are the exact
-        # load commands setup-guide.md gives stock 24.04 users, so CI proves
-        # the documented path, not a CI-only variant.
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          sudo install -m 0644 deploy/apparmor/cyclaw-bwrap /etc/apparmor.d/cyclaw-bwrap
-          sudo apparmor_parser -r /etc/apparmor.d/cyclaw-bwrap
-
-      - name: Prove bwrap confinement (both Linux legs)
-        # 22.04 under stock policy; 24.04 under the cyclaw-bwrap profile only.
-        # The native gate below must also fail if this runner cannot establish
-        # the required confinement.
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
-            --ro-bind / / --proc /proc --dev /dev /bin/true
+        run: bash scripts/ci/bwrap-apparmor-check.sh
 
       - name: macOS install-script smoke test (layout + shim + profile integration)
         if: runner.os == 'macOS'
