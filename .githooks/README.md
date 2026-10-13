@@ -43,7 +43,7 @@ sees too late or cannot see:
 |-------|-----------|----------|----------|
 | Credential-shaped strings in added lines (provider prefixes; plus `gitleaks` when installed) | staged diff | every commit being published | none — fix, or mark a fixture `gitleaks:allow` |
 | Credential / runtime-state filenames (`.env`, `*.key`, `*.db`, `CONSOLIDATED.md`, …) | staged | every commit being published | `SEC_BLOCKED_EXCEPT` in `security.conf` |
-| Protected control files (`soul.md`, `utils/sanitizer.py`, `gate_auth.py`, scanner ignore files, `.githooks/*`) | staged | pushed range | `HOOK_OPERATOR_ACK=1` (operator only) |
+| Protected control files (`soul.md`, `utils/sanitizer.py`, `gate_auth.py`, scanner ignore files, `.githooks/*`) | staged (blocks) | pushed range (reminder only) | `HOOK_OPERATOR_ACK=1` (operator only) |
 | Privacy: operator identifiers from the untracked private file, absolute home-directory paths, invisible bidi / Unicode-tag characters | staged diff | every commit being published | none — use a placeholder; fixture lines take `gitleaks:allow` |
 | Agent session residue (`.aider*`, `settings.local.json`, `*.har`, shell histories, …), new files over `SEC_MAX_NEW_FILE_KB`, media with GPS/author metadata (needs `exiftool`) | staged | filenames only | `SEC_BLOCKED_EXCEPT` / raise the cap with the operator |
 | `.gitignore` rule removed (also checked on pushed commits); agent tool wiring (`.mcp.json`, `.claude/settings.json`, `.codex/config.toml`) changed or deleted | staged | rule removal: blocks; wiring: reminder | `HOOK_OPERATOR_ACK=1` (operator only) |
@@ -65,46 +65,22 @@ and the `main` ruleset remain the controls.
 ## PR body template (not a git hook)
 
 Git cannot intercept PR bodies created via the GitHub UI, `gh pr create`, or
-the GitHub connector API. For that layer:
-
-1. **Always** fill [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md) fully when opening a PR (required for Grok Build + GitHub connector on cgfixit/CyClaw).
-2. **Local check:** `scripts/check-pr-template.sh path/to/body.md` before create.
-3. **CI:** blocking check via `.github/workflows/pr-template-check.yml` (same headers as `scripts/check-pr-template.sh`).
-
-Example:
-
-```bash
-# draft body from template, edit, then gate
-cp .github/PULL_REQUEST_TEMPLATE.md /tmp/pr-body.md
-# ... fill sections ...
-scripts/check-pr-template.sh /tmp/pr-body.md
-gh pr create --title '[docs] - …' --body-file /tmp/pr-body.md
-```
+the GitHub connector API, so that layer is a script plus CI: fill
+[`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md)
+fully, run `scripts/check-pr-template.sh path/to/body.md` before creating, and
+`.github/workflows/pr-template-check.yml` blocks on the same rules.
 
 ## Install (once per clone)
 
 ```bash
-bash scripts/install-githooks.sh
-# or: git config core.hooksPath .githooks && chmod +x .githooks/*
+bash scripts/ensure-githooks.sh        # idempotent; what every agent setup runs
+git config core.hooksPath              # → .githooks
 ```
 
-Verify:
-
-```bash
-git config core.hooksPath   # → .githooks
-```
-
-The pre-push gate deliberately does not rebase or force-push for you. Rebase,
-inspect conflicts, rerun the relevant checks, and use force-with-lease only
-with explicit approval. It also cannot infer multi-PR semantics: map shared
-files and trial the chronological merge order as required by
-`.codex/Codex_instructions.md`.
-
-## Bypass (emergency only)
-
-```bash
-git commit --no-verify
-git push --no-verify
-```
-
-Do not use bypass for routine feature work.
+`scripts/install-githooks.sh` (or `git config core.hooksPath .githooks`) sets
+it unconditionally. The pre-push gate never rebases or force-pushes for you:
+rebase, inspect conflicts, rerun the checks, and use force-with-lease only with
+explicit approval. It cannot infer multi-PR semantics either; map shared files
+and trial the merge order as `.codex/Codex_instructions.md` requires.
+`--no-verify` is an emergency bypass, never routine (`pre-push` still scans
+commits made that way; CI is the backstop).
