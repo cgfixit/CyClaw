@@ -99,7 +99,15 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
 - `fix:` `utils/authn_cli.py:62` `_resolve_config_path` has drifted from the
   other five copies: it never calls `.resolve()`, so a relative
   `--config ../x.yaml` yields a different path string than `metrics.py:47`
-  produces for the same input. Zero lines saved; one-line consistency fix.
+  produces for the same input. Zero lines saved, but not a bare one-liner:
+  `load_config` (`:68`) calls the helper *before* its `try`, and on 3.12
+  `Path.resolve()` raises `RuntimeError` on a symlink loop (verified) and can
+  raise `OSError`, which would escape the `AuthConfigError` → `EXIT_ENV`
+  contract as a traceback. Resolve inside the `try` (or catch
+  `(OSError, RuntimeError)` and re-raise `AuthConfigError`), two or three
+  lines. The siblings resolve outside any guard too (`metrics.py:547`,
+  `retrieval/indexer.py:57`), so they carry the same latent exposure; this
+  audit flags it rather than extending the fix to them.
 
 ### Tier 2 — worth doing, tests move with the code (about 185 source lines)
 
