@@ -124,10 +124,11 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
   keep the telemetry-kill-first import order (G1), and `opentweet`'s `_kv`
   redacts passwords, so it stays local.
 - `shrink:` five `config.yaml` keys no code reads: `app.name` (`:5`),
-  `app.env` (`:6`), `app.debug` (`:9`, its own comment says "Read by no code"),
+  `app.env` (`:6`), `app.debug` (`:9`, its own comment says "Read by no code";
+  already removed by open PR #1636, so skip it here),
   `models.embeddings.provider` (`:54`, the backend is hardcoded in
   `retrieval/embeddings.py:264-288`), and `policy.fallback.enabled` (`:228`,
-  comment says "Read by no code"; I3 governs). Removing `app.debug` also edits
+  comment says "Read by no code"; I3 governs). PR #1636 removes `app.debug` and edits
   `tests/test_due_diligence_invariants.py:744`, which pins it as inert, and
   `policy.fallback.enabled` is set to no effect by `tests/conftest.py:189` and
   `tests/judge_eval.py:401`. `config.yaml` is a shared file: trial-merge
