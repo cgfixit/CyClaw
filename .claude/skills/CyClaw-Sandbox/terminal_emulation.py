@@ -19,7 +19,6 @@ Usage (called from verify.sh while server is running):
     python terminal_emulation.py <base_url>  (default: loopback:8787)
 """
 
-import json
 import math
 import os
 import sys

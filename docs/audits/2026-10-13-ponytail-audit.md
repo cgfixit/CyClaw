@@ -234,6 +234,29 @@ and about 420 lines of test-only production code that are the owner's call.
 | One-use `suppress_attr_error` in `sqlconnect/client.py` | Gone; replaced by `contextlib.suppress` (`:21`, `:559`) |
 | Identical disabled-result branches in `memory/consolidation.py` | Gone; file deleted in #1595 |
 
+## Apply-pass corrections (re-verified at `5a7a980`)
+
+Before applying Tier 1, each row was re-read against `main`. These rows were
+wrong, or not worth applying, and should not be re-proposed from the list above:
+
+- `_source_agent` is deliberate, not a bug. `config.yaml` `numbat.source_agent`
+  says `"cyclaw"` is not a legal Numbat enum, a test pins the clamp, and the
+  roadmap tracks it as Slice D. It now carries a comment instead of being cut.
+- The `guarded_generate` `label` cut is not a 4-line change. `tests/test_guardrails_broker.py`
+  passes `label=` at 13 call sites, so dropping the parameter breaks them all for
+  two unread words. Not applied.
+- The `.codex` Sandbox copy was not byte-identical to the `.claude` one (its
+  `MockClaudeClient._verify_request_shape` takes an optional argument and
+  deletes it). The dead code was the same, so both copies were cut.
+- The one-use helpers and `win_schtasks` `allow_demand` were not applied. No
+  test references any of the helper names, so this is a cost call, not a safety
+  one: a reviewer reads six unrelated subsystems to save about 28 lines, and a
+  named helper sometimes reads better than the inlined body.
+- `authn_cli._resolve_config_path` is not a defect. The resolved path only feeds
+  `open()`, the error messages name the original `config_path`, and nothing else
+  calls the helper, so the missing `.resolve()` is not observable. It is also an
+  auth-adjacent file (`CLAUDE.md` §7), which is a poor place for a no-op change.
+
 ## Invariants
 
 No code changed in this audit, so every invariant is as it was at `6519135`.

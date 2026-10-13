@@ -275,24 +275,6 @@ class MockChromaClient:
 
 
 # ---------------------------------------------------------------------------
-# Mock HTTP Response Helpers
-# ---------------------------------------------------------------------------
-class MockResponse:
-    def __init__(self, status_code, json_data, headers=None):
-        self.status_code = status_code
-        self._json = json_data
-        self.headers = headers or {}
-        self.text = json.dumps(json_data)
-
-    def json(self):
-        return self._json
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise Exception(f"HTTP {self.status_code}")
-
-
-# ---------------------------------------------------------------------------
 # Mock Clients for Online API Testing
 # ---------------------------------------------------------------------------
 class MockGrokClient:
@@ -301,7 +283,6 @@ class MockGrokClient:
         self.response = response
         self._available = available
         self.last_prompt = None
-        self.last_headers = None
         self.calls: list[dict] = []
 
     def is_available(self) -> bool:
@@ -318,16 +299,6 @@ class MockGrokClient:
     def close(self) -> None:
         pass
 
-    def _verify_request_shape(self, expected_headers: dict) -> bool:
-        """Verify the last HTTP request had the correct headers for Grok."""
-        if not self.last_headers:
-            return False
-        return (
-            "Authorization" in self.last_headers and
-            "Bearer" in self.last_headers.get("Authorization", "") and
-            "x-ai-model" not in self.last_headers  # Grok doesn't use x-ai-model
-        )
-
 
 class MockClaudeClient(MockGrokClient):
     """Stand-in for ClaudeClient; same contract, Anthropic API shape."""
@@ -338,17 +309,6 @@ class MockClaudeClient(MockGrokClient):
             from utils.errors import ClaudeServiceError
             raise ClaudeServiceError("ANTHROPIC_API_KEY not set")
         return self.response
-
-    def _verify_request_shape(self, expected_headers: dict | None = None) -> bool:
-        """Verify the last HTTP request had the correct headers for Claude."""
-        del expected_headers  # Grok parent arity; Claude checks last_headers only.
-        if not self.last_headers:
-            return False
-        return (
-            "x-api-key" in self.last_headers and
-            "anthropic-version" in self.last_headers and
-            self.last_headers.get("anthropic-version") == "2023-06-01"
-        )
 
 
 class MockLocalLLMClient:
