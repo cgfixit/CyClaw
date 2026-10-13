@@ -460,3 +460,27 @@ delegates Step 1 to it rather than duplicating it).
   `dep-guard`'s parsing helpers change their names/signature, this script
   breaks with an `ImportError`, which is the intended failure mode (loud,
   not a silent drift between two parallel parsers).
+- **The Step 6 bump recipe is a set of claims; derive each from a checker,
+  not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
+  *measured* row of the sweep report survived review, while the "how to
+  bump" prose took nine correct Codex findings across three passes. Each one
+  had a file that would have caught it first: a package's files-to-edit are
+  exactly the non-empty columns of its `extract_pins.py` row (extras-only
+  and constraints-only packages never enter `requirements.txt` or
+  `environment.yml`; `tzdata` is the `test` extra + `requirements-test.txt`
+  + the `python-tzdata` conda pin, not base runtime); `grep -rn <package>`
+  over `.claude/skills/*/check_*.py`, `CLAUDE.md`, and `.github/workflows/`
+  finds the hard-coded contracts that move with the pin (`dep-guard`
+  `_PYDANTIC_LOCKSTEP`, `otel-hardening` `LAST_VERIFIED_VENDOR_PINS` for
+  `nemoguardrails`/`onnxruntime`, the inline `ruff` pin in `lint.yml`); a
+  major bump needs the dependents' `requires_dist` read on PyPI first
+  (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
+  "candidate" cannot resolve and is an exception); `check_lock_contract.py`
+  hashes `constraints.txt` and `pyproject.toml` into **every** group's
+  inputs, so both refresh scripts run after any manifest change, never just
+  the group whose pins moved; name a test file only after `ls tests/<name>*`
+  returns it (`test_schemas*` did not exist); and a `--dry-run` that
+  resolves in a venv with packages already installed is **conditional**, not
+  PASS — the runtime lock omits torch by design and resolved only because a
+  torch build was present. Hold the recipe to the same standard as the pin
+  table: every sentence traceable to a command.
