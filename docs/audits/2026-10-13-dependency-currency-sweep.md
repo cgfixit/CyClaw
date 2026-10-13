@@ -16,8 +16,8 @@ requirements.txt drift: none (requirements.txt + requirements-test.txt <-> const
 Env drift (E1-E7):    0 failure(s), 0 warning(s) - no E3 undeclared imports
 Lock contract:        scripts/check_lock_contract.py passed
 Lock <-> manifest:    all 25 lock files agree with constraints.txt on every shared pin (+cpu local tag ignored)
-Install surfaces dry-run: local-dev=unverified* legacy-CI=unverified* Dockerfile=unverified* hashed-locks(runtime,test)=PASS wheel-build=PASS conda=not dry-run-verified compose=PASS (docker compose config --quiet)
-Currency:             19 current | 18 runtime bump candidates (needs review) | 2 dev-tool bump candidates | 8 documented exceptions
+Install surfaces dry-run: local-dev=unverified* legacy-CI=unverified* Dockerfile=unverified* hashed-locks(runtime)=conditional** hashed-locks(test)=PASS wheel-build=PASS conda=not dry-run-verified compose=PASS (docker compose config --quiet)
+Currency:             19 current | 17 runtime bump candidates (needs review) | 2 dev-tool bump candidates | 9 documented or compatibility-blocked exceptions
 Verdict:              no fixes applied; findings for review below
 ```
 
@@ -26,9 +26,18 @@ surface that must resolve `torch==2.13.0+cpu` from the CPU index fails with the
 documented "unreachable CPU index" class (`ProxyError 403`, then pip's
 `ResolutionImpossible: sentence-transformers depends on torch>=2.2 / constraint
 torch==2.13.0+cpu`). Per `.claude/skills/verify-deps/SKILL.md` Step 4 that is
-environment-local and recorded as **unverified**, not failed. The hashed
-runtime and test locks (`--require-hashes`) and the hatchling wheel build
-resolved cleanly, and the Dockerfile's `--require-hashes` path is the same lock.
+environment-local and recorded as **unverified**, not failed. The hashed test
+lock (`--require-hashes`) and the hatchling wheel build resolved cleanly, and
+the Dockerfile's `--require-hashes` path is the same runtime lock.
+
+\*\* `locks/requirements-lock-linux.txt` deliberately omits `torch` (the torch
+lock installs it first) while pinning `sentence-transformers`, which depends on
+it. The dry-run here passed only because the sandbox venv already carried a
+torch 2.13.0 build (a CUDA wheel, not the `+cpu` one), which pip accepted as
+satisfying the dependency. That proves the lock's own hashes and pins resolve
+against an installed torch; it does not prove the documented two-step install
+from an empty venv, which needs the proxy-blocked CPU index. Recorded as
+**conditional**, not PASS.
 
 ## Install surface dry-runs
 
@@ -37,7 +46,8 @@ resolved cleanly, and the Dockerfile's `--require-hashes` path is the same lock.
 | Local dev | `pip install --dry-run -e . -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu` | unverified (CPU index denied by proxy) |
 | Legacy / CI | `pip install --dry-run -r requirements.txt -r requirements-test.txt -c constraints.txt` | unverified (same cause: constraints pin `torch==2.13.0+cpu`) |
 | Dockerfile step 1 | `pip install --dry-run torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu` | unverified (proxy) |
-| Hashed Linux locks | `pip install --dry-run --require-hashes -r locks/requirements-lock-linux.txt` and `-r locks/requirements-test-lock-linux.txt` | **PASS** |
+| Hashed Linux runtime lock | `pip install --dry-run --require-hashes -r locks/requirements-lock-linux.txt` | **conditional** — resolved only because torch 2.13.0 was already installed in the venv (see \*\* above); not a from-empty proof |
+| Hashed Linux test lock | `pip install --dry-run --require-hashes -r locks/requirements-test-lock-linux.txt` | **PASS** |
 | Hashed torch lock | `pip install --dry-run --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url …/whl/cpu` | unverified (proxy) |
 | Wheel build | `pip wheel --no-deps -w <scratch> .` | **PASS** (hatchling `[tool.hatch.build]` packages resolve) |
 | Compose render | `docker compose config --quiet` | **PASS** |
@@ -69,7 +79,7 @@ Conda-only names (`pytorch`, `python-tzdata`) are omitted.
 | `fastapi` | 0.141.1 | 0.143.0 | bump candidate (runtime, needs review) |  |
 | `google-re2` | 1.1.20251105 | 1.1.20251105 | current |  |
 | `httpx` | 0.28.1 | 0.28.1 | current |  |
-| `huggingface-hub` | 1.32.0 | 2.2.0 | bump candidate (runtime, needs review) |  |
+| `huggingface-hub` | 1.32.0 | 2.2.0 | compatibility-blocked exception | `sentence-transformers==6.1.0` requires `huggingface-hub<2.0.0,>=1.3.0` (PyPI metadata); a standalone 2.x bump cannot resolve |
 | `jmespath` | 1.1.0 | 1.1.0 | current |  |
 | `langchain` | 1.4.2 | 1.4.5 | bump candidate (runtime, needs review) |  |
 | `langchain-anthropic` | 1.7.2 | 1.7.6 | bump candidate (runtime, needs review) |  |
@@ -112,11 +122,31 @@ Conda-only names (`pytorch`, `python-tzdata`) are omitted.
 
 ## Bump candidates worth a decision
 
-Grouped by blast radius. Each would need: `pyproject.toml` + `constraints.txt`
-+ `requirements*.txt` + `environment.yml` in lock-step (`dep-guard` D6/D9),
-then `scripts/refresh-runtime-lock.sh` / `refresh-ci-locks.sh` on the arm64
-macOS host to regenerate every hashed lock (`check_lock_contract.py` fails
-otherwise), then CI's four test legs.
+Grouped by blast radius. A bump touches only the manifests and lock group that
+**own** the package — the install surfaces are not four copies of one list
+(`.claude/skills/verify-deps/SKILL.md`):
+
+- Base runtime packages (`fastapi`, `starlette`, `uvicorn`, `langchain*`,
+  `langgraph`, `pydantic` pair, `onnxruntime`, `nemoguardrails`, `tzdata`, …):
+  `pyproject.toml` + `constraints.txt` + `requirements.txt` +
+  `environment.yml` in lock-step (`dep-guard` D6/D9), then
+  `scripts/refresh-runtime-lock.sh` for the three platform runtime locks.
+- Extras-only packages (`deepagents`, `pgvector`, `langchain-openai`,
+  `langchain-anthropic`, `pyodbc`, `psycopg*`):
+  `pyproject.toml` optional-dependencies + `constraints.txt` only — never
+  `requirements.txt` or `environment.yml` (`check_env_drift.py` E4 fails on
+  that) — then only the `locks/requirements-extra-lock-*` / `requirements-ci-*`
+  group that carries them (`scripts/refresh-ci-locks.sh`).
+- Constraints-only transitives (`langsmith`, `langchain-google-genai`,
+  `wcmatch`, `pendulum`, `pydantic-settings`, `lark`): `constraints.txt`
+  alone, then the lock groups that resolve them.
+- Dev tools (`ruff`, `mypy`): `pyproject.toml` dev extra + `constraints.txt`
+  + `environment.yml` (they are not in `requirements-test.txt`), then the
+  dev-extra and ruff CI lock groups; `ruff` is also pinned inline in
+  `lint.yml` (E1 flags a split).
+
+Lock regeneration runs on the arm64 macOS host (`check_lock_contract.py`
+fails on hand-edited or stale locks), then CI's four test legs.
 
 1. **LangChain stack (patch/minor, same majors):** `langchain` 1.4.2→1.4.5,
    `langchain-core` 1.6.3→1.6.10, `langgraph` 1.2.11→1.2.15,
@@ -127,13 +157,17 @@ otherwise), then CI's four test legs.
 2. **Web stack (minor):** `fastapi` 0.141.1→0.143.0, `starlette` 1.6.0→1.7.0,
    `uvicorn` 0.53.0→0.54.0. `gate.py` imports `starlette` directly, so bump
    the three together and re-run `test_gate`/`test_terminal_contract` in CI.
-3. **`huggingface-hub` 1.32.0→2.2.0 — major.** Pinned directly because
-   `retrieval/embeddings.py` imports it; a 2.x move needs
-   `sentence-transformers` 6.1.0's own constraint checked first. Leave unless
-   `sentence-transformers` moves.
+3. **`huggingface-hub` 1.32.0→2.2.0 — blocked, not a candidate.**
+   `sentence-transformers==6.1.0` declares `huggingface-hub<2.0.0,>=1.3.0`, so
+   a standalone 2.x bump cannot resolve. It is pinned directly only because
+   `retrieval/embeddings.py` imports it; revisit when `sentence-transformers`
+   itself moves to a release that allows 2.x, and bump the two together.
 4. **`pydantic` 2.13.5→2.14.1 with `pydantic-core` 2.46.5→2.50.1** — lock-step
-   pair; `schemas/api.py` uses `strict=True`/`extra='forbid'`, so CI must run
-   `test_schemas*` after.
+   pair. Beyond the manifests, the pair is hard-coded as the repository's
+   dependency contract in `.claude/skills/dep-guard/check_deps.py`
+   (`_PYDANTIC_LOCKSTEP`) and in CLAUDE.md §4 "Dependencies"; D1 fails until
+   both are updated in the same commit. `schemas/api.py` uses
+   `strict=True`/`extra='forbid'`, so CI must run `test_schemas*` after.
 5. **Small runtime:** `onnxruntime` 1.30.0→1.31.0 (telemetry suppression in
    `utils/onnx_telemetry.py` must be re-verified — `otel-hardening`),
    `nemoguardrails` 0.24.0→0.24.1 (re-run `guardrails.verify_install`),
@@ -146,11 +180,17 @@ otherwise), then CI's four test legs.
 Deliberately not recommended: `torch` 2.13.0→2.14.1 (CPU wheel pin across
 four surfaces and the Docker torch line; a release of its own), `numpy` <2,
 `websockets` 15.0.1 (langgraph-sdk import compatibility), `setuptools` floor,
-`chromadb`, `nltk`.
+`chromadb`, `nltk`, and `huggingface-hub` 2.x (blocked by
+`sentence-transformers`, item 3).
 
 ## What this sweep did not do
 
 - No `mamba env create --dry-run` for `environment.yml` (no conda here).
 - No run of the pytest suite or the four CI legs.
-- No `uv` dry-run: CyClaw invokes `uv` nowhere, and the skill records why
-  (`first-index` strategy + the `setuptools` pin) a `uv` result would mislead.
+- No `uv` dry-run: no supported end-user or CI *installation* command uses
+  `uv` (the Dockerfile, workflows, and documented installs are pip), and the
+  skill records why (`first-index` strategy + the `setuptools` pin) a `uv`
+  install result would mislead. `uv` is still required for lock
+  *generation*: `scripts/refresh-runtime-lock.sh` and
+  `scripts/refresh-ci-locks.sh` run `uv pip compile` (`UV_BIN`), so a
+  maintainer regenerating locks does need it installed.
