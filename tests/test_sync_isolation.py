@@ -12,27 +12,14 @@ already have.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
 
+from tests.import_graph import all_imports as _imports
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REQUEST_PATH_MODULES = ["gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py", "graph.py", "mcp_hybrid_server.py"]
-
-
-def _imports(source: str) -> set[str]:
-    """Top-level module names imported by ``source`` (import X / from X import ...)."""
-    names: set[str] = set()
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            if node.module and node.level == 0:
-                names.add(node.module.split(".")[0])
-    return names
 
 
 @pytest.mark.parametrize("module_file", REQUEST_PATH_MODULES)
