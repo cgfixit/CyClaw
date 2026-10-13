@@ -7,6 +7,7 @@ LLM, a shell, GitHub, MCP, or any request-path module.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 
@@ -152,6 +153,10 @@ class RunReport:
             raise AgenticError("run_report pass fields must be booleans", details={"variant_id": self.variant_id})
         if not isinstance(self.score, int | float) or isinstance(self.score, bool):
             raise AgenticError("run_report.score must be numeric", details={"variant_id": self.variant_id})
+        # decide_candidate's "score_not_improved" gate is a <= comparison, which
+        # is False for NaN on either side: a NaN score would fail that gate open.
+        if not math.isfinite(self.score):
+            raise AgenticError("run_report.score must be finite", details={"variant_id": self.variant_id})
 
     @property
     def has_critical_governance_finding(self) -> bool:

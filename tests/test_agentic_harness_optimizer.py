@@ -19,6 +19,7 @@ from agentic.harness_optimizer import (
     build_proposer_workspace,
     decide_candidate,
 )
+from agentic.harness_optimizer.scoring import CaseResult
 from agentic.harness_optimizer.patching import (
     _acquire_artifact_lock,
     _release_artifact_lock,
@@ -77,6 +78,21 @@ def test_candidate_rejects_no_improvement() -> None:
 
     assert decision.accepted is False
     assert "score_not_improved" in decision.rejected_gates
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_run_report_rejects_non_finite_score(bad: float) -> None:
+    # decide_candidate's score gate is `candidate <= baseline`, which is False
+    # whenever either side is NaN: a NaN report must never be constructible,
+    # or that gate fails open and the candidate is accepted.
+    with pytest.raises(AgenticError, match="finite"):
+        RunReport("candidate", train_passed=True, holdout_passed=True, score=bad)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_case_result_rejects_non_finite_score(bad: float) -> None:
+    with pytest.raises(AgenticError, match="between 0 and 1"):
+        CaseResult("case-1", passed=True, score=bad)
 
 
 def test_candidate_rejects_unallowed_surface_and_visible_case_hardcoding() -> None:
