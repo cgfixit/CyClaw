@@ -479,6 +479,8 @@ if [ "$_TELEMETRY_EXPORTED" -eq 1 ] && command -v gh >/dev/null 2>&1; then
   else
     step "gh: not logged in and no GH_TOKEN stored. Later: gh auth login"
   fi
+elif [ "$_TELEMETRY_EXPORTED" -ne 1 ]; then
+  step "gh: skipped (telemetry-kill block unavailable, see the warning above). Later: gh auth login"
 else
   step "gh: not on PATH. Optional: brew install gh && gh auth login"
 fi
