@@ -14,12 +14,13 @@ relations, not free knobs.
 
 **Why this skill exists:** the dangerous config mistakes are *relational* and
 *value-scale* — they parse fine, boot fine, and break behavior silently.
-`utils/config_validation.py` runs at boot but only range-checks a handful of
-values in two blocks. `invariant-guard` proves graph/import *structure*, and its
-own SKILL.md flags the one this skill closes head-on: *"`min_score` is RRF-scale
-(0.028 ≈ top-3-4 rank) — an innocent-looking bump to 0.5 routes every query to
-the user gate and no automated check catches it."* This is that automated check,
-plus the other relations nothing else pins.
+`utils/config_validation.py` runs at boot (it hard-fails the timeout margin,
+inline credentials, the reranker block, `reasoning_effort` and the hook block),
+but only after the whole app has imported. `invariant-guard` proves
+graph/import *structure*, not values. This skill is the earlier, no-import
+gate for the relations and scales nothing else pins before boot — among them
+the RRF-scale `min_score` whose "fix" toward a cosine-looking number silently
+disables the keyword-only degrade.
 
 ---
 
@@ -28,21 +29,14 @@ plus the other relations nothing else pins.
 ### Step 1 — Deterministic checker (needs PyYAML, ~1 second)
 
 ```bash
-python3 .claude/skills/config-guard/check_config.py
+python3 .claude/skills/config-guard/check_config.py       # add --strict to make every WARN a failure
 ```
 
 Static — it parses `config.yaml` and never imports the app (no torch/chromadb),
 so it runs in a fresh clone the moment PyYAML is present. Exit codes follow the
 repo convention: `0` contract holds · `2` a FAIL check tripped · `3` env/config
-error (missing/unparseable `config.yaml`, or PyYAML absent).
-
-Add `--strict` to escalate every `WARN` to a failure:
-
-```bash
-python3 .claude/skills/config-guard/check_config.py --strict
-```
-
-`--strict` passes on the committed config. C9 now treats the documented shipped
+error (missing/unparseable `config.yaml`, or PyYAML absent). `--strict`
+passes on the committed config. C9 now treats the documented shipped
 posture (`app.mode: hybrid`, Grok/Claude enabled, per-request confirmation still
 required) as its baseline and warns when a committed config drifts from it.
 
@@ -50,19 +44,20 @@ It checks (severity in brackets):
 
 | ID | Severity | What is checked |
 |---|---|---|
+| C0 | FAIL | no inline credential in `config.yaml`: `models.local_llm.api_key` and a password inside any `database_url` are forbidden (env vars only) |
 | C1 | FAIL | `retrieval.min_score` is a number in `[0, 1]` (a valid RRF score) |
-| C2 | FAIL | `api.graph_timeout_sec` **>** `models.local_llm.timeout_sec`, with the documented ≥30s margin (else the graph is cut mid-LLM-call → orphaned invocation) |
+| C2 | FAIL/WARN | `api.graph_timeout_sec` **>** `models.local_llm.timeout_sec` (FAIL when not; else the graph is cut mid-LLM-call → orphaned invocation); a margin under the documented 30 s is a WARN here, and a boot-time hard failure in `validate_boot_timeout_config` |
 | C3 | FAIL | `indexing.chunk_overlap` **<** `indexing.chunk_size` (else chunking never advances) |
 | C4 | FAIL | `api.host` is loopback (`127.0.0.1`/`localhost`/`::1`) — the threat-model boundary |
 | C5 | FAIL | `personality.soul_max_chars` is positive and **<** `retrieval.max_context_tokens * _CHARS_PER_TOKEN` (3 — mirrors `graph.py CHARS_PER_TOKEN`, the worst-case chars/token floor used to derive the character budget) so the soul cannot crowd out retrieved context |
 | C6 | FAIL | `api.rate_limit.max_requests` / `window_seconds` are positive integers |
-| C7 | WARN | `retrieval.min_score` stays on the RRF scale (≤ 0.1) — **the acknowledged trap**; a stricter gate belongs in 0.05–0.08, never the cosine-scale 0.5 |
+| C7 | WARN | `retrieval.min_score` stays on the RRF scale (≤ 0.1) — **the acknowledged trap**. The hybrid ceiling is 2/60 ≈ 0.033 and the keyword-only degrade tops out at 1/60 ≈ 0.017, so anything above ~0.033 can never pass; a stricter vault-hit gate is `min_semantic_score` (cosine), never a bigger `min_score` |
 | C8 | WARN | `retrieval.rrf_k == 60` (the documented authoritative fusion constant) |
 | C9 | WARN | committed provider posture matches the documented default: `app.mode == hybrid`, `grok`/`claude` literal `true` (per-request confirmation remains a separate runtime gate) |
 | C10 | WARN | `policy.fallback.send_local_context_to_{grok,claude}` stays `false` (no off-box context leak by default) |
-| C11 | WARN | `guardrails.model`/`base_url` track the local LLM (config.yaml says keep in sync) |
+| C11 | WARN | `guardrails.model`/`base_url` track the local LLM (config.yaml says keep in sync; the third member of that sync, `agentic.deepagent_github.model`, is not checked here) |
 | C12 | FAIL | `macos/ollama-mlx.env` `OLLAMA_CONTEXT_LENGTH` ≥ `max_context_tokens + max_tokens + 1500` (on-disk env file, not a live `ollama ps`). Symbol-dense tokenizer estimate stays INFO. |
-| C13 | WARN | `security.api_key_optional` is not `true` while `api.host` is non-loopback (the bypass is peer-gated at runtime, but that pair means a remote caller reaches key-optional routes if the peer check is ever relaxed) |
+| C13 | WARN | `security.api_key_optional` is not `true` while `api.host` is non-loopback. `gate.py`'s `_require_loopback_bind` refuses that pair at boot; this is the pre-boot warning for the same control (the bypass itself stays peer-gated at runtime) |
 
 ### Step 2 — Interpret failures
 
@@ -71,7 +66,7 @@ A `FAIL` line names the check and shows the offending values. Three cases:
 1. **The change genuinely broke the contract** — the common case. Fix
    `config.yaml`, not the checker. Rerun until exit 0.
 2. **A deliberate, user-approved re-tune** moved a documented number (e.g. a
-   stricter `min_score` in 0.05–0.08, a new `rrf_k`). Update the number AND the
+   new `min_semantic_score`, a new `rrf_k`). Update the number AND the
    `config.yaml` comment AND CLAUDE.md §2 "Load-bearing numbers" in the SAME
    commit, and say so in the PR body. A `WARN` is exactly this: allowed, but
    flagged so it is conscious.
@@ -116,7 +111,8 @@ mutation A drops `graph_timeout_sec` below `timeout_sec` and asserts a C2 FAIL
 (exit 2); mutation B raises `min_score` to 0.5 and asserts it is a C7 WARN
 (exit 0) by default but a failure under `--strict` (exit 2); mutation C sets
 `OLLAMA_CONTEXT_LENGTH=1` and asserts a C12 FAIL (exit 2); mutation D changes
-the shipped provider posture and asserts C9 WARN/default and strict semantics. The test SKIPs
+the shipped provider posture and asserts C9 WARN/default and strict semantics;
+mutation E plants a password in a `database_url` and asserts a C0 FAIL (exit 2). The test SKIPs
 cleanly (exit 0) when PyYAML is absent so a fresh pre-install container does not
 fail CI. Temp trees copy `macos/ollama-mlx.env` because C12 reads it.
 
@@ -140,8 +136,8 @@ fail CI. Temp trees copy `macos/ollama-mlx.env` because C12 reads it.
 - **The checker is static.** It confirms the numbers are internally consistent,
   not that a re-tune *improved* retrieval — Step 3's `/index-doctor` pass is not
   optional when you move a retrieval knob.
-- **WARN is intentional friction, not a bug.** `min_score` in 0.05–0.08, a
-  changed `rrf_k`, or an operator changing the shipped provider posture are legitimate — the
+- **WARN is intentional friction, not a bug.** A changed `rrf_k`, a sub-30 s
+  timeout margin, or an operator changing the shipped provider posture are legitimate — the
   WARN exists so the change is conscious and documented, not silent. Use
   `--strict` only where you want the shipped defaults locked.
 - **C5 uses a worst-case 3 chars/token.** `soul_max_chars <
@@ -151,9 +147,11 @@ fail CI. Temp trees copy `macos/ollama-mlx.env` because C12 reads it.
   symbol-dense corpus text (digests, base64, minified code) tokenizes far below
   4 and it is the *small* ratio that keeps the derived budget inside `num_ctx`.
 - **Needs PyYAML.** Nested config needs a real parser; unlike `invariant-guard`
-  there is no stdlib fallback. In a fresh container, `pip install ... PyYAML`
-  first (CLAUDE.md §8) — `verify.sh` skips cleanly until then.
-- **No overlap with boot validation.** `utils/config_validation.py` still runs
-  at boot and is the last line of defense; this skill is the earlier, richer,
-  no-import gate. Both should agree — if they ever disagree, the code (boot
+  there is no stdlib fallback. In a fresh container the hashed-lock install
+  (CLAUDE.md §8, or `driver.sh venv`) brings it in — `verify.sh` skips cleanly
+  until then.
+- **Boot validation overlaps on purpose.** `utils/config_validation.py` still
+  runs at boot and is the last line of defense (and is stricter on the C2
+  margin: it hard-fails under 30 s where this checker warns); this skill is the
+  earlier, no-import gate. If they ever disagree on a value, the code (boot
   validator) wins and this checker is stale.

@@ -37,7 +37,7 @@ from pathlib import Path
 
 # Each query is answerable by the committed corpus (data/corpus/cyclaw_overview.md),
 # phrased near corpus headings so it clears the gate at stable runtime. The
-# "one sentence" probe mirrors CyClaw-Sandbox P13, the canonical vault-hit test.
+# "one sentence" probe mirrors the vault-hit check CyClaw-Sandbox/smoke.sh runs.
 # The rate-limit probe is the near-verbatim "Rate Limiting" / "DoS attacks"
 # sentence tests/ci_rag_smoke.py asserts as a top hit. A "request-flood denial
 # of service" paraphrase ranks data/corpus/AI-insights-.md first once

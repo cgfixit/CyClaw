@@ -12,11 +12,13 @@ relations, the value-safety ranges, and the threat-model boundary statically,
 before boot, with no app import (only PyYAML).
 
 It is deliberately NOT a duplicate of two neighbours:
-  * utils/config_validation.py runs at BOOT, imports the app, and checks a
-    narrow set (min_score in [0,1]; top_k_*/rrf_k positive ints; soul_max_chars
-    positive). This checker adds the RELATIONAL and CROSS-KEY invariants it does
-    not: graph_timeout > llm_timeout, chunk_overlap < chunk_size, the soul/context
-    budget, loopback-only host, and the shipped default posture.
+  * utils/config_validation.py runs at BOOT, after the app has imported, and
+    checks ranges plus a few hard contracts (the graph/LLM timeout margin,
+    inline credentials, the reranker block, reasoning_effort, the hook block).
+    This checker is the earlier, no-import gate for the RELATIONAL and
+    CROSS-KEY invariants: chunk_overlap < chunk_size, the soul/context budget,
+    loopback-only host, the RRF-scale min_score, and the shipped posture, with
+    the timeout margin repeated so it is caught before boot.
   * invariant-guard owns the security-STRUCTURE guards (BM25 stays JSON, telemetry
     kill order, MCP sampling). This checker does not re-check those; it covers the
     numeric/relational/posture contract they leave open — including the min_score
@@ -355,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         import yaml  # soft dep: nested YAML needs a real parser (mark: Needs PyYAML)
     except ImportError:
         print("env error: PyYAML not importable — install project deps to run config-guard "
-              "(pip install -r requirements.txt -c constraints.txt --ignore-installed PyYAML)",
+              "(CLAUDE.md §8: the hashed locks/ install, or `driver.sh venv` in the cloud sandbox)",
               file=sys.stderr)
         return 3
     try:

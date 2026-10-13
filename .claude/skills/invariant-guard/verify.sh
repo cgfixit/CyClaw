@@ -34,8 +34,13 @@ cp -r "$repo_root"/utils "$repo_root"/agentic "$repo_root"/sync \
 
 # Violation A: core module imports an out-of-band package (breaks I6).
 sed -i.bak 's/^import hmac/import hmac\nimport agentic/' "$tmp/gate.py"
-# Violation B: sever the grok_fallback -> audit_logger edge (breaks I4).
-sed -i.bak 's/graph.add_edge("grok_fallback", "audit_logger")/pass  # severed/' "$tmp/graph.py"
+# Violation B: sever the guardrail_output -> audit_logger edge (breaks I4 for
+# every answer node). The four answer nodes converge on guardrail_output, so
+# this is the one edge whose loss strands them all; a sed on an edge graph.py
+# no longer has (the old grok_fallback -> audit_logger form) changed nothing
+# and the test passed on the PASS line's wording for a year.
+sed -i.bak 's/graph.add_edge("guardrail_output", "audit_logger")/pass  # severed/' "$tmp/graph.py"
+grep -q 'pass  # severed' "$tmp/graph.py" || { echo "mutation test: violation B did not apply (edge text moved?)" >&2; exit 1; }
 # Violation C: an EXTRA unconditional edge out of retrieve, alongside the real
 # one — a stray graph.add_edge("retrieve", "local_llm") would let something
 # answer before retrieval finishes routing, but a membership-only check
@@ -61,7 +66,7 @@ if [ "$rc" -ne 2 ]; then
   exit 1
 fi
 echo "$out" | grep -q "gate.py imports none" || { echo "mutation test: import violation not detected" >&2; exit 1; }
-echo "$out" | grep -q "reach audit_logger"   || { echo "mutation test: severed edge not detected" >&2; exit 1; }
+echo "$out" | grep -q "FAIL.*reach audit_logger" || { echo "mutation test: severed edge not detected" >&2; exit 1; }
 echo "$out" | grep -q "retrieve has exactly one outgoing edge" || { echo "mutation test: extra retrieve edge not detected" >&2; exit 1; }
 echo "$out" | grep -q "route_by_score's real targets" || { echo "mutation test: path_map retarget not detected" >&2; exit 1; }
 echo "mutation test: PASS (all four injected violations detected, exit 2)"

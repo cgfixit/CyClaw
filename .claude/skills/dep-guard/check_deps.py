@@ -254,6 +254,7 @@ _CI_TORCH_FILES = (
     ".github/workflows/pip-audit.yml",
     ".github/workflows/devskim.yml",
     ".github/workflows/copilot-setup-steps.yml",
+    ".github/workflows/nemo-guardrails.yml",
 )
 # Matches both the cache-key form (torch-cpu-2.13.0-...) and the explicit pin
 # form (torch==2.13.0+cpu / "torch==2.13.0+cpu") used in the workflow YAMLs.
@@ -283,7 +284,7 @@ _TORCH_DOC_FILES = (
     "README.md",
     "CLAUDE.md",
     "AGENTS.md",
-    "docs/SETUP.md",
+    "docs/work/SETUP.md",
     ".github/copilot-instructions.md",
     ".claude/rules/PROJECT_RULES.md",
     ".claude/skills/CyClaw-Sandbox/SKILL.md",

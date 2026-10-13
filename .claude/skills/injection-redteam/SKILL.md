@@ -27,7 +27,8 @@ has a regression test, and no legitimate query regressed.
 python3 .claude/skills/injection-redteam/redteam.py
 ```
 
-Requires the project venv (PyYAML + `utils` importable). It drives every probe
+Requires PyYAML and an importable `utils` (the project venv; in the cloud
+sandbox `driver.sh venv` from `cyclaw-gotchas`). It drives every probe
 in `probes.yaml` through the REAL `check_input` against the real `config.yaml`
 and classifies each:
 
@@ -41,16 +42,12 @@ and classifies each:
 Exit `0` = baseline holds (open findings are allowed to exist). Exit `2` = a new
 bypass or a false positive. Exit `3` = deps/env problem.
 
-The seed corpus currently ships **dry** — every originally-identified finding
-(8 total: `me-05`, `au-02`, `hx-01`–`hx-06`) is already closed and lives on as
-a permanent regression anchor in `probes.yaml` (e.g. the original
-`from THE it department` bypass of the `from (it department|...)` pattern, and
-a zero-width-character trigger-word split — both now blocked). Run Step 1
-first to confirm this is still true: a nonzero `open_findings` count means a
-NEW gap surfaced (a real sanitizer regression, or a freshly-extended probe) —
-Steps 2–5 are how you close it. If `open_findings` is 0, skip straight to
-**Step 6** and extend the corpus rather than hunting for a finding that
-doesn't exist yet.
+The seed corpus ships **dry**: every originally-identified finding (8, e.g.
+the `from THE it department` bypass and a zero-width-character split) is
+closed and kept as a regression anchor in `probes.yaml`. A nonzero
+`open_findings` count therefore means a NEW gap (a sanitizer regression or a
+freshly-extended probe) — Steps 2–5 close it. If it is 0, skip to **Step 6**
+and extend the corpus.
 
 ### Step 2 — Pick one open finding and classify the bypass family
 
@@ -112,12 +109,13 @@ and go again. Never delete a probe — a closed finding stays as an anchor.
 
 ### Step 7 — Sync the documented pattern count
 
-If you added patterns, the documentary pattern-count total is cited in several
-places (`config.yaml`'s header/section comments, `CLAUDE.md`, `guardrails/rails.py`
-comments — currently **40** everywhere). Grep for the old count to find every
-citation, or run `/doc-sync`, whose D4 check verifies exactly this. The count
-is **documentary, not asserted** — no test enforces an exact total — but drift
-misleads the next reader.
+If you added patterns, the pattern-count total is cited in several places
+(`config.yaml`'s header/section comments, `CLAUDE.md`, `guardrails/rails.py`
+comments, fsconnect — currently **40** everywhere). Run
+`python3 .claude/skills/doc-sync/doc_sync.py`: its D4 check compares every
+citation with the real list length and the `doc-sync` CI job blocks on a
+mismatch. No pytest asserts the total (the *phrases* are what
+`TestShippedConfigContract` locks), but a stale count fails CI all the same.
 
 ---
 
@@ -157,15 +155,10 @@ honest. Skips cleanly (exit 0) if project deps aren't importable.
 ## Gotchas
 
 - **Sanitizer caches by config path.** `_load_filter` is `lru_cache(maxsize=8)`
-  keyed on the config path — a long-running process won't see edits. The runner
-  starts fresh each invocation, so always re-run the script (don't edit config
-  inside one Python session and re-check).
-- **`enabled: true` + zero patterns silently degrades to length-only.** If you
-  ever empty the list, the filter stops blocking phrases and only enforces
-  `max_input_chars` — it logs a warning, it does not error.
+  keyed on the config path — a long-running process won't see edits (CLAUDE.md
+  §4). The runner starts fresh each invocation, so always re-run the script
+  rather than editing config inside one Python session.
 - **Empty `policy:`/`prompt_filter:` YAML parses to `None`.** The engine's
   `or {}` chaining tolerates it; don't "simplify" that away.
 - **Regexes are matched with `search`, not `fullmatch`** — a pattern matches
   anywhere in the query. Anchor deliberately only when you mean to.
-- **`redteam.py` needs the venv.** Fresh containers have no deps; install first
-  (`/CyClaw-Sandbox`) or the runner exits 3.

@@ -22,8 +22,10 @@ It is deliberately NOT a duplicate of its neighbours:
   * tests/test_setup_cyclaw_keys.py pins what setup-cyclaw-keys.sh does today.
     This checker states the policy that behavior is measured against.
 
-A name is secret-classified by envline.py (case-insensitive). The suffixes
-are API_KEY, TOKEN, SECRET, PASSWORD, KEY, PAT, DSN, and CREDENTIALS. The
+A name is secret-classified by envline.py (case-insensitive), which defers to
+utils/secret_policy.py and its table utils/secret-policy.tsv: the listed
+suffixes (API_KEY, TOKEN, SECRET, PASSWORD, KEY, PAT, DSN, DB_URL,
+CREDENTIALS) plus the exact names recorded there. The
 same module is the assignment tokenizer: every NAME= / NAME+= word on a
 line, including export / declare / typeset / readonly / local, not only the
 first. ENVLINE_SPEC.md is the language-neutral contract; envline_vectors.tsv
