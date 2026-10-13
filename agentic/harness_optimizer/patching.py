@@ -185,15 +185,24 @@ def apply_candidate_artifact(
     with _write_lock:  # serialize threads within this process
         _acquire_artifact_lock(lock_dir)  # serialize other processes too
         try:
-            previous = {}
+            version = 1
             if artifact_path.exists():
+                # Valid JSON of the wrong shape ([], null, {"version": "x"}) or a
+                # non-UTF-8 file is just as malformed as invalid JSON; without this
+                # it escaped as a raw AttributeError/ValueError, outside the typed
+                # AgenticError contract the CLI maps to its exit codes.
                 try:
                     previous = json.loads(artifact_path.read_text(encoding="utf-8"))
-                except json.JSONDecodeError as exc:
+                    if not isinstance(previous, dict):
+                        raise TypeError("artifact is not a JSON object")
+                    prior_version = previous.get("version", 0)
+                    if isinstance(prior_version, bool) or not isinstance(prior_version, int) or prior_version < 0:
+                        raise TypeError("artifact version is not a non-negative integer")
+                except (ValueError, TypeError, UnicodeDecodeError) as exc:
                     raise AgenticError(
                         "existing harness artifact is malformed", details={"path": str(artifact_path)}
                     ) from exc
-            version = int(previous.get("version", 0)) + 1
+                version = prior_version + 1
             record = {
                 "version": version,
                 "variant_id": proposal.variant_id,

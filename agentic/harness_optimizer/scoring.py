@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from agentic.harness_optimizer.core import CandidateDecision, RunReport
@@ -24,7 +25,10 @@ class CaseResult:
             raise AgenticError("case result passed must be a boolean", details={"case_id": self.case_id})
         if not isinstance(self.score, int | float) or isinstance(self.score, bool):
             raise AgenticError("case result score must be numeric", details={"case_id": self.case_id})
-        if self.score < 0.0 or self.score > 1.0:
+        # NaN compares False against everything, so it would slip past the
+        # range check below and poison score_cases()' average. Floats only:
+        # math.isfinite overflows on a huge int, which the range check rejects.
+        if (isinstance(self.score, float) and not math.isfinite(self.score)) or self.score < 0.0 or self.score > 1.0:
             raise AgenticError("case result score must be between 0 and 1", details={"case_id": self.case_id})
 
 

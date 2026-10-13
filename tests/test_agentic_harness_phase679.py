@@ -315,6 +315,39 @@ def test_apply_candidate_artifact_requires_all_human_gates(tmp_path: Path) -> No
     assert record["proposal_sha256"] == proposal.proposal_sha256
 
 
+@pytest.mark.parametrize("prior", ["[]", "null", '{"version": "x"}', '{"version": -1}', '{"version": true}'])
+def test_apply_candidate_artifact_maps_malformed_prior_artifact_to_agentic_error(tmp_path: Path, prior: str) -> None:
+    # Valid JSON of the wrong shape used to escape as AttributeError/ValueError,
+    # outside the typed-error contract the agentic CLI maps to exit codes.
+    workspace, cfg = _workspace(tmp_path)
+    workspace.proposal_path.write_text("# Proposal\n\nGeneral fix.", encoding="utf-8")
+    decision = decide_candidate(
+        baseline=RunReport("baseline", train_passed=True, holdout_passed=True, score=0.1),
+        candidate=RunReport(
+            "candidate", train_passed=True, holdout_passed=True, score=0.9, changed_surfaces=("planner",)
+        ),
+        allowed_surface_ids={"planner"},
+        proposal_present=True,
+    )
+    proposal = propose_candidate_application(
+        decision, Variant("candidate", ("planner",), "proposal.md", str(workspace.root)), workspace, cfg=cfg
+    )
+    config = _config(harness={"enabled": True})
+    config.mode = "write"
+    config.writes_enabled = True
+    config.harness_optimizer.output_dir = str(tmp_path / "output")
+    config.harness_optimizer.memory_dir = str(tmp_path / "memory")
+    artifact = tmp_path / "output" / "accepted" / f"{proposal.variant_id}.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text(prior, encoding="utf-8")
+
+    with pytest.raises(AgenticError, match="malformed"):
+        apply_candidate_artifact(proposal, config, reason="record fixture candidate", confirm=True, cfg=cfg)
+    # The malformed artifact is left as found, and the lock is released.
+    assert artifact.read_text(encoding="utf-8") == prior
+    assert not artifact.with_suffix(".json.lock.d").exists()
+
+
 def test_apply_candidate_artifact_blocked_when_lock_held(tmp_path: Path) -> None:
     # A held lock (another accept in progress) makes a concurrent apply refuse
     # rather than race the read-modify-write of the version counter.
