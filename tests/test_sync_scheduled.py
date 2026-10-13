@@ -266,7 +266,8 @@ def test_enabled_run_replaces_process_environment_before_sync(tmp_path):
     prepared = {"PATH": os.defpath, "RCLONE_CONFIG_PASS": "synthetic"}
     reset_config_cache()
     try:
-        with patch.dict(os.environ, {"PATH": os.defpath, "GH_TOKEN": "synthetic-unrelated"}, clear=True), \
+        # No clear=True: Windows resolves Path.home() from USERPROFILE while the config loads.
+        with patch.dict(os.environ, {"GH_TOKEN": "synthetic-unrelated"}), \
                 patch.object(scheduled, "prepare_environment", return_value=prepared), \
                 patch("sync.cli.main", side_effect=fake_sync_main):
             assert scheduled.main(["--config", str(config), "status"]) == 0
