@@ -14,8 +14,11 @@ No optional dependency is needed: this module imports nothing from
 from __future__ import annotations
 
 import importlib
+import json
 import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -263,10 +266,13 @@ def test_close_removes_the_clone_from_disk(tmp_path, monkeypatch):
     with patch.object(repo_workspace, "run_read", side_effect=fake) as mrun:
         tools = RepoWorkspaceTools.clone(_cfg(tmp_path, monkeypatch))
         dest = Path(mrun.call_args.kwargs["dest"])
+        pin = repo_workspace._origin_pin_path(dest)
         assert dest.is_dir()
+        assert pin.is_file()
         tools.close()
     assert not dest.exists()
     assert not dest.parent.exists()
+    assert not pin.exists()
 
 
 def test_release_retains_the_clone_and_is_idempotent(tmp_path, monkeypatch):
@@ -459,12 +465,12 @@ def test_push_branch_disables_the_terminal_credential_prompt(tmp_path, monkeypat
     interactive prompt until the timeout, turning a clean auth failure into a
     hang. Asserted on the env actually handed to the subprocess."""
     seen: dict = {}
-    real_run = repo_workspace.subprocess.run
+    real_run = repo_workspace._run_git_command
 
-    def _capture(argv, **kwargs):
+    def _capture(argv, dest, env, timeout, encoding=None):
         if "push" in argv:
-            seen.update(kwargs.get("env") or {})
-        return real_run(argv, **kwargs)
+            seen.update(env)
+        return real_run(argv, dest, env, timeout, encoding)
 
     # Set BEFORE the push, and asserted absent after. _git_env() copies only
     # variables already present in os.environ, so without these setenv calls
@@ -481,7 +487,7 @@ def test_push_branch_disables_the_terminal_credential_prompt(tmp_path, monkeypat
     with patch.object(repo_workspace, "run_read", side_effect=fake):
         with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
             tools.checkout_branch("agent/pushed")
-            with patch.object(repo_workspace.subprocess, "run", side_effect=_capture):
+            with patch.object(repo_workspace, "_run_git_command", side_effect=_capture):
                 tools.push_branch("agent/pushed")
     assert seen.get("GIT_TERMINAL_PROMPT") == "0"
     # and the allowlist itself was not widened to carry a GitHub credential
@@ -720,10 +726,17 @@ def test_run_git_raises_a_typed_error_when_the_binary_is_missing(tmp_path, monke
 
 def test_run_git_times_out_without_hanging(tmp_path, monkeypatch):
     fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    real_command = repo_workspace._run_git_command
     with patch.object(repo_workspace, "run_read", side_effect=fake):
         with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
             timeout_exc = subprocess.TimeoutExpired(cmd=["git", "diff"], timeout=1)
-            with patch.object(repo_workspace.subprocess, "run", side_effect=timeout_exc):
+
+            def _timeout(argv, dest, env, timeout, encoding=None):
+                if "diff" in argv:
+                    raise timeout_exc
+                return real_command(argv, dest, env, timeout, encoding)
+
+            with patch.object(repo_workspace, "_run_git_command", side_effect=_timeout):
                 with pytest.raises(AgenticError, match="timed out"):
                     tools.diff()
 
@@ -1132,6 +1145,17 @@ def test_attach_rejects_a_destination_outside_the_workspace_root(tmp_path, monke
         RepoWorkspaceTools.attach(cfg, outside)
 
 
+def test_discard_existing_refuses_to_delete_outside_the_workspace_root(tmp_path, monkeypatch):
+    cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
+    outside = tmp_path / "outside" / "repo"
+    outside.mkdir(parents=True)
+    marker = outside / "keep.txt"
+    marker.write_text("keep", encoding="utf-8")
+    with pytest.raises(AgenticError, match="outside the configured workspace root"):
+        RepoWorkspaceTools.discard_existing(cfg, outside)
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
 def test_attach_rejects_a_missing_directory(tmp_path, monkeypatch):
     cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
     workspace_root = Path(cfg.deepagent_github.workspace_root)
@@ -1220,12 +1244,12 @@ def test_untracked_files_parses_nul_delimited_utf8_paths_without_stripping(tmp_p
         with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
             config_keys = subprocess.CompletedProcess(args=[], returncode=0, stdout="core.bare\x00", stderr="")
 
-            def _run(argv, **_kwargs):
+            def _run(argv, _dest, _env, _timeout, _encoding=None):
                 # The .git/config allowlist read (#1526 F1) runs first; answer it
                 # separately so this mock only stands in for `git status`.
                 return config_keys if argv[1] == "config" else completed
 
-            with patch.object(repo_workspace.subprocess, "run", side_effect=_run) as mrun:
+            with patch.object(repo_workspace, "_run_git_command", side_effect=_run) as mrun:
                 assert tools.untracked_files() == [
                     "café.py",
                     " leading.txt",
@@ -1234,7 +1258,7 @@ def test_untracked_files_parses_nul_delimited_utf8_paths_without_stripping(tmp_p
                 ]
 
     assert mrun.call_args.args[0][1:] == ["status", "--porcelain=v1", "-z", "--untracked-files=all"]
-    assert mrun.call_args.kwargs["encoding"] == "utf-8"
+    assert mrun.call_args.args[4] == "utf-8"
 
 
 def test_untracked_files_fails_closed_on_non_utf8_git_output(tmp_path, monkeypatch):
@@ -1242,7 +1266,14 @@ def test_untracked_files_fails_closed_on_non_utf8_git_output(tmp_path, monkeypat
     decode_error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
     with patch.object(repo_workspace, "run_read", side_effect=fake):
         with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
-            with patch.object(repo_workspace.subprocess, "run", side_effect=decode_error):
+            real_command = repo_workspace._run_git_command
+
+            def _decode(argv, dest, env, timeout, encoding=None):
+                if argv[1] == "status":
+                    raise decode_error
+                return real_command(argv, dest, env, timeout, encoding)
+
+            with patch.object(repo_workspace, "_run_git_command", side_effect=_decode):
                 with pytest.raises(AgenticError, match="not valid utf-8"):
                     tools.untracked_files()
 
@@ -1432,9 +1463,84 @@ def test_push_refuses_a_rewritten_origin_url(tmp_path, monkeypatch):
             # not through any RepoWorkspaceTools method.
             _git("git", "config", "--file", str(Path(tools.worktree) / ".git" / "config"),
                  "remote.origin.url", str(decoy))
-            with pytest.raises(AgenticError, match="modified outside this tool"):
+            with pytest.raises(AgenticError, match="trusted pin"):
                 tools.push_branch("agent/redirect")
     assert _git("git", "--git-dir", str(decoy), "branch", "--list") == ""
+
+
+def test_origin_pin_survives_reopen_and_rejects_a_rewritten_snapshot(tmp_path, monkeypatch):
+    """The sibling config snapshot cannot authenticate a new push destination."""
+    remote = tmp_path / "origin.git"
+    decoy = tmp_path / "decoy.git"
+    _git("git", "init", "--bare", "-q", str(decoy))
+    fake = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+    cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        original = RepoWorkspaceTools.clone(cfg)
+    dest = original.worktree
+    original.release()
+    _git("git", "config", "--file", str(dest / ".git" / "config"), "remote.origin.url", str(decoy))
+    baseline = dest.parent / repo_workspace._CONFIG_BASELINE_NAME
+    entries = json.loads(baseline.read_text(encoding="utf-8"))
+    for entry in entries:
+        if entry[0] == "remote.origin.url":
+            entry[1] = str(decoy)
+    baseline.write_text(json.dumps(entries), encoding="utf-8")
+    with RepoWorkspaceTools.attach(cfg, dest) as reopened:
+        with pytest.raises(AgenticError, match="trusted pin"):
+            reopened.diff()
+    assert _git("git", "--git-dir", str(decoy), "branch", "--list") == ""
+
+
+def test_attach_refuses_a_tampered_origin_record(tmp_path, monkeypatch):
+    remote = tmp_path / "origin.git"
+    fake = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+    cfg = _cfg_with_git_writes(tmp_path, monkeypatch)
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        original = RepoWorkspaceTools.clone(cfg)
+    dest = original.worktree
+    original.release()
+    pin = repo_workspace._origin_pin_path(dest)
+    record = json.loads(pin.read_text(encoding="utf-8"))
+    record["origin"] = str(tmp_path / "decoy.git")
+    pin.write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(AgenticError, match="trusted origin pin"):
+        RepoWorkspaceTools.attach(cfg, dest)
+    original.close()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "nonzero"])
+def test_git_failure_reaps_a_helper_descendant(tmp_path, monkeypatch, failure):
+    """Exercise _run_git's timeout and the Windows Job Object path in CI."""
+    heartbeat = tmp_path / "helper-heartbeat"
+    child = (
+        "import pathlib, sys, time\n"
+        "p = pathlib.Path(sys.argv[1])\n"
+        "end = time.monotonic() + 5\n"
+        "while time.monotonic() < end:\n"
+        "    with p.open('a', encoding='ascii') as stream: stream.write('x')\n"
+        "    time.sleep(0.05)\n"
+    )
+    parent = (
+        "import pathlib, subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', {child!r}, sys.argv[1]], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        "p = pathlib.Path(sys.argv[1])\n"
+        "while not p.exists(): time.sleep(0.01)\n"
+        + ("time.sleep(60)\n" if failure == "timeout" else "sys.exit(17)\n")
+    )
+    fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            with patch.object(repo_workspace, "_resolve_git_binary", return_value=sys.executable):
+                # The fixture's real Git config was checked during clone. Here
+                # the executable is Python so only the runner can be exercised.
+                with patch.object(tools, "_check_local_git_config"):
+                    with pytest.raises(AgenticError, match="timed out" if failure == "timeout" else "exit code 17"):
+                        tools._run_git("timeout_probe", ["-c", parent, str(heartbeat)], timeout_sec=1)
+    before = heartbeat.read_text(encoding="ascii")
+    time.sleep(0.5)
+    assert heartbeat.read_text(encoding="ascii") == before
 
 
 def test_a_fork_clones_upstream_remote_is_accepted(tmp_path, monkeypatch):
@@ -1480,3 +1586,85 @@ def test_attach_checks_git_against_the_snapshot_the_clone_wrote(tmp_path, monkey
     with RepoWorkspaceTools.attach(cfg, dest) as reattached:
         with pytest.raises(AgenticError, match="modified outside this tool"):
             reattached.diff()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows process assignment")
+@pytest.mark.parametrize("refuse", [False, True])
+def test_git_cannot_start_before_job_assignment(tmp_path, monkeypatch, refuse):
+    marker = tmp_path / "git-started"
+    original = repo_workspace._WindowsGitJob.assign
+
+    def delayed_assign(job, process):
+        time.sleep(0.3)
+        assert not marker.exists(), "Git ran before job containment"
+        if refuse:
+            raise OSError("synthetic assignment refusal")
+        original(job, process)
+
+    monkeypatch.setattr(repo_workspace._WindowsGitJob, "assign", delayed_assign)
+    argv = [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('started')", str(marker), "argument with spaces"]
+    if refuse:
+        with pytest.raises(OSError):
+            repo_workspace._run_git_command(argv, tmp_path, repo_workspace._git_env(), 5)
+        assert not marker.exists()
+    else:
+        result = repo_workspace._run_git_command(argv, tmp_path, repo_workspace._git_env(), 5)
+        assert result.returncode == 0
+        assert marker.read_text() == "started"
+
+
+@pytest.mark.parametrize("shape", ["outside", "root", "shallow"])
+def test_discard_orphan_preserves_workspace_boundary(tmp_path, monkeypatch, shape):
+    cfg = _cfg(tmp_path, monkeypatch)
+    root = Path(cfg.deepagent_github.workspace_root)
+    dest = {"outside": tmp_path / "outside", "root": root, "shallow": root / "one"}[shape]
+    dest.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(AgenticError):
+        RepoWorkspaceTools.discard_existing(cfg, dest)
+    assert dest.exists()
+
+
+def test_discard_cannot_remove_origin_pin_store(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch)
+    directory = Path(cfg.deepagent_github.workspace_root) / "origin-pins"
+    dest = directory / "repo"
+    dest.mkdir(parents=True)
+    key = directory / "key"
+    key.write_text("synthetic")
+    with pytest.raises(AgenticError, match="generated clone"):
+        RepoWorkspaceTools.discard_existing(cfg, dest)
+    assert key.read_text() == "synthetic"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows argv and exit code")
+def test_windows_git_waiter_preserves_argv_and_exit_status(tmp_path):
+    result = repo_workspace._run_git_command(
+        [sys.executable, "-c", "import sys; print(sys.argv[1]); sys.exit(17)", "argument with spaces"],
+        tmp_path, repo_workspace._git_env(), 5,
+    )
+    assert result.stdout.strip() == "argument with spaces"
+    assert result.returncode == 17
+
+
+def test_origin_pin_key_preserves_binary_control_bytes(tmp_path, monkeypatch):
+    # Windows text-mode reads truncate at Ctrl-Z and translate CRLF.
+    candidate = b"\x1a\r\n" + bytes(range(29))
+    monkeypatch.setattr(repo_workspace.secrets, "token_bytes", lambda size: candidate)
+    dest = tmp_path / "cyclaw-repo-clone-binary" / "repo"
+    dest.mkdir(parents=True)
+    repo_workspace._write_origin_pin(dest, "https://example.test/org/repo.git")
+    assert repo_workspace._origin_pin_key(tmp_path / "origin-pins", create=False) == candidate
+    assert repo_workspace._load_origin_pin(dest) == "https://example.test/org/repo.git"
+
+
+@pytest.mark.parametrize("redirect", ["commondir", "remotes/origin", "branches/origin"])
+def test_git_refuses_repository_indirection(tmp_path, monkeypatch, redirect):
+    remote = tmp_path / "origin.git"
+    fake = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            planted = tools.worktree / ".git" / redirect
+            planted.parent.mkdir(parents=True, exist_ok=True)
+            planted.write_text(str(tmp_path / "decoy.git"))
+            with pytest.raises(AgenticError, match="could redirect Git"):
+                tools.diff()
