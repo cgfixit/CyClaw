@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 
 from memory.policy import enforce_content, require_reason
 from memory.store import (
+    _SCHEMA_VERSION,
     apply_proposal,
     connect,
     count_active_facts,
@@ -356,10 +358,6 @@ def test_corrupt_proposal_json_columns_do_not_raise(mem_cfg):
 def test_connect_closes_the_handle_when_setup_fails(mem_cfg: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     # A corrupt file fails at the first PRAGMA; connect() used to leak the open
     # handle (one per request) because it only returned on success.
-    import sqlite3
-
-    import memory.store as store
-
     closed: list[bool] = []
 
     class _Tracking(sqlite3.Connection):
@@ -368,7 +366,7 @@ def test_connect_closes_the_handle_when_setup_fails(mem_cfg: dict, monkeypatch: 
             super().close()
 
     real_connect = sqlite3.connect
-    monkeypatch.setattr(store.sqlite3, "connect", lambda *a, **k: real_connect(*a, factory=_Tracking, **k))
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: real_connect(*a, factory=_Tracking, **k))
     Path(mem_cfg["memory"]["db_path"]).write_bytes(b"this is not a sqlite database" * 64)
     with pytest.raises(sqlite3.DatabaseError):
         connect(mem_cfg)
@@ -380,10 +378,6 @@ def test_schema_ddl_runs_once_per_db_file_and_again_for_a_recreated_one(
 ) -> None:
     # Every read helper opens a fresh connection; the DDL script must run only
     # when the file is not yet stamped, and again for a deleted/recreated DB.
-    import sqlite3
-
-    import memory.store as store
-
     scripts: list[str] = []
 
     class _Counting(sqlite3.Connection):
@@ -392,7 +386,7 @@ def test_schema_ddl_runs_once_per_db_file_and_again_for_a_recreated_one(
             return super().executescript(sql)
 
     real_connect = sqlite3.connect
-    monkeypatch.setattr(store.sqlite3, "connect", lambda *a, **k: real_connect(*a, factory=_Counting, **k))
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: real_connect(*a, factory=_Counting, **k))
 
     connect(mem_cfg).close()
     assert len(scripts) == 1
@@ -406,7 +400,7 @@ def test_schema_ddl_runs_once_per_db_file_and_again_for_a_recreated_one(
     conn = connect(mem_cfg)
     try:
         assert len(scripts) == 2
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == store._SCHEMA_VERSION
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == _SCHEMA_VERSION
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'facts'").fetchone() is not None
     finally:
         conn.close()
