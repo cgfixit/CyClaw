@@ -662,6 +662,28 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "PR #1572 (2026-10-07) after the 2026-09-11 retirement, which is why this row is back",
     },
     {
+        "name": "curl (setup + sandbox probes)", "category": 3, "controls": {},
+        "url": "docs/setup-guide.md",
+        "versions": "host binary, never pinned: macos/setup-from-clone.sh, macos/setup-cyclaw.sh, "
+                    "macos/invoke-cyclaw.sh (operator setup/launch scripts), "
+                    ".claude/skills/cyclaw-gotchas/driver.sh and .claude/skills/CyClaw-Sandbox/verify.sh "
+                    "(agent sandbox drivers). No runtime code path spawns curl; the Dockerfile and the "
+                    "PowerShell scripts run no curl/Invoke-WebRequest",
+        "enforcement": "every call but one targets loopback (the gateway's /health, /query, /soul, "
+                       "/static and Ollama's /api/tags on 127.0.0.1) or the cloud sandbox's own agent-proxy "
+                       "status endpoint. The one outbound fetch is `curl -fsSL https://ollama.com/install.sh "
+                       "| sh` in setup-from-clone.sh, reached only after an explicit interactive confirm "
+                       "that defaults to no (the signed .app download is the preferred path). curl itself "
+                       "carries no telemetry or update check; what it fetches is the operator's decision at "
+                       "the prompt, so this is intentional functional egress, never a kill-map entry",
+        "scope": "operator setup/launch scripts and agent sandbox drivers only",
+        "reviewed": "2026-10-13",
+        "evidence": "grep of macos/, scripts/, powershell/, windows/, Dockerfile, docker-compose.yml and "
+                    "the skill drivers 2026-10-13 for curl/wget/Invoke-WebRequest/Invoke-RestMethod: the "
+                    "sites above are all of them; the installer pipe sits behind _confirm(..., \"n\") with "
+                    "OLLAMA_INSTALL_SCRIPT=1 required (setup-from-clone.sh:496-498)",
+    },
+    {
         "name": "core web/runtime libs", "category": 5, "controls": {},
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
@@ -746,6 +768,9 @@ INVENTORY_ALIASES: dict[str, str] = {
     "security": "local OS process tooling",
     # back since PR #1572 (lock refresh scripts + the cloud venv driver)
     "uv": "uv (lock refresh + cloud venv driver)",
+    # the setup scripts' and sandbox drivers' HTTP probe tool (Codex P2 on
+    # PR #1637: a swept shell surface must classify every binary it runs)
+    "curl": "curl (setup + sandbox probes)",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -796,7 +821,7 @@ INVENTORY_ALIASES: dict[str, str] = {
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
-                             "security", "uv",
+                             "security", "uv", "curl",
                              "pre-action-hook-command", "executor-check")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
@@ -849,9 +874,18 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("arp", "agentic/netconnect/client.py", ("def _neighbor_command(", '"arp.exe"')),
     ("security", "sync/scheduled.py", ('["/usr/bin/security", "find-generic-password"',)),
     ("security", "macos/cyclaw-keychain-env.sh", ('SECURITY_BIN="/usr/bin/security"',)),
-    ("uv", "scripts/refresh-runtime-lock.sh", ('uv_bin="${UV_BIN:-uv}"',)),
-    ("uv", "scripts/refresh-ci-locks.sh", ('uv_bin="${UV_BIN:-uv}"',)),
+    ("uv", "scripts/refresh-runtime-lock.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
+    ("uv", "scripts/refresh-ci-locks.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
     ("uv", ".claude/skills/cyclaw-gotchas/driver.sh", ("uv pip install",)),
+    # curl: loopback readiness/smoke probes everywhere but one operator-confirmed
+    # installer fetch (setup-from-clone.sh); the marker is the call, not a comment
+    ("curl", "macos/setup-from-clone.sh", ("curl -fsSL https://ollama.com/install.sh | sh",
+                                           "curl -sf --max-time 2 http://127.0.0.1:11434/api/tags")),
+    ("curl", "macos/setup-cyclaw.sh", ('curl "${curl_args[@]}" --max-time 2 "$url"',)),
+    ("curl", "macos/invoke-cyclaw.sh", ('curl -sf --max-time 2 "$CONSOLE_URL/health"',)),
+    ("curl", ".claude/skills/cyclaw-gotchas/driver.sh", ('curl -s --max-time 5 "$BASE/health"',
+                                                         'curl -sS --max-time 5 "$HTTPS_PROXY/__agentproxy/status"')),
+    ("curl", ".claude/skills/CyClaw-Sandbox/verify.sh", ('curl -sf "$BASE/health"',)),
 )
 
 _fails: list[dict[str, str]] = []
@@ -1400,9 +1434,11 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
         fail("T13", f"known external component(s) with no spawn-site row: {unsited} -- add a "
                     "FIXED_LAUNCHER_SITES row (or FRONTED_SERVICES with the reason), else the "
                     "classification can never go stale")
-    stray = sorted(c for c in fixed_names | set(FRONTED_SERVICES) if c not in KNOWN_EXTERNAL_COMPONENTS)
+    stray = sorted(c for c in fixed_names | dynamic_names | set(FRONTED_SERVICES)
+                   if c not in KNOWN_EXTERNAL_COMPONENTS)
     if stray:
-        fail("T13", f"spawn-site row(s) for a component KNOWN_EXTERNAL_COMPONENTS does not name: {stray}")
+        fail("T13", f"spawn-site row(s) for a component KNOWN_EXTERNAL_COMPONENTS does not name: {stray} -- "
+                    "a site row alone never enters the classification sweep")
     fixed_missing = 0
     for component, rel, markers in FIXED_LAUNCHER_SITES:
         path = root / rel
