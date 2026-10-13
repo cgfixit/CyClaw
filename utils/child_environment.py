@@ -31,7 +31,10 @@ def child_environment(
     """Copy only the named capability and explicitly selected configuration keys."""
     parent = os.environ if source is None else source
     names = (*_BASE, *_CAPABILITIES[capability], *secret_names)
-    return build_telemetry_safe_env({name: parent[name] for name in names if name in parent})
+    env = build_telemetry_safe_env({name: parent[name] for name in names if name in parent})
+    if capability == "sync":
+        env["RCLONE_ASK_PASSWORD"] = "false"  # noqa: S105 -- fixed noninteractive flag, not a credential
+    return env
 
 
 @contextmanager
@@ -72,9 +75,10 @@ _ALLOWED_PATH_ENV_NAMES = frozenset(
 def configured_path_names(block: object) -> tuple[str, ...]:
     """Retain named directory variables only where a capability config uses them.
 
-    Names must be on the explicit allow-list and cannot select secrets or runtime
-    loader controls. Missing or non-absolute values fail before launching a child
-    with a changed root.
+    Selected names must be on the explicit allow-list and cannot select secrets
+    or runtime loader controls. Percent expressions already retained by these
+    capabilities, or unset literal percent text, require no extra selection.
+    Other populated variables fail before a child can use a changed root.
     """
     import re
 
@@ -98,22 +102,38 @@ def configured_path_names(block: object) -> tuple[str, ...]:
                     visit(item)
 
     visit(block)
-    names = {
-        match[0] or match[1]
-        for value in values
-        for match in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", value)
-    }
-    if not names:
-        return ()
     from utils.secret_policy import is_secret_name
 
+    def forbidden(name: str) -> bool:
+        return is_secret_name(name) or name.upper().startswith(("PYTHON", "NODE", "LD_", "DYLD_", "GIT_", "GH_"))
+
+    pattern = r"%%|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([^%]+)%"
+    names: set[str] = set()
+    retained = (*_BASE, *_DISCOVERY)
+    if os.name == "nt":
+        retained = tuple(name.upper() for name in retained)
+    for value in values:
+        for brace, bare, percent in re.findall(pattern, value):
+            if not (brace or bare or percent):
+                continue  # Windows %% escape, not a variable reference.
+            # Base and discovery names already reach every caller's child
+            # ($HOME/..., ${XDG_CONFIG_HOME}/...), so selecting them grants nothing.
+            selected = brace or bare or percent
+            if (selected.upper() if os.name == "nt" else selected) in retained:
+                continue
+            # Unset percent names remain literal under Windows expansion.
+            # A populated unknown name would expand before filtering, then become
+            # literal in the child (potentially changing the sync lock directory).
+            if percent and percent not in _ALLOWED_PATH_ENV_NAMES and not forbidden(percent):
+                if percent not in os.environ:
+                    continue
+            name = brace or bare or percent
+            names.add(name.upper() if os.name == "nt" else name)
+    if not names:
+        return ()
+
     for name in names:
-        upper = name.upper()
-        if (
-            is_secret_name(name)
-            or name not in _ALLOWED_PATH_ENV_NAMES
-            or upper.startswith(("PYTHON", "NODE", "LD_", "DYLD_", "GIT_", "GH_"))
-        ):
+        if forbidden(name) or name not in _ALLOWED_PATH_ENV_NAMES:
             raise ValueError(f"configuration path variable {name} is not an allowed directory capability")
         if not os.path.isabs(os.environ.get(name, "")):
             raise ValueError(f"configuration path variable {name} must contain an absolute path")

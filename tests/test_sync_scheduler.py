@@ -423,7 +423,7 @@ def test_windows_install_builds_schtasks_argv(tmp_path: Path) -> None:
     assert launcher.endswith("cyclaw_sync.bat")
     assert entry.command == launcher
     bat_text = Path(launcher).read_text(encoding="utf-8")
-    assert "-m sync.cli sync" in bat_text
+    assert "-m sync.scheduled sync" in bat_text
     assert "cd /d" in bat_text
 
 
@@ -735,7 +735,7 @@ def test_posix_launcher_is_atomic_and_has_set_eu(tmp_path) -> None:
 
     content = launcher.read_text(encoding="utf-8")
     assert content.startswith("#!/bin/sh\nset -eu\n")
-    assert content.index(" env ") < content.index("-m sync.cli")
+    assert content.index(" env ") < content.index("-m sync.scheduled")
     assert not list(tmp_path.glob("*.tmp"))
 
 

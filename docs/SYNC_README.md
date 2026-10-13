@@ -133,7 +133,7 @@ For unattended schedules, **encrypt the rclone configuration** (`rclone config`
 → `s) Set configuration password`). `rclone obscure` is reversible obfuscation
 and does not satisfy this requirement. Store the configuration password using
 CyClaw's `RCLONE_CONFIG_PASS` Keychain/Credential Manager service and launch
-through the corresponding keystore wrapper; do not put the password in YAML,
+through the generated `sync.scheduled` entry point; do not put the password in YAML,
 `.env`, scheduler arguments or a plist. The sync CLI and its rclone child retain
 only sync discovery variables and this password, excluding gateway/provider
 credentials. Encryption protects the config at rest; an authorized running
@@ -269,7 +269,7 @@ uses `sync.schedule_weekday`, `"monthly"` uses `sync.schedule_day`).
 | Platform | Backend | Mechanism | Tag / identity |
 |---|---|---|---|
 | Linux / macOS / WSL | `cron` (default) | `crontab` via `crontab -l` / `crontab -` (never `crontab -e`). Maps `daily` to `MIN HOUR * * *`, `weekly` to `MIN HOUR * * WEEKDAY`, and `monthly` to `MIN HOUR DAY * *`. | comment `CYCLAW_DROPBOX_SYNC` |
-| macOS only | `launchd` (opt-in: `scheduler_backend: "launchd"`) | Generates `~/Library/LaunchAgents/com.cgfixit.cyclaw.sync.plist` via `plistlib` from real, resolved install paths — no `REPLACE_*` placeholders to hand-edit. Supports `daily`/`weekly`/`monthly` via `StartCalendarInterval`. **`install()` never calls `launchctl load`/`bootstrap`** — it prints the exact `launchctl bootstrap gui/<uid> <path>` command; loading a persistent background agent is always an explicit operator step. `remove()` best-effort `launchctl bootout`s before deleting the file. No secret/token is embedded (the sync job needs none — rclone owns its own OAuth state under `~/.config/rclone`). | `Label` `com.cgfixit.cyclaw.sync` |
+| macOS only | `launchd` (opt-in: `scheduler_backend: "launchd"`) | Generates `~/Library/LaunchAgents/com.cgfixit.cyclaw.sync.plist` via `plistlib` from real, resolved install paths — no `REPLACE_*` placeholders to hand-edit. Supports `daily`/`weekly`/`monthly` via `StartCalendarInterval`. **`install()` never calls `launchctl load`/`bootstrap`** — it prints the exact `launchctl bootstrap gui/<uid> <path>` command; loading a persistent background agent is always an explicit operator step. `remove()` best-effort `launchctl bootout`s before deleting the file. No secret/token is embedded; `sync.scheduled` retrieves the config password at execution time, and rclone owns its OAuth state. | `Label` `com.cgfixit.cyclaw.sync` |
 | Windows | (only option) | `schtasks /Create` with `/SC DAILY`, `/SC WEEKLY /D <weekday>`, or `/SC MONTHLY /D <day>`, plus `/ST HH:MM /RL LIMITED /F`. | task name `CyClaw Dropbox Sync` |
 
 `cron`/`schtasks` scheduled commands `cd` into the repo root (so `config.yaml`
@@ -393,3 +393,40 @@ No field is ever named `query` (that would be SHA-256-hashed by the logger).
 | **rclone** ✅ | Battle-tested transport, **zero Python deps**, runs as a separate process, refresh token stays in `rclone.conf`. The CLI surface is the security boundary. Native Windows support. |
 | Maestral | Always-on **daemon** — wrong shape for an offline-first agent; no native Windows. |
 | `dropbox` Python SDK | Forces CyClaw to **hold the refresh token** and drags `requests`/`urllib3` into a deliberately minimal dependency tree. |
+
+## Encrypted rclone configuration in scheduled jobs
+
+Re-run `python -m sync.cli schedule` after upgrading to regenerate existing jobs.
+On macOS, launchd keeps a loaded job's old definition until it is reloaded:
+run `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.cgfixit.cyclaw.sync.plist`,
+then the `launchctl bootstrap` command that `schedule` prints.
+Cron, launchd and Task Scheduler launch `python -m sync.scheduled`, which reads
+only `RCLONE_CONFIG_PASS` at execution time and then invokes the normal sync CLI.
+Generated scripts, task arguments and plists never contain the password. The
+selected interpreter and `--config` identity remain unchanged.
+
+On macOS store the password with
+`macos/cyclaw-keychain-set.sh com.cgfixit.cyclaw.rclone-config-pass` (hidden prompt).
+On Windows use the existing Credential Manager setup for `RCLONE_CONFIG_PASS`;
+the shared secret policy maps it to the same service name. The scheduled user must
+have access to that keystore. A locked/inaccessible or empty item fails with exit
+3, without echoing credential output. An absent item permits plaintext rclone
+configuration; encrypted configuration without a password fails without prompting.
+Linux automatic keystore retrieval is unsupported: use an operator-managed
+service that securely injects `RCLONE_CONFIG_PASS`, or an unencrypted configuration
+with appropriately restricted filesystem permissions. Do not store this secret in
+a dotenv file, crontab, plist or task command.
+
+Run `python -m sync.scheduled [--config PATH] --check-credentials` under the scheduled account to
+check whether rclone can read its configuration without transferring data or
+printing remote names. This verifies config decryption, not remote authorization
+or unattended OS-keystore access after logout/reboot. Existing environment-supplied
+passwords take precedence; unrelated gateway/provider secrets are discarded.
+The sync subprocess always has `RCLONE_ASK_PASSWORD=false`.
+
+Windows directory capabilities such as `%CYCLAW_FS_ROOT%` use the same explicit
+name allowlist as `$CYCLAW_FS_ROOT`. Unset, nonsecret percent names remain literal;
+already retained discovery variables such as `%USERPROFILE%` keep their meaning.
+Other populated percent variables are rejected before filtering can change the
+sync directory or overlap lock. The percent syntax does not permit arbitrary
+secret or loader variables through child environments.

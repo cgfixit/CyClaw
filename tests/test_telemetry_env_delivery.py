@@ -340,7 +340,7 @@ def test_sync_cron_line_uses_short_telemetry_safe_launcher(monkeypatch, tmp_path
     assert "-u OTEL_EXPERIMENTAL_CONFIG_FILE" in content
     assert "-u LANGSMITH_API_KEY" in content
     assert content.index("-u OTEL_CONFIG_FILE") < content.index("GH_TELEMETRY=false")
-    assert content.index(" env ") < content.index("-m sync.cli"), "env prefix must precede the interpreter"
+    assert content.index(" env ") < content.index("-m sync.scheduled"), "env prefix must precede the interpreter"
 
 
 def test_sync_windows_bat_set_lines(tmp_path, monkeypatch):
@@ -358,7 +358,7 @@ def test_sync_windows_bat_set_lines(tmp_path, monkeypatch):
     assert 'set "OTEL_SDK_DISABLED=true"' in content
     assert 'set "OTEL_CONFIG_FILE="' in content, "inherited scrub names must be deleted"
     assert content.index('set "OTEL_CONFIG_FILE="') < content.index('set "GH_TELEMETRY=false"')
-    assert content.index('set "GH_TELEMETRY=false"') < content.index("-m sync.cli")
+    assert content.index('set "GH_TELEMETRY=false"') < content.index("-m sync.scheduled")
 
 
 def test_sync_launchd_plist_carries_overlay(tmp_path, monkeypatch):

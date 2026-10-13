@@ -7,6 +7,7 @@ path-variable retention. No app-code edits.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -136,13 +137,14 @@ def test_isolated_helper_environment_uses_disposable_home(tmp_path: Path) -> Non
     assert not home.exists()
 
 
+@pytest.mark.parametrize("template", ["${CYCLAW_FS_ROOT}/docs", "$CYCLAW_FS_ROOT/docs", "%CYCLAW_FS_ROOT%/docs"])
 def test_configured_path_names_retains_absolute_directory_vars(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, template: str
 ) -> None:
     root = tmp_path / "share"
     root.mkdir()
     monkeypatch.setenv("CYCLAW_FS_ROOT", str(root.resolve()))
-    names = configured_path_names({"allowed_roots": ["${CYCLAW_FS_ROOT}/docs"]})
+    names = configured_path_names({"allowed_roots": [template]})
     assert names == ("CYCLAW_FS_ROOT",)
 
 
@@ -166,12 +168,13 @@ def test_configured_path_names_rejects_relative_values(monkeypatch: pytest.Monke
         configured_path_names({"allowed_roots": ["$CYCLAW_FS_ROOT"]})
 
 
+@pytest.mark.parametrize("template", ["$DATABASE_PASSWORD", "%DATABASE_PASSWORD%"])
 def test_configured_path_names_rejects_secret_shaped_names(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, template: str,
 ) -> None:
     monkeypatch.setenv("DATABASE_PASSWORD", "/tmp/keys")
     with pytest.raises(ValueError, match="not an allowed directory capability"):
-        configured_path_names({"workdir": "$DATABASE_PASSWORD"})
+        configured_path_names({"workdir": template})
 
 
 def test_configured_path_names_rejects_loader_and_git_prefixes(
@@ -189,3 +192,31 @@ def test_configured_path_names_empty_block_returns_empty() -> None:
     assert configured_path_names(None) == ()
     assert configured_path_names({}) == ()
     assert configured_path_names({"unrelated": "x"}) == ()
+
+
+@pytest.mark.parametrize("name", ["PROJECT", "MYFOLDER", "PROJECT-NAME", "PROJECT NAME", "1"])
+def test_percent_paths_reject_populated_unknown_variables(monkeypatch, name):
+    monkeypatch.setenv(name, "customerA")
+    with pytest.raises(ValueError, match="not an allowed directory capability"):
+        configured_path_names({"log_dir": rf"C:\state\%{name}%\logs"})
+
+
+def test_percent_literals_and_discovery_paths_keep_windows_expansion(monkeypatch):
+    import ntpath
+
+    monkeypatch.delenv("off", raising=False)
+    monkeypatch.setenv("USERPROFILE", r"C:\SyntheticHome")
+    monkeypatch.setenv("PROJECT", "customerA")
+    paths = [r"D:\50%off%", r"%USERPROFILE%\logs", r"C:\state\%%PROJECT%%\logs"]
+    if os.name == "nt":
+        paths.append(r"%userprofile%\logs")
+    for path in paths:
+        names = configured_path_names({"log_dir": path})
+        before = ntpath.expandvars(path)
+        env = child_environment("sync", secret_names=names)
+        with monkeypatch.context() as child:
+            for name in tuple(os.environ):
+                child.delenv(name)
+            for name, value in env.items():
+                child.setenv(name, value)
+            assert ntpath.expandvars(path) == before
