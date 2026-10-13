@@ -487,6 +487,14 @@ fi
 
 # -- 7. Ollama ----------------------------------------------------------------
 
+# Every Ollama call in this step (the readiness probe, `ollama list`, the
+# confirmed `ollama pull`, and the convenience `ollama serve` it may start)
+# talks to the loopback endpoint the threat model names, whatever OLLAMA_HOST
+# the operator's shell or dotenv carried: an ambient remote or 0.0.0.0 value
+# would otherwise list and pull against another daemon, or bind the one we
+# start beyond localhost. A daemon the operator already runs is left alone.
+export OLLAMA_HOST=127.0.0.1:11434
+
 _ollama_up() {
   curl -sf --max-time 2 http://127.0.0.1:11434/api/tags >/dev/null 2>&1
 }
@@ -536,11 +544,8 @@ if [ "$SKIP_OLLAMA" -eq 0 ]; then
       step "Ollama API not answering yet; launching 'ollama serve' in the background"
       _ollama_apply_mlx_env
       OLLAMA_LOG="$(mktemp "${TMPDIR:-/tmp}/cyclaw-ollama-serve.XXXXXX.log")"
-      # Loopback is pinned on this spawn's own command line: the script
-      # preserves the operator's environment, and an ambient
-      # OLLAMA_HOST=0.0.0.0 would otherwise bind the convenience daemon
-      # beyond localhost (docs/THREAT_MODEL.md: Ollama at 127.0.0.1:11434).
-      OLLAMA_HOST=127.0.0.1:11434 ollama serve >"$OLLAMA_LOG" 2>&1 &
+      # Binds loopback: OLLAMA_HOST is exported for this whole step above.
+      ollama serve >"$OLLAMA_LOG" 2>&1 &
       sleep 1
       if _ollama_up; then
         step "Ollama API is up on 127.0.0.1:11434"

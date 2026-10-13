@@ -500,10 +500,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "scope": "local LLM path", "reviewed": "2026-10-13",
         "evidence": "no CyClaw-side switch exists for a foreign daemon; noted in SECURITY.md classification. "
                     "Setup-script spawn site found 2026-10-13 (Codex P2 on PR #1637): `ollama serve` at "
-                    "setup-from-clone.sh:517, operator-interactive. That spawn pins OLLAMA_HOST=127.0.0.1:11434 "
-                    "on its own command line since PR #1637 (an ambient OLLAMA_HOST=0.0.0.0 would otherwise "
-                    "widen the bind); a daemon the operator runs themselves binds wherever their OLLAMA_HOST "
-                    "says, which is the daemon-policy caveat above",
+                    "setup-from-clone.sh step 7, operator-interactive. Since PR #1637 that whole step exports "
+                    "OLLAMA_HOST=127.0.0.1:11434 first, so the convenience daemon binds loopback and every client "
+                    "call in the step (`ollama list`, `ollama --version`, the confirmed `ollama pull`) talks to "
+                    "that same endpoint whatever the operator's shell carried; a daemon the operator runs "
+                    "themselves binds wherever their own OLLAMA_HOST says, which is the daemon-policy caveat above",
     },
     {
         "name": "lm studio", "category": 5, "controls": {},
@@ -709,6 +710,22 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "PR #1637, seventh round)",
     },
     {
+        "name": "powershell http probes (sandbox smoke)", "category": 3, "controls": {},
+        "url": ".claude/skills/CyClaw-Sandbox/SKILL.md",
+        "versions": "Invoke-RestMethod / Invoke-WebRequest in .claude/skills/CyClaw-Sandbox/windows-smoke.ps1, "
+                    "the Windows half of the sandbox smoke suite. The operator PowerShell under powershell/ and "
+                    "windows/ makes no HTTP call at all",
+        "enforcement": "every call targets the loopback gateway under test ($Base/health, /query, /soul); the "
+                       "cmdlets are the PowerShell counterpart of the curl probes in smoke.sh and carry no "
+                       "telemetry of their own (pwsh's own telemetry is the category-1 host row). Functional "
+                       "probe traffic on a swept sandbox surface, never a kill-map entry",
+        "scope": "agent sandbox smoke on Windows only",
+        "reviewed": "2026-10-13",
+        "evidence": "windows-smoke.ps1:37-87 (Codex P2 on PR #1637, eighth round: the curl row had claimed "
+                    "no PowerShell HTTP call existed, which was true of powershell/ and windows/ but not of "
+                    "this swept sandbox script)",
+    },
+    {
         "name": "curl (setup + sandbox probes)", "category": 3, "controls": {},
         "url": "setup-guide.md",
         "versions": "host binary, never pinned: macos/setup-from-clone.sh, macos/setup-cyclaw.sh, "
@@ -717,8 +734,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "macos-smoke}.sh (agent sandbox drivers and smoke suites), and the launchd / Task "
                     "Scheduler health jobs telegram/cli.py GENERATES (a loopback /health probe that notifies "
                     "only on failure; the job runs under the scheduler overlay, never under the gateway). No "
-                    "runtime code path spawns curl directly; the Dockerfile and the PowerShell scripts run no "
-                    "curl/Invoke-WebRequest",
+                    "runtime code path spawns curl directly; the Dockerfile and the operator PowerShell under "
+                    "powershell/ and windows/ run no curl or HTTP cmdlet (the sandbox's windows-smoke.ps1 "
+                    "probes are the separate pwsh-http row)",
         "enforcement": "every call but one targets loopback (the gateway's /health, /query, /soul, "
                        "/static and Ollama's /api/tags on 127.0.0.1) or the cloud sandbox's own agent-proxy "
                        "status endpoint. The one outbound fetch is `curl -fsSL https://ollama.com/install.sh "
@@ -826,6 +844,8 @@ INVENTORY_ALIASES: dict[str, str] = {
     # `open <url>` / `xdg-open <url>` in the operator scripts: the browser,
     # not the file-manager reveal the local-tooling row covers
     "open-url": "browser launch (open URL)",
+    # Invoke-RestMethod / Invoke-WebRequest in the Windows sandbox smoke suite
+    "pwsh-http": "powershell http probes (sandbox smoke)",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -876,7 +896,7 @@ INVENTORY_ALIASES: dict[str, str] = {
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
-                             "security", "uv", "curl", "ollama-pull", "open-url",
+                             "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http",
                              "pre-action-hook-command", "executor-check")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
@@ -923,24 +943,36 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
                                          "-m utils.telemetry_kill --export shell",
                                          '[ "$_TELEMETRY_EXPORTED" -eq 1 ]')),
     ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"', 'rclone_bin, "copy",', 'rclone_bin, "bisync",')),
-    ("brew", "macos/setup-from-clone.sh", ("brew analytics off >/dev/null",)),
+    ("rclone", "sync/scheduled.py", ('shutil.which("rclone")', '[binary, "listremotes"]')),
+    ("brew", "macos/setup-from-clone.sh", ("brew analytics off >/dev/null", "brew install python@3.12")),
     ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")', '[binary, "config"',
                                                            "[binary, *argv]")),
+    ("git", "agentic/executor/manifest.py", ('git_bin = shutil.which("git")', '[git_bin, "rev-parse", "HEAD"]')),
+    ("git", "scripts/cyclaw-eval-dogfood.py", ('[git, "rev-parse", "HEAD"]',)),
+    ("git", "scripts/ensure-githooks.sh", ("git rev-parse --show-toplevel", "git config --local core.hooksPath")),
+    ("git", "scripts/install-githooks.sh", ("git config core.hooksPath .githooks",)),
     ("openssl", "utils/gen_cert.py", ('shutil.which("openssl")', '"req",')),
+    ("openssl", "macos/setup-cyclaw-keys.sh", ('_api_value="$(openssl rand -hex 20)"',)),
+    ("openssl", "macos/cyclaw-linux-key.sh", ("openssl rand -hex 20",)),
     ("numbat", "utils/numbat_gate.py", ('DEFAULT_BINARY = "numbat"', 'argv = [binary, "rules", "check"')),
     # the daemon is independent at runtime, but the interactive setup script
     # starts it and pulls the model when the operator says yes
-    ("ollama", "macos/setup-from-clone.sh", ('OLLAMA_HOST=127.0.0.1:11434 ollama serve >"$OLLAMA_LOG" 2>&1 &',)),
+    ("ollama", "macos/setup-from-clone.sh", ("export OLLAMA_HOST=127.0.0.1:11434",
+                                             'ollama serve >"$OLLAMA_LOG" 2>&1 &',
+                                             "ollama list 2>/dev/null", "ollama --version")),
     # the model pull is registry egress, so it is its own category-3 component
     ("ollama-pull", "macos/setup-from-clone.sh", ('ollama pull "$OLLAMA_MODEL"',)),
-    ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")',)),
+    ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")', '[launchctl, "bootout"')),
     ("launchctl", "sync/scheduler.py", ('[launchctl, "bootout"', '[launchctl, "print"')),
-    ("crontab", "sync/scheduler.py", ('shutil.which("crontab")',)),
-    ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")',)),
+    ("launchctl", "macos/setup-cyclaw-keys.sh", ('launchctl bootout "gui/${uid}/${ROTATE_LABEL}"',
+                                                 'launchctl bootout "gui/${uid}/${label}"')),
+    ("launchctl", "macos/uninstall-cyclaw.sh", ('launchctl bootout "gui/${uid}/${label}"',)),
+    ("crontab", "sync/scheduler.py", ('shutil.which("crontab")', '[crontab, "-l"]', '[crontab, "-"]')),
+    ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")', '[self._schtasks(), "/Delete"')),
     ("cmd.exe", "utils/win_schtasks.py", ('f"{_slug(task_name)}.cmd"',)),
     ("powershell", "utils/win_schtasks.py", ('shutil.which("powershell")',)),
-    ("bwrap", "agentic/executor/hard_sandbox.py", ('shutil.which("bwrap")',)),
-    ("sandbox-exec", "agentic/executor/hard_sandbox.py", ('shutil.which("sandbox-exec")',)),
+    ("bwrap", "agentic/executor/hard_sandbox.py", ('shutil.which("bwrap")', '[self._bwrap, "--die-with-parent"')),
+    ("sandbox-exec", "agentic/executor/hard_sandbox.py", ('shutil.which("sandbox-exec")', "self._sandbox_exec,")),
     ("xdg-open", "agentic/fsconnect/osutil.py", ('["xdg-open", path]',)),
     ("open", "agentic/fsconnect/osutil.py", ('["open", path]',)),
     ("explorer", "agentic/fsconnect/osutil.py", ('["explorer", path]',)),
@@ -952,6 +984,8 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("security", "macos/cyclaw-keychain-set.sh", ('"$SECURITY_BIN" add-generic-password',)),
     ("security", "macos/setup-cyclaw-keys.sh", ('"$_SECURITY_BIN" find-generic-password',
                                                 '"$_SECURITY_BIN" add-generic-password')),
+    ("security", "macos/cyclaw-keychain-load.sh", ('"$bin" find-generic-password',)),
+    ("security", "macos/uninstall-cyclaw.sh", ('"$SECURITY_BIN" delete-generic-password',)),
     ("uv", "scripts/refresh-runtime-lock.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
     ("uv", "scripts/refresh-ci-locks.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
     ("uv", ".claude/skills/cyclaw-gotchas/driver.sh", ("uv pip install",)),
@@ -975,6 +1009,9 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("open-url", "macos/setup-cyclaw.sh", ('open "$CONSOLE_URL"',)),
     ("open-url", "macos/setup-cyclaw-keys.sh", ('open "$gate"',)),
     ("open-url", "macos/invoke-cyclaw.sh", ('open "$OPEN_URL"', 'xdg-open "$OPEN_URL"')),
+    # the Windows sandbox smoke suite's HTTP probes (cmdlets, not a binary)
+    ("pwsh-http", ".claude/skills/CyClaw-Sandbox/windows-smoke.ps1", ('Invoke-RestMethod -Uri "$Base/health"',
+                                                                      'Invoke-WebRequest -Uri "$Base/query"')),
 )
 
 # Inventory boundary for agent tooling (owner decision on PR #1637,
@@ -988,11 +1025,24 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 # oversight: their gh/git calls are not findings and get no rows. T13 fails a
 # FIXED_LAUNCHER_SITES row under .claude/ that is not inside one of these
 # prefixes, so widening the boundary is a deliberate edit here, never a row
-# slipped in during a review round.
+# slipped in during a review round. An entry ending in "/" is a directory
+# prefix; any other entry is matched exactly (so "driver.sh.backup" is not
+# "driver.sh"). Fixed and dynamic rows are both checked.
 SWEPT_AGENT_SURFACES: tuple[str, ...] = (
     ".claude/skills/cyclaw-gotchas/driver.sh",
     ".claude/skills/CyClaw-Sandbox/",
 )
+
+
+def _inside_agent_boundary(rel: str) -> bool:
+    """True when a .claude/ site path is one of the swept sandbox surfaces."""
+    for allowed in SWEPT_AGENT_SURFACES:
+        if allowed.endswith("/"):
+            if rel.startswith(allowed):
+                return True
+        elif rel == allowed:
+            return True
+    return False
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []
@@ -1559,8 +1609,8 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
     # -- agent-tooling boundary: a .claude/ site must be one of the swept
     #    sandbox surfaces (owner decision, PR #1637); anything else under
     #    .claude/ is out of the inventory and the row itself is the error
-    outside = sorted({rel for _c, rel, _m in FIXED_LAUNCHER_SITES
-                      if rel.startswith(".claude/") and not rel.startswith(SWEPT_AGENT_SURFACES)})
+    outside = sorted({rel for _c, rel, _m in (*FIXED_LAUNCHER_SITES, *DYNAMIC_LAUNCHER_SITES)
+                      if rel.startswith(".claude/") and not _inside_agent_boundary(rel)})
     if outside:
         fail("T13", f"site row(s) under .claude/ outside the agent-tooling boundary: {outside} -- agent "
                     "tooling is out of this inventory by owner decision; widen SWEPT_AGENT_SURFACES "

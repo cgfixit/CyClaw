@@ -569,6 +569,45 @@ else
 fi
 rm -rf "$a"
 
+# 39. T13: the agent-tooling boundary covers DYNAMIC rows too, and the
+#     single-file exception is matched exactly ("driver.sh.backup" is not
+#     "driver.sh"). One mutation adds both offending rows; both must be
+#     named in the FAIL.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n)",
+    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n"
+    "    (\"executor-check\", \".claude/hooks/session-start-sync-check.sh\", (\"git \",)),\n)", 1)
+text = text.replace(
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n"
+    "    (\"curl\", \".claude/skills/cyclaw-gotchas/driver.sh.backup\", (\"curl \",)),\n", 1)'; then
+  echo "T13 boundary dynamic+exact mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep "FAIL  \[T13\] site row.*outside the agent-tooling boundary" | grep -q "session-start-sync-check" && echo "$out" | grep "outside the agent-tooling boundary" | grep -q "driver.sh.backup"; then
+    echo "T13 boundary dynamic+exact mutation: PASS"
+  else
+    echo "T13 boundary dynamic+exact mutation: FAIL — expected rc=2 + both paths in the boundary FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 40. T13: a newly sited invocation (the scheduled-sync rclone listremotes
+#     check) is removed while the resolver stays. Proves the eighth-round
+#     rows are live markers, not decoration.
+a="$(_mktree)"
+_mutate "$a/sync/scheduled.py" '
+text = text.replace("[binary, \"listremotes\"]", "[binary, \"zz_no_remotes_zz\"]")
+assert "shutil.which(\"rclone\")" in text and "[binary, \"listremotes\"]" not in text'
+_expect "T13 scheduled rclone invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .rclone.: sync/scheduled.py no longer carries"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"
