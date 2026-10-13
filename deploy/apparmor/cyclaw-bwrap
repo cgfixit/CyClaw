@@ -1,6 +1,8 @@
 # CyClaw: let bubblewrap create user namespaces on hosts that enforce
-# kernel.apparmor_restrict_unprivileged_userns=1 (stock Ubuntu 24.04 and
-# newer) WITHOUT turning that restriction off for the whole system.
+# kernel.apparmor_restrict_unprivileged_userns=1 (stock Ubuntu 24.04)
+# WITHOUT turning that restriction off for the whole system. Ubuntu 26.04
+# and newer already have an enforce-mode bwrap profile; do not load this
+# one beside it (see the note below).
 # Never use `sysctl kernel.apparmor_restrict_unprivileged_userns=0` instead.
 #
 # Scope: attaches to exactly /usr/bin/bwrap (the apt `bubblewrap` path). No
@@ -16,6 +18,11 @@
 # a user namespace, so bwrap becomes an exemption from the host's userns
 # restriction. Fine for a single-user CyClaw workstation; on shared or
 # multi-user hosts use Ubuntu's stricter `bwrap-userns-restrict` instead.
+#
+# Ubuntu 26.04 and newer already load that stock profile in enforce mode
+# (profile bwrap for /usr/bin/bwrap, sysctl left at 1). Do not load this
+# profile beside it: both attach to /usr/bin/bwrap, and confinement then fails
+# with "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted".
 #
 # Why not `bwrap-userns-restrict` (apparmor extra-profiles) by default: it is
 # not userns-only (its bwrap profile allows capability, mount, ptrace, dbus,

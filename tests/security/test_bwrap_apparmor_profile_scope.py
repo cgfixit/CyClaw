@@ -10,8 +10,10 @@ It must stay a one-rule exemption for exactly ``/usr/bin/bwrap``:
 * ``flags=(unconfined)`` is disclosed in a comment, along with the reasoning
   for not using Ubuntu's ``bwrap-userns-restrict``.
 
-CI (ubuntu-latest) proves the runtime side: stock policy refuses bwrap, this
-profile loads, and scripts/verify_agentic_sandbox.py passes.
+CI on Ubuntu 24.04 proves the runtime side: stock policy refuses bwrap, this
+profile loads, and scripts/verify_agentic_sandbox.py passes. Ubuntu 26.04 and
+newer already enforce profile bwrap on /usr/bin/bwrap; CI must not load this
+profile beside it (scripts/ci/bwrap-apparmor-check.sh).
 """
 
 from __future__ import annotations
