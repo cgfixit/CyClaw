@@ -463,7 +463,7 @@ delegates Step 1 to it rather than duplicating it).
 - **The Step 6 bump recipe is a set of claims; derive each from a checker,
   not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
   *measured* row of the sweep report survived review, while the "how to
-  bump" prose took twenty-nine correct Codex findings across eight passes. Each one
+  bump" prose took thirty-four correct Codex findings across nine passes. Each one
   had a file that would have caught it first: a package's files-to-edit are
   exactly the non-empty columns of its `extract_pins.py` row (extras-only
   and constraints-only packages never enter `requirements.txt` or
@@ -493,9 +493,11 @@ delegates Step 1 to it rather than duplicating it).
   D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
   `tests/nemo_runtime/`, `"0.24.0"` in `guardrails/verify_install.py` and
   `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS`, and `pendulum==3.2.0` /
-  `pgvector==0.5.0` / `wcmatch==11.0` and the cloud-adapter row's
-  `deepagents`/`langchain-*` versions in `check_otel.py`'s *prose*
-  inventory, which `--strict` never reads — then `dep-guard` and
+  `pgvector==0.5.0` / `wcmatch==11.0`, the cloud-adapter row's
+  `deepagents`/`langchain-*` versions, the `langgraph-cli analytics` row's
+  `langgraph==1.2.11 family`, and the core-libs row's `hatchling==1.32.0`
+  in `check_otel.py`'s *prose* inventory, which `--strict` never reads —
+  then `dep-guard` and
   `check_otel.py --strict` as the authoritative re-check, knowing the
   strict run covers only the pin dict. On 2026-10-13
   that grep surfaced, beyond the manifests: `dep-guard` `_PYDANTIC_LOCKSTEP`
@@ -516,7 +518,14 @@ delegates Step 1 to it rather than duplicating it).
   `OTEL_SDK_DISABLED`, so the review is of FastAPI's *use* of an installed,
   suppressed stack — not a new package, and not a new `constraints.txt`
   line); and `extract_pins.py` reads `[project]` tables only, so
-  `[build-system].requires` (`hatchling`) is checked by hand; a
+  `[build-system].requires` (`hatchling`) is checked by hand, and its
+  exercise is a full `python -m build` (wheel + sdist, as the release
+  workflow runs it), not CI's `--wheel`. Advisories are queried at
+  `/pypi/<package>/<pinned-version>/json`: the project endpoint's
+  `vulnerabilities` array describes only the latest release, so for a pin
+  behind latest it hides anything fixed since — and the report must say
+  which endpoint it used (the 2026-10-13 sweep did query per-release but
+  did not say so, which reads the same as not having done it); a
   major bump needs the dependents' `requires_dist` read on PyPI first
   (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
   "candidate" cannot resolve and is an exception); `check_lock_contract.py`

@@ -53,15 +53,20 @@ from an empty venv, which needs the proxy-blocked CPU index. Recorded as
 | Compose render | `docker compose config --quiet` | **PASS** |
 | Conda | `environment.yml` | not dry-run-verified (no conda in the sandbox); `dep-guard` D9 confirms its 24 cross-pinned packages agree with the pip manifests |
 
-## Advisories on pinned versions (PyPI `vulnerabilities` field)
+## Advisories on pinned versions (PyPI `vulnerabilities` field, per-release endpoint)
 
 | Package | Pinned | Advisories reported | Status |
 |---|---|---|---|
 | `chromadb` | 1.5.9 | CVE-2026-45829, -45830, -45831, -45833 (GHSA-2wm9-hf6c-p5cr, -36p7-vc44-83pf, -f4j7-r4q5-qw2c, -xph7-9rjv-w5fr) | All four already listed and risk-accepted in `SECURITY.md` for the embedded `PersistentClient`-only posture; no newer release (1.5.9 is latest). Do not switch to the HTTP client or file a fix PR. |
 | `nltk` | 3.10.3 | CVE-2026-81726 (GHSA-8mgp-746c-j5xp) | Already documented in `SECURITY.md`; 3.10.3 is the latest release, so no upstream fix exists yet. `retrieval/stemmer.py` caps tokens at 256 chars as defense in depth for the sibling CVE-2026-81722. |
 
-No other pinned package reports an advisory. `api.osv.dev` is blocked by the
-sandbox proxy, so this is the PyPI advisory feed only (it mirrors the PyPA
+No other pinned package reports an advisory. Each package was queried at
+`/pypi/<package>/<pinned-version>/json`, never the project endpoint — the
+project-level `vulnerabilities` array describes only the latest release, so
+for the 26 pins behind latest it would miss anything fixed after the pin. The
+loop was re-run that way over all 48 pins (the `hatchling` build backend
+included) at 07:20 UTC with the same two results. `api.osv.dev` is blocked by
+the sandbox proxy, so this is the PyPI advisory feed only (it mirrors the PyPA
 advisory database, including GHSA and PYSEC ids).
 
 ## Currency table
@@ -185,7 +190,11 @@ Then CI's four test legs.
    `langchain`, `langchain-openai`, `langchain-anthropic`,
    `langchain-google-genai`, `langsmith`, and `wcmatch` versions in prose
    that `--strict` never compares with the manifests, so that row is
-   reviewed and rewritten in the same commit.
+   reviewed and rewritten in the same commit — as is the separate
+   category-1 `langgraph-cli analytics` row (`check_otel.py:273-278`), whose
+   `versions` prose reads `langgraph==1.2.11 family` and whose
+   `LANGGRAPH_CLI_NO_ANALYTICS` control is re-checked against the new CLI
+   source.
 2. **Web stack (minor):** `fastapi` 0.141.1→0.143.0, `starlette` 1.6.0→1.7.0,
    `uvicorn` 0.53.0→0.54.0. `gate.py` imports `starlette` directly, so bump
    the three together. Not a test-only bump: `fastapi` 0.143.0's PyPI
@@ -202,7 +211,12 @@ Then CI's four test legs.
    existing `OTEL_SDK_DISABLED` suppression and `check_otel.py`'s
    classification still cover it — and no new hand-maintained constraint
    (the stack rides the regenerated locks as it does today); then
-   `test_gate`/`test_terminal_contract` in CI.
+   `test_gate`/`test_terminal_contract` in CI. Two documents carry these
+   versions and move with the bump: the FastAPI badge at `README.md:4`, and
+   `docs/analysis/TESTCLIENT_HTTPX_DEPRECATION.md`, which asserts that the
+   `StarletteDeprecationWarning` TestClient shim and the `filterwarnings`
+   entry still hold at `starlette==1.6.0`/`fastapi==0.141.1` — that claim is
+   re-verified against the 1.7.0 wheel, not re-worded.
 3. **`huggingface-hub` 1.32.0→2.2.0 — blocked, not a candidate.**
    `sentence-transformers==6.1.0` declares `huggingface-hub<2.0.0,>=1.3.0`, so
    a standalone 2.x bump cannot resolve. It is pinned directly only because
@@ -267,8 +281,14 @@ Then CI's four test legs.
    check against the manifests — update it by hand),
    `mypy` 2.3.0→2.4.0, and `hatchling` 1.32.0→1.32.4 (build backend:
    `pyproject.toml` `[build-system].requires` only, outside every install
-   surface and every lock, so no lock refresh — the wheel-packaging CI job
-   is its only exercise).
+   surface and every lock, so no lock refresh). Its exercise is a full local
+   `python -m build` — wheel **and** sdist — because `ci.yml` builds only the
+   wheel while `python-publish.yml` runs the unrestricted `python -m build`
+   at release time and `[tool.hatch.build.targets.sdist]` has its own
+   include list, so an sdist regression would surface only on publish. The
+   `check_otel.py` core-libs row (`:615-625`) names `hatchling==1.32.0` in
+   prose under a no-telemetry classification that `--strict` does not
+   version-check; re-read the new source and update that row with the pin.
 
 Deliberately not recommended: `torch` 2.13.0→2.14.1 (CPU wheel pin across
 `pyproject.toml`, `constraints.txt`, and `environment.yml` — **never**
