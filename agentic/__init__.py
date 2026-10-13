@@ -23,10 +23,11 @@ Usage from the CLI:
 
 # This process never imports gate.py, so without this it inherits whatever
 # telemetry env the operator's shell/container/observability agent happens to
-# carry. Nothing here reaches deepagent_github's langchain-based imports today
-# (no CLI subcommand wires it up -- see agentic/deepagent_github/builder.py),
-# but applying the kill at package-import time means it is already in place
-# the moment a future caller does. Same rationale as mcp_hybrid_server.py.
+# carry. Two CLI paths lazily load langchain-based modules: `deepagent-plan`
+# (deepagents via agentic/deepagent_github/builder.py) and `real-repo-run`
+# with a cloud --provider (langchain_core via chat_client.py). Applying the
+# kill at package-import time puts it in place before either loads. Same
+# rationale as mcp_hybrid_server.py.
 from utils.telemetry_kill import apply_telemetry_kill
 
 apply_telemetry_kill()
