@@ -33,9 +33,9 @@ accepts `weekly` / `monthly`; task name `CyClaw Dropbox Sync`).
 wildcard `/TN`, and a missing task is a no-op (query-then-delete, so Windows
 PowerShell 5.1 does not abort on `schtasks` stderr). Credential Manager items
 go only with `-RemoveCredentials` (the macOS twin is `--remove-keychain`),
-which prompts unless `-Yes` is passed and leaves plaintext lines in place.
-Generators inject tokens through `CyClaw-CredMan-Env.ps1`, so none appears in
-task XML.
+which prompts y/N unless `-Yes` is passed and leaves plaintext lines in place;
+the default uninstall never writes a credential. Generators inject tokens
+through `CyClaw-CredMan-Env.ps1`, so none appears in task XML.
 
 ## Secret classification
 
