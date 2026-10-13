@@ -6,7 +6,12 @@ disable-model-invocation: true
 
 # Tests Refactor Loop
 
-Bring the test suite to full health: add tests until coverage hits 100%, diagnose every failure, and apply fixes until all tests pass. The pass-rate target is 85% minimum; 100% is the goal.
+Bring the test suite to full health: add tests until coverage hits 100%, diagnose every failure, and apply fixes until all tests pass. The pass-rate target is 85% minimum; 100% is the goal. The CI gate is `fail_under = 80` in `pyproject.toml`; 100% is this loop's aspiration, not a number anything enforces.
+
+This loop runs the full suite with coverage on every iteration. CLAUDE.md §5
+reserves that run for CI and the owner, so this skill is user-invoked only: an
+explicit `/tests-refactor` is the owner asking for it. Do not run the loop's
+measurement command from any other skill or task.
 
 ---
 
@@ -39,32 +44,40 @@ EOF
 Run this exact command every iteration — do not vary flags between runs:
 
 ```bash
-GROK_API_KEY=dummy pytest tests/ \
-  --tb=short -q \
+GROK_API_KEY=dummy pytest tests/ -o addopts="" --tb=short -q \
   --cov --cov-report=term-missing 2>&1 | tee /tmp/pytest-last-run.txt
+echo "pytest exit=${PIPESTATUS[0]}"
 ```
 
-Bare `--cov` (no argument) picks up `[tool.coverage.run] source=`/`omit=`
-from `pyproject.toml` automatically — coverage.py auto-discovers that file
-from the repo root, same as CI. **Do not create a `.coveragerc`** and do
-not use `--cov=.`: a blanket `--cov=.` would include `agentic/fsconnect/*`
-and `agentic/sqlconnect/*`, which `pyproject.toml` deliberately omits
-(POSIX-only security core, unmeasurable on Windows CI — see the comment
-above `omit=` in `pyproject.toml`), so the loop would chase a coverage %
-that doesn't match the real gate.
+`-o addopts=""` matters: `pyproject.toml` already sets `addopts = "-q
+--tb=short"`, and a second `-q` makes `-qq`, at which level pytest drops the
+final `N passed` line (cyclaw-gotchas). Bare `--cov` (no argument) picks up
+`[tool.coverage.run] source=`/`omit=` from `pyproject.toml`, which is the
+same source list CI measures through its explicit `--cov=<pkg>` flags (one per
+entry; `tests/test_ci_coverage_flag_contract.py` keeps them in step). **Do not
+create a `.coveragerc`** and do not use `--cov=.`: a blanket `--cov=.` would
+include the `agentic/{fsconnect,sqlconnect,netconnect,vendor}/*` paths that
+`omit=` deliberately excludes, so the loop would chase a coverage % that
+doesn't match the real gate.
 
 ### Extract key metrics after each run
 
 ```bash
-# Pass rate
-TOTAL=$(grep -E "^\d+ passed" /tmp/pytest-last-run.txt | awk '{print $1+$4}')
-PASSED=$(grep -E "^\d+ passed" /tmp/pytest-last-run.txt | awk '{print $1}')
-PASS_RATE=$(echo "scale=1; $PASSED * 100 / $TOTAL" | bc)
+# Pass rate (GNU grep -E has no \d; skipped tests count neither way)
+read -r PASSED FAILED ERRORS < <(python3 - /tmp/pytest-last-run.txt <<'EOF'
+import re, sys
+tail = open(sys.argv[1]).read()[-2000:]
+def n(k): m = re.search(rf"(\d+) {k}", tail); return int(m.group(1)) if m else 0
+print(n("passed"), n("failed"), n("error"))
+EOF
+)
+TOTAL=$((PASSED + FAILED + ERRORS))
+PASS_RATE=$(python3 -c "print(f'{$PASSED*100/max($TOTAL,1):.1f}')")
 
 # Coverage
-COVERAGE=$(grep "TOTAL" /tmp/pytest-last-run.txt | awk '{print $NF}')
+COVERAGE=$(grep "^TOTAL" /tmp/pytest-last-run.txt | awk '{print $NF}')
 
-echo "Pass rate: ${PASS_RATE}% | Coverage: ${COVERAGE}"
+echo "Pass rate: ${PASS_RATE}% (${PASSED}/${TOTAL}) | Coverage: ${COVERAGE}"
 ```
 
 Record both metrics in the tracker under `### Step N — Measurement`.
@@ -95,7 +108,7 @@ Repeat until pass rate ≥ 85%:
 ### 1. Triage failures
 
 ```bash
-GROK_API_KEY=dummy pytest tests/ --tb=long -q 2>&1 | grep -A 20 "FAILED\|ERROR"
+GROK_API_KEY=dummy pytest tests/ -o addopts="" --tb=long -q 2>&1 | grep -A 20 "FAILED\|ERROR"
 ```
 
 Group failures by root cause — don't fix them one-by-one if they share a common cause:
@@ -109,10 +122,11 @@ Group failures by root cause — don't fix them one-by-one if they share a commo
 For each failure group, read the traceback fully. Common patterns in this project:
 
 - `GROK_API_KEY` not set → ensure env var is set in test or conftest
-- ChromaDB / BM25 index not built → check if `tests/conftest.py` builds the index
-- LangGraph node error → mock the LLM call; don't require Ollama in tests
-- Rate-limit state leaking between tests → reset `RateLimiter` state in fixture teardown
-- Personality file missing → fixture must create `data/personality/soul.md`
+- A test touching a real ChromaDB / BM25 index → it must not; `tests/conftest.py` mocks the embedder and the external services, and `tests/ci_rag_smoke.py` is the only real-index check (its own CI step)
+- LangGraph node error → mock the LLM call (`MockLocalLLM`); don't require Ollama in tests
+- Rate-limit state leaking between tests → the `client` fixture hands each test file its own loopback IP; a test that builds its own `RateLimiter` must `close()` it
+- Personality file missing → `PersonalityManager._load_soul` self-heals; a test that asserts a crash here is wrong
+- `import gate` at a test module's top level → full app init; use a subprocess or module-level patching (CLAUDE.md §4 Testing)
 
 ### 3. Fix
 
@@ -129,9 +143,12 @@ Run the full measurement command. Record new pass rate and coverage.
 ### 5. Commit if improved
 
 ```bash
-git add -p
-git commit -m "test(fix): <root cause fixed — N tests now passing>"
+git add <files of this step>
+git commit -m "[fix] - <root cause fixed; N tests now passing>"
 ```
+
+The tracked `commit-msg` hook accepts only `[prefix] - Short descriptive
+sentence` (CLAUDE.md §5); `test(fix):`-style subjects are refused.
 
 Loop back to triage until pass rate ≥ 85%.
 
@@ -144,8 +161,8 @@ Once pass rate ≥ 85%, shift to adding missing coverage:
 ### 1. Find uncovered lines
 
 ```bash
-GROK_API_KEY=dummy pytest tests/ --cov --cov-report=term-missing -q \
-  2>&1 | grep -E "^\S.*\d+%.*\d+-\d+" | sort -t'%' -k1 -n
+grep -E "^[a-z_/]+\.py +[0-9]+ +[0-9]+ +[0-9]+% +[0-9]" /tmp/pytest-last-run.txt \
+  | sort -k4 -n | head -20     # lowest-covered modules first, from the last run
 ```
 
 Pick the module with the lowest coverage percentage first.
@@ -200,7 +217,7 @@ Run full measurement. Check both pass rate and coverage. If a new test reveals a
 
 ```bash
 git add tests/
-git commit -m "test(coverage): add tests for <module> — coverage N% → M%"
+git commit -m "[fix] - Add tests for <module>; coverage N% → M%"
 ```
 
 Loop back to find next uncovered lines.
@@ -223,43 +240,22 @@ Completed: <timestamp>
 
 | Metric      | Baseline | Final  |
 |-------------|----------|--------|
-| Pass rate   | 62%      | 100%   |
-| Coverage    | 41%      | 100%   |
-| Tests total | 18       | 47     |
+| Pass rate   | 98.1%    | 100%   |
+| Coverage    | 84%      | 91%    |
+| Tests total | 5263     | 5310   |
 | Failures    | 7        | 0      |
 ```
 
 ---
 
-## conftest.py Checklist
+## conftest.py
 
-Every test session needs these fixtures in `tests/conftest.py`. Verify they exist before adding tests:
-
-```python
-import pytest
-from fastapi.testclient import TestClient
-
-@pytest.fixture(scope="session", autouse=True)
-def build_index():
-    """Build retrieval index once per session."""
-    import subprocess, os
-    env = {**os.environ, "GROK_API_KEY": "dummy"}
-    subprocess.run(["python3", "-m", "retrieval.indexer"], env=env, check=True)
-
-@pytest.fixture(scope="session")
-def client(build_index):
-    import os; os.environ.setdefault("GROK_API_KEY", "dummy")
-    from gate import app
-    return TestClient(app)
-
-@pytest.fixture(autouse=True)
-def reset_rate_limiter():
-    """Prevent rate-limit state leaking between tests."""
-    from utils.rate_limit import RateLimiter
-    RateLimiter._store.clear()
-    yield
-    RateLimiter._store.clear()
-```
+Use the fixtures `tests/conftest.py` already provides rather than inventing
+new session-scoped ones: `client` (a function-scoped `TestClient` over the
+mocked gateway, one loopback IP per test file so rate-limit state cannot
+leak), `test_config` (a deepcopy — `test_conftest_fixtures` guards that), and
+the autouse mocks for the embedder, Ollama, Grok and Claude. Nothing builds a
+real index and nothing starts a live service (CLAUDE.md §6 "Test").
 
 ---
 

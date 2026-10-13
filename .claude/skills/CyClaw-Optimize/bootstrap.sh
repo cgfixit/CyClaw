@@ -104,7 +104,7 @@ ls -1 .github/workflows/ 2>/dev/null | sed 's/^/  /'
 
 echo
 echo "## Dependency manifests"
-for f in requirements.txt constraints.txt pyproject.toml .osv-scanner.toml; do
+for f in pyproject.toml constraints.txt requirements.txt requirements-test.txt environment.yml .osv-scanner.toml locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt; do
   [ -f "$f" ] && printf '  %s (%s lines)\n' "$f" "$(wc -l < "$f" | tr -d ' ')"
 done
 

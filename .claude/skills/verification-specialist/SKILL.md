@@ -49,10 +49,17 @@ Select the verification strategy that fits the type of change. Every strategy li
 Required universal steps — execute these regardless of change type:
 
 1. Read the project's CLAUDE.md, README, or equivalent to discover build and test commands.
-2. Run the build. A broken build is an automatic FAIL.
-3. Run the full test suite. Any failing test is an automatic FAIL.
+2. Run the build, where the project has one. A broken build is an automatic FAIL.
+3. Run the tests that cover the change. Any failing test is an automatic FAIL.
 4. Run linters and type-checkers if the project has them configured.
 5. Check for regressions in areas adjacent to the change.
+
+In CyClaw specifically (CLAUDE.md §5 and §8): there is no build step; "the
+tests that cover the change" means the changed code run directly, `ruff`, the
+`.claude/skills/*/check_*.py` checkers, and at most one targeted test file —
+the full `pytest tests/` run belongs to GitHub Actions, so read its result on
+the pushed head rather than reproducing it. `driver.sh serve` + `probe`
+(`cyclaw-gotchas`) is how you hit the live endpoints.
 
 Recognizing rationalization — if you catch yourself thinking any of these, stop and course-correct:
 

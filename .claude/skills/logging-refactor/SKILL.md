@@ -8,6 +8,10 @@ disable-model-invocation: true
 
 Audit every important code path for logging coverage. Add missing log statements, write tests that assert logs are emitted correctly, and fix any failures until the test suite is fully green. Pass-rate target is 85% minimum; 100% is the goal.
 
+Like `tests-refactor`, this loop runs the full suite on every iteration, which
+CLAUDE.md §5 reserves for CI and the owner; it is user-invoked only, and an
+explicit `/logging-refactor` is that authorization.
+
 ---
 
 ## Setup
@@ -39,28 +43,17 @@ EOF
 Run this exact command every iteration:
 
 ```bash
-GROK_API_KEY=dummy pytest tests/ \
-  --tb=short -q \
+GROK_API_KEY=dummy pytest tests/ -o addopts="" --tb=short -q \
   --cov --cov-report=term-missing 2>&1 | tee /tmp/pytest-last-run.txt
+echo "pytest exit=${PIPESTATUS[0]}"
 ```
 
 Bare `--cov` picks up `[tool.coverage.run] source=`/`omit=` from
 `pyproject.toml` automatically — do not create a `.coveragerc` or use
-`--cov=.` (see `tests-refactor`'s Measurement Protocol for why).
-
-Extract metrics:
-
-```bash
-PASSED=$(grep -E "^\d+ passed" /tmp/pytest-last-run.txt | awk '{print $1}')
-FAILED=$(grep -E "\d+ failed" /tmp/pytest-last-run.txt | grep -oE "[0-9]+ failed" | awk '{print $1}')
-FAILED=${FAILED:-0}
-ERRORS=$(grep -E "\d+ error" /tmp/pytest-last-run.txt | grep -oE "[0-9]+ error" | awk '{print $1}')
-ERRORS=${ERRORS:-0}
-TOTAL=$((PASSED + FAILED + ERRORS))
-PASS_RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-COVERAGE=$(grep "TOTAL" /tmp/pytest-last-run.txt | awk '{print $NF}')
-echo "Pass rate: ${PASS_RATE}% (${PASSED}/${TOTAL}) | Coverage: ${COVERAGE}"
-```
+`--cov=.`, and keep `-o addopts=""` so the doubled `-q` does not hide the
+summary line (see `tests-refactor`'s Measurement Protocol for both). Extract
+the metrics with the same Python snippet `tests-refactor` uses; GNU `grep -E`
+does not understand `\d`.
 
 Record under `### Step N — Measurement` in the tracker.
 
@@ -97,11 +90,11 @@ Scan the source for code paths that should emit logs but don't. "Important path"
 - **Invariant-relevant transitions** — anywhere `invariant-guard`'s I4 (audit convergence) or I1 (RAG-first) checks structural reachability, the corresponding log statement is the human-readable proof; don't add a log that implies a path `invariant-guard` would flag as unreachable
 
 ```bash
-# Find except blocks with no logging
-grep -n "except" **/*.py | grep -v "log\|logger\|print\|LOG"
+# Find except blocks with no logging (rg recurses; bash's ** needs globstar)
+rg -n "^\s*except\b" --type py -A2 . | rg -v "log|logger|LOG|raise"
 
-# Find route handlers with no log calls
-grep -n "@app\." gate.py | while read line; do echo "$line"; done
+# Route handlers: gate.py's own @app routes plus the three registered groups
+rg -n "@app\.(get|post|delete)|@router\.|def register_.*_routes" gate.py gate_ops.py gate_auth.py gate_memory.py
 ```
 
 ### 2. Assess each gap
@@ -125,29 +118,31 @@ Follow the project's existing logger pattern. Check the current convention first
 grep -n "logger\|logging\|LOG" gate.py | head -20
 ```
 
-Typical pattern for this project:
+The project convention (CLAUDE.md §5): a `cyclaw.<module>` logger name and
+lazy `%s` formatting, never f-strings and never `print`. Structured fields go
+to the audit JSONL stream, not to `extra={}` (nothing in the core uses it):
 
 ```python
 import logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("cyclaw.retrieval.hybrid_search")
 
 # Info — normal flow
-logger.info("query received", extra={"query_hash": hash(query), "endpoint": "/query"})
+logger.info("query received on %s (fingerprint %s)", "/query", query_fingerprint(query, cfg)[:12])
 
 # Warning — degraded but handled
-logger.warning("vault miss — below min_score", extra={"score": top_score, "threshold": MIN_SCORE})
+logger.warning("vault miss: best semantic %.3f below min_semantic_score %.2f", best, floor)
 
-# Error — failure with context
-logger.error("LLM call failed", extra={"error": str(e), "model": model_name}, exc_info=True)
+# Error — failure with context (exc_info keeps the traceback)
+logger.error("LLM call failed for model %s: %s", model_name, exc, exc_info=True)
 
-# Security event
-logger.warning("prompt injection blocked", extra={"pattern": matched_pattern, "ip": client_ip})
+# Security event (no raw query, no raw IP: policy.privacy.redact_ips is on)
+logger.warning("prompt injection blocked by pattern #%d", pattern_index)
 ```
 
 Rules:
 - Always include enough context to reconstruct what happened without reading source
-- Never log raw user input — log a hash or truncated sanitized form
-- Use `extra={}` for structured fields, not f-string interpolation
+- Never log raw user input — use `utils.logger.query_fingerprint` (keyed HMAC-SHA256; Python's `hash()` is salted per process and proves nothing)
+- Respect `policy.privacy` redaction: no raw IPs, emails, or secret-shaped strings in the app log
 - `logger.exception()` automatically includes traceback; use it inside `except` blocks
 
 ### 4. Write the log test
@@ -169,11 +164,11 @@ def test_injection_blocked_logs_warning(client, caplog):
     assert response.status_code == 400
     assert any("injection" in r.message.lower() for r in caplog.records)
 
-def test_startup_logs_index_ready(caplog):
-    with caplog.at_level(logging.INFO):
-        from gate import app  # reimport triggers startup hooks if not cached
-    assert any("index" in r.message.lower() for r in caplog.records)
 ```
+
+Never `import gate` inside a test to provoke startup logs — that boots the
+whole app (CLAUDE.md §4 Testing). Startup logging is asserted through a
+subprocess, the way `tests/test_telemetry_kill.py` does it.
 
 Place log tests in:
 - `tests/test_audit.py` — audit trail logs (security events, rate limits)
@@ -182,21 +177,18 @@ Place log tests in:
 
 ### 5. Measure and commit
 
-```bash
-GROK_API_KEY=dummy pytest tests/ --tb=short -q --cov --cov-report=term-missing \
-  2>&1 | tee /tmp/pytest-last-run.txt
-```
-
-If new logging touched `gate.py`/`graph.py`/`mcp_hybrid_server.py` control
-flow (not just an added `logger.x()` call), run
+Re-run the Measurement Protocol command. If new logging touched
+`gate.py`/`graph.py`/`mcp_hybrid_server.py` control flow (not just an added
+`logger.x()` call), run
 `python3 .claude/skills/invariant-guard/check_invariants.py` before
 committing.
 
-If pass rate held or improved, commit:
+If pass rate held or improved, commit (the tracked `commit-msg` hook accepts
+only `[prefix] - Short descriptive sentence`):
 
 ```bash
-git add -p
-git commit -m "log(coverage): add logging + tests for <path> — N new log assertions"
+git add <files of this step>
+git commit -m "[fix] - Add logging and tests for <path>; N new log assertions"
 ```
 
 Loop back to identify next gap.
@@ -210,7 +202,7 @@ When pass rate < 85%, or when new log tests fail:
 ### 1. Triage
 
 ```bash
-GROK_API_KEY=dummy pytest tests/ --tb=long -q 2>&1 | grep -A 30 "FAILED\|ERROR"
+GROK_API_KEY=dummy pytest tests/ -o addopts="" --tb=long -q 2>&1 | grep -A 30 "FAILED\|ERROR"
 ```
 
 ### 2. Diagnose root cause
@@ -219,9 +211,9 @@ Before writing any fix, write the diagnosis in the tracker:
 
 ```markdown
 ### Step N — Diagnosis
-Failure: test_audit.py::test_rate_limit_logs_warning
-Root cause: RateLimiter.check() does not call logger — it raises silently.
-Plan: add logger.warning() in RateLimiter.check() before raise, then
+Failure: test_rate_limit.py::test_rate_limit_logs_warning
+Root cause: RateLimiter.allow() returns False without logging the rejection.
+Plan: add logger.warning() on the deny branch of RateLimiter.allow(), then
       assert caplog in test.
 ```
 
@@ -229,7 +221,7 @@ Common failure patterns for logging work:
 
 | Symptom | Root cause | Fix |
 |---------|------------|-----|
-| `caplog.records` empty | Log level too high or logger name mismatch | Check `caplog.at_level()` and `logging.getLogger(__name__)` name |
+| `caplog.records` empty | Log level too high or logger name mismatch | Check `caplog.at_level()` and the `cyclaw.<module>` logger name |
 | Log emitted but wrong level | Source uses `.debug()` for important event | Raise to `.info()` or `.warning()` in source |
 | Log text changed, test broken | Source refactored log message | Update test assertion to match new message (or make assertion less brittle) |
 | ImportError in test | New log import added, missing in test module | Add import |
@@ -239,19 +231,17 @@ Common failure patterns for logging work:
 
 - If the source doesn't log: add the log statement
 - If the test assertion is wrong: fix the assertion (prefer substring match over exact string)
-- If the logger name is wrong: align `getLogger(__name__)` with the module path
+- If the logger name is wrong: align it with the `cyclaw.<module>` convention
 
 ### 4. Re-measure
 
-```bash
-GROK_API_KEY=dummy pytest tests/ --tb=short -q 2>&1 | tee /tmp/pytest-last-run.txt
-```
+Re-run the Measurement Protocol command.
 
 ### 5. Commit if improved
 
 ```bash
-git add -p
-git commit -m "log(fix): <what was diagnosed and fixed>"
+git add <files of this step>
+git commit -m "[fix] - <what was diagnosed and fixed>"
 ```
 
 Loop back to triage until pass rate ≥ 85%.
@@ -272,10 +262,10 @@ Completed: <timestamp>
 
 | Metric               | Baseline | Final |
 |----------------------|----------|-------|
-| Pass rate            | 70%      | 100%  |
-| Log coverage paths   | 4/18     | 18/18 |
-| Log assertion tests  | 2        | 21    |
-| Failures             | 5        | 0     |
+| Pass rate            | 99.8%    | 100%  |
+| Log coverage paths   | 12/18    | 18/18 |
+| Log assertion tests  | 40       | 52    |
+| Failures             | 9        | 0     |
 ```
 
 Paths covered:
@@ -294,10 +284,10 @@ Paths covered:
 ## Notes
 
 - No `print()` in library code — use `logging.getLogger("cyclaw.<module>")` with lazy `%s` formatting.
-- The audit JSONL stream (`logs/audit.jsonl`) is separate from application logging and stores hashed queries only — never add raw query text to either stream.
+- The audit JSONL stream (`logs/audit.jsonl`) is separate from application logging and stores keyed HMAC-SHA256 query fingerprints while `logging.audit.include_query_hash` is true (the shipped default) — never add raw query text to either stream.
 - **caplog scope** — use `caplog.at_level(logging.DEBUG)` if unsure of the level; narrow it once you know
 - **Never assert exact log strings** — assert substrings (`"vault miss" in record.message`) so log wording can evolve without breaking tests
-- **Structured fields** — assert `record.extra["key"] == value` for structured log fields when the message alone isn't distinctive
+- **Structured fields** — `extra={...}` keys land as attributes on the `LogRecord` (`record.score`), not under a `.extra` dict; prefer asserting on the formatted message
 - **Security logs must never contain raw PII** — assert that the log does NOT contain the raw query string; check only hash or truncated form
 - **Security-event logs must stay covered by the sanitizer contract phrases `invariant-guard` checks (G3)** — don't rename or remove a matched pattern while adding its log line
 - **`{projectname}`** in tracker path is `basename $PWD`, e.g. `CyClaw` → `/tmp/refactor-CyClaw.md`

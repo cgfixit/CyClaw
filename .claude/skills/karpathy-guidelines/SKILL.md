@@ -76,11 +76,12 @@ runs commands on its own. It does not supersede CyClaw's binding rules:
   soul governance, module isolation). "Simplicity First" / "Surgical Changes" never
   justify touching a graph edge, `banned_patterns`, or `soul.md` without following
   the existing escalation rules in `CLAUDE.md` §7.
-- "Goal-Driven Execution" pairs with, and does not replace, this repo's actual test
-  suite (`GROK_API_KEY=dummy pytest tests/ -q --tb=short`) and
-  `.claude/skills/invariant-guard/check_invariants.py`.
-- Feature-freeze mode (`CLAUDE.md` §1) still governs: "Simplicity First" is about
-  *how* to implement something already justified, not license to add scope.
+- "Goal-Driven Execution" pairs with, and does not replace, this repo's
+  verification policy (`CLAUDE.md` §5: run the changed code, lint, let GitHub
+  Actions run the suites) and `.claude/skills/invariant-guard/check_invariants.py`.
+- `CLAUDE.md` §6's "the diff touches only files named in the task" still
+  governs: "Simplicity First" is about *how* to implement something already
+  asked for, not license to add scope.
 
 ## Gotchas
 
@@ -88,7 +89,7 @@ runs commands on its own. It does not supersede CyClaw's binding rules:
   escalation model (`CLAUDE.md` §7), only High-tier ambiguity warrants a stop — for
   Low/Medium tier, state the assumption and proceed on the smallest reversible
   interpretation. Prefer CyClaw's tiering when the two disagree.
-  "Surgical Changes" mirrors an existing CyClaw rule (§4: "the diff touches only
+  "Surgical Changes" mirrors an existing CyClaw rule (§6: "the diff touches only
   files named in the task").
 - Sourced verbatim from
   [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)

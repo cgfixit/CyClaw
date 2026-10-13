@@ -1,11 +1,11 @@
 ---
-description: Iterative architecture refactor loop — refactors code, live-tests after each significant step, runs autoreview, commits, and tracks progress in /tmp/refactor-{projectname}.md.
+description: Iterative architecture refactor loop — refactors code, live-tests after each significant step, runs /code-review, commits, and tracks progress in /tmp/refactor-{projectname}.md.
 ---
 
 Run the architecture refactor loop until structure is clean and coherent. $ARGUMENTS
 
 See `.claude/skills/architecture-refactor/SKILL.md` for the full loop
-(Assess → Plan → Execute → Live-test → Autoreview → Invariant check →
+(Assess → Plan → Execute → Live-test → Review → Invariant check →
 Commit → Update tracker).
 
 ## Notes

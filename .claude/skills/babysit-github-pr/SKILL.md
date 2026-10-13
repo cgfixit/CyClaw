@@ -14,7 +14,13 @@ disable-model-invocation: true
 
 **Persona:** You own a PR from "branch exists locally" through "merged or blocked on a human." You run a bounded, repeatable loop that syncs state, rebases if behind, waits for checks, triages failures (flaky vs code), addresses review comments, and exits only when the PR is green or stuck.
 
-**Why this skill exists:** PR lifecycle automation is tedious and error-prone by hand. You spend tokens polling GitHub, reading logs, guessing whether a timeout is flaky or a real failure, and applying the same rebase/test/push cycle. This skill automates all six steps of that loop — it never asks "is this flaky?" or "should I rerun?" by guessing. It classifies failures by log content, retries intelligently, and tells you exactly why it stopped.
+**Why this skill exists:** PR lifecycle automation is tedious and error-prone by hand. You spend tokens polling GitHub, reading logs, guessing whether a timeout is flaky or a real failure, and applying the same rebase/test/push cycle. This skill is the procedure for that loop: the scripts under `scripts/` snapshot state, wait for checks, and classify failures by log content; the fixing, replying, and resolving steps are yours to carry out and report.
+
+**Where it runs:** the `scripts/` helpers need an operator shell with `gh`.
+In a Claude Code cloud session the equivalent is the runtime's own
+`subscribe_pr_activity` event flow plus the GitHub MCP tools (CLAUDE.md §4
+"Git & PR"); use this file for the triage rules and exit conditions, not the
+`gh` commands.
 
 ---
 
@@ -40,7 +46,7 @@ Each iteration:
 **What we track:**
 - PR number, head/base branch, mergeability, merge state, review decision, draft status, head SHA
 - All checks and their statuses (success/failure/pending/skipped)
-- Count of unresolved review comments (threads + top-level, excluding `outdated`)
+- Count of unresolved review comments (threads with no `resolved_at`)
 
 **Exit early if:** PR is merged/closed → report and stop.
 
@@ -63,7 +69,9 @@ git rebase origin/<base>
 - If mixed authors → **stop and report, don't rewrite history**
 
 **On success:** Push with `--force-with-lease` (never plain `--force`) only when
-the user explicitly authorized it and `ALLOW_FORCE_WITH_LEASE=true` was set.
+the user explicitly authorized it in this session. `ALLOW_FORCE_WITH_LEASE` is
+the `.githooks` operator override; the operator sets it, never the agent
+(CLAUDE.md §4 "Git & PR"). Without that authorization, stop and ask.
 
 ### 3. Wait for Checks
 
@@ -87,10 +95,10 @@ gh run view <run-id> --log-failed | python3 scripts/classify-failure.py
 
 **Classification logic:**
 
-- **Flaky** (log contains: "timed out", "runner lost", "rate limited", "429", "cancelled" OR same test passed on earlier run in this PR)
+- **Flaky** (log contains: "timed out", "runner lost", "rate limited", "429", "cancelled"). The script reads only the log you pipe in; confirming "same test passed on an earlier run of this PR" is your check, and a log that also carries an assertion is a code failure, whatever the timeout wording says
   - Action: `gh run rerun <run-id> --failed`, max 2 retries per check
 - **Code** (log contains: "AssertionError", "FAILED", "TypeError", lint errors, build failure)
-  - Action: Reproduce locally (`<test_command>`), fix, commit with `ci: <check-name>` prefix, push
+  - Action: Reproduce locally (`<test_command>`), fix, commit as `[fix] - <check-name>: <what changed>` (the tracked `commit-msg` hook refuses `ci:` subjects), push
 - **Unknown** (no pattern match)
   - Action: Report in final report, move to next check
 
@@ -121,7 +129,7 @@ Stop the loop (and print final report) when ANY is true:
 - All checks passing
 - No unresolved actionable comments
 - `reviewDecision == APPROVED` (or `CHANGES_REQUESTED` but you've addressed all comments)
-- If `AUTO_MERGE=true`: run `gh pr merge --squash --auto`; else report readiness
+- Report readiness. In this repo a human merges (CLAUDE.md §5); `AUTO_MERGE` stays `false`
 
 ❌ **Give up:**
 - Same check failed `MAX_FIX_ATTEMPTS=3` times after a code fix
@@ -144,8 +152,8 @@ All knobs are set via environment variables or `.git/babysit-state.json`. Defaul
 | `MAX_FIX_ATTEMPTS` | `3` | Max fix attempts per code failure |
 | `MAX_ITERATIONS` | `8` | Bounded loop; stop after this many full iterations |
 | `BLAST_RADIUS_FILES` | `5` | Max additional files to modify outside original diff |
-| `AUTO_MERGE` | `false` | Auto-merge when green + approved (else just report) |
-| `ALLOW_FORCE_WITH_LEASE` | `false` | Permit a behind-branch rebase and force-with-lease push after explicit user authorization |
+| `AUTO_MERGE` | `false` | Auto-merge when green + approved. Leave `false` in CyClaw: a human merges |
+| `ALLOW_FORCE_WITH_LEASE` | `false` | Operator-set `.githooks` override permitting a behind-branch rebase and force-with-lease push; an agent never sets it |
 | `TIMEOUT_MINUTES` | `45` | Max time to wait for checks to settle |
 
 ---
@@ -196,19 +204,16 @@ Next Steps:
 
 ## Guardrails
 
-The six invariants from `CLAUDE.md` §3 stay locked:
-- **RAG-first** (CyClaw-specific): does not apply to this cross-project skill
-- **Topology = policy** (CyClaw-specific): does not apply
-- **Triple-gated external fallback** (CyClaw-specific): does not apply
-- **Audit convergence** (CyClaw-specific): does not apply
-- **Soul governance** (CyClaw-specific): does not apply
-- **Module isolation** (CyClaw-specific): does not apply
+This is a cross-project PR skill; CyClaw's six invariants (`CLAUDE.md` §3)
+are not touched by it, and a CI fix that would touch one goes through
+`invariant-guard` like any other change.
 
 **This skill's guardrails:**
 - Never skip a failing test; fixing a real failure is the core job
 - Never assume a timeout is flaky without external confirmation (check test history)
 - Never rebase or force-push without explicit user authorization and confirmation it won't touch co-authored commits
-- Never auto-merge if human review is required (only if `AUTO_MERGE=true` AND approved)
+- Never merge; PRs stay draft until a human decides
+- A new PR body must follow `.github/PULL_REQUEST_TEMPLATE.md` (the blocking `pr-template-check.yml` wants all eight headings, `## ELI5` last, and the `Last updated:` stamp); `gh pr create --fill` does not produce that
 
 ---
 
@@ -221,9 +226,11 @@ The six invariants from `CLAUDE.md` §3 stay locked:
 
 3. **Author detection** — The skill checks `git log --format=%aE` against your configured `user.email`. If your email is misconfigured, the skill may skip a rebase thinking it's co-authored. Set git config before invoking.
 
-4. **Flaky test history** — Classifying a failure as flaky requires checking the PR's full run history. If a test consistently fails, it's not flaky, even if it times out. The `classify-failure.py` script queries prior runs.
+4. **Flaky test history** — Classifying a failure as flaky requires checking the PR's full run history. If a test consistently fails, it's not flaky, even if it times out. `classify-failure.py` reads only the log on stdin and makes no API calls; the history check is yours.
 
-5. **Test command detection** — The skill asks you once (via `AskUserQuestion`) if it can't auto-detect. The answer is cached in `.git/babysit-state.json` forever, per-repo. To re-detect, delete the state file or manually set `detected_test_command`.
+5. **Test command detection** — `detect-test-command.py` reads the repo's manifests and falls back to `pytest tests/ -q` without prompting. In CyClaw that default is the full suite, which CLAUDE.md §5 reserves for CI; reproduce a red check with the one test file it names instead.
+
+5a. **Helper-script gaps (2026-10-13)** — the `scripts/` helpers call `gh pr checks --json name,status` (current `gh` rejects `status`; the field is `state`) and pass `--repo .` (not a valid `OWNER/REPO`), so `wait-for-checks.sh` reports "no checks configured" and `run-babysit.sh` cannot find the PR. Comment handling, the comment-ID cursor, and the blast-radius knob are described here but not implemented in `run-babysit.sh`. Treat the scripts as scaffolding until those are fixed; the loop above is the contract.
 
 6. **Blast radius** — The skill tracks the original PR's file set and refuses to modify >5 additional files. If your fix requires broader changes, the skill stops and reports it. Consider splitting into multiple PRs.
 
@@ -270,8 +277,8 @@ Unit tests and integration dry-run:
 # Unit tests
 python3 -m pytest scripts/tests/ -v
 
-# Syntax check
-bash scripts/run-babysit.sh --help
+# Syntax check (no args prints usage; `--help` is parsed as a branch name)
+bash -n scripts/run-babysit.sh && bash scripts/run-babysit.sh
 
 # Dry run (see README.md)
 ```
