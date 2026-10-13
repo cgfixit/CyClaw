@@ -8,7 +8,8 @@
 #   - Full pytest suite
 # Run from the repo root: bash .claude/skills/CyClaw-Sandbox/smoke.sh
 # Requires: deps installed, retrieval index built.
-# Env: GROK_API_KEY (default "dummy"), PYTHON (default "python3.12"), PORT (default 8787)
+# Env: GROK_API_KEY (default "dummy"), PYTHON (default "python3.12"), PORT (default 8787),
+#      SMOKE_SKIP_PYTEST=1 to skip section F locally (CI leaves it unset)
 set -euo pipefail
 
 GROK_API_KEY="${GROK_API_KEY:-dummy}"
@@ -491,7 +492,6 @@ fi
 section "F — Full pytest suite"
 # ════════════════════════════════════════════════════════════════════════════
 
-echo "[smoke] Running full test suite (postgres tests skip if no DSN)..."
 # The VERDICT is pytest's exit code, never a parse of its output. This block
 # used to derive pass/fail by grepping for "N failed" -- but pyproject.toml
 # already sets addopts = "-q --tb=short", so the -q below made it -qq, and at
@@ -512,9 +512,15 @@ echo "[smoke] Running full test suite (postgres tests skip if no DSN)..."
 # "line 540: PASSED: unbound variable"). "n/a" is honest here: on the skip path
 # no suite ran, so there is no count to report.
 PASSED="n/a"; FAILED_C="n/a"; SKIPPED="n/a"
-if ! "$PYTHON" -c "import pytest" >/dev/null 2>&1; then
+# SMOKE_SKIP_PYTEST=1 is the local opt-out: CLAUDE.md section 5 leaves the full
+# suite to GitHub Actions, so an operator running Quick Mode by hand skips it.
+# Unset (CI, and the default) keeps the suite running exactly as before.
+if [ -n "${SMOKE_SKIP_PYTEST:-}" ]; then
+  skip "Full pytest suite (SMOKE_SKIP_PYTEST set — left to GitHub Actions)"
+elif ! "$PYTHON" -c "import pytest" >/dev/null 2>&1; then
   skip "Full pytest suite (pytest not installed for $PYTHON — skip)"
 else
+echo "[smoke] Running full test suite (postgres tests skip if no DSN)..."
 set +e
 PYTEST_OUT=$( GROK_API_KEY="$GROK_API_KEY" CYCLAW_API_KEY="$CYCLAW_API_KEY" \
   "$PYTHON" -m pytest tests/ --tb=short --continue-on-collection-errors 2>&1 )
