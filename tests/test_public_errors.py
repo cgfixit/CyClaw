@@ -2,7 +2,7 @@
 
 import pytest
 
-from utils.public_errors import public_error, source_label
+from utils.public_errors import public_answer, public_error, source_label
 
 
 @pytest.mark.parametrize(
@@ -27,6 +27,16 @@ def test_ordinary_diagnostics_and_url_are_preserved():
     text = "LLM_SERVICE_ERROR: unavailable at https://localhost:8787"
     assert public_error(text, {}) == text
     assert public_error("[LLM Error: missing /private/model file.gguf]", {}) == "[LLM Error: missing [local path]"
+
+
+@pytest.mark.parametrize("text", ["Rate limit exceeded (60 req / 60s)", "ratio 3 / 4 is fine", r"regex \\ d failed"])
+def test_lone_separators_are_not_paths(text):
+    assert public_error(text, {}) == text
+
+
+def test_answers_keep_prose_after_a_path_token():
+    answer = "Use the /srv/cyclaw/run.sh script, then restart. See C:\\vault\\a.md too."
+    assert public_answer(answer, {}) == "Use the [local path] script, then restart. See [local path] too."
 
 
 @pytest.mark.parametrize("corpus", [r"C:\vault", r"\\server\share\vault", "/private/vault"])

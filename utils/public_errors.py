@@ -5,16 +5,25 @@ from pathlib import Path, PureWindowsPath
 
 from utils.logger import redact_sensitive
 
-_PATH_START = r"(?:[A-Za-z]:[\\/]|\\\\|/)"
+# A "/" or UNC "\\" prefix followed by whitespace is prose ("60 req / 60s"), not a path.
+_PATH_START = r"(?:[A-Za-z]:[\\/]|\\\\(?=\S)|/(?=\S))"
 # Paths may contain spaces, quotes and brackets. Unstructured diagnostics have
 # no reliable end delimiter, so discard the remainder of the diagnostic once a
 # local absolute path starts, including any diagnostic prose after it.
 # POSIX filenames can contain newlines, so a line break is not a safe delimiter.
 _ABSOLUTE_PATH = re.compile(rf"""(?<![\w:/\\])["']?{_PATH_START}[\s\S]*""")
 
+# Model answers are content, not diagnostics: replace only the path token so
+# an answer that mentions "/health" keeps the prose after it (#1635 review).
+_PATH_TOKEN = re.compile(r"""(?<![\w:/\\])["']?(?:[A-Za-z]:[\\/]|\\\\(?=\S)|/(?=\S))[^\s'"<>]+["']?""")
+
 
 def public_error(value: object, cfg: dict) -> str:
     return _ABSOLUTE_PATH.sub("[local path]", redact_sensitive(str(value), cfg))
+
+
+def public_answer(value: object, cfg: dict) -> str:
+    return _PATH_TOKEN.sub("[local path]", redact_sensitive(str(value), cfg))
 
 
 def source_label(source: str, corpus: str) -> str:

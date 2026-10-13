@@ -77,7 +77,7 @@ from schemas.api import (
     ConsoleSessionRequest, ConsoleSessionResponse,
 )
 from utils.logger import audit_file_path, audit_log, hash_query, query_fingerprint, setup_logging
-from utils.public_errors import public_error, source_label
+from utils.public_errors import public_answer, public_error, source_label
 from utils.config_validation import validate_no_inline_credentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -1147,7 +1147,7 @@ async def query_endpoint(request: Request, req: QueryRequest):
     if result.get("error"):
         result["error"] = public_error(result["error"], cfg)
         if result.get("answer"):
-            result["answer"] = public_error(result["answer"], cfg)
+            result["answer"] = public_answer(result["answer"], cfg)
     answer_model = result.get("answer_model", "")
     # Same mapping graph.py's audit_logger_node uses for audit.jsonl, reused
     # here so the console's model badge and the audit trail can never disagree

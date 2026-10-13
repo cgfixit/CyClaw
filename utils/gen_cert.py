@@ -169,7 +169,7 @@ def _backup_existing_output(target: Path) -> Path | None:
         return None
     backup = _temporary_output_path(target)
     try:
-        shutil.copy2(target, backup)
+        shutil.copyfile(target, backup)  # copy2's copystat would undo the private mode/DACL
     except OSError:
         _remove_temporary_output(backup)
         raise
