@@ -65,9 +65,12 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
   `_run_writer` lambdas the way `cmd_delete` already does. Same 0/2/3/4 exit
   codes. **~12 lines.**
 - `shrink:` unused parameters (ruff ARG001): `label` on
-  `guardrails/broker.py:144` `guarded_generate` (dropped after
-  `utils/guardrail_bridge.py:105` forwards it, so trim the broker only and keep
-  the bridge signature the graph calls); `allow_demand` on
+  `guardrails/broker.py:144` `guarded_generate`. Two edits travel together:
+  drop the parameter from the broker and drop the `label=label` keyword from
+  the bridge's internal call at `utils/guardrail_bridge.py:105`; the bridge's
+  own `_generate_guard(..., label=...)` signature stays, because `graph.py`
+  passes `label` to it and guardrails ship enabled, so removing only one side
+  raises `TypeError` on every guarded generation. Also `allow_demand` on
   `utils/win_schtasks.py:202` `_settings_xml` (the only caller at `:332` never
   passes it). **~4 lines.**
 - `keep:` the unread `cfg` on `graph.py:365` `retrieve_node` and `graph.py:646`
@@ -227,8 +230,8 @@ and about 420 lines of test-only production code that are the owner's call.
 
 No code changed in this audit, so every invariant is as it was at `6519135`.
 For the candidates above: none touches a graph edge, router, entry point or
-audit path (I1, I2, I4); the `graph.py` rows remove an unread `partial`
-keyword only. None touches the I3 gate (`policy.fallback.enabled` is read by
+audit path (I1, I2, I4); no `graph.py` change is proposed at all, since the
+unread `cfg` parameters are an explicit keep (13 positional callers). None touches the I3 gate (`policy.fallback.enabled` is read by
 no code; the gate is `user_gate_router`). None touches soul writes (I5). None
 adds an import across the core-six / out-of-band boundary (I6); the proposed
 `utils/cli_out.py` would be imported only by out-of-band CLIs and
@@ -239,10 +242,16 @@ preserve the 0600 and DSN-redaction contracts named in
 ## Verification
 
 Run directly in this session: the three `ast`/grep passes (stdlib `python3`,
-no third-party imports), `ruff check --select F401,F811,F841,B007,ARG`
-(57 hits across the tree, all triaged above; 3 confirmed unused parameters
-in non-test code), and hand re-verification of each Tier 1 claim by reading
-the definition and grepping its name. After review, four rows were corrected
+no third-party imports); `ruff check --select F401,F811,F841,B007,ARG
+--exclude .claude,tests,tools/lora_finetune/tests .` (ruff 0.16.8, the
+`constraints.txt` pin), which reports 57 hits: 52 `ARG*` in non-test code
+(23 ARG001, 17 ARG002, 10 ARG005, 2 ARG003, triaged above into 3 trims, 2
+keeps, 18 FastAPI handler arguments, interface overrides and lambdas) plus
+the 5 vendored F401. The same selection without the exclusions reports
+1,026, almost all `ARG*` inside `tests/` (fixtures, mocks and callbacks take
+unused arguments by design, and the `tests/*` per-file-ignores do not cover
+ARG), which this audit did not triage; and hand re-verification of each
+Tier 1 claim by reading the definition and grepping its name. After review, four rows were corrected
 against the tree: the `graph.py` `cfg` parameters have 13 positional callers
 (now a keep), the OpenTweet preamble set is two commands, not four,
 `tests/judge_eval.py:401` sets a different key and was dropped as evidence,
