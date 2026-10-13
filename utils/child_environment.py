@@ -109,20 +109,23 @@ def configured_path_names(block: object) -> tuple[str, ...]:
 
     pattern = r"%%|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([^%]+)%"
     names: set[str] = set()
+    retained = (*_BASE, *_DISCOVERY)
+    if os.name == "nt":
+        retained = tuple(name.upper() for name in retained)
     for value in values:
         for brace, bare, percent in re.findall(pattern, value):
             if not (brace or bare or percent):
                 continue  # Windows %% escape, not a variable reference.
-            # Unset percent names remain literal under Windows expansion. Base
-            # and discovery names already survive in every caller's capability.
+            # Base and discovery names already reach every caller's child
+            # ($HOME/..., ${XDG_CONFIG_HOME}/...), so selecting them grants nothing.
+            selected = brace or bare or percent
+            if (selected.upper() if os.name == "nt" else selected) in retained:
+                continue
+            # Unset percent names remain literal under Windows expansion.
             # A populated unknown name would expand before filtering, then become
             # literal in the child (potentially changing the sync lock directory).
             if percent and percent not in _ALLOWED_PATH_ENV_NAMES and not forbidden(percent):
-                retained = (*_BASE, *_DISCOVERY)
-                if os.name == "nt":
-                    retained = tuple(name.upper() for name in retained)
-                lookup = percent.upper() if os.name == "nt" else percent
-                if lookup in retained or percent not in os.environ:
+                if percent not in os.environ:
                     continue
             name = brace or bare or percent
             names.add(name.upper() if os.name == "nt" else name)

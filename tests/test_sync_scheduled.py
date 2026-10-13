@@ -44,7 +44,7 @@ def test_failures_do_not_echo_os_diagnostics(error, capsys):
 def test_check_credentials_is_read_only_and_suppresses_remote_names(capsys):
     with patch.object(scheduled, "prepare_environment", return_value={"RCLONE_ASK_PASSWORD": "false"}), \
             patch.object(scheduled.shutil, "which", return_value="rclone"), \
-            patch.object(scheduled.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"private:")) as run:
+            patch.object(scheduled.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"private:\ndropbox_cyclaw:\n")) as run:
         assert scheduled.main(["--check-credentials"]) == 0
     assert run.call_args.args[0] == ["rclone", "listremotes"]
     assert run.call_args.kwargs["stdin"] == subprocess.DEVNULL
@@ -123,3 +123,21 @@ def test_disabled_sync_skips_the_keystore(tmp_path, capsys):
     finally:
         reset_config_cache()
 
+
+
+@pytest.mark.parametrize("listing", [b"", b"other_remote:\n"])
+def test_check_credentials_requires_the_configured_remote(listing, capsys):
+    with patch.object(scheduled, "prepare_environment", return_value={"RCLONE_ASK_PASSWORD": "false"}), \
+            patch.object(scheduled.shutil, "which", return_value="rclone"), \
+            patch.object(scheduled.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, listing)):
+        assert scheduled.main(["--check-credentials"]) == 3
+    assert "other_remote" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("template", ["$HOME/logs", "${XDG_CONFIG_HOME}/cyclaw"])
+def test_retained_discovery_variables_are_not_capability_selections(monkeypatch, template):
+    from utils.child_environment import configured_path_names
+
+    monkeypatch.setenv("HOME", "/home/op")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/home/op/.config")
+    assert configured_path_names({"log_dir": template}) == ()

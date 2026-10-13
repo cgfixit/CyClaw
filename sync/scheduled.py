@@ -116,7 +116,17 @@ def main(argv: list[str] | None = None) -> int:
                 [binary, "listremotes"], env=env, stdin=subprocess.DEVNULL,
                 capture_output=True, timeout=15, check=False,
             )
-            if result.returncode:
+            # listremotes exits 0 on a missing or empty config, so also require
+            # the configured remote (or, without a readable config, any remote).
+            remotes = {line.strip() for line in bytes(result.stdout or b"").decode("utf-8", "replace").splitlines()}
+            remotes.discard("")
+            try:
+                from sync.config import load_sync_config
+
+                wanted = f"{load_sync_config().remote_name}:"
+            except (OSError, ValueError, SyncConfigError):
+                wanted = None
+            if result.returncode or not remotes or (wanted is not None and wanted not in remotes):
                 raise OSError("rclone cannot read its configuration")
             print("rclone configuration is readable (no transfer performed)")
             return 0
