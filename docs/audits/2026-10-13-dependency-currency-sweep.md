@@ -176,7 +176,19 @@ Then CI's four test legs.
    updated in the checker, and the strict run is green — before CI's legs.
 2. **Web stack (minor):** `fastapi` 0.141.1→0.143.0, `starlette` 1.6.0→1.7.0,
    `uvicorn` 0.53.0→0.54.0. `gate.py` imports `starlette` directly, so bump
-   the three together and re-run `test_gate`/`test_terminal_contract` in CI.
+   the three together. Not a test-only bump: `fastapi` 0.143.0's PyPI
+   metadata adds `opentelemetry-api>=1.44.0` as an **unconditional**
+   dependency (0.141.1 declares no OpenTelemetry package at all; the SDK and
+   the OTLP HTTP exporter arrive behind its `opentelemetry`/`standard`/`all`
+   extras, which CyClaw does not install). That puts a new
+   telemetry-capable transitive on the base install path, so the bump needs
+   the `otel-hardening` classification pass (`check_otel.py` already lists
+   `opentelemetry-sdk` among its transitive vendors to report), an exact
+   `opentelemetry-api` pin added to `constraints.txt` (the repo's rule that
+   no transitive floats — `pyproject.toml`'s own comment on
+   `langchain-anthropic` states it; no E-check catches a missing one, so
+   diff the regenerated lock against `constraints.txt` by hand), the locks
+   regenerated, and then `test_gate`/`test_terminal_contract` in CI.
 3. **`huggingface-hub` 1.32.0→2.2.0 — blocked, not a candidate.**
    `sentence-transformers==6.1.0` declares `huggingface-hub<2.0.0,>=1.3.0`, so
    a standalone 2.x bump cannot resolve. It is pinned directly only because
@@ -199,12 +211,19 @@ Then CI's four test legs.
    vendor version in `LAST_VERIFIED_VENDOR_PINS`, so the bump needs a
    source-level re-check of NeMo's usage-stat opt-outs and telemetry sink,
    the pin updated in the checker, `check_otel.py --strict` green — plus
-   the three other sites that hard-code `0.24.0` and fail until they move
-   in the same commit: `guardrails/verify_install.py` raises unless the
-   installed version is exactly 0.24.0, `dep-guard` D11 requires
-   `nemoguardrails==0.24.0` once per install surface, and `ci.yml`'s wheel
-   packaging job asserts that string in the built metadata; then
-   `guardrails.verify_install`),
+   every other site that hard-codes `0.24.0`. That inventory is the output
+   of `grep -rn '0\.24\.0' --exclude-dir=locks .`, not a list to copy; on
+   2026-10-13 it returned, besides the five manifests, these fail-closed
+   sites: `guardrails/verify_install.py` (raises unless exactly 0.24.0),
+   `dep-guard` D11 and its `verify.sh` fixture (`nemoguardrails==0.24.0`
+   once per install surface), `ci.yml`'s wheel-packaging metadata assert,
+   and `tests/nemo_runtime/test_nemo_runtime.py`'s
+   `test_installed_version_is_0240`, which `nemo-guardrails.yml` runs
+   against the real install; plus one message string in
+   `guardrails/integration.py` and five docs (`README.md`,
+   `guardrails/README.md`, `docs/NeMo/README.md`, `docs/DOCKER.md`,
+   `setup-guide.md`) that `doc_sync.py` would flag. All move in the same
+   commit as the pin; then `guardrails.verify_install`),
    `pendulum` 3.2.0→3.3.0, `pgvector` 0.5.0→0.5.1, `wcmatch` 11.0→11.1.
 6. **Test and dev tools (low blast radius, but re-run lint before merging):**
    `tzdata` 2026.2→2026.5 (test-only surface, see above), `ruff`
@@ -214,8 +233,10 @@ Then CI's four test legs.
 Deliberately not recommended: `torch` 2.13.0→2.14.1 (CPU wheel pin across
 the four manifests plus `requirements-torch.txt` — the input
 `refresh-runtime-lock.sh` compiles the three `requirements-torch-lock-*.txt`
-from, which `extract_pins.py` has no column for — and the Docker torch line;
-a release of its own), `numpy` <2,
+from, which `extract_pins.py` has no column for — the Docker torch line, and
+the `torch-cpu-2.13.0-` cache keys in `ci.yml`, `pip-audit.yml`, and
+`nemo-guardrails.yml`, which no `torch==` grep finds and `dep-guard` D8
+exists to catch; a release of its own), `numpy` <2,
 `websockets` 15.0.1 (langgraph-sdk import compatibility), `setuptools` floor,
 `chromadb`, `nltk`, and `huggingface-hub` 2.x (blocked by
 `sentence-transformers`, item 3).

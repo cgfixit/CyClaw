@@ -463,7 +463,7 @@ delegates Step 1 to it rather than duplicating it).
 - **The Step 6 bump recipe is a set of claims; derive each from a checker,
   not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
   *measured* row of the sweep report survived review, while the "how to
-  bump" prose took fourteen correct Codex findings across four passes. Each one
+  bump" prose took seventeen correct Codex findings across five passes. Each one
   had a file that would have caught it first: a package's files-to-edit are
   exactly the non-empty columns of its `extract_pins.py` row (extras-only
   and constraints-only packages never enter `requirements.txt` or
@@ -474,16 +474,27 @@ delegates Step 1 to it rather than duplicating it).
   moves in the pin table *and* the summary totals, in the same edit), with
   one input the table does not show: `requirements-torch.txt`, which
   `refresh-runtime-lock.sh` compiles the three torch locks from and the
-  Dockerfile installs, so a torch bump edits it too — a repo-wide
-  `grep -rn '<package>=='` is the check that catches such off-table
-  inputs; the same grep over `.claude/skills/*/check_*.py`, `CLAUDE.md`,
-  `guardrails/`, and `.github/workflows/` finds the hard-coded contracts
-  that move with the pin (`dep-guard` `_PYDANTIC_LOCKSTEP` and D11,
-  `otel-hardening` `LAST_VERIFIED_VENDOR_PINS` for `nemoguardrails`,
-  `onnxruntime`, `langchain`, `langchain-core`, `langgraph`, and
-  `langsmith`, `guardrails/verify_install.py`'s exact-version check and
-  `ci.yml`'s wheel-metadata assertion for `nemoguardrails`, the inline
-  `ruff` pin in `lint.yml`); a
+  Dockerfile installs, so a torch bump edits it too. The inventory of
+  hard-coded contracts that move with a pin is a **command**, never a list
+  written from memory: a repo-wide `grep -rn '<version>'` on the bare
+  version string (`--exclude-dir=locks`), because the string appears in
+  forms a `<package>==` grep misses — `torch-cpu-2.13.0-` cache keys in
+  `ci.yml`/`pip-audit.yml`/`nemo-guardrails.yml` (the reason `dep-guard`
+  D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
+  `tests/nemo_runtime/`, `"0.24.0"` in `guardrails/verify_install.py` and
+  `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS` — then `dep-guard` and
+  `check_otel.py --strict` as the authoritative re-check. On 2026-10-13
+  that grep surfaced, beyond the manifests: `dep-guard` `_PYDANTIC_LOCKSTEP`
+  and D11 (plus its `verify.sh` fixture), `LAST_VERIFIED_VENDOR_PINS` for
+  `nemoguardrails`, `onnxruntime`, `langchain`, `langchain-core`,
+  `langgraph`, and `langsmith`, the NeMo exact-version checks in
+  `guardrails/verify_install.py`, `ci.yml`'s wheel-metadata assert, and
+  the `nemo_runtime` test, the inline `ruff` pin in `lint.yml`, and five
+  docs `doc_sync.py` would flag. A new transitive is part of the same
+  check: read the bumped package's `requires_dist` on PyPI (`fastapi`
+  0.143.0 adds an unconditional `opentelemetry-api`, which needs an exact
+  `constraints.txt` pin and an `otel-hardening` classification before it
+  reaches the base install); a
   major bump needs the dependents' `requires_dist` read on PyPI first
   (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
   "candidate" cannot resolve and is an exception); `check_lock_contract.py`
