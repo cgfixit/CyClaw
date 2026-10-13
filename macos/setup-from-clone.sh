@@ -536,7 +536,11 @@ if [ "$SKIP_OLLAMA" -eq 0 ]; then
       step "Ollama API not answering yet; launching 'ollama serve' in the background"
       _ollama_apply_mlx_env
       OLLAMA_LOG="$(mktemp "${TMPDIR:-/tmp}/cyclaw-ollama-serve.XXXXXX.log")"
-      ollama serve >"$OLLAMA_LOG" 2>&1 &
+      # Loopback is pinned on this spawn's own command line: the script
+      # preserves the operator's environment, and an ambient
+      # OLLAMA_HOST=0.0.0.0 would otherwise bind the convenience daemon
+      # beyond localhost (docs/THREAT_MODEL.md: Ollama at 127.0.0.1:11434).
+      OLLAMA_HOST=127.0.0.1:11434 ollama serve >"$OLLAMA_LOG" 2>&1 &
       sleep 1
       if _ollama_up; then
         step "Ollama API is up on 127.0.0.1:11434"

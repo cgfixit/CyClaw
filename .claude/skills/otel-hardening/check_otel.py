@@ -500,7 +500,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "scope": "local LLM path", "reviewed": "2026-10-13",
         "evidence": "no CyClaw-side switch exists for a foreign daemon; noted in SECURITY.md classification. "
                     "Setup-script spawn site found 2026-10-13 (Codex P2 on PR #1637): `ollama serve` at "
-                    "setup-from-clone.sh:517, operator-interactive; serve binds loopback only",
+                    "setup-from-clone.sh:517, operator-interactive. That spawn pins OLLAMA_HOST=127.0.0.1:11434 "
+                    "on its own command line since PR #1637 (an ambient OLLAMA_HOST=0.0.0.0 would otherwise "
+                    "widen the bind); a daemon the operator runs themselves binds wherever their OLLAMA_HOST "
+                    "says, which is the daemon-policy caveat above",
     },
     {
         "name": "lm studio", "category": 5, "controls": {},
@@ -688,13 +691,34 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "PR #1637, fourth round)",
     },
     {
+        "name": "browser launch (open URL)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "macOS `open <url>` (and invoke-cyclaw.sh's `xdg-open` fallback) in the operator scripts: "
+                    "setup-from-clone.sh opens the signed Ollama download page once the operator declines the "
+                    "installer pipe; setup-cyclaw.sh, setup-cyclaw-keys.sh and invoke-cyclaw.sh open the "
+                    "loopback console. No runtime code path opens a URL",
+        "enforcement": "hands a URL to the operator's default browser; whatever that browser then does is the "
+                       "browser's egress, not CyClaw's. The one remote target is the Ollama download page, "
+                       "reached only at an interactive setup prompt. Distinct from the local file-manager "
+                       "reveal (`open <path>`, category 4 under local OS process tooling): same binary, "
+                       "different kind of call, so its own component and row",
+        "scope": "interactive macOS setup and launch scripts only",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh:524 (remote), setup-cyclaw.sh:497, setup-cyclaw-keys.sh:1056, "
+                    "invoke-cyclaw.sh:321-323 (loopback); split from the reveal row 2026-10-13 (Codex P2 on "
+                    "PR #1637, seventh round)",
+    },
+    {
         "name": "curl (setup + sandbox probes)", "category": 3, "controls": {},
         "url": "setup-guide.md",
         "versions": "host binary, never pinned: macos/setup-from-clone.sh, macos/setup-cyclaw.sh, "
                     "macos/invoke-cyclaw.sh (operator setup/launch scripts), "
                     ".claude/skills/cyclaw-gotchas/driver.sh and .claude/skills/CyClaw-Sandbox/{verify,smoke,"
-                    "macos-smoke}.sh (agent sandbox drivers and smoke suites). No runtime code path spawns "
-                    "curl; the Dockerfile and the PowerShell scripts run no curl/Invoke-WebRequest",
+                    "macos-smoke}.sh (agent sandbox drivers and smoke suites), and the launchd / Task "
+                    "Scheduler health jobs telegram/cli.py GENERATES (a loopback /health probe that notifies "
+                    "only on failure; the job runs under the scheduler overlay, never under the gateway). No "
+                    "runtime code path spawns curl directly; the Dockerfile and the PowerShell scripts run no "
+                    "curl/Invoke-WebRequest",
         "enforcement": "every call but one targets loopback (the gateway's /health, /query, /soul, "
                        "/static and Ollama's /api/tags on 127.0.0.1) or the cloud sandbox's own agent-proxy "
                        "status endpoint. The one outbound fetch is `curl -fsSL https://ollama.com/install.sh "
@@ -799,6 +823,9 @@ INVENTORY_ALIASES: dict[str, str] = {
     "curl": "curl (setup + sandbox probes)",
     # `ollama pull` in the setup script: registry egress, not the local daemon
     "ollama-pull": "ollama model pull (setup)",
+    # `open <url>` / `xdg-open <url>` in the operator scripts: the browser,
+    # not the file-manager reveal the local-tooling row covers
+    "open-url": "browser launch (open URL)",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -849,7 +876,7 @@ INVENTORY_ALIASES: dict[str, str] = {
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
-                             "security", "uv", "curl", "ollama-pull",
+                             "security", "uv", "curl", "ollama-pull", "open-url",
                              "pre-action-hook-command", "executor-check")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
@@ -903,10 +930,11 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("numbat", "utils/numbat_gate.py", ('DEFAULT_BINARY = "numbat"', 'argv = [binary, "rules", "check"')),
     # the daemon is independent at runtime, but the interactive setup script
     # starts it and pulls the model when the operator says yes
-    ("ollama", "macos/setup-from-clone.sh", ('ollama serve >"$OLLAMA_LOG" 2>&1 &',)),
+    ("ollama", "macos/setup-from-clone.sh", ('OLLAMA_HOST=127.0.0.1:11434 ollama serve >"$OLLAMA_LOG" 2>&1 &',)),
     # the model pull is registry egress, so it is its own category-3 component
     ("ollama-pull", "macos/setup-from-clone.sh", ('ollama pull "$OLLAMA_MODEL"',)),
     ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")',)),
+    ("launchctl", "sync/scheduler.py", ('[launchctl, "bootout"', '[launchctl, "print"')),
     ("crontab", "sync/scheduler.py", ('shutil.which("crontab")',)),
     ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")',)),
     ("cmd.exe", "utils/win_schtasks.py", ('f"{_slug(task_name)}.cmd"',)),
@@ -938,6 +966,15 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("curl", ".claude/skills/CyClaw-Sandbox/verify.sh", ('curl -sf "$BASE/health"',)),
     ("curl", ".claude/skills/CyClaw-Sandbox/smoke.sh", ('curl -sf "$BASE/health"',)),
     ("curl", ".claude/skills/CyClaw-Sandbox/macos-smoke.sh", ('HTTP_CODE=$(curl -sS -o "$tmp" -w "%{http_code}"',)),
+    # the Telegram channel's generated launchd / Task Scheduler health jobs
+    ("curl", "telegram/cli.py", ("curl -sf --max-time 5 {health_url} >/dev/null",
+                                 'curl.exe -sf --max-time 5 "{health_url}" >nul')),
+    # the desktop URL handler: one remote page (the signed Ollama download,
+    # offered after the installer pipe is declined) and the loopback console
+    ("open-url", "macos/setup-from-clone.sh", ('open "https://ollama.com/download/mac"',)),
+    ("open-url", "macos/setup-cyclaw.sh", ('open "$CONSOLE_URL"',)),
+    ("open-url", "macos/setup-cyclaw-keys.sh", ('open "$gate"',)),
+    ("open-url", "macos/invoke-cyclaw.sh", ('open "$OPEN_URL"', 'xdg-open "$OPEN_URL"')),
 )
 
 # Inventory boundary for agent tooling (owner decision on PR #1637,
@@ -1469,9 +1506,14 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
     components |= _parse_environment_yml_names(root / "environment.yml")
     components |= set(KNOWN_EXTERNAL_COMPONENTS)
     components.discard("cyclaw")
+    # an alias is only a classification if its target row exists: a typo in
+    # the target must not read as "classified" (Codex P2 on PR #1637)
+    bad_aliases = sorted(f"{k} -> {v!r}" for k, v in INVENTORY_ALIASES.items() if v not in names)
+    if bad_aliases:
+        fail("T13", f"alias target(s) name no inventory row: {bad_aliases}")
     unclassified = sorted(
         c for c in components
-        if c not in INVENTORY_ALIASES and INVENTORY_ALIASES.get(c) not in names and c not in names
+        if INVENTORY_ALIASES.get(c, c) not in names
     )
     if unclassified:
         msg = (f"unclassified component(s) -- every dependency/executable needs an egress category: "
