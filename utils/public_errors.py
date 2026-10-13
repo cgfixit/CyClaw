@@ -5,8 +5,8 @@ from pathlib import Path, PureWindowsPath
 
 from utils.logger import redact_sensitive
 
-# A "/" or UNC "\\" prefix followed by whitespace is prose ("60 req / 60s"), not a path.
-_PATH_START = r"(?:[A-Za-z]:[\\/]|\\\\(?=\S)|/(?=\S))"
+# Whitespace is legal immediately after a path root; diagnostics fail closed.
+_PATH_START = r"(?:[A-Za-z]:[\\/]|\\\\|/)"
 # Paths may contain spaces, quotes and brackets. Unstructured diagnostics have
 # no reliable end delimiter, so discard the remainder of the diagnostic once a
 # local absolute path starts, including any diagnostic prose after it.

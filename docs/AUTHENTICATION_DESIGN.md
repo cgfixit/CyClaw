@@ -479,9 +479,12 @@ Both console and account logout expire their cookies with the same `Secure`,
 Under TLS this is required for browsers to accept deletion of `__Host-` cookies.
 Cookies cannot be isolated by port; use a dedicated trusted hostname and TLS.
 Public errors suppress whole local paths, including paths containing spaces, newlines
-and Windows UNC paths. Redaction consumes trailing diagnostic prose because
-filename boundaries in error text are ambiguous. Citations retain distinct corpus-relative subpaths on
-Windows and POSIX; files outside the corpus expose only a basename.
+and Windows UNC paths, even when whitespace follows the path root. Redaction
+consumes trailing diagnostic prose because filename boundaries in error text
+are ambiguous; known rate-limit prose uses “per” instead of a slash. Degraded
+model answers use token-level filtering so prose survives; they are content,
+not operational diagnostics, and this is not a whole-filename privacy guarantee.
+Citations retain distinct corpus-relative subpaths on Windows and POSIX; files outside the corpus expose only a basename.
 
 `cyclaw-gen-cert` protects its empty temporary outputs before writing key bytes:
 0600 on POSIX and a protected owner-rights-only DACL on Windows. Failure to set

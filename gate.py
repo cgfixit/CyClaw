@@ -407,7 +407,7 @@ async def _enforce_rate_limit(request: Request) -> None:
         raise HTTPException(
             status_code=429,
             detail={
-                "error": f"Rate limit exceeded ({RATE_LIMIT_REQUESTS} req / {RATE_LIMIT_WINDOW}s)",
+                "error": f"Rate limit exceeded ({RATE_LIMIT_REQUESTS} req per {RATE_LIMIT_WINDOW}s)",
                 "code": "RATE_LIMIT",
             },
         )

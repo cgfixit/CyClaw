@@ -9,6 +9,9 @@ from utils.public_errors import public_answer, public_error, source_label
     "path",
     [
         "/home/you/private person/team A/run book.md",
+        "/ Sensitive Customer/plan.md",
+        "/\tSensitive Customer/plan.md",
+        "/\nSensitive Customer/plan.md",
         "/private/Team [sensitive] Customer/plan.md",
         "/private/O'Brian/private-notes/plan.md",
         "/private/team\nsensitive document/file.md",
@@ -29,9 +32,13 @@ def test_ordinary_diagnostics_and_url_are_preserved():
     assert public_error("[LLM Error: missing /private/model file.gguf]", {}) == "[LLM Error: missing [local path]"
 
 
-@pytest.mark.parametrize("text", ["Rate limit exceeded (60 req / 60s)", "ratio 3 / 4 is fine", r"regex \\ d failed"])
-def test_lone_separators_are_not_paths(text):
+def test_rate_limit_diagnostic_uses_unambiguous_prose():
+    text = "Rate limit exceeded (60 req per 60s)"
     assert public_error(text, {}) == text
+
+
+def test_ambiguous_slash_diagnostic_fails_closed():
+    assert public_error("ratio 3 / 4 is fine", {}) == "ratio 3 [local path]"
 
 
 def test_answers_keep_prose_after_a_path_token():
