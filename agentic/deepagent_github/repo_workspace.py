@@ -420,6 +420,7 @@ def _run_git_command(
     """Run Git with a bounded lifetime for the direct child and its helpers."""
     job = _WindowsGitJob() if sys.platform == "win32" else None
     proc: subprocess.Popen[str] | None = None
+    finished = False
     command = argv
     if job is not None:
         # Git starts only after this fixed isolated waiter belongs to the Job.
@@ -436,6 +437,7 @@ def _run_git_command(
         if job is not None:
             job.assign(proc)
         stdout, stderr = proc.communicate(input="go\n" if job is not None else None, timeout=timeout)
+        finished = True
         return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
     finally:
         # Closing a Job Object kills every assigned descendant, including one
@@ -446,7 +448,10 @@ def _run_git_command(
                 job.close()
         finally:
             if proc is not None:
-                if sys.platform != "win32":
+                # Only a timed-out or failed call is reaped. After a normal exit
+                # the leader is gone (its pgid could be reused), and a helper it
+                # left on purpose, such as git credential-cache--daemon, stays.
+                if sys.platform != "win32" and not finished:
                     with suppress(OSError):
                         os.killpg(proc.pid, signal.SIGKILL)
                 if proc.poll() is None:
@@ -949,6 +954,10 @@ class RepoWorkspaceTools:
             # can be sitting in it.
             with tempfile.TemporaryDirectory(prefix="cyclaw-git-nohooks-") as hooks_dir:
                 env.update(_hardened_git_env(hooks_dir))
+                # Pin the repository Git uses to the checked one: a .git file or
+                # a commondir planted after the check cannot redirect this call.
+                git_dir = str(self._dest / ".git")
+                env.update(GIT_DIR=git_dir, GIT_COMMON_DIR=git_dir, GIT_WORK_TREE=str(self._dest))
                 self._check_local_git_config(tool, binary, env)
                 completed = _run_git_command([binary, *argv], self._dest, env, timeout_sec, output_encoding)
         except subprocess.TimeoutExpired as exc:
@@ -978,7 +987,16 @@ class RepoWorkspaceTools:
         See the comment above _LOCAL_CONFIG_ALLOWED_RE for what is compared and
         which post-clone additions are accepted.
         """
-        config_path = self._dest / ".git" / "config"
+        git_dir = self._dest / ".git"
+        if git_dir.is_symlink() or not git_dir.is_dir():
+            self._deny_git(tool, "the clone's .git is not a real directory")
+        # Git reads config and remotes from $(cat .git/commondir) when that file
+        # exists, and falls back to legacy .git/remotes|branches definitions
+        # when origin has no URL; either would bypass the pinned config below.
+        for name in ("commondir", "remotes/origin", "branches/origin"):
+            if os.path.lexists(git_dir / name):
+                self._deny_git(tool, f"the clone's .git/{name} could redirect Git; refusing to run git")
+        config_path = git_dir / "config"
         if config_path.is_symlink() or not config_path.is_file():
             self._deny_git(tool, "the clone's .git/config is missing or not a regular file")
         current = _read_local_config(binary, self._dest, env)
@@ -1217,6 +1235,8 @@ class RepoWorkspaceTools:
                 "and use only [A-Za-z0-9._/-] after the slash",
                 target=name,
             )
+        if self._expected_origin is None:
+            self._deny_git(tool, "the clone has no pinned origin to push to", target=name)
         self._run_git(
             tool,
             ["push", "--set-upstream", "origin", "--", name],

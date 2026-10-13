@@ -1263,8 +1263,23 @@ def cmd_real_repo_run_decide(args: argparse.Namespace) -> int:
     try:
         tools = RepoWorkspaceTools.attach(cfg, Path(record.dest), config_path=args.config, cfg=app_cfg)
     except AgenticError as exc:
-        _err(exc.message)
-        return EXIT_FAIL
+        if args.decision != "reject":
+            _err(exc.message)
+            return EXIT_FAIL
+        # Reject runs no Git. A run that cannot attach (for example one created
+        # before the origin pin existed) is still rejected by discarding its
+        # validated clone, instead of being stranded at pending_decision.
+        try:
+            RepoWorkspaceTools.discard_existing(cfg, Path(record.dest))
+        except AgenticError as discard_exc:
+            _err(discard_exc.message)
+            return EXIT_FAIL
+        audit_log({"event": "agentic_real_repo_run_rejected_without_attach", "run_id": record.run_id,
+                   "reason": exc.message}, config_path=args.config, cfg=app_cfg)
+        record.status = "rejected"
+        save_run(runs_dir, record)
+        print(json.dumps(record.to_dict(), indent=2))
+        return EXIT_OK
 
     try:
         outcome = finalize_real_repo_change(

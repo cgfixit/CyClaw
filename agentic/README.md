@@ -499,11 +499,16 @@ key and record in `workspace_root/origin-pins/`, outside each disposable clone.
 `attach()` verifies that record before reopening a run; Git calls compare the
 current origin with the pinned value held in process memory. A missing or
 altered record refuses attach, and a changed origin refuses Git operations even
-if the clone config and its sibling snapshot were changed together. The record
+if the clone config and its sibling snapshot were changed together. The key
+sits beside the record under `workspace_root`, so a same-user process that can
+write there can re-sign it; the record guards clone-local and accidental edits.
+A `.git` file, `.git/commondir` or a legacy `.git/remotes/origin` or `.git/branches/origin`
+refuses Git, and every call pins `GIT_DIR`/`GIT_COMMON_DIR` to the clone. The record
 is removed when the clone is discarded. Narrow display settings and
 branch-tracking additions are allowed.
 Runs created before this pin existed cannot be reopened for Git operations;
-`real-repo-run-discard` can reclaim them without loading the pin, then the
+`real-repo-run-decide --decision reject` or, once decided,
+`real-repo-run-discard` reclaims them without loading the pin, then the
 operator can start a new run.
 Git commands and config reads reap helper processes on timeout through a POSIX
 process group or a Windows Job Object. A POSIX helper that creates a new session
