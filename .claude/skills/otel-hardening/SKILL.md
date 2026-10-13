@@ -143,6 +143,14 @@ these values silence vendor telemetry readers; they do not close sockets.
    back with it), and keep each row's `versions` text
    in step with the pins so T13's "classified" never means "classified
    against a version nobody ships". Categories:
+   **Boundary (owner decision, PR #1637):** agent tooling under `.claude/`
+   is out of the inventory. The session hooks, the skills' verify and
+   bootstrap helpers and the `babysit-github-pr` gh wrappers run on the
+   agent's machine or sandbox, outside the gateway's process tree; their
+   gh/git calls are not findings and get no rows. The two exceptions are
+   the sandbox surfaces that exercise the gateway itself, listed in
+   `SWEPT_AGENT_SURFACES` (`cyclaw-gotchas/driver.sh` and
+   `CyClaw-Sandbox/`); T13 fails a `.claude/` site row outside them.
    A row's `url` is its evidence source: an `https://` vendor page, or a
    repo-relative path that must exist (T13 fails the schema otherwise).
    One binary can need two rows when its calls differ in kind: `ollama
