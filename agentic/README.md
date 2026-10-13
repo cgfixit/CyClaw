@@ -50,11 +50,9 @@ when enabled it is advisory: `agentic/real_repo_loop.py` takes it as an optional
 probe, records an audit event if the probe itself raises, and appends a nudge to
 rejection feedback rather than blocking a run on its own.
 
-The vendored scanners live at `agentic/vendor/unslop/` **inside** `agentic/` on
-purpose. Placing them here rather than under `utils/` means the core six
-(`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`,
-`mcp_hybrid_server.py`) never acquire a path to them, so the I6 module-isolation
-invariant holds without needing a special case.
+The vendored scanners live at `agentic/vendor/unslop/` rather than under
+`utils/` so the core six never acquire an import path to them and I6 holds
+without a special case.
 
 ---
 
@@ -278,8 +276,8 @@ fixed argv-list command; neither command sends a reachability probe.
 
 ## Security best practices
 
-These are operator practices on top of the built-in gates. The gates fail closed;
-this section is how to **use** them without accidentally widening blast radius.
+Operator practices on top of the fail-closed gates: how to use them without
+widening blast radius.
 
 ### Least privilege — open only what you need
 
@@ -294,11 +292,10 @@ this section is how to **use** them without accidentally widening blast radius.
 | SQL | keep `read_only: true` / `allow_write: false` (required in v0.1) |
 | LAN inventory | `netconnect.enabled` plus the narrowest explicit CIDRs; only `self`/`arp` |
 
-Prefer **local model** for implement iterations; use cloud (`--provider` +
-`--confirm-online`) for a **one-shot plan** only when needed. Do not leave
-`allow_shell_execution` or `allow_filesystem_write_tools` true — shell remains
-unimplemented/hard-refused; FS write tools are for the retired harness surface,
-not a host shell.
+Prefer the local model for implement iterations and cloud (`--provider` +
+`--confirm-online`) for a one-shot plan only. Leave `allow_shell_execution`
+(hard-refused) and `allow_filesystem_write_tools` (retired harness surface
+only) false.
 
 ### Gate hygiene
 
@@ -322,18 +319,15 @@ not a host shell.
 ### Human review is the real control
 
 Automated checks (injection scan, code-shape heuristics, executor pytest/ruff)
-are **necessary but not sufficient**.
+are necessary but not sufficient.
 
-- Always inspect `real-repo-run-status` **diff + untracked new files** before
-  `approve`. An empty tracked diff can still hide brand-new files.
-- Review **`--instruction`**, **`--plan-file`**, and PR/issue context as
-  untrusted: paste-from-ticket is a confused-deputy path; the CLI already
-  scans these, but humans still decide.
-- Prefer **two-stage** workflows: cloud (or human) plan → local implement →
-  human approve → optional push → optional draft PR. Separate decisions so a
-  single flag cannot silently escalate.
-- Prefer **draft PRs only** (enforced: `pr_create` always `--draft`). Promote
-  to ready-for-review yourself after reading the PR on GitHub.
+- Inspect `real-repo-run-status` **diff + untracked new files** before
+  `approve`; an empty tracked diff can still hide new files.
+- Treat `--instruction`, `--plan-file`, and PR/issue context as untrusted
+  (paste-from-ticket is a confused-deputy path); the CLI scans them, humans decide.
+- Keep plan → implement → approve → push → draft PR as separate decisions so
+  no single flag can escalate. `pr_create` is always `--draft`; promote it
+  yourself after reading the PR on GitHub.
 
 ### Secrets, credentials, and identity
 
@@ -490,41 +484,40 @@ atomic write + sha256 versioning (soul propose/apply pattern).
 
 ### C. Real-repo workspace tools (`RepoWorkspaceTools`)
 
-Jailed clone under `deepagent_github.workspace_root`. Containment uses
-`fsconnect.pathsafe.ScopedRoots` for reads; git writes use argv-list `git` with
-scrubbed env and `cwd` pinned to the clone. Every workspace Git call disables
-hooks and fsmonitor and checks local config names and values against the
-post-clone snapshot. The origin URL is also authenticated by a per-workspace
-key and record in `workspace_root/origin-pins/`, outside each disposable clone.
-`attach()` verifies that record before reopening a run; Git calls compare the
-current origin with the pinned value held in process memory. A missing or
-altered record refuses attach, and a changed origin refuses Git operations even
-if the clone config and its sibling snapshot were changed together. The key
-sits beside the record under `workspace_root`, so a same-user process that can
-write there can re-sign it; the record guards clone-local and accidental edits.
-A `.git` file, `.git/commondir` or a legacy `.git/remotes/origin` or `.git/branches/origin`
-refuses Git, and every call pins `GIT_DIR`/`GIT_COMMON_DIR` to the clone. The record
-is removed when the clone is discarded. Narrow display settings and
-branch-tracking additions are allowed.
-Runs created before this pin existed cannot be reopened for Git operations;
-`real-repo-run-decide --decision reject` or, once decided,
-`real-repo-run-discard` reclaims them without loading the pin, then the
-operator can start a new run.
-Git commands and config reads reap helper processes on timeout through a POSIX
-process group or a Windows Job Object. A POSIX helper that creates a new session
-can escape the process group. Windows releases Git from a fixed isolated waiter
-only after Job assignment; assignment failure never starts Git.
-Operator-owned global/system Git config remains trusted. Verification runs in
-a fresh gitless mirror with no copyback. Linux requires bubblewrap filesystem,
-PID and network isolation; macOS uses Seatbelt to confine writes to the mirror
-and disposable scratch. Both deny writes to the authoritative clone and its
-configuration snapshot. Windows refuses verification until a filesystem and
-network boundary is available; the Git Job Object does not make Windows
-verification safe. Linux native
-CI uses Ubuntu 22.04 with stock host policy. On Ubuntu 24.04, AppArmor can deny
-bubblewrap network-namespace setup (`RTM_NEWADDR: Operation not permitted`);
-verification then refuses before launching the check. CyClaw does not disable
-AppArmor or share the host network to bypass that refusal.
+Jailed clone under `deepagent_github.workspace_root`. Reads go through
+`fsconnect.pathsafe.ScopedRoots`; git writes use argv-list `git` with a scrubbed
+env, `cwd` and `GIT_DIR`/`GIT_COMMON_DIR` pinned to the clone, hooks and
+fsmonitor disabled, and local config checked against the post-clone snapshot
+(narrow display settings and branch-tracking additions are allowed; a `.git`
+file, `.git/commondir`, or legacy `.git/remotes|branches/origin` refuses Git).
+
+**Origin pin.** A per-workspace key and record under
+`workspace_root/origin-pins/`, outside the disposable clone, authenticate the
+origin URL. `attach()` verifies the record before reopening a run, and Git
+calls compare the live origin with the pinned value held in memory, so a
+missing or altered record refuses attach and a changed origin refuses Git even
+when clone config and snapshot were edited together. The key sits beside the
+record, so a same-user process that can write there can re-sign it: the pin
+guards clone-local and accidental edits, not a same-user attacker. Discarding
+the clone removes the record. Runs created before the pin existed cannot be
+reopened for Git; `real-repo-run-decide --decision reject` or, once decided,
+`real-repo-run-discard` reclaims them without loading the pin. Orphan cleanup
+deletes only the generated `cyclaw-repo-clone-*/repo` shape, never workspace
+metadata such as `origin-pins`.
+
+**Helpers and verification.** Git commands reap helper processes on timeout
+through a POSIX process group (a helper that opens a new session can escape it)
+or a Windows Job Object (Git starts only after assignment succeeds).
+Operator-owned global/system Git config stays trusted. Verification runs in a
+fresh gitless mirror with no copyback: Linux requires bubblewrap filesystem,
+PID, and network isolation; macOS uses Seatbelt to confine writes to the mirror
+and scratch; both deny writes to the authoritative clone and its snapshot.
+Windows refuses verification until an equivalent boundary exists (the Job
+Object alone is not one). Linux CI runs Ubuntu 22.04 with stock host policy; on
+Ubuntu 24.04, AppArmor can deny bubblewrap's network namespace
+(`RTM_NEWADDR: Operation not permitted`) and verification refuses before the
+check launches — CyClaw never disables AppArmor or shares the host network to
+get past it.
 
 | Tool / method | Default | What it does |
 |---|---|---|
@@ -677,32 +670,18 @@ Cache-derived and scope-filtered only. No active scan command exists.
 
 ### K. Explicitly **not** available
 
-- Host shell / PowerShell / bash agent tools (no Grok-Build / Kimi-style shell harness)
-- Unrestricted filesystem tools over the live repo
-- Autonomous push/PR without human gates
-- Core request-path import of any of the above
+The list under [What never to build or enable casually](#what-never-to-build-or-enable-casually):
+no host shell tools, no unrestricted filesystem tools over the live repo, no
+autonomous push/PR, and no core request-path import of any of the above.
 
 ---
 
 ## Main CLI commands
 
-```bash
-python -m agentic.cli status
-python -m agentic.cli context --repo | --pr N | --issue N
-python -m agentic.cli propose-skill ...
-python -m agentic.cli apply-skill ... --reason ... --confirm
-python -m agentic.cli real-repo-run-plan ...
-python -m agentic.cli real-repo-run ... --checks-file ... --branch ... --commit-message ... --reason ... --confirm
-python -m agentic.cli real-repo-run-status --run-id ...
-python -m agentic.cli real-repo-run-decide --run-id ... --decision approve|reject
-python -m agentic.cli real-repo-run-push --run-id ...
-python -m agentic.cli real-repo-run-publish --run-id ... --reason ... --confirm
-python -m agentic.cli real-repo-run-discard --run-id ...
-python -m agentic.cli deepagent-plan --repo --instruction "..."   # retired probe, no invoke
-python -m agentic.cli test
-```
-
-Flags the block above elides, all real (`agentic/cli.py` argparse):
+Subcommands: `status`, `context`, `propose-skill`, `apply-skill`, the
+`real-repo-run*` family shown in [section D](#d-real-repo-loop-live-coding-pipeline),
+`deepagent-plan` (retired probe, never invokes), and `test`. Flags those
+examples elide, all real (`agentic/cli.py` argparse):
 
 ```bash
 python -m agentic.cli --config path/to/config.yaml <subcommand>   # global; default config.yaml
@@ -765,6 +744,3 @@ python -m agentic.netconnect.cli test
 | [`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`](../docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md) | Skills registry governance |
 | [`macos/README.md`](../macos/README.md) | launchd glue — the fsconnect trash-empty plist generator's runtime home |
 | [`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md) | Threat-model amendments for this layer |
-
-Orphan cleanup only deletes the generated `cyclaw-repo-clone-*/repo` directory
-shape; workspace metadata such as `origin-pins` cannot be a discard target.

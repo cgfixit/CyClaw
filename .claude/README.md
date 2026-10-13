@@ -67,12 +67,9 @@ All `*-refactor` skills follow the same seven-step cycle:
                               Markdown, no frontmatter, applies repo-wide)
 ```
 
-2026-09-16 (issue #1351): `patterns/` (9 behavioral-pattern docs), `utility-prompts/`
-(4 prompt scaffolds), `tools/` (4 tool-usage docs), `memory/` (legacy, superseded
-by `docs/memories/`), and `ponytail-marketplace.json` (the local plugin
-marketplace it registered, along with the `ponytail` plugin, is gone from
-`settings.json` too) were all deleted — see `CLAUDE.md` §9 for which skills went
-with them.
+Issue #1351 (2026-09-16) deleted `patterns/`, `utility-prompts/`, `tools/`,
+`memory/` (superseded by `docs/memories/`), and `ponytail-marketplace.json`
+(with the `ponytail` plugin entry in `settings.json`); do not re-create them.
 
 ## Skill Caching Policy
 
@@ -83,13 +80,9 @@ version-controlled, shared with every collaborator on this repo), **user**
 utilities shipped by Claude Code itself or by installed marketplaces).
 
 This directory intentionally vendors only the **project** scope — every skill
-in `CLAUDE.md` §9's tables already lives under `.claude/skills/` here, one
-folder per skill, named for the `name:` in its `SKILL.md` frontmatter.
-(2026-09-11, issue #1351: `CyClaw-Sandbox/`'s frontmatter used to declare
-`name: cyclaw-swarm-verification`, a folder/frontmatter mismatch that made
-repo audits relying on either name alone miss the other — corrected to
-`name: CyClaw-Sandbox`.) User-scope and built-in
-skills are **not** copied in, for three concrete reasons:
+in `CLAUDE.md` §9's tables lives under `.claude/skills/` here, one folder per
+skill, named for the `name:` in its `SKILL.md` frontmatter. User-scope and
+built-in skills are **not** copied in, for three concrete reasons:
 
 1. **YAGNI / no current caller.** No CyClaw code path or documented workflow
    invokes them — they serve the operator across unrelated repos, not this
@@ -116,126 +109,70 @@ and skills separately. Wrappers are deliberately thin — the `SKILL.md` stays
 the single source of truth and the wrapper only points at it, so the two
 cannot drift apart in substance. Five commands are standalone by design and
 have no skill folder (`/audit`, `/check-soul`, `/conversation-summary`,
-`/run`, `/status`) — they are short inline procedures, not skills.
-2026-08-11: added the two missing wrappers (`config-guard`, `dep-guard`).
-2026-09-04: added `fable-5.1-cc`, the last skill that shipped without one.
-2026-09-06: `fable-5.1-cc` was consolidated into `fable-protocol` (its content
-is now that skill's §8 onward) and deleted, wrapper and all — see
-`fable-protocol/SKILL.md` §11.
-2026-09-11 (issue #1351): `general-purpose` (skill + wrapper) deleted — it
-duplicated the Agent tool's built-in `general-purpose` subagent type
-verbatim, adding no project-specific content. 2026-09-11 (PR #1369):
-`cyclaw-advisor` and `CyClaw-Sandbox` gained `disable-model-invocation: true`
-(their wrappers are unaffected — a wrapper is already user-typed by
-definition). 2026-09-11 (issue #1351 follow-up): ten more slash-only chore/
-loop skills gained `disable-model-invocation: true`; `cyclaw-advisor`'s
-folder and wrapper renamed `cyclaw-privacy` (see Key Conventions below for
-why); `CyClaw-Optimize.md`, `logging-refactor.md`, `tests-refactor.md`,
-`speed-refactor.md`, and `architecture-refactor.md` — the five wrappers that
-had drifted from thin pointers into near-complete `SKILL.md` copies, one
-already stale against its source — trimmed back to the thin-wrapper pattern
-this policy describes. The wrapper set
-still covers every remaining skill — verify with
+`/run`, `/status`) — they are short inline procedures, not skills, so a
+deletion pass that treats them as orphaned wrappers removes real commands
+(this happened once under issue #1351; both were restored from `main`).
+
+Verify the wrapper set still covers every skill with
 `comm -23 <(ls .claude/skills | sort) <(ls .claude/commands | sed 's/\.md$//' | sort)`,
-which must print nothing (except a stray untracked `__pycache__` under a
-since-deleted skill dir, which is a build artifact, not a wrapper gap — `git
-clean -ndx .claude/skills` finds those; delete, don't wrap them).
-2026-09-16 (issue #1351): eleven more skill+command pairs deleted —
-`code-explorer`, `create-session-notes`, `memory-consolidation`,
-`memory-extraction`, `memory-orchestrator`, `next-action-suggestion`,
-`ponytail`, `python-coding-agent`, `session-title`, `tool-summary`, `wrap-up`
-— per the issue's delete-or-command-only list. `audit.md` and `run.md` were
-swept up in the same deletion pass by mistake: both are standalone commands
-with no skill twin (the five-standalone-commands rule above names them
-explicitly), so deleting them removed `/audit` and `/run` outright rather than
-trimming a wrapper. Restored from `main` unchanged. Deleting
-`memory-orchestrator` also orphaned the `PreCompact`/`SessionEnd` hooks in
-`settings.json` that invoked its `orchestrate.py` — unwired them (same call
-as the 2026-09-04 dangling-hook incident below: don't resurrect a deleted
-skill to satisfy a hook, remove the hook) rather than leaving them to error on
-every compact/session-end. `CLAUDE.md` §9's "Agent skills" section has the
-per-skill rationale.
-2026-09-16 (issue #1351, second follow-up): three more auto-invocable skills
-gained `disable-model-invocation: true` — `fable-protocol` (the single
-biggest description in the catalog, and now redundant with the
-`fable-protocol-loader.sh` hook for the one model tier that needs it unasked;
-see that hook's section below), `CyClaw-Optimize` (opens PRs on its own),
-and `babysit-github-pr` (starts an extended watch loop against live GitHub
-state). Two more had their descriptions trimmed to the issue's ~600-char
-budget while staying auto-invocable: `otel-hardening` (1129 → 588 chars) and
-`verify-deps` (1288 → 539 chars) — both keep an explicit "use `dep-guard`/
-`invariant-guard`/`injection-redteam` instead" when-not clause. `dep-guard`
-vs `verify-deps` staying as two separate skills (the issue suggested picking
-one name) was deliberately left alone — that is an information-architecture
-merge, not a routing-cost fix, and deserves its own decision.
+which must print nothing (a stray untracked `__pycache__` under a deleted
+skill dir is a build artifact — `git clean -ndx .claude/skills` finds those;
+delete, don't wrap them).
 
-## Environment Doctor — settings.json audit (2026-08-11)
+Rules that came out of issue #1351 and its follow-ups (2026-09-11 → 09-16;
+the per-skill rationale is in `CLAUDE.md` §9):
 
-A doctor-style audit of `.claude/settings.json` was run against the live tree
-(don't re-create what passes; fix only what's broken). Verdict and findings:
+- A wrapper that grows into a near-copy of its `SKILL.md` is drift; trim it
+  back to a pointer.
+- A skill that duplicates a built-in (the `general-purpose` subagent type) or
+  is a slash-only chore/loop gets deleted or `disable-model-invocation: true`.
+  Skills that act on live state unasked (`CyClaw-Optimize` opens PRs,
+  `babysit-github-pr` starts a watch loop) are user-invoked only, as is
+  `fable-protocol`, whose Sonnet-tier injection moved to
+  `fable-protocol-loader.sh`.
+- Auto-invocable descriptions stay under the ~600-char routing budget
+  (`otel-hardening` and `verify-deps` were cut to size and keep their "use X
+  instead" clauses). `dep-guard` and `verify-deps` remain two skills on
+  purpose: merging them is an information-architecture decision, not a
+  routing fix.
+- Deleting a skill that a `settings.json` hook invokes means removing the
+  hook, never resurrecting the skill (`memory-orchestrator`'s
+  `PreCompact`/`SessionEnd` hooks went this way).
 
-**settings.json: the dangling hook is gone (resolved 2026-09-04).** Valid JSON
-against the declared schema, and every hook path now resolves. The history is
-worth keeping: from some point before 2026-08-22 until 2026-09-04 the registered
-`UserPromptSubmit` hook pointed at
-`.claude/skills/fable-protocol/context_gate.py`, a file deleted on `main`. Because
-the command ended in `2>/dev/null || true` it silently no-opped on every prompt
-instead of erroring — which is precisely why it went unnoticed for weeks. The
-operator's call was to unwire it rather than write a replacement: the skill stays
-reachable as `/fable-protocol` and through its `description` trigger, and injecting
-a ~22KB skill into every prompt is cost the skill's own v1.2 preamble warns
-about (§7's [S5] row makes the same case on attack-surface grounds). **Lesson
-encoded:** the sync-check hook added the same day carries no `|| true`, because the
-script already always exits 0 and that tail is the thing that hid the last failure.
-Otherwise: no personal data (no usernames, absolute machine paths, or
-emails — keep it that way, this file is shared with every collaborator);
-hooks anchor to repo-relative paths so they survive any checkout location.
-The `SessionStart` sync-check added 2026-09-04 has no `|| true` — that
-is deliberate, not an oversight (see the dangling-hook note above).
+## settings.json — hooks and the rules behind them
 
-(2026-09-16 update, issue #1351: the paragraph above once described five hook
-entries resolving to four scripts, including `memory-orchestrator/orchestrate.py`
-referenced twice for `PreCompact`/`SessionEnd`, and a persona-loader
-`SessionStart` entry for `python-coding-agent`. All three were removed along
-with their target skills — `settings.json` now registers only the
-`SessionStart` hooks below, and the observation that the memory hooks lacked
-a `|| true` guard is moot; they no longer exist to lack one.)
+`settings.json` registers exactly three hooks, all `SessionStart`, in this
+order; every path resolves and is repo-relative so it survives any checkout
+location. The file holds no personal data (no usernames, machine paths, or
+emails) — keep it that way, it is shared with every collaborator.
 
-**`session-start-venv.sh` (third `SessionStart` hook, added 2026-10-05).**
-Cloud-only (`CLAUDE_CODE_REMOTE=true`; a no-op on a laptop). It detaches
-`cyclaw-gotchas/driver.sh venv` and returns at once, so the Python 3.12 venv at
-`/root/.venv-cyclaw-312` builds while the session starts instead of when the
-first `pytest` needs it. `driver.sh venv` takes a lock, so an agent that runs it
-by hand meanwhile waits for the build and then gets `venv ready`. The driver
-uses `uv` when it is on PATH (cold build 413 s with pip vs 122 s with uv,
-measured 2026-10-05 on the default cloud image) and pip otherwise. Log:
-`$TMPDIR/cyclaw-session-start-venv.log` (`/tmp` when unset).
+1. **`session-start-sync-check.sh`** (2026-09-04) — git identity and
+   local↔remote divergence report; never resets, rebases, or pushes.
+2. **`fable-protocol-loader.sh`** (2026-09-06, re-gated 2026-09-16) — injects
+   `fable-protocol/SKILL.md` as `additionalContext` once per SessionStart
+   (startup/resume/clear/compact), never per prompt, and only when the stdin
+   model id contains `sonnet`; Opus, Haiku, Fable, and absent or unrecognized
+   ids are skipped and reach the protocol only via `/fable-protocol`.
+   SessionStart is the only hook event whose stdin carries `model`, and no
+   event fires on a mid-session `/model` switch, so `CLAUDE.md` §10 tells the
+   operator to run it by hand then. Exits 0 unconditionally, stdout JSON-only,
+   diagnostics on stderr.
+3. **`session-start-venv.sh`** (2026-10-05) — cloud-only
+   (`CLAUDE_CODE_REMOTE=true`; a no-op on a laptop). Detaches
+   `cyclaw-gotchas/driver.sh venv` so the Python 3.12 venv at
+   `/root/.venv-cyclaw-312` builds while the session starts; a manual
+   `driver.sh venv` waits on the same lock and then reports `venv ready`. The
+   driver uses `uv` when on PATH (cold build 122 s vs 413 s with pip, measured
+   2026-10-05) and pip otherwise. Log: `$TMPDIR/cyclaw-session-start-venv.log`.
 
-**`fable-protocol-loader.sh` (second `SessionStart` hook as of 2026-09-16;
-was the third, added 2026-09-06, until the persona-loader hook ahead of it
-was deleted).**
-This is the replacement the 2026-09-04 note said was not being written, on a
-different trigger and with a gate. It injects `fable-protocol/SKILL.md` as
-`additionalContext` once per SessionStart (startup/resume/clear/compact), the
-same moment and mechanism as the persona loader, NOT per prompt — so the
-per-prompt cost that got the old `UserPromptSubmit` hook unwired does not
-return. 2026-09-16 (issue #1351): re-gated from an opt-out blocklist (inject
-unless the model id contains `fable`/`mythos`) to an opt-in allowlist —
-injects only when the model id contains `sonnet`. Opus, Haiku, Fable, and any
-absent/unrecognized string are all skipped now, each reachable only via
-explicit `/fable-protocol`; the flip pairs with the skill itself gaining
-`disable-model-invocation: true` the same day (see the wrapper-policy note
-above), so the ~1.5KB body is no longer the catalog's biggest routing-cost
-line AND is no longer auto-injected outside the one tier it's tuned for. Why
-SessionStart and why a gate that can miss: verified against Claude Code
-2.1.261's hook schema, SessionStart is the only event whose stdin JSON
-carries `model` (optional), and no event fires on a mid-session `/model`
-switch — so switching to Sonnet mid-session (or wanting the protocol on
-Opus/Haiku at all) is not re-gated; `CLAUDE.md` §10 tells the operator to run
-`/fable-protocol` by hand in that case. The script exits 0 unconditionally
-and keeps stdout JSON-only, with diagnostics on stderr; re-tested 2026-09-16
-with sonnet/opus/haiku/fable/mythos/absent/malformed stdin against the new
-allowlist logic.
+**Why no hook ends in `|| true`.** From before 2026-08-22 until 2026-09-04 a
+`UserPromptSubmit` hook pointed at a file deleted on `main`; its
+`2>/dev/null || true` tail made it a silent no-op on every prompt for weeks.
+The fix was to unwire it (a ~22KB per-prompt injection was the wrong cost
+anyway — the loader above is the gated replacement), and every hook since
+exits 0 on its own so nothing hides a failure. The same rule removed the
+`PreCompact`/`SessionEnd` hooks orphaned by `memory-orchestrator`'s deletion
+and the `python-coding-agent` persona loader (issue #1351).
 
 **Remote-environment env-var misconfiguration (root cause of the stray
 `C:\Users\...` directory).** The Claude Code remote execution environment for
@@ -278,13 +215,10 @@ repo:
 
 ## Key Conventions
 
-- Skill folders match the `name:` in SKILL.md frontmatter. Most are
-  `kebab-case`; two ship mixed-case by convention (`CyClaw-Optimize`,
-  `CyClaw-Sandbox`). (`OTel-Hardening` was a third until issue #1135 renamed
-  it `otel-hardening` to satisfy the Agent Skills spec's lowercase
-  name-matches-directory rule; `CyClaw-Sandbox` itself carried a similar
-  mismatch — frontmatter `name: cyclaw-swarm-verification` — until issue
-  #1351 aligned it to `name: CyClaw-Sandbox`.)
+- Skill folders match the `name:` in SKILL.md frontmatter (a mismatch makes
+  audits keyed on either name miss the other — `CyClaw-Sandbox` had one until
+  issue #1351). Most are `kebab-case`; two ship mixed-case by convention
+  (`CyClaw-Optimize`, `CyClaw-Sandbox`).
 - All SKILL.md files use YAML frontmatter: `name:`, `description:`
 - Refactor progress is tracked in `/tmp/refactor-CyClaw.md`
 - Claude Code commits as the session runtime's identity (cloud:

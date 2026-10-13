@@ -68,26 +68,20 @@ in the same change.
 
 ## Current-source discipline
 
-Fetch and inspect current code before reusing a skill's observations. See
-`$cyclaw-project-guidance` for the source map instead of copying another dated
-runtime snapshot here.
+Fetch and inspect current code before reusing a skill's observations; see
+`$cyclaw-project-guidance` for the source map instead of copying a dated
+runtime snapshot here. Validate actual commands and paths, not just the
+presence of a skill name in the table above.
 
-All 22 skill entry points have UI metadata. The directory `Cyclaw-Sandbox`
-keeps its historical spelling; its skill/invocation name is `cyclaw-sandbox`.
-The optimization skill consistently uses `cyclaw-optimize`. Preserve existing
-invocation policy when updating metadata.
-
-The dependency workflow distinguishes `requirements.txt` (runtime) from
-`requirements-test.txt` (tests), uses the actual pip install commands for
-dry-runs, and preserves plain Torch constraints on macOS.
-
-Use the canonical `.claude/skills/doc-sync/` checker. The Codex Python/shell
-entry points are wrappers, not separate parser implementations. Historical
-sandbox reports describe prior runs only; `NEW_SKILL.md` redirects to the
-current sandbox skill. That bundle was reconciled with `3d913754` on
-2026-09-12 after the Python coding console removal; the terminal gateway,
-`agentic/` CLI and retained `agentic/harness_optimizer/` components remain. Validate actual
-commands and paths, not just the presence of a skill name in this table.
+All 22 skill entry points carry UI metadata. The directory `Cyclaw-Sandbox`
+keeps its historical spelling; its invocation name is `cyclaw-sandbox`, and
+the optimization skill is `cyclaw-optimize`. Preserve existing invocation
+policy when updating metadata. The dependency workflow distinguishes
+`requirements.txt` (runtime) from `requirements-test.txt` (tests), dry-runs
+the actual pip commands, and keeps plain Torch constraints on macOS. The
+Codex doc-sync entry points wrap the canonical `.claude/skills/doc-sync/`
+checker rather than reimplementing its parser. Historical sandbox reports
+describe prior runs only; `NEW_SKILL.md` redirects to the current sandbox skill.
 
 ## Prompt Templates
 

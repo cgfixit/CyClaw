@@ -22,15 +22,14 @@ sits in the overall posture and what it does **not** cover.
 | Unexpected outbound connection | Non-tool egress to anything other than loopback / local Ollama | WARNING |
 | Optional tool outbound connection | `git`/Git HTTPS helpers/`gh`/`rclone` external egress that needs audit correlation | NOTICE |
 
-These map directly to the out-of-band agentic & sync write paths and the gate's
-egress — the surfaces a 2026 review would (fairly) want eyes on.
+These map to the out-of-band agentic and sync write paths and the gate's egress.
 
 ## Why it ships disabled
 
 Falco needs a **privileged** sidecar with host kernel access (`/proc`,
 `/sys/kernel/debug`, the modern eBPF probe). That privilege is itself attack
-surface, so it is gated behind a Compose profile and off by default. A plain
-`docker compose up` never starts it.
+surface, so it sits behind a Compose profile; a plain `docker compose up`
+never starts it.
 
 ## Enable it
 
@@ -116,20 +115,15 @@ destination exceptions are the narrowest safe tuning unit.
 
 ## Requirements & caveats
 
-- Linux host with a kernel new enough for Falco's modern eBPF probe
-  (≥ 5.8; the image pin is `falcosecurity/falco:0.39.2`).
-- Will **not** run in environments without host kernel access (most CI, many
-  managed/rootless container hosts). That is expected — it is an operator-run
-  monitor, not a CI gate.
-- Detection only. To *block* syscalls, tighten the seccomp profile instead — and
-  do that only after using these traces to build a verified allow-list (see
-  [`docs/SECCOMP_EBPF_HARDENING.md`](../../docs/SECCOMP_EBPF_HARDENING.md)).
-- The monitoring profile is **privileged**. Leave it off unless you need the
-  eBPF tripwire and accept host-kernel access for the sidecar.
-- The read-only Docker socket mount still exposes a powerful host API; `:ro`
-  protects the socket inode, not the API methods reachable through it.
-- The `0.39.2` image is digest-pinned in `docker-compose.yml` (multi-arch
-  manifest-list digest resolved 2026-08-12), kept alongside the tag for human
-  readability. Re-pin the digest on any Falco version bump; Falco 0.44 removed
-  the gVisor engine, so host eBPF cannot provide complete in-sandbox syscall
-  visibility.
+- Linux host with a kernel ≥ 5.8 for the modern eBPF probe; it will **not**
+  run without host kernel access (most CI, many managed or rootless hosts) —
+  it is an operator-run monitor, not a CI gate.
+- Detection only; to *block*, tighten seccomp after these traces have built a
+  verified allow-list ([`docs/SECCOMP_EBPF_HARDENING.md`](../../docs/SECCOMP_EBPF_HARDENING.md)).
+- The monitoring profile is **privileged**, and the read-only Docker socket
+  mount still exposes a powerful host API (`:ro` protects the inode, not the
+  API methods).
+- `falcosecurity/falco:0.39.2` is digest-pinned in `docker-compose.yml`
+  (multi-arch manifest-list digest, resolved 2026-08-12) beside the tag.
+  Re-pin on any bump; Falco 0.44 removed the gVisor engine, so host eBPF
+  cannot give complete in-sandbox syscall visibility.
