@@ -17,23 +17,9 @@ explicit `/logging-refactor` is that authorization.
 ## Setup
 
 ```bash
-PROJNAME=$(basename "$PWD")
-TRACKER="/tmp/refactor-${PROJNAME}.md"
-```
-
-Initialize tracker if absent:
-
-```bash
-[ -f "$TRACKER" ] || cat > "$TRACKER" <<EOF
-# Logging Refactor — $PROJNAME
-Started: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-Target: every important path produces useful tested logs; ≥85% pass rate (goal: 100%)
-
-## Baseline
-(run measurement before first change)
-
-## Progress
-EOF
+TRACKER="/tmp/refactor-$(basename "$PWD").md"    # /tmp/refactor-CyClaw.md here
+[ -f "$TRACKER" ] || printf '# Logging Refactor — %s\nStarted: %s\nTarget: every important path logs, tested; ≥85%% pass rate (goal 100%%)\n\n## Baseline\n\n## Progress\n' \
+  "$(basename "$PWD")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TRACKER"
 ```
 
 ---
@@ -61,16 +47,9 @@ Record under `### Step N — Measurement` in the tracker.
 
 ## Decision Tree at Loop Start
 
-```
-if pass_rate < 85%:
-    → DIAGNOSE & FIX (see Fix Loop)
-elif important paths have missing log coverage:
-    → AUDIT & ADD LOGS (see Log Audit Loop)
-elif pass_rate >= 85% and pass_rate < 100%:
-    → FIX REMAINING FAILURES (Fix Loop)
-else:
-    → DONE
-```
+Pass rate below 85% → **Fix Loop**; otherwise, while important paths lack
+log coverage → **Log Audit Loop**; failures left at or above 85% → Fix Loop
+again; everything covered and green → done.
 
 ---
 
@@ -268,16 +247,9 @@ Completed: <timestamp>
 | Failures             | 9        | 0     |
 ```
 
-Paths covered:
-- [x] GET /health — startup index-ready log
-- [x] POST /query — request received, vault hit/miss, branch decision
-- [x] POST /query offline — offline path log
-- [x] Prompt injection blocked
-- [x] Rate limit exceeded
-- [x] LLM error (Ollama down)
-- [x] Personality load
-- [x] BM25 + ChromaDB retrieval
-- [x] LangGraph node transitions
+Then a `Paths covered:` checklist, one `- [x]` line per important path from
+Step 1 (request entry/exit, branch decisions, external I/O, security events,
+errors, startup).
 
 ---
 
@@ -290,4 +262,3 @@ Paths covered:
 - **Structured fields** — `extra={...}` keys land as attributes on the `LogRecord` (`record.score`), not under a `.extra` dict; prefer asserting on the formatted message
 - **Security logs must never contain raw PII** — assert that the log does NOT contain the raw query string; check only hash or truncated form
 - **Security-event logs must stay covered by the sanitizer contract phrases `invariant-guard` checks (G3)** — don't rename or remove a matched pattern while adding its log line
-- **`{projectname}`** in tracker path is `basename $PWD`, e.g. `CyClaw` → `/tmp/refactor-CyClaw.md`

@@ -18,23 +18,9 @@ measurement command from any other skill or task.
 ## Setup
 
 ```bash
-PROJNAME=$(basename "$PWD")
-TRACKER="/tmp/refactor-${PROJNAME}.md"
-```
-
-Initialize tracker if absent:
-
-```bash
-[ -f "$TRACKER" ] || cat > "$TRACKER" <<EOF
-# Tests Refactor — $PROJNAME
-Started: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-Target: 100% coverage, ≥85% pass rate (goal: 100%)
-
-## Baseline
-(run measurement before first change)
-
-## Progress
-EOF
+TRACKER="/tmp/refactor-$(basename "$PWD").md"    # /tmp/refactor-CyClaw.md here
+[ -f "$TRACKER" ] || printf '# Tests Refactor — %s\nStarted: %s\nTarget: 100%% coverage, ≥85%% pass rate (goal 100%%)\n\n## Baseline\n\n## Progress\n' \
+  "$(basename "$PWD")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TRACKER"
 ```
 
 ---
@@ -86,18 +72,9 @@ Record both metrics in the tracker under `### Step N — Measurement`.
 
 ## Decision Tree at Loop Start
 
-Read the current metrics and branch:
-
-```
-if pass_rate < 85%:
-    → FIX FAILURES FIRST (see Fix Loop below)
-elif pass_rate >= 85% and coverage < 100%:
-    → ADD COVERAGE (see Coverage Loop below)
-elif pass_rate >= 85% and coverage == 100% and pass_rate < 100%:
-    → FIX REMAINING FAILURES (same Fix Loop)
-else (pass_rate == 100% and coverage == 100%):
-    → DONE
-```
+Read the current metrics: pass rate below 85% → **Fix Loop** first; at or
+above 85% with coverage short of 100% → **Coverage Loop**; coverage at 100%
+with failures left → Fix Loop again; both at 100% → done.
 
 ---
 
@@ -169,11 +146,6 @@ Pick the module with the lowest coverage percentage first.
 
 ### 2. Read the uncovered lines
 
-```bash
-# Example: gate.py lines 142-155 are uncovered
-# Read those lines and understand what they do
-```
-
 For each uncovered block, identify **what scenario** would execute it:
 - Error handling branch → write a test that injects the error condition
 - Edge-case input → write a test with that input
@@ -193,21 +165,9 @@ tests/test_audit.py         ← audit logging
 tests/test_personality.py   ← soul/personality system
 ```
 
-If no file fits, create `tests/test_<module_name>.py`.
-
-Test structure:
-
-```python
-def test_<specific_behavior>(client):
-    """One sentence: what this test verifies."""
-    # Arrange
-    ...
-    # Act
-    response = client.post("/query", json={...})
-    # Assert
-    assert response.status_code == 200
-    assert response.json()["field"] == expected
-```
+If no file fits, create `tests/test_<module_name>.py`. One behavior per test,
+a one-sentence docstring, arrange/act/assert, and the shared `client` fixture
+for anything that hits a route.
 
 ### 4. Re-measure
 
@@ -264,6 +224,5 @@ real index and nothing starts a live service (CLAUDE.md §6 "Test").
 - **Fix source bugs, not tests** — if a test correctly describes expected behavior and the source is wrong, fix the source.
 - **No `# pragma: no cover` without justification** — only mark code unreachable if you can prove it (e.g., defensive else on an exhaustive enum).
 - **Don't mock what you can control** — mock external I/O (Ollama, Grok API, Claude API, disk), not internal logic.
-- **`{projectname}`** in tracker path is `basename $PWD`, e.g. `CyClaw` → `/tmp/refactor-CyClaw.md`.
 - **Pass rate formula**: `passed / (passed + failed + error) * 100` — skipped tests do not count toward or against the rate.
 - Coverage gate is 80% `fail_under` in `pyproject.toml` — do not lower it to make the loop exit early.

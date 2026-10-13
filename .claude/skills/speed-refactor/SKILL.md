@@ -13,24 +13,9 @@ Optimize the codebase for speed iteratively. After each significant change, meas
 ## Setup
 
 ```bash
-PROJNAME=$(basename "$PWD")
-TRACKER="/tmp/refactor-${PROJNAME}.md"
-BASELINE_FILE="/tmp/speed-baseline-${PROJNAME}.json"
-```
-
-Initialize the tracker if it doesn't exist:
-
-```bash
-[ -f "$TRACKER" ] || cat > "$TRACKER" <<EOF
-# Speed Refactor — $PROJNAME
-Started: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-Target: every page and module < 50 ms
-
-## Baseline
-(run measurement before first change)
-
-## Progress
-EOF
+TRACKER="/tmp/refactor-$(basename "$PWD").md"    # /tmp/refactor-CyClaw.md here
+[ -f "$TRACKER" ] || printf '# Speed Refactor — %s\nStarted: %s\nTarget: every endpoint and module < 50 ms\n\n## Baseline\n\n## Progress\n' \
+  "$(basename "$PWD")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TRACKER"
 ```
 
 ---
@@ -228,6 +213,5 @@ All endpoints < 50 ms for 2 consecutive measurement runs.
 - **Median over mean** — a single GC pause or cold-cache miss inflates mean; median is stable.
 - **Revert if correctness breaks** — a 50 ms page that returns wrong data is worse than a 200 ms page that returns correct data.
 - **Module-level load time counts** — if `import gate` takes 300 ms, that's a cold-start problem worth fixing even if per-request latency is fast.
-- **`{projectname}`** in tracker/baseline paths is `basename $PWD`, e.g. `CyClaw` → `/tmp/refactor-CyClaw.md`.
 - **Deferring audit-log flushes out of the hot path must not move them past `audit_logger`/`END`** in the graph — that breaks I4 (audit convergence). Check with `invariant-guard`, not just the probe.
 - **Never "optimize" `retrieval/embeddings.py`'s `EMBED_DEVICE = "cpu"`** toward `mps`/GPU auto-detection; the pin is deliberate (PR #734, ranking regression on Apple Silicon).

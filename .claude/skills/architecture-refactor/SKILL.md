@@ -12,27 +12,10 @@ Refactor the codebase iteratively until the architecture is clean and coherent. 
 
 ## Setup
 
-Determine the project name from the working directory or `CLAUDE.md`:
-
 ```bash
-PROJNAME=$(basename "$PWD")
-TRACKER="/tmp/refactor-${PROJNAME}.md"
-```
-
-Initialize the tracker if it doesn't exist:
-
-```bash
-cat > "$TRACKER" <<EOF
-# Architecture Refactor — $PROJNAME
-Started: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-## Goals
-- Clean, modular architecture
-- No circular imports or god-modules
-- Clear separation of concerns
-
-## Progress
-EOF
+TRACKER="/tmp/refactor-$(basename "$PWD").md"    # /tmp/refactor-CyClaw.md here
+[ -f "$TRACKER" ] || printf '# Architecture Refactor — %s\nStarted: %s\n\n## Goals\n- modular, no cycles, clear separation\n\n## Progress\n' \
+  "$(basename "$PWD")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TRACKER"
 ```
 
 ---
@@ -140,26 +123,14 @@ Append a `## Final State` summary to the tracker and report done.
 
 ## Tracker Format
 
+Under `## Progress`, one `### Step N — Assessment` and one `### Step N — Done`
+per step; a Done entry reads like:
+
 ```markdown
-# Architecture Refactor — cyclaw
-Started: 2026-06-20T12:00:00Z
-
-## Goals
-...
-
-## Progress
-
-### Step 1 — Assessment
-...
-
-### Step 1 — Done
 - Changed: extracted the console-cookie helpers from gate.py → utils/console_session.py
 - Verified: imported the module, probed /console/session; ruff clean; CI green
 - Review: no issues
 - Commit: abc1234
-
-### Step 2 — Assessment
-...
 ```
 
 ---
@@ -168,7 +139,6 @@ Started: 2026-06-20T12:00:00Z
 
 - Never squash mid-refactor commits — each step should be independently reviewable.
 - If a step breaks tests, revert and pick a smaller scope before retrying.
-- `{projectname}` in the tracker path is the literal `basename $PWD`, e.g. `CyClaw` → `/tmp/refactor-CyClaw.md`.
 - Never refactor across the six invariants (`CLAUDE.md` §3) without arguing the change explicitly and re-running `invariant-guard`.
 - Never touch `soul.md`/`apply_evolution` without a non-empty `reason` string (I5) — see `tests/test_personality.py`.
 - Never weaken or delete an assertion to make a refactor step "pass" — if a test fails, either the source is wrong or the refactor changed behavior; fix or revert, don't loosen the test.

@@ -281,17 +281,13 @@ any), never for chunk changes.
 
 ## Guardrails (CyClaw invariants — do not violate)
 
-- **Never commit to `main` directly** via git or MCP when a feature branch +
-  PR exist — it causes add/add rebase conflicts. Always branch → PR → human
-  merges.
-- **All PRs are draft**; the human decides when to merge/close.
+- Branch → draft PR → human merges; never commit to `main` (CLAUDE.md §4
+  Git & PR, §5).
 - Do not re-open an area already covered by an open PR; skip the
   null-allowed-origins `config.yaml` item.
-- Respect the six security invariants — RAG-first, topology=policy,
-  triple-gated external (Grok and/or Claude), audit convergence, soul governance,
-  module isolation. Never weaken a graph-edge policy to "optimize."
+- The six invariants (CLAUDE.md §3) are never an optimization target: no
+  graph-edge or gate is weakened to "optimize", and `soul.md` is governed (I5).
 - Workflow enhancements must need **no license, secret, or key**.
-- Never mutate `data/personality/soul.md` without an explicit human `reason`.
 
 ---
 
@@ -316,23 +312,12 @@ any), never for chunk changes.
   resist bundling unrelated fixes because they're "right there."
 - **The 4-minute box is for the initial sweep only** — keep reading code
   afterward to confirm each finding before it becomes a PR.
-- **Shared-file PRs can collide.** When ≥2 chunks edit one file (most often
-  `.github/workflows/ci.yml`, `config.yaml`, the dependency manifests,
-  `CLAUDE.md`, or other hotspots from Step 3.5), cutting every branch from the
-  same base without consolidating or stacking will *conflict* if their edits
-  touch the same/adjacent lines — and a sloppy conflict resolution drops one
-  side. See **Step 3.5**: consolidate the shared-file edits into one PR, or
-  stack the later branch on the earlier one, trial-merge the pair before
-  opening, and merge in **session order** (prefer lowest PR number → highest,
-  with stack parents always before children). After a parent lands, refresh
-  open children onto the updated base before merging the next.
-- **A broken `main` poisons every PR whose base ultimately includes it.** If
-  `main` itself is red (e.g. a bad committed data file or a failing test landed
-  earlier), *every* branch that incorporates that tip inherits those failures,
-  so the optimize PRs show red CI for reasons unrelated to their own diffs. Land
-  the root-cause fix PR first (lowest-order / first in the merge queue), then
-  refresh / re-run the rest. Diagnose a child PR's CI red against `main`'s own
-  state before assuming the PR caused it.
+- **Shared-file PRs can collide.** Step 3.5 is not optional when ≥2 chunks
+  edit one file: consolidate or stack, trial-merge the pair before opening,
+  and after a parent lands refresh open children before merging the next.
+- **A red `main` poisons every PR cut from it** (CLAUDE.md §4 Git & PR). Land
+  the root-cause fix first, then refresh the rest; diagnose a child PR's red
+  CI against `main`'s own state before blaming the diff.
 - **Don't "fix" `EMBED_DEVICE`.** `retrieval/embeddings.py` hardcodes
   `EMBED_DEVICE = "cpu"` on purpose — sentence-transformers auto-selects `mps`
   on Apple Silicon otherwise, which caused a real ranking regression (PR

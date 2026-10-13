@@ -158,33 +158,13 @@ All knobs are set via environment variables or `.git/babysit-state.json`. Defaul
 
 ---
 
-## Report Template
+## Report
 
-At exit, print (to stdout):
-
-```
-=== BABYSIT REPORT ===
-PR: https://github.com/{owner}/{repo}/pull/{number}
-Status: [green | red | timeout | conflict | exhausted | blocked]
-
-Final Check State:
-  - <check-name>: passing
-  - <check-name>: failing (last seen <timestamp>)
-  - <check-name>: not yet run
-
-Commits Made (this session):
-  - <sha> : <message> (authored by: <email>)
-  - <sha> : <message> (authored by: <email>)
-
-Unresolved Comments (deferred to author):
-  - Line <N> in <file>: "..." (awaiting confirmation)
-
-Stopped Because:
-  - [reason for exit]
-
-Next Steps:
-  - [what the user should do]
-```
+At exit, report the PR, its status (green / red / timeout / conflict /
+exhausted / blocked), the final state of every check, the commits you made
+with their authors, the comments deferred to the author, why you stopped, and
+what the user should do next. `run-babysit.sh`'s `print_report` prints a
+shorter subset; fill in the rest by hand.
 
 ---
 
@@ -235,16 +215,6 @@ are not touched by it, and a CI fix that would touch one goes through
 6. **Blast radius** — The skill tracks the original PR's file set and refuses to modify >5 additional files. If your fix requires broader changes, the skill stops and reports it. Consider splitting into multiple PRs.
 
 7. **Terminal output** — The skill prints the final report to stdout. If running in a CI/automation context, redirect to a file or feed to another tool.
-
----
-
-## Success Criteria
-
-- ✅ PR rebase succeeds without conflicts when explicitly authorized
-- ✅ CI passes (all checks terminal and success)
-- ✅ All review comments addressed (mechanical ones fixed, architectural ones deferred)
-- ✅ Authorship respected (no commits from different authors rewritten)
-- ✅ Report printed with full audit trail
 
 ---
 

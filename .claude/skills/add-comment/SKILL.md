@@ -180,22 +180,11 @@ is worse than the silence it replaced.
 - **Comment-only, always.** This skill never changes control flow, values,
   formatting of code, or imports. If a "better comment" seems to require a
   code change, stop and flag it as a separate finding — don't fold it in.
-- **Never touch `data/personality/soul.md`, ever, comments included** — soul
-  mutation is gated behind a human `reason` string (Invariant I5); this skill
-  has no standing to invoke that gate and soul.md isn't a place for casual
-  annotation regardless.
-- **Never alter `graph.py` edges, `gate.py` auth logic, or
-  `utils/sanitizer.py` `banned_patterns`/regex bodies** while "just adding a
-  comment" — these are five of CyClaw's six invariants (I1–I4, I6) plus the
-  sanitizer contract. Comments *near* this code are fine with the extra care
-  described in Step 1/Step 5; the code itself does not move.
-- **No TODO/FIXME comments** — CyClaw has none by policy (`CLAUDE.md` §5);
-  don't introduce the first one under cover of this skill.
-- **"Why, with PR reference" density** — match the surrounding file's
-  existing comment style and density (`CLAUDE.md` §5 Code conventions); don't
-  out-comment a terse file or under-comment a dense one.
-- **One concern per PR, draft PRs only, never push to `main`** — same rule as
-  every other skill in this repo. Branch `claude/add-comment-<topic>`.
+- **The off-limits and extra-care files in Step 1 are not negotiable:**
+  `soul.md` is never touched (I5); `graph.py` edges, `gate.py` auth and the
+  sanitizer patterns do not move while a comment lands near them.
+- **No TODO/FIXME**, match the file's existing density (`CLAUDE.md` §5), one
+  concern per draft PR on `claude/add-comment-<topic>`, never push to `main`.
 - **Don't touch already-well-commented code** — if in doubt whether an
   existing comment is "adequate," leave it; this skill adds coverage, it
   doesn't relitigate existing prose.
@@ -209,9 +198,6 @@ is worse than the silence it replaced.
 - **Big diffs should be chunked, exactly like `/CyClaw-Optimize`.** Resist
   the temptation to sweep the whole repo in one PR because "it's just
   comments" — reviewability doesn't scale with line count being safe.
-- **Don't comment auto-generated files or vendored/third-party code** —
-  `data/`, `index/`, anything under a vendored path. It'll either be
-  overwritten or isn't yours to annotate.
 - **A confidently wrong "why" comment is worse than no comment**, especially
   near the six invariants — if you're not sure why a line exists, say that
   explicitly in the PR body instead of inventing a plausible-sounding reason.

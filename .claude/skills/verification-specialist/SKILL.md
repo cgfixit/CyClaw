@@ -34,16 +34,13 @@ You will receive: the original task description, files modified, the approach th
 
 Select the verification strategy that fits the type of change. Every strategy listed below must be in your repertoire:
 
-- **Frontend / UI:** Start the dev server. Use browser automation to navigate pages, click interactive elements, and fill forms. Curl subresources (JS bundles, CSS, images) to confirm they load — HTML can return 200 while every resource it references fails. Run the project's test suite.
-- **Backend / API:** Start the server. Curl each relevant endpoint. Inspect response status codes, headers, and body shapes. Deliberately send bad input to exercise error-handling paths.
-- **CLI / script:** Execute the tool with representative arguments. Examine stdout, stderr, and exit codes. Feed it edge-case inputs (empty, very large, malformed).
-- **Infrastructure / config:** Validate file syntax. Perform dry-run commands where available (terraform plan, kubectl diff, docker build --check, nginx -t).
-- **Library / package:** Build the artifact. Run the test suite. Import the package from a fresh, isolated context. Confirm that exported types and interfaces match what the documentation promises.
-- **Bug fixes:** Reproduce the original bug first. Confirm the fix resolves it. Run regression tests. Check for unintended side effects in adjacent functionality.
-- **Mobile:** Perform a clean build. Launch in a simulator or emulator. Dump the accessibility or UI tree using accessibility tree dump tools (e.g. idb ui describe-all, uiautomator dump), find elements by label, tap by coordinates, re-dump to confirm. Check crash logs.
-- **Data / ML:** Run a sample input through the pipeline. Verify output shape, schema, and value ranges. Test with empty inputs, null values, NaN, and confirm row or record counts.
-- **Database migrations:** Run the migration up. Verify the resulting schema matches expectations. Run the migration down. Test against existing seed or fixture data.
-- **Refactoring:** The existing test suite must pass without modification. Diff the public API surface to confirm nothing was unintentionally changed. Spot-check key behaviors end-to-end.
+- **Backend / API (gate.py, the route modules):** Start the server (`driver.sh serve`). Curl each relevant endpoint. Inspect response status codes, headers, and body shapes. Deliberately send bad input to exercise error-handling paths.
+- **Console (static/terminal.html + its JS):** Curl the subresources too — HTML can return 200 while every script it references fails; `terminal_emulation.py` walks the console's own fetch lifecycle.
+- **CLI / script (`python -m …`, the skill checkers, the shell launchers):** Execute with representative arguments. Examine stdout, stderr, and exit codes (they are an API here). Feed edge-case inputs (empty, very large, malformed).
+- **Config / workflows / Docker:** Validate syntax (`config-guard`, `actionlint`, `docker compose config`) and dry-run where a dry-run exists.
+- **Bug fixes:** Reproduce the original bug first. Confirm the fix resolves it. Run the covering test file. Check for unintended side effects in adjacent functionality.
+- **Retrieval / data:** Run a sample query through the pipeline (`index-doctor`, `ci_rag_smoke`). Verify shapes, score ranges and provenance. Test empty and malformed inputs.
+- **Refactoring:** The existing tests must pass without modification. Diff the public API surface to confirm nothing was unintentionally changed. Spot-check key behaviors end-to-end.
 - **Anything else:** (a) Exercise the change directly by running it. (b) Inspect the outputs it produces. (c) Actively attempt to make it fail.
 
 Required universal steps — execute these regardless of change type:
@@ -92,21 +89,10 @@ Every verification step must follow this exact format:
 **Output observed:** [actual terminal output, copy-pasted verbatim — never paraphrased]
 **Result: PASS** (or **FAIL** with Expected vs Actual)
 
-Bad example (this will be rejected):
-### Check: API returns correct data
-**Command run:** (reviewed the handler source code)
-**Output observed:** The logic appears correct
-**Result: PASS**
-This contains no executed command and no real output. It proves nothing.
-
-Good example (this is acceptable):
-### Check: API returns correct data
-**Command run:** `curl -s http://localhost:3000/api/users/1 | jq .`
-**Output observed:**
-```json
-{ "id": 1, "name": "Alice", "email": "alice@example.com" }
-```
-**Result: PASS** — response contains expected fields with valid values.
+A check whose "Command run" is "(reviewed the source)" and whose output is
+"the logic appears correct" is rejected: no command, no output, no proof.
+Acceptable is `curl -s http://127.0.0.1:8787/health` with the JSON it
+returned pasted verbatim and a one-line reading of it.
 
 End your report with exactly one of the following verdict lines:
 
