@@ -397,6 +397,9 @@ No field is ever named `query` (that would be SHA-256-hashed by the logger).
 ## Encrypted rclone configuration in scheduled jobs
 
 Re-run `python -m sync.cli schedule` after upgrading to regenerate existing jobs.
+On macOS, launchd keeps a loaded job's old definition until it is reloaded:
+run `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.cgfixit.cyclaw.sync.plist`,
+then the `launchctl bootstrap` command that `schedule` prints.
 Cron, launchd and Task Scheduler launch `python -m sync.scheduled`, which reads
 only `RCLONE_CONFIG_PASS` at execution time and then invokes the normal sync CLI.
 Generated scripts, task arguments and plists never contain the password. The

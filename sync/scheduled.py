@@ -98,7 +98,13 @@ def main(argv: list[str] | None = None) -> int:
             from utils.logger import _get_config
 
             parsed = build_parser().parse_args(args)
-            load_sync_config(parsed.config)  # normalize malformed/config errors before environment changes
+            # Normalize malformed/config errors before environment changes.
+            if not getattr(load_sync_config(parsed.config), "enabled", True):
+                # sync.enabled: false (the shipped default) must stay a clean
+                # exit-0 no-op; a locked or unreadable keystore is irrelevant.
+                from sync.cli import main as sync_main
+
+                return sync_main(args)
             config = _get_config(parsed.config) or {}
             path_names = configured_path_names(config.get("sync"))
         env = prepare_environment(path_names)

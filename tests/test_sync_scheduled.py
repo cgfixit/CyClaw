@@ -105,3 +105,21 @@ def test_windows_reads_only_unique_disposable_credential():
     finally:
         assert api.CredDeleteW(target, 1, 0), ctypes.get_last_error()
     assert scheduled._windows_password(target) is None
+
+
+def test_disabled_sync_skips_the_keystore(tmp_path, capsys):
+    from utils.logger import reset_config_cache
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        'sync:\n  enabled: false\n  local_path: "data/corpus"\n'
+        '  remote_name: "dropbox_cyclaw"\n  remote_path: "CyClaw/corpus"\n'
+    )
+    reset_config_cache()
+    try:
+        with patch.object(scheduled, "prepare_environment", side_effect=AssertionError("must not read keystore")):
+            assert scheduled.main(["--config", str(config), "sync"]) == 0
+        assert "nothing to do" in capsys.readouterr().out
+    finally:
+        reset_config_cache()
+
