@@ -1,8 +1,10 @@
 ---
 name: cyclaw-advisor
-description: Give read-only, source-backed CyClaw architecture, operations, and PR advice; inspect current code before describing routing, auth, retrieval, local models, or optional layers.
+description: Read-only CyClaw architecture and operations advisor for origin/main 6902d39a (2026-10-13). High-signal since 3fe82170 (2026-10-12 / #1619) — #1637 completed the telemetry/egress inventory: fail-closed on missing kill block, full spawn-site table covering PowerShell/pip/brew/git-remote (cat-3), agent-tooling boundary for .claude/, OLLAMA_HOST pinning, secret-env wrappers. Docs resyncs (#1643/#1645) corrected I6/harness drifts and checker skill claims. Graph still 12 nodes.
 metadata:
-  short-description: Current CyClaw architecture and operations advice
+  short-description: Current-main CyClaw architecture and operations advisor
+  recorded-head: 6902d39a0277c2f8a3d226b7034823103b57383c
+  recorded-date: "2026-10-13"
 ---
 
 # CyClaw Advisor
@@ -14,6 +16,16 @@ out that authorized work using the relevant implementation workflow.
 Record the inspected base/head SHA. Fetch current main for repository/PR advice;
 for runtime troubleshooting distinguish the running checkout and operator config
 from upstream defaults. List open PRs before recommending overlapping work.
+
+This file was refreshed against `origin/main` `6902d39a` on 2026-10-13. It is a
+routing aid, not an authority snapshot. Code and `config.yaml` still win.
+
+## Latest merges into origin/main
+
+- 6902d39a (2026-10-13, #1645): Docs resync of knowledge/session skills; privacy verify.sh now checks shipped config.yaml posture; CyClaw-Sandbox reconciled (5 ladders, I6 core six, etc.).
+- 659d9109 (2026-10-13, #1643): Checker skills resync (invariant-guard 46 assertions, dep-guard, config-guard, etc.); install hints point at hashed locks / driver.sh.
+- ee7b6a34 et al. (2026-10-13, #1637 series): Telemetry inventory completion — fail-closed kill block, full spawn-site table (PowerShell probes, pip/brew/git-remote as category-3, secret-env wrappers, agent-tooling boundary excluding most .claude/), OLLAMA_HOST pin on all client calls, evidence path bounds.
+- 3fe82170 (2026-10-12, #1619): Removed dead tool_broker name-gate, Phase 3+ stubs, tool-call metrics, and test-only executor exports.
 
 ## Request path
 

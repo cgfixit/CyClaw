@@ -11,7 +11,7 @@ instead of copying dependency pins or hardware assumptions into new guidance.
 | macOS dotenv | `macos/invoke-cyclaw.sh`, `setup-from-clone.sh`, `setup-cyclaw.sh`: BSD `/usr/bin/stat`, mode 600/400, source-status fallback, restore allexport. |
 | Windows launcher | `powershell/`, Windows installer jobs in `ci.yml`. PowerShell 5.1 must be tested natively; Git Bash does not prove that contract. |
 | Executor sandbox | `agentic/executor/hard_sandbox.py`: Darwin Seatbelt, Linux bubblewrap netns; Windows is unsupported and `production_sandbox()` refuses it, as it does any missing capability. Verify actual platform probes before claiming enforcement. |
-| Telemetry | `utils/telemetry_kill.py`, `utils/onnx_telemetry.py`, maintained otel checker. Pre-import environment suppression plus ONNX load seams; not a firewall. |
+| Telemetry | `utils/telemetry_kill.py`, `utils/onnx_telemetry.py`, maintained otel checker. Pre-import environment suppression plus ONNX load seams; not a firewall. Inventory (as of 6902d39a) fully sites spawn points across Python/shell/PowerShell and classifies install-time package-index downloads (pip/brew/uv) and git-remote as category-3 functional egress; fail-closed on missing kill block for telemetry-capable binaries. |
 
 Production executor verification must not fall back to the test-only
 `ArgvListSandbox` or an unconstrained subprocess. Windows process-tree controls
