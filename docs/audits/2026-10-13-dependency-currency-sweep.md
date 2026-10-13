@@ -10,14 +10,14 @@ not a sweep output.
 ## Summary
 
 ```
-Verify Deps: 47 packages checked | 25 behind latest | 2 packages with advisories on the pin (both already documented in SECURITY.md) | 0 install-surface failures
+Verify Deps: 48 packages checked (47 from the install surfaces + the build backend) | 26 behind latest | 2 packages with advisories on the pin (both already documented in SECURITY.md) | 0 install-surface failures
 dep-guard:            PASS (D1-D11, 0 failures, 0 warnings)
 requirements.txt drift: none (requirements.txt + requirements-test.txt <-> constraints.txt agree)
 Env drift (E1-E7):    0 failure(s), 0 warning(s) - no E3 undeclared imports
 Lock contract:        scripts/check_lock_contract.py passed
 Lock <-> manifest:    all 25 lock files agree with constraints.txt on every shared pin (+cpu local tag ignored)
 Install surfaces dry-run: local-dev=unverified* legacy-CI=unverified* Dockerfile=unverified* hashed-locks(runtime)=conditional** hashed-locks(test)=PASS wheel-build=PASS conda=not dry-run-verified compose=PASS (docker compose config --quiet)
-Currency:             19 current | 18 runtime bump candidates (needs review; the pydantic pair counts as two rows, one decision) | 1 test-only bump candidate | 2 dev-tool bump candidates | 7 documented or compatibility-blocked exceptions
+Currency:             19 current | 18 runtime bump candidates (needs review; the pydantic pair counts as two rows, one decision) | 1 test-only bump candidate | 2 dev-tool bump candidates | 1 build-tool bump candidate (`hatchling`, from `[build-system].requires`, which `extract_pins.py` does not read) | 7 documented or compatibility-blocked exceptions
 Verdict:              no fixes applied; findings for review below
 ```
 
@@ -79,6 +79,7 @@ Conda-only names (`pytorch`, `python-tzdata`) are omitted.
 | `fastapi` | 0.141.1 | 0.143.0 | bump candidate (runtime, needs review) |  |
 | `google-re2` | 1.1.20251105 | 1.1.20251105 | current |  |
 | `httpx` | 0.28.1 | 0.28.1 | current |  |
+| `hatchling` | 1.32.0 | 1.32.4 | bump candidate (build tool) | `[build-system].requires` only — not read by `extract_pins.py`; no advisories on either version |
 | `huggingface-hub` | 1.32.0 | 2.2.0 | compatibility-blocked exception | `sentence-transformers==6.1.0` requires `huggingface-hub<2.0.0,>=1.3.0` (PyPI metadata); a standalone 2.x bump cannot resolve |
 | `jmespath` | 1.1.0 | 1.1.0 | current |  |
 | `langchain` | 1.4.2 | 1.4.5 | bump candidate (runtime, needs review) |  |
@@ -191,17 +192,16 @@ Then CI's four test legs.
    metadata adds `opentelemetry-api>=1.44.0` as an **unconditional**
    dependency (0.141.1 declares no OpenTelemetry package at all; the SDK and
    the OTLP HTTP exporter arrive behind its `opentelemetry`/`standard`/`all`
-   extras, which CyClaw does not install). That puts a new
-   telemetry-capable transitive on the base install path, so the bump needs
-   the `otel-hardening` classification pass (`check_otel.py` already lists
-   `opentelemetry-sdk` among its transitive vendors to report), an exact
-   `opentelemetry-api` pin in `constraints.txt` on the same ground the file's
-   header gives for the pydantic family and torch — it pins direct
-   dependencies plus *selected critical* transitives and leaves complete
-   transitive reproducibility to the hashed locks, so a telemetry-capable
-   package newly on the base path qualifies as a selected constraint, while
-   ordinary new transitives simply ride the regenerated locks (no checker
-   decides this; it is a review judgement) — then the locks regenerated and
+   extras, which CyClaw does not install). That package is **not** new to
+   the base install: every runtime lock already carries `opentelemetry-api`,
+   `opentelemetry-sdk`, and the OTLP gRPC exporter at 1.45.0 through
+   `chromadb`, and the kill map already sets `OTEL_SDK_DISABLED` (plus the
+   Chroma-specific switch). What is new is a dependency edge: FastAPI itself
+   starts importing the OTel API. So the bump needs an `otel-hardening`
+   source review of *how* FastAPI 0.143.0 uses that API — whether the
+   existing `OTEL_SDK_DISABLED` suppression and `check_otel.py`'s
+   classification still cover it — and no new hand-maintained constraint
+   (the stack rides the regenerated locks as it does today); then
    `test_gate`/`test_terminal_contract` in CI.
 3. **`huggingface-hub` 1.32.0→2.2.0 — blocked, not a candidate.**
    `sentence-transformers==6.1.0` declares `huggingface-hub<2.0.0,>=1.3.0`, so
@@ -234,8 +234,12 @@ Then CI's four test legs.
    every other site that hard-codes `0.24.0`. That inventory is the output
    of `git grep -nF '0.24.0' -- ':!locks'` (tracked files only — a bare
    `grep -rn` also walks ignored `logs/`, `data/`, and venvs and would print
-   whatever line matched), not a list to copy; on
-   2026-10-13 it returned, besides the five manifests, these fail-closed
+   whatever line matched) — as **discovery**, not the edit set: the bare
+   string also matches the unrelated `trl<=0.24.0` bound in
+   `tools/lora_finetune/requirements.txt` and every dated snapshot under
+   `docs/audits/` (this report included), so filter each hit by package
+   context and leave historical audits as they are. On 2026-10-13, filtered,
+   it returned, besides the five manifests, these fail-closed
    sites: `guardrails/verify_install.py` (raises unless exactly 0.24.0),
    `dep-guard` D11 and its `verify.sh` fixture (`nemoguardrails==0.24.0`
    once per install surface), `ci.yml`'s wheel-packaging metadata assert,
@@ -244,7 +248,10 @@ Then CI's four test legs.
    against the real install; plus one message string in
    `guardrails/integration.py` and five docs (`README.md`,
    `guardrails/README.md`, `docs/NeMo/README.md`, `docs/DOCKER.md`,
-   `setup-guide.md`) that `doc_sync.py` would flag. All move in the same
+   `setup-guide.md`). `doc_sync.py` has no dependency-version check (D1–D13
+   cover skills, config values, routes, graph counts, and README paths), so
+   those five are updated by hand and verified by re-running the same
+   version search until only historical audits match. All move in the same
    commit as the pin; then `guardrails.verify_install`),
    `pendulum` 3.2.0→3.3.0, `pgvector` 0.5.0→0.5.1, `wcmatch` 11.0→11.1.
    Those three are **not** in `LAST_VERIFIED_VENDOR_PINS`, so
@@ -258,7 +265,10 @@ Then CI's four test legs.
    `tzdata` 2026.2→2026.5 (test-only surface, see above), `ruff`
    0.16.8→0.17.0 (`lint.yml:84` names the version in a comment E1 does not
    check against the manifests — update it by hand),
-   `mypy` 2.3.0→2.4.0.
+   `mypy` 2.3.0→2.4.0, and `hatchling` 1.32.0→1.32.4 (build backend:
+   `pyproject.toml` `[build-system].requires` only, outside every install
+   surface and every lock, so no lock refresh — the wheel-packaging CI job
+   is its only exercise).
 
 Deliberately not recommended: `torch` 2.13.0→2.14.1 (CPU wheel pin across
 `pyproject.toml`, `constraints.txt`, and `environment.yml` — **never**

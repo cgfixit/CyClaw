@@ -463,7 +463,7 @@ delegates Step 1 to it rather than duplicating it).
 - **The Step 6 bump recipe is a set of claims; derive each from a checker,
   not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
   *measured* row of the sweep report survived review, while the "how to
-  bump" prose took twenty-five correct Codex findings across seven passes. Each one
+  bump" prose took twenty-nine correct Codex findings across eight passes. Each one
   had a file that would have caught it first: a package's files-to-edit are
   exactly the non-empty columns of its `extract_pins.py` row (extras-only
   and constraints-only packages never enter `requirements.txt` or
@@ -483,7 +483,11 @@ delegates Step 1 to it rather than duplicating it).
   written from memory: `git grep -nF '<version>' -- ':!locks'` on the bare
   version string over tracked files (never a bare `grep -rn`, which walks
   ignored `logs/`, `data/`, and venvs and prints whatever line matched,
-  so audit or query content could land in a transcript or report), because the string appears in
+  so audit or query content could land in a transcript or report) — and
+  that output is **discovery**, not the edit set: `0.24.0` also matches
+  `trl<=0.24.0` in `tools/lora_finetune/requirements.txt` and every
+  dated `docs/audits/` snapshot, so filter each hit by package context and
+  never rewrite a historical audit; because the string appears in
   forms a `<package>==` grep misses — `torch-cpu-2.13.0-` cache keys in
   `ci.yml`/`pip-audit.yml`/`nemo-guardrails.yml` (the reason `dep-guard`
   D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
@@ -502,13 +506,17 @@ delegates Step 1 to it rather than duplicating it).
   the `nemo_runtime` test, the `ruff==0.16.8` *comment* in `lint.yml`
   (E1 compares workflow pins only with each other, so it never flags that
   comment against the manifests), and five
-  docs `doc_sync.py` would flag. A new transitive is part of the same
-  check: read the bumped package's `requires_dist` on PyPI (`fastapi`
-  0.143.0 adds an unconditional `opentelemetry-api`, which needs an
-  `otel-hardening` classification before it reaches the base install and
-  earns a `constraints.txt` pin only as a *selected* critical transitive —
-  the file pins direct deps plus selected transitives and leaves the rest
-  to the hashed locks, so there is no "pin every new transitive" rule); a
+  docs that `doc_sync.py` does **not** check (it has no dependency-version
+  rule), so they are fixed by hand and re-verified by the search. A new
+  dependency edge is part of the same check, in two steps: read the bumped
+  package's `requires_dist` on PyPI, then grep the runtime lock before
+  calling anything "new" (`fastapi` 0.143.0 adds an unconditional
+  `opentelemetry-api`, but `opentelemetry-api`/`-sdk`/the gRPC exporter were
+  already in every runtime lock via `chromadb` and already under
+  `OTEL_SDK_DISABLED`, so the review is of FastAPI's *use* of an installed,
+  suppressed stack — not a new package, and not a new `constraints.txt`
+  line); and `extract_pins.py` reads `[project]` tables only, so
+  `[build-system].requires` (`hatchling`) is checked by hand; a
   major bump needs the dependents' `requires_dist` read on PyPI first
   (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
   "candidate" cannot resolve and is an exception); `check_lock_contract.py`
