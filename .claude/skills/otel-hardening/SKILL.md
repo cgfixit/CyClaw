@@ -31,7 +31,7 @@ these values silence vendor telemetry readers; they do not close sockets.
 
 | Piece | File | What |
 |---|---|---|
-| Canonical maps | `utils/telemetry_kill.py` | `TELEMETRY_KILL` (21) + `UPDATE_CHECK_OPT_OUT` (4, ancillary — never counted as telemetry) + `SCRUBBED_ENV_KEYS` (5 tracing credentials/destinations + `OTEL_CONFIG_FILE`/`OTEL_EXPERIMENTAL_CONFIG_FILE`, removed outright because declarative OTel config outranks the SDK-disable values) |
+| Canonical maps | `utils/telemetry_kill.py` | `TELEMETRY_KILL` (21) + `UPDATE_CHECK_OPT_OUT` (4, ancillary — never counted as telemetry) + `SCRUBBED_ENV_KEYS` (5 tracing credentials/destinations + `OTEL_CONFIG_FILE`/`OTEL_EXPERIMENTAL_CONFIG_FILE`, removed outright because declarative OTel config outranks the SDK-disable values). `CONTRACT_DIGEST` pins the SHA-256 of all three; `verify_telemetry_contract()` runs at `gate.py` import and refuses to boot on a mismatch (issue #1255) |
 | Pure child builder | same | `build_telemetry_safe_env(base)` — copy, overlay, scrub; shares the `_enforce` core with `apply_telemetry_kill()` so parent/child cannot drift; `scheduler_env_overlay()` for generated jobs; `python -m utils.telemetry_kill --export {shell,powershell}` for launchers |
 | ONNX API half | `utils/onnx_telemetry.py` | `suppress_onnx_telemetry()` — getattr-guarded, idempotent, absent-safe; called at `retrieval/vector_store.py` (both chromadb client sites) and `guardrails/integration.py` (`force_import=True` before `LLMRails`) |
 | Conditional HF pair | `retrieval/embeddings.py` | `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` only once the model is confirmed cached — never unconditional |
@@ -91,9 +91,12 @@ these values silence vendor telemetry readers; they do not close sockets.
 4. **Close a real gap** (additive, low-risk only): update BOTH copies of the
    contract — `utils/telemetry_kill.py` AND `check_otel.py`'s oracles — plus
    the reference `.env`, `tests/test_telemetry_kill.py`'s independent
-   `_EXPECTED_*` literals, Dockerfile/compose, and the inventory row
-   (`reviewed` date, evidence) in the SAME commit. Add a verify.sh mutation
-   for any new rule. Then re-run steps 1–2 and
+   `_EXPECTED_*` literals (including `_EXPECTED_CONTRACT_DIGEST`),
+   Dockerfile/compose, and the inventory row (`reviewed` date, evidence) in
+   the SAME commit. Any map change also needs `CONTRACT_DIGEST` recomputed
+   (`python -c "from utils.telemetry_kill import contract_digest; print(contract_digest())"`),
+   or the gateway refuses to boot. Add a verify.sh mutation for any new rule.
+   Then re-run steps 1–2 and
    `GROK_API_KEY=dummy pytest tests/test_telemetry_kill.py tests/test_telemetry_env_delivery.py tests/test_onnx_telemetry.py tests/test_reference_env.py -q`.
 
 5. **Classify anything new; retire anything gone.** A new dependency,
@@ -104,19 +107,85 @@ these values silence vendor telemetry readers; they do not close sockets.
    `KNOWN_EXTERNAL_COMPONENTS` — so a new `subprocess` spawn site must add
    its binary there AND alias it (the 2026-09-28 sweep found nine spawned
    binaries — `launchctl`, `crontab`, `schtasks`, `cmd.exe`, `unshare`,
-   `sandbox-exec`, `xdg-open`/`open`/`explorer` — that had never been listed).
+   `sandbox-exec`, `xdg-open`/`open`/`explorer` — that had never been listed;
+   the 2026-10-13 re-sweep found `security`, the macOS Keychain CLI that
+   `sync/scheduled.py` began spawning in PR #1632 two weeks after that sweep —
+   a grep for literal first-argv strings misses a site like it, so sweep with
+   an AST walk over every `subprocess.*` call and resolve each non-literal
+   first element by hand — and then sweep the non-Python launch surfaces the
+   AST cannot see: the maintained `macos/*.sh`, `scripts/*.sh`,
+   `powershell/*.ps1`, the Dockerfile/compose command lines and the
+   `.claude/skills/*/driver.sh` helpers, grepping each for executed binaries.
+   `brew`, two of the three `uv` sites and the Keychain scripts' `security`
+   live only there). Every fixed binary in `KNOWN_EXTERNAL_COMPONENTS` also
+   needs a `FIXED_LAUNCHER_SITES` row naming its file and a source marker
+   that exists only while that file still launches it: the invocation line
+   itself (the argv literal or the shell command), never only a default
+   parameter, a `shutil.which()` lookup or an env override, all of which
+   outlive the call (a shell or PowerShell file is a fine site: the marker
+   is a text match); a service CyClaw fronts but never spawns goes in
+   `FRONTED_SERVICES` with the reason, and "never spawned" has to survive
+   the shell sweep too (`ollama serve` in the setup script took it out of
+   that table). A shell site that runs a telemetry-capable binary must
+   also eval the canonical `--export shell` block first, as
+   `invoke-cyclaw.sh` and `setup-from-clone.sh` do; pin that eval line as
+   one of the site's markers.
+   T13 warns when a marker disappears and fails when a known binary has no
+   site row at all, so a retired binary can no longer stay "classified".
    Python dependencies are read from `project.dependencies`, every
    `optional-dependencies` group, AND `[build-system].requires` (the build
    backend is an install surface too; it was skipped until PR #1502). A spawn
    site whose executable is chosen at run time (the pre-action hook's
-   `command` engine, the executor's caller-declared checks) cannot be named
-   by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the source
-   marker that proves it spawns, and its row describes the surface and the
-   gate around it, never a binary. The reverse holds too: when a pin or spawn
-   site is removed, delete its alias and row (the `uv` precedent — T13 warns
-   when a dynamic site loses its marker), and keep each row's `versions` text
+   `command` engine, the executor's caller-declared checks, the
+   secret-injecting exec wrappers `cyclaw-keychain-env.sh` and
+   `CyClaw-CredMan-Env.ps1` that run whatever follows their `--`) cannot be
+   named by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the
+   source marker that proves it spawns (the `exec "$@"` / `& $exe @exeArgs`
+   line, not the usage text), and its row describes the surface and who
+   supplies the argv, never a binary. The reverse holds too: when a pin or spawn
+   site is removed, delete its site row, alias and inventory row (the `uv`
+   precedent — T13 now warns when a fixed or dynamic site loses its marker;
+   and when the binary comes back, as `uv` did in PR #1572, the rows come
+   back with it), and keep each row's `versions` text
    in step with the pins so T13's "classified" never means "classified
    against a version nobody ships". Categories:
+   **Boundary (owner decision, PR #1637):** agent tooling under `.claude/`
+   is out of the inventory. The session hooks, the skills' verify and
+   bootstrap helpers and the `babysit-github-pr` gh wrappers run on the
+   agent's machine or sandbox, outside the gateway's process tree; their
+   gh/git calls are not findings and get no rows. The two exceptions are
+   the sandbox surfaces that exercise the gateway itself, listed in
+   `SWEPT_AGENT_SURFACES` (`cyclaw-gotchas/driver.sh` and
+   `CyClaw-Sandbox/`); T13 fails a `.claude/` site row outside them.
+   A row's `url` is its evidence source: an `https://` vendor page, or a
+   repo-relative path that must exist (T13 fails the schema otherwise).
+   Every site row path and every repo-relative `url` must be a clean
+   relative path (no leading `/`, no `.`/`..` component, no doubled
+   separator) that resolves inside the repository; T13 fails the row
+   before the boundary prefix test or any marker read trusts it, so
+   `.claude/skills/CyClaw-Sandbox/../../hooks/x` cannot smuggle a hook in.
+   A pip call site is classified `pip-install` and its row says per site
+   whether the calling shell exported the canonical block first (the two
+   operator installers do, immediately before their pip calls) or runs pip
+   ambient (the Dockerfile build stage, the sandbox and venv driver).
+   The shell sweep is token-level, not name-level: take the first word of
+   every command position (after `if`, `!`, `command -v`, `|`, `&&`, `$(`
+   and leading `VAR=value` assignments) in every in-boundary `.sh`, the
+   Dockerfile's `RUN` lines and the compose file, drop shell builtins,
+   coreutils and the file's own functions, and classify what is left.
+   `expect`, `osascript`, `pbcopy`, `lsof`, `sw_vers`, `secret-tool` and the
+   Dockerfile's `apt-get` / `useradd` were all missed by name-level greps
+   until PR #1637's eleventh round. A binary whose *path* an environment
+   variable overrides (`UV_BIN`, `COMSPEC`, `CYCLAW_SECRET_TOOL`) is still a
+   fixed component: the operator picks where the same program lives, not
+   which program runs (owner decision on `UV_BIN`, PR #1637). Only a site
+   that execs a caller-supplied *command* is dynamic. When one binary's
+   calls differ in kind (gh's telemetry versus its `auth` / `pr` traffic,
+   git's local subcommands versus clone/pull/push), each kind gets its own
+   row and component, sited on the same files.
+   One binary can need two rows when its calls differ in kind: `ollama
+   serve` is the category-4 daemon, `ollama pull` is category-3 registry
+   egress, so the pull is its own `ollama-pull` component and site.
    1 unsolicited telemetry with an official control (control pairs must exist
    in the oracles — never invent one) · 2 ancillary update/version-check
    egress · 3 intentional policy-gated functional egress (controls stay
@@ -127,16 +196,13 @@ these values silence vendor telemetry readers; they do not close sockets.
    category 4 — stdlib-only, so T13's dependency discovery never sees it; a
    first-party connector like this needs its row added by hand.
 
-## Guardrails (restating the invariants this skill touches)
+## Guardrails
 
-- **G1 ordering is wiring, not style**: `gate.py`'s `_TELEMETRY_KILL =`
-  assignment name/position is an invariant-guard AST anchor; every entry
-  point applies the kill before heavy imports. `utils/telemetry_kill.py`
-  stays **stdlib-only** — never import onnxruntime (or anything heavy) there;
-  the API half lives in `utils/onnx_telemetry.py` at the seams.
-- **I6 module isolation** is untouched by this skill: the kill module is
-  shared `utils/`, imported by both core and out-of-band packages; never make
-  it import `agentic/`/`sync/`/`guardrails/`/`telegram/`/`opentweet/`.
+- `utils/telemetry_kill.py` stays **stdlib-only** — never import onnxruntime
+  (or anything heavy) there; the API half lives in `utils/onnx_telemetry.py`
+  at the seams. Its `_TELEMETRY_KILL =` anchor in `gate.py` and the G1
+  ordering are `invariant-guard`'s to check (CLAUDE.md §3), and the kill
+  module never imports an out-of-band package (I6).
 - **I3 and the egress classification**: category-3 traffic (cloud fallbacks,
   channels, sync) is gated by CyClaw policy — never "fix" it with the kill
   map, and never weaken a gate to make a kill var simpler.
@@ -176,8 +242,8 @@ these values silence vendor telemetry readers; they do not close sockets.
   re-applied there (`build_telemetry_safe_env`), or children run
   telemetry-live.
 - **verify-skills CI is `continue-on-error`** — a red check_otel/verify.sh leg
-  does not block a merge; only invariant-guard does. Treat a red leg as real
-  work anyway.
+  does not block a merge; the blocking skill jobs are `invariant-guard`,
+  `doc-sync` and `dotenv-guard`. Treat a red leg as real work anyway.
 - The `--export` eval in the launchers is positioned AFTER the `.env`
   sourcing on purpose: canonical values must overwrite a hostile dotenv, the
   same overwrite semantics `apply_telemetry_kill()` has in-process.

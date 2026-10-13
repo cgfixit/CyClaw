@@ -166,6 +166,21 @@ if [ "$SKIP_PYTHON_DEPS" -eq 0 ]; then
       exit 1
     fi
   fi
+  # Canonical telemetry/update-check block, exported into THIS shell before
+  # the pip calls below so they inherit PIP_DISABLE_PIP_VERSION_CHECK (and the
+  # rest of the map) instead of whatever the operator's shell carries: pip's
+  # periodic PyPI version check is the one egress it adds beyond the hashed
+  # downloads themselves. utils/telemetry_kill.py renders the lines; nothing
+  # here hand-copies a key. -S -E: the helper interpreter runs no site init
+  # and ignores ambient PYTHONPATH. Non-fatal: pip carries no telemetry, the
+  # version check is a category-2 update check, and every Python entry point
+  # re-applies the block at import, so a missing block warns and continues.
+  if _kill_env="$(cd "$REPO_DIR" && "$VENV_PY" -S -E -m utils.telemetry_kill --export shell 2>/dev/null)"; then
+    eval "$_kill_env"
+    step "telemetry-kill block exported for the pip installs"
+  else
+    warn "could not export the telemetry-kill block; pip runs with the ambient environment (its PyPI version check may fire)"
+  fi
   step "installing dependencies (torch first, then requirements; this can take a few minutes)"
   # Match ci.yml's exact pip pin (CVE/repro); never float to latest on installers.
   "$VENV_PY" -m pip install --upgrade "pip==26.2.1" >/dev/null

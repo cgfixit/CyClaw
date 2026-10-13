@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import posixpath
 import re
 import sys
 from datetime import date
@@ -248,9 +249,12 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "env before import (PostHog + OTel latch at import/construction); "
                        "Settings(anonymized_telemetry=False) hardcoded at both PersistentClient sites",
         "scope": "gate / mcp / indexer / clear_cache via retrieval/vector_store.py chokepoint",
-        "reviewed": "2026-08-27",
+        "reviewed": "2026-10-13",
         "evidence": "otel_init() early-return on granularity none confirmed in installed 1.5.9 "
-                    "(telemetry/opentelemetry/__init__.py); OTEL_SDK_DISABLED is the outer layer",
+                    "(telemetry/opentelemetry/__init__.py); OTEL_SDK_DISABLED is the outer layer. "
+                    "Re-read at the 1.5.9 tag 2026-10-13: Settings is a pydantic-settings BaseSettings with "
+                    "no env_prefix (field name == env name, case-insensitive) and env_file='.env' -- "
+                    "os.environ outranks the dotenv, so the pre-import overlay still wins; names unchanged",
     },
     {
         "name": "langchain/langsmith tracing", "category": 1,
@@ -262,12 +266,18 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "env before import (get_env_var lru_cache latches); 5 credential/destination "
                        "names popped; upload attempted even with no API key, so the pop alone is not enough",
         "scope": "every graph invocation",
-        "reviewed": "2026-09-21",
+        "reviewed": "2026-10-13",
         "evidence": "precedence LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING > "
                     "LANGCHAIN_TRACING re-confirmed in installed langsmith 0.13.0 (tracing_is_enabled() "
                     "-> get_env_var(\"TRACING_V2\", default=get_env_var(\"TRACING\")) in utils.py, refactored "
                     "from the old flat check but identical env-var precedence); langchain/langchain-core/"
-                    "langgraph carry no telemetry of their own (see LAST_VERIFIED_VENDOR_PINS comment)",
+                    "langgraph carry no telemetry of their own (see LAST_VERIFIED_VENDOR_PINS comment). "
+                    "2026-10-13 re-read of installed 0.13.0: the newer LANGSMITH_TRACING_MODE / legacy "
+                    "OTEL_ENABLED / OTEL_ONLY names (client.py _resolve_tracing_mode) only pick a destination "
+                    "for runs that tracing_is_enabled() already admits (run_helpers.py and "
+                    "langchain_core/tracers/context.py gate on it first), so no new kill pair is owed; "
+                    "LANGSMITH_RUNS_ENDPOINTS is now parsed as write replicas in run_trees.py -- still a "
+                    "fan-out destination, still scrubbed",
     },
     {
         "name": "langgraph-cli analytics", "category": 1,
@@ -297,9 +307,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "versions": "==0.24.0 (required base dependency; layer enabled by default)",
         "enforcement": "env before import (guardrails/__init__.py and guardrails/integration.py both apply "
                        "ahead of the soft nemoguardrails import)",
-        "scope": "required guardrails engine", "reviewed": "2026-08-27",
-        "evidence": "telemetry.py:372-374 in installed 0.24.0 honors both names; sink is "
-                    "events.telemetry.data.nvidia.com",
+        "scope": "required guardrails engine", "reviewed": "2026-10-13",
+        "evidence": "telemetry.py:372-374 in installed 0.24.0 honors both names ('1'/'true', case-insensitive); "
+                    "sink is events.telemetry.data.nvidia.com (re-read at the v0.24.0 tag and in the installed "
+                    "package 2026-10-13: unchanged)",
     },
     {
         "name": "onnxruntime", "category": 1,
@@ -315,10 +326,14 @@ INVENTORY: tuple[dict[str, object], ...] = (
                        "an init-time event, and absolute suppression needs a --no_telemetry private build. "
                        "ORT_TELEMETRY_OPT_OUT is an inert legacy marker, not protection.",
         "scope": "chromadb default-EF path (never invoked -- precomputed vectors) + fastembed under live NeMo",
-        "reviewed": "2026-09-11",
+        "reviewed": "2026-10-13",
         "evidence": "disable_telemetry_events verified callable in installed 1.30.0 (2026-09-11, on the pin bump "
-                    "from 1.29.0); v1.29.0 release notes + Privacy.md. Re-verify on every onnxruntime bump -- the "
-                    "API half of this control is only a getattr away from silently disappearing.",
+                    "from 1.29.0, and again 2026-10-13); v1.29.0 release notes + Privacy.md, re-read 2026-10-13: "
+                    "ORT_DISABLE_TELEMETRY=1 set ahead of runtime initialization is still the documented "
+                    "process-lifetime control for every 1DS build, the legacy Windows TraceLogging backend still "
+                    "ignores it, and the doc still warns a minimal init event may precede the API call. "
+                    "Re-verify on every onnxruntime bump -- the API half of this control is only a getattr "
+                    "away from silently disappearing.",
     },
     {
         "name": "opentelemetry sdk", "category": 1,
@@ -336,10 +351,18 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "controls": {"GH_TELEMETRY": "false"},
         "url": "https://cli.github.com/manual/gh_help_environment",
         "versions": "external binary >= 2.40 (agentic floor); telemetry shipped in 2.83",
-        "enforcement": "env forced at all three spawn sites (agentic/gh_client.py x2, agentic/writer.py) via "
-                       "build_telemetry_safe_env -- an ambient true/log can never reach a child",
-        "scope": "agentic read/write ops", "reviewed": "2026-08-27",
-        "evidence": "gh help environment documents GH_TELEMETRY true/false/log",
+        "enforcement": "env forced at all three Python spawn sites (agentic/gh_client.py x2, agentic/writer.py) "
+                       "via build_telemetry_safe_env -- an ambient true/log can never reach a child. The one "
+                       "shell site, macos/setup-from-clone.sh's `gh auth status`/`gh auth login` (step 6), "
+                       "evals the canonical `--export shell` block first since PR #1637, the same way "
+                       "invoke-cyclaw.sh does, and FAILS CLOSED: when that export cannot be produced the "
+                       "script skips step 6 entirely rather than run gh under the ambient environment. "
+                       "Both the eval line and the skip guard are FIXED_LAUNCHER_SITES markers",
+        "scope": "agentic read/write ops", "reviewed": "2026-10-13",
+        "evidence": "gh help environment documents GH_TELEMETRY true/false/log; re-read from cli/cli "
+                    "pkg/cmd/root/help_topic.go 2026-10-13: 'false' or '0' disables, 'log' prints to stderr "
+                    "instead of sending, and GH_TELEMETRY takes precedence over DO_NOT_TRACK (which the map "
+                    "also sets to 1), so the pair is doubly covered",
     },
     {
         "name": "powershell host telemetry", "category": 1,
@@ -349,8 +372,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "read ONCE at pwsh startup: the parent must carry it first. Delivered by the installed "
                        "cmd shim + profile function (before powershell launches) and by generated task .cmd "
                        "set-lines; setting it inside a running host cannot undo that host's startup event",
-        "scope": "CredMan task wrappers; operator launchers", "reviewed": "2026-08-27",
-        "evidence": "about_Telemetry documents startup-read semantics",
+        "scope": "CredMan task wrappers; operator launchers", "reviewed": "2026-10-13",
+        "evidence": "about_Telemetry documents startup-read semantics (the variable has to exist before the "
+                    "pwsh process starts; values true/yes/1). Re-read 2026-10-13 (PowerShell-Docs 7.5 "
+                    "about_Telemetry): unchanged; new since the last read is only that 7.5.7+ on Windows also "
+                    "honors the OS Diagnostics & feedback setting -- an additional opt-out, not a replacement",
     },
     {
         "name": "gh update notifiers", "category": 2,
@@ -464,13 +490,22 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "ollama daemon", "category": 4, "controls": {},
         "url": "https://docs.ollama.com",
-        "versions": "external daemon on 127.0.0.1:11434",
+        "versions": "external daemon on 127.0.0.1:11434. Never spawned by a runtime path; the interactive "
+                    "macos/setup-from-clone.sh may start `ollama serve` in the background (FIXED_LAUNCHER_SITES "
+                    "pins that line) under the canonical block that script evals first. The model pull the "
+                    "same script can run is registry egress and has its own category-3 row below",
         "enforcement": "CyClaw's own traffic is loopback inference only. The daemon's cloud/web features are "
                        "DAEMON policy CyClaw cannot set: local-only mode requires OLLAMA_NO_CLOUD=1 (or "
                        "disable_ollama_cloud) in the independently-running daemon's environment, then a "
                        "daemon restart -- document, don't claim",
-        "scope": "local LLM path", "reviewed": "2026-08-27",
-        "evidence": "no CyClaw-side switch exists for a foreign daemon; noted in SECURITY.md classification",
+        "scope": "local LLM path", "reviewed": "2026-10-13",
+        "evidence": "no CyClaw-side switch exists for a foreign daemon; noted in SECURITY.md classification. "
+                    "Setup-script spawn site found 2026-10-13 (Codex P2 on PR #1637): `ollama serve` at "
+                    "setup-from-clone.sh step 7, operator-interactive. Since PR #1637 that whole step exports "
+                    "OLLAMA_HOST=127.0.0.1:11434 first, so the convenience daemon binds loopback and every client "
+                    "call in the step (`ollama list`, `ollama --version`, the confirmed `ollama pull`) talks to "
+                    "that same endpoint whatever the operator's shell carried; a daemon the operator runs "
+                    "themselves binds wherever their own OLLAMA_HOST says, which is the daemon-policy caveat above",
     },
     {
         "name": "lm studio", "category": 5, "controls": {},
@@ -540,15 +575,23 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "git", "category": 5, "controls": {},
         "url": "agentic/deepagent_github/repo_workspace.py",
         "versions": "external binary",
-        "enforcement": "local-only subcommands under _GIT_ENV_ALLOWLIST; reads none of the canonical names, "
-                       "so the overlay is deliberately NOT applied there (documented in-module)",
-        "scope": "repo workspace ops", "reviewed": "2026-08-27",
-        "evidence": "documented exclusion, not an oversight",
+        "enforcement": "local-only subcommands under _GIT_ENV_ALLOWLIST at the runtime sites (repo_workspace, "
+                       "the executor manifest, the eval dogfood script, the git-hook installers); reads none of "
+                       "the canonical names, so the overlay is deliberately NOT applied there (documented "
+                       "in-module). The installers' `git clone` / `git pull`, the sandbox audit's clone and "
+                       "the workspace's gated `git push` are network operations and sit on their own "
+                       "category-3 row (git-remote), not here. The cloud venv driver's inventory runs "
+                       "rev-parse / rev-list / status against the local clone only",
+        "scope": "repo workspace ops; the cloud sandbox driver's local inventory", "reviewed": "2026-10-13",
+        "evidence": "documented exclusion, not an oversight; driver.sh cmd_inventory sited 2026-10-13 "
+                    "(Codex P2 on PR #1637, eleventh round)",
     },
     {
         "name": "sentence-transformers/transformers/torch stack", "category": 5, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "sentence-transformers==6.1.0; torch==2.13.0+cpu; transformers unbounded transitive",
+        "versions": "sentence-transformers==6.1.0; torch==2.13.0+cpu; transformers unbounded transitive on "
+                    "the wheel surface (locks/requirements-lock-*.txt hash-pin it at 5.18.0 for the "
+                    "documented install path, which is why T13 still reports it as a standing finding)",
         "enforcement": "no own telemetry mechanism; all hub traffic flows through huggingface-hub (its "
                        "category-1 ping row + category-3 bootstrap row)", "scope": "embeddings",
         "reviewed": "2026-09-21",
@@ -577,20 +620,30 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "`command` engine (utils/external_pre_hook.py::_run_command) runs "
                     "policy.fallback.pre_action_hook.command verbatim, JSON on stdin, exit 0 allow / 2 deny; "
                     "(b) agentic/executor/runner.py::run_verification runs each caller-declared Check.argv "
-                    "(the operator's checks manifest; no default check set ships)",
-        "enforcement": "both ship off (hook enabled: false with command: []; agentic.enabled false) and both "
-                       "can only deny or verify, never widen an external call. Both use explicit capability "
-                       "environments through child_environment and build_telemetry_safe_env (T12); (b) also "
-                       "uses production_sandbox(), whose Linux bubblewrap backend confines filesystem, "
-                       "PID and network access. Whatever the operator's command or the "
-                       "caller's check does on the network is that operator's policy, not CyClaw telemetry: "
-                       "the static sweep cannot name the binary, so T13 checks the two spawn sites still "
-                       "exist instead and this row documents the surface. Never a kill-map entry",
-        "scope": "confirmed Grok/Claude calls when the hook is on; agentic verification when enabled",
-        "reviewed": "2026-09-28",
+                    "(the operator's checks manifest; no default check set ships); (c) the secret-injecting "
+                    "exec wrappers macos/cyclaw-keychain-env.sh (`exec \"$@\"`) and "
+                    "powershell/CyClaw-CredMan-Env.ps1 (`& $exe @exeArgs`) run whatever command follows "
+                    "their `--`: one OS-store secret into one env var, then exec",
+        "enforcement": "(a) and (b) ship off (hook enabled: false with command: []; agentic.enabled false) and "
+                       "can only deny or verify, never widen an external call; both use explicit capability "
+                       "environments through child_environment and build_telemetry_safe_env (T12), and (b) "
+                       "also production_sandbox(), whose Linux bubblewrap backend confines filesystem, PID "
+                       "and network access. (c) adds one variable and execs: the wrapped argv is written by "
+                       "CyClaw's own scheduler registrars (utils/launchd_plist.py, utils/win_schtasks.py, the "
+                       "telegram/opentweet/sync job generators put the wrapper in front of the venv python) "
+                       "or typed by the operator, so the wrapped command's egress is that caller's own row "
+                       "(the scheduled jobs carry the canonical overlay, T12). Whatever the operator's "
+                       "command or the caller's check does on the network is that operator's policy, not "
+                       "CyClaw telemetry: the static sweep cannot name the binary, so T13 checks the four "
+                       "spawn sites still exist instead and this row documents the surface. Never a "
+                       "kill-map entry",
+        "scope": "confirmed Grok/Claude calls when the hook is on; agentic verification when enabled; "
+                 "every launchd/Task Scheduler job that needs an OS-store secret",
+        "reviewed": "2026-10-13",
         "evidence": "_run_command reads block['command'] and passes it to subprocess.run; run_verification "
                     "passes check.argv to the sandbox backend (Codex P2 on PR #1502: a dynamic launcher "
-                    "no row could name)",
+                    "no row could name); cyclaw-keychain-env.sh:115 and CyClaw-CredMan-Env.ps1:126 exec "
+                    "the caller's argv after the secret export (Codex P2 on PR #1637, eleventh round)",
     },
     {
         "name": "local OS process tooling", "category": 4, "controls": {},
@@ -600,16 +653,236 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "generated .cmd launchers), bubblewrap + sandbox-exec (agentic/executor/hard_sandbox.py -- "
                     "the Linux filesystem/PID/network and Darwin Seatbelt wrappers), xdg-open + open + explorer "
                     "(agentic/fsconnect/osutil.py reveal -- launches the desktop file manager on a "
-                    "containment-checked local path)",
+                    "containment-checked local path), security (the macOS Keychain CLI: sync/scheduled.py "
+                    "reads the scheduled rclone credential with /usr/bin/security find-generic-password at "
+                    "execution time since PR #1632, and macos/cyclaw-keychain-*.sh + setup-cyclaw-keys.sh "
+                    "read/write the same Keychain items), expect (/usr/bin/expect in setup-cyclaw-keys.sh "
+                    "types a Keychain password from a file into security's TTY prompt, log_user 0), "
+                    "osascript (setup-cyclaw.sh and setup-cyclaw-keys.sh run the repo's own AppleScript to "
+                    "fill the API-key field of loopback console tabs over Apple Events), pbcopy + pbpaste "
+                    "(the same two scripts copy the key to the pasteboard and clear it afterwards), lsof "
+                    "(setup-cyclaw-keys.sh and uninstall-cyclaw.sh list the loopback port's listener PIDs), "
+                    "sw_vers (macOS version read in three setup scripts), secret-tool (the libsecret CLI "
+                    "macos/cyclaw-linux-key.sh uses on Linux for lookup / store / clear of the API key; "
+                    "CYCLAW_SECRET_TOOL is a path override of the same binary, the UV_BIN shape, not a "
+                    "caller-chosen command), and groupadd + useradd (the Dockerfile's build-stage non-root "
+                    "user)",
         "enforcement": "every one is a local OS control-plane or GUI tool with no network sink of its own; "
                        "the scheduler and sandbox wrappers are exactly the boundaries that deliver the "
                        "canonical env to the children they start (T11/T12), and hard_sandbox's bubblewrap "
                        "confines child filesystem/PID/network access on Linux. Nothing here has, or needs, a "
                        "telemetry switch",
-        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal",
-        "reviewed": "2026-09-28",
+        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal, macOS setup and "
+                 "uninstall helpers, the Linux keyring CLI, the container build user, scheduled-sync "
+                 "credential read",
+        "reviewed": "2026-10-13",
         "evidence": "spawn-site sweep of every non-test subprocess call 2026-09-28: these were the only "
-                    "binaries the manifests and KNOWN_EXTERNAL_COMPONENTS did not already name",
+                    "binaries the manifests and KNOWN_EXTERNAL_COMPONENTS did not already name. AST re-sweep "
+                    "2026-10-13 found one new fixed binary since then, /usr/bin/security (sync/scheduled.py:63, "
+                    "PR #1632, 2026-10-12): a local Keychain read under child_environment('filesystem'), "
+                    "fixed absolute path, no network sink",
+    },
+    {
+        "name": "uv (lock refresh + cloud venv driver)", "category": 3, "controls": {},
+        "url": "https://github.com/astral-sh/uv/blob/main/crates/uv-static/src/env_vars.rs",
+        "versions": "external binary, never pinned by the repo: scripts/refresh-runtime-lock.sh and "
+                    "scripts/refresh-ci-locks.sh (operator-run, arm64 macOS only, `uv pip compile` into a "
+                    "staged lock dir) and .claude/skills/cyclaw-gotchas/driver.sh (cloud sandbox venv, "
+                    "`uv pip install` when uv is on PATH, pip otherwise). The Dockerfile's uv stage was "
+                    "removed 2026-09-11 and has not returned; no runtime code path spawns uv. The lock "
+                    "scripts' UV_BIN (like their PYTHON_BIN) is the operator's path to their own uv install, "
+                    "the same operator-resolved-binary shape as shutil.which(); it is not a second launcher",
+        "enforcement": "category 3 because every invocation CyClaw makes (`uv pip compile`, `uv pip install`) "
+                       "resolves or downloads from a package index on a cold cache: intentional, operator- or "
+                       "sandbox-initiated install egress, the same class as the installers' git clone and the "
+                       "first-run embedding fetch, never a kill-map entry. The binary itself carries no telemetry, "
+                       "analytics or crash-reporting mechanism to switch off; self-update runs only on an explicit "
+                       "`uv self update`, and the post-`uv sync` OSV malware check is opt-in (UV_MALWARE_CHECK=1) "
+                       "and never reached by `uv pip`",
+        "scope": "dev tooling only (lock regeneration, cloud test venv)",
+        "reviewed": "2026-10-13",
+        "evidence": "telemetry negative finding: crates/uv-static/src/env_vars.rs read 2026-10-13 (installed uv "
+                    "0.11.32) defines no telemetry/analytics/tracking/update-check variable -- the only "
+                    "TRACK/UPDATE matches are local tracing-duration files and the schema dev helper. Moved "
+                    "from category 5 to 3 on 2026-10-13 (Codex P2 on PR #1637, ninth round): the row describes "
+                    "what the invocations do on the network, and index access is functional egress. uv "
+                    "returned via PR #1572 (2026-10-07) after the 2026-09-11 retirement",
+    },
+    {
+        "name": "ollama model pull (setup)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`ollama pull \"$OLLAMA_MODEL\"` in macos/setup-from-clone.sh step 7 only; no runtime path "
+                    "pulls a model (the gateway fails soft when the tag is absent)",
+        "enforcement": "reached only when the selected tag is missing locally and the operator confirms the "
+                       "pull at an interactive prompt (or passed --small-model / the pull flag); the tag is "
+                       "validated as name:tag before it can reach argv. Destination is Ollama's model registry: "
+                       "intentional operator-initiated functional egress, the same class as the first-run "
+                       "embedding fetch, never a kill-map entry. The daemon itself stays the category-4 row above",
+        "scope": "interactive macOS setup only",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh:540-546 (_confirm gate + `ollama pull`); split out of the daemon row "
+                    "2026-10-13 because category 4 means local-only and a registry pull is not (Codex P2 on "
+                    "PR #1637, fourth round)",
+    },
+    {
+        "name": "gh functional calls (setup auth + agentic PR ops)", "category": 3, "controls": {},
+        "url": "docs/agentic/AGENTIC_README.md",
+        "versions": "external binary. (a) macos/setup-from-clone.sh step 6: `gh auth status` tests the stored "
+                    "account against github.com and `gh auth login --with-token` (token on stdin, never argv) "
+                    "authenticates it, both only after the canonical block was exported and skipped otherwise; "
+                    "(b) agentic/gh_client.py's read operations (`gh pr view` / `gh pr list` argv) and "
+                    "agentic/writer.py's `gh pr create`, reachable only with agentic.enabled true (ships false; "
+                    "the writer also needs its own write gate)",
+        "enforcement": "GitHub API traffic that is the point of the call: intentional functional egress, the "
+                       "same class as git-remote. gh's own telemetry and update checks are the category-1 "
+                       "GH_TELEMETRY row and the category-2 update-notifier row, both delivered to every one "
+                       "of these spawns (the agentic clients through build_telemetry_safe_env, the setup "
+                       "script through its export eval); this row exists so the auth flow and PR operations "
+                       "are reported as the GitHub calls they are and not solely as suppressed telemetry",
+        "scope": "operator setup step 6; agentic GitHub context and PR writer when enabled",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh gh auth status / login --with-token, gh_client.py and writer.py argv "
+                    "(Codex P2 on PR #1637, eleventh round); split from the telemetry row by call kind, the "
+                    "git-remote precedent",
+    },
+    {
+        "name": "apt package install (container build)", "category": 3, "controls": {},
+        "url": "Dockerfile",
+        "versions": "`apt-get update` + `apt-get install --no-install-recommends ca-certificates=<pinned "
+                    "deb12u1 build>` in the Dockerfile's build stage, list files removed in the same layer; "
+                    "no apt at runtime (the final verify step runs with --network=none)",
+        "enforcement": "Debian mirror access at image-build time, version-pinned: intentional functional "
+                       "egress, the same class as the pip-install row's build-stage pip. apt has no telemetry "
+                       "mechanism (popularity-contest is not installed); nothing here reads the canonical "
+                       "names",
+        "scope": "the container build only",
+        "reviewed": "2026-10-13",
+        "evidence": "Dockerfile apt-get update / install lines (own sweep on PR #1637, eleventh round: the "
+                    "Dockerfile's pip was sited, its apt was not)",
+    },
+    {
+        "name": "git remote operations (installers + gated push)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`git clone` / `git pull` of the CyClaw repository in the operator installers "
+                    "(macos/setup-cyclaw.sh, macos/install-cyclaw.sh, powershell/Install-CyClaw.ps1) and in "
+                    "the sandbox audit's checkout (.claude/skills/CyClaw-Sandbox/run_full_verification.py, "
+                    "a fixed URL and branch), and the one runtime network git call: RepoWorkspaceTools.push_branch's `git push --set-upstream "
+                    "origin` in agentic/deepagent_github/repo_workspace.py, reachable only with "
+                    "deepagent_github.allow_git_write_tools true (ships false) and agentic.enabled true "
+                    "(ships false), against the clone's pinned origin",
+        "enforcement": "repository acquisition from github.com at install time, run by the operator by hand, "
+                       "and a doubly-gated push the operator must switch on: intentional functional egress, "
+                       "the same class as the uv/pip index access and the confirmed Ollama pull. git itself "
+                       "carries no telemetry mechanism (the category-5 git row); this row exists because "
+                       "clone/pull/push are network operations and the local row's 'local-only subcommands' "
+                       "claim must stay true",
+        "scope": "operator install scripts and the sandbox audit; the agentic workspace push when explicitly "
+                 "enabled",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-cyclaw.sh:252, install-cyclaw.sh:113 and the pull beside it, Install-CyClaw.ps1:134/139 "
+                    "(Codex P2 on PR #1637, ninth round); repo_workspace.py push_branch argv (tenth round); "
+                    "run_full_verification.py clone argv (eleventh round); split from the local git row by "
+                    "call kind, the ollama-pull precedent",
+    },
+    {
+        "name": "pip index access (installers)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`pip install` of the hashed locks (and the pinned pip itself) in macos/install-cyclaw.sh, "
+                    "powershell/Install-CyClaw.ps1, the Dockerfile and the sandbox audit's "
+                    ".claude/skills/CyClaw-Sandbox/verify.sh, plus the venv driver's pip fallback when uv is "
+                    "absent and its torch retry. No runtime path runs pip; the agentic verifier's children run "
+                    "with PIP_NO_INDEX set",
+        "enforcement": "package-index downloads (PyPI and, for torch, the CPU wheel index) at install time, "
+                       "hash-pinned by the locks so the content is fixed even though the transfer is network: "
+                       "intentional functional egress, the same class as uv's index access. pip itself has only "
+                       "the category-2 version check (PIP_DISABLE_PIP_VERSION_CHECK in the canonical map) and no "
+                       "telemetry; the library row stays category 5. That map reaches pip only where the "
+                       "calling shell exported it first: both operator installers eval the canonical block "
+                       "(`-m utils.telemetry_kill --export shell|powershell`) immediately before their pip "
+                       "calls, which also covers setup-from-clone.sh's step 4, and warn-and-continue when "
+                       "the block cannot be rendered (a category-2 check is not worth aborting an install). "
+                       "The Dockerfile's build-stage pip runs before its runtime ENV block, and the sandbox "
+                       "verify.sh and the venv driver run pip under the agent sandbox's ambient environment: "
+                       "on those three the version check can fire, and this row says so rather than claim "
+                       "the map covers them",
+        "scope": "operator installers, the container build and the cloud sandbox venv",
+        "reviewed": "2026-10-13",
+        "evidence": "install-cyclaw.sh and Install-CyClaw.ps1 export-then-install blocks, Dockerfile:63-65, "
+                    "CyClaw-Sandbox/verify.sh:92-95, driver.sh inst() and its torch retry (Codex P2 on PR #1637, "
+                    "tenth and eleventh rounds); split from the core-libs row by call kind",
+    },
+    {
+        "name": "homebrew package install (setup)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`brew install python@3.12` in macos/setup-from-clone.sh, offered only when no Python 3.12 is "
+                    "found and the operator confirms",
+        "enforcement": "a Homebrew bottle download at setup time: intentional functional egress behind an "
+                       "interactive confirm. Homebrew's own analytics are the category-2 row (HOMEBREW_NO_ANALYTICS "
+                       "exported and `brew analytics off` run before this install can happen)",
+        "scope": "interactive macOS setup only",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh:360-362 (_confirm gate + brew install; Codex P2 on PR #1637, tenth round)",
+    },
+    {
+        "name": "browser launch (open URL)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "macOS `open <url>` (and invoke-cyclaw.sh's `xdg-open` fallback) in the operator scripts: "
+                    "setup-from-clone.sh opens the signed Ollama download page once the operator declines the "
+                    "installer pipe; setup-cyclaw.sh, setup-cyclaw-keys.sh and invoke-cyclaw.sh open the "
+                    "loopback console; powershell/Invoke-CyClaw.ps1 does the same with Start-Process. No "
+                    "runtime code path opens a URL",
+        "enforcement": "hands a URL to the operator's default browser; whatever that browser then does is the "
+                       "browser's egress, not CyClaw's. The one remote target is the Ollama download page, "
+                       "reached only at an interactive setup prompt. Distinct from the local file-manager "
+                       "reveal (`open <path>`, category 4 under local OS process tooling): same binary, "
+                       "different kind of call, so its own component and row",
+        "scope": "interactive macOS setup and launch scripts only",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh:524 (remote), setup-cyclaw.sh:497, setup-cyclaw-keys.sh:1056, "
+                    "invoke-cyclaw.sh:321-323 (loopback); split from the reveal row 2026-10-13 (Codex P2 on "
+                    "PR #1637, seventh round)",
+    },
+    {
+        "name": "powershell http probes (sandbox smoke)", "category": 3, "controls": {},
+        "url": ".claude/skills/CyClaw-Sandbox/SKILL.md",
+        "versions": "Invoke-RestMethod / Invoke-WebRequest in .claude/skills/CyClaw-Sandbox/windows-smoke.ps1, "
+                    "the Windows half of the sandbox smoke suite. The operator PowerShell under powershell/ and "
+                    "windows/ makes no HTTP call at all",
+        "enforcement": "every call targets the loopback gateway under test ($Base/health, /query, /soul); the "
+                       "cmdlets are the PowerShell counterpart of the curl probes in smoke.sh and carry no "
+                       "telemetry of their own (pwsh's own telemetry is the category-1 host row). Functional "
+                       "probe traffic on a swept sandbox surface, never a kill-map entry",
+        "scope": "agent sandbox smoke on Windows only",
+        "reviewed": "2026-10-13",
+        "evidence": "windows-smoke.ps1:37-87 (Codex P2 on PR #1637, eighth round: the curl row had claimed "
+                    "no PowerShell HTTP call existed, which was true of powershell/ and windows/ but not of "
+                    "this swept sandbox script)",
+    },
+    {
+        "name": "curl (setup + sandbox probes)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "host binary, never pinned: macos/setup-from-clone.sh, macos/setup-cyclaw.sh, "
+                    "macos/invoke-cyclaw.sh (operator setup/launch scripts), "
+                    ".claude/skills/cyclaw-gotchas/driver.sh and .claude/skills/CyClaw-Sandbox/{verify,smoke,"
+                    "macos-smoke}.sh (agent sandbox drivers and smoke suites), and the launchd / Task "
+                    "Scheduler health jobs telegram/cli.py GENERATES (a loopback /health probe that notifies "
+                    "only on failure; the job runs under the scheduler overlay, never under the gateway). No "
+                    "runtime code path spawns curl directly; the Dockerfile and the operator PowerShell under "
+                    "powershell/ and windows/ run no curl or HTTP cmdlet (the sandbox's windows-smoke.ps1 "
+                    "probes are the separate pwsh-http row)",
+        "enforcement": "every call but one targets loopback (the gateway's /health, /query, /soul, "
+                       "/static and Ollama's /api/tags on 127.0.0.1) or the cloud sandbox's own agent-proxy "
+                       "status endpoint. The one outbound fetch is `curl -fsSL https://ollama.com/install.sh "
+                       "| sh` in setup-from-clone.sh, reached only after an explicit interactive confirm "
+                       "that defaults to no (the signed .app download is the preferred path). curl itself "
+                       "carries no telemetry or update check; what it fetches is the operator's decision at "
+                       "the prompt, so this is intentional functional egress, never a kill-map entry",
+        "scope": "operator setup/launch scripts and agent sandbox drivers only",
+        "reviewed": "2026-10-13",
+        "evidence": "grep of macos/, scripts/, powershell/, windows/, Dockerfile, docker-compose.yml and "
+                    "the skill drivers 2026-10-13 for curl/wget/Invoke-WebRequest/Invoke-RestMethod: the "
+                    "sites above are all of them; the installer pipe sits behind _confirm(..., \"n\") with "
+                    "OLLAMA_INSTALL_SCRIPT=1 required (setup-from-clone.sh:496-498)",
     },
     {
         "name": "core web/runtime libs", "category": 5, "controls": {},
@@ -621,7 +894,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
                        "is caller policy (all CyClaw clients set trust_env=False); nltk data downloads are "
-                       "avoided by design (local Porter stemmer, no punkt)",
+                       "avoided by design (local Porter stemmer, no punkt; the sandbox audit's leftover "
+                       "punkt download step was removed 2026-10-13, Codex P2 on PR #1637). pip's index access at install time "
+                       "is the category-3 pip-install row, not this one",
         "scope": "runtime + dev", "reviewed": "2026-09-28",
         "evidence": "bulk negative classification -- a NEW dependency outside every row here trips T13. "
                     "Membership re-read against pyproject.toml/constraints.txt/requirements*.txt/"
@@ -691,10 +966,42 @@ INVENTORY_ALIASES: dict[str, str] = {
     "xdg-open": "local OS process tooling",
     "open": "local OS process tooling",
     "explorer": "local OS process tooling",
+    # the macOS Keychain CLI (sync/scheduled.py + macos/cyclaw-keychain-*.sh):
+    # a local credential read, same category-4 row (2026-10-13 sweep)
+    "security": "local OS process tooling",
+    # back since PR #1572 (lock refresh scripts + the cloud venv driver)
+    "uv": "uv (lock refresh + cloud venv driver)",
+    # the setup scripts' and sandbox drivers' HTTP probe tool (Codex P2 on
+    # PR #1637: a swept shell surface must classify every binary it runs)
+    "curl": "curl (setup + sandbox probes)",
+    # `ollama pull` in the setup script: registry egress, not the local daemon
+    "ollama-pull": "ollama model pull (setup)",
+    # `open <url>` / `xdg-open <url>` in the operator scripts: the browser,
+    # not the file-manager reveal the local-tooling row covers
+    "open-url": "browser launch (open URL)",
+    # Invoke-RestMethod / Invoke-WebRequest in the Windows sandbox smoke suite
+    "pwsh-http": "powershell http probes (sandbox smoke)",
+    # the installers' git clone / pull and the gated runtime push: network git,
+    # split from the local git row
+    "git-remote": "git remote operations (installers + gated push)",
+    # `pip install` in the installers, the Dockerfile and the venv driver, and
+    # `brew install` in the setup script: package-index downloads, category 3
+    "pip-install": "pip index access (installers)",
+    "brew-install": "homebrew package install (setup)",
+    "apt-install": "apt package install (container build)",
+    # gh's functional GitHub traffic, split from its telemetry row by call kind
+    "gh-api": "gh functional calls (setup auth + agentic PR ops)",
+    # macOS setup/uninstall helpers, the Linux keyring CLI, the Docker build user
+    "expect": "local OS process tooling", "osascript": "local OS process tooling",
+    "pbcopy": "local OS process tooling", "pbpaste": "local OS process tooling",
+    "lsof": "local OS process tooling", "sw_vers": "local OS process tooling",
+    "secret-tool": "local OS process tooling",
+    "groupadd": "local OS process tooling", "useradd": "local OS process tooling",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
     "executor-check": "operator/caller-configured launchers",
+    "secret-env-wrapper": "operator/caller-configured launchers",
     "sqlite-vec": "sqlite-vec",
     # bulk category-5 members
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
@@ -722,20 +1029,30 @@ INVENTORY_ALIASES: dict[str, str] = {
 
 # External executables/services CyClaw spawns or fronts -- swept by T13 along
 # with the manifests so a NEW launcher/binary needs a classification too.
-# uv was here until 2026-09-11, classified "Docker build stage only". The
-# Dockerfile's uv line could not resolve (see that file's own comment) and was
-# replaced with plain pip, so the repo spawns uv nowhere; a classification for
-# a binary that is no longer invoked is the same stale documentation this
-# checker exists to prevent. Re-add the row if uv ever returns.
+# uv was retired 2026-09-11 when the Dockerfile's uv line (its only spawn
+# site then, classified "Docker build stage only") was replaced with plain
+# pip: a classification for a binary that is no longer invoked is the same
+# stale documentation this checker exists to prevent. It is back since PR
+# #1572 (2026-10-07) through scripts/refresh-*-lock.sh and the cloud venv
+# driver, so its row is back too (category 5, no mechanism).
 # The second line (2026-09-28) is every other binary a sweep of the non-test
 # subprocess call sites found: the scheduler registrars, the executor's
 # sandbox wrappers, the fsconnect reveal launcher and netconnect's
 # neighbor-cache readers. None has a network sink; they are listed so a
 # future spawn site that adds a NEW binary still needs a row.
+# The third line (2026-10-13 AST re-sweep): the macOS Keychain CLI that
+# sync/scheduled.py started spawning in PR #1632, and uv as above.
+# Every name here must also appear in FIXED_LAUNCHER_SITES, DYNAMIC_LAUNCHER_SITES
+# or FRONTED_SERVICES below, so T13 can tell when its spawn site is gone
+# (Codex P2 on PR #1637: a binary named only here stays "classified" forever).
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
-                             "pre-action-hook-command", "executor-check")
+                             "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http", "git-remote",
+                             "pip-install", "brew-install", "apt-install", "gh-api",
+                             "expect", "osascript", "pbcopy", "pbpaste", "lsof", "sw_vers", "secret-tool",
+                             "groupadd", "useradd",
+                             "pre-action-hook-command", "executor-check", "secret-env-wrapper")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
 # configured hook command, the caller's verification checks. No static sweep
@@ -747,7 +1064,234 @@ KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollam
 DYNAMIC_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pre-action-hook-command", "utils/external_pre_hook.py", ("def _run_command", "subprocess.run(")),
     ("executor-check", "agentic/executor/runner.py", ("def run_verification", "check.argv")),
+    # the OS-secret-store exec wrappers: the command after `--` is the
+    # caller's (a generated launchd/Task Scheduler job or the operator), so
+    # the wrapper is the surface (Codex P2 on PR #1637, eleventh round)
+    ("secret-env-wrapper", "macos/cyclaw-keychain-env.sh", ('export "$VAR_NAME=$SECRET"', 'exec "$@"')),
+    ("secret-env-wrapper", "powershell/CyClaw-CredMan-Env.ps1", ('Set-Item -Path "Env:$EnvVar" -Value $secret',
+                                                                  "& $exe @exeArgs")),
 )
+
+# Components CyClaw fronts over the network but never spawns: there is no
+# spawn site whose marker could prove or disprove them, so they are exempt
+# from FIXED_LAUNCHER_SITES by name, with the reason.
+FRONTED_SERVICES: dict[str, str] = {
+    # Empty since 2026-10-13: ollama lived here until the setup-script sweep
+    # found `ollama serve` / `ollama pull` in macos/setup-from-clone.sh (Codex
+    # P2 on PR #1637, third round), so it is a FIXED_LAUNCHER_SITES row now.
+    # The mechanism stays for the next genuinely never-spawned service.
+}
+
+# Spawn sites for every FIXED external binary in KNOWN_EXTERNAL_COMPONENTS:
+# (component, repo-relative file, source markers that only exist while that
+# file still launches it). T13 warns when a marker disappears, exactly as it
+# does for DYNAMIC_LAUNCHER_SITES, and FAILS when a known component has no
+# site at all -- the uv retirement of 2026-09-11 was caught by a human, and
+# the security(1) site of PR #1632 was missed for a day, because until
+# PR #1637 the fixed list was never checked against the tree. Shell and
+# PowerShell launchers count: a marker is a text match, not a Python one.
+# Every row carries the INVOCATION (the argv literal or the shell command
+# line), not only the name's declaration: a default parameter, a
+# shutil.which() lookup or an env override survives the removal of the
+# call that spawns (Codex P2s on PR #1637, rounds two and three).
+# One row per line so verify.sh can delete a row with a line mutation.
+FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("gh", "agentic/gh_client.py", ('gh_bin: str = "gh"', '[gh_bin, "pr", "view"')),
+    ("gh", "agentic/writer.py", ('gh_bin: str = "gh"', '[gh_bin, "pr", "create"')),
+    # the operator setup script's own gh calls carry the canonical block via the
+    # same --export eval the launcher uses; the third marker pins that eval
+    ("gh", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token",
+                                         "-m utils.telemetry_kill --export shell",
+                                         '[ "$_TELEMETRY_EXPORTED" -eq 1 ]')),
+    # gh's functional GitHub calls (category 3), same files, split by call kind
+    ("gh-api", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token")),
+    ("gh-api", "agentic/gh_client.py", ('[gh_bin, "pr", "view"',)),
+    ("gh-api", "agentic/writer.py", ('[gh_bin, "pr", "create"',)),
+    # macOS setup/uninstall helpers (own token-level sweep on PR #1637, eleventh
+    # round, after Codex named expect/osascript/pbcopy/pbpaste/secret-tool)
+    ("expect", "macos/setup-cyclaw-keys.sh", ("/usr/bin/expect <<EXPECT_EOF",
+                                              "spawn -noecho /usr/bin/security add-generic-password")),
+    ("osascript", "macos/setup-cyclaw-keys.sh", ('osascript "$scpt" "$secret_file" "$GATE_PORT"',)),
+    ("osascript", "macos/setup-cyclaw.sh", ('osascript "$script_file" "$secret_file" "$GATE_PORT"',)),
+    ("pbcopy", "macos/setup-cyclaw-keys.sh", ('pbcopy < "$tmp"', "printf '' | pbcopy")),
+    ("pbcopy", "macos/setup-cyclaw.sh", ("printf '%s' \"$CYCLAW_API_KEY\" | pbcopy", "printf '' | pbcopy")),
+    ("pbpaste", "macos/setup-cyclaw-keys.sh", ('current="$(pbpaste 2>/dev/null || true)"',)),
+    ("pbpaste", "macos/setup-cyclaw.sh", ('current="$(pbpaste 2>/dev/null || true)"',)),
+    ("lsof", "macos/setup-cyclaw-keys.sh", ('lsof -nP -t -iTCP:"$port" -sTCP:LISTEN',)),
+    ("lsof", "macos/uninstall-cyclaw.sh", ('lsof -nP -t -iTCP:"$port" -sTCP:LISTEN',)),
+    ("sw_vers", "macos/setup-cyclaw-keys.sh", ("sw_vers -productVersion",)),
+    ("sw_vers", "macos/setup-cyclaw.sh", ("sw_vers -productVersion",)),
+    ("sw_vers", "macos/setup-from-clone.sh", ("sw_vers -productVersion",)),
+    ("secret-tool", "macos/cyclaw-linux-key.sh", ("command -v secret-tool",
+                                                  '"$1" lookup service "$_CYCLAW_LINUX_KEY_SERVICE"',
+                                                  '"$tool" store --label="$_CYCLAW_LINUX_KEY_LABEL"',
+                                                  '"$tool" clear service "$_CYCLAW_LINUX_KEY_SERVICE"')),
+    # the container build's package install and non-root user
+    ("apt-install", "Dockerfile", ("RUN apt-get update", "apt-get install -y --no-install-recommends")),
+    ("groupadd", "Dockerfile", ("RUN groupadd --gid 1000 cyclaw",)),
+    ("useradd", "Dockerfile", ("useradd --create-home --uid 1000 --gid cyclaw cyclaw",)),
+    ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"', 'rclone_bin, "copy",', 'rclone_bin, "bisync",')),
+    ("rclone", "sync/scheduled.py", ('shutil.which("rclone")', '[binary, "listremotes"]')),
+    # the export is the pre-execution protection the Homebrew row claims; it
+    # matters when `brew analytics off` fails before the later `brew install`
+    ("brew", "macos/setup-from-clone.sh", ("export HOMEBREW_NO_ANALYTICS=1", "brew analytics off >/dev/null")),
+    ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")', '[binary, "config"',
+                                                           "[binary, *argv]")),
+    ("git", "agentic/executor/manifest.py", ('git_bin = shutil.which("git")', '[git_bin, "rev-parse", "HEAD"]')),
+    ("git", "scripts/cyclaw-eval-dogfood.py", ('[git, "rev-parse", "HEAD"]',)),
+    ("git", "scripts/ensure-githooks.sh", ("git rev-parse --show-toplevel", "git config --local core.hooksPath")),
+    ("git", "scripts/install-githooks.sh", ("git config core.hooksPath .githooks",)),
+    # the gated runtime push (allow_git_write_tools, ships false): network git
+    ("git-remote", "agentic/deepagent_github/repo_workspace.py", ('["push", "--set-upstream", "origin", "--", name]',)),
+    ("git-remote", ".claude/skills/CyClaw-Sandbox/run_full_verification.py",
+     ('[git, "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, "."]',)),
+    ("git", ".claude/skills/cyclaw-gotchas/driver.sh", ("git rev-parse --verify -q origin/main",
+                                                       "git rev-list --left-right --count origin/main...HEAD")),
+    # package-index downloads at install time
+    # the installers' export-then-install markers pin the claim that the
+    # canonical block reaches pip there (Codex P2 on PR #1637, eleventh round)
+    ("pip-install", "macos/install-cyclaw.sh", ('"$VENV_PY" -S -E -m utils.telemetry_kill --export shell',
+                                                '"$VENV_PY" -m pip install --upgrade "pip==26.2.1"',
+                                                '"$VENV_PY" -m pip install --require-hashes -r')),
+    ("pip-install", "powershell/Install-CyClaw.ps1", ('& $VenvPy -S -E -m utils.telemetry_kill --export powershell',
+                                                      '& $VenvPy -m pip install --upgrade "pip==26.2.1"',
+                                                      '& $VenvPy -m pip install --require-hashes -r')),
+    ("pip-install", "Dockerfile", ('pip install --no-cache-dir --upgrade "pip==26.2.1"',
+                                   'pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt')),
+    ("pip-install", ".claude/skills/cyclaw-gotchas/driver.sh", ('"$pip" install -q "$@"',
+                                                                '"$pip" install -q --retries 1 --timeout 15 "torch==2.13.0+cpu"')),
+    ("pip-install", ".claude/skills/CyClaw-Sandbox/verify.sh", ('"$VPY" -m pip install --quiet --upgrade "pip==26.2.1"',
+                                                                '"$VPY" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt')),
+    ("brew-install", "macos/setup-from-clone.sh", ("brew install python@3.12",)),
+    # the installers' repository acquisition: network git, its own component
+    ("git-remote", "macos/setup-cyclaw.sh", ("git clone --branch main --single-branch https://github.com/CGFixIT/CyClaw.git",)),
+    ("git-remote", "macos/install-cyclaw.sh", ('git clone --depth 1 "$REPO_URL" "$REPO_DIR"', 'git -C "$REPO_DIR" pull --ff-only --autostash')),
+    ("git-remote", "powershell/Install-CyClaw.ps1", ("& git clone --depth 1 $RepoUrl $Repo",
+                                                     "& git -C $Repo pull --ff-only")),
+    ("openssl", "utils/gen_cert.py", ('shutil.which("openssl")', '"req",')),
+    ("openssl", "macos/setup-cyclaw-keys.sh", ('_api_value="$(openssl rand -hex 20)"',)),
+    ("openssl", "macos/cyclaw-linux-key.sh", ("openssl rand -hex 20",)),
+    ("numbat", "utils/numbat_gate.py", ('DEFAULT_BINARY = "numbat"', 'argv = [binary, "rules", "check"')),
+    # the daemon is independent at runtime, but the interactive setup script
+    # starts it and pulls the model when the operator says yes
+    ("ollama", "macos/setup-from-clone.sh", ("export OLLAMA_HOST=127.0.0.1:11434",
+                                             'ollama serve >"$OLLAMA_LOG" 2>&1 &',
+                                             "ollama list 2>/dev/null", "ollama --version")),
+    # the model pull is registry egress, so it is its own category-3 component
+    ("ollama-pull", "macos/setup-from-clone.sh", ('ollama pull "$OLLAMA_MODEL"',)),
+    ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")', '[launchctl, "bootout"')),
+    ("launchctl", "sync/scheduler.py", ('[launchctl, "bootout"', '[launchctl, "print"')),
+    ("launchctl", "macos/setup-cyclaw-keys.sh", ('launchctl bootout "gui/${uid}/${ROTATE_LABEL}"',
+                                                 'launchctl bootout "gui/${uid}/${label}"')),
+    ("launchctl", "macos/uninstall-cyclaw.sh", ('launchctl bootout "gui/${uid}/${label}"',)),
+    ("crontab", "sync/scheduler.py", ('shutil.which("crontab")', '[crontab, "-l"]', '[crontab, "-"]')),
+    ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")', '[self._schtasks(), "/Delete"')),
+    # the generated Task Scheduler job's command is built here: COMSPEC names the
+    # interpreter path (the OS-owned variable for cmd.exe, a path resolution like
+    # UV_BIN, not a caller-chosen command) and the .cmd launcher is its argument
+    ("cmd.exe", "utils/win_schtasks.py", ('command=os.environ.get("COMSPEC", "cmd.exe")',
+                                          'arguments=f"/c {bat_quote(str(launcher))}"')),
+    ("cmd.exe", "powershell/Uninstall-CyClaw.ps1", ('cmd.exe /c "schtasks.exe /Query', 'cmd.exe /c "schtasks.exe /Delete')),
+    ("schtasks", "powershell/Uninstall-CyClaw.ps1", ("Get-Command schtasks.exe", "schtasks.exe /Delete /TN")),
+    ("powershell", "utils/win_schtasks.py", ('shutil.which("powershell") or shutil.which("pwsh")',
+                                             "ps = powershell or powershell_executable()",
+                                             '"-File",\n            wrapper_path,')),
+    ("powershell", "powershell/Install-CyClaw.ps1", ('powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%',
+                                                     '& powershell -NoProfile -ExecutionPolicy Bypass -File')),
+    ("bwrap", "agentic/executor/hard_sandbox.py", ('shutil.which("bwrap")', '[self._bwrap, "--die-with-parent"')),
+    ("sandbox-exec", "agentic/executor/hard_sandbox.py", ('shutil.which("sandbox-exec")', "self._sandbox_exec,")),
+    ("xdg-open", "agentic/fsconnect/osutil.py", ('["xdg-open", path]',)),
+    ("open", "agentic/fsconnect/osutil.py", ('["open", path]',)),
+    ("explorer", "agentic/fsconnect/osutil.py", ('["explorer", path]',)),
+    ("ip", "agentic/netconnect/client.py", ("def _neighbor_command(", '"/usr/sbin/ip"')),
+    ("arp", "agentic/netconnect/client.py", ("def _neighbor_command(", '"arp.exe"')),
+    ("security", "sync/scheduled.py", ('["/usr/bin/security", "find-generic-password"',)),
+    ("security", "macos/cyclaw-keychain-env.sh", ('SECURITY_BIN="/usr/bin/security"',
+                                                  '"$SECURITY_BIN" find-generic-password')),
+    ("security", "macos/cyclaw-keychain-set.sh", ('"$SECURITY_BIN" add-generic-password',)),
+    ("security", "macos/setup-cyclaw-keys.sh", ('"$_SECURITY_BIN" find-generic-password',
+                                                '"$_SECURITY_BIN" add-generic-password')),
+    ("security", "macos/cyclaw-keychain-load.sh", ('"$bin" find-generic-password',)),
+    ("security", "macos/uninstall-cyclaw.sh", ('"$SECURITY_BIN" delete-generic-password',)),
+    ("uv", "scripts/refresh-runtime-lock.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
+    ("uv", "scripts/refresh-ci-locks.sh", ('uv_bin="${UV_BIN:-uv}"', '"$uv_bin" pip compile')),
+    ("uv", ".claude/skills/cyclaw-gotchas/driver.sh", ("uv pip install",)),
+    # curl: loopback readiness/smoke probes everywhere but one operator-confirmed
+    # installer fetch (setup-from-clone.sh); the marker is the call, not a comment
+    ("curl", "macos/setup-from-clone.sh", ("curl -fsSL https://ollama.com/install.sh | sh",
+                                           "curl -sf --max-time 2 http://127.0.0.1:11434/api/tags")),
+    ("curl", "macos/setup-cyclaw.sh", ('curl "${curl_args[@]}" --max-time 2 "$url"',)),
+    ("curl", "macos/invoke-cyclaw.sh", ('curl -sf --max-time 2 "$CONSOLE_URL/health"',)),
+    ("curl", ".claude/skills/cyclaw-gotchas/driver.sh", ('curl -s --max-time 5 "$BASE/health"',
+                                                         'curl -sS --max-time 5 "$HTTPS_PROXY/__agentproxy/status"')),
+    ("curl", ".claude/skills/CyClaw-Sandbox/verify.sh", ('curl -sf "$BASE/health"',)),
+    ("curl", ".claude/skills/CyClaw-Sandbox/smoke.sh", ('curl -sf "$BASE/health"',)),
+    ("curl", ".claude/skills/CyClaw-Sandbox/macos-smoke.sh", ('HTTP_CODE=$(curl -sS -o "$tmp" -w "%{http_code}"',)),
+    # the Telegram channel's generated launchd / Task Scheduler health jobs
+    ("curl", "telegram/cli.py", ("curl -sf --max-time 5 {health_url} >/dev/null",
+                                 'curl.exe -sf --max-time 5 "{health_url}" >nul')),
+    # the desktop URL handler: one remote page (the signed Ollama download,
+    # offered after the installer pipe is declined) and the loopback console
+    ("open-url", "macos/setup-from-clone.sh", ('open "https://ollama.com/download/mac"',)),
+    ("open-url", "macos/setup-cyclaw.sh", ('open "$CONSOLE_URL"',)),
+    ("open-url", "macos/setup-cyclaw-keys.sh", ('open "$gate"',)),
+    ("open-url", "macos/invoke-cyclaw.sh", ('open "$OPEN_URL"', 'xdg-open "$OPEN_URL"')),
+    ("open-url", "powershell/Invoke-CyClaw.ps1", ("Start-Process $using:OpenUrl",)),
+    # the Windows sandbox smoke suite's HTTP probes (cmdlets, not a binary)
+    ("pwsh-http", ".claude/skills/CyClaw-Sandbox/windows-smoke.ps1", ('Invoke-RestMethod -Uri "$Base/health"',
+                                                                      'Invoke-WebRequest -Uri "$Base/query"')),
+)
+
+# Inventory boundary for agent tooling (owner decision on PR #1637,
+# 2026-10-13). The inventory covers CyClaw's runtime, the operator setup and
+# launch surfaces (macos/, powershell/, windows/, scripts/, the Dockerfile and
+# compose file) and the two sandbox surfaces below, which exercise the gateway
+# itself. Every other script under .claude/ -- the session hooks, the skills'
+# verify/bootstrap helpers, the babysit-github-pr gh wrappers -- is agent
+# tooling that runs on the agent's own machine or sandbox, outside the
+# gateway's process tree, and is OUT of this inventory by decision, not by
+# oversight: their gh/git calls are not findings and get no rows. T13 fails a
+# FIXED_LAUNCHER_SITES row under .claude/ that is not inside one of these
+# prefixes, so widening the boundary is a deliberate edit here, never a row
+# slipped in during a review round. An entry ending in "/" is a directory
+# prefix; any other entry is matched exactly (so "driver.sh.backup" is not
+# "driver.sh"). Fixed and dynamic rows are both checked.
+SWEPT_AGENT_SURFACES: tuple[str, ...] = (
+    ".claude/skills/cyclaw-gotchas/driver.sh",
+    ".claude/skills/CyClaw-Sandbox/",
+)
+
+
+def _inside_agent_boundary(rel: str) -> bool:
+    """True when a .claude/ site path is one of the swept sandbox surfaces."""
+    for allowed in SWEPT_AGENT_SURFACES:
+        if allowed.endswith("/"):
+            if rel.startswith(allowed):
+                return True
+        elif rel == allowed:
+            return True
+    return False
+
+
+def _repo_relative_problem(root: Path, rel: str) -> str | None:
+    """Why *rel* is not a clean repository-relative path, or None when it is.
+
+    Shared by the evidence-url schema and the site-row check: a path is only
+    trusted after it is known to be relative, free of '.'/'..' components and
+    redundant separators (so prefix matching against SWEPT_AGENT_SURFACES
+    cannot be fooled by `.claude/skills/CyClaw-Sandbox/../../hooks/x`), and
+    resolved (symlinks followed) to somewhere under the repository root
+    (Codex P2 on PR #1637, tenth and eleventh rounds).
+    """
+    if rel.startswith("/") or "\\" in rel or rel != posixpath.normpath(rel) or ".." in rel.split("/"):
+        return "must be a repository-relative path (no absolute path, no '.'/'..' component, no redundant separator)"
+    try:
+        inside = (root / rel).resolve().is_relative_to(root.resolve())
+    except OSError:
+        inside = False
+    if not inside:
+        return "resolves outside the repository"
+    return None
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []
@@ -1230,6 +1774,18 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
         for field in ("url", "versions", "enforcement", "scope", "reviewed", "evidence"):
             if not str(row.get(field, "")).strip():
                 schema_problems.append(f"{name}: missing field {field}")
+        # a repo-relative evidence source must exist: a row pointing at a file
+        # nobody can open is the stale documentation this checker exists to
+        # prevent (Codex P2 on PR #1637, fourth round: docs/setup-guide.md)
+        url = str(row.get("url", "")).strip()
+        if url and not url.startswith(("http://", "https://")):
+            # repository-relative only (shape + resolved location, see
+            # _repo_relative_problem), then it must exist
+            problem = _repo_relative_problem(root, url)
+            if problem:
+                schema_problems.append(f"{name}: url {url!r} {problem}")
+            elif not (root / url).exists():
+                schema_problems.append(f"{name}: url {url!r} is a repo path that does not exist")
     # category-2 rows with EMPTY controls are the documented shell-only pair;
     # they must say so in their enforcement text.
     for row in INVENTORY:
@@ -1255,9 +1811,14 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
     components |= _parse_environment_yml_names(root / "environment.yml")
     components |= set(KNOWN_EXTERNAL_COMPONENTS)
     components.discard("cyclaw")
+    # an alias is only a classification if its target row exists: a typo in
+    # the target must not read as "classified" (Codex P2 on PR #1637)
+    bad_aliases = sorted(f"{k} -> {v!r}" for k, v in INVENTORY_ALIASES.items() if v not in names)
+    if bad_aliases:
+        fail("T13", f"alias target(s) name no inventory row: {bad_aliases}")
     unclassified = sorted(
         c for c in components
-        if c not in INVENTORY_ALIASES and INVENTORY_ALIASES.get(c) not in names and c not in names
+        if INVENTORY_ALIASES.get(c, c) not in names
     )
     if unclassified:
         msg = (f"unclassified component(s) -- every dependency/executable needs an egress category: "
@@ -1270,6 +1831,8 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
         ok("T13", f"all {len(components)} declared components resolve to a classification row")
     # -- dynamic launchers: the surface must still exist for its row to be true
     for component, rel, markers in DYNAMIC_LAUNCHER_SITES:
+        if _repo_relative_problem(root, rel):
+            continue  # reported as a FAIL below; never read a path that could escape the root
         path = root / rel
         if not path.exists():
             warn("T13", f"dynamic launcher {component!r}: {rel} is missing -- if the launcher was removed, "
@@ -1283,6 +1846,63 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
                         "longer exists; retire or re-point it")
         else:
             ok("T13", f"dynamic launcher {component!r} still spawns from {rel} (row present)")
+    # -- fixed launchers: every known binary must name a site, and the site
+    #    must still carry its marker (Codex P2 on PR #1637)
+    dynamic_names = {component for component, _rel, _markers in DYNAMIC_LAUNCHER_SITES}
+    fixed_names = {component for component, _rel, _markers in FIXED_LAUNCHER_SITES}
+    unsited = sorted(
+        c for c in KNOWN_EXTERNAL_COMPONENTS
+        if c not in fixed_names and c not in dynamic_names and c not in FRONTED_SERVICES
+    )
+    if unsited:
+        fail("T13", f"known external component(s) with no spawn-site row: {unsited} -- add a "
+                    "FIXED_LAUNCHER_SITES row (or FRONTED_SERVICES with the reason), else the "
+                    "classification can never go stale")
+    stray = sorted(c for c in fixed_names | dynamic_names | set(FRONTED_SERVICES)
+                   if c not in KNOWN_EXTERNAL_COMPONENTS)
+    if stray:
+        fail("T13", f"spawn-site row(s) for a component KNOWN_EXTERNAL_COMPONENTS does not name: {stray} -- "
+                    "a site row alone never enters the classification sweep")
+    # -- site paths must be clean repository-relative paths BEFORE the
+    #    boundary prefix test or the marker read trusts them: a '..' hop or an
+    #    absolute path would otherwise pass `startswith` and then read a file
+    #    outside the surface (Codex P2 on PR #1637, eleventh round)
+    bad_sites = sorted({f"{rel} ({problem})" for _c, rel, _m in (*FIXED_LAUNCHER_SITES, *DYNAMIC_LAUNCHER_SITES)
+                        if (problem := _repo_relative_problem(root, rel))})
+    if bad_sites:
+        fail("T13", f"site row path(s) that are not clean repository-relative paths: {bad_sites} -- the "
+                    "boundary and marker checks only run on paths that cannot escape the repository")
+    # -- agent-tooling boundary: a .claude/ site must be one of the swept
+    #    sandbox surfaces (owner decision, PR #1637); anything else under
+    #    .claude/ is out of the inventory and the row itself is the error
+    outside = sorted({rel for _c, rel, _m in (*FIXED_LAUNCHER_SITES, *DYNAMIC_LAUNCHER_SITES)
+                      if rel.startswith(".claude/") and not _inside_agent_boundary(rel)})
+    if outside:
+        fail("T13", f"site row(s) under .claude/ outside the agent-tooling boundary: {outside} -- agent "
+                    "tooling is out of this inventory by owner decision; widen SWEPT_AGENT_SURFACES "
+                    "deliberately or drop the row")
+    fixed_missing = 0
+    for component, rel, markers in FIXED_LAUNCHER_SITES:
+        if _repo_relative_problem(root, rel):
+            fixed_missing += 1
+            continue  # already a FAIL above; never read a path that could escape the root
+        path = root / rel
+        if not path.exists():
+            fixed_missing += 1
+            warn("T13", f"fixed launcher {component!r}: {rel} is missing -- if the spawn site was removed, "
+                        "drop this row (and, when it was the last one, the alias and KNOWN_EXTERNAL_COMPONENTS "
+                        "entry); if it moved, re-point it")
+            continue
+        text = path.read_text(encoding="utf-8")
+        gone = [m for m in markers if m not in text]
+        if gone:
+            fixed_missing += 1
+            warn("T13", f"fixed launcher {component!r}: {rel} no longer carries {gone} -- the site may have "
+                        "stopped spawning it, so the classification would describe a binary nobody runs; "
+                        "retire or re-point the row")
+    if not fixed_missing:
+        ok("T13", f"all {len(FIXED_LAUNCHER_SITES)} fixed launcher sites still carry their spawn markers "
+                  f"({len(fixed_names)} binaries; {sorted(FRONTED_SERVICES)} fronted, never spawned)")
     for name in UNBOUNDED_TELEMETRY_CAPABLE:
         # Recorded review findings (issue #1135): bounding these is a
         # dependency decision, not a checker fix, so an unbound one is

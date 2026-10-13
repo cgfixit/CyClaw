@@ -16,7 +16,7 @@
 #   test [...]  pytest through the venv with pyproject's addopts cleared so the
 #               "N passed" summary prints; exit code propagates. Default: tests/.
 #   checks      the stdlib guards: invariant-guard, doc-sync, config-guard,
-#               dep-guard, verify-deps env drift. Exit 1 if any fails.
+#               dep-guard, dotenv-guard, verify-deps env drift. Exit 1 if any fails.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"

@@ -1,36 +1,21 @@
 ---
 name: speed-refactor
-description: Iterative speed optimization loop — continuously optimizes code for performance, measures page-load across every page under repeatable test conditions after each change, and continues until every page and module loads or runs in under 50 ms.
+description: Iterative speed optimization loop — continuously optimizes code for performance, measures every HTTP endpoint under repeatable test conditions after each change, and continues until every non-generation endpoint and module loads or runs in under 50 ms.
 disable-model-invocation: true
 ---
 
 # Speed Refactor Loop
 
-Optimize the codebase for speed iteratively. After each significant change, measure page-load performance across every page under identical, repeatable conditions. Continue until every page and code module independently runs or loads in under 50 ms.
+Optimize the codebase for speed iteratively. After each significant change, measure the HTTP endpoints under identical, repeatable conditions. Continue until every non-generation endpoint and code module independently runs or loads in under 50 ms. The 50 ms gate covers the gate's own overhead; `POST /query` on a live Ollama path is bounded by the model (`local_llm.timeout_sec` 720, `max_tokens` 4096), so measure it only as far as the 503/`needs_confirm` path or with `mock_ollama.py`.
 
 ---
 
 ## Setup
 
 ```bash
-PROJNAME=$(basename "$PWD")
-TRACKER="/tmp/refactor-${PROJNAME}.md"
-BASELINE_FILE="/tmp/speed-baseline-${PROJNAME}.json"
-```
-
-Initialize the tracker if it doesn't exist:
-
-```bash
-[ -f "$TRACKER" ] || cat > "$TRACKER" <<EOF
-# Speed Refactor — $PROJNAME
-Started: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-Target: every page and module < 50 ms
-
-## Baseline
-(run measurement before first change)
-
-## Progress
-EOF
+TRACKER="/tmp/refactor-$(basename "$PWD").md"    # /tmp/refactor-CyClaw.md here
+[ -f "$TRACKER" ] || printf '# Speed Refactor — %s\nStarted: %s\nTarget: every endpoint and module < 50 ms\n\n## Baseline\n\n## Progress\n' \
+  "$(basename "$PWD")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TRACKER"
 ```
 
 ---
@@ -42,14 +27,18 @@ All measurements must be taken under the same repeatable conditions every iterat
 ### Server startup (cold)
 
 ```bash
-# Kill any existing instance
-pkill -f "uvicorn gate" 2>/dev/null; sleep 1
-
-# Start fresh
-GROK_API_KEY=dummy uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers &
-SERVER_PID=$!
+# Kill any existing instance by pidfile, never `pkill -f` (it matches the
+# invoking shell — cyclaw-gotchas), then start fresh and wait for /health.
+D=.claude/skills/cyclaw-gotchas/driver.sh
+bash $D stop 2>/dev/null
+CYCLAW_API_KEY=smoke-test-key GROK_API_KEY=dummy bash $D serve
 sleep 2   # fixed warm-up window — do not vary
 ```
+
+By hand (no driver), the equivalent start is
+`CYCLAW_API_KEY=smoke-test-key GROK_API_KEY=dummy python -m uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers &`
+— keep `--no-proxy-headers`, which `gate._serve`, the Dockerfile and the
+launchers all pass (`tests/test_gate.py` pins this recipe).
 
 ### Measure every endpoint
 
@@ -58,25 +47,22 @@ Run each endpoint 5 times and record the **median** (not mean — median is stab
 ```bash
 measure() {
   local label="$1" method="$2" url="$3" data="$4"
-  local times=()
+  local t
   for i in 1 2 3 4 5; do
     if [ -n "$data" ]; then
-      ms=$(curl -s -o /dev/null -w "%{time_total}" -X "$method" "$url" \
-           -H "Content-Type: application/json" -d "$data")
+      t=$(curl -s -o /dev/null -w "%{time_total}" -X "$method" "$url" \
+          -H "Content-Type: application/json" -H "$AUTH" -d "$data")
     else
-      ms=$(curl -s -o /dev/null -w "%{time_total}" "$url")
+      t=$(curl -s -o /dev/null -w "%{time_total}" -H "$AUTH" "$url")
     fi
-    times+=("$ms")
-  done
-  # print label and sorted times; median is index 2 (0-based) of 5
-  echo "$label: ${times[*]}" | awk '{
-    n=NF-1; split($0,a," "); asort(a);
-    printf "%s median=%.0fms\n", $1, a[int(n/2)+1]*1000
-  }'
+    echo "$t"
+  done | sort -n | sed -n 3p | awk -v l="$label" '{ printf "%s median=%.0fms\n", l, $1*1000 }'
 }
 
 BASE="http://127.0.0.1:8787"
+AUTH="Authorization: Bearer smoke-test-key"    # /soul is key-gated; harmless elsewhere
 measure "GET /health"          GET  "$BASE/health"
+measure "GET /index/status"    GET  "$BASE/index/status"
 measure "GET /soul"            GET  "$BASE/soul"
 measure "GET /static/terminal" GET  "$BASE/static/terminal.html"
 measure "POST /query (vault)"  POST "$BASE/query" '{"query":"What is RRF?"}'
@@ -84,10 +70,11 @@ measure "POST /query (offline)" POST "$BASE/query" \
   '{"query":"What is CyClaw?","user_confirmed_online":false}'
 ```
 
-Teardown:
+Thirty requests fit under the 60/min per-IP rate limit; do not add runs
+without spacing them. Teardown:
 
 ```bash
-kill $SERVER_PID 2>/dev/null
+bash .claude/skills/cyclaw-gotchas/driver.sh stop
 ```
 
 Record results in the tracker under `### Step N — Measurement`.
@@ -107,8 +94,12 @@ Repeat until all endpoints pass:
 From the latest measurement, pick the endpoint with the highest median. Profile it:
 
 ```bash
-# Python-level profiling (attach to a running server or use cProfile on the handler)
-GROK_API_KEY=dummy python3 -m cProfile -s cumulative gate.py 2>&1 | head -40
+# Import-time cost (gate.py's __main__ starts the server, so profile the import,
+# not the script)
+GROK_API_KEY=dummy python3 -X importtime -c "import gate" 2>&1 | sort -t'|' -k2 -n | tail -25
+# Per-request cost: drive the handler in-process under cProfile
+GROK_API_KEY=dummy python3 -m cProfile -s cumulative -c \
+  "from fastapi.testclient import TestClient; import gate; TestClient(gate.app).get('/health')" 2>&1 | head -40
 ```
 
 Or add a quick timing probe inline:
@@ -126,9 +117,9 @@ Record the bottleneck and root cause in the tracker.
 
 Pick the single change with the highest expected speedup-to-risk ratio:
 
-- **Cache** expensive repeated computations (BM25 index load, ChromaDB client init, personality file read)
-- **Lazy-load** heavy imports that aren't needed on every request
-- **Defer** work that doesn't need to happen in the hot path (logging flushes, telemetry hooks)
+- **Cache** expensive repeated computations (ChromaDB client init, personality file read; BM25 scores are already `lru_cache`d in `retrieval/hybrid_search.py`)
+- **Lazy-load** heavy imports that aren't needed on every request — but never move `gate.py`'s `_TELEMETRY_KILL` block or `apply_telemetry_kill()` below a heavy import (G1, `invariant-guard`)
+- **Defer** work that doesn't need to happen in the hot path (log flushes; the audit write itself stays on the request path, I4)
 - **Reduce I/O** — batch reads, avoid redundant disk hits per request
 - **Tighten graph nodes** — short-circuit LangGraph nodes that re-derive already-known state
 
@@ -144,13 +135,20 @@ Re-run the full measurement protocol (all endpoints, 5 runs each, median). Compa
 
 ### 5. Smoke-test correctness
 
-Speed wins are worthless if correctness breaks:
+Speed wins are worthless if correctness breaks. Per CLAUDE.md §5, exercise the
+changed path directly (`driver.sh probe`, or the endpoint you just measured
+with its real response body checked), lint the touched files, and let CI run
+the suite on the pushed draft. At most one targeted test file when nothing
+else reaches the path:
 
 ```bash
-bash .claude/skills/CyClaw-Sandbox/smoke.sh
+ruff check --select E,F,I,B,C4,UP,S --ignore E501 <touched files>
+GROK_API_KEY=dummy pytest tests/test_<module>.py -q --tb=short
 ```
 
-If any smoke check fails, **revert the change** and pick a different approach.
+`bash .claude/skills/CyClaw-Sandbox/smoke.sh` is a final, whole-loop pass
+(it runs the full suite in its section F). If any check fails, **revert the
+change** and pick a different approach.
 
 If the change touched `gate.py`, `graph.py`, or `mcp_hybrid_server.py` (e.g.
 caching, short-circuiting a LangGraph node, deferring an audit-log flush),
@@ -163,20 +161,22 @@ convergence) is not a valid optimization.
 Only commit if both the speed gate improved **and** smoke tests pass:
 
 ```bash
-git add -p
-git commit -m "perf: <what changed, measured improvement>"
+git add <files of this step>
+git commit -m "[fix] - <what changed, measured improvement>"
 ```
 
-Example: `perf: cache BM25 index at startup — /query median 210ms → 38ms`
+Example: `[fix] - Cache the ChromaDB client at startup; /query median 210ms → 38ms`
+(the tracked `commit-msg` hook refuses `perf:`-style subjects; `[rag]` fits
+retrieval-path work).
 
 ### 7. Update tracker
 
 ```markdown
 ### Step N — Done
 - Target: POST /query (was 210 ms median)
-- Change: moved BM25Retriever init to module-level singleton
+- Change: cached the ChromaDB PersistentClient instead of re-opening it per request
 - Result: /query 38 ms, /health 4 ms, /soul 6 ms, /static 3 ms — ALL PASS ✓
-- Smoke: 6/6
+- Verified: probe + tests/test_rag_integration.py; CI green
 - Commit: abc1234
 ```
 
@@ -198,6 +198,7 @@ All endpoints < 50 ms for 2 consecutive measurement runs.
 | Endpoint              | Step 1 (ms) | Final (ms) |
 |-----------------------|-------------|------------|
 | GET /health           | 12          | 3          |
+| GET /index/status     | 9           | 3          |
 | GET /soul             | 45          | 7          |
 | GET /static/terminal  | 8           | 2          |
 | POST /query (vault)   | 340         | 41         |
@@ -212,5 +213,5 @@ All endpoints < 50 ms for 2 consecutive measurement runs.
 - **Median over mean** — a single GC pause or cold-cache miss inflates mean; median is stable.
 - **Revert if correctness breaks** — a 50 ms page that returns wrong data is worse than a 200 ms page that returns correct data.
 - **Module-level load time counts** — if `import gate` takes 300 ms, that's a cold-start problem worth fixing even if per-request latency is fast.
-- **`{projectname}`** in tracker/baseline paths is `basename $PWD`, e.g. `CyClaw` → `/tmp/refactor-CyClaw.md`.
-- **Deferring audit-log flushes or "telemetry hooks" out of the hot path must not move them past `audit_logger`/`END`** in the graph — that breaks I4 (audit convergence). Check with `invariant-guard`, not just the smoke test.
+- **Deferring audit-log flushes out of the hot path must not move them past `audit_logger`/`END`** in the graph — that breaks I4 (audit convergence). Check with `invariant-guard`, not just the probe.
+- **Never "optimize" `retrieval/embeddings.py`'s `EMBED_DEVICE = "cpu"`** toward `mps`/GPU auto-detection; the pin is deliberate (PR #734, ranking regression on Apple Silicon).

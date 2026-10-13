@@ -17,7 +17,7 @@ structure*, not in any single unit — exactly the properties generic test and
 lint loops miss. Some are locked by tests (`test_agentic_isolation`,
 `test_telemetry_kill`, `test_sanitizer::TestShippedConfigContract`,
 `test_security`), but the graph-topology invariants (I1–I4) had no standalone
-check before this skill. See `docs/PROPOSED_SKILLS.md` #1.
+check before this skill. See `docs/work/PROPOSED_SKILLS.md` #1.
 
 ---
 
@@ -33,12 +33,12 @@ Stdlib-only static analysis — safe in a fresh container before any `pip
 install`. Exit codes follow the repo convention: `0` all pass · `2` invariant
 violated · `3` env/config error (wrong root, unparseable core file).
 
-It verifies 47 assertions across:
+It verifies 46 assertions (the checker prints the live count) across:
 
 | ID | Invariant | What is actually checked |
 |---|---|---|
 | I1 | RAG-first | `set_entry_point("retrieve")` and the unconditional `retrieve → route_by_score` edge exist in `graph.py` |
-| I2 | Topology = policy | Conditional edges exist ONLY at `route_by_score`, `guardrail_input`, `user_gate`, `pre_action_hook_grok`, and `pre_action_hook_claude`; `score_router` / `guardrail_router` / `user_gate_router` / `pre_action_hook_router` return exactly their documented target sets |
+| I2 | Topology = policy | Conditional edges exist ONLY at `route_by_score`, `guardrail_input`, `user_gate`, `pre_action_hook_grok`, and `pre_action_hook_claude`; `score_router` / `guardrail_router` / `user_gate_router` return exactly their documented target sets (the two pre-action hook nodes are checked as conditional-edge sources and through I4 reachability, not by target-set equality) |
 | I3 | Triple-gated external fallback | `gate.py` builds Grok/Claude clients only under `mode == "hybrid"` + provider enabled; `user_gate_router` requires user confirmation, selected provider, and an available provider client |
 | I4 | Audit convergence | Graph reachability: all 11 upstream nodes reach `audit_logger`; `audit_logger → END` |
 | I5 | Soul governance | `apply_evolution` raises on empty `reason`; writes use atomic `os.replace` |
@@ -81,15 +81,18 @@ below, also read and confirm by hand:
 - **New graph nodes:** must route (directly or transitively) to `audit_logger`,
   and any new external call must be gated at least as strictly as Grok and Claude.
 - **`config.yaml` semantics:** the checker validates structure, not values.
-  `min_score` is RRF-scale (0.028 ≈ top-3-4 rank) — an innocent-looking bump to
-  0.5 routes every query to the user gate and no automated check catches it.
+  `retrieval.min_score` (0.028) is RRF-scale and gates only the keyword-only
+  degrade (hybrid ceiling 2/60 ≈ 0.033); hybrid hits are decided by
+  `min_semantic_score` (cosine, 0.30) plus the optional `min_rerank_score`
+  veto. A value-scale mistake here is `config-guard`'s job (C1/C7), not this
+  checker's — run it when a retrieval number moves.
 
 ### Step 4 — Report
 
 End with a verdict block (paste into the PR body when run as a merge gate):
 
 ```
-Invariant Guard: PASS (47/47) | FAIL (<n> violated)
+Invariant Guard: PASS (<n>/<n>) | FAIL (<n> violated)
 Checker: <exit code and any FAIL lines verbatim>
 Manual review: <files read, semantic findings or "none">
 Verdict: safe to merge / fix required: <one line per violation>
@@ -104,10 +107,13 @@ bash .claude/skills/invariant-guard/verify.sh
 ```
 
 Runs the checker on the clean tree (must exit 0), then runs a mutation
-self-test: it copies the core files to a temp dir, injects two violations
-(an `import agentic` in gate.py and a severed `grok_fallback → audit_logger`
-edge), and asserts the checker exits 2 and reports both. A checker that cannot
-fail proves nothing — the mutation test keeps it honest.
+self-test: it copies the core files to a temp dir, injects four violations
+(an `import agentic` in gate.py; a severed `guardrail_output → audit_logger`
+edge, the one every answer node converges on; an extra unconditional edge out
+of `retrieve`; and a `route_by_score` path_map retargeted past the triple
+gate), asserts each sed actually changed the file, and asserts the checker
+exits 2 and reports all four as `FAIL` lines. A checker that cannot fail
+proves nothing — the mutation test keeps it honest.
 
 ---
 

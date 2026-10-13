@@ -17,6 +17,8 @@
 #       torch pre-install held in lock-step with constraints.txt
 #   E6  the rest of the Docker surface -- docker-compose.yml, .dockerignore,
 #       and publish-ghcr.yml -- agreeing with the Dockerfile and each other
+#   E7  a runtime pin no first-party module imports (the reverse of E3;
+#       warns, since a pinned transitive is deliberate)
 #
 # Pure stdlib, no network, no install required -- same constraints dep-guard
 # and extract_pins.py hold, so this runs in a fresh clone before pip does.

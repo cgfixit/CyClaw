@@ -439,9 +439,29 @@ _remember_secret_preset
 _source_dotenv "$HOME_DIR/.env" || _source_dotenv "$REPO_DIR/.env" || true
 _load_os_secrets "$HOME_DIR/.env" "$REPO_DIR/.env" || die "Keychain secret could not be read."
 
+# Canonical telemetry/update-check block, exported into THIS shell before the
+# gh(1) and ollama calls below (and the servers step 9 starts) so none of them
+# runs with whatever GH_TELEMETRY or OTel value the operator's shell happens
+# to carry. utils/telemetry_kill.py renders the lines; nothing here hand-copies
+# a key. Positioned after the key/.env loading above so the canonical values
+# overwrite any ambient or dotenv value, mirroring apply_telemetry_kill()'s
+# overwrite semantics. -S -E: the helper interpreter runs no site init and
+# ignores ambient PYTHONPATH. Non-fatal for setup as a whole (every Python
+# entry point re-applies at import), but gh(1) is telemetry-capable and
+# cannot self-apply, so step 6 is skipped when the block is missing: fail
+# closed rather than run gh under the ambient environment.
+_TELEMETRY_EXPORTED=0
+if _kill_env="$(cd "$REPO_DIR" && "$VENV_PY" -S -E -m utils.telemetry_kill --export shell 2>/dev/null)"; then
+  eval "$_kill_env"
+  _TELEMETRY_EXPORTED=1
+  step "telemetry-kill block exported for gh/ollama and the servers"
+else
+  warn "could not export the telemetry-kill block; skipping gh auth (step 6) rather than run gh with the ambient environment (the servers self-apply at import)"
+fi
+
 # -- 6. gh auth (optional, never prints a token) ------------------------------
 
-if command -v gh >/dev/null 2>&1; then
+if [ "$_TELEMETRY_EXPORTED" -eq 1 ] && command -v gh >/dev/null 2>&1; then
   if gh auth status >/dev/null 2>&1; then
     step "gh: already authenticated (status ok; token not printed)"
   elif [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -459,11 +479,21 @@ if command -v gh >/dev/null 2>&1; then
   else
     step "gh: not logged in and no GH_TOKEN stored. Later: gh auth login"
   fi
+elif [ "$_TELEMETRY_EXPORTED" -ne 1 ]; then
+  step "gh: skipped (telemetry-kill block unavailable, see the warning above). Later: gh auth login"
 else
   step "gh: not on PATH. Optional: brew install gh && gh auth login"
 fi
 
 # -- 7. Ollama ----------------------------------------------------------------
+
+# Every Ollama call in this step (the readiness probe, `ollama list`, the
+# confirmed `ollama pull`, and the convenience `ollama serve` it may start)
+# talks to the loopback endpoint the threat model names, whatever OLLAMA_HOST
+# the operator's shell or dotenv carried: an ambient remote or 0.0.0.0 value
+# would otherwise list and pull against another daemon, or bind the one we
+# start beyond localhost. A daemon the operator already runs is left alone.
+export OLLAMA_HOST=127.0.0.1:11434
 
 _ollama_up() {
   curl -sf --max-time 2 http://127.0.0.1:11434/api/tags >/dev/null 2>&1
@@ -514,6 +544,7 @@ if [ "$SKIP_OLLAMA" -eq 0 ]; then
       step "Ollama API not answering yet; launching 'ollama serve' in the background"
       _ollama_apply_mlx_env
       OLLAMA_LOG="$(mktemp "${TMPDIR:-/tmp}/cyclaw-ollama-serve.XXXXXX.log")"
+      # Binds loopback: OLLAMA_HOST is exported for this whole step above.
       ollama serve >"$OLLAMA_LOG" 2>&1 &
       sleep 1
       if _ollama_up; then

@@ -15,13 +15,15 @@ invariants (invariant-guard), committed secret values (gitleaks), or config
 numbers (config-guard).
 
 A name is secret-classified by `.claude/skills/dotenv-guard/envline.py`,
-case-insensitively, when it starts with a letter and ends in `_API_KEY`,
-`_TOKEN`, `_SECRET`, `_PASSWORD`, `_KEY`, `_PAT`, `_DSN`, or `_CREDENTIALS`.
-Gitleaks owns secret values. This guard owns these names. `_KEY` also
-classifies non-secret locals such as `PRINT_KEY` when they are assigned in a
-dotenv file; that cost is accepted so an access key cannot hide behind a
-narrower suffix. The normative rules and the shared vector table are
-`ENVLINE_SPEC.md` and `envline_vectors.tsv` beside this skill.
+which delegates to `utils/secret_policy.py` and its table
+`utils/secret-policy.tsv`: case-insensitively, a name that ends in one of the
+listed suffixes (`_API_KEY`, `_TOKEN`, `_SECRET`, `_PASSWORD`, `_KEY`, `_PAT`,
+`_DSN`, `_DB_URL`, `_CREDENTIALS`) or matches one of the exact names there
+(`RCLONE_CONFIG_PASS`, `GH_TOKEN`, …). Gitleaks owns secret values. This guard
+owns these names. `_KEY` also classifies non-secret locals such as `PRINT_KEY`
+when they are assigned in a dotenv file; that cost is accepted so an access
+key cannot hide behind a narrower suffix. The tokenizer rules and the vector
+table are `ENVLINE_SPEC.md` and `envline_vectors.tsv` beside this skill.
 
 ## Run
 
@@ -49,7 +51,8 @@ when no Python interpreter is on `PATH`.
 ### Step 2 — Interpret
 
 - `KNOWN` lines are baselined findings (`baseline.txt`, `RULE<TAB>KEY<TAB>REASON`).
-  They exist on `main` by design and do not fail.
+  They exist on `main` by design and do not fail. The shipped baseline is
+  currently empty (comments only), so a clean tree reports `0 known`.
 - `FAIL … stale baseline entry` means the violation is gone. Delete that line
   in the same PR. This ratchet is the point: a fixed violation must not be
   able to come back silently under an old entry.
@@ -96,6 +99,9 @@ python3 -m pytest tests/test_dotenv_envline.py -q
 ```
 
 That test reads the same `envline_vectors.tsv` the shell verifier checks.
+`verify.sh`'s unreadable-file case uses `chmod 000`, which root can still
+read; run it as an unprivileged user (CI does) or expect that one case to
+report "expected exit 3, got 0".
 
 ## Guardrails
 
@@ -108,10 +114,11 @@ That test reads the same `envline_vectors.tsv` the shell verifier checks.
 
 ## Gotchas
 
-- CI runs this as the blocking `dotenv-guard` job next to `invariant-guard`.
-  The verify-skills matrix also runs `verify.sh`, but that matrix is
+- CI runs the checker **and** `verify.sh` in the blocking `dotenv-guard` job
+  next to `invariant-guard`. The verify-skills matrix runs `verify.sh` again,
   advisory (`continue-on-error`).
-- The shell loaders and this checker share `ENVLINE_SPEC.md` and
-  `envline_vectors.tsv`. The five K4/K5 baseline rows for the default
-  plaintext write and the raw zshrc source were removed with that behavior.
-  Do not put them back.
+- `ENVLINE_SPEC.md` is the normative tokenizer spec; today only this checker
+  and `tests/test_dotenv_envline.py` implement it (the shell loaders do not
+  reference it). The five K4/K5 baseline rows for the default plaintext write
+  and the raw zshrc source were removed with that behavior. Do not put them
+  back.

@@ -75,6 +75,31 @@ _mktree() {
   cp "$repo_root/sync/cli.py" "$repo_root/sync/scheduler.py" "$d/sync/"
   cp "$repo_root/telegram/cli.py" "$d/telegram/"
   cp "$repo_root/opentweet/cli.py" "$d/opentweet/"
+  # Every FIXED_LAUNCHER_SITES file, read from the checker's own table so the
+  # scratch tree and the rule can never drift apart (a site file absent here
+  # would surface as a spurious "is missing" WARN in every scenario).
+  python3 - "$checker" <<'PY' | while IFS= read -r rel; do
+import ast, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+for node in tree.body:
+    if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") in ("FIXED_LAUNCHER_SITES",
+                                                                              "DYNAMIC_LAUNCHER_SITES"):
+        for _component, rel, _markers in ast.literal_eval(node.value):
+            print(rel)
+    # repo-relative evidence sources too: T13 fails a row whose url path is absent
+    if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "INVENTORY":
+        for row in ast.literal_eval(node.value):
+            url = str(row.get("url", ""))
+            if url and not url.startswith(("http://", "https://")):
+                print(url)
+PY
+    if [ -d "$repo_root/$rel" ]; then
+      mkdir -p "$d/$rel"
+    else
+      mkdir -p "$d/$(dirname "$rel")"
+      cp "$repo_root/$rel" "$d/$rel"
+    fi
+  done
   echo "$d"
 }
 
@@ -385,6 +410,341 @@ _mutate "$a/utils/external_pre_hook.py" '
 text = text.replace("subprocess.run(", "zz_spawn_removed_zz(")
 assert "subprocess.run(" not in text'
 _expect "T13 dynamic-launcher site gone mutation" 0 "WARN  \[T13\] dynamic launcher .pre-action-hook-command.*no longer carries"
+
+# 30. T13: a FIXED launcher site stops spawning its binary. The security(1)
+#     row is only true while sync/scheduled.py still execs /usr/bin/security;
+#     removing that argv must be reported so the row (and, when it is the last
+#     site, the alias and KNOWN_EXTERNAL_COMPONENTS entry) is retired rather
+#     than left classifying a binary nobody runs (Codex P2 on PR #1637).
+a="$(_mktree)"
+_mutate "$a/sync/scheduled.py" '
+text = text.replace("[\"/usr/bin/security\", \"find-generic-password\"", "[\"zz_removed_zz\", \"find-generic-password\"")
+assert "/usr/bin/security" not in text'
+_expect "T13 fixed-launcher site gone mutation" 0 "WARN  \[T13\] fixed launcher .security.*no longer carries"
+
+# 31. T13: a known external binary loses its spawn-site rows entirely. Until
+#     PR #1637 a name in KNOWN_EXTERNAL_COMPONENTS was never checked against
+#     the tree, which is how the uv row went stale; now a name with no
+#     FIXED/DYNAMIC/FRONTED row is a hard failure.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+lines = text.splitlines(keepends=True)
+kept = [l for l in lines if not l.lstrip().startswith("(\"uv\", ")]
+assert len(kept) == len(lines) - 3, "expected exactly three uv site rows"
+text = "".join(kept)'; then
+  echo "T13 known binary without a spawn-site row mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] known external component.*no spawn-site row.*uv"; then
+    echo "T13 known binary without a spawn-site row mutation: PASS"
+  else
+    echo "T13 known binary without a spawn-site row mutation: FAIL — expected rc=2 + the no-spawn-site-row FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 32. T13: a DYNAMIC launcher row added without a KNOWN_EXTERNAL_COMPONENTS
+#     entry. Its marker verifies fine, but the surface never enters the
+#     classification sweep, so the reverse-consistency check must fail it
+#     (Codex P2 on PR #1637, second round).
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "\"& $exe @exeArgs\")),\n)",
+    "\"& $exe @exeArgs\")),\n"
+    "    (\"zz-new-surface\", \"utils/external_pre_hook.py\", (\"def _run_command\",)),\n)")'; then
+  echo "T13 unlisted dynamic surface mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] spawn-site row.*does not name.*zz-new-surface"; then
+    echo "T13 unlisted dynamic surface mutation: PASS"
+  else
+    echo "T13 unlisted dynamic surface mutation: FAIL — expected rc=2 + the does-not-name FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 33. T13: a fixed launcher keeps its override plumbing but stops invoking
+#     the binary. The uv rows pin the `"$uv_bin" pip compile` call, not only
+#     the `uv_bin=` assignment, so deleting the call alone must be reported.
+a="$(_mktree)"
+_mutate "$a/scripts/refresh-ci-locks.sh" '
+text = text.replace("\"$uv_bin\" pip compile", "\"$uv_bin\" zz_no_longer_compiles_zz")
+assert "\"$uv_bin\" pip compile" not in text and "uv_bin=\"${UV_BIN:-uv}\"" in text'
+_expect "T13 fixed-launcher invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .uv.: scripts/refresh-ci-locks.sh no longer carries"
+
+# 34. T13: the setup script's canonical-export eval is removed while its gh
+#     calls stay. The gh row's claim that the shell site carries the block is
+#     only true while that eval exists, so it is pinned as a marker.
+a="$(_mktree)"
+_mutate "$a/macos/setup-from-clone.sh" '
+text = text.replace("-m utils.telemetry_kill --export shell", "-m zz_no_export_zz")
+assert "gh auth login --with-token" in text'
+_expect "T13 setup-script export eval gone mutation" 0 "WARN  \[T13\] fixed launcher .gh.: macos/setup-from-clone.sh no longer carries"
+
+# 35. T13: an inventory row's repo-relative url points at a file that does
+#     not exist (the docs/setup-guide.md slip Codex caught in round four).
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("\"url\": \"setup-guide.md\",", "\"url\": \"docs/zz-missing-guide.md\",", 1)'; then
+  echo "T13 missing evidence path mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\].*docs/zz-missing-guide.md.*does not exist"; then
+    echo "T13 missing evidence path mutation: PASS"
+  else
+    echo "T13 missing evidence path mutation: FAIL — expected rc=2 + the does-not-exist FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 36. T13: the Keychain helper keeps its resolver but stops invoking
+#     security(1). The row pins the find-generic-password call, not only the
+#     SECURITY_BIN assignment.
+a="$(_mktree)"
+_mutate "$a/macos/cyclaw-keychain-env.sh" '
+text = text.replace("\"$SECURITY_BIN\" find-generic-password", "\"$SECURITY_BIN\" zz_no_lookup_zz")
+assert "SECURITY_BIN=\"/usr/bin/security\"" in text and "\"$SECURITY_BIN\" find-generic-password" not in text'
+_expect "T13 keychain invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .security.: macos/cyclaw-keychain-env.sh no longer carries"
+
+# 37. T13: a site row for agent tooling under .claude/ outside the swept
+#     sandbox surfaces. Agent tooling is out of the inventory by owner
+#     decision (PR #1637); the row itself must fail so the boundary is only
+#     ever widened by editing SWEPT_AGENT_SURFACES on purpose.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n"
+    "    (\"git\", \".claude/hooks/session-start-sync-check.sh\", (\"git \",)),\n", 1)'; then
+  echo "T13 agent-tooling boundary mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] site row.*outside the agent-tooling boundary.*session-start-sync-check"; then
+    echo "T13 agent-tooling boundary mutation: PASS"
+  else
+    echo "T13 agent-tooling boundary mutation: FAIL — expected rc=2 + the boundary FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 38. T13: an alias whose target names no inventory row. Before PR #1637's
+#     seventh round the mere presence of the alias key counted as
+#     "classified", so a typo silently dropped a component's classification.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("    \"curl\": \"curl (setup + sandbox probes)\",", "    \"curl\": \"zz nonexistent inventory row\",", 1)'; then
+  echo "T13 dangling alias target mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] alias target.*zz nonexistent inventory row"; then
+    echo "T13 dangling alias target mutation: PASS"
+  else
+    echo "T13 dangling alias target mutation: FAIL — expected rc=2 + the alias FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 39. T13: the agent-tooling boundary covers DYNAMIC rows too, and the
+#     single-file exception is matched exactly ("driver.sh.backup" is not
+#     "driver.sh"). One mutation adds both offending rows; both must be
+#     named in the FAIL.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "\"& $exe @exeArgs\")),\n)",
+    "\"& $exe @exeArgs\")),\n"
+    "    (\"executor-check\", \".claude/hooks/session-start-sync-check.sh\", (\"git \",)),\n)", 1)
+text = text.replace(
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n"
+    "    (\"curl\", \".claude/skills/cyclaw-gotchas/driver.sh.backup\", (\"curl \",)),\n", 1)'; then
+  echo "T13 boundary dynamic+exact mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep "FAIL  \[T13\] site row.*outside the agent-tooling boundary" | grep -q "session-start-sync-check" && echo "$out" | grep "outside the agent-tooling boundary" | grep -q "driver.sh.backup"; then
+    echo "T13 boundary dynamic+exact mutation: PASS"
+  else
+    echo "T13 boundary dynamic+exact mutation: FAIL — expected rc=2 + both paths in the boundary FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 40. T13: a newly sited invocation (the scheduled-sync rclone listremotes
+#     check) is removed while the resolver stays. Proves the eighth-round
+#     rows are live markers, not decoration.
+a="$(_mktree)"
+_mutate "$a/sync/scheduled.py" '
+text = text.replace("[binary, \"listremotes\"]", "[binary, \"zz_no_remotes_zz\"]")
+assert "shutil.which(\"rclone\")" in text and "[binary, \"listremotes\"]" not in text'
+_expect "T13 scheduled rclone invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .rclone.: sync/scheduled.py no longer carries"
+
+# 41. T13: the Homebrew analytics export is removed while the brew commands
+#     stay. The export is the pre-execution protection the Homebrew row
+#     claims (it covers a later `brew install` even if `brew analytics off`
+#     failed), so it is a marker in its own right.
+a="$(_mktree)"
+_mutate "$a/macos/setup-from-clone.sh" '
+text = text.replace("export HOMEBREW_NO_ANALYTICS=1", "export ZZ_HOMEBREW_UNSET=1")
+assert "brew analytics off >/dev/null" in text and "HOMEBREW_NO_ANALYTICS=1" not in text'
+_expect "T13 homebrew export gone mutation" 0 "WARN  \[T13\] fixed launcher .brew.: macos/setup-from-clone.sh no longer carries"
+
+# 42. T13: an inventory row's url is an absolute path. `root / "/etc/passwd"`
+#     discards root, so the existence check alone would pass; the schema must
+#     refuse anything that is not repository-relative (Codex P2 on PR #1637,
+#     tenth round). 43 is the '..' traversal form of the same rule.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("\"url\": \"setup-guide.md\",", "\"url\": \"/etc/passwd\",", 1)'; then
+  echo "T13 absolute evidence path mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\].*/etc/passwd.*must be a repository-relative path"; then
+    echo "T13 absolute evidence path mutation: PASS"
+  else
+    echo "T13 absolute evidence path mutation: FAIL — expected rc=2 + the repository-relative FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("\"url\": \"setup-guide.md\",", "\"url\": \"docs/../../etc/passwd\",", 1)'; then
+  echo "T13 traversal evidence path mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\].*etc/passwd.*must be a repository-relative path"; then
+    echo "T13 traversal evidence path mutation: PASS"
+  else
+    echo "T13 traversal evidence path mutation: FAIL — expected rc=2 + the repository-relative FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 44. T13: a secret-injecting exec wrapper stops exec'ing the caller's
+#     command. The wrapper is a DYNAMIC surface (the binary is whatever
+#     follows `--`), so losing its `exec "$@"` must trip the dynamic-site
+#     WARN like any other launcher (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+_mutate "$a/macos/cyclaw-keychain-env.sh" '
+text = text.replace("exec \"$@\"\n", "\"$@\"\n", 1)'
+_expect "T13 secret-env wrapper exec gone mutation" 0 "WARN  \[T13\] dynamic launcher .secret-env-wrapper.: macos/cyclaw-keychain-env.sh no longer carries"
+rm -rf "$a"
+
+# 45. T13: a site row whose path hops out of the swept sandbox surface with
+#     '..' (it starts with the allowed prefix, so a raw startswith test would
+#     pass it) and one with an absolute path. Both must be refused before the
+#     boundary or marker checks read them (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n"
+    "    (\"git\", \".claude/skills/CyClaw-Sandbox/../../hooks/session-start-sync-check.sh\", (\"git \",)),\n"
+    "    (\"git\", \"/etc/passwd\", (\"root\",)),\n", 1)'; then
+  echo "T13 site path traversal mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep "FAIL  \[T13\] site row path.*not clean repository-relative" | grep -q "session-start-sync-check" && echo "$out" | grep "not clean repository-relative" | grep -q "/etc/passwd"; then
+    echo "T13 site path traversal mutation: PASS"
+  else
+    echo "T13 site path traversal mutation: FAIL — expected rc=2 + both paths in the site-path FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 46. T13: the sandbox audit's hashed pip install disappears from
+#     CyClaw-Sandbox/verify.sh (a swept surface), and 47 its git clone from
+#     run_full_verification.py. Both were unsited until the eleventh round;
+#     each must now trip the fixed-launcher WARN on its own.
+a="$(_mktree)"
+_mutate "$a/.claude/skills/CyClaw-Sandbox/verify.sh" '
+text = text.replace("\"$VPY\" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt", "true", 1)'
+_expect "T13 sandbox pip install gone mutation" 0 "WARN  \[T13\] fixed launcher .pip-install.: .claude/skills/CyClaw-Sandbox/verify.sh no longer carries"
+rm -rf "$a"
+
+a="$(_mktree)"
+_mutate "$a/.claude/skills/CyClaw-Sandbox/run_full_verification.py" '
+text = text.replace("[git, \"clone\", \"--depth\", \"1\", \"--branch\", BRANCH, REPO_URL, \".\"]", "[git, \"status\"]", 1)'
+_expect "T13 sandbox git clone gone mutation" 0 "WARN  \[T13\] fixed launcher .git-remote.: .claude/skills/CyClaw-Sandbox/run_full_verification.py no longer carries"
+rm -rf "$a"
+
+# 48. T13: the setup script's `gh auth login` disappears. It is a gh-api
+#     (category-3) site as well as a gh telemetry site, so the functional
+#     row must notice on its own (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+_mutate "$a/macos/setup-from-clone.sh" '
+text = text.replace("gh auth login --with-token", "gh auth setup-git")  # both token branches'
+_expect "T13 gh auth invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .gh-api.: macos/setup-from-clone.sh no longer carries"
+rm -rf "$a"
+
+# 49. T13: the generated Task Scheduler job's command construction changes
+#     (COMSPEC lookup replaced). The cmd.exe row used to pin only the .cmd
+#     filename, which survives this (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+_mutate "$a/utils/win_schtasks.py" '
+text = text.replace("command=os.environ.get(\"COMSPEC\", \"cmd.exe\")", "command=\"wscript.exe\"", 1)'
+_expect "T13 schtasks command construction gone mutation" 0 "WARN  \[T13\] fixed launcher .cmd.exe.: utils/win_schtasks.py no longer carries"
+rm -rf "$a"
+
+# 50. T13: the Keychain store helper stops driving security(1) through expect.
+a="$(_mktree)"
+_mutate "$a/macos/setup-cyclaw-keys.sh" '
+text = text.replace("/usr/bin/expect <<EXPECT_EOF", "/usr/bin/true <<EXPECT_EOF", 1)'
+_expect "T13 expect invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .expect.: macos/setup-cyclaw-keys.sh no longer carries"
+rm -rf "$a"
+
+# 51. T13: the Linux keyring lookup disappears from cyclaw-linux-key.sh.
+a="$(_mktree)"
+_mutate "$a/macos/cyclaw-linux-key.sh" '
+text = text.replace("\"$1\" lookup service \"$_CYCLAW_LINUX_KEY_SERVICE\"", "cat /dev/null", 1)'
+_expect "T13 secret-tool lookup gone mutation" 0 "WARN  \[T13\] fixed launcher .secret-tool.: macos/cyclaw-linux-key.sh no longer carries"
+rm -rf "$a"
 
 echo
 if [ "$fails" -eq 0 ]; then
