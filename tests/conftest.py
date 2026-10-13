@@ -168,7 +168,7 @@ def _repo_logs_untouched():
 
 # DevSkim: ignore DS162092,DS137138 - test fixtures; loopback addresses are intentional
 TEST_CONFIG = {
-    "app": {"name": "cyclaw-test", "env": "test", "mode": "offline", "debug": True},
+    "app": {"name": "cyclaw-test", "env": "test", "mode": "offline"},
     "models": {
         "local_llm": {"provider": "ollama", "base_url": "http://127.0.0.1:11434/v1",
                       "model": "test-model", "max_tokens": 256, "temperature": 0.1, "timeout_sec": 10},
