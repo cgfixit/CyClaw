@@ -354,7 +354,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
                        "via build_telemetry_safe_env -- an ambient true/log can never reach a child. The one "
                        "shell site, macos/setup-from-clone.sh's `gh auth status`/`gh auth login` (step 6), "
                        "evals the canonical `--export shell` block first since PR #1637, the same way "
-                       "invoke-cyclaw.sh does; that eval line is a FIXED_LAUNCHER_SITES marker",
+                       "invoke-cyclaw.sh does, and FAILS CLOSED: when that export cannot be produced the "
+                       "script skips step 6 entirely rather than run gh under the ambient environment. "
+                       "Both the eval line and the skip guard are FIXED_LAUNCHER_SITES markers",
         "scope": "agentic read/write ops", "reviewed": "2026-10-13",
         "evidence": "gh help environment documents GH_TELEMETRY true/false/log; re-read from cli/cli "
                     "pkg/cmd/root/help_topic.go 2026-10-13: 'false' or '0' disables, 'log' prints to stderr "
@@ -690,9 +692,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "setup-guide.md",
         "versions": "host binary, never pinned: macos/setup-from-clone.sh, macos/setup-cyclaw.sh, "
                     "macos/invoke-cyclaw.sh (operator setup/launch scripts), "
-                    ".claude/skills/cyclaw-gotchas/driver.sh and .claude/skills/CyClaw-Sandbox/verify.sh "
-                    "(agent sandbox drivers). No runtime code path spawns curl; the Dockerfile and the "
-                    "PowerShell scripts run no curl/Invoke-WebRequest",
+                    ".claude/skills/cyclaw-gotchas/driver.sh and .claude/skills/CyClaw-Sandbox/{verify,smoke,"
+                    "macos-smoke}.sh (agent sandbox drivers and smoke suites). No runtime code path spawns "
+                    "curl; the Dockerfile and the PowerShell scripts run no curl/Invoke-WebRequest",
         "enforcement": "every call but one targets loopback (the gateway's /health, /query, /soul, "
                        "/static and Ollama's /api/tags on 127.0.0.1) or the cloud sandbox's own agent-proxy "
                        "status endpoint. The one outbound fetch is `curl -fsSL https://ollama.com/install.sh "
@@ -891,7 +893,8 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # the operator setup script's own gh calls carry the canonical block via the
     # same --export eval the launcher uses; the third marker pins that eval
     ("gh", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token",
-                                         "-m utils.telemetry_kill --export shell")),
+                                         "-m utils.telemetry_kill --export shell",
+                                         '[ "$_TELEMETRY_EXPORTED" -eq 1 ]')),
     ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"', 'rclone_bin, "copy",', 'rclone_bin, "bisync",')),
     ("brew", "macos/setup-from-clone.sh", ("brew analytics off >/dev/null",)),
     ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")', '[binary, "config"',
@@ -933,6 +936,8 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("curl", ".claude/skills/cyclaw-gotchas/driver.sh", ('curl -s --max-time 5 "$BASE/health"',
                                                          'curl -sS --max-time 5 "$HTTPS_PROXY/__agentproxy/status"')),
     ("curl", ".claude/skills/CyClaw-Sandbox/verify.sh", ('curl -sf "$BASE/health"',)),
+    ("curl", ".claude/skills/CyClaw-Sandbox/smoke.sh", ('curl -sf "$BASE/health"',)),
+    ("curl", ".claude/skills/CyClaw-Sandbox/macos-smoke.sh", ('HTTP_CODE=$(curl -sS -o "$tmp" -w "%{http_code}"',)),
 )
 
 _fails: list[dict[str, str]] = []

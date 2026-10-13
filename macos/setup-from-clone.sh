@@ -446,18 +446,22 @@ _load_os_secrets "$HOME_DIR/.env" "$REPO_DIR/.env" || die "Keychain secret could
 # a key. Positioned after the key/.env loading above so the canonical values
 # overwrite any ambient or dotenv value, mirroring apply_telemetry_kill()'s
 # overwrite semantics. -S -E: the helper interpreter runs no site init and
-# ignores ambient PYTHONPATH. Non-fatal: every Python entry point re-applies
-# at import; only the gh/ollama children would run with the ambient env.
+# ignores ambient PYTHONPATH. Non-fatal for setup as a whole (every Python
+# entry point re-applies at import), but gh(1) is telemetry-capable and
+# cannot self-apply, so step 6 is skipped when the block is missing: fail
+# closed rather than run gh under the ambient environment.
+_TELEMETRY_EXPORTED=0
 if _kill_env="$(cd "$REPO_DIR" && "$VENV_PY" -S -E -m utils.telemetry_kill --export shell 2>/dev/null)"; then
   eval "$_kill_env"
+  _TELEMETRY_EXPORTED=1
   step "telemetry-kill block exported for gh/ollama and the servers"
 else
-  warn "could not export the telemetry-kill block; gh/ollama below run with the ambient environment"
+  warn "could not export the telemetry-kill block; skipping gh auth (step 6) rather than run gh with the ambient environment (the servers self-apply at import)"
 fi
 
 # -- 6. gh auth (optional, never prints a token) ------------------------------
 
-if command -v gh >/dev/null 2>&1; then
+if [ "$_TELEMETRY_EXPORTED" -eq 1 ] && command -v gh >/dev/null 2>&1; then
   if gh auth status >/dev/null 2>&1; then
     step "gh: already authenticated (status ok; token not printed)"
   elif [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; then
