@@ -42,16 +42,12 @@ and classifies each:
 Exit `0` = baseline holds (open findings are allowed to exist). Exit `2` = a new
 bypass or a false positive. Exit `3` = deps/env problem.
 
-The seed corpus currently ships **dry** — every originally-identified finding
-(8 total: `me-05`, `au-02`, `hx-01`–`hx-06`) is already closed and lives on as
-a permanent regression anchor in `probes.yaml` (e.g. the original
-`from THE it department` bypass of the `from (it department|...)` pattern, and
-a zero-width-character trigger-word split — both now blocked). Run Step 1
-first to confirm this is still true: a nonzero `open_findings` count means a
-NEW gap surfaced (a real sanitizer regression, or a freshly-extended probe) —
-Steps 2–5 are how you close it. If `open_findings` is 0, skip straight to
-**Step 6** and extend the corpus rather than hunting for a finding that
-doesn't exist yet.
+The seed corpus ships **dry**: every originally-identified finding (8, e.g.
+the `from THE it department` bypass and a zero-width-character split) is
+closed and kept as a regression anchor in `probes.yaml`. A nonzero
+`open_findings` count therefore means a NEW gap (a sanitizer regression or a
+freshly-extended probe) — Steps 2–5 close it. If it is 0, skip to **Step 6**
+and extend the corpus.
 
 ### Step 2 — Pick one open finding and classify the bypass family
 

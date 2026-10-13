@@ -29,21 +29,14 @@ disables the keyword-only degrade.
 ### Step 1 — Deterministic checker (needs PyYAML, ~1 second)
 
 ```bash
-python3 .claude/skills/config-guard/check_config.py
+python3 .claude/skills/config-guard/check_config.py       # add --strict to make every WARN a failure
 ```
 
 Static — it parses `config.yaml` and never imports the app (no torch/chromadb),
 so it runs in a fresh clone the moment PyYAML is present. Exit codes follow the
 repo convention: `0` contract holds · `2` a FAIL check tripped · `3` env/config
-error (missing/unparseable `config.yaml`, or PyYAML absent).
-
-Add `--strict` to escalate every `WARN` to a failure:
-
-```bash
-python3 .claude/skills/config-guard/check_config.py --strict
-```
-
-`--strict` passes on the committed config. C9 now treats the documented shipped
+error (missing/unparseable `config.yaml`, or PyYAML absent). `--strict`
+passes on the committed config. C9 now treats the documented shipped
 posture (`app.mode: hybrid`, Grok/Claude enabled, per-request confirmation still
 required) as its baseline and warns when a committed config drifts from it.
 

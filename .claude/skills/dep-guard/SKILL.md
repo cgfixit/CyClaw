@@ -26,7 +26,7 @@ enforces them. This does — with zero third-party imports (`tomllib` is stdlib 
 ### Step 1 — Deterministic checker (stdlib only, ~1 second)
 
 ```bash
-python3 .claude/skills/dep-guard/check_deps.py
+python3 .claude/skills/dep-guard/check_deps.py            # add --strict to make every WARN a failure
 ```
 
 It parses `pyproject.toml` (via `tomllib`) and `constraints.txt` for the pin
@@ -34,13 +34,8 @@ checks, and reads `environment.yml`, `requirements*.txt`, the workflow YAMLs,
 the install scripts and the torch-citing docs for D8–D11 — importing nothing
 third-party. Exit codes follow the repo convention: `0` pins hold · `2`
 a FAIL check tripped · `3` env/config error (a pin file missing or unparseable).
-
-Add `--strict` to escalate every `WARN` to a failure (use it as a merge gate
-when you want the documented pins locked, not just the resolver-breaking ones):
-
-```bash
-python3 .claude/skills/dep-guard/check_deps.py --strict
-```
+`--strict` is the merge-gate form: the documented pins locked, not just the
+resolver-breaking ones.
 
 It checks (severity in brackets):
 

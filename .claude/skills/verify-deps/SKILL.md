@@ -115,14 +115,12 @@ Steps 1 and 2 both stop at the manifest boundary — they compare pin files to
 other pin files. But CyClaw declares load-bearing environment dependencies in
 places no manifest checker reads, and nothing cross-checks those. Seven classes:
 
-- **E1 — tool versions pinned inline in workflow YAML.** `flake8==7.3.0` and
-  `wemake-python-styleguide==1.6.2` run in the (advisory) lint lane
-  (`lint.yml`); `actionlint-py==1.7.12.24` and `zizmor==1.28.0` gate CI
-  (`ci.yml`); `pip` is pinned inline at well over a dozen sites across six
-  workflow files (the checker prints the live count). None appears in
-  any manifest. The failure this catches is not a wrong version — it is the
-  *same* tool pinned at two different versions in two jobs, which makes one
-  lane's result silently unreproducible against the other's.
+- **E1 — tool versions pinned inline in workflow YAML** (`flake8`, `wemake`,
+  `actionlint-py`, `zizmor`, and `pip` at over a dozen sites; the checker
+  prints the live set). None appears in any manifest. The failure this
+  catches is not a wrong version — it is the *same* tool pinned at two
+  different versions in two jobs, which makes one lane's result silently
+  unreproducible against the other's.
 - **E2 — the Python version**, declared independently in `pyproject.toml`
   (`requires-python`), `Dockerfile` (`FROM python:`), `environment.yml`
   (`python=`), and every workflow's `python-version:`. Four places, no
@@ -156,37 +154,21 @@ places no manifest checker reads, and nothing cross-checks those. Seven classes:
   `publish-ghcr.yml` builds `./Dockerfile` and pushes the `IMAGE_NAME` compose
   pulls. Each file is info-skipped when absent (the Docker surface may be the
   Dockerfile alone), never silently passed when present and incoherent.
-- **E7 — a runtime pin no first-party module imports**: the reverse of E3.
-  E3 asks "is every import declared?"; E7 asks "is every declared runtime pin
-  still called?". It reuses E3's own import set so the two can never disagree
-  about scope, and it **warns rather than fails**, because "not imported" is
-  not the same as "unused": a pin can be a transitive deliberately version-
-  pinned on this surface, and deleting one of those silently floats the real
-  dependency. Every exemption in `_PINNED_NOT_IMPORTED` therefore carries the
-  package that pulls it — today that is only `websockets`, `uvicorn[standard]`'s
-  (`websockets>=13.0`). `numpy` is no longer exempt: `retrieval/hybrid_search.py`
-  imports it directly (vectorized BM25 top-k), so E3/E7 treat it as a
-  first-party dependency — its pin is still held at the documented `<2`
-  ceiling. `onnxruntime` is likewise imported (`utils/onnx_telemetry.py`) and
-  carries no exemption. Added
-  after #1367's harness removal made the question live; commit 92afb95
-  ("drop two things nothing calls") had found and removed exactly one such
-  orphan — a `tzdata` runtime pin kept for a test-only import — by hand.
+- **E7 — a runtime pin no first-party module imports**: the reverse of E3,
+  on E3's own import set so the two cannot disagree about scope. It **warns
+  rather than fails**, because "not imported" is not "unused": a pin can be a
+  transitive deliberately held on this surface (deleting it floats the real
+  dependency), so every `_PINNED_NOT_IMPORTED` exemption names the package
+  that pulls it (today only `websockets`, for `uvicorn[standard]`). `numpy`
+  and `onnxruntime` are imported directly and carry no exemption.
 
 Pure stdlib, no network, no install — same constraints as `dep-guard` and
 `extract_pins.py`, so it runs in a fresh clone before pip does. Exits 0 with
 warnings, 2 on a failure; `--strict` promotes warnings to a failure.
 
-**A clean tree currently reports zero E3 warnings.** `huggingface_hub` and
-`starlette` were the first two findings this check ever surfaced
-(`retrieval/embeddings.py` and `gate.py` import them
-directly; both survived only as hard transitives of `sentence-transformers`/
-`fastapi`) and have since been promoted to explicit pins in
-`pyproject.toml`/`constraints.txt`/`requirements.txt` — real resolved
-versions from a fresh-venv install, not guessed. Both pins also appear in
-`environment.yml`. FastAPI and Starlette now come from PyPI with Chroma so
-Conda matches the base package metadata. Any new name this check reports
-requires investigation.
+**A clean tree reports zero E3 warnings** (its first two findings,
+`huggingface_hub` and `starlette`, were promoted to explicit pins on every
+surface). Any new name this check reports requires investigation.
 
 `pyodbc` is declared only in the `mssql` extra (and pinned in
 `constraints.txt`), never in the base dependencies: `agentic/sqlconnect/client.py`
@@ -359,13 +341,10 @@ delegates Step 1 to it rather than duplicating it).
   too), **and then the hashed `locks/`** regenerated on arm64 macOS — never
   bump one pin file and leave the others stale; that's the exact class of bug
   this skill exists to catch.
-- **The pydantic pair, numpy `<2`, torch `+cpu`, and the chromadb CVE
-  pin are load-bearing exceptions `dep-guard` already enforces** — this
-  skill inherits those constraints rather than re-deciding them. If a real
-  reason emerges to revisit one (e.g. a pydantic release finally pairs with
-  a newer `pydantic-core`), update `dep-guard`'s `_PYDANTIC_LOCKSTEP`
-  constant and CLAUDE.md §4 in the same commit as the bump, not this
-  skill's own logic.
+- **The load-bearing exceptions `dep-guard` enforces** (pydantic pair, numpy
+  `<2`, torch `+cpu`, the chromadb CVE pin) are inherited here, not
+  re-decided; a real reason to revisit one goes through `dep-guard`'s
+  constants and CLAUDE.md §4 in the same commit as the bump.
 - **Currency findings do not need a fix to be a complete run.** "0 CVEs
   found, N packages a minor version behind, none recommended for
   unattended bump" is a valid, complete report — don't manufacture urgency
@@ -388,17 +367,11 @@ delegates Step 1 to it rather than duplicating it).
   local `cyclaw` package itself — hatchling has no `gate.py`/`graph.py`/etc.
   to build a wheel from yet at that point. That stage installs the hashed
   locks (a concrete external-package list, no local build needed).
-- **`--dry-run` does not prove a real install succeeds.** It validates
-  resolution planning, not the final build/link step — an `-e .` dry-run
-  can pass even when source files a real (non-dry-run) install would need
-  aren't present. Don't over-claim "verified" from dry-run alone; say what
-  was actually checked.
-- **PyPI's JSON classifier metadata (`Development Status :: N - ...`) is
-  not a reliability signal** — several CyClaw-pinned packages (`fastapi`,
-  `pydantic-core`) carry pre-1.0-era classifiers as a long-standing quirk,
-  unrelated to whether the current release is stable. Judge by the version
-  string (no `rc`/`a`/`b`/`dev` suffix) and release-not-yanked status, not
-  the classifier.
+- **`--dry-run` validates resolution, not the build/link step.** Don't
+  over-claim "verified" from a dry-run alone; say what was actually checked.
+- **PyPI's `Development Status` classifier is not a reliability signal**
+  (`fastapi`, `pydantic-core` carry pre-1.0-era classifiers by habit). Judge
+  by the version string and not-yanked status.
 - **A CVE headline is not automatically a finding** — always check the
   affected-version range against the actual pin. Several 2026 CVE waves
   (LangChain/LangGraph in particular) fix in a version already below what
