@@ -437,6 +437,41 @@ else
 fi
 rm -rf "$a"
 
+# 32. T13: a DYNAMIC launcher row added without a KNOWN_EXTERNAL_COMPONENTS
+#     entry. Its marker verifies fine, but the surface never enters the
+#     classification sweep, so the reverse-consistency check must fail it
+#     (Codex P2 on PR #1637, second round).
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n)",
+    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n"
+    "    (\"zz-new-surface\", \"utils/external_pre_hook.py\", (\"def _run_command\",)),\n)")'; then
+  echo "T13 unlisted dynamic surface mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] spawn-site row.*does not name.*zz-new-surface"; then
+    echo "T13 unlisted dynamic surface mutation: PASS"
+  else
+    echo "T13 unlisted dynamic surface mutation: FAIL — expected rc=2 + the does-not-name FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 33. T13: a fixed launcher keeps its override plumbing but stops invoking
+#     the binary. The uv rows pin the `"$uv_bin" pip compile` call, not only
+#     the `uv_bin=` assignment, so deleting the call alone must be reported.
+a="$(_mktree)"
+_mutate "$a/scripts/refresh-ci-locks.sh" '
+text = text.replace("\"$uv_bin\" pip compile", "\"$uv_bin\" zz_no_longer_compiles_zz")
+assert "\"$uv_bin\" pip compile" not in text and "uv_bin=\"${UV_BIN:-uv}\"" in text'
+_expect "T13 fixed-launcher invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .uv.: scripts/refresh-ci-locks.sh no longer carries"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"
