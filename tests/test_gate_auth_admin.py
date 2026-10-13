@@ -26,11 +26,12 @@ async def _allow(_request: Request) -> None:
     return None
 
 
-def _client(manager):
+def _client(manager, events=None):
     app = FastAPI()
 
-    async def audit(_event):
-        return None
+    async def audit(event):
+        if events is not None:
+            events.append(event)
 
     register_auth_routes(
         app, _cfg(), audit=audit, enforce_rate_limit=_allow, auth_manager=manager,
@@ -174,3 +175,94 @@ class TestAdminMatrix:
         client = _client(manager)
         _login(client, "alice", _GOOD)
         assert client.get("/auth/audit/summary").status_code == 403
+
+
+class TestAdminLifecycle:
+    """Success and refusal paths of role/disable/enable/delete, per the CLAUDE.md route table."""
+
+    def test_last_admin_cannot_be_demoted_disabled_or_deleted(self, manager):
+        manager.create_user("root", _GOOD, role="admin")
+        client = _client(manager)
+        h = {"x-cyclaw-csrf": _login(client, "root", _GOOD)}
+        attempts = {
+            "set_role": client.post("/auth/users/root/role", json={"role": "operator"}, headers=h),
+            "disable_user": client.post("/auth/users/root/disable", headers=h),
+            "delete_user": client.delete("/auth/users/root", headers=h),
+        }
+        for action, r in attempts.items():
+            assert r.status_code == 403, action
+            assert r.json()["detail"]["code"] == "AUTH_LAST_ADMIN"
+            assert r.json()["detail"]["details"]["action"] == action
+        assert manager.get_user("root").role == "admin"
+
+    def test_admin_sets_role_and_it_is_audited(self, manager):
+        manager.create_user("root", _GOOD, role="admin")
+        manager.create_user("bob", _GOOD, role="operator")
+        events: list[dict] = []
+        client = _client(manager, events)
+        h = {"x-cyclaw-csrf": _login(client, "root", _GOOD)}
+        bad = client.post("/auth/users/bob/role", json={"role": "god"}, headers=h)
+        assert bad.status_code == 422
+        assert bad.json()["detail"]["code"] == "AUTH_POLICY"
+        r = client.post("/auth/users/bob/role", json={"role": "admin"}, headers=h)
+        assert r.status_code == 200
+        assert manager.get_user("bob").role == "admin"
+        assert {"event": "auth_role_set", "username": "root", "target": "bob", "role": "admin"} in events
+
+    def test_disable_blocks_login_until_enable(self, manager):
+        manager.create_user("root", _GOOD, role="admin")
+        manager.create_user("bob", _GOOD, role="operator")
+        events: list[dict] = []
+        client = _client(manager, events)
+        h = {"x-cyclaw-csrf": _login(client, "root", _GOOD)}
+        other = _client(manager)
+        assert client.post("/auth/users/bob/disable", headers=h).status_code == 200
+        assert other.post("/auth/login", json={"username": "bob", "password": _GOOD}).status_code == 401
+        assert client.post("/auth/users/bob/enable", headers=h).status_code == 200
+        assert other.post("/auth/login", json={"username": "bob", "password": _GOOD}).status_code == 200
+        kinds = [e["event"] for e in events if e.get("target") == "bob"]
+        assert kinds == ["auth_user_disabled", "auth_user_enabled"]
+
+    def test_operator_toggles_operators_but_not_admins(self, manager):
+        manager.create_user("root", _GOOD, role="admin")
+        manager.create_user("alice", _GOOD, role="operator")
+        manager.create_user("carol", _GOOD, role="operator")
+        client = _client(manager)
+        h = {"x-cyclaw-csrf": _login(client, "alice", _GOOD)}
+        assert client.post("/auth/users/carol/disable", headers=h).status_code == 200
+        assert client.post("/auth/users/carol/enable", headers=h).status_code == 200
+        r = client.post("/auth/users/root/disable", headers=h)
+        assert r.status_code == 403
+        assert r.json()["detail"]["code"] == "AUTH_PERMISSION_DENIED"
+        assert not manager.get_user("root").disabled
+
+    def test_admin_hard_deletes_and_unknown_users_are_404(self, manager):
+        manager.create_user("root", _GOOD, role="admin")
+        manager.create_user("carol", _GOOD, role="operator")
+        events: list[dict] = []
+        client = _client(manager, events)
+        h = {"x-cyclaw-csrf": _login(client, "root", _GOOD)}
+        assert client.delete("/auth/users/carol", headers=h).status_code == 200
+        assert manager.get_user("carol") is None
+        assert {"event": "auth_user_deleted", "username": "root", "target": "carol"} in events
+        for r in (
+            client.delete("/auth/users/ghost", headers=h),
+            client.post("/auth/users/ghost/disable", headers=h),
+            client.post("/auth/users/ghost/enable", headers=h),
+        ):
+            assert r.status_code == 404
+            assert r.json()["detail"]["code"] == "AUTH_USER_NOT_FOUND"
+
+    def test_lifecycle_writes_need_csrf(self, manager):
+        manager.create_user("root", _GOOD, role="admin")
+        manager.create_user("bob", _GOOD, role="operator")
+        client = _client(manager)
+        _login(client, "root", _GOOD)
+        for r in (
+            client.post("/auth/users/bob/disable"),
+            client.post("/auth/users/bob/role", json={"role": "audit"}),
+            client.delete("/auth/users/bob"),
+        ):
+            assert r.status_code == 403
+            assert r.json()["detail"]["code"] == "CSRF_TOKEN_INVALID"
+        assert not manager.get_user("bob").disabled
