@@ -6,7 +6,8 @@ runs before the CyClaw venv exists.
 
 Ollama's native ``POST /api/generate`` (not the OpenAI-compat wrapper) is the
 source of truth: ``eval_count`` / ``eval_duration`` are nanoseconds the runner
-actually spent, not a client-side wall-clock guess.
+actually spent, not a client-side wall-clock guess. This script does not set
+``num_ctx``; the rate is for the window the loaded tag already has.
 
     python3 scripts/measure_local_llm_throughput.py
     python3 scripts/measure_local_llm_throughput.py --model qwen3.8:27b-nvfp4

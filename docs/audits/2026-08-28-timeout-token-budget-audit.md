@@ -101,7 +101,11 @@ bandwidth ceiling for dense decode on this SKU: 307 GB/s ÷ ~18 GB of 4-bit weig
 ≈ **17 tok/s** upper bound; an [oMLX benchmark of Qwen3.8-27B-MLX (4-bit) on M5 Pro
 20c/48GB](https://omlx.ai/benchmarks/performance/m47p196t) reports **11.9 tok/s decode,
 170.6 tok/s prefill** (29–34 is plausible only with multi-token-prediction /
-speculative decode variants). Re-derived worst case at the *measured* class:
+speculative decode variants). **Note added 2026-10-10:** that page is
+`Qwen3.8-27B-MLX-oQ4e-mtp` at context **65,536**, not an Ollama 32k run
+(page re-checked that day). The arithmetic below used 170 tok/s
+as a class estimate at the time of this retune; it is not a 32k Ollama result.
+Re-derived worst case at the *measured* class:
 
 - Prefill ~14,100 tokens ÷ 170 tok/s ≈ 83 s
 - Decode 4,096 tokens ÷ 11.9 tok/s ≈ 344 s

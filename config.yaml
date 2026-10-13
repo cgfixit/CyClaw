@@ -18,7 +18,7 @@ models:
     base_url: "http://127.0.0.1:11434/v1"  # DevSkim: ignore DS162092,DS137138 - Ollama loopback, offline-only
     # Optional api_key (not set here; quote numeric-looking values). With no key,
     # llm/client.py sends no Authorization header. fallback.api_key is separate.
-    model: "qwen3.8:27b-mlx"            # keep in sync with guardrails.model
+    model: "qwen3.8:27b-mlx"            # keep in sync with guardrails.model and agentic.deepagent_github.model
     # none | low | medium | high | max; sent only when provider is "ollama".
     # Absent or empty omits the field (Ollama then thinks by default); an invalid
     # value fails at boot. "none" requests thinking off; older Ollama rejects it,
@@ -685,7 +685,7 @@ agentic:
     enabled: false
     provider: "ollama"                          # "ollama" | "openai_compatible"
     base_url: "http://127.0.0.1:11434/v1"        # DevSkim: ignore DS162092,DS137138 - local Ollama; config load refuses a non-loopback URL
-    model: "qwen3.8:27b-mlx"
+    model: "qwen3.8:27b-mlx"                    # keep in sync with models.local_llm.model and guardrails.model
     # Per-call HTTP timeout for the planner's model call (local and cloud clients).
     # Separate from models.local_llm.timeout_sec because this package cannot import
     # the core (I6); its prompts are comparably large.
@@ -869,7 +869,7 @@ guardrails:
                                   #   Active flows use Python checks, never extra LLM calls.
   engine: "openai"               # Ollama exposes an OpenAI-compatible API
   base_url: "http://127.0.0.1:11434/v1"  # DevSkim: ignore DS162092,DS137138 - loopback Ollama, offline-only
-  model: "qwen3.8:27b-mlx"           # keep in sync with models.local_llm.model
+  model: "qwen3.8:27b-mlx"           # keep in sync with models.local_llm.model and agentic.deepagent_github.model
   nemo_config_dir: "guardrails/config"  # holds config.yml + rails.co
   metrics_path: "logs/guardrails.jsonl" # separate from the audit log; hashes only
   block_message: "I can't help with that request. It was stopped by a CyClaw safety guardrail."
