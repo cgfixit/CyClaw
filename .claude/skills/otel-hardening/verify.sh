@@ -547,6 +547,28 @@ else
 fi
 rm -rf "$a"
 
+# 38. T13: an alias whose target names no inventory row. Before PR #1637's
+#     seventh round the mere presence of the alias key counted as
+#     "classified", so a typo silently dropped a component's classification.
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("    \"curl\": \"curl (setup + sandbox probes)\",", "    \"curl\": \"zz nonexistent inventory row\",", 1)'; then
+  echo "T13 dangling alias target mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\] alias target.*zz nonexistent inventory row"; then
+    echo "T13 dangling alias target mutation: PASS"
+  else
+    echo "T13 dangling alias target mutation: FAIL — expected rc=2 + the alias FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"
