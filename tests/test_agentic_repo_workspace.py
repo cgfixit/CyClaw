@@ -1509,7 +1509,8 @@ def test_attach_refuses_a_tampered_origin_record(tmp_path, monkeypatch):
     original.close()
 
 
-def test_git_timeout_reaps_a_helper_descendant(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure", ["timeout", "nonzero"])
+def test_git_failure_reaps_a_helper_descendant(tmp_path, monkeypatch, failure):
     """Exercise _run_git's timeout and the Windows Job Object path in CI."""
     heartbeat = tmp_path / "helper-heartbeat"
     child = (
@@ -1522,10 +1523,11 @@ def test_git_timeout_reaps_a_helper_descendant(tmp_path, monkeypatch):
     )
     parent = (
         "import pathlib, subprocess, sys, time\n"
-        f"subprocess.Popen([sys.executable, '-c', {child!r}, sys.argv[1]])\n"
+        f"subprocess.Popen([sys.executable, '-c', {child!r}, sys.argv[1]], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
         "p = pathlib.Path(sys.argv[1])\n"
         "while not p.exists(): time.sleep(0.01)\n"
-        "time.sleep(60)\n"
+        + ("time.sleep(60)\n" if failure == "timeout" else "sys.exit(17)\n")
     )
     fake = _fake_clone_populating_git_repo(files={"a.txt": "hello\n"})
     with patch.object(repo_workspace, "run_read", side_effect=fake):
@@ -1534,7 +1536,7 @@ def test_git_timeout_reaps_a_helper_descendant(tmp_path, monkeypatch):
                 # The fixture's real Git config was checked during clone. Here
                 # the executable is Python so only the runner can be exercised.
                 with patch.object(tools, "_check_local_git_config"):
-                    with pytest.raises(AgenticError, match="timed out"):
+                    with pytest.raises(AgenticError, match="timed out" if failure == "timeout" else "exit code 17"):
                         tools._run_git("timeout_probe", ["-c", parent, str(heartbeat)], timeout_sec=1)
     before = heartbeat.read_text(encoding="ascii")
     time.sleep(0.5)
@@ -1653,3 +1655,16 @@ def test_origin_pin_key_preserves_binary_control_bytes(tmp_path, monkeypatch):
     repo_workspace._write_origin_pin(dest, "https://example.test/org/repo.git")
     assert repo_workspace._origin_pin_key(tmp_path / "origin-pins", create=False) == candidate
     assert repo_workspace._load_origin_pin(dest) == "https://example.test/org/repo.git"
+
+
+@pytest.mark.parametrize("redirect", ["commondir", "remotes/origin", "branches/origin"])
+def test_git_refuses_repository_indirection(tmp_path, monkeypatch, redirect):
+    remote = tmp_path / "origin.git"
+    fake = _fake_clone_with_local_origin(files={"a.txt": "hello\n"}, remote=remote)
+    with patch.object(repo_workspace, "run_read", side_effect=fake):
+        with RepoWorkspaceTools.clone(_cfg_with_git_writes(tmp_path, monkeypatch)) as tools:
+            planted = tools.worktree / ".git" / redirect
+            planted.parent.mkdir(parents=True, exist_ok=True)
+            planted.write_text(str(tmp_path / "decoy.git"))
+            with pytest.raises(AgenticError, match="could redirect Git"):
+                tools.diff()

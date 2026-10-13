@@ -420,7 +420,7 @@ def _run_git_command(
     """Run Git with a bounded lifetime for the direct child and its helpers."""
     job = _WindowsGitJob() if sys.platform == "win32" else None
     proc: subprocess.Popen[str] | None = None
-    finished = False
+    succeeded = False
     command = argv
     if job is not None:
         # Git starts only after this fixed isolated waiter belongs to the Job.
@@ -437,7 +437,7 @@ def _run_git_command(
         if job is not None:
             job.assign(proc)
         stdout, stderr = proc.communicate(input="go\n" if job is not None else None, timeout=timeout)
-        finished = True
+        succeeded = proc.returncode == 0
         return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
     finally:
         # Closing a Job Object kills every assigned descendant, including one
@@ -451,7 +451,7 @@ def _run_git_command(
                 # Only a timed-out or failed call is reaped. After a normal exit
                 # the leader is gone (its pgid could be reused), and a helper it
                 # left on purpose, such as git credential-cache--daemon, stays.
-                if sys.platform != "win32" and not finished:
+                if sys.platform != "win32" and not succeeded:
                     with suppress(OSError):
                         os.killpg(proc.pid, signal.SIGKILL)
                 if proc.poll() is None:
