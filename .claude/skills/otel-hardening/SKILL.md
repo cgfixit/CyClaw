@@ -104,7 +104,12 @@ these values silence vendor telemetry readers; they do not close sockets.
    `KNOWN_EXTERNAL_COMPONENTS` — so a new `subprocess` spawn site must add
    its binary there AND alias it (the 2026-09-28 sweep found nine spawned
    binaries — `launchctl`, `crontab`, `schtasks`, `cmd.exe`, `unshare`,
-   `sandbox-exec`, `xdg-open`/`open`/`explorer` — that had never been listed).
+   `sandbox-exec`, `xdg-open`/`open`/`explorer` — that had never been listed;
+   the 2026-10-13 re-sweep found `security`, the macOS Keychain CLI that
+   `sync/scheduled.py` began spawning in PR #1632 two weeks after that sweep —
+   a grep for literal first-argv strings misses a site like it, so sweep with
+   an AST walk over every `subprocess.*` call and resolve each non-literal
+   first element by hand).
    Python dependencies are read from `project.dependencies`, every
    `optional-dependencies` group, AND `[build-system].requires` (the build
    backend is an install surface too; it was skipped until PR #1502). A spawn
@@ -114,7 +119,8 @@ these values silence vendor telemetry readers; they do not close sockets.
    marker that proves it spawns, and its row describes the surface and the
    gate around it, never a binary. The reverse holds too: when a pin or spawn
    site is removed, delete its alias and row (the `uv` precedent — T13 warns
-   when a dynamic site loses its marker), and keep each row's `versions` text
+   when a dynamic site loses its marker; and when the binary comes back, as
+   `uv` did in PR #1572, the row comes back with it), and keep each row's `versions` text
    in step with the pins so T13's "classified" never means "classified
    against a version nobody ships". Categories:
    1 unsolicited telemetry with an official control (control pairs must exist

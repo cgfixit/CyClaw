@@ -248,9 +248,12 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "env before import (PostHog + OTel latch at import/construction); "
                        "Settings(anonymized_telemetry=False) hardcoded at both PersistentClient sites",
         "scope": "gate / mcp / indexer / clear_cache via retrieval/vector_store.py chokepoint",
-        "reviewed": "2026-08-27",
+        "reviewed": "2026-10-13",
         "evidence": "otel_init() early-return on granularity none confirmed in installed 1.5.9 "
-                    "(telemetry/opentelemetry/__init__.py); OTEL_SDK_DISABLED is the outer layer",
+                    "(telemetry/opentelemetry/__init__.py); OTEL_SDK_DISABLED is the outer layer. "
+                    "Re-read at the 1.5.9 tag 2026-10-13: Settings is a pydantic-settings BaseSettings with "
+                    "no env_prefix (field name == env name, case-insensitive) and env_file='.env' -- "
+                    "os.environ outranks the dotenv, so the pre-import overlay still wins; names unchanged",
     },
     {
         "name": "langchain/langsmith tracing", "category": 1,
@@ -262,12 +265,18 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "env before import (get_env_var lru_cache latches); 5 credential/destination "
                        "names popped; upload attempted even with no API key, so the pop alone is not enough",
         "scope": "every graph invocation",
-        "reviewed": "2026-09-21",
+        "reviewed": "2026-10-13",
         "evidence": "precedence LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING > "
                     "LANGCHAIN_TRACING re-confirmed in installed langsmith 0.13.0 (tracing_is_enabled() "
                     "-> get_env_var(\"TRACING_V2\", default=get_env_var(\"TRACING\")) in utils.py, refactored "
                     "from the old flat check but identical env-var precedence); langchain/langchain-core/"
-                    "langgraph carry no telemetry of their own (see LAST_VERIFIED_VENDOR_PINS comment)",
+                    "langgraph carry no telemetry of their own (see LAST_VERIFIED_VENDOR_PINS comment). "
+                    "2026-10-13 re-read of installed 0.13.0: the newer LANGSMITH_TRACING_MODE / legacy "
+                    "OTEL_ENABLED / OTEL_ONLY names (client.py _resolve_tracing_mode) only pick a destination "
+                    "for runs that tracing_is_enabled() already admits (run_helpers.py and "
+                    "langchain_core/tracers/context.py gate on it first), so no new kill pair is owed; "
+                    "LANGSMITH_RUNS_ENDPOINTS is now parsed as write replicas in run_trees.py -- still a "
+                    "fan-out destination, still scrubbed",
     },
     {
         "name": "langgraph-cli analytics", "category": 1,
@@ -297,9 +306,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "versions": "==0.24.0 (required base dependency; layer enabled by default)",
         "enforcement": "env before import (guardrails/__init__.py and guardrails/integration.py both apply "
                        "ahead of the soft nemoguardrails import)",
-        "scope": "required guardrails engine", "reviewed": "2026-08-27",
-        "evidence": "telemetry.py:372-374 in installed 0.24.0 honors both names; sink is "
-                    "events.telemetry.data.nvidia.com",
+        "scope": "required guardrails engine", "reviewed": "2026-10-13",
+        "evidence": "telemetry.py:372-374 in installed 0.24.0 honors both names ('1'/'true', case-insensitive); "
+                    "sink is events.telemetry.data.nvidia.com (re-read at the v0.24.0 tag and in the installed "
+                    "package 2026-10-13: unchanged)",
     },
     {
         "name": "onnxruntime", "category": 1,
@@ -315,10 +325,14 @@ INVENTORY: tuple[dict[str, object], ...] = (
                        "an init-time event, and absolute suppression needs a --no_telemetry private build. "
                        "ORT_TELEMETRY_OPT_OUT is an inert legacy marker, not protection.",
         "scope": "chromadb default-EF path (never invoked -- precomputed vectors) + fastembed under live NeMo",
-        "reviewed": "2026-09-11",
+        "reviewed": "2026-10-13",
         "evidence": "disable_telemetry_events verified callable in installed 1.30.0 (2026-09-11, on the pin bump "
-                    "from 1.29.0); v1.29.0 release notes + Privacy.md. Re-verify on every onnxruntime bump -- the "
-                    "API half of this control is only a getattr away from silently disappearing.",
+                    "from 1.29.0, and again 2026-10-13); v1.29.0 release notes + Privacy.md, re-read 2026-10-13: "
+                    "ORT_DISABLE_TELEMETRY=1 set ahead of runtime initialization is still the documented "
+                    "process-lifetime control for every 1DS build, the legacy Windows TraceLogging backend still "
+                    "ignores it, and the doc still warns a minimal init event may precede the API call. "
+                    "Re-verify on every onnxruntime bump -- the API half of this control is only a getattr "
+                    "away from silently disappearing.",
     },
     {
         "name": "opentelemetry sdk", "category": 1,
@@ -338,8 +352,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "versions": "external binary >= 2.40 (agentic floor); telemetry shipped in 2.83",
         "enforcement": "env forced at all three spawn sites (agentic/gh_client.py x2, agentic/writer.py) via "
                        "build_telemetry_safe_env -- an ambient true/log can never reach a child",
-        "scope": "agentic read/write ops", "reviewed": "2026-08-27",
-        "evidence": "gh help environment documents GH_TELEMETRY true/false/log",
+        "scope": "agentic read/write ops", "reviewed": "2026-10-13",
+        "evidence": "gh help environment documents GH_TELEMETRY true/false/log; re-read from cli/cli "
+                    "pkg/cmd/root/help_topic.go 2026-10-13: 'false' or '0' disables, 'log' prints to stderr "
+                    "instead of sending, and GH_TELEMETRY takes precedence over DO_NOT_TRACK (which the map "
+                    "also sets to 1), so the pair is doubly covered",
     },
     {
         "name": "powershell host telemetry", "category": 1,
@@ -349,8 +366,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "read ONCE at pwsh startup: the parent must carry it first. Delivered by the installed "
                        "cmd shim + profile function (before powershell launches) and by generated task .cmd "
                        "set-lines; setting it inside a running host cannot undo that host's startup event",
-        "scope": "CredMan task wrappers; operator launchers", "reviewed": "2026-08-27",
-        "evidence": "about_Telemetry documents startup-read semantics",
+        "scope": "CredMan task wrappers; operator launchers", "reviewed": "2026-10-13",
+        "evidence": "about_Telemetry documents startup-read semantics (the variable has to exist before the "
+                    "pwsh process starts; values true/yes/1). Re-read 2026-10-13 (PowerShell-Docs 7.5 "
+                    "about_Telemetry): unchanged; new since the last read is only that 7.5.7+ on Windows also "
+                    "honors the OS Diagnostics & feedback setting -- an additional opt-out, not a replacement",
     },
     {
         "name": "gh update notifiers", "category": 2,
@@ -548,7 +568,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "sentence-transformers/transformers/torch stack", "category": 5, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "sentence-transformers==6.1.0; torch==2.13.0+cpu; transformers unbounded transitive",
+        "versions": "sentence-transformers==6.1.0; torch==2.13.0+cpu; transformers unbounded transitive on "
+                    "the wheel surface (locks/requirements-lock-*.txt hash-pin it at 5.18.0 for the "
+                    "documented install path, which is why T13 still reports it as a standing finding)",
         "enforcement": "no own telemetry mechanism; all hub traffic flows through huggingface-hub (its "
                        "category-1 ping row + category-3 bootstrap row)", "scope": "embeddings",
         "reviewed": "2026-09-21",
@@ -600,16 +622,42 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "generated .cmd launchers), bubblewrap + sandbox-exec (agentic/executor/hard_sandbox.py -- "
                     "the Linux filesystem/PID/network and Darwin Seatbelt wrappers), xdg-open + open + explorer "
                     "(agentic/fsconnect/osutil.py reveal -- launches the desktop file manager on a "
-                    "containment-checked local path)",
+                    "containment-checked local path), security (the macOS Keychain CLI: sync/scheduled.py "
+                    "reads the scheduled rclone credential with /usr/bin/security find-generic-password at "
+                    "execution time since PR #1632, and macos/cyclaw-keychain-*.sh + setup-cyclaw-keys.sh "
+                    "read/write the same Keychain items)",
         "enforcement": "every one is a local OS control-plane or GUI tool with no network sink of its own; "
                        "the scheduler and sandbox wrappers are exactly the boundaries that deliver the "
                        "canonical env to the children they start (T11/T12), and hard_sandbox's bubblewrap "
                        "confines child filesystem/PID/network access on Linux. Nothing here has, or needs, a "
                        "telemetry switch",
-        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal",
-        "reviewed": "2026-09-28",
+        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal, scheduled-sync "
+                 "credential read",
+        "reviewed": "2026-10-13",
         "evidence": "spawn-site sweep of every non-test subprocess call 2026-09-28: these were the only "
-                    "binaries the manifests and KNOWN_EXTERNAL_COMPONENTS did not already name",
+                    "binaries the manifests and KNOWN_EXTERNAL_COMPONENTS did not already name. AST re-sweep "
+                    "2026-10-13 found one new fixed binary since then, /usr/bin/security (sync/scheduled.py:63, "
+                    "PR #1632, 2026-10-12): a local Keychain read under child_environment('filesystem'), "
+                    "fixed absolute path, no network sink",
+    },
+    {
+        "name": "uv (lock refresh + cloud venv driver)", "category": 5, "controls": {},
+        "url": "https://github.com/astral-sh/uv/blob/main/crates/uv-static/src/env_vars.rs",
+        "versions": "external binary, never pinned by the repo: scripts/refresh-runtime-lock.sh and "
+                    "scripts/refresh-ci-locks.sh (operator-run, arm64 macOS only, `uv pip compile` into a "
+                    "staged lock dir) and .claude/skills/cyclaw-gotchas/driver.sh (cloud sandbox venv, "
+                    "`uv pip install` when uv is on PATH, pip otherwise). The Dockerfile's uv stage was "
+                    "removed 2026-09-11 and has not returned; no runtime code path spawns uv",
+        "enforcement": "no telemetry, analytics or crash-reporting mechanism exists to switch off; "
+                       "self-update runs only on an explicit `uv self update`, and the post-`uv sync` OSV "
+                       "malware check is opt-in (UV_MALWARE_CHECK=1) and never reached by `uv pip`. Its "
+                       "index/download traffic is the same functional install egress pip performs",
+        "scope": "dev tooling only (lock regeneration, cloud test venv)",
+        "reviewed": "2026-10-13",
+        "evidence": "negative finding: crates/uv-static/src/env_vars.rs read 2026-10-13 (installed uv 0.11.32) "
+                    "defines no telemetry/analytics/tracking/update-check variable -- the only TRACK/UPDATE "
+                    "matches are local tracing-duration files and the schema dev helper; uv returned via "
+                    "PR #1572 (2026-10-07) after the 2026-09-11 retirement, which is why this row is back",
     },
     {
         "name": "core web/runtime libs", "category": 5, "controls": {},
@@ -691,6 +739,11 @@ INVENTORY_ALIASES: dict[str, str] = {
     "xdg-open": "local OS process tooling",
     "open": "local OS process tooling",
     "explorer": "local OS process tooling",
+    # the macOS Keychain CLI (sync/scheduled.py + macos/cyclaw-keychain-*.sh):
+    # a local credential read, same category-4 row (2026-10-13 sweep)
+    "security": "local OS process tooling",
+    # back since PR #1572 (lock refresh scripts + the cloud venv driver)
+    "uv": "uv (lock refresh + cloud venv driver)",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -722,19 +775,23 @@ INVENTORY_ALIASES: dict[str, str] = {
 
 # External executables/services CyClaw spawns or fronts -- swept by T13 along
 # with the manifests so a NEW launcher/binary needs a classification too.
-# uv was here until 2026-09-11, classified "Docker build stage only". The
-# Dockerfile's uv line could not resolve (see that file's own comment) and was
-# replaced with plain pip, so the repo spawns uv nowhere; a classification for
-# a binary that is no longer invoked is the same stale documentation this
-# checker exists to prevent. Re-add the row if uv ever returns.
+# uv was retired 2026-09-11 when the Dockerfile's uv line (its only spawn
+# site then, classified "Docker build stage only") was replaced with plain
+# pip: a classification for a binary that is no longer invoked is the same
+# stale documentation this checker exists to prevent. It is back since PR
+# #1572 (2026-10-07) through scripts/refresh-*-lock.sh and the cloud venv
+# driver, so its row is back too (category 5, no mechanism).
 # The second line (2026-09-28) is every other binary a sweep of the non-test
 # subprocess call sites found: the scheduler registrars, the executor's
 # sandbox wrappers, the fsconnect reveal launcher and netconnect's
 # neighbor-cache readers. None has a network sink; they are listed so a
 # future spawn site that adds a NEW binary still needs a row.
+# The third line (2026-10-13 AST re-sweep): the macOS Keychain CLI that
+# sync/scheduled.py started spawning in PR #1632, and uv as above.
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
+                             "security", "uv",
                              "pre-action-hook-command", "executor-check")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
