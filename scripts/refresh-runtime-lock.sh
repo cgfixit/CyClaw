@@ -12,6 +12,10 @@ fi
 stage_dir="$(mktemp -d "$repo_root/.lock-refresh.XXXXXX")"
 lock_dir="$stage_dir/locks"
 mkdir -p "$lock_dir"
+# Seed the stage with the tracked locks: uv pip compile keeps an existing
+# --output-file's pins as preferences, so an empty stage would silently
+# upgrade every transitive pin on each refresh (#1631 review).
+cp "$repo_root"/locks/requirements-*.txt "$lock_dir"/
 macos_constraints_dir=""
 trap 'rm -rf "$stage_dir"; if [ -n "$macos_constraints_dir" ]; then rm -rf "$macos_constraints_dir"; fi' EXIT
 

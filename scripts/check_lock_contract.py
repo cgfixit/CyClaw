@@ -91,6 +91,12 @@ def contract(root: Path, group: str, lock_dir: Path) -> dict:
                      f"scripts/refresh-{'runtime-lock' if group == 'runtime' else 'ci-locks'}.sh",
                      "scripts/check_lock_contract.py"})
     def digest(path: Path) -> str:
+        if path.name == "pyproject.toml" and path.parent == root:
+            # Only the dependency tables feed locks. Hashing raw bytes made a
+            # coverage-source, ruff or version edit fail CI until a macOS re-lock.
+            project = tomllib.loads(path.read_text(encoding="utf-8"))["project"]
+            tables = {key: project.get(key) for key in ("requires-python", "dependencies", "optional-dependencies")}
+            return "sha256:" + hashlib.sha256(json.dumps(tables, sort_keys=True).encode()).hexdigest()
         # Every catalog entry is text. Git's Windows checkout conversion is
         # not dependency drift; compare canonical LF bytes on every platform.
         return "sha256:" + hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()

@@ -341,7 +341,10 @@ jobs:
           python -m build --wheel
 
       - name: Compare complete wheel dependency metadata
-        run: python scripts/check_lock_contract.py --wheel dist/*.whl
+        run: |
+          # The checker imports packaging; pin it rather than take whatever build pulled in.
+          python -m pip install "packaging==26.3"
+          python scripts/check_lock_contract.py --wheel dist/*.whl
 
       - name: Every [project.scripts] entry point resolves inside the wheel
         run: |

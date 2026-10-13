@@ -187,5 +187,6 @@ ruff==0.16.8
 mypy==2.3.0
 bandit==1.9.4
 
-# Wheel metadata verification tool, already resolved at this version in all locks.
+# Wheel metadata verification tool (scripts/check_lock_contract.py --wheel); the
+# runtime and test locks already resolve this version transitively.
 packaging==26.3

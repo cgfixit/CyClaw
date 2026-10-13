@@ -1229,14 +1229,18 @@ Checksums use canonical LF text so Windows Git line-ending conversion is not dri
 
 `python scripts/check_lock_contract.py` checks all 25 runtime, Torch, test,
 CI-tool and extra locks against their direct inputs and every applicable exact
-constraint. Committed input/output SHA-256 records also require regeneration
-when inputs or any transitive lock entry changes. This is a bounded offline
-freshness contract, not a claim that re-resolving against a changing index would
-produce identical versions. Review lock and record changes together.
+constraint. Committed input/output SHA-256 records fail CI when an input
+(`pyproject.toml` dependency tables, `constraints.txt`, a requirements input or
+a refresh script) or any transitive lock entry changes without a new record.
+A record detects unrecorded edits; it does not prove a resolver run produced
+the locks, and it is not a claim that re-resolving against a changing index
+would produce identical versions. Review lock and record changes together.
 
 Run `scripts/refresh-runtime-lock.sh` and `scripts/refresh-ci-locks.sh` on arm64
-macOS with Python 3.12 and uv. Both stage the complete set, validate it, then
-publish it with its input/output record. Unsupported hosts and resolver failures
+macOS with Python 3.12 and uv. Both seed a staging copy from the tracked locks
+(so uv keeps existing pins as preferences instead of upgrading every transitive
+pin), compile and validate the complete set, then publish it with its
+input/output record. Unsupported hosts and resolver failures
 leave tracked locks unchanged. Ordinary publication errors roll back; abrupt
 process termination or machine failure is not a multi-file filesystem transaction
 and is detected by the freshness check. Re-run refresh after such an interruption.

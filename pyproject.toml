@@ -93,6 +93,9 @@ test = [
     # retrieval/vector_store.py yet. Must match the requirements-test.txt /
     # constraints.txt pin. See tests/test_sqlite_vec_extension_loading.py.
     "sqlite-vec==0.1.9",
+    # Imported by scripts/check_lock_contract.py --wheel. Must match the
+    # requirements-test.txt / constraints.txt pin.
+    "packaging==26.3",
 ]
 dev = [
     "ruff==0.16.8",
