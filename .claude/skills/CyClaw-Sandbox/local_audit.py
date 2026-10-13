@@ -427,21 +427,23 @@ def start_mock_ollama(out: Path) -> subprocess.Popen[bytes] | None:
 
 def write_report(out: Path) -> int:
     fails = [r for r in ROWS if r.status == "FAIL"]
+    totals = (f"{sum(r.status == 'PASS' for r in ROWS)} PASS, {len(fails)} FAIL, "
+              f"{sum(r.status == 'SKIP' for r in ROWS)} SKIP")
+    ci_owned = ("pytest suites, the 80% coverage gate, verify.sh, smoke.sh section F, "
+                "the macOS/Windows smoke steps")
     lines = [
         "# CyClaw local audit", "",
         f"- **When:** {dt.datetime.now(dt.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}",
         f"- **Python:** {sys.version.split()[0]} ({PY})",
         f"- **Platform:** {sys.platform}",
-        f"- **Totals:** {sum(r.status == 'PASS' for r in ROWS)} PASS, {len(fails)} FAIL, "
-        f"{sum(r.status == 'SKIP' for r in ROWS)} SKIP",
-        "- **Not run here (GitHub Actions owns them):** pytest suites, the 80% coverage gate, "
-        "verify.sh, smoke.sh section F, the macOS/Windows smoke steps",
+        f"- **Totals:** {totals}",
+        f"- **Not run here (GitHub Actions owns them):** {ci_owned}",
         "", "| Stage | Check | Result | Detail |", "|---|---|---|---|",
     ]
     lines += [f"| {r.stage} | {r.name} | {r.status} | {r.detail.replace('|', '/')} |" for r in ROWS]
     report = out / "report.md"
     report.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"\n{lines[5][2:]}\nreport + logs: {out}")
+    print(f"\n**Totals:** {totals}\nreport + logs: {out}")
     return 1 if fails else 0
 
 
