@@ -85,9 +85,19 @@ for node in tree.body:
     if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "FIXED_LAUNCHER_SITES":
         for _component, rel, _markers in ast.literal_eval(node.value):
             print(rel)
+    # repo-relative evidence sources too: T13 fails a row whose url path is absent
+    if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "INVENTORY":
+        for row in ast.literal_eval(node.value):
+            url = str(row.get("url", ""))
+            if url and not url.startswith(("http://", "https://")):
+                print(url)
 PY
-    mkdir -p "$d/$(dirname "$rel")"
-    cp "$repo_root/$rel" "$d/$rel"
+    if [ -d "$repo_root/$rel" ]; then
+      mkdir -p "$d/$rel"
+    else
+      mkdir -p "$d/$(dirname "$rel")"
+      cp "$repo_root/$rel" "$d/$rel"
+    fi
   done
   echo "$d"
 }
@@ -480,6 +490,36 @@ _mutate "$a/macos/setup-from-clone.sh" '
 text = text.replace("-m utils.telemetry_kill --export shell", "-m zz_no_export_zz")
 assert "gh auth login --with-token" in text'
 _expect "T13 setup-script export eval gone mutation" 0 "WARN  \[T13\] fixed launcher .gh.: macos/setup-from-clone.sh no longer carries"
+
+# 35. T13: an inventory row's repo-relative url points at a file that does
+#     not exist (the docs/setup-guide.md slip Codex caught in round four).
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace("\"url\": \"setup-guide.md\",", "\"url\": \"docs/zz-missing-guide.md\",", 1)'; then
+  echo "T13 missing evidence path mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep -q "FAIL  \[T13\].*docs/zz-missing-guide.md.*does not exist"; then
+    echo "T13 missing evidence path mutation: PASS"
+  else
+    echo "T13 missing evidence path mutation: FAIL — expected rc=2 + the does-not-exist FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 36. T13: the Keychain helper keeps its resolver but stops invoking
+#     security(1). The row pins the find-generic-password call, not only the
+#     SECURITY_BIN assignment.
+a="$(_mktree)"
+_mutate "$a/macos/cyclaw-keychain-env.sh" '
+text = text.replace("\"$SECURITY_BIN\" find-generic-password", "\"$SECURITY_BIN\" zz_no_lookup_zz")
+assert "SECURITY_BIN=\"/usr/bin/security\"" in text and "\"$SECURITY_BIN\" find-generic-password" not in text'
+_expect "T13 keychain invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .security.: macos/cyclaw-keychain-env.sh no longer carries"
 
 echo
 if [ "$fails" -eq 0 ]; then
