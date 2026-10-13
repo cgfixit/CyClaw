@@ -1,0 +1,7 @@
+# actionlint 1.7.12 (pinned by ci.yml's workflow-lint job) stops its built-in
+# GitHub-hosted runner list at ubuntu-24.04 and has no ignore-comment syntax.
+# ubuntu-26.04 is a GitHub-hosted label for public repos (changelog 2026-09-17).
+# This allowlist only makes that label lint-clean. It does not add a runner.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

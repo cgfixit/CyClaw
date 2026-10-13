@@ -1,38 +1,21 @@
 ---
 name: architecture-refactor
-description: Iterative architecture refactor loop — refactors code, live-tests after each significant step, runs autoreview, commits, and tracks progress in /tmp/refactor-{projectname}.md. Use when asked to refactor the architecture, clean up structure, or improve code organization autonomously.
+description: Iterative architecture refactor loop — refactors code, live-tests after each significant step, runs /code-review, commits, and tracks progress in /tmp/refactor-{projectname}.md. Use when asked to refactor the architecture, clean up structure, or improve code organization autonomously.
 disable-model-invocation: true
 ---
 
 # Architecture Refactor Loop
 
-Refactor the codebase iteratively until the architecture is clean and coherent. After each significant step: live-test the system, run autoreview, and commit. Track all progress in `/tmp/refactor-{projectname}.md`.
+Refactor the codebase iteratively until the architecture is clean and coherent. After each significant step: live-test the system, run `/code-review`, and commit. Track all progress in `/tmp/refactor-{projectname}.md`.
 
 ---
 
 ## Setup
 
-Determine the project name from the working directory or `CLAUDE.md`:
-
 ```bash
-PROJNAME=$(basename "$PWD")
-TRACKER="/tmp/refactor-${PROJNAME}.md"
-```
-
-Initialize the tracker if it doesn't exist:
-
-```bash
-cat > "$TRACKER" <<EOF
-# Architecture Refactor — $PROJNAME
-Started: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-## Goals
-- Clean, modular architecture
-- No circular imports or god-modules
-- Clear separation of concerns
-
-## Progress
-EOF
+TRACKER="/tmp/refactor-$(basename "$PWD").md"    # /tmp/refactor-CyClaw.md here
+[ -f "$TRACKER" ] || printf '# Architecture Refactor — %s\nStarted: %s\n\n## Goals\n- modular, no cycles, clear separation\n\n## Progress\n' \
+  "$(basename "$PWD")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TRACKER"
 ```
 
 ---
@@ -67,26 +50,27 @@ Make the change. Keep the diff focused — one concern per commit.
 
 ### 4. Live-test
 
-Run the project's smoke test to confirm nothing is broken:
+Follow CLAUDE.md §5's verification order: run the code you moved (import the
+new module, call the extracted function, or hit the endpoint with
+`driver.sh serve` + `probe`), then lint, and let GitHub Actions run the full
+suite on the pushed draft PR. When a step cannot be exercised that way, run the
+one test file that covers it:
 
 ```bash
-bash .claude/skills/CyClaw-Sandbox/smoke.sh
+ruff check --select E,F,I,B,C4,UP,S --ignore E501 <touched files>
+GROK_API_KEY=dummy pytest tests/test_<module>.py -q --tb=short   # at most one file
 ```
 
-If the smoke script is unavailable, fall back to:
+`bash .claude/skills/CyClaw-Sandbox/smoke.sh` is a live end-to-end pass, not a
+per-step check: its section F runs the whole suite, and it writes a temporary
+`soul.md` outside `PersonalityManager` when no index exists. Reserve it for the
+final verification of a loop, not every step.
 
-```bash
-GROK_API_KEY=dummy pytest tests/ -q --tb=short
-```
+Record the result in the tracker.
 
-Record the test result in the tracker.
+### 5. Review
 
-### 5. Autoreview
-
-```bash
-/code-review
-```
-
+Invoke `/code-review` on the diff (a slash command, not a shell command).
 Address any correctness bugs flagged before moving on. Log findings in the tracker.
 
 ### 5.5. Invariant check (required if this step touched a core file)
@@ -103,18 +87,20 @@ or rescope, don't proceed to commit.
 ### 6. Commit
 
 ```bash
-git add -p          # stage only the refactor change
-git commit -m "refactor: <what changed and why>"
+git add <files of this step>          # stage only the refactor change
+git commit -m "[fix] - <what changed and why>"
 ```
 
-Append the commit hash to the tracker entry.
+The tracked `commit-msg` hook accepts only `[prefix] - Short descriptive
+sentence` (CLAUDE.md §5); `refactor:`-style subjects are refused. Append the
+commit hash to the tracker entry.
 
 ### 7. Update tracker
 
 Add a `### Step N — Done` section with:
 - What changed
 - Test result (pass/fail + any notable output)
-- Autoreview outcome
+- Review outcome
 - Commit hash
 
 Then loop back to **Assess** for the next step.
@@ -128,8 +114,8 @@ Stop when all of the following are true:
 - No module does more than one clearly named thing
 - Imports form a clean DAG (no cycles)
 - Every public interface has an obvious, single purpose
-- The smoke test passes
-- Autoreview finds no correctness issues
+- CI is green on the pushed head (and the final `smoke.sh` pass, if run)
+- `/code-review` finds no correctness issues
 
 Append a `## Final State` summary to the tracker and report done.
 
@@ -137,26 +123,14 @@ Append a `## Final State` summary to the tracker and report done.
 
 ## Tracker Format
 
+Under `## Progress`, one `### Step N — Assessment` and one `### Step N — Done`
+per step; a Done entry reads like:
+
 ```markdown
-# Architecture Refactor — cyclaw
-Started: 2026-06-20T12:00:00Z
-
-## Goals
-...
-
-## Progress
-
-### Step 1 — Assessment
-...
-
-### Step 1 — Done
-- Changed: extracted rate_limit logic from gate.py → utils/rate_limit.py
-- Tests: PASS (smoke.sh 6/6)
-- Autoreview: no issues
+- Changed: extracted the console-cookie helpers from gate.py → utils/console_session.py
+- Verified: imported the module, probed /console/session; ruff clean; CI green
+- Review: no issues
 - Commit: abc1234
-
-### Step 2 — Assessment
-...
 ```
 
 ---
@@ -165,9 +139,8 @@ Started: 2026-06-20T12:00:00Z
 
 - Never squash mid-refactor commits — each step should be independently reviewable.
 - If a step breaks tests, revert and pick a smaller scope before retrying.
-- `{projectname}` in the tracker path is the literal `basename $PWD`, e.g. `CyClaw` → `/tmp/refactor-CyClaw.md`.
 - Never refactor across the six invariants (`CLAUDE.md` §3) without arguing the change explicitly and re-running `invariant-guard`.
 - Never touch `soul.md`/`apply_evolution` without a non-empty `reason` string (I5) — see `tests/test_personality.py`.
 - Never weaken or delete an assertion to make a refactor step "pass" — if a test fails, either the source is wrong or the refactor changed behavior; fix or revert, don't loosen the test.
-- Never let `agentic`/`sync`/`guardrails` import from — or be imported by — `gate.py`/`graph.py`/`mcp_hybrid_server.py` (I6); `invariant-guard` catches this both directions.
+- Never let `agentic`/`sync`/`guardrails`/`telegram`/`opentweet` import from — or be imported by — the core six (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`) (I6); `invariant-guard` catches this both directions.
 - This is a loop — it keeps going until the codebase is clean, not a one-shot edit.

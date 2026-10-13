@@ -94,9 +94,12 @@ A name is secret-classified when all of the following hold:
 
 - It starts with an ASCII letter.
 - Every character is an ASCII letter, digit, or `_`.
-- The uppercased name ends with `_` plus one of these suffixes, and at least
-  one character precedes that tail: `API_KEY`, `CREDENTIALS`, `PASSWORD`,
-  `SECRET`, `TOKEN`, `PAT`, `DSN`, `KEY`.
+- The uppercased name ends with `_` plus one of the suffixes listed in
+  `utils/secret-policy.tsv` (`API_KEY`, `CREDENTIALS`, `PASSWORD`, `SECRET`,
+  `TOKEN`, `PAT`, `DSN`, `DB_URL`, `KEY`), with at least one character before
+  that tail, or it is one of the exact names recorded there
+  (`RCLONE_CONFIG_PASS`, `GH_TOKEN`, …). `utils/secret_policy.py` loads the
+  table; `envline.py` defers to it.
 
 The test is case-insensitive, so `grok_api_key` and `Grok_Api_Key` classify
 the same way `GROK_API_KEY` does. Windows environment names are case-insensitive;

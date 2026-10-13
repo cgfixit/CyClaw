@@ -45,9 +45,12 @@ session 2026-09-06):
 
 1. `python3.12 -m venv /root/.venv-cyclaw-312` -- outside the repo, so no
    `.gitignore` entry and no chance of `ruff`/pytest walking site-packages.
-   Bare `python3` is 3.11 and always will be on this image; do not
-   `update-alternatives` it (the session-runtime hooks resolve through it).
-2. Tries `torch==2.13.0+cpu` from the CPU index with `--retries 1`. On this
+   Bare `python3` is never 3.12 on this image (3.11 on the 2026-09 images,
+   3.13 on 2026-10-13's); do not `update-alternatives` it (the
+   session-runtime hooks resolve through it).
+2. Tries `torch==2.13.0+cpu` from the CPU index with one retry and a short
+   timeout (`uv pip install` with `UV_HTTP_RETRIES=1 UV_HTTP_TIMEOUT=15` when
+   `uv` is on PATH, as it is here; `pip --retries 1` otherwise). On this
    proxy that fails in seconds, not minutes.
 3. Falls back to plain `torch==2.13.0` from PyPI **with** its dependency tree.
    `--no-deps` was tried and is a dead end: the Linux wheel dlopens
@@ -62,8 +65,7 @@ session 2026-09-06):
    itself (`must be pinned upfront with ==, but found: torch`, pulled in by
    sentence-transformers). pip accepts the installed torch, which is why CI
    and CLAUDE.md §8 need no `--no-deps` on the locks. This is unrelated to the
-   torch `--no-deps` dead end in step 3. The `--ignore-installed` gotcha
-   below still describes the macOS recipe in CLAUDE.md §8.
+   torch `--no-deps` dead end in step 3.
 
 Re-running is idempotent: it exits 0 immediately once
 `import torch, chromadb, langgraph, pytest` succeeds.
@@ -99,9 +101,15 @@ different key.
 ## Test
 
 ```bash
-bash .claude/skills/cyclaw-gotchas/driver.sh test                          # whole suite: 5263 passed, 82 skipped, ~4m40s here
 bash .claude/skills/cyclaw-gotchas/driver.sh test tests/test_sync_runner.py tests/test_telemetry_kill.py
+bash .claude/skills/cyclaw-gotchas/driver.sh test                          # whole suite (5263 passed, 82 skipped, ~4m40s on 2026-09-06)
 ```
+
+CLAUDE.md §5's verification policy (owner decision 2026-10-08) applies: run
+the changed code, lint, let GitHub Actions run the suites, and reach for
+`driver.sh test <one file>` only when nothing else exercises the path. The
+no-argument whole-suite form is there for the owner, for CI parity checks
+he asks for, and for `/tests-refactor`; it is not a routine step.
 
 The suite is fully green in this sandbox even though the index cannot be
 built, because `tests/conftest.py` mocks the embedding model. Only
@@ -122,8 +130,8 @@ read the exit code (`echo "pytest exit=${PIPESTATUS[0]}"` when piped).
 bash .claude/skills/cyclaw-gotchas/driver.sh checks
 ```
 
-Runs the five stdlib guards (`invariant-guard`, `doc-sync`, `config-guard`,
-`dep-guard`, verify-deps `check_env_drift.py --strict`) and prints one line
+Runs the six stdlib guards (`invariant-guard`, `doc-sync`, `config-guard`,
+`dep-guard`, `dotenv-guard`, verify-deps `check_env_drift.py --strict`) and prints one line
 each. `config-guard` reports **0 warnings** on a clean tree since C9 was
 flipped (commit 993f439) from "warn if hybrid+enabled" to "warn if the
 committed config diverges from the documented shipped provider posture" —
@@ -132,11 +140,8 @@ the shipped posture is now hybrid with grok/claude enabled (CLAUDE.md's
 warning. A `1 warning` result today means the config no longer matches that
 documented posture — treat it as drift to investigate, not the old baseline.
 
-## Run (human path)
-
-`python gate.py` in a terminal binds `127.0.0.1:8787` and blocks; Ctrl-C to
-stop. Same defaults, no pidfile. Useless from an agent because nothing else
-can run in that shell; use `serve`.
+`python gate.py` by hand binds `127.0.0.1:8787` and blocks the shell (Ctrl-C
+to stop); from an agent, use `serve`.
 
 ## Gotchas
 
@@ -145,20 +150,18 @@ expire it.
 
 ### Sandbox and install
 
-- **Nothing is preinstalled, in any interpreter.** CLAUDE.md §4 once said the
-  deps live in 3.11's `dist-packages`; on 2026-09-06 `import torch` failed for
-  3.10, 3.11, 3.12 and 3.13 alike. Treat the venv step as mandatory every
-  session; the container is rebuilt from a generic image, not from this repo.
-- **`--ignore-installed PyYAML` reinstalls everything, not just PyYAML.**
-  `--ignore-installed` is a bare pip flag; `PyYAML` after it is one more
-  requirement. Every install line in this repo that carries it therefore
-  re-resolves and reinstalls torch too, and the only thing holding the
-  version is the constraints file. The macOS recipe used to strip the torch
-  line from its constraints copy, so that reinstall floated torch to PyPI's
-  newest: this driver installed `torch==2.13.0` and ended with `2.14.0+cu130`
-  (2026-09-06; `macos/install-cyclaw.sh`'s Darwin branch had the same shape).
-  Rule: the constraints copy keeps `torch==X.Y.Z` with only `+cpu` removed;
-  `tests/test_macos_scripts.py` pins it.
+- **Nothing is preinstalled, in any interpreter.** On 2026-09-06 `import
+  torch` failed for every Python on the image. Treat the venv step as
+  mandatory every session (the cloud SessionStart hook starts it in the
+  background); the container is rebuilt from a generic image, not from this
+  repo.
+- ~~**`--ignore-installed PyYAML` reinstalls everything, not just PyYAML**~~
+  — expired 2026-10-13: every documented install now uses the hashed
+  `locks/` with `--require-hashes` (#1598), no install line carries
+  `--ignore-installed`, and `tests/test_macos_scripts.py` asserts the old
+  constraints rewrite is gone. Kept as a one-line tombstone because the
+  lesson generalises: a bare pip flag followed by a package name is two
+  arguments, and a resolver re-run can float torch to a CUDA build.
 - **`pkill -f "python gate.py"` kills your own shell, and `pgrep -f gate.py`
   reports it as still running.** Both match the `bash -c` wrapper that is
   executing the command (exit 144 from `pkill`; a phantom "server still
@@ -176,10 +179,6 @@ expire it.
 
 ### Runtime behaviour that looks like a bug
 
-
-- **Codex's fourth P2 on #1247** (a non-numeric port in a harness base URL
-  made `parsed.port` raise outside the guarded block) is moot since PR #1367
-  removed the harness server module; do not report it as new.
 - **`/health` `degraded`, `TELEMETRY KILL` on stdout, `503 INDEX_NOT_FOUND`,
   `needs_confirm: true` on `/query`** are all normal states, not errors
   (CLAUDE.md §4 "Environment & install" and `.claude/commands/run.md`).
@@ -187,9 +186,10 @@ expire it.
 ### Tests and checks
 
 - **A green run can print no summary** (see Test above). Read the exit code.
-- **Run the fast, scoped tests first, then the whole suite once.** The suite
-  takes ~4m40s here; `-x` on the first pass finds the first failure without
-  waiting for all of it.
+- **Scope any local test run to the one file that covers the change** and
+  let CI run the suite (CLAUDE.md §5). When the owner does ask for the whole
+  suite, `-x` on the first pass finds the first failure without waiting
+  ~4m40s for all of it.
 - **Ruff, invariant-guard, and the doc-sync checker are cheap; run them
   before every push.** `ruff check --select E,F,I,B,C4,UP,S <touched files>`
   is seconds; the F/B/S subset is what blocks merge (`lint.yml`).
@@ -239,8 +239,7 @@ expire it.
   at a higher level" was false and was caught. Only write verifiable claims.
 - **Reply on the thread, then resolve it, on PRs you opened.** The reply needs
   the Claude Code attribution footer. Leave a thread open only while a
-  question to the reviewer is pending. Check merged PRs for threads left open
-  (see #1247 above).
+  question to the reviewer is pending. Check merged PRs for threads left open.
 - **Bot review triggers:** the owner comments `@codex review` to start a
   Codex pass; `@codex apply fixes` hands the fix to Codex; `@copilot resolve
   the merge conflicts ...` with explicit write permission is how conflicts on
@@ -265,9 +264,11 @@ expire it.
   cost seconds each.
 - **Docstrings are docs.** When a README derives from a package docstring,
   fix both in the same commit or the drift regrows (`agentic/harness_optimizer`).
-- **`doc_sync.py` covers structured facts only** (skills list, entry points,
-  config numbers, routes, node count, hook claims). README prose, the threat
-  model stance, and skill bodies are manual-pass territory.
+- **`doc_sync.py` covers structured facts only** (D1–D13: skills list, entry
+  points, config numbers, routes, node count, hook claims, the M5 doctrine
+  citations, and README path/link/`python -m`/record-table references).
+  README prose, the threat model stance, and skill bodies are manual-pass
+  territory.
 
 ### verify-deps in this sandbox
 
@@ -278,9 +279,9 @@ expire it.
 - **The install dry-runs cannot pass here** (PyTorch index denied); report
   them "unverified in this sandbox" and say why. `docker compose config
   --quiet` does work without a daemon.
-- **Every advisory hit on the current pins (5 chromadb, 1 nltk) is a dated
-  acceptance in `SECURITY.md`** with no upstream fix version. Re-reporting them
-  is noise; a *new* id is the signal.
+- **Every advisory hit on the current pins (4 chromadb, 1 nltk on
+  2026-10-13) is a dated acceptance in `SECURITY.md`** with no upstream fix
+  version. Re-reporting them is noise; a *new* id is the signal.
 
 ## Troubleshooting
 
@@ -289,7 +290,7 @@ expire it.
 | `No matching distribution found for torch==2.13.0+cpu` after five proxy retries | CPU index denied by the egress proxy | `driver.sh venv` falls back to PyPI torch automatically |
 | `OSError: libcudart.so.13: cannot open shared object file` on `import torch` | plain torch installed with `--no-deps` | reinstall without `--no-deps`; the CUDA libs are required at import on Linux |
 | pytest prints dots and `[100%]` but no `N passed` line | `-q` doubled with `addopts` → `-qq` | use `driver.sh test` or `-o addopts=""`; read the exit code |
-| `ModuleNotFoundError: pytest` / `torch` under `python3` | `python3` is 3.11 with nothing installed | use `/root/.venv-cyclaw-312/bin/python -m pytest` |
+| `ModuleNotFoundError: pytest` / `torch` under `python3` | the system `python3` (not 3.12) has nothing installed | use `/root/.venv-cyclaw-312/bin/python -m pytest` |
 | shell exits 144 after `pkill -f "python gate.py"`, or `pgrep -f gate.py` says a stopped server is running | both patterns match the invoking `bash -c` shell | `driver.sh stop` (pidfile); check liveness with `curl` on the port |
 | `POST /query` → `503 INDEX_NOT_FOUND` after a successful serve | no index; model host denied | expected here; test retrieval via the unit suite, not the live route |
 | `uv pip install --dry-run --system ...` → "externally managed" | system interpreter refuses | run inside a venv, or report unverified |
@@ -299,16 +300,10 @@ expire it.
 
 ## Guardrails
 
-- This skill changes nothing by itself. `driver.sh` writes only under
-  `/tmp/cyclaw-gotchas` and `/root/.venv-cyclaw-312` (override with
-  `CYCLAW_SCRATCH` / `CYCLAW_VENV`); `serve` creates `logs/` in the repo
-  exactly as `gate.py` would.
-- CLAUDE.md §3's six invariants and §7's escalation tiers still govern. A
-  gotcha here is never a licence to skip a guard; it is a reason you will not
-  be surprised by one.
-- Never "fix" a `degraded` health or a
-  `503 INDEX_NOT_FOUND` by changing code. They are controls and fail-soft
-  states, not defects.
+- `driver.sh` writes only under `/tmp/cyclaw-gotchas` and
+  `/root/.venv-cyclaw-312` (override with `CYCLAW_SCRATCH` / `CYCLAW_VENV`);
+  `serve` creates `logs/` in the repo exactly as `gate.py` would. A gotcha
+  here is never a licence to skip a guard (CLAUDE.md §3, §7).
 
 ## Maintaining this file
 

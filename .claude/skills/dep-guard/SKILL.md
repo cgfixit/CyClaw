@@ -26,19 +26,16 @@ enforces them. This does — with zero third-party imports (`tomllib` is stdlib 
 ### Step 1 — Deterministic checker (stdlib only, ~1 second)
 
 ```bash
-python3 .claude/skills/dep-guard/check_deps.py
+python3 .claude/skills/dep-guard/check_deps.py            # add --strict to make every WARN a failure
 ```
 
-It parses `pyproject.toml` (via `tomllib`) and `constraints.txt` and imports
-nothing third-party. Exit codes follow the repo convention: `0` pins hold · `2`
+It parses `pyproject.toml` (via `tomllib`) and `constraints.txt` for the pin
+checks, and reads `environment.yml`, `requirements*.txt`, the workflow YAMLs,
+the install scripts and the torch-citing docs for D8–D11 — importing nothing
+third-party. Exit codes follow the repo convention: `0` pins hold · `2`
 a FAIL check tripped · `3` env/config error (a pin file missing or unparseable).
-
-Add `--strict` to escalate every `WARN` to a failure (use it as a merge gate
-when you want the documented pins locked, not just the resolver-breaking ones):
-
-```bash
-python3 .claude/skills/dep-guard/check_deps.py --strict
-```
+`--strict` is the merge-gate form: the documented pins locked, not just the
+resolver-breaking ones.
 
 It checks (severity in brackets):
 
@@ -51,7 +48,7 @@ It checks (severity in brackets):
 | D5 | WARN | every `constraints.txt` entry is an exact `==` pin (its reproducibility purpose) |
 | D6 | FAIL | every exact metadata pin has a matching constraint; only Torch adds the `+cpu` local tag |
 | D7 | INFO | `chromadb` pin is CVE-2026-45829 risk-accepted, embedded `PersistentClient` only (SECURITY.md) — do not "fix" it |
-| D8 | FAIL/WARN | every CI workflow and install script that hardcodes a torch version agrees with the manifest pin (FAIL); stale doc / `.osv-scanner.toml` references are WARN |
+| D8 | FAIL/WARN | every listed CI workflow (`_CI_TORCH_FILES`: ci, pip-audit, devskim, copilot-setup-steps, nemo-guardrails) and install script that hardcodes a torch version agrees with the manifest pin (FAIL); stale doc / `.osv-scanner.toml` references are WARN. A new workflow that pins torch must be added to that list |
 | D9 | FAIL | `environment.yml` (conda CI lane) pins agree with the pip manifests |
 | D10 | FAIL | every workflow `--cov=` flag set covers every `[tool.coverage.run] source` entry — the check that catches a coverage source added to pyproject but not to `ci.yml`/the conda lane (or a stale doc count of the sources) |
 | D11 | FAIL | NeMo 0.24.0 is unconditional in all three base manifests, absent from test-only requirements, and `guardrails` remains an empty compatibility extra |
@@ -76,14 +73,15 @@ A `FAIL` line names the check and the offending pins. Three cases:
 The checker proves the pins and their agreement, not that the resolve actually
 succeeds or is CVE-clean. For a real bump, also:
 
-- Run the documented install and confirm it resolves:
-  `pip install -r requirements.txt -c constraints.txt --ignore-installed PyYAML`
-  (torch CPU wheel FIRST — CLAUDE.md §8).
+- Regenerate the hashed `locks/` (`scripts/refresh-runtime-lock.sh` and
+  `scripts/refresh-ci-locks.sh`, arm64 macOS) and run the documented install
+  (CLAUDE.md §8: torch lock first, then the runtime and test locks) to confirm
+  it resolves; `scripts/check_lock_contract.py` refuses stale lock inputs.
 - Let CI's `pip-audit` / `osv-scanner` jobs judge advisories — dep-guard does
   not. A pin can satisfy every invariant here and still carry a CVE.
-- If you added a NEW source module alongside a dep, remember its `--cov=` flag in
-  `ci.yml` and `[tool.coverage.run] source` (CLAUDE.md §4 Testing) — dep-guard
-  does not track coverage wiring.
+- If you added a NEW source module alongside a dep, add its `--cov=` flag to
+  `ci.yml` and `[tool.coverage.run] source` (CLAUDE.md §4 Testing); D10 fails
+  when the two lists disagree.
 
 ### Step 4 — Report
 
@@ -104,17 +102,18 @@ Verdict: safe to merge / fix required: <one line per FAIL>
 bash .claude/skills/dep-guard/verify.sh
 ```
 
-Runs the checker on the clean tree (must exit 0), then eight mutation
-self-tests: numpy floated to 2.x asserts a D2 FAIL (exit 2); a `[standard]`
-extra added to the constraints `uvicorn` asserts a D4 FAIL (exit 2); a
-`pydantic-core` drift asserts a D1 WARN (exit 0) that becomes a failure under
-`--strict` (exit 2); a CI workflow hardcoding a stale torch version asserts a
-D8 FAIL (exit 2); a comment-only `.osv-scanner.toml` torch drift asserts a D8
-WARN (exit 0); an `environment.yml` pin the manifests moved past asserts a
-D9 FAIL (exit 2); a direct pyproject pin missing from `constraints.txt`
-asserts a D6 FAIL (exit 2); and the Dockerfile's fallback torch pin drifting
-from the manifests asserts a D8 FAIL (exit 2). Pure stdlib — no install
-needed.
+Runs the checker on the clean tree (must exit 0), then a mutation self-test
+per rule — numpy floated to 2.x (D2), a `[standard]` extra on the constraints
+`uvicorn` (D4), a `pydantic-core` drift (D1 WARN, FAIL under `--strict`),
+stale torch pins in a workflow, a synthetic Dockerfile and the doc/`.osv-scanner`
+citations (D8), an `environment.yml` pin the manifests moved past (D9), a
+pyproject pin missing from `constraints.txt` (D6), seven torch-tag shapes
+(D3), and the NeMo install contract (D11) — each asserting the expected exit
+code. The script enumerates its scenarios as it runs (22 at last count).
+Pure stdlib — no install needed. Note the real Dockerfile carries no
+`torch==` line any more (it installs the hashed torch lock), so D8's Docker
+scan passes trivially; `verify-deps` E5 is what holds Docker's torch in
+lock-step with `constraints.txt`.
 
 ---
 
@@ -122,10 +121,11 @@ needed.
 
 - This skill is **read-only** over the repo. It reports; it never edits a pin
   file to make a check pass.
-- Adding a new runtime dependency, or bumping a pinned one, is the Medium–High
-  risk tier (CLAUDE.md §7). dep-guard tells you *whether* an invariant broke; it
-  does not authorize the bump. A new runtime dependency still needs its exact pin
-  in BOTH `pyproject.toml` and `constraints.txt` (CLAUDE.md §6 Code-change bar).
+- Adding a runtime dependency is the High tier (ask first) and bumping a
+  pinned one is Medium at least (CLAUDE.md §7). dep-guard tells you *whether*
+  an invariant broke; it does not authorize the bump. A new runtime dependency
+  still needs its exact pin in BOTH `pyproject.toml` and `constraints.txt`
+  (CLAUDE.md §6 Code-change bar), and the `locks/` regenerated.
 - Weakening a FAIL to a WARN, or deleting a check, needs explicit user approval.
   Adding a check is safe; removing coverage is not.
 - The chromadb CVE is risk-accepted by the threat model. Do not "fix" it by
@@ -144,9 +144,11 @@ needed.
   does not evaluate ranges. A `pyproject` range (`>=`) against a `constraints`
   exact pin is skipped, not judged — dep-guard checks exact-vs-exact agreement,
   which is CyClaw's actual convention (both files pin `==`).
-- **numpy/torch pins may be optional-extra.** The checker scans
-  `[project.dependencies]` AND every `[project.optional-dependencies]` group, so
-  the `torch-cpu` extra's `torch==...+cpu` is seen even though it is not a
-  default install.
+- **Torch is a base dependency, split across two files.** `pyproject.toml`
+  pins the public release (`torch==2.13.0`, no local tag) and
+  `constraints.txt` pins `torch==2.13.0+cpu`; D3 fails if the metadata pin
+  moves into an optional extra, loses the release, or if the constraint
+  carries any tag but `+cpu`. The checker still scans every
+  `[project.optional-dependencies]` group for the other pins.
 - **Names are PEP 503-normalized.** `pydantic-core`, `pydantic_core`, and
   `Pydantic.Core` compare equal — do not rely on exact casing/punctuation.

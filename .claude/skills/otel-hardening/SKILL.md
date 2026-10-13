@@ -31,7 +31,7 @@ these values silence vendor telemetry readers; they do not close sockets.
 
 | Piece | File | What |
 |---|---|---|
-| Canonical maps | `utils/telemetry_kill.py` | `TELEMETRY_KILL` (21) + `UPDATE_CHECK_OPT_OUT` (4, ancillary — never counted as telemetry) + `SCRUBBED_ENV_KEYS` (5 tracing credentials/destinations + `OTEL_CONFIG_FILE`/`OTEL_EXPERIMENTAL_CONFIG_FILE`, removed outright because declarative OTel config outranks the SDK-disable values) |
+| Canonical maps | `utils/telemetry_kill.py` | `TELEMETRY_KILL` (21) + `UPDATE_CHECK_OPT_OUT` (4, ancillary — never counted as telemetry) + `SCRUBBED_ENV_KEYS` (5 tracing credentials/destinations + `OTEL_CONFIG_FILE`/`OTEL_EXPERIMENTAL_CONFIG_FILE`, removed outright because declarative OTel config outranks the SDK-disable values). `CONTRACT_DIGEST` pins the SHA-256 of all three; `verify_telemetry_contract()` runs at `gate.py` import and refuses to boot on a mismatch (issue #1255) |
 | Pure child builder | same | `build_telemetry_safe_env(base)` — copy, overlay, scrub; shares the `_enforce` core with `apply_telemetry_kill()` so parent/child cannot drift; `scheduler_env_overlay()` for generated jobs; `python -m utils.telemetry_kill --export {shell,powershell}` for launchers |
 | ONNX API half | `utils/onnx_telemetry.py` | `suppress_onnx_telemetry()` — getattr-guarded, idempotent, absent-safe; called at `retrieval/vector_store.py` (both chromadb client sites) and `guardrails/integration.py` (`force_import=True` before `LLMRails`) |
 | Conditional HF pair | `retrieval/embeddings.py` | `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` only once the model is confirmed cached — never unconditional |
@@ -91,9 +91,12 @@ these values silence vendor telemetry readers; they do not close sockets.
 4. **Close a real gap** (additive, low-risk only): update BOTH copies of the
    contract — `utils/telemetry_kill.py` AND `check_otel.py`'s oracles — plus
    the reference `.env`, `tests/test_telemetry_kill.py`'s independent
-   `_EXPECTED_*` literals, Dockerfile/compose, and the inventory row
-   (`reviewed` date, evidence) in the SAME commit. Add a verify.sh mutation
-   for any new rule. Then re-run steps 1–2 and
+   `_EXPECTED_*` literals (including `_EXPECTED_CONTRACT_DIGEST`),
+   Dockerfile/compose, and the inventory row (`reviewed` date, evidence) in
+   the SAME commit. Any map change also needs `CONTRACT_DIGEST` recomputed
+   (`python -c "from utils.telemetry_kill import contract_digest; print(contract_digest())"`),
+   or the gateway refuses to boot. Add a verify.sh mutation for any new rule.
+   Then re-run steps 1–2 and
    `GROK_API_KEY=dummy pytest tests/test_telemetry_kill.py tests/test_telemetry_env_delivery.py tests/test_onnx_telemetry.py tests/test_reference_env.py -q`.
 
 5. **Classify anything new; retire anything gone.** A new dependency,
@@ -193,16 +196,13 @@ these values silence vendor telemetry readers; they do not close sockets.
    category 4 — stdlib-only, so T13's dependency discovery never sees it; a
    first-party connector like this needs its row added by hand.
 
-## Guardrails (restating the invariants this skill touches)
+## Guardrails
 
-- **G1 ordering is wiring, not style**: `gate.py`'s `_TELEMETRY_KILL =`
-  assignment name/position is an invariant-guard AST anchor; every entry
-  point applies the kill before heavy imports. `utils/telemetry_kill.py`
-  stays **stdlib-only** — never import onnxruntime (or anything heavy) there;
-  the API half lives in `utils/onnx_telemetry.py` at the seams.
-- **I6 module isolation** is untouched by this skill: the kill module is
-  shared `utils/`, imported by both core and out-of-band packages; never make
-  it import `agentic/`/`sync/`/`guardrails/`/`telegram/`/`opentweet/`.
+- `utils/telemetry_kill.py` stays **stdlib-only** — never import onnxruntime
+  (or anything heavy) there; the API half lives in `utils/onnx_telemetry.py`
+  at the seams. Its `_TELEMETRY_KILL =` anchor in `gate.py` and the G1
+  ordering are `invariant-guard`'s to check (CLAUDE.md §3), and the kill
+  module never imports an out-of-band package (I6).
 - **I3 and the egress classification**: category-3 traffic (cloud fallbacks,
   channels, sync) is gated by CyClaw policy — never "fix" it with the kill
   map, and never weaken a gate to make a kill var simpler.
@@ -242,8 +242,8 @@ these values silence vendor telemetry readers; they do not close sockets.
   re-applied there (`build_telemetry_safe_env`), or children run
   telemetry-live.
 - **verify-skills CI is `continue-on-error`** — a red check_otel/verify.sh leg
-  does not block a merge; only invariant-guard does. Treat a red leg as real
-  work anyway.
+  does not block a merge; the blocking skill jobs are `invariant-guard`,
+  `doc-sync` and `dotenv-guard`. Treat a red leg as real work anyway.
 - The `--export` eval in the launchers is positioned AFTER the `.env`
   sourcing on purpose: canonical values must overwrite a hostile dotenv, the
   same overwrite semantics `apply_telemetry_kill()` has in-process.

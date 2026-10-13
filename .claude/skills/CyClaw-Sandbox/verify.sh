@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CyClaw sandbox runtime verification — proves the entire main branch runs
-# under a clean Python 3.12 runtime. Nine labeled stages, fail-fast on required
+# under a clean Python 3.12 runtime. Seven labeled stages, fail-fast on required
 # ones. Labels are historical and NOT sequential in source order (1, 2, 3, 5,
-# 8, 4, 7, 9, 6) — do not renumber; CI logs cite them. See SKILL.md
+# 4, 7, 6) — do not renumber; CI logs cite them. See SKILL.md
 # "Operator map" for what each stage proves vs does not prove.
 # Run from the repo root: bash .claude/skills/CyClaw-Sandbox/verify.sh
 set -uo pipefail

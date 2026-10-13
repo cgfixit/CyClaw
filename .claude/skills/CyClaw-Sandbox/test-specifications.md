@@ -197,32 +197,35 @@ When `online_provider` is not set, `user_gate_router` defaults to "grok"
 
 ### Background
 Commit `78515b0` added Anthropic key redaction with the same rigor as Grok:
-- `ANTHROPIC_API_KEY` added to env-var redaction tuple in `gate.py`
-- `sk-ant-[A-Za-z0-9_\-]{20,}` pattern added to `_SECRET_PATTERNS`
-- `sk-ant-*` pattern added to `config.yaml` `audit.redact_secrets_like`
+- every `os.environ` value is redacted by `utils/logger.py::redact_sensitive`
+  (so `ANTHROPIC_API_KEY` and `GROK_API_KEY` get the same treatment)
+- `sk-ant-[A-Za-z0-9_-]{20,}` pattern in `utils/logger.py` `_MINIMUM_SECRET_PATTERNS`
+- `sk-ant-*` pattern in `config.yaml` `policy.privacy.redact_secrets_like`
+- HTTP error text reaches the client only through `utils/public_errors.public_error`
+  (the redaction tuple that once lived in `gate.py` moved; R1/R2 grep the new home)
 
 ### Test Cases
 
 #### R1: Env-Var Redaction
 ```python
-def test_anthropic_key_env_redaction():
-    gate_src = Path("gate.py").read_text()
-    assert "ANTHROPIC_API_KEY" in gate_src
-    assert "GROK_API_KEY" in gate_src
+def test_env_value_redaction():
+    logger_src = Path("utils/logger.py").read_text()
+    assert "def redact_sensitive" in logger_src
+    assert "os.environ.items()" in logger_src
 ```
 
-#### R2: Pattern Redaction in gate.py
+#### R2: Pattern Redaction in utils/logger.py
 ```python
 def test_sk_ant_pattern_in_secret_patterns():
-    gate_src = Path("gate.py").read_text()
-    assert "sk-ant-" in gate_src
+    logger_src = Path("utils/logger.py").read_text()
+    assert "sk-ant-" in logger_src
 ```
 
 #### R3: Pattern Redaction in config.yaml
 ```python
-def test_sk_ant_in_audit_config():
+def test_sk_ant_in_privacy_config():
     cfg = yaml.safe_load(Path("config.yaml").read_text())
-    patterns = cfg["logging"]["audit"]["redact_secrets_like"]
+    patterns = cfg["policy"]["privacy"]["redact_secrets_like"]
     assert any("sk-ant" in str(p) for p in patterns)
 ```
 
@@ -304,7 +307,7 @@ From `tests/test_due_diligence_invariants.py` (14 test classes):
 - `TestShippedAgenticConfigContract` (`tests/test_agentic_config.py`) already
   pins the agentic block against the real file; the core request path had no
   equivalent, and the gap is not hypothetical -- the operator commit of
-  2026-08-07 flipped `app.mode`, `app.debug`, and BOTH `models.<provider>.enabled`
+  2026-08-07 flipped `app.mode`, the since-removed `app.debug`, and BOTH `models.<provider>.enabled`
   in the shipped file and no test broke, because no test read those keys from it
 - Matters specifically for I3: per `INVARIANTS.md`, two of the triple gate's
   three conditions (`mode == "hybrid"`, `<provider>.enabled`) are NOT enforced
@@ -407,8 +410,8 @@ policy:
     send_local_context_to_claude: false
     grok_max_prompt_chars: 8000
     claude_max_prompt_chars: 8000
-logging:
-  audit:
+policy:
+  privacy:
     redact_secrets_like:
       - "sk-[a-zA-Z0-9]{20,}"     # OpenAI-style
       - "sk-ant-[a-zA-Z0-9_\\-]{20,}"  # Anthropic (Claude)
