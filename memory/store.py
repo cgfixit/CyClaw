@@ -87,15 +87,32 @@ def connect(cfg: Mapping[str, Any]) -> sqlite3.Connection:
         except OSError:
             logger.warning("Could not harden memory DB permissions to 0600: %s", path)
     conn = sqlite3.connect(str(path), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
-    _ensure_schema(conn)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=5000")
+        _ensure_schema(conn)
+    except BaseException:
+        # A corrupt file ("file is not a database") or a locked DB fails here;
+        # without the close every such request leaked one SQLite handle until GC.
+        conn.close()
+        raise
     return conn
 
 
+# Stamped into PRAGMA user_version once the DDL below has run. Every read helper
+# opens a fresh connection (search_facts_fts runs per query when fusion is on),
+# and re-running eleven CREATE ... IF NOT EXISTS statements -- plus the implicit
+# COMMIT executescript issues -- on each one is wasted work. The stamp lives in
+# the DB file itself, so a deleted/recreated DB (version 0) gets its schema
+# again with no process-wide cache to go stale. Bump it when the DDL changes.
+_SCHEMA_VERSION = 1
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
+    if conn.execute("PRAGMA user_version").fetchone()[0] == _SCHEMA_VERSION:
+        return
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS facts (
@@ -175,6 +192,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_proposals_status ON memory_proposals(status);
         """
     )
+    # PRAGMA takes no bound parameters; _SCHEMA_VERSION is a module int constant.
+    conn.execute(f"PRAGMA user_version = {int(_SCHEMA_VERSION)}")
     conn.commit()
 
 

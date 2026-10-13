@@ -4,8 +4,24 @@ from __future__ import annotations
 
 import pytest
 
-from memory.policy import check_content_size, check_tags, enforce_content, require_reason, scan_content
+from memory.policy import (
+    _compile_cached,
+    check_content_size,
+    check_tags,
+    enforce_content,
+    require_reason,
+    scan_content,
+)
 from utils.errors import PromptInjectionError
+
+
+@pytest.fixture(autouse=True)
+def _fresh_pattern_cache():
+    # _compile_cached logs a broken pattern once per distinct pattern list; clear
+    # it so a warning-asserting test never depends on what ran before it.
+    _compile_cached.cache_clear()
+    yield
+    _compile_cached.cache_clear()
 
 
 CFG = {
@@ -116,3 +132,30 @@ def test_scan_malformed_regex_uses_config_index_not_combined_list(caplog):
     assert compile_msgs
     assert all("banned_patterns entry #1" in msg for msg in compile_msgs)
     assert not any("entry #9" in msg or "entry #13" in msg for msg in compile_msgs)
+
+
+def test_compiled_patterns_are_cached_and_a_broken_pattern_warns_once(caplog):
+    # scan_content runs on every propose and up to twice per apply; it used to
+    # recompile every pattern and re-log a broken one's warning each time.
+    cfg = {"policy": {"prompt_filter": {"banned_patterns": [r"(unclosed", r"cyclaw-only-sentinel"]}}}
+    with caplog.at_level("WARNING", logger="cyclaw.memory.policy"):
+        for _ in range(5):
+            assert scan_content("please cyclaw-only-sentinel now", cfg, enforced=True)
+    warnings = [r for r in caplog.records if "failed to compile" in r.message]
+    assert len(warnings) == 1
+    assert _compile_cached.cache_info().hits == 4
+
+
+def test_pattern_cache_tracks_a_changed_banned_patterns_list():
+    # The cache key is the pattern list itself, so a different config never
+    # reuses another config's compiled set.
+    first = {"policy": {"prompt_filter": {"banned_patterns": [r"alpha-sentinel"]}}}
+    second = {"policy": {"prompt_filter": {"banned_patterns": [r"beta-sentinel"]}}}
+    assert scan_content("alpha-sentinel", first, enforced=True)
+    assert scan_content("alpha-sentinel", second, enforced=True) == []
+    assert scan_content("beta-sentinel", second, enforced=True)
+
+
+def test_non_string_banned_pattern_entries_are_skipped_without_breaking_the_cache():
+    cfg = {"policy": {"prompt_filter": {"banned_patterns": [{"not": "a str"}, 7, r"cyclaw-only-sentinel"]}}}
+    assert scan_content("cyclaw-only-sentinel", cfg, enforced=True)

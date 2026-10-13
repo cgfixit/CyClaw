@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import lru_cache
 from typing import Any
 
 from utils.errors import PromptInjectionError
@@ -25,8 +26,20 @@ def require_reason(reason: str) -> None:
         raise ValueError("reason must not be empty")
 
 
-def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> list[tuple[str, re.Pattern[str]]]:
+def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> tuple[tuple[str, re.Pattern[str]], ...]:
     pf = (cfg.get("policy") or {}).get("prompt_filter") or {}
+    # Non-str entries become None (skipped below) so the key stays hashable and
+    # each entry keeps its config-list index for the warning.
+    banned = tuple(p if isinstance(p, str) else None for p in (pf.get("banned_patterns") or []))
+    return _compile_cached(tuple(base), banned)
+
+
+@lru_cache(maxsize=8)
+def _compile_cached(base: tuple[str, ...], banned: tuple[str | None, ...]) -> tuple[tuple[str, re.Pattern[str]], ...]:
+    # Cached per distinct (base, banned_patterns) pair: scan_content runs on
+    # every propose and up to twice per apply, and recompiling each time also
+    # re-logged a broken pattern's warning on every memory write. Same
+    # compile-once shape as utils/sanitizer.py.
     compiled: list[tuple[str, re.Pattern[str]]] = []
     seen: set[str] = set()
     flags = re.IGNORECASE | re.DOTALL
@@ -43,12 +56,12 @@ def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> list[tuple[str, r
                 "memory banned pattern failed to compile (%s); it is skipped",
                 exc,
             )
-    for idx, p in enumerate(pf.get("banned_patterns") or []):
-        if not isinstance(p, str) or p in seen:
+    for idx, entry in enumerate(banned):
+        if entry is None or entry in seen:
             continue
         try:
-            compiled.append((p, re.compile(p, flags)))
-            seen.add(p)
+            compiled.append((entry, re.compile(entry, flags)))
+            seen.add(entry)
         except re.error as exc:
             # Config-list index, matching utils/sanitizer.py. Combined-list
             # index would shift with ENFORCED vs OWASP base length and dedup.
@@ -57,7 +70,7 @@ def _compile_patterns(base: list[str], cfg: dict[str, Any]) -> list[tuple[str, r
                 idx,
                 exc,
             )
-    return compiled
+    return tuple(compiled)
 
 
 def scan_content(content: str, cfg: dict[str, Any], *, enforced: bool = True) -> list[str]:
