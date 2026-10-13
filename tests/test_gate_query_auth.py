@@ -167,6 +167,9 @@ class TestQueryAuthEnabled:
         assert r.json()["username"] == username
 
     def test_device_token_works(self, manager, user):
+        """The realistic device-token case: no Sec-Fetch-Site/Origin at all
+        (curl, PowerShell, Telegram's client) -- _looks_cross_site's absent-
+        header allowance passes it straight through."""
         username, _password = user
         token = manager.create_device_token(username, "telegram")
         r = _client(manager).post(
@@ -256,18 +259,6 @@ class TestQueryCrossSiteRejected:
         )
         assert r.status_code == 403
         assert r.json()["detail"]["code"] == "CROSS_SITE_BLOCKED"
-
-    def test_device_token_caller_with_no_browser_headers_still_works(self, manager, user):
-        """The realistic device-token case: no Sec-Fetch-Site/Origin at all
-        (curl, PowerShell, Telegram's client) -- _looks_cross_site's absent-
-        header allowance passes it straight through."""
-        username, _password = user
-        token = manager.create_device_token(username, "telegram")
-        r = _client(manager).post(
-            "/query", json={}, headers={"Authorization": f"Bearer {token}"},
-        )
-        assert r.status_code == 200
-        assert r.json()["username"] == username
 
 
 class TestAttachFlipsProbe:
