@@ -740,22 +740,3 @@ class TestShippedCoreConfigContract:
         # there is operator-triggerable third-party egress on the operator's
         # own key. Must stay opt-in.
         assert self._cfg()["api"].get("health_probe_external_providers", False) is False
-
-    def test_app_debug_is_pinned_and_currently_inert(self):
-        # app.debug ships true but is read by NO non-test code path (verified
-        # by grep across gate.py, graph.py, utils/, llm/, harness/). It is
-        # pinned here for a specific reason: if someone later wires it to
-        # something real -- traceback echo, log level, FastAPI(debug=True) --
-        # that change would land ALREADY SWITCHED ON in the shipped config,
-        # and would be reviewed as "add a debug flag" with an assumed
-        # off-by-default blast radius. This assertion forces that wiring to
-        # confront the shipped value in the same diff.
-        cfg = self._cfg()
-        assert cfg["app"]["debug"] is True
-        for fname in ("gate.py", "graph.py"):
-            src = (_REPO_ROOT / fname).read_text(encoding="utf-8")
-            assert 'cfg["app"]["debug"]' not in src and "cfg['app']['debug']" not in src, (
-                f"{fname} now reads app.debug — it ships true, so decide whether "
-                "that is the default you want and update this test's docstring "
-                "and docs/THREAT_MODEL.md's eighth amendment to match"
-            )

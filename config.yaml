@@ -5,8 +5,6 @@ app:
   name: "cyclaw"
   env: "local"
   mode: "hybrid"  # "offline" | "hybrid"
-  # Read by no code (not FastAPI debug); verbosity is logging.level.
-  debug: true
 
 models:
   local_llm:
