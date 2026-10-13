@@ -463,13 +463,15 @@ delegates Step 1 to it rather than duplicating it).
 - **The Step 6 bump recipe is a set of claims; derive each from a checker,
   not from memory of the install surfaces.** On PR #1640 (2026-10-13) every
   *measured* row of the sweep report survived review, while the "how to
-  bump" prose took seventeen correct Codex findings across five passes. Each one
+  bump" prose took twenty correct Codex findings across six passes. Each one
   had a file that would have caught it first: a package's files-to-edit are
   exactly the non-empty columns of its `extract_pins.py` row (extras-only
   and constraints-only packages never enter `requirements.txt` or
   `environment.yml`; of the LangChain family only `langchain-core` and
   `langgraph` are base, `langchain` itself is the `agentic-deepagents`
-  extra; `tzdata` is the `test` extra + `requirements-test.txt` + the
+  extra; `pydantic-core` is constraints-only even though it moves in
+  lock-step with base-runtime `pydantic`, and a lock-step pair whose new
+  parent exists on PyPI is a candidate, not an exception; `tzdata` is the `test` extra + `requirements-test.txt` + the
   `python-tzdata` conda pin, not base runtime — and a reclassified package
   moves in the pin table *and* the summary totals, in the same edit), with
   one input the table does not show: `requirements-torch.txt`, which
@@ -482,8 +484,11 @@ delegates Step 1 to it rather than duplicating it).
   `ci.yml`/`pip-audit.yml`/`nemo-guardrails.yml` (the reason `dep-guard`
   D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
   `tests/nemo_runtime/`, `"0.24.0"` in `guardrails/verify_install.py` and
-  `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS` — then `dep-guard` and
-  `check_otel.py --strict` as the authoritative re-check. On 2026-10-13
+  `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS`, and `pendulum==3.2.0` /
+  `pgvector==0.5.0` / `wcmatch==11.0` in `check_otel.py`'s *prose*
+  inventory, which `--strict` never reads — then `dep-guard` and
+  `check_otel.py --strict` as the authoritative re-check, knowing the
+  strict run covers only the pin dict. On 2026-10-13
   that grep surfaced, beyond the manifests: `dep-guard` `_PYDANTIC_LOCKSTEP`
   and D11 (plus its `verify.sh` fixture), `LAST_VERIFIED_VENDOR_PINS` for
   `nemoguardrails`, `onnxruntime`, `langchain`, `langchain-core`,

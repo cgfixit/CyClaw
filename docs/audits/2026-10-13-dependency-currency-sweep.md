@@ -17,7 +17,7 @@ Env drift (E1-E7):    0 failure(s), 0 warning(s) - no E3 undeclared imports
 Lock contract:        scripts/check_lock_contract.py passed
 Lock <-> manifest:    all 25 lock files agree with constraints.txt on every shared pin (+cpu local tag ignored)
 Install surfaces dry-run: local-dev=unverified* legacy-CI=unverified* Dockerfile=unverified* hashed-locks(runtime)=conditional** hashed-locks(test)=PASS wheel-build=PASS conda=not dry-run-verified compose=PASS (docker compose config --quiet)
-Currency:             19 current | 16 runtime bump candidates (needs review) | 1 test-only bump candidate | 2 dev-tool bump candidates | 9 documented or compatibility-blocked exceptions
+Currency:             19 current | 18 runtime bump candidates (needs review; the pydantic pair counts as two rows, one decision) | 1 test-only bump candidate | 2 dev-tool bump candidates | 7 documented or compatibility-blocked exceptions
 Verdict:              no fixes applied; findings for review below
 ```
 
@@ -100,8 +100,8 @@ Conda-only names (`pytorch`, `python-tzdata`) are omitted.
 | `pgvector` | 0.5.0 | 0.5.1 | bump candidate (runtime, needs review) |  |
 | `psycopg` | 3.3.6 | 3.3.6 | current |  |
 | `psycopg-binary` | 3.3.6 | 3.3.6 | current |  |
-| `pydantic` | 2.13.5 | 2.14.1 | documented exception | lock-step with pydantic-core |
-| `pydantic-core` | 2.46.5 | 2.50.1 | documented exception | lock-step with pydantic |
+| `pydantic` | 2.13.5 | 2.14.1 | bump candidate (runtime, needs review) | lock-step pair with `pydantic-core` 2.50.1 — item 4; never alone |
+| `pydantic-core` | 2.46.5 | 2.50.1 | bump candidate (runtime, needs review) | constraints-only; moves only with `pydantic` 2.14.1, which hard-pins it — item 4 |
 | `pydantic-settings` | 2.15.0 | 2.15.0 | current |  |
 | `pygments` | 2.21.0 | 2.21.0 | current |  |
 | `pyodbc` | 5.3.0 | 5.3.0 | current |  |
@@ -127,9 +127,11 @@ Grouped by blast radius. A bump touches only the manifests and lock group that
 (`.claude/skills/verify-deps/SKILL.md`):
 
 - Base runtime packages (`fastapi`, `starlette`, `uvicorn`, `langchain-core`,
-  `langgraph`, `pydantic` pair, `onnxruntime`, `nemoguardrails`, …; of the
+  `langgraph`, `pydantic`, `onnxruntime`, `nemoguardrails`, …; of the
   LangChain family only those two are base — `pyproject.toml`
-  `[project.dependencies]`):
+  `[project.dependencies]`; `pydantic-core` is **not** here — it lives in
+  `constraints.txt` only, because `pydantic` hard-pins its exact version and
+  `pyproject.toml` says so in a comment):
   `pyproject.toml` + `constraints.txt` + `requirements.txt` +
   `environment.yml` in lock-step (`dep-guard` D6/D9).
 - Extras-only packages (`deepagents`, `langchain`, `langchain-openai`,
@@ -138,9 +140,9 @@ Grouped by blast radius. A bump touches only the manifests and lock group that
   `pyproject.toml` optional-dependencies + `constraints.txt` only — never
   `requirements.txt` or `environment.yml` (`check_env_drift.py` E4 fails on
   that).
-- Constraints-only transitives (`langsmith`, `langchain-google-genai`,
-  `wcmatch`, `pendulum`, `pydantic-settings`, `lark`): `constraints.txt`
-  alone.
+- Constraints-only transitives (`pydantic-core`, `langsmith`,
+  `langchain-google-genai`, `wcmatch`, `pendulum`, `pydantic-settings`,
+  `lark`): `constraints.txt` alone.
 - Test-only packages (`tzdata`): the `test` extra in `pyproject.toml` +
   `requirements-test.txt` + `constraints.txt` + the `python-tzdata` conda pin
   in `environment.yml` — never `requirements.txt` (no production module
@@ -195,7 +197,13 @@ Then CI's four test legs.
    `retrieval/embeddings.py` imports it; revisit when `sentence-transformers`
    itself moves to a release that allows 2.x, and bump the two together.
 4. **`pydantic` 2.13.5→2.14.1 with `pydantic-core` 2.46.5→2.50.1** — lock-step
-   pair. Beyond the manifests, the pair is hard-coded as the repository's
+   pair, one decision: PyPI metadata for `pydantic` 2.14.1 requires exactly
+   `pydantic-core==2.50.1`, so the pair is a candidate, not an exception,
+   and `pydantic-core` is never bumped alone. Ownership differs within the
+   pair: `pydantic` is base runtime (all four manifests), `pydantic-core` is
+   constraints-only. `constraints.txt`'s header comment ("2.13.5 is the
+   latest pydantic", "no pydantic release pairs with" the newer core) is
+   stale as of 2026-10-13 and moves with the pin. Beyond the manifests, the pair is hard-coded as the repository's
    dependency contract in `.claude/skills/dep-guard/check_deps.py`
    (`_PYDANTIC_LOCKSTEP`) and in CLAUDE.md §4 "Dependencies"; D1 fails until
    both are updated in the same commit. `schemas/api.py` uses
@@ -225,6 +233,13 @@ Then CI's four test legs.
    `setup-guide.md`) that `doc_sync.py` would flag. All move in the same
    commit as the pin; then `guardrails.verify_install`),
    `pendulum` 3.2.0→3.3.0, `pgvector` 0.5.0→0.5.1, `wcmatch` 11.0→11.1.
+   Those three are **not** in `LAST_VERIFIED_VENDOR_PINS`, so
+   `check_otel.py --strict` stays green after the pins move — but its
+   egress inventory names `pendulum==3.2.0`, `pgvector==0.5.0`, and
+   `wcmatch==11.0` in prose, and the pendulum no-egress conclusion was
+   drawn from source at that version. Each bump re-checks the source and
+   updates its inventory row in the same commit; the bare-version grep in
+   the skill gotcha finds these rows, the strict run does not.
 6. **Test and dev tools (low blast radius, but re-run lint before merging):**
    `tzdata` 2026.2→2026.5 (test-only surface, see above), `ruff`
    0.16.8→0.17.0 (`lint.yml` also pins it inline — E1 will flag a split),
