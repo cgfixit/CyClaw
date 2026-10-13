@@ -22,7 +22,52 @@ CyClaw is an **offline-first, loopback-only** local AI gateway. Items 1–6 are 
 
 ## Accepted Dependency Risks
 
-These are tracked, deliberate exceptions — re-reviewed at every release and enforced via the `pip-audit` CI workflow.
+These are tracked, deliberate exceptions — re-reviewed at every release.
+Python exceptions are encoded in the relevant pip-audit/OSV/Trivy configuration;
+Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
+
+### Debian 12 container libraries — issue #1629, expires 2026-11-01
+
+- **Reviewed 2026-10-13:** the pinned `python:3.12-slim-bookworm` manifest
+  `sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3`
+  (linux/amd64) reproduces all 11 package findings with Trivy 0.72.0.
+  Its installed dpkg metadata establishes the dependency chains below.
+  These are temporary risk acceptances, not patched packages or proof that
+  every possible use of these libraries is safe.
+
+| Findings | Installed packages | Retaining dependency | Fixed version / decision |
+| --- | --- | --- | --- |
+| CVE-2026-88647, CVE-2026-88648, CVE-2026-67693 | `libgnutls30 3.7.9-2+deb12u7` | `apt` directly depends on GnuTLS | No bookworm or trixie fix; retain the base and time-limit the exception |
+| CVE-2026-107708, CVE-2026-107778 (four packages each) | `libgssapi-krb5-2`, `libk5crypto3`, `libkrb5-3`, `libkrb5support0`, all `1.20.1-2+deb12u5` | `libnsl2` → `libtirpc3` → `libgssapi-krb5-2` → krb5 libraries | No bookworm or trixie fix; retain Python's native dependency chain and time-limit the exception |
+
+- **Upstream status:** Debian lists all five as unfixed in both releases.
+  For the GnuTLS [hostname](https://security-tracker.debian.org/tracker/CVE-2026-88647),
+  [certificate constraints](https://security-tracker.debian.org/tracker/CVE-2026-88648),
+  and [key usage](https://security-tracker.debian.org/tracker/CVE-2026-67693)
+  reports, Debian also records that upstream does not consider them security
+  issues under its policy. This is disputed classification, not a fix.
+  The krb5 [KDC crash](https://security-tracker.debian.org/tracker/CVE-2026-107708)
+  and [GSS-API acceptor crash](https://security-tracker.debian.org/tracker/CVE-2026-107778)
+  are postponed in bookworm. CyClaw neither runs a Kerberos KDC nor accepts
+  Kerberos/GSS-API credentials.
+- **Why retain the packages:** the base contains neither curl nor libldap;
+  removing those would not remove these findings. APT needs GnuTLS, and the
+  Python base ships the `nis` extension alongside libnsl/libtirpc. Purging the
+  libraries without checking native linkage can break the supplied interpreter.
+  Both container healthchecks already use Python/httpx. Moving to trixie does
+  not supply fixes for these advisories. Keep the matching builder/runtime
+  digests, pinned CA bundle, and no-blanket-`apt-get upgrade` contract.
+- **Scope and review:** `.trivyignore.yaml` limits each exception to the exact
+  Debian package name and installed version, with expiry **2026-11-01**, aligned
+  with the existing dependency review window. Review earlier on any base,
+  authentication, native-library, or upstream-fix change. Remove an exception
+  when its finding disappears; do not renew it without fresh image evidence.
+  Trivy's `--show-suppressed --format json` exposes ignored findings for review;
+  a green SARIF upload alone proves neither their absence nor remediation.
+- **Tracking:** [#1629](https://github.com/cgfixit/CyClaw/issues/1629). Its GitHub
+  alerts were already dismissed as false positives before this change; that
+  state is not the evidence for this acceptance. Closing the sweep issue after
+  merge records completed triage and an expiring exception, not an upstream fix.
 
 ### chromadb 1.5.9 — CVE-2026-45829 / [PYSEC-2026-311](https://osv.dev/vulnerability/PYSEC-2026-311) (Critical) and siblings CVE-2026-45830 / CVE-2026-45831 / CVE-2026-45833
 
