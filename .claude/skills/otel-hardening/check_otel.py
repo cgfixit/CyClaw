@@ -574,8 +574,11 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "git", "category": 5, "controls": {},
         "url": "agentic/deepagent_github/repo_workspace.py",
         "versions": "external binary",
-        "enforcement": "local-only subcommands under _GIT_ENV_ALLOWLIST; reads none of the canonical names, "
-                       "so the overlay is deliberately NOT applied there (documented in-module)",
+        "enforcement": "local-only subcommands under _GIT_ENV_ALLOWLIST at the runtime sites (repo_workspace, "
+                       "the executor manifest, the eval dogfood script, the git-hook installers); reads none of "
+                       "the canonical names, so the overlay is deliberately NOT applied there (documented "
+                       "in-module). The installers' `git clone` / `git pull` of the repository are network "
+                       "operations and sit on their own category-3 row (git-remote), not here",
         "scope": "repo workspace ops", "reviewed": "2026-08-27",
         "evidence": "documented exclusion, not an oversight",
     },
@@ -655,7 +658,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "fixed absolute path, no network sink",
     },
     {
-        "name": "uv (lock refresh + cloud venv driver)", "category": 5, "controls": {},
+        "name": "uv (lock refresh + cloud venv driver)", "category": 3, "controls": {},
         "url": "https://github.com/astral-sh/uv/blob/main/crates/uv-static/src/env_vars.rs",
         "versions": "external binary, never pinned by the repo: scripts/refresh-runtime-lock.sh and "
                     "scripts/refresh-ci-locks.sh (operator-run, arm64 macOS only, `uv pip compile` into a "
@@ -664,16 +667,21 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "removed 2026-09-11 and has not returned; no runtime code path spawns uv. The lock "
                     "scripts' UV_BIN (like their PYTHON_BIN) is the operator's path to their own uv install, "
                     "the same operator-resolved-binary shape as shutil.which(); it is not a second launcher",
-        "enforcement": "no telemetry, analytics or crash-reporting mechanism exists to switch off; "
-                       "self-update runs only on an explicit `uv self update`, and the post-`uv sync` OSV "
-                       "malware check is opt-in (UV_MALWARE_CHECK=1) and never reached by `uv pip`. Its "
-                       "index/download traffic is the same functional install egress pip performs",
+        "enforcement": "category 3 because every invocation CyClaw makes (`uv pip compile`, `uv pip install`) "
+                       "resolves or downloads from a package index on a cold cache: intentional, operator- or "
+                       "sandbox-initiated install egress, the same class as the installers' git clone and the "
+                       "first-run embedding fetch, never a kill-map entry. The binary itself carries no telemetry, "
+                       "analytics or crash-reporting mechanism to switch off; self-update runs only on an explicit "
+                       "`uv self update`, and the post-`uv sync` OSV malware check is opt-in (UV_MALWARE_CHECK=1) "
+                       "and never reached by `uv pip`",
         "scope": "dev tooling only (lock regeneration, cloud test venv)",
         "reviewed": "2026-10-13",
-        "evidence": "negative finding: crates/uv-static/src/env_vars.rs read 2026-10-13 (installed uv 0.11.32) "
-                    "defines no telemetry/analytics/tracking/update-check variable -- the only TRACK/UPDATE "
-                    "matches are local tracing-duration files and the schema dev helper; uv returned via "
-                    "PR #1572 (2026-10-07) after the 2026-09-11 retirement, which is why this row is back",
+        "evidence": "telemetry negative finding: crates/uv-static/src/env_vars.rs read 2026-10-13 (installed uv "
+                    "0.11.32) defines no telemetry/analytics/tracking/update-check variable -- the only "
+                    "TRACK/UPDATE matches are local tracing-duration files and the schema dev helper. Moved "
+                    "from category 5 to 3 on 2026-10-13 (Codex P2 on PR #1637, ninth round): the row describes "
+                    "what the invocations do on the network, and index access is functional egress. uv "
+                    "returned via PR #1572 (2026-10-07) after the 2026-09-11 retirement",
     },
     {
         "name": "ollama model pull (setup)", "category": 3, "controls": {},
@@ -692,12 +700,31 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "PR #1637, fourth round)",
     },
     {
+        "name": "git remote fetch (installers)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "`git clone` / `git pull` of the CyClaw repository in the operator installers: "
+                    "macos/setup-cyclaw.sh, macos/install-cyclaw.sh and powershell/Install-CyClaw.ps1. No "
+                    "runtime path runs a network git subcommand (the agentic workspace's remote operations are "
+                    "gated separately under allow_git_write_tools and live on the repo-workspace rows)",
+        "enforcement": "repository acquisition from github.com at install time, run by the operator by hand: "
+                       "intentional functional egress, the same class as the uv/pip index access and the "
+                       "confirmed Ollama pull. git itself carries no telemetry mechanism (the category-5 git row); "
+                       "this row exists because clone/pull are network operations and the local row's "
+                       "'local-only subcommands' claim must stay true",
+        "scope": "operator install scripts only",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-cyclaw.sh:252, install-cyclaw.sh:113 and the pull beside it, Install-CyClaw.ps1:134/139 "
+                    "(Codex P2 on PR #1637, ninth round); split from the local git row by call kind, the "
+                    "ollama-pull precedent",
+    },
+    {
         "name": "browser launch (open URL)", "category": 3, "controls": {},
         "url": "setup-guide.md",
         "versions": "macOS `open <url>` (and invoke-cyclaw.sh's `xdg-open` fallback) in the operator scripts: "
                     "setup-from-clone.sh opens the signed Ollama download page once the operator declines the "
                     "installer pipe; setup-cyclaw.sh, setup-cyclaw-keys.sh and invoke-cyclaw.sh open the "
-                    "loopback console. No runtime code path opens a URL",
+                    "loopback console; powershell/Invoke-CyClaw.ps1 does the same with Start-Process. No "
+                    "runtime code path opens a URL",
         "enforcement": "hands a URL to the operator's default browser; whatever that browser then does is the "
                        "browser's egress, not CyClaw's. The one remote target is the Ollama download page, "
                        "reached only at an interactive setup prompt. Distinct from the local file-manager "
@@ -846,6 +873,8 @@ INVENTORY_ALIASES: dict[str, str] = {
     "open-url": "browser launch (open URL)",
     # Invoke-RestMethod / Invoke-WebRequest in the Windows sandbox smoke suite
     "pwsh-http": "powershell http probes (sandbox smoke)",
+    # the installers' git clone / pull: network git, split from the local git row
+    "git-remote": "git remote fetch (installers)",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -896,7 +925,7 @@ INVENTORY_ALIASES: dict[str, str] = {
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
-                             "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http",
+                             "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http", "git-remote",
                              "pre-action-hook-command", "executor-check")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
@@ -944,13 +973,21 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
                                          '[ "$_TELEMETRY_EXPORTED" -eq 1 ]')),
     ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"', 'rclone_bin, "copy",', 'rclone_bin, "bisync",')),
     ("rclone", "sync/scheduled.py", ('shutil.which("rclone")', '[binary, "listremotes"]')),
-    ("brew", "macos/setup-from-clone.sh", ("brew analytics off >/dev/null", "brew install python@3.12")),
+    # the export is the pre-execution protection the Homebrew row claims; it
+    # matters when `brew analytics off` fails before the later `brew install`
+    ("brew", "macos/setup-from-clone.sh", ("export HOMEBREW_NO_ANALYTICS=1", "brew analytics off >/dev/null",
+                                           "brew install python@3.12")),
     ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")', '[binary, "config"',
                                                            "[binary, *argv]")),
     ("git", "agentic/executor/manifest.py", ('git_bin = shutil.which("git")', '[git_bin, "rev-parse", "HEAD"]')),
     ("git", "scripts/cyclaw-eval-dogfood.py", ('[git, "rev-parse", "HEAD"]',)),
     ("git", "scripts/ensure-githooks.sh", ("git rev-parse --show-toplevel", "git config --local core.hooksPath")),
     ("git", "scripts/install-githooks.sh", ("git config core.hooksPath .githooks",)),
+    # the installers' repository acquisition: network git, its own component
+    ("git-remote", "macos/setup-cyclaw.sh", ("git clone --branch main --single-branch https://github.com/CGFixIT/CyClaw.git",)),
+    ("git-remote", "macos/install-cyclaw.sh", ('git clone --depth 1 "$REPO_URL" "$REPO_DIR"', 'git -C "$REPO_DIR" pull --ff-only --autostash')),
+    ("git-remote", "powershell/Install-CyClaw.ps1", ("& git clone --depth 1 $RepoUrl $Repo",
+                                                     "& git -C $Repo pull --ff-only")),
     ("openssl", "utils/gen_cert.py", ('shutil.which("openssl")', '"req",')),
     ("openssl", "macos/setup-cyclaw-keys.sh", ('_api_value="$(openssl rand -hex 20)"',)),
     ("openssl", "macos/cyclaw-linux-key.sh", ("openssl rand -hex 20",)),
@@ -970,7 +1007,11 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("crontab", "sync/scheduler.py", ('shutil.which("crontab")', '[crontab, "-l"]', '[crontab, "-"]')),
     ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")', '[self._schtasks(), "/Delete"')),
     ("cmd.exe", "utils/win_schtasks.py", ('f"{_slug(task_name)}.cmd"',)),
+    ("cmd.exe", "powershell/Uninstall-CyClaw.ps1", ('cmd.exe /c "schtasks.exe /Query', 'cmd.exe /c "schtasks.exe /Delete')),
+    ("schtasks", "powershell/Uninstall-CyClaw.ps1", ("Get-Command schtasks.exe", "schtasks.exe /Delete /TN")),
     ("powershell", "utils/win_schtasks.py", ('shutil.which("powershell")',)),
+    ("powershell", "powershell/Install-CyClaw.ps1", ('powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%',
+                                                     '& powershell -NoProfile -ExecutionPolicy Bypass -File')),
     ("bwrap", "agentic/executor/hard_sandbox.py", ('shutil.which("bwrap")', '[self._bwrap, "--die-with-parent"')),
     ("sandbox-exec", "agentic/executor/hard_sandbox.py", ('shutil.which("sandbox-exec")', "self._sandbox_exec,")),
     ("xdg-open", "agentic/fsconnect/osutil.py", ('["xdg-open", path]',)),
@@ -1009,6 +1050,7 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("open-url", "macos/setup-cyclaw.sh", ('open "$CONSOLE_URL"',)),
     ("open-url", "macos/setup-cyclaw-keys.sh", ('open "$gate"',)),
     ("open-url", "macos/invoke-cyclaw.sh", ('open "$OPEN_URL"', 'xdg-open "$OPEN_URL"')),
+    ("open-url", "powershell/Invoke-CyClaw.ps1", ("Start-Process $using:OpenUrl",)),
     # the Windows sandbox smoke suite's HTTP probes (cmdlets, not a binary)
     ("pwsh-http", ".claude/skills/CyClaw-Sandbox/windows-smoke.ps1", ('Invoke-RestMethod -Uri "$Base/health"',
                                                                       'Invoke-WebRequest -Uri "$Base/query"')),
