@@ -50,6 +50,11 @@ CYCLAW_API_KEY=smoke-test-key GROK_API_KEY=dummy bash $D serve
 sleep 2   # fixed warm-up window — do not vary
 ```
 
+By hand (no driver), the equivalent start is
+`CYCLAW_API_KEY=smoke-test-key GROK_API_KEY=dummy python -m uvicorn gate:app --host 127.0.0.1 --port 8787 --no-proxy-headers &`
+— keep `--no-proxy-headers`, which `gate._serve`, the Dockerfile and the
+launchers all pass (`tests/test_gate.py` pins this recipe).
+
 ### Measure every endpoint
 
 Run each endpoint 5 times and record the **median** (not mean — median is stable against outlier spikes):
