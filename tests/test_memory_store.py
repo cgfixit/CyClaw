@@ -351,3 +351,62 @@ def test_corrupt_proposal_json_columns_do_not_raise(mem_cfg):
     assert loaded.reason == "operator note"
     listed = list_proposals(mem_cfg)
     assert any(p.id == prop.id and p.payload == {} for p in listed)
+
+
+def test_connect_closes_the_handle_when_setup_fails(mem_cfg: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A corrupt file fails at the first PRAGMA; connect() used to leak the open
+    # handle (one per request) because it only returned on success.
+    import sqlite3
+
+    import memory.store as store
+
+    closed: list[bool] = []
+
+    class _Tracking(sqlite3.Connection):
+        def close(self) -> None:
+            closed.append(True)
+            super().close()
+
+    real_connect = sqlite3.connect
+    monkeypatch.setattr(store.sqlite3, "connect", lambda *a, **k: real_connect(*a, factory=_Tracking, **k))
+    Path(mem_cfg["memory"]["db_path"]).write_bytes(b"this is not a sqlite database" * 64)
+    with pytest.raises(sqlite3.DatabaseError):
+        connect(mem_cfg)
+    assert closed == [True]
+
+
+def test_schema_ddl_runs_once_per_db_file_and_again_for_a_recreated_one(
+    mem_cfg: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every read helper opens a fresh connection; the DDL script must run only
+    # when the file is not yet stamped, and again for a deleted/recreated DB.
+    import sqlite3
+
+    import memory.store as store
+
+    scripts: list[str] = []
+
+    class _Counting(sqlite3.Connection):
+        def executescript(self, sql: str) -> sqlite3.Cursor:
+            scripts.append(sql)
+            return super().executescript(sql)
+
+    real_connect = sqlite3.connect
+    monkeypatch.setattr(store.sqlite3, "connect", lambda *a, **k: real_connect(*a, factory=_Counting, **k))
+
+    connect(mem_cfg).close()
+    assert len(scripts) == 1
+    connect(mem_cfg).close()
+    assert search_facts_fts(mem_cfg, "anything") == []
+    assert len(scripts) == 1, "an already-stamped DB must not re-run the schema DDL"
+
+    db = Path(mem_cfg["memory"]["db_path"])
+    for suffix in ("", "-wal", "-shm"):
+        Path(f"{db}{suffix}").unlink(missing_ok=True)
+    conn = connect(mem_cfg)
+    try:
+        assert len(scripts) == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == store._SCHEMA_VERSION
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'facts'").fetchone() is not None
+    finally:
+        conn.close()
