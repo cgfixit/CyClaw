@@ -72,6 +72,22 @@ def test_stale_symlink_citation_falls_back_to_basename(tmp_path):
     assert source_label(str(path), str(tmp_path)) == "loop.md"
 
 
+def test_in_corpus_symlink_alias_keeps_its_own_label(tmp_path):
+    (tmp_path / "real.md").write_text("x")
+    (tmp_path / "alias.md").symlink_to(tmp_path / "real.md")
+    assert source_label(str(tmp_path / "alias.md"), str(tmp_path)) == "alias.md"
+    assert source_label(str(tmp_path / "real.md"), str(tmp_path)) == "real.md"
+
+
+def test_symlink_escaping_the_corpus_is_basename_only(tmp_path):
+    corpus, outside = tmp_path / "corpus", tmp_path / "outside"
+    corpus.mkdir()
+    outside.mkdir()
+    (outside / "secret.md").write_text("x")
+    (corpus / "link").symlink_to(outside, target_is_directory=True)
+    assert source_label(str(corpus / "link" / "secret.md"), str(corpus)) == "secret.md"
+
+
 def test_slash_rooted_path_outside_corpus_is_basename_only():
     assert source_label("/private/outside/book.md", "/private/vault") == "book.md"
 

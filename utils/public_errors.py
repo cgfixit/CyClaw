@@ -1,5 +1,6 @@
 """Keep server filesystem layout and credentials out of HTTP diagnostics."""
 
+import os
 import re
 from pathlib import Path, PureWindowsPath
 
@@ -43,6 +44,17 @@ def source_label(source: str, corpus: str) -> str:
     if not path.is_absolute() and not path.root:
         return source
     try:
-        return path.resolve().relative_to(Path(corpus).expanduser().resolve()).as_posix()
+        # Resolve only to prove containment: a link or ".." that leaves the
+        # corpus gets the basename, never its host directory.
+        root = Path(corpus).expanduser().resolve()
+        contained = path.resolve().relative_to(root)
     except (ValueError, OSError, RuntimeError):
         return path.name
+    # Label by the stored name. load_corpus indexes an in-corpus symlink under
+    # its own name, so labelling it by its target would merge distinct citations.
+    for base in (Path(corpus).expanduser(), root):
+        try:
+            return Path(os.path.normpath(path)).relative_to(os.path.normpath(base)).as_posix()
+        except ValueError:
+            continue
+    return contained.as_posix()
