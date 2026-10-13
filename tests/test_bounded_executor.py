@@ -60,8 +60,8 @@ def test_cancelled_caller_keeps_capacity_until_worker_finishes():
         task = asyncio.create_task(ex.run(blocking))
         await asyncio.to_thread(started.wait)
         task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        (outcome,) = await asyncio.gather(task, return_exceptions=True)
+        assert isinstance(outcome, asyncio.CancelledError)
         with pytest.raises(WorkCapacityExceeded):
             await ex.run(lambda: None)
 

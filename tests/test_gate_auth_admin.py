@@ -216,10 +216,14 @@ class TestAdminLifecycle:
         client = _client(manager, events)
         h = {"x-cyclaw-csrf": _login(client, "root", _GOOD)}
         other = _client(manager)
-        assert client.post("/auth/users/bob/disable", headers=h).status_code == 200
-        assert other.post("/auth/login", json={"username": "bob", "password": _GOOD}).status_code == 401
-        assert client.post("/auth/users/bob/enable", headers=h).status_code == 200
-        assert other.post("/auth/login", json={"username": "bob", "password": _GOOD}).status_code == 200
+        r = client.post("/auth/users/bob/disable", headers=h)
+        assert r.status_code == 200
+        r = other.post("/auth/login", json={"username": "bob", "password": _GOOD})
+        assert r.status_code == 401
+        r = client.post("/auth/users/bob/enable", headers=h)
+        assert r.status_code == 200
+        r = other.post("/auth/login", json={"username": "bob", "password": _GOOD})
+        assert r.status_code == 200
         kinds = [e["event"] for e in events if e.get("target") == "bob"]
         assert kinds == ["auth_user_disabled", "auth_user_enabled"]
 
@@ -229,8 +233,10 @@ class TestAdminLifecycle:
         manager.create_user("carol", _GOOD, role="operator")
         client = _client(manager)
         h = {"x-cyclaw-csrf": _login(client, "alice", _GOOD)}
-        assert client.post("/auth/users/carol/disable", headers=h).status_code == 200
-        assert client.post("/auth/users/carol/enable", headers=h).status_code == 200
+        r = client.post("/auth/users/carol/disable", headers=h)
+        assert r.status_code == 200
+        r = client.post("/auth/users/carol/enable", headers=h)
+        assert r.status_code == 200
         r = client.post("/auth/users/root/disable", headers=h)
         assert r.status_code == 403
         assert r.json()["detail"]["code"] == "AUTH_PERMISSION_DENIED"
@@ -242,7 +248,8 @@ class TestAdminLifecycle:
         events: list[dict] = []
         client = _client(manager, events)
         h = {"x-cyclaw-csrf": _login(client, "root", _GOOD)}
-        assert client.delete("/auth/users/carol", headers=h).status_code == 200
+        r = client.delete("/auth/users/carol", headers=h)
+        assert r.status_code == 200
         assert manager.get_user("carol") is None
         assert {"event": "auth_user_deleted", "username": "root", "target": "carol"} in events
         for r in (
