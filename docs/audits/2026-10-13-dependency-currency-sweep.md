@@ -127,26 +127,33 @@ Grouped by blast radius. A bump touches only the manifests and lock group that
 (`.claude/skills/verify-deps/SKILL.md`):
 
 - Base runtime packages (`fastapi`, `starlette`, `uvicorn`, `langchain*`,
-  `langgraph`, `pydantic` pair, `onnxruntime`, `nemoguardrails`, `tzdata`, …):
+  `langgraph`, `pydantic` pair, `onnxruntime`, `nemoguardrails`, …):
   `pyproject.toml` + `constraints.txt` + `requirements.txt` +
-  `environment.yml` in lock-step (`dep-guard` D6/D9), then
-  `scripts/refresh-runtime-lock.sh` for the three platform runtime locks.
+  `environment.yml` in lock-step (`dep-guard` D6/D9).
 - Extras-only packages (`deepagents`, `pgvector`, `langchain-openai`,
   `langchain-anthropic`, `pyodbc`, `psycopg*`):
   `pyproject.toml` optional-dependencies + `constraints.txt` only — never
   `requirements.txt` or `environment.yml` (`check_env_drift.py` E4 fails on
-  that) — then only the `locks/requirements-extra-lock-*` / `requirements-ci-*`
-  group that carries them (`scripts/refresh-ci-locks.sh`).
+  that).
 - Constraints-only transitives (`langsmith`, `langchain-google-genai`,
   `wcmatch`, `pendulum`, `pydantic-settings`, `lark`): `constraints.txt`
-  alone, then the lock groups that resolve them.
+  alone.
+- Test-only packages (`tzdata`): the `test` extra in `pyproject.toml` +
+  `requirements-test.txt` + `constraints.txt` + the `python-tzdata` conda pin
+  in `environment.yml` — never `requirements.txt` (no production module
+  imports it; the wheel and Docker image stay without it).
 - Dev tools (`ruff`, `mypy`): `pyproject.toml` dev extra + `constraints.txt`
-  + `environment.yml` (they are not in `requirements-test.txt`), then the
-  dev-extra and ruff CI lock groups; `ruff` is also pinned inline in
-  `lint.yml` (E1 flags a split).
+  + `environment.yml` (they are not in `requirements-test.txt`); `ruff` is
+  also pinned inline in `lint.yml` (E1 flags a split).
 
-Lock regeneration runs on the arm64 macOS host (`check_lock_contract.py`
-fails on hand-edited or stale locks), then CI's four test legs.
+Whichever group owns the package, **both** refresh scripts run afterwards on
+the arm64 macOS host: `scripts/check_lock_contract.py::contract` hashes
+`constraints.txt` and `pyproject.toml`'s dependency tables into the runtime
+*and* the CI lock inputs, so a change to either shared manifest invalidates
+every group's recorded inputs even when only one group's resolved pins move,
+and `check()` refuses with "regenerate the entire <group> set" until
+`refresh-runtime-lock.sh` and `refresh-ci-locks.sh` have both been rerun.
+Then CI's four test legs.
 
 1. **LangChain stack (patch/minor, same majors):** `langchain` 1.4.2→1.4.5,
    `langchain-core` 1.6.3→1.6.10, `langgraph` 1.2.11→1.2.15,
@@ -171,9 +178,9 @@ fails on hand-edited or stale locks), then CI's four test legs.
 5. **Small runtime:** `onnxruntime` 1.30.0→1.31.0 (telemetry suppression in
    `utils/onnx_telemetry.py` must be re-verified — `otel-hardening`),
    `nemoguardrails` 0.24.0→0.24.1 (re-run `guardrails.verify_install`),
-   `pendulum` 3.2.0→3.3.0, `pgvector` 0.5.0→0.5.1, `tzdata` 2026.2→2026.5,
-   `wcmatch` 11.0→11.1.
-6. **Dev tools (low blast radius, but re-run lint before merging):** `ruff`
+   `pendulum` 3.2.0→3.3.0, `pgvector` 0.5.0→0.5.1, `wcmatch` 11.0→11.1.
+6. **Test and dev tools (low blast radius, but re-run lint before merging):**
+   `tzdata` 2026.2→2026.5 (test-only surface, see above), `ruff`
    0.16.8→0.17.0 (`lint.yml` also pins it inline — E1 will flag a split),
    `mypy` 2.3.0→2.4.0.
 
