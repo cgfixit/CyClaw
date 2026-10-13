@@ -1,4 +1,57 @@
 vulnerabilities:
+  # Debian 12 image exceptions: exact package versions, reviewed in #1629.
+  # Do not renew without checking Debian fixes and the image dependency chain.
+  - id: CVE-2026-88647
+    purls:
+      - pkg:deb/debian/libgnutls30@3.7.9-2%2Bdeb12u7
+    expired_at: 2026-11-01
+    statement: >-
+      libgnutls30 is retained by APT in the pinned Python base. Debian has no
+      fixed bookworm or trixie version as of 2026-10-13; upstream disputes
+      the security classification. Temporary acceptance, not a patch:
+      https://github.com/cgfixit/CyClaw/issues/1629 (see SECURITY.md).
+  - id: CVE-2026-88648
+    purls:
+      - pkg:deb/debian/libgnutls30@3.7.9-2%2Bdeb12u7
+    expired_at: 2026-11-01
+    statement: >-
+      libgnutls30 is retained by APT in the pinned Python base. Debian has no
+      fixed bookworm or trixie version as of 2026-10-13; upstream disputes
+      the security classification. Temporary acceptance, not a patch:
+      https://github.com/cgfixit/CyClaw/issues/1629 (see SECURITY.md).
+  - id: CVE-2026-67693
+    purls:
+      - pkg:deb/debian/libgnutls30@3.7.9-2%2Bdeb12u7
+    expired_at: 2026-11-01
+    statement: >-
+      libgnutls30 is retained by APT in the pinned Python base. Debian has no
+      fixed bookworm or trixie version as of 2026-10-13; upstream disputes
+      the security classification. Temporary acceptance, not a patch:
+      https://github.com/cgfixit/CyClaw/issues/1629 (see SECURITY.md).
+  - id: CVE-2026-107708
+    purls:
+      - pkg:deb/debian/libgssapi-krb5-2@1.20.1-2%2Bdeb12u5
+      - pkg:deb/debian/libk5crypto3@1.20.1-2%2Bdeb12u5
+      - pkg:deb/debian/libkrb5-3@1.20.1-2%2Bdeb12u5
+      - pkg:deb/debian/libkrb5support0@1.20.1-2%2Bdeb12u5
+    expired_at: 2026-11-01
+    statement: >-
+      krb5 libraries are retained through libnsl2/libtirpc3 in the Python base;
+      CyClaw does not run a Kerberos KDC. Debian bookworm has deferred the fix
+      as of 2026-10-13. Temporary acceptance, not a patch:
+      https://github.com/cgfixit/CyClaw/issues/1629 (see SECURITY.md).
+  - id: CVE-2026-107778
+    purls:
+      - pkg:deb/debian/libgssapi-krb5-2@1.20.1-2%2Bdeb12u5
+      - pkg:deb/debian/libk5crypto3@1.20.1-2%2Bdeb12u5
+      - pkg:deb/debian/libkrb5-3@1.20.1-2%2Bdeb12u5
+      - pkg:deb/debian/libkrb5support0@1.20.1-2%2Bdeb12u5
+    expired_at: 2026-11-01
+    statement: >-
+      krb5 libraries are retained through libnsl2/libtirpc3 in the Python base;
+      CyClaw does not accept Kerberos/GSS-API credentials. Debian has deferred the fix
+      as of 2026-10-13. Temporary acceptance, not a patch:
+      https://github.com/cgfixit/CyClaw/issues/1629 (see SECURITY.md).
   - id: CVE-2026-45829
     expired_at: 2026-11-01
     statement: >-
