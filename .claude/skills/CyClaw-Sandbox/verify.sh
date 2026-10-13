@@ -107,9 +107,6 @@ else
   pass "3.12 dependency install" "reused existing venv (SKIP_INSTALL set)"
 fi
 
-# NLTK punkt is needed by the stemmer/indexer; fetch quietly if missing.
-"$VPY" -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)" 2>/dev/null || true
-
 mkdir -p data/personality index logs
 
 # ── stage 2: unit + integration tests ─────────────────────────────────────────
