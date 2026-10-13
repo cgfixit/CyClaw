@@ -801,6 +801,27 @@ def test_decide_reject_never_commits_and_discards_the_clone(cfg_path, checks_fil
     assert not Path(dest).exists()
 
 
+def test_decide_reject_reclaims_a_run_without_an_origin_pin(cfg_path, checks_file, monkeypatch, capsys):
+    # A run created before the origin pin existed cannot attach for Git, but
+    # rejecting it runs no Git, so it must not be stranded at pending_decision.
+    from agentic.deepagent_github import repo_workspace
+
+    monkeypatch.setattr(LocalProposerClient, "invoke", _fake_model(_RIGHT_BLOCK))
+    _run_start(cfg_path, checks_file)
+    record = json.loads(capsys.readouterr().out)
+    run_id, dest = record["run_id"], record["dest"]
+    repo_workspace._origin_pin_path(Path(dest)).unlink()
+
+    code = main(["--config", cfg_path, "real-repo-run-decide", "--run-id", run_id, "--decision", "approve"])
+    assert code == EXIT_FAIL
+    assert "origin pin" in capsys.readouterr().err
+
+    code = main(["--config", cfg_path, "real-repo-run-decide", "--run-id", run_id, "--decision", "reject"])
+    assert code == EXIT_OK
+    assert json.loads(capsys.readouterr().out)["status"] == "rejected"
+    assert not Path(dest).exists()
+
+
 def test_decide_refuses_a_second_decision_on_the_same_run(cfg_path, checks_file, monkeypatch, capsys):
     monkeypatch.setattr(LocalProposerClient, "invoke", _fake_model(_RIGHT_BLOCK))
     _run_start(cfg_path, checks_file)
@@ -1449,7 +1470,7 @@ def test_discard_reclaims_an_orphaned_running_record(cfg_path, checks_file, monk
     from agentic.real_repo_run_store import RealRepoRunRecord, save_run
 
     real_cfg = agentic_config_module.load_agentic_config(cfg_path)
-    dest = Path(real_cfg.deepagent_github.workspace_root) / "orphan-clone" / "repo"
+    dest = Path(real_cfg.deepagent_github.workspace_root) / "cyclaw-repo-clone-orphan" / "repo"
     dest.mkdir(parents=True)
     (dest / ".git").mkdir()  # enough for ScopedRoots to jail; no real git needed for discard
     runs_dir = Path(real_cfg.deepagent_github.workspace_root) / "runs"

@@ -58,12 +58,16 @@ the same way ``harness_optimizer/mcp/tools.py``'s write-target check does.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import shutil
+import signal
 import stat
 import subprocess  # nosec B404 - argv-list only, no shell, fixed binary + fixed subcommands
+import sys
 import tempfile
 import unicodedata
 from collections.abc import Callable, Sequence
@@ -222,6 +226,118 @@ _LOCAL_CONFIG_FREE_VALUE_RE = re.compile(
 _UPSTREAM_KEY_RE = re.compile(r"branch\.(?P<name>[^\x00\n]+)\.(?P<field>remote|merge)")
 # Beside the clone (dest.parent is the per-clone temp dir), never inside it.
 _CONFIG_BASELINE_NAME = "git-config-baseline.json"
+_ORIGIN_PINS_DIR = "origin-pins"
+_ORIGIN_PIN_KEY = "key"
+
+
+def _origin_pin_path(dest: Path) -> Path:
+    """Keep the authenticated record outside the disposable clone directory."""
+    return dest.parent.parent / _ORIGIN_PINS_DIR / f"{dest.parent.name}.json"
+
+
+def _read_private_file(path: Path, *, max_bytes: int) -> bytes:
+    """Read a bounded regular file, refusing symlinks and special files."""
+    flags = (
+        os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    )
+    if not stat.S_ISREG(path.lstat().st_mode):
+        raise ValueError("origin pin is not a regular file")
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("origin pin is not a regular file")
+        raw = os.read(fd, max_bytes + 1)
+    finally:
+        os.close(fd)
+    if len(raw) > max_bytes:
+        raise ValueError("origin pin is too large")
+    return raw
+
+
+def _origin_pin_directory(dest: Path, *, create: bool) -> Path:
+    directory = _origin_pin_path(dest).parent
+    if create:
+        directory.mkdir(mode=0o700, exist_ok=True)
+    if not stat.S_ISDIR(directory.lstat().st_mode):
+        raise ValueError("origin pin directory is not a directory")
+    if os.name != "nt":
+        os.chmod(directory, 0o700)
+    return directory
+
+
+def _origin_pin_key(directory: Path, *, create: bool) -> bytes:
+    path = directory / _ORIGIN_PIN_KEY
+    try:
+        key = _read_private_file(path, max_bytes=32)
+    except FileNotFoundError:
+        if not create:
+            raise
+        candidate = secrets.token_bytes(32)
+        fd, temporary = tempfile.mkstemp(prefix=".origin-key-", dir=directory)
+        try:
+            try:
+                offset = 0
+                while offset < len(candidate):
+                    offset += os.write(fd, candidate[offset:])
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                key = _read_private_file(path, max_bytes=32)
+            else:
+                key = candidate
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    if len(key) != 32:
+        raise ValueError("origin pin key has an invalid length")
+    return key
+
+
+def _origin_pin_payload(dest: Path, origin: str | None) -> bytes:
+    return json.dumps({"dest": str(dest.resolve()), "origin": origin}, sort_keys=True).encode("utf-8")
+
+
+def _write_origin_pin(dest: Path, origin: str | None) -> None:
+    directory = _origin_pin_directory(dest, create=True)
+    key = _origin_pin_key(directory, create=True)
+    payload = _origin_pin_payload(dest, origin)
+    record = {"origin": origin, "mac": hmac.new(key, payload, hashlib.sha256).hexdigest()}
+    path = _origin_pin_path(dest)
+    fd, temporary = tempfile.mkstemp(prefix=".origin-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            os.chmod(temporary, 0o600)
+            json.dump(record, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _load_origin_pin(dest: Path) -> str | None:
+    directory = _origin_pin_directory(dest, create=False)
+    key = _origin_pin_key(directory, create=False)
+    record = json.loads(_read_private_file(_origin_pin_path(dest), max_bytes=8192))
+    if not isinstance(record, dict) or set(record) != {"origin", "mac"}:
+        raise ValueError("origin pin is malformed")
+    origin, mac = record["origin"], record["mac"]
+    if (origin is not None and not isinstance(origin, str)) or not isinstance(mac, str):
+        raise ValueError("origin pin is malformed")
+    expected = hmac.new(key, _origin_pin_payload(dest, origin), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, expected):
+        raise ValueError("origin pin authentication failed")
+    return origin
+
+
+def _origin_from_config(pairs: list[tuple[str, str]]) -> str | None:
+    urls = [value for name, value in pairs if name == "remote.origin.url"]
+    if len(urls) > 1 or (urls and not urls[0]):
+        raise ValueError("clone has an ambiguous origin URL")
+    return urls[0] if urls else None
 
 
 def _parse_config_list(raw: str) -> list[tuple[str, str]]:
@@ -235,6 +351,119 @@ def _parse_config_list(raw: str) -> list[tuple[str, str]]:
     return pairs
 
 
+class _WindowsGitJob:
+    """Own a Windows process tree until the Git call has fully completed."""
+
+    def __init__(self) -> None:
+        import ctypes
+
+        class BasicLimit(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_longlong), ("PerJobUserTimeLimit", ctypes.c_longlong),
+                ("LimitFlags", ctypes.c_uint32), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", ctypes.c_uint32),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", ctypes.c_uint32),
+                ("SchedulingClass", ctypes.c_uint32),
+            ]
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_ulonglong) for name in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+            )]
+
+        class ExtendedLimit(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", BasicLimit), ("IoInfo", IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateJobObjectW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p)
+        kernel.CreateJobObjectW.restype = ctypes.c_void_p
+        kernel.SetInformationJobObject.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32)
+        kernel.SetInformationJobObject.restype = ctypes.c_int
+        kernel.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+        kernel.AssignProcessToJobObject.restype = ctypes.c_int
+        kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
+        kernel.CloseHandle.restype = ctypes.c_int
+        self._kernel = kernel
+        self._handle = kernel.CreateJobObjectW(None, None)
+        if not self._handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        limits = ExtendedLimit()
+        limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel.SetInformationJobObject(self._handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+            error = ctypes.WinError(ctypes.get_last_error())
+            self.close()
+            raise error
+
+    def assign(self, proc: subprocess.Popen[str]) -> None:
+        import ctypes
+
+        if not self._kernel.AssignProcessToJobObject(self._handle, int(proc._handle)):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def close(self) -> None:
+        if self._handle:
+            handle, self._handle = self._handle, None
+            if not self._kernel.CloseHandle(handle):
+                import ctypes
+
+                raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _run_git_command(
+    argv: list[str], dest: Path, env: dict[str, str], timeout: int, encoding: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run Git with a bounded lifetime for the direct child and its helpers."""
+    job = _WindowsGitJob() if sys.platform == "win32" else None
+    proc: subprocess.Popen[str] | None = None
+    succeeded = False
+    command = argv
+    if job is not None:
+        # Git starts only after this fixed isolated waiter belongs to the Job.
+        # subprocess preserves Windows argv quoting and the Git exit status.
+        wrapper = "import subprocess,sys; line=sys.stdin.readline(); " \
+                  "sys.exit(125 if line != 'go\\n' else subprocess.call(sys.argv[1:],stdin=subprocess.DEVNULL))"
+        command = [sys.executable, "-I", "-c", wrapper, *argv]
+    try:
+        proc = subprocess.Popen(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
+            command, cwd=str(dest), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE if job is not None else subprocess.DEVNULL,
+            text=True, encoding=encoding, start_new_session=sys.platform != "win32",
+        )
+        if job is not None:
+            job.assign(proc)
+        stdout, stderr = proc.communicate(input="go\n" if job is not None else None, timeout=timeout)
+        succeeded = proc.returncode == 0
+        return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
+    finally:
+        # Closing a Job Object kills every assigned descendant, including one
+        # that outlived Git. POSIX children start in a new session; a helper
+        # that deliberately calls setsid() can escape this group.
+        try:
+            if job is not None:
+                job.close()
+        finally:
+            if proc is not None:
+                # Only a timed-out or failed call is reaped. After a normal exit
+                # the leader is gone (its pgid could be reused), and a helper it
+                # left on purpose, such as git credential-cache--daemon, stays.
+                if sys.platform != "win32" and not succeeded:
+                    with suppress(OSError):
+                        os.killpg(proc.pid, signal.SIGKILL)
+                if proc.poll() is None:
+                    with suppress(OSError):
+                        proc.kill()
+                for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                    if pipe is not None:
+                        pipe.close()
+                with suppress(subprocess.TimeoutExpired):
+                    proc.wait(timeout=5)
+
+
 def _read_local_config(binary: str, dest: Path, env: dict[str, str]) -> list[tuple[str, str]] | None:
     """Every (name, value) in ``dest/.git/config``, parsed by git; None if unreadable.
 
@@ -244,15 +473,9 @@ def _read_local_config(binary: str, dest: Path, env: dict[str, str]) -> list[tup
     config_path = dest / ".git" / "config"
     if config_path.is_symlink() or not config_path.is_file():
         return None
-    completed = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
+    completed = _run_git_command(
         [binary, "config", "--file", str(config_path), "--no-includes", "--null", "--list"],
-        cwd=str(dest),
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=DEFAULT_GIT_WRITE_TIMEOUT_SEC,
-        check=False,
+        dest, env, DEFAULT_GIT_WRITE_TIMEOUT_SEC, "utf-8",
     )
     if completed.returncode != 0:
         return None
@@ -277,7 +500,7 @@ def _unexpected_config_entries(
     return sorted(unexpected)
 
 
-def _write_config_baseline(dest: Path) -> None:
+def _write_config_baseline(dest: Path) -> list[tuple[str, str]] | None:
     """Snapshot ``dest/.git/config`` right after the clone, before any check runs.
 
     Nothing is written when the clone has no readable git config or no git
@@ -286,14 +509,15 @@ def _write_config_baseline(dest: Path) -> None:
     """
     binary = shutil.which("git")
     if not binary:
-        return
+        return None
     pairs = _read_local_config(binary, dest, _git_env())
     if pairs is None:
-        return
+        return None
     target = dest.parent / _CONFIG_BASELINE_NAME
     tmp = target.with_suffix(".tmp")
     tmp.write_text(json.dumps([list(pair) for pair in pairs]), encoding="utf-8")
     os.replace(tmp, target)
+    return pairs
 
 
 def _hardened_git_env(hooks_dir: str) -> dict[str, str]:
@@ -386,6 +610,27 @@ def _clone(cfg: AgenticConfig, deep_cfg: DeepAgentGitHubConfig, *, config_path: 
     return dest
 
 
+def _existing_clone_dest(agentic_cfg: AgenticConfig, dest: Path) -> Path:
+    """Validate a saved clone location before reopening or deleting it."""
+    workspace_root = Path(agentic_cfg.deepagent_github.workspace_root).resolve()
+    if dest.is_symlink() or dest.parent.is_symlink():
+        raise AgenticError("clone path may not be a symlink", details={"dest": str(dest)})
+    dest_resolved = dest.resolve()
+    if dest_resolved != workspace_root and workspace_root not in dest_resolved.parents:
+        raise AgenticError(
+            "attach target is outside the configured workspace root",
+            details={"dest": str(dest), "workspace_root": str(workspace_root)},
+        )
+    if dest_resolved.parent.parent != workspace_root:
+        raise AgenticError(
+            "attach target is not a clone() output (must be workspace_root/<tempdir>/repo)",
+            details={"dest": str(dest), "workspace_root": str(workspace_root)},
+        )
+    if not dest_resolved.is_dir():
+        raise AgenticError("cannot attach: clone directory does not exist", details={"dest": str(dest)})
+    return dest_resolved
+
+
 @dataclass
 class RepoWorkspaceTools:
     """A read-only, jailed view over one freshly-cloned repository.
@@ -403,6 +648,7 @@ class RepoWorkspaceTools:
     max_read_bytes: int = DEFAULT_MAX_READ_BYTES
     max_write_bytes: int = DEFAULT_MAX_WRITE_BYTES
     allow_git_write_tools: bool = False
+    _expected_origin: str | None = None
 
     @classmethod
     def clone(
@@ -444,13 +690,27 @@ class RepoWorkspaceTools:
                 "failed to jail the cloned repository",
                 details={"repo": agentic_cfg.repo, "error": str(exc)},
             ) from exc
-        _write_config_baseline(dest)
+        try:
+            pairs = _write_config_baseline(dest)
+            expected_origin = _origin_from_config(pairs or [])
+            _write_origin_pin(dest, expected_origin)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            scoped.close()
+            _rmtree_best_effort(dest.parent)
+            with suppress(OSError):
+                _origin_pin_path(dest).unlink(missing_ok=True)
+            audit_log(
+                {"event": "agentic_repo_workspace_clone_failed", "repo": agentic_cfg.repo,
+                 "reason": "origin_pin_failed"}, config_path=config_path, cfg=cfg,
+            )
+            raise AgenticError("failed to pin the clone's origin", details={"error": str(exc)}) from exc
         return cls(
             _scoped=scoped,
             _dest=dest,
             config_path=config_path,
             cfg=cfg,
             allow_git_write_tools=deep_cfg.allow_git_write_tools,
+            _expected_origin=expected_origin,
         )
 
     @classmethod
@@ -484,21 +744,7 @@ class RepoWorkspaceTools:
         every other run's clone and the ``runs/`` directory tracking them --
         instead of just this one clone.
         """
-        deep_cfg = agentic_cfg.deepagent_github
-        workspace_root = Path(deep_cfg.workspace_root).resolve()
-        dest_resolved = dest.resolve()
-        if dest_resolved != workspace_root and workspace_root not in dest_resolved.parents:
-            raise AgenticError(
-                "attach target is outside the configured workspace root",
-                details={"dest": str(dest), "workspace_root": str(workspace_root)},
-            )
-        if dest_resolved.parent.parent != workspace_root:
-            raise AgenticError(
-                "attach target is not a clone() output (must be workspace_root/<tempdir>/repo)",
-                details={"dest": str(dest), "workspace_root": str(workspace_root)},
-            )
-        if not dest_resolved.is_dir():
-            raise AgenticError("cannot attach: clone directory does not exist", details={"dest": str(dest)})
+        dest_resolved = _existing_clone_dest(agentic_cfg, dest)
         try:
             # allow_macos_volume_roots=True: see clone()'s identical opt-in --
             # dest_resolved was already verified above to be a real clone()
@@ -511,13 +757,46 @@ class RepoWorkspaceTools:
                 "failed to jail the existing cloned repository",
                 details={"dest": str(dest), "error": str(exc)},
             ) from exc
+        try:
+            expected_origin = _load_origin_pin(dest_resolved)
+        except (OSError, ValueError, TypeError) as exc:
+            scoped.close()
+            audit_log(
+                {"event": "agentic_repo_workspace_denied", "op": "attach",
+                 "reason": "trusted origin pin is missing or invalid"}, config_path=config_path, cfg=cfg,
+            )
+            raise AgenticError("cannot attach: trusted origin pin is missing or invalid") from exc
         return cls(
             _scoped=scoped,
             _dest=dest_resolved,
             config_path=config_path,
             cfg=cfg,
-            allow_git_write_tools=deep_cfg.allow_git_write_tools,
+            allow_git_write_tools=agentic_cfg.deepagent_github.allow_git_write_tools,
+            _expected_origin=expected_origin,
         )
+
+    @classmethod
+    def discard_existing(cls, agentic_cfg: AgenticConfig, dest: Path) -> None:
+        """Reclaim a saved clone without granting an unauthenticated run Git access.
+
+        An interrupted or pre-pin run may have no origin record. It cannot be
+        attached for Git operations, but the operator must still be able to
+        discard its clone after validating the same workspace location.
+        """
+        dest_resolved = _existing_clone_dest(agentic_cfg, dest)
+        if dest_resolved.name != "repo" or not dest_resolved.parent.name.startswith("cyclaw-repo-clone-"):
+            raise AgenticError("discard target is not a generated clone directory")
+        try:
+            scoped = ScopedRoots([str(dest_resolved)], allow_macos_volume_roots=True)
+        except Exception as exc:
+            raise AgenticError(
+                "failed to jail the existing cloned repository",
+                details={"dest": str(dest), "error": str(exc)},
+            ) from exc
+        scoped.close()
+        _rmtree_best_effort(dest_resolved.parent)
+        with suppress(OSError):
+            _origin_pin_path(dest_resolved).unlink(missing_ok=True)
 
     def _audit(self, event: str, **fields: object) -> None:
         audit_log({"event": event, **fields}, config_path=self.config_path, cfg=self.cfg)
@@ -675,17 +954,12 @@ class RepoWorkspaceTools:
             # can be sitting in it.
             with tempfile.TemporaryDirectory(prefix="cyclaw-git-nohooks-") as hooks_dir:
                 env.update(_hardened_git_env(hooks_dir))
+                # Pin the repository Git uses to the checked one: a .git file or
+                # a commondir planted after the check cannot redirect this call.
+                git_dir = str(self._dest / ".git")
+                env.update(GIT_DIR=git_dir, GIT_COMMON_DIR=git_dir, GIT_WORK_TREE=str(self._dest))
                 self._check_local_git_config(tool, binary, env)
-                completed = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, fixed binary
-                    [binary, *argv],
-                    cwd=str(self._dest),
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    encoding=output_encoding,
-                    timeout=timeout_sec,
-                    check=False,
-                )
+                completed = _run_git_command([binary, *argv], self._dest, env, timeout_sec, output_encoding)
         except subprocess.TimeoutExpired as exc:
             self._audit("agentic_repo_workspace_git_failed", op=tool, reason="timeout")
             raise AgenticError(f"git {tool} timed out after {timeout_sec}s", details={"tool": tool}) from exc
@@ -695,6 +969,9 @@ class RepoWorkspaceTools:
                 f"git {tool} output was not valid {output_encoding or 'text'}",
                 details={"tool": tool},
             ) from exc
+        except OSError as exc:
+            self._audit("agentic_repo_workspace_git_failed", op=tool, reason="spawn_or_job_error")
+            raise AgenticError(f"git {tool} could not start safely", details={"tool": tool}) from exc
         if completed.returncode != 0:
             self._audit("agentic_repo_workspace_git_failed", op=tool, exit_code=completed.returncode)
             raise AgenticError(
@@ -710,12 +987,27 @@ class RepoWorkspaceTools:
         See the comment above _LOCAL_CONFIG_ALLOWED_RE for what is compared and
         which post-clone additions are accepted.
         """
-        config_path = self._dest / ".git" / "config"
+        git_dir = self._dest / ".git"
+        if git_dir.is_symlink() or not git_dir.is_dir():
+            self._deny_git(tool, "the clone's .git is not a real directory")
+        # Git reads config and remotes from $(cat .git/commondir) when that file
+        # exists, and falls back to legacy .git/remotes|branches definitions
+        # when origin has no URL; either would bypass the pinned config below.
+        for name in ("commondir", "remotes/origin", "branches/origin"):
+            if os.path.lexists(git_dir / name):
+                self._deny_git(tool, f"the clone's .git/{name} could redirect Git; refusing to run git")
+        config_path = git_dir / "config"
         if config_path.is_symlink() or not config_path.is_file():
             self._deny_git(tool, "the clone's .git/config is missing or not a regular file")
         current = _read_local_config(binary, self._dest, env)
         if current is None:
             self._deny_git(tool, "the clone's .git/config could not be parsed")
+        try:
+            origin = _origin_from_config(current)
+        except ValueError:
+            self._deny_git(tool, "the clone's origin URL is ambiguous")
+        if origin != self._expected_origin:
+            self._deny_git(tool, "the clone's origin URL differs from its trusted pin")
         baseline = self._load_config_baseline()
         if baseline is None:
             self._deny_git(tool, "the clone's post-clone git config snapshot is missing or unreadable")
@@ -789,7 +1081,8 @@ class RepoWorkspaceTools:
         The read/write tool methods above are the intended boundary for
         reading or mutating individual files; this exists only for a caller
         that needs an actual ``cwd`` to hand a subprocess it runs itself --
-        namely ``agentic.executor.run_verification``, which copies this source into a gitless disposable mirror. Verification
+        namely ``agentic.executor.run_verification``, which copies this source
+        into a gitless disposable mirror. Verification
         never writes this authoritative checkout or copies artifacts back.
         """
         return self._dest
@@ -942,6 +1235,8 @@ class RepoWorkspaceTools:
                 "and use only [A-Za-z0-9._/-] after the slash",
                 target=name,
             )
+        if self._expected_origin is None:
+            self._deny_git(tool, "the clone has no pinned origin to push to", target=name)
         self._run_git(
             tool,
             ["push", "--set-upstream", "origin", "--", name],
@@ -1024,6 +1319,8 @@ class RepoWorkspaceTools:
         # step itself failed partway and left nothing (or a caller already
         # cleaned up) and the case where git left read-only objects behind.
         _rmtree_best_effort(self._dest.parent)
+        with suppress(OSError):
+            _origin_pin_path(self._dest).unlink(missing_ok=True)
 
     def __enter__(self) -> RepoWorkspaceTools:
         return self

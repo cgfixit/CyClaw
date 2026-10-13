@@ -494,14 +494,33 @@ Jailed clone under `deepagent_github.workspace_root`. Containment uses
 `fsconnect.pathsafe.ScopedRoots` for reads; git writes use argv-list `git` with
 scrubbed env and `cwd` pinned to the clone. Every workspace Git call disables
 hooks and fsmonitor and checks local config names and values against the
-post-clone snapshot. Unexpected entries or changed remote URLs refuse the
-operation. Narrow display settings and branch-tracking additions are allowed.
+post-clone snapshot. The origin URL is also authenticated by a per-workspace
+key and record in `workspace_root/origin-pins/`, outside each disposable clone.
+`attach()` verifies that record before reopening a run; Git calls compare the
+current origin with the pinned value held in process memory. A missing or
+altered record refuses attach, and a changed origin refuses Git operations even
+if the clone config and its sibling snapshot were changed together. The key
+sits beside the record under `workspace_root`, so a same-user process that can
+write there can re-sign it; the record guards clone-local and accidental edits.
+A `.git` file, `.git/commondir` or a legacy `.git/remotes/origin` or `.git/branches/origin`
+refuses Git, and every call pins `GIT_DIR`/`GIT_COMMON_DIR` to the clone. The record
+is removed when the clone is discarded. Narrow display settings and
+branch-tracking additions are allowed.
+Runs created before this pin existed cannot be reopened for Git operations;
+`real-repo-run-decide --decision reject` or, once decided,
+`real-repo-run-discard` reclaims them without loading the pin, then the
+operator can start a new run.
+Git commands and config reads reap helper processes on timeout through a POSIX
+process group or a Windows Job Object. A POSIX helper that creates a new session
+can escape the process group. Windows releases Git from a fixed isolated waiter
+only after Job assignment; assignment failure never starts Git.
 Operator-owned global/system Git config remains trusted. Verification runs in
 a fresh gitless mirror with no copyback. Linux requires bubblewrap filesystem,
 PID and network isolation; macOS uses Seatbelt to confine writes to the mirror
 and disposable scratch. Both deny writes to the authoritative clone and its
 configuration snapshot. Windows refuses verification until a filesystem and
-network boundary is available; Job Objects alone are insufficient. Linux native
+network boundary is available; the Git Job Object does not make Windows
+verification safe. Linux native
 CI uses Ubuntu 22.04 with stock host policy. On Ubuntu 24.04, AppArmor can deny
 bubblewrap network-namespace setup (`RTM_NEWADDR: Operation not permitted`);
 verification then refuses before launching the check. CyClaw does not disable
@@ -746,3 +765,6 @@ python -m agentic.netconnect.cli test
 | [`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`](../docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md) | Skills registry governance |
 | [`macos/README.md`](../macos/README.md) | launchd glue — the fsconnect trash-empty plist generator's runtime home |
 | [`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md) | Threat-model amendments for this layer |
+
+Orphan cleanup only deletes the generated `cyclaw-repo-clone-*/repo` directory
+shape; workspace metadata such as `origin-pins` cannot be a discard target.
