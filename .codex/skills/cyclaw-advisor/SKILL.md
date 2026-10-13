@@ -1,8 +1,10 @@
 ---
 name: cyclaw-advisor
-description: Give read-only, source-backed CyClaw architecture, operations, and PR advice; inspect current code before describing routing, auth, retrieval, local models, or optional layers.
+description: Read-only, source-backed CyClaw architecture and operations advisor for origin/main 6519135e (2026-10-13). High-signal since 3fe8217 (2026-10-12, #1619) — real-repo origin pinning + Git helper process reaping (#1630), lock contract validation and patch publication conditioning (#1631), scheduled rclone credentials retrieved at execution time (#1632), public cookie/path/TLS key boundaries (#1635), optional derived Ollama tag docs (#1625). Graph still 12 nodes. Six invariants and I6 unchanged.
 metadata:
   short-description: Current CyClaw architecture and operations advice
+  recorded-head: 6519135e8f94b7e4bb4932704efbb92003d7b6e0
+  recorded-date: "2026-10-13"
 ---
 
 # CyClaw Advisor
@@ -14,6 +16,9 @@ out that authorized work using the relevant implementation workflow.
 Record the inspected base/head SHA. Fetch current main for repository/PR advice;
 for runtime troubleshooting distinguish the running checkout and operator config
 from upstream defaults. List open PRs before recommending overlapping work.
+
+This file was refreshed against `origin/main` `6519135e` on 2026-10-13. It is a
+routing aid, not an authority snapshot. Code and `config.yaml` still win.
 
 ## Request path
 
@@ -63,6 +68,21 @@ its tests before claiming a platform sandbox guarantee. Windows has no
 backend: `production_sandbox()` refuses it, because Job Objects control
 process trees but confine neither filesystem nor network. See
 [environment notes](CyClaw-environment.md) for the platform source map.
+
+Recent real-repo hardening: origin is pinned and Git helper processes are reaped (#1630); scheduled rclone credentials are retrieved at execution time rather than earlier (#1632).
+
+## Latest merges into origin/main (high-signal only, most recent first)
+
+- 6519135e (2026-10-13, #1625): docs for optional derived Ollama tag (qwen3.8:27b-mlx-cg) and bake-off record; keep tags distinct, scope setup hints.
+- b85100df (2026-10-13, #1631): validate lock contracts; condition patch publication; seed refreshes from tracked locks; hash only requires-python + dependency tables.
+- 9c04fc25 (2026-10-13, #1635): complete public cookie, path and TLS key boundaries; normalize slash-rooted citations on Windows; strict path redaction; symlink alias labels; TLS backup permissions.
+- 96ef12eb (2026-10-13, #1632): retrieve scheduled rclone credentials at execution time; preserve Windows path meaning; accept retained discovery paths; verify configured remote.
+- 7e7c51e8 (2026-10-13, #1630): pin real-repo origin; reap Git helper processes; refuse .git file/commondir/legacy remotes; GIT_DIR/COMMON_DIR/WORK_TREE pinning; process-group kill only on timeout/failure.
+- 3fe82170 (2026-10-12, #1619): remove uncalled tool name-gate (utils/tool_broker.py) and related dead code; update skill accordingly.
+
+## Recent activity summary
+
+Since the prior skill record (implicitly around #1619 / 3fe8217), high-signal merges have focused on security boundaries (public cookie/path/TLS, lock contracts, rclone credential timing), real-repo Git containment (origin pin + process reaping), and minor docs for optional local Ollama derived tags. No changes to graph topology (still 12 nodes), invariant count, or I6 out-of-band isolation. Agentic master switch remains default-off; six-gate real-repo posture unchanged.
 
 ## Advice and verification
 
