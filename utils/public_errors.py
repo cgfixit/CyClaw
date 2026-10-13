@@ -34,9 +34,17 @@ def source_label(source: str, corpus: str) -> str:
         windows_corpus = PureWindowsPath(corpus)
         if windows_source.is_absolute() and windows_corpus.is_absolute() and ".." not in windows_source.parts:
             try:
-                return windows_source.relative_to(windows_corpus).as_posix()
+                label = windows_source.relative_to(windows_corpus).as_posix()
             except ValueError:
-                pass
+                return windows_source.name
+            if os.name == "nt":
+                # On a real Windows host, a link inside the corpus may point
+                # outside it; such a source gets the basename, as on POSIX.
+                try:
+                    Path(source).resolve().relative_to(Path(corpus).resolve())
+                except (ValueError, OSError, RuntimeError):
+                    return windows_source.name
+            return label
         return windows_source.name
     path = Path(source)
     # Windows slash-rooted paths have a root but no drive; resolve them against
