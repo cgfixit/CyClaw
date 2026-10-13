@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import posixpath
 import re
 import sys
 from datetime import date
@@ -577,11 +578,13 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "local-only subcommands under _GIT_ENV_ALLOWLIST at the runtime sites (repo_workspace, "
                        "the executor manifest, the eval dogfood script, the git-hook installers); reads none of "
                        "the canonical names, so the overlay is deliberately NOT applied there (documented "
-                       "in-module). The installers' `git clone` / `git pull` and the workspace's gated "
-                       "`git push` are network operations and sit on their own category-3 row (git-remote), "
-                       "not here",
-        "scope": "repo workspace ops", "reviewed": "2026-08-27",
-        "evidence": "documented exclusion, not an oversight",
+                       "in-module). The installers' `git clone` / `git pull`, the sandbox audit's clone and "
+                       "the workspace's gated `git push` are network operations and sit on their own "
+                       "category-3 row (git-remote), not here. The cloud venv driver's inventory runs "
+                       "rev-parse / rev-list / status against the local clone only",
+        "scope": "repo workspace ops; the cloud sandbox driver's local inventory", "reviewed": "2026-10-13",
+        "evidence": "documented exclusion, not an oversight; driver.sh cmd_inventory sited 2026-10-13 "
+                    "(Codex P2 on PR #1637, eleventh round)",
     },
     {
         "name": "sentence-transformers/transformers/torch stack", "category": 5, "controls": {},
@@ -617,20 +620,30 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "`command` engine (utils/external_pre_hook.py::_run_command) runs "
                     "policy.fallback.pre_action_hook.command verbatim, JSON on stdin, exit 0 allow / 2 deny; "
                     "(b) agentic/executor/runner.py::run_verification runs each caller-declared Check.argv "
-                    "(the operator's checks manifest; no default check set ships)",
-        "enforcement": "both ship off (hook enabled: false with command: []; agentic.enabled false) and both "
-                       "can only deny or verify, never widen an external call. Both use explicit capability "
-                       "environments through child_environment and build_telemetry_safe_env (T12); (b) also "
-                       "uses production_sandbox(), whose Linux bubblewrap backend confines filesystem, "
-                       "PID and network access. Whatever the operator's command or the "
-                       "caller's check does on the network is that operator's policy, not CyClaw telemetry: "
-                       "the static sweep cannot name the binary, so T13 checks the two spawn sites still "
-                       "exist instead and this row documents the surface. Never a kill-map entry",
-        "scope": "confirmed Grok/Claude calls when the hook is on; agentic verification when enabled",
-        "reviewed": "2026-09-28",
+                    "(the operator's checks manifest; no default check set ships); (c) the secret-injecting "
+                    "exec wrappers macos/cyclaw-keychain-env.sh (`exec \"$@\"`) and "
+                    "powershell/CyClaw-CredMan-Env.ps1 (`& $exe @exeArgs`) run whatever command follows "
+                    "their `--`: one OS-store secret into one env var, then exec",
+        "enforcement": "(a) and (b) ship off (hook enabled: false with command: []; agentic.enabled false) and "
+                       "can only deny or verify, never widen an external call; both use explicit capability "
+                       "environments through child_environment and build_telemetry_safe_env (T12), and (b) "
+                       "also production_sandbox(), whose Linux bubblewrap backend confines filesystem, PID "
+                       "and network access. (c) adds one variable and execs: the wrapped argv is written by "
+                       "CyClaw's own scheduler registrars (utils/launchd_plist.py, utils/win_schtasks.py, the "
+                       "telegram/opentweet/sync job generators put the wrapper in front of the venv python) "
+                       "or typed by the operator, so the wrapped command's egress is that caller's own row "
+                       "(the scheduled jobs carry the canonical overlay, T12). Whatever the operator's "
+                       "command or the caller's check does on the network is that operator's policy, not "
+                       "CyClaw telemetry: the static sweep cannot name the binary, so T13 checks the four "
+                       "spawn sites still exist instead and this row documents the surface. Never a "
+                       "kill-map entry",
+        "scope": "confirmed Grok/Claude calls when the hook is on; agentic verification when enabled; "
+                 "every launchd/Task Scheduler job that needs an OS-store secret",
+        "reviewed": "2026-10-13",
         "evidence": "_run_command reads block['command'] and passes it to subprocess.run; run_verification "
                     "passes check.argv to the sandbox backend (Codex P2 on PR #1502: a dynamic launcher "
-                    "no row could name)",
+                    "no row could name); cyclaw-keychain-env.sh:115 and CyClaw-CredMan-Env.ps1:126 exec "
+                    "the caller's argv after the secret export (Codex P2 on PR #1637, eleventh round)",
     },
     {
         "name": "local OS process tooling", "category": 4, "controls": {},
@@ -704,8 +717,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "git remote operations (installers + gated push)", "category": 3, "controls": {},
         "url": "setup-guide.md",
         "versions": "`git clone` / `git pull` of the CyClaw repository in the operator installers "
-                    "(macos/setup-cyclaw.sh, macos/install-cyclaw.sh, powershell/Install-CyClaw.ps1), and the "
-                    "one runtime network git call: RepoWorkspaceTools.push_branch's `git push --set-upstream "
+                    "(macos/setup-cyclaw.sh, macos/install-cyclaw.sh, powershell/Install-CyClaw.ps1) and in "
+                    "the sandbox audit's checkout (.claude/skills/CyClaw-Sandbox/run_full_verification.py, "
+                    "a fixed URL and branch), and the one runtime network git call: RepoWorkspaceTools.push_branch's `git push --set-upstream "
                     "origin` in agentic/deepagent_github/repo_workspace.py, reachable only with "
                     "deepagent_github.allow_git_write_tools true (ships false) and agentic.enabled true "
                     "(ships false), against the clone's pinned origin",
@@ -715,28 +729,40 @@ INVENTORY: tuple[dict[str, object], ...] = (
                        "carries no telemetry mechanism (the category-5 git row); this row exists because "
                        "clone/pull/push are network operations and the local row's 'local-only subcommands' "
                        "claim must stay true",
-        "scope": "operator install scripts; the agentic workspace push when explicitly enabled",
+        "scope": "operator install scripts and the sandbox audit; the agentic workspace push when explicitly "
+                 "enabled",
         "reviewed": "2026-10-13",
         "evidence": "setup-cyclaw.sh:252, install-cyclaw.sh:113 and the pull beside it, Install-CyClaw.ps1:134/139 "
-                    "(Codex P2 on PR #1637, ninth round); repo_workspace.py push_branch argv (tenth round); split "
-                    "from the local git row by call kind, the ollama-pull precedent",
+                    "(Codex P2 on PR #1637, ninth round); repo_workspace.py push_branch argv (tenth round); "
+                    "run_full_verification.py clone argv (eleventh round); split from the local git row by "
+                    "call kind, the ollama-pull precedent",
     },
     {
         "name": "pip index access (installers)", "category": 3, "controls": {},
         "url": "setup-guide.md",
         "versions": "`pip install` of the hashed locks (and the pinned pip itself) in macos/install-cyclaw.sh, "
-                    "powershell/Install-CyClaw.ps1 and the Dockerfile, plus the venv driver's pip fallback when "
-                    "uv is absent. No runtime path runs pip; the agentic verifier's children run with "
-                    "PIP_NO_INDEX set",
+                    "powershell/Install-CyClaw.ps1, the Dockerfile and the sandbox audit's "
+                    ".claude/skills/CyClaw-Sandbox/verify.sh, plus the venv driver's pip fallback when uv is "
+                    "absent and its torch retry. No runtime path runs pip; the agentic verifier's children run "
+                    "with PIP_NO_INDEX set",
         "enforcement": "package-index downloads (PyPI and, for torch, the CPU wheel index) at install time, "
                        "hash-pinned by the locks so the content is fixed even though the transfer is network: "
                        "intentional functional egress, the same class as uv's index access. pip itself has only "
                        "the category-2 version check (PIP_DISABLE_PIP_VERSION_CHECK in the canonical map) and no "
-                       "telemetry; the library row stays category 5",
+                       "telemetry; the library row stays category 5. That map reaches pip only where the "
+                       "calling shell exported it first: both operator installers eval the canonical block "
+                       "(`-m utils.telemetry_kill --export shell|powershell`) immediately before their pip "
+                       "calls, which also covers setup-from-clone.sh's step 4, and warn-and-continue when "
+                       "the block cannot be rendered (a category-2 check is not worth aborting an install). "
+                       "The Dockerfile's build-stage pip runs before its runtime ENV block, and the sandbox "
+                       "verify.sh and the venv driver run pip under the agent sandbox's ambient environment: "
+                       "on those three the version check can fire, and this row says so rather than claim "
+                       "the map covers them",
         "scope": "operator installers, the container build and the cloud sandbox venv",
         "reviewed": "2026-10-13",
-        "evidence": "install-cyclaw.sh:171-182, Install-CyClaw.ps1:191-195, Dockerfile:63-65, driver.sh inst() "
-                    "(Codex P2 on PR #1637, tenth round); split from the core-libs row by call kind",
+        "evidence": "install-cyclaw.sh and Install-CyClaw.ps1 export-then-install blocks, Dockerfile:63-65, "
+                    "CyClaw-Sandbox/verify.sh:92-95, driver.sh inst() and its torch retry (Codex P2 on PR #1637, "
+                    "tenth and eleventh rounds); split from the core-libs row by call kind",
     },
     {
         "name": "homebrew package install (setup)", "category": 3, "controls": {},
@@ -918,6 +944,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
     "executor-check": "operator/caller-configured launchers",
+    "secret-env-wrapper": "operator/caller-configured launchers",
     "sqlite-vec": "sqlite-vec",
     # bulk category-5 members
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
@@ -966,7 +993,7 @@ KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollam
                              "xdg-open", "open", "explorer", "ip", "arp",
                              "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http", "git-remote",
                              "pip-install", "brew-install",
-                             "pre-action-hook-command", "executor-check")
+                             "pre-action-hook-command", "executor-check", "secret-env-wrapper")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
 # configured hook command, the caller's verification checks. No static sweep
@@ -978,6 +1005,12 @@ KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollam
 DYNAMIC_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pre-action-hook-command", "utils/external_pre_hook.py", ("def _run_command", "subprocess.run(")),
     ("executor-check", "agentic/executor/runner.py", ("def run_verification", "check.argv")),
+    # the OS-secret-store exec wrappers: the command after `--` is the
+    # caller's (a generated launchd/Task Scheduler job or the operator), so
+    # the wrapper is the surface (Codex P2 on PR #1637, eleventh round)
+    ("secret-env-wrapper", "macos/cyclaw-keychain-env.sh", ('export "$VAR_NAME=$SECRET"', 'exec "$@"')),
+    ("secret-env-wrapper", "powershell/CyClaw-CredMan-Env.ps1", ('Set-Item -Path "Env:$EnvVar" -Value $secret',
+                                                                  "& $exe @exeArgs")),
 )
 
 # Components CyClaw fronts over the network but never spawns: there is no
@@ -1024,14 +1057,25 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("git", "scripts/install-githooks.sh", ("git config core.hooksPath .githooks",)),
     # the gated runtime push (allow_git_write_tools, ships false): network git
     ("git-remote", "agentic/deepagent_github/repo_workspace.py", ('["push", "--set-upstream", "origin", "--", name]',)),
+    ("git-remote", ".claude/skills/CyClaw-Sandbox/run_full_verification.py",
+     ('[git, "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, "."]',)),
+    ("git", ".claude/skills/cyclaw-gotchas/driver.sh", ("git rev-parse --verify -q origin/main",
+                                                       "git rev-list --left-right --count origin/main...HEAD")),
     # package-index downloads at install time
-    ("pip-install", "macos/install-cyclaw.sh", ('"$VENV_PY" -m pip install --upgrade "pip==26.2.1"',
+    # the installers' export-then-install markers pin the claim that the
+    # canonical block reaches pip there (Codex P2 on PR #1637, eleventh round)
+    ("pip-install", "macos/install-cyclaw.sh", ('"$VENV_PY" -S -E -m utils.telemetry_kill --export shell',
+                                                '"$VENV_PY" -m pip install --upgrade "pip==26.2.1"',
                                                 '"$VENV_PY" -m pip install --require-hashes -r')),
-    ("pip-install", "powershell/Install-CyClaw.ps1", ('& $VenvPy -m pip install --upgrade "pip==26.2.1"',
+    ("pip-install", "powershell/Install-CyClaw.ps1", ('& $VenvPy -S -E -m utils.telemetry_kill --export powershell',
+                                                      '& $VenvPy -m pip install --upgrade "pip==26.2.1"',
                                                       '& $VenvPy -m pip install --require-hashes -r')),
     ("pip-install", "Dockerfile", ('pip install --no-cache-dir --upgrade "pip==26.2.1"',
                                    'pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt')),
-    ("pip-install", ".claude/skills/cyclaw-gotchas/driver.sh", ('"$pip" install -q "$@"',)),
+    ("pip-install", ".claude/skills/cyclaw-gotchas/driver.sh", ('"$pip" install -q "$@"',
+                                                                '"$pip" install -q --retries 1 --timeout 15 "torch==2.13.0+cpu"')),
+    ("pip-install", ".claude/skills/CyClaw-Sandbox/verify.sh", ('"$VPY" -m pip install --quiet --upgrade "pip==26.2.1"',
+                                                                '"$VPY" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt')),
     ("brew-install", "macos/setup-from-clone.sh", ("brew install python@3.12",)),
     # the installers' repository acquisition: network git, its own component
     ("git-remote", "macos/setup-cyclaw.sh", ("git clone --branch main --single-branch https://github.com/CGFixIT/CyClaw.git",)),
@@ -1135,6 +1179,27 @@ def _inside_agent_boundary(rel: str) -> bool:
         elif rel == allowed:
             return True
     return False
+
+
+def _repo_relative_problem(root: Path, rel: str) -> str | None:
+    """Why *rel* is not a clean repository-relative path, or None when it is.
+
+    Shared by the evidence-url schema and the site-row check: a path is only
+    trusted after it is known to be relative, free of '.'/'..' components and
+    redundant separators (so prefix matching against SWEPT_AGENT_SURFACES
+    cannot be fooled by `.claude/skills/CyClaw-Sandbox/../../hooks/x`), and
+    resolved (symlinks followed) to somewhere under the repository root
+    (Codex P2 on PR #1637, tenth and eleventh rounds).
+    """
+    if rel.startswith("/") or "\\" in rel or rel != posixpath.normpath(rel) or ".." in rel.split("/"):
+        return "must be a repository-relative path (no absolute path, no '.'/'..' component, no redundant separator)"
+    try:
+        inside = (root / rel).resolve().is_relative_to(root.resolve())
+    except OSError:
+        inside = False
+    if not inside:
+        return "resolves outside the repository"
+    return None
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []
@@ -1622,22 +1687,13 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
         # prevent (Codex P2 on PR #1637, fourth round: docs/setup-guide.md)
         url = str(row.get("url", "")).strip()
         if url and not url.startswith(("http://", "https://")):
-            # repository-relative only: no absolute path, no '..' component, and
-            # the resolved target (symlinks followed) must stay under the root
-            # (Codex P2 on PR #1637, tenth round)
-            if url.startswith("/") or ".." in url.split("/"):
-                schema_problems.append(f"{name}: url {url!r} must be a repository-relative path "
-                                       "(no absolute path, no '..' component)")
-            else:
-                target = root / url
-                try:
-                    inside = target.resolve().is_relative_to(root.resolve())
-                except OSError:
-                    inside = False
-                if not inside:
-                    schema_problems.append(f"{name}: url {url!r} resolves outside the repository")
-                elif not target.exists():
-                    schema_problems.append(f"{name}: url {url!r} is a repo path that does not exist")
+            # repository-relative only (shape + resolved location, see
+            # _repo_relative_problem), then it must exist
+            problem = _repo_relative_problem(root, url)
+            if problem:
+                schema_problems.append(f"{name}: url {url!r} {problem}")
+            elif not (root / url).exists():
+                schema_problems.append(f"{name}: url {url!r} is a repo path that does not exist")
     # category-2 rows with EMPTY controls are the documented shell-only pair;
     # they must say so in their enforcement text.
     for row in INVENTORY:
@@ -1683,6 +1739,8 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
         ok("T13", f"all {len(components)} declared components resolve to a classification row")
     # -- dynamic launchers: the surface must still exist for its row to be true
     for component, rel, markers in DYNAMIC_LAUNCHER_SITES:
+        if _repo_relative_problem(root, rel):
+            continue  # reported as a FAIL below; never read a path that could escape the root
         path = root / rel
         if not path.exists():
             warn("T13", f"dynamic launcher {component!r}: {rel} is missing -- if the launcher was removed, "
@@ -1713,6 +1771,15 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
     if stray:
         fail("T13", f"spawn-site row(s) for a component KNOWN_EXTERNAL_COMPONENTS does not name: {stray} -- "
                     "a site row alone never enters the classification sweep")
+    # -- site paths must be clean repository-relative paths BEFORE the
+    #    boundary prefix test or the marker read trusts them: a '..' hop or an
+    #    absolute path would otherwise pass `startswith` and then read a file
+    #    outside the surface (Codex P2 on PR #1637, eleventh round)
+    bad_sites = sorted({f"{rel} ({problem})" for _c, rel, _m in (*FIXED_LAUNCHER_SITES, *DYNAMIC_LAUNCHER_SITES)
+                        if (problem := _repo_relative_problem(root, rel))})
+    if bad_sites:
+        fail("T13", f"site row path(s) that are not clean repository-relative paths: {bad_sites} -- the "
+                    "boundary and marker checks only run on paths that cannot escape the repository")
     # -- agent-tooling boundary: a .claude/ site must be one of the swept
     #    sandbox surfaces (owner decision, PR #1637); anything else under
     #    .claude/ is out of the inventory and the row itself is the error
@@ -1724,6 +1791,9 @@ def check_classification_inventory(root: Path, strict: bool) -> None:
                     "deliberately or drop the row")
     fixed_missing = 0
     for component, rel, markers in FIXED_LAUNCHER_SITES:
+        if _repo_relative_problem(root, rel):
+            fixed_missing += 1
+            continue  # already a FAIL above; never read a path that could escape the root
         path = root / rel
         if not path.exists():
             fixed_missing += 1

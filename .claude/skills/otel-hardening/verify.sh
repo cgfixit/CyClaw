@@ -82,7 +82,8 @@ _mktree() {
 import ast, sys
 tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
 for node in tree.body:
-    if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "FIXED_LAUNCHER_SITES":
+    if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") in ("FIXED_LAUNCHER_SITES",
+                                                                              "DYNAMIC_LAUNCHER_SITES"):
         for _component, rel, _markers in ast.literal_eval(node.value):
             print(rel)
     # repo-relative evidence sources too: T13 fails a row whose url path is absent
@@ -456,8 +457,8 @@ mkdir -p "$a/.claude/skills/otel-hardening"
 cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
 if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
 text = text.replace(
-    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n)",
-    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n"
+    "\"& $exe @exeArgs\")),\n)",
+    "\"& $exe @exeArgs\")),\n"
     "    (\"zz-new-surface\", \"utils/external_pre_hook.py\", (\"def _run_command\",)),\n)")'; then
   echo "T13 unlisted dynamic surface mutation: FAIL — mutation did not apply; update this scenario" >&2
   fails=$((fails + 1))
@@ -578,8 +579,8 @@ mkdir -p "$a/.claude/skills/otel-hardening"
 cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
 if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
 text = text.replace(
-    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n)",
-    "    (\"executor-check\", \"agentic/executor/runner.py\", (\"def run_verification\", \"check.argv\")),\n"
+    "\"& $exe @exeArgs\")),\n)",
+    "\"& $exe @exeArgs\")),\n"
     "    (\"executor-check\", \".claude/hooks/session-start-sync-check.sh\", (\"git \",)),\n)", 1)
 text = text.replace(
     "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
@@ -658,6 +659,59 @@ else
     fails=$((fails + 1))
   fi
 fi
+rm -rf "$a"
+
+# 44. T13: a secret-injecting exec wrapper stops exec'ing the caller's
+#     command. The wrapper is a DYNAMIC surface (the binary is whatever
+#     follows `--`), so losing its `exec "$@"` must trip the dynamic-site
+#     WARN like any other launcher (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+_mutate "$a/macos/cyclaw-keychain-env.sh" '
+text = text.replace("exec \"$@\"\n", "\"$@\"\n", 1)'
+_expect "T13 secret-env wrapper exec gone mutation" 0 "WARN  \[T13\] dynamic launcher .secret-env-wrapper.: macos/cyclaw-keychain-env.sh no longer carries"
+rm -rf "$a"
+
+# 45. T13: a site row whose path hops out of the swept sandbox surface with
+#     '..' (it starts with the allowed prefix, so a raw startswith test would
+#     pass it) and one with an absolute path. Both must be refused before the
+#     boundary or marker checks read them (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+mkdir -p "$a/.claude/skills/otel-hardening"
+cp "$checker" "$a/.claude/skills/otel-hardening/check_otel.py"
+if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
+text = text.replace(
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
+    "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n"
+    "    (\"git\", \".claude/skills/CyClaw-Sandbox/../../hooks/session-start-sync-check.sh\", (\"git \",)),\n"
+    "    (\"git\", \"/etc/passwd\", (\"root\",)),\n", 1)'; then
+  echo "T13 site path traversal mutation: FAIL — mutation did not apply; update this scenario" >&2
+  fails=$((fails + 1))
+else
+  out="$(python3 "$a/.claude/skills/otel-hardening/check_otel.py" --repo-root "$a" --as-of "$AS_OF" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && echo "$out" | grep "FAIL  \[T13\] site row path.*not clean repository-relative" | grep -q "session-start-sync-check" && echo "$out" | grep "not clean repository-relative" | grep -q "/etc/passwd"; then
+    echo "T13 site path traversal mutation: PASS"
+  else
+    echo "T13 site path traversal mutation: FAIL — expected rc=2 + both paths in the site-path FAIL, got rc=$rc" >&2
+    echo "$out" >&2
+    fails=$((fails + 1))
+  fi
+fi
+rm -rf "$a"
+
+# 46. T13: the sandbox audit's hashed pip install disappears from
+#     CyClaw-Sandbox/verify.sh (a swept surface), and 47 its git clone from
+#     run_full_verification.py. Both were unsited until the eleventh round;
+#     each must now trip the fixed-launcher WARN on its own.
+a="$(_mktree)"
+_mutate "$a/.claude/skills/CyClaw-Sandbox/verify.sh" '
+text = text.replace("\"$VPY\" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt", "true", 1)'
+_expect "T13 sandbox pip install gone mutation" 0 "WARN  \[T13\] fixed launcher .pip-install.: .claude/skills/CyClaw-Sandbox/verify.sh no longer carries"
+rm -rf "$a"
+
+a="$(_mktree)"
+_mutate "$a/.claude/skills/CyClaw-Sandbox/run_full_verification.py" '
+text = text.replace("[git, \"clone\", \"--depth\", \"1\", \"--branch\", BRANCH, REPO_URL, \".\"]", "[git, \"status\"]", 1)'
+_expect "T13 sandbox git clone gone mutation" 0 "WARN  \[T13\] fixed launcher .git-remote.: .claude/skills/CyClaw-Sandbox/run_full_verification.py no longer carries"
 rm -rf "$a"
 
 echo
