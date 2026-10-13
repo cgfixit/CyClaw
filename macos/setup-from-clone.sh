@@ -439,6 +439,22 @@ _remember_secret_preset
 _source_dotenv "$HOME_DIR/.env" || _source_dotenv "$REPO_DIR/.env" || true
 _load_os_secrets "$HOME_DIR/.env" "$REPO_DIR/.env" || die "Keychain secret could not be read."
 
+# Canonical telemetry/update-check block, exported into THIS shell before the
+# gh(1) and ollama calls below (and the servers step 9 starts) so none of them
+# runs with whatever GH_TELEMETRY or OTel value the operator's shell happens
+# to carry. utils/telemetry_kill.py renders the lines; nothing here hand-copies
+# a key. Positioned after the key/.env loading above so the canonical values
+# overwrite any ambient or dotenv value, mirroring apply_telemetry_kill()'s
+# overwrite semantics. -S -E: the helper interpreter runs no site init and
+# ignores ambient PYTHONPATH. Non-fatal: every Python entry point re-applies
+# at import; only the gh/ollama children would run with the ambient env.
+if _kill_env="$(cd "$REPO_DIR" && "$VENV_PY" -S -E -m utils.telemetry_kill --export shell 2>/dev/null)"; then
+  eval "$_kill_env"
+  step "telemetry-kill block exported for gh/ollama and the servers"
+else
+  warn "could not export the telemetry-kill block; gh/ollama below run with the ambient environment"
+fi
+
 # -- 6. gh auth (optional, never prints a token) ------------------------------
 
 if command -v gh >/dev/null 2>&1; then
