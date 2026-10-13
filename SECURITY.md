@@ -128,9 +128,16 @@ or launcher lands unclassified:
    operations remain app-level policy), fastembed (no telemetry of its own;
    its first-use CDN model fetch is functional egress when a NeMo
    feature invokes that loader; active gateway check flows need no
-   embedding fetch), uv, git (documented out of the overlay: it reads none of the
-   canonical names), the vendored Unslop scanners, and the core
-   web/runtime/dev libraries.
+   embedding fetch), git's local subcommands (documented out of the overlay:
+   it reads none of the canonical names), the vendored Unslop scanners, and
+   the core web/runtime/dev libraries. The operator install and setup
+   surface's own fetches are category 3, not here: the installers' `git
+   clone`/`pull` of the repository, `uv` index access in the lock-refresh
+   scripts and the cloud venv driver, the confirmed Ollama model pull and the
+   Ollama installer/download page, and the loopback readiness probes (`curl`,
+   the Windows smoke suite's PowerShell HTTP cmdlets) -- all operator- or
+   sandbox-initiated, never telemetry, pinned to their spawn sites by the
+   `otel-hardening` checker.
 
 `CYCLAW_TELEMETRY_KILL` no longer exists: it was set in the Docker surfaces
 but read by no code — a decorative marker advertising enforcement that

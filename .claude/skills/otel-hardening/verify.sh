@@ -608,6 +608,16 @@ text = text.replace("[binary, \"listremotes\"]", "[binary, \"zz_no_remotes_zz\"]
 assert "shutil.which(\"rclone\")" in text and "[binary, \"listremotes\"]" not in text'
 _expect "T13 scheduled rclone invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .rclone.: sync/scheduled.py no longer carries"
 
+# 41. T13: the Homebrew analytics export is removed while the brew commands
+#     stay. The export is the pre-execution protection the Homebrew row
+#     claims (it covers a later `brew install` even if `brew analytics off`
+#     failed), so it is a marker in its own right.
+a="$(_mktree)"
+_mutate "$a/macos/setup-from-clone.sh" '
+text = text.replace("export HOMEBREW_NO_ANALYTICS=1", "export ZZ_HOMEBREW_UNSET=1")
+assert "brew analytics off >/dev/null" in text and "HOMEBREW_NO_ANALYTICS=1" not in text'
+_expect "T13 homebrew export gone mutation" 0 "WARN  \[T13\] fixed launcher .brew.: macos/setup-from-clone.sh no longer carries"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"
