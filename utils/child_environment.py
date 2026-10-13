@@ -75,9 +75,10 @@ _ALLOWED_PATH_ENV_NAMES = frozenset(
 def configured_path_names(block: object) -> tuple[str, ...]:
     """Retain named directory variables only where a capability config uses them.
 
-    Names must be on the explicit allow-list and cannot select secrets or runtime
-    loader controls. Missing or non-absolute values fail before launching a child
-    with a changed root.
+    Selected names must be on the explicit allow-list and cannot select secrets
+    or runtime loader controls. Percent expressions already retained by these
+    capabilities, or unset literal percent text, require no extra selection.
+    Other populated variables fail before a child can use a changed root.
     """
     import re
 
@@ -106,16 +107,25 @@ def configured_path_names(block: object) -> tuple[str, ...]:
     def forbidden(name: str) -> bool:
         return is_secret_name(name) or name.upper().startswith(("PYTHON", "NODE", "LD_", "DYLD_", "GIT_", "GH_"))
 
-    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%"
+    pattern = r"%%|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([^%]+)%"
     names: set[str] = set()
     for value in values:
         for brace, bare, percent in re.findall(pattern, value):
-            # A Windows %NAME% that is neither allow-listed nor secret/loader
-            # shaped is literal path text (D:\\50%off%) or a discovery variable
-            # (%USERPROFILE%) the child already receives, as before #1526.
+            if not (brace or bare or percent):
+                continue  # Windows %% escape, not a variable reference.
+            # Unset percent names remain literal under Windows expansion. Base
+            # and discovery names already survive in every caller's capability.
+            # A populated unknown name would expand before filtering, then become
+            # literal in the child (potentially changing the sync lock directory).
             if percent and percent not in _ALLOWED_PATH_ENV_NAMES and not forbidden(percent):
-                continue
-            names.add(brace or bare or percent)
+                retained = (*_BASE, *_DISCOVERY)
+                if os.name == "nt":
+                    retained = tuple(name.upper() for name in retained)
+                lookup = percent.upper() if os.name == "nt" else percent
+                if lookup in retained or percent not in os.environ:
+                    continue
+            name = brace or bare or percent
+            names.add(name.upper() if os.name == "nt" else name)
     if not names:
         return ()
 

@@ -422,5 +422,8 @@ passwords take precedence; unrelated gateway/provider secrets are discarded.
 The sync subprocess always has `RCLONE_ASK_PASSWORD=false`.
 
 Windows directory capabilities such as `%CYCLAW_FS_ROOT%` use the same explicit
-name allowlist as `$CYCLAW_FS_ROOT`; the percent syntax does not permit arbitrary
+name allowlist as `$CYCLAW_FS_ROOT`. Unset, nonsecret percent names remain literal;
+already retained discovery variables such as `%USERPROFILE%` keep their meaning.
+Other populated percent variables are rejected before filtering can change the
+sync directory or overlap lock. The percent syntax does not permit arbitrary
 secret or loader variables through child environments.
