@@ -165,6 +165,21 @@ these values silence vendor telemetry readers; they do not close sockets.
    whether the calling shell exported the canonical block first (the two
    operator installers do, immediately before their pip calls) or runs pip
    ambient (the Dockerfile build stage, the sandbox and venv driver).
+   The shell sweep is token-level, not name-level: take the first word of
+   every command position (after `if`, `!`, `command -v`, `|`, `&&`, `$(`
+   and leading `VAR=value` assignments) in every in-boundary `.sh`, the
+   Dockerfile's `RUN` lines and the compose file, drop shell builtins,
+   coreutils and the file's own functions, and classify what is left.
+   `expect`, `osascript`, `pbcopy`, `lsof`, `sw_vers`, `secret-tool` and the
+   Dockerfile's `apt-get` / `useradd` were all missed by name-level greps
+   until PR #1637's eleventh round. A binary whose *path* an environment
+   variable overrides (`UV_BIN`, `COMSPEC`, `CYCLAW_SECRET_TOOL`) is still a
+   fixed component: the operator picks where the same program lives, not
+   which program runs (owner decision on `UV_BIN`, PR #1637). Only a site
+   that execs a caller-supplied *command* is dynamic. When one binary's
+   calls differ in kind (gh's telemetry versus its `auth` / `pr` traffic,
+   git's local subcommands versus clone/pull/push), each kind gets its own
+   row and component, sited on the same files.
    One binary can need two rows when its calls differ in kind: `ollama
    serve` is the category-4 daemon, `ollama pull` is category-3 registry
    egress, so the pull is its own `ollama-pull` component and site.

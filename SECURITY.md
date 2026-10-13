@@ -134,7 +134,10 @@ or launcher lands unclassified:
    surface's own fetches are category 3, not here: the installers' `git
    clone`/`pull` of the repository and the agentic workspace's doubly-gated
    `git push`, `pip` and `uv` index access in the installers, the Dockerfile,
-   the lock-refresh scripts and the cloud venv driver, the confirmed Homebrew
+   the lock-refresh scripts and the cloud venv driver, the Dockerfile's
+   build-stage `apt-get` install, the setup script's `gh auth` calls and the
+   agentic layer's gated `gh pr` operations (gh's own telemetry and update
+   checks stay in categories 1 and 2), the confirmed Homebrew
    Python install, the confirmed Ollama model pull and the Ollama
    installer/download page, and the loopback readiness probes (`curl`, the
    Windows smoke suite's PowerShell HTTP cmdlets) -- all operator- or

@@ -656,13 +656,24 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "containment-checked local path), security (the macOS Keychain CLI: sync/scheduled.py "
                     "reads the scheduled rclone credential with /usr/bin/security find-generic-password at "
                     "execution time since PR #1632, and macos/cyclaw-keychain-*.sh + setup-cyclaw-keys.sh "
-                    "read/write the same Keychain items)",
+                    "read/write the same Keychain items), expect (/usr/bin/expect in setup-cyclaw-keys.sh "
+                    "types a Keychain password from a file into security's TTY prompt, log_user 0), "
+                    "osascript (setup-cyclaw.sh and setup-cyclaw-keys.sh run the repo's own AppleScript to "
+                    "fill the API-key field of loopback console tabs over Apple Events), pbcopy + pbpaste "
+                    "(the same two scripts copy the key to the pasteboard and clear it afterwards), lsof "
+                    "(setup-cyclaw-keys.sh and uninstall-cyclaw.sh list the loopback port's listener PIDs), "
+                    "sw_vers (macOS version read in three setup scripts), secret-tool (the libsecret CLI "
+                    "macos/cyclaw-linux-key.sh uses on Linux for lookup / store / clear of the API key; "
+                    "CYCLAW_SECRET_TOOL is a path override of the same binary, the UV_BIN shape, not a "
+                    "caller-chosen command), and groupadd + useradd (the Dockerfile's build-stage non-root "
+                    "user)",
         "enforcement": "every one is a local OS control-plane or GUI tool with no network sink of its own; "
                        "the scheduler and sandbox wrappers are exactly the boundaries that deliver the "
                        "canonical env to the children they start (T11/T12), and hard_sandbox's bubblewrap "
                        "confines child filesystem/PID/network access on Linux. Nothing here has, or needs, a "
                        "telemetry switch",
-        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal, scheduled-sync "
+        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal, macOS setup and "
+                 "uninstall helpers, the Linux keyring CLI, the container build user, scheduled-sync "
                  "credential read",
         "reviewed": "2026-10-13",
         "evidence": "spawn-site sweep of every non-test subprocess call 2026-09-28: these were the only "
@@ -712,6 +723,42 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "setup-from-clone.sh:540-546 (_confirm gate + `ollama pull`); split out of the daemon row "
                     "2026-10-13 because category 4 means local-only and a registry pull is not (Codex P2 on "
                     "PR #1637, fourth round)",
+    },
+    {
+        "name": "gh functional calls (setup auth + agentic PR ops)", "category": 3, "controls": {},
+        "url": "docs/agentic/AGENTIC_README.md",
+        "versions": "external binary. (a) macos/setup-from-clone.sh step 6: `gh auth status` tests the stored "
+                    "account against github.com and `gh auth login --with-token` (token on stdin, never argv) "
+                    "authenticates it, both only after the canonical block was exported and skipped otherwise; "
+                    "(b) agentic/gh_client.py's read operations (`gh pr view` / `gh pr list` argv) and "
+                    "agentic/writer.py's `gh pr create`, reachable only with agentic.enabled true (ships false; "
+                    "the writer also needs its own write gate)",
+        "enforcement": "GitHub API traffic that is the point of the call: intentional functional egress, the "
+                       "same class as git-remote. gh's own telemetry and update checks are the category-1 "
+                       "GH_TELEMETRY row and the category-2 update-notifier row, both delivered to every one "
+                       "of these spawns (the agentic clients through build_telemetry_safe_env, the setup "
+                       "script through its export eval); this row exists so the auth flow and PR operations "
+                       "are reported as the GitHub calls they are and not solely as suppressed telemetry",
+        "scope": "operator setup step 6; agentic GitHub context and PR writer when enabled",
+        "reviewed": "2026-10-13",
+        "evidence": "setup-from-clone.sh gh auth status / login --with-token, gh_client.py and writer.py argv "
+                    "(Codex P2 on PR #1637, eleventh round); split from the telemetry row by call kind, the "
+                    "git-remote precedent",
+    },
+    {
+        "name": "apt package install (container build)", "category": 3, "controls": {},
+        "url": "Dockerfile",
+        "versions": "`apt-get update` + `apt-get install --no-install-recommends ca-certificates=<pinned "
+                    "deb12u1 build>` in the Dockerfile's build stage, list files removed in the same layer; "
+                    "no apt at runtime (the final verify step runs with --network=none)",
+        "enforcement": "Debian mirror access at image-build time, version-pinned: intentional functional "
+                       "egress, the same class as the pip-install row's build-stage pip. apt has no telemetry "
+                       "mechanism (popularity-contest is not installed); nothing here reads the canonical "
+                       "names",
+        "scope": "the container build only",
+        "reviewed": "2026-10-13",
+        "evidence": "Dockerfile apt-get update / install lines (own sweep on PR #1637, eleventh round: the "
+                    "Dockerfile's pip was sited, its apt was not)",
     },
     {
         "name": "git remote operations (installers + gated push)", "category": 3, "controls": {},
@@ -847,7 +894,8 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
                        "is caller policy (all CyClaw clients set trust_env=False); nltk data downloads are "
-                       "avoided by design (local Porter stemmer, no punkt). pip's index access at install time "
+                       "avoided by design (local Porter stemmer, no punkt; the sandbox audit's leftover "
+                       "punkt download step was removed 2026-10-13, Codex P2 on PR #1637). pip's index access at install time "
                        "is the category-3 pip-install row, not this one",
         "scope": "runtime + dev", "reviewed": "2026-09-28",
         "evidence": "bulk negative classification -- a NEW dependency outside every row here trips T13. "
@@ -940,6 +988,15 @@ INVENTORY_ALIASES: dict[str, str] = {
     # `brew install` in the setup script: package-index downloads, category 3
     "pip-install": "pip index access (installers)",
     "brew-install": "homebrew package install (setup)",
+    "apt-install": "apt package install (container build)",
+    # gh's functional GitHub traffic, split from its telemetry row by call kind
+    "gh-api": "gh functional calls (setup auth + agentic PR ops)",
+    # macOS setup/uninstall helpers, the Linux keyring CLI, the Docker build user
+    "expect": "local OS process tooling", "osascript": "local OS process tooling",
+    "pbcopy": "local OS process tooling", "pbpaste": "local OS process tooling",
+    "lsof": "local OS process tooling", "sw_vers": "local OS process tooling",
+    "secret-tool": "local OS process tooling",
+    "groupadd": "local OS process tooling", "useradd": "local OS process tooling",
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
@@ -992,7 +1049,9 @@ KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollam
                              "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
                              "xdg-open", "open", "explorer", "ip", "arp",
                              "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http", "git-remote",
-                             "pip-install", "brew-install",
+                             "pip-install", "brew-install", "apt-install", "gh-api",
+                             "expect", "osascript", "pbcopy", "pbpaste", "lsof", "sw_vers", "secret-tool",
+                             "groupadd", "useradd",
                              "pre-action-hook-command", "executor-check", "secret-env-wrapper")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
@@ -1044,6 +1103,33 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("gh", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token",
                                          "-m utils.telemetry_kill --export shell",
                                          '[ "$_TELEMETRY_EXPORTED" -eq 1 ]')),
+    # gh's functional GitHub calls (category 3), same files, split by call kind
+    ("gh-api", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token")),
+    ("gh-api", "agentic/gh_client.py", ('[gh_bin, "pr", "view"',)),
+    ("gh-api", "agentic/writer.py", ('[gh_bin, "pr", "create"',)),
+    # macOS setup/uninstall helpers (own token-level sweep on PR #1637, eleventh
+    # round, after Codex named expect/osascript/pbcopy/pbpaste/secret-tool)
+    ("expect", "macos/setup-cyclaw-keys.sh", ("/usr/bin/expect <<EXPECT_EOF",
+                                              "spawn -noecho /usr/bin/security add-generic-password")),
+    ("osascript", "macos/setup-cyclaw-keys.sh", ('osascript "$scpt" "$secret_file" "$GATE_PORT"',)),
+    ("osascript", "macos/setup-cyclaw.sh", ('osascript "$script_file" "$secret_file" "$GATE_PORT"',)),
+    ("pbcopy", "macos/setup-cyclaw-keys.sh", ('pbcopy < "$tmp"', "printf '' | pbcopy")),
+    ("pbcopy", "macos/setup-cyclaw.sh", ("printf '%s' \"$CYCLAW_API_KEY\" | pbcopy", "printf '' | pbcopy")),
+    ("pbpaste", "macos/setup-cyclaw-keys.sh", ('current="$(pbpaste 2>/dev/null || true)"',)),
+    ("pbpaste", "macos/setup-cyclaw.sh", ('current="$(pbpaste 2>/dev/null || true)"',)),
+    ("lsof", "macos/setup-cyclaw-keys.sh", ('lsof -nP -t -iTCP:"$port" -sTCP:LISTEN',)),
+    ("lsof", "macos/uninstall-cyclaw.sh", ('lsof -nP -t -iTCP:"$port" -sTCP:LISTEN',)),
+    ("sw_vers", "macos/setup-cyclaw-keys.sh", ("sw_vers -productVersion",)),
+    ("sw_vers", "macos/setup-cyclaw.sh", ("sw_vers -productVersion",)),
+    ("sw_vers", "macos/setup-from-clone.sh", ("sw_vers -productVersion",)),
+    ("secret-tool", "macos/cyclaw-linux-key.sh", ("command -v secret-tool",
+                                                  '"$1" lookup service "$_CYCLAW_LINUX_KEY_SERVICE"',
+                                                  '"$tool" store --label="$_CYCLAW_LINUX_KEY_LABEL"',
+                                                  '"$tool" clear service "$_CYCLAW_LINUX_KEY_SERVICE"')),
+    # the container build's package install and non-root user
+    ("apt-install", "Dockerfile", ("RUN apt-get update", "apt-get install -y --no-install-recommends")),
+    ("groupadd", "Dockerfile", ("RUN groupadd --gid 1000 cyclaw",)),
+    ("useradd", "Dockerfile", ("useradd --create-home --uid 1000 --gid cyclaw cyclaw",)),
     ("rclone", "sync/runner.py", ('rclone_bin: str = "rclone"', 'rclone_bin, "copy",', 'rclone_bin, "bisync",')),
     ("rclone", "sync/scheduled.py", ('shutil.which("rclone")', '[binary, "listremotes"]')),
     # the export is the pre-execution protection the Homebrew row claims; it
@@ -1100,10 +1186,16 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("launchctl", "macos/uninstall-cyclaw.sh", ('launchctl bootout "gui/${uid}/${label}"',)),
     ("crontab", "sync/scheduler.py", ('shutil.which("crontab")', '[crontab, "-l"]', '[crontab, "-"]')),
     ("schtasks", "sync/scheduler.py", ('shutil.which("schtasks")', '[self._schtasks(), "/Delete"')),
-    ("cmd.exe", "utils/win_schtasks.py", ('f"{_slug(task_name)}.cmd"',)),
+    # the generated Task Scheduler job's command is built here: COMSPEC names the
+    # interpreter path (the OS-owned variable for cmd.exe, a path resolution like
+    # UV_BIN, not a caller-chosen command) and the .cmd launcher is its argument
+    ("cmd.exe", "utils/win_schtasks.py", ('command=os.environ.get("COMSPEC", "cmd.exe")',
+                                          'arguments=f"/c {bat_quote(str(launcher))}"')),
     ("cmd.exe", "powershell/Uninstall-CyClaw.ps1", ('cmd.exe /c "schtasks.exe /Query', 'cmd.exe /c "schtasks.exe /Delete')),
     ("schtasks", "powershell/Uninstall-CyClaw.ps1", ("Get-Command schtasks.exe", "schtasks.exe /Delete /TN")),
-    ("powershell", "utils/win_schtasks.py", ('shutil.which("powershell")',)),
+    ("powershell", "utils/win_schtasks.py", ('shutil.which("powershell") or shutil.which("pwsh")',
+                                             "ps = powershell or powershell_executable()",
+                                             '"-File",\n            wrapper_path,')),
     ("powershell", "powershell/Install-CyClaw.ps1", ('powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%',
                                                      '& powershell -NoProfile -ExecutionPolicy Bypass -File')),
     ("bwrap", "agentic/executor/hard_sandbox.py", ('shutil.which("bwrap")', '[self._bwrap, "--die-with-parent"')),

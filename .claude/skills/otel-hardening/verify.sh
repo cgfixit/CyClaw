@@ -714,6 +714,38 @@ text = text.replace("[git, \"clone\", \"--depth\", \"1\", \"--branch\", BRANCH, 
 _expect "T13 sandbox git clone gone mutation" 0 "WARN  \[T13\] fixed launcher .git-remote.: .claude/skills/CyClaw-Sandbox/run_full_verification.py no longer carries"
 rm -rf "$a"
 
+# 48. T13: the setup script's `gh auth login` disappears. It is a gh-api
+#     (category-3) site as well as a gh telemetry site, so the functional
+#     row must notice on its own (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+_mutate "$a/macos/setup-from-clone.sh" '
+text = text.replace("gh auth login --with-token", "gh auth setup-git")  # both token branches'
+_expect "T13 gh auth invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .gh-api.: macos/setup-from-clone.sh no longer carries"
+rm -rf "$a"
+
+# 49. T13: the generated Task Scheduler job's command construction changes
+#     (COMSPEC lookup replaced). The cmd.exe row used to pin only the .cmd
+#     filename, which survives this (Codex P2 on PR #1637, eleventh round).
+a="$(_mktree)"
+_mutate "$a/utils/win_schtasks.py" '
+text = text.replace("command=os.environ.get(\"COMSPEC\", \"cmd.exe\")", "command=\"wscript.exe\"", 1)'
+_expect "T13 schtasks command construction gone mutation" 0 "WARN  \[T13\] fixed launcher .cmd.exe.: utils/win_schtasks.py no longer carries"
+rm -rf "$a"
+
+# 50. T13: the Keychain store helper stops driving security(1) through expect.
+a="$(_mktree)"
+_mutate "$a/macos/setup-cyclaw-keys.sh" '
+text = text.replace("/usr/bin/expect <<EXPECT_EOF", "/usr/bin/true <<EXPECT_EOF", 1)'
+_expect "T13 expect invocation gone mutation" 0 "WARN  \[T13\] fixed launcher .expect.: macos/setup-cyclaw-keys.sh no longer carries"
+rm -rf "$a"
+
+# 51. T13: the Linux keyring lookup disappears from cyclaw-linux-key.sh.
+a="$(_mktree)"
+_mutate "$a/macos/cyclaw-linux-key.sh" '
+text = text.replace("\"$1\" lookup service \"$_CYCLAW_LINUX_KEY_SERVICE\"", "cat /dev/null", 1)'
+_expect "T13 secret-tool lookup gone mutation" 0 "WARN  \[T13\] fixed launcher .secret-tool.: macos/cyclaw-linux-key.sh no longer carries"
+rm -rf "$a"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "otel-hardening verify: ALL PASS"
