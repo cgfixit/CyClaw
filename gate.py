@@ -191,6 +191,7 @@ def require_api_key(
 # Shared, synchronized per-IP limiter (utils/ratelimit.py). Persistence is
 # configured below; without a database backend, counters reset on restart.
 from utils.config_validation import (
+    validate_api_numeric_config,
     validate_auth_config,
     validate_boot_timeout_config,
     validate_console_session_config,
@@ -240,6 +241,9 @@ validate_logging_config(cfg)
 # An unrecognized reasoning_effort would otherwise reach Ollama and come back as
 # an HTTP 400 on the first /query -- surface it here instead, before any socket.
 validate_local_llm_reasoning_effort(cfg)
+# The rate limiter below, the /query deadline and the /health payload read these
+# raw; refuse a value they cannot use here rather than 500 on every request.
+validate_api_numeric_config(cfg)
 _rl_cfg = ((cfg.get("api", {}) or {}).get("rate_limit", {})) or {}
 RATE_LIMIT_REQUESTS = _rl_cfg.get("max_requests", 60)
 RATE_LIMIT_WINDOW = _rl_cfg.get("window_seconds", 60)  # seconds
@@ -1944,9 +1948,14 @@ def _is_port_in_use(host: str, port: int) -> bool:
     """
     import socket
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.5)
-        return s.connect_ex((host, port)) == 0
+    # create_connection resolves the address family, so an IPv6 host such as
+    # "::1" (accepted by _require_loopback_bind) is probed instead of raising
+    # socket.gaierror from an AF_INET socket outside main()'s try.
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 def _tls_ssl_kwargs() -> tuple[dict[str, str] | None, str | None]:

@@ -169,9 +169,9 @@ def validate_boot_timeout_config(cfg: dict[str, Any]) -> None:
     (``config.yaml`` formula). A 1s headroom pair still makes the LLM timeout
     effectively unreachable under load.
 
-    No-op when either value is absent or not a real number -- gate.py's own
-    ``cfg.get(..., default)`` calls already treat those cases as "use the
-    default."
+    No-op when either value is absent or not a real number. gate.py's default
+    applies only to an absent key; a present non-integer
+    ``api.graph_timeout_sec`` is refused by ``validate_api_numeric_config``.
     """
     api = cfg.get("api")
     models = cfg.get("models")
@@ -204,6 +204,49 @@ def validate_boot_timeout_config(cfg: dict[str, Any]) -> None:
                 "required_margin_sec": _GRAPH_LLM_TIMEOUT_MARGIN_SEC,
             },
         )
+
+
+def validate_api_numeric_config(cfg: dict[str, Any]) -> None:
+    """Refuse ``api`` timeout and rate-limit values gate.py cannot use, at boot.
+
+    gate.py reads these raw: a quoted ``graph_timeout_sec`` failed every
+    /query, a float one failed every /health (``HealthResponse`` takes a
+    strict int), and a quoted ``rate_limit`` value failed every rate-limited
+    route or the import itself with a bare TypeError. When the key is present:
+      * ``api.graph_timeout_sec`` and ``api.rate_limit.max_requests`` are
+        positive integers (bool is refused, since YAML ``true`` is an int);
+      * ``api.rate_limit.window_seconds`` is a positive number (float is fine).
+
+    No-op for an absent key (gate.py's default applies) or when ``api`` or
+    ``api.rate_limit`` is not a mapping.
+    """
+    api = cfg.get("api")
+    if not isinstance(api, dict):
+        return
+    rate_limit = api.get("rate_limit")
+    rate_limit = rate_limit if isinstance(rate_limit, dict) else {}
+    for field, block, key in (
+        ("api.graph_timeout_sec", api, "graph_timeout_sec"),
+        ("api.rate_limit.max_requests", rate_limit, "max_requests"),
+    ):
+        if key not in block:
+            continue
+        value = block[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ConfigError(
+                f"{field} must be a positive integer, got: {value!r}",
+                details={"field": field, "received": repr(value)},
+            )
+    if "window_seconds" in rate_limit:
+        window = rate_limit["window_seconds"]
+        # `not window > 0` rather than `window <= 0`: YAML's .nan fails every
+        # comparison, so only this form refuses it. An .inf window never ages
+        # a hit out, so a client would stay limited until restart.
+        if not _is_real_number(window) or not window > 0 or not math.isfinite(window):
+            raise ConfigError(
+                f"api.rate_limit.window_seconds must be a positive number of seconds, got: {window!r}",
+                details={"field": "api.rate_limit.window_seconds", "received": repr(window)},
+            )
 
 
 # Ollama's OpenAI-compatible /v1/chat/completions accepts reasoning_effort with

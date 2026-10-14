@@ -11,6 +11,7 @@ import yaml
 from utils.config_validation import (
     validate_no_inline_credentials,
     validate_logging_config,
+    validate_api_numeric_config,
     validate_auth_config,
     validate_boot_timeout_config,
     validate_fallback_confirm_placeholder,
@@ -300,9 +301,10 @@ def test_timeout_error_message_names_both_values():
     ],
 )
 def test_missing_or_non_numeric_values_are_a_no_op(mutate):
-    """Absent/non-numeric values fall through to gate.py's own cfg.get(...,
-    default) handling -- this validator only tightens the case both values
-    are explicitly present and already violate the relationship."""
+    """Absent/non-numeric values are not this validator's concern (a present
+    non-integer graph_timeout_sec is validate_api_numeric_config's) -- it only
+    tightens the case both values are explicitly present and already violate
+    the relationship."""
     cfg = _valid_timeouts()
     mutate(cfg)
     validate_boot_timeout_config(cfg)  # must not raise
@@ -329,6 +331,71 @@ def test_llm_timeout_margin_exactly_30s_ok():
         "models": {"local_llm": {"timeout_sec": 600}},
     }
     validate_boot_timeout_config(cfg)
+
+
+# ── validate_api_numeric_config ──────────────────────────────────────────
+
+
+def _valid_api() -> dict:
+    """The shipped config.yaml api values -- must always validate."""
+    return {"api": {"graph_timeout_sec": 780, "rate_limit": {"max_requests": 60, "window_seconds": 60}}}
+
+
+_NOT_POSITIVE_INTS = ["780", 780.0, True, None, 0, -1]
+
+
+@pytest.mark.parametrize("value", _NOT_POSITIVE_INTS)
+def test_api_graph_timeout_must_be_positive_int(value):
+    # A float is refused too: /health's HealthResponse.graph_timeout_sec is a strict int.
+    cfg = _valid_api()
+    cfg["api"]["graph_timeout_sec"] = value
+    with pytest.raises(ConfigError, match="api.graph_timeout_sec"):
+        validate_api_numeric_config(cfg)
+
+
+@pytest.mark.parametrize("value", _NOT_POSITIVE_INTS)
+def test_api_rate_limit_max_requests_must_be_positive_int(value):
+    cfg = _valid_api()
+    cfg["api"]["rate_limit"]["max_requests"] = value
+    with pytest.raises(ConfigError, match="api.rate_limit.max_requests"):
+        validate_api_numeric_config(cfg)
+
+
+@pytest.mark.parametrize("value", ["60", True, None, 0, -1, -0.5, float("nan"), float("inf")])
+def test_api_rate_limit_window_seconds_must_be_positive_number(value):
+    cfg = _valid_api()
+    cfg["api"]["rate_limit"]["window_seconds"] = value
+    with pytest.raises(ConfigError, match="api.rate_limit.window_seconds"):
+        validate_api_numeric_config(cfg)
+
+
+def test_api_numeric_shipped_values_and_float_window_pass():
+    validate_api_numeric_config(_valid_api())
+    cfg = _valid_api()
+    cfg["api"]["rate_limit"]["window_seconds"] = 30.5  # RateLimiter takes a float window
+    validate_api_numeric_config(cfg)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda cfg: cfg.pop("api"),
+        lambda cfg: cfg["api"].pop("graph_timeout_sec"),
+        lambda cfg: cfg["api"].pop("rate_limit"),
+        lambda cfg: cfg["api"]["rate_limit"].pop("max_requests"),
+        lambda cfg: cfg["api"]["rate_limit"].pop("window_seconds"),
+        lambda cfg: cfg["api"].__setitem__("rate_limit", None),
+    ],
+)
+def test_api_numeric_absent_keys_take_gate_defaults(mutate):
+    cfg = _valid_api()
+    mutate(cfg)
+    validate_api_numeric_config(cfg)  # must not raise
+
+
+def test_shipped_config_api_numeric_values_pass():
+    cfg = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
+    validate_api_numeric_config(cfg)
 
 
 def test_fallback_confirm_false_rejected():
