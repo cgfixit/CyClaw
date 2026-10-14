@@ -20,12 +20,15 @@ from agentic.config import AgenticConfig
 from agentic.harness_optimizer.core import CandidateDecision, Variant
 from agentic.harness_optimizer.governance import inspect_candidate_text
 from agentic.harness_optimizer.proposer import ProposerWorkspace
+
+# _release_artifact_lock is byte-for-byte the registry's release, so there is one
+# implementation; the artifact-flavored name stays because the harness-optimizer
+# tests import it from here.
 from agentic.registry import (
-    _is_lock_owner,
-    _lock_token_path,
     _reclaim_lock,
     _write_lock_token,
 )
+from agentic.registry import _release_registry_lock as _release_artifact_lock
 from utils.errors import AgenticError, AgenticWriteRefused
 from utils.logger import audit_log
 
@@ -56,26 +59,6 @@ def _acquire_artifact_lock(lock_dir: Path) -> None:
         "another harness-optimizer accept is in progress for this candidate",
         details={"lock_dir": str(lock_dir)},
     )
-
-
-def _release_artifact_lock(lock_dir: Path) -> None:
-    """Release the cross-process write lock only if we still own it.
-
-    If another process reclaimed the lock while we were slow, the token no longer
-    matches our PID and we must leave the directory alone.
-    """
-    try:
-        if not _is_lock_owner(lock_dir):
-            return
-    except OSError:
-        # Lock dir disappeared under us; nothing to release.
-        return
-    try:
-        _lock_token_path(lock_dir).unlink(missing_ok=True)
-        lock_dir.rmdir()
-    except OSError:
-        # Best-effort: the lock dir may already be gone (or never created).
-        pass
 
 
 @dataclass(frozen=True)
