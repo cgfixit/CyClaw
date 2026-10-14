@@ -586,8 +586,7 @@ Docs each section above links are not repeated here.
 
 ## License
 
-Source-available, all rights reserved; personal use is permitted. See
-[`LICENSE`](LICENSE).
+Licensed under the [MIT License](LICENSE).
 
 *Designed and built by Chris Grady, with AI tooling used under human review,
 CI, and the invariant guard.*
