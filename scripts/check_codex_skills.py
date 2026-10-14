@@ -28,6 +28,15 @@ def unique_mapping(loader: UniqueLoader, node: yaml.MappingNode) -> dict:
 UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
 
 
+def safe_unique_yaml(text: str) -> object:
+    """Use only SafeLoader constructors while also rejecting duplicate keys."""
+    loader = UniqueLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
+
+
 def validate(root: Path) -> tuple[int, list[str]]:
     """Return skill count and structural errors for the selected repository."""
     errors = []
@@ -50,7 +59,7 @@ def validate(root: Path) -> tuple[int, list[str]]:
             match = re.fullmatch(r"---\r?\n(.*?)\r?\n---\r?\n(.+)", text, re.DOTALL)
             if not match:
                 raise ValueError("missing frontmatter or skill body")
-            manifest = yaml.load(match[1], Loader=UniqueLoader)
+            manifest = safe_unique_yaml(match[1])
             if not isinstance(manifest, dict) or set(manifest) != {"name", "description"}:
                 raise ValueError("frontmatter requires name and description only")
             name = manifest["name"]
@@ -62,7 +71,7 @@ def validate(root: Path) -> tuple[int, list[str]]:
             description = manifest["description"]
             if not isinstance(description, str) or not description.strip() or len(description) > 1024:
                 raise ValueError("description must be nonempty text <=1024 characters")
-            metadata = yaml.load((directory / "agents/openai.yaml").read_text(encoding="utf-8"), Loader=UniqueLoader)
+            metadata = safe_unique_yaml((directory / "agents/openai.yaml").read_text(encoding="utf-8"))
             if not isinstance(metadata, dict) or not isinstance(metadata.get("interface"), dict):
                 raise ValueError("metadata requires an interface mapping")
             interface = metadata["interface"]
