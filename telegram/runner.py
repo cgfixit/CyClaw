@@ -166,18 +166,10 @@ def _online_command(
     )
 
 
-def handle_inbound_text(
-    cfg: TelegramConfig,
-    *,
-    chat_id: int | str,
-    text: str,
-    update_id: int | None = None,
-    chat_type: str = "private",
-) -> dict[str, Any]:
-    """T2: allowlisted inbound text → command or POST /query → reply via Bot API.
+def _check_inbound_gate(cfg: TelegramConfig, chat_id: int | str, update_id: int | None) -> None:
+    """Shared inbound gate: enabled, chat mode, allowlist (audited), rate limit.
 
-    ``chat_type`` defaults to ``private`` for unit callers; the poll loop always
-    passes Telegram's real type. T3 hybrid consent is private-chat only.
+    One body for text and media so the two paths cannot drift apart.
     """
     if not cfg.enabled:
         raise TelegramRefused("telegram.enabled is false", details={"gate": "enabled"})
@@ -205,6 +197,22 @@ def handle_inbound_text(
     get_limiter(cfg.rate_limit.max_ops, cfg.rate_limit.window_seconds).check(
         f"tg:inbound:{chat_id}"
     )
+
+
+def handle_inbound_text(
+    cfg: TelegramConfig,
+    *,
+    chat_id: int | str,
+    text: str,
+    update_id: int | None = None,
+    chat_type: str = "private",
+) -> dict[str, Any]:
+    """T2: allowlisted inbound text → command or POST /query → reply via Bot API.
+
+    ``chat_type`` defaults to ``private`` for unit callers; the poll loop always
+    passes Telegram's real type. T3 hybrid consent is private-chat only.
+    """
+    _check_inbound_gate(cfg, chat_id, update_id)
 
     audit_log(
         {
@@ -305,31 +313,7 @@ def handle_inbound_media(
     update_id: int,
 ) -> dict[str, Any]:
     """T4: stage one explicitly confirmed private-chat attachment through fsconnect."""
-    if not cfg.enabled:
-        raise TelegramRefused("telegram.enabled is false", details={"gate": "enabled"})
-    if cfg.mode != "chat":
-        raise TelegramRefused(
-            "inbound chat requires telegram.mode: chat",
-            details={"gate": "mode", "mode": cfg.mode},
-        )
-    if not cfg.is_chat_allowed(chat_id):
-        audit_log(
-            {
-                "event": "telegram_inbound_refused",
-                "channel": "telegram",
-                "reason": "allowlist",
-                "chat_id": str(chat_id),
-                "update_id": update_id,
-            },
-            config_path=cfg._config_path,
-        )
-        raise TelegramRefused(
-            "chat_id not in telegram.allowed_chat_ids",
-            details={"chat_id": str(chat_id), "gate": "allowlist"},
-        )
-    get_limiter(cfg.rate_limit.max_ops, cfg.rate_limit.window_seconds).check(
-        f"tg:inbound:{chat_id}"
-    )
+    _check_inbound_gate(cfg, chat_id, update_id)
     confirmation = save_confirmation(caption)
     caption_text = caption if isinstance(caption, str) else ""
     audit_log(
