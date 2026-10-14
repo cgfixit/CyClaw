@@ -24,12 +24,6 @@ from utils.secret_policy import SECRET_POLICY  # noqa: E402
 
 BOM = "\ufeff"
 
-# Longer suffixes first so a reader comparing by eye sees API_KEY before KEY.
-# is_secret_name accepts a name when the uppercased form ends in _<suffix>
-# and has at least one character before that tail. KEY also matches
-# AWS_ACCESS_KEY and, as a known cost, non-secrets such as PRINT_KEY.
-SECRET_SUFFIXES = SECRET_POLICY.suffixes
-
 _KEYWORDS = frozenset({"export", "declare", "typeset", "readonly", "local"})
 _ASSIGN_WORD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(\+?=)(.*)$", re.DOTALL)
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -77,6 +71,9 @@ class SourceLoad:
     operand: str
 
 
+# is_secret_name accepts a name when the uppercased form ends in _<suffix>
+# and has at least one character before that tail. KEY also matches
+# AWS_ACCESS_KEY and, as a known cost, non-secrets such as PRINT_KEY.
 def is_secret_name(name: str) -> bool:
     """True when `name` is secret-classified. Comparison is case-insensitive."""
     if not name or not ("A" <= name[0] <= "Z" or "a" <= name[0] <= "z"):

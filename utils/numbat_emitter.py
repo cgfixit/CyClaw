@@ -326,6 +326,11 @@ def _max_bytes(cfg: dict[str, Any] | None) -> int:
     return value if value > 0 else 0
 
 
+# Pinned on purpose, not dead config: "cyclaw" is not a legal Numbat
+# source_agent enum yet (config.yaml numbat.source_agent), so any configured
+# value is clamped back to "unknown" until upstream accepts it. The roadmap
+# tracks that as Slice D (docs/plans/remaining_work.md, #1128) and
+# test_source_agent_cyclaw_is_forced_to_unknown pins the clamp.
 def _source_agent(cfg: dict[str, Any] | None) -> str:
     block = _numbat_cfg(cfg)
     value = str(block.get("source_agent") or DEFAULT_SOURCE_AGENT)
