@@ -58,10 +58,6 @@ def _err(text: str) -> None:
     print(f"  [ERR ] {text}", file=sys.stderr)
 
 
-def _ok(text: str) -> None:
-    print(f"  [OK  ] {text}")
-
-
 def _warn(text: str) -> None:
     print(f"  [WARN] {text}", file=sys.stderr)
 
