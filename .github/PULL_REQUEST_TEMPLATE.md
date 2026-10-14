@@ -145,14 +145,14 @@ Merge the foundation first. If a later PR was written against an older base, reb
 ```
 
 ## ELI5
-Required on every PR, and it must stay the **last heading** in the body (`pr-template-check.yml` enforces both). The body's last non-blank line is the stamp below, nothing after it; refresh it whenever you edit the body._
+Required on every PR, and it must stay the **last heading** in the body (`pr-template-check.yml` enforces both). The body's last non-blank line is the stamp below, nothing after it; refresh it whenever you edit the body.
 
 Explain the **whole** diff against `main`, not just the first commit. Re-read it whenever a later commit changes what the PR does. Plain words, no jargon you would not say out loud, but keep the specifics:
-Write for the operator: plain but technical, nothing glossed. Cover the whole branch diff against main, later commits included. Say what changed and why, naming files and functions; what could break and where to look; what was run versus only reasoned. Mark guesses. Do not market a feature or soften a gate. No heading after this one. Plain words, no jargon you would not say out loud, but keep the specifics on what is chaging, what it touches, what it adds, potential or expected risk, etc .. (Think: McLuhan's tetrad: "What does this Pr's changes enhance? What does this Pr's changes make obsolete? What does this Pr's changes retrieve that had been obsolesced earlier? What does this Pr's changes reverse or flip into when pushed to extremes?"):
+Write for the operator: plain but technical, nothing glossed. Cover the whole branch diff against main, later commits included. Say what changed and why, naming files and functions; what could break and where to look; what was run versus only reasoned. Mark guesses. Do not market a feature or soften a gate. No heading after this one. Plain words, no jargon you would not say out loud, but keep the specifics on what is changing, what it touches, what it adds, potential or expected risk, etc .. (Think: McLuhan's tetrad: "What does this Pr's changes enhance? What does this Pr's changes make obsolete? What does this Pr's changes retrieve that had been obsolesced earlier? What does this Pr's changes reverse or flip into when pushed to extremes?"):
 
 - **What was broken or missing**, in one picture or analogy, then the real names (file, function, setting) so you can still find it.
 - **What changed**, including every later commit. Say what the new behavior is and what it deliberately does not do.
 - **What could still go wrong**, and the exact signal that would show it (a log line, a test, an audit field).
 - Be blunt about anything you did not run or could not check.
 
-Last updated: YYYY-MM-DD HH:MM [default or account specific Github time zone]
+Last updated: YYYY-MM-DD HH:MM ET
