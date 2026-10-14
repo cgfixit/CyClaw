@@ -7,7 +7,7 @@
 # (fetched from Docker Hub 2026-10-03): a bare tag is mutable, so a re-tagged/
 # compromised base image would silently enter every build. The tag is kept
 # alongside the digest for human readability; re-pin on any base-image bump.
-FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 AS builder
+FROM python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS builder
 
 WORKDIR /app
 
@@ -67,7 +67,7 @@ RUN pip install --no-cache-dir --upgrade "pip==26.2.1" && \
 # Runtime stage
 # Same digest as the builder stage above (both MUST match — they are meant to
 # be the identical image); see the builder FROM line for the pin rationale.
-FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
+FROM python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
 
 WORKDIR /app
 
