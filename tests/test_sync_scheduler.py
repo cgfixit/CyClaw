@@ -388,8 +388,9 @@ def test_cron_uses_argv_list_never_shell() -> None:
 
 
 def test_windows_install_builds_schtasks_argv(tmp_path: Path) -> None:
-    # log_dir -> tmp so the generated .bat launcher does not touch the real home.
-    cfg = _make_cfg(schedule_hour=5, schedule_min=7, log_dir=str(tmp_path / "logs"))
+    # log_dir -> tmp so the generated .bat launcher does not touch the real home;
+    # spaced like a Windows profile path so /TR quoting is exercised.
+    cfg = _make_cfg(schedule_hour=5, schedule_min=7, log_dir=str(tmp_path / "Jane Doe" / "logs"))
     captured: dict[str, object] = {}
 
     def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
@@ -417,9 +418,13 @@ def test_windows_install_builds_schtasks_argv(tmp_path: Path) -> None:
     assert entry.cron_or_time == "05:07"
     assert entry.platform_name == "windows"
 
-    # /TR points at the generated .bat launcher (robust quoting), and the file
-    # was actually written with the cd + sync invocation.
-    launcher = argv[argv.index("/TR") + 1]
+    # /TR points at the generated .bat launcher, quoted so a spaced path is not
+    # cut at the first space, and the file was actually written with the cd +
+    # sync invocation.
+    tr = argv[argv.index("/TR") + 1]
+    assert tr.startswith('"') and tr.endswith('"')
+    launcher = tr.strip('"')
+    assert " " in launcher
     assert launcher.endswith("cyclaw_sync.bat")
     assert entry.command == launcher
     bat_text = Path(launcher).read_text(encoding="utf-8")

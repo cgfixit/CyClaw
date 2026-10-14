@@ -652,8 +652,11 @@ class WindowsTaskScheduler:
 
     def install(self) -> ScheduleEntry:
         schtasks = self._schtasks()
-        # Register a .bat launcher path (robust) rather than an inline cmd /c
-        # string (quote-fragile through schtasks /TR for paths with spaces).
+        # Register a .bat launcher path rather than an inline cmd /c string
+        # (quote-fragile through schtasks /TR). The .bat holds the command, but
+        # the /TR value itself must still be quoted: Windows argv parsing strips
+        # the quotes subprocess adds, so a spaced launcher path would otherwise
+        # register with its program path cut at the first space.
         launcher = _write_windows_launcher(self.cfg)
         time_str = f"{self.cfg.schedule_hour:02d}:{self.cfg.schedule_min:02d}"
         argv = [
@@ -662,7 +665,7 @@ class WindowsTaskScheduler:
             "/TN",
             WINDOWS_TASK_NAME,
             "/TR",
-            launcher,
+            f'"{launcher}"',
             *_windows_schedule_args(self.cfg),
             "/ST",
             time_str,
