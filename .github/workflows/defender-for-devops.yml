@@ -1,29 +1,38 @@
 # Pinned Bandit SAST + SARIF.
 #
 # Replaces microsoft/security-devops-action: that CLI installs Guardian
-# "Latest" then pulls policy NuGet from msdoeu.pkgs.visualstudio.com as an
-# anonymous identity. When the feed 403s, Bandit never runs. CyClaw
-# already pins bandit==1.9.4.
+# "Latest" and then pulls policy NuGet packages from
+# msdoeu.pkgs.visualstudio.com as an anonymous identity. If that feed returns
+# 403, Bandit never runs. CyClaw pins Bandit and its SARIF dependencies in a
+# hash-verified lock file.
 #
-# Findings do not fail the job (same as MSDO --not-break-on-detections and
-# AGENTS.md "best-effort"). The job fails if Bandit cannot install or write
-# SARIF. No id-token: we do not send results to Defender for Cloud.
+# Findings remain advisory. The job fails if Bandit cannot install, execute,
+# or write SARIF. No id-token permission is granted, and no results are sent
+# to Defender for Cloud.
 
 name: "Bandit SAST (SARIF)"
 
 'on':
+  # Test the repository state whenever origin/main advances.
   push:
     branches: ["main"]
+
+  # Test newly opened PRs targeting main and every subsequent revision.
   pull_request:
     branches: ["main"]
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
   schedule:
     - cron: '40 23 * * 0'
+
   workflow_dispatch:
 
-# Workflow-level grant stays read-only; the SARIF-upload permission is declared
-# per-job below. zizmor's excessive-permissions audit flags a workflow-level
-# `security-events: write` because every future job in this workflow would
-# inherit it silently -- see trivy.yml/pr-template-check.yml for the same shape.
+# Keep the workflow default read-only. SARIF write access is scoped to the
+# Bandit job so future jobs cannot silently inherit it.
 permissions:
   contents: read
 
@@ -31,46 +40,70 @@ concurrency:
   group: bandit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# Same PyPI read budget as ci.yml. Bandit's pin and SARIF settings are unchanged.
 env:
   PIP_DEFAULT_TIMEOUT: "60"
   PIP_RETRIES: "10"
 
 jobs:
   bandit:
-    name: bandit
-    runs-on: ubuntu-latest
+    name: bandit (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+
     permissions:
       contents: read
-      security-events: write  # upload SARIF
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+            # Linux keeps the original `bandit` SARIF category so GitHub treats
+            # it as the same analysis as before the matrix; a new name would
+            # strand the existing alerts under a configuration nothing updates.
+            sarif_category: bandit
+            lock_file: locks/requirements-ci-bandit-lock-linux.txt
+
+          - os: macos-latest
+            label: macos
+            sarif_category: bandit-macos
+            # CyClaw does not currently generate a separately named macOS
+            # Bandit lock. The Bandit/SARIF dependency set is platform-neutral,
+            # and the existing lock contains hashes for the published PyYAML
+            # artifacts required by macOS.
+            lock_file: locks/requirements-ci-bandit-lock-linux.txt
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: |
-            constraints.txt
-            .github/workflows/defender-for-devops.yml
+          cache-dependency-path: ${{ matrix.lock_file }}
 
       - name: Install Bandit
+        shell: bash
         run: |
-          # bandit[sarif] is required for -f sarif (core wheel has no SARIF extra).
-          # sarif-om / jschema-to-python are not in constraints.txt. Their pins
-          # live in scripts/ci-lock-inputs/bandit.txt and the hashed lock.
-          pip install --require-hashes -r locks/requirements-ci-bandit-lock-linux.txt
-          python -c "import bandit; assert bandit.__version__ == '1.9.4', bandit.__version__"
+          # bandit[sarif] dependencies are included in the hashed lock.
+          python -m pip install \
+            --require-hashes \
+            -r "${{ matrix.lock_file }}"
+
+          python -c \
+            "import bandit; assert bandit.__version__ == '1.9.4', bandit.__version__"
 
       - name: Run Bandit (advisory findings)
+        shell: bash
         run: |
-          # Path set matches AGENTS.md. --exit-zero keeps findings advisory;
-          # test -s still fails the job if Bandit dies before writing SARIF.
+          # --exit-zero keeps findings advisory. test -s still fails this job
+          # if Bandit exits before creating a non-empty SARIF document.
           bandit \
             -r \
             gate.py \
@@ -91,11 +124,22 @@ jobs:
             -f sarif \
             -o bandit.sarif \
             --exit-zero
+
           test -s bandit.sarif
 
       - name: Upload results to Security tab
-        if: always()
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4
+        # Fork PRs receive a read-only token and cannot upload code-scanning
+        # results. They still run the complete Bandit scan above.
+        if: >-
+          ${{
+            !cancelled() &&
+            hashFiles('bandit.sarif') != '' &&
+            (
+              github.event_name != 'pull_request' ||
+              github.event.pull_request.head.repo.full_name == github.repository
+            )
+          }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: bandit.sarif
-          category: bandit
+          category: ${{ matrix.sarif_category }}
