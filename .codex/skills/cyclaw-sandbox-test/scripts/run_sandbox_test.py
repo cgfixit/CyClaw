@@ -107,8 +107,16 @@ def _health_contract_probe() -> Result:
         return Result("GET /health provider contract", "FAIL", str(exc))
     services = payload.get("services", {}) if isinstance(payload, dict) else {}
     expected = {"ollama", "grok_api", "claude_api", "embeddings_local"}
+    # Grok/Claude point at the loopback mock, which the online destination
+    # allowlist must refuse before /health sends a provider key there.
+    refused = {"grok_api", "claude_api"}
     missing = sorted(expected - set(services))
-    unhealthy = sorted(name for name in expected & set(services) if not services[name].get("healthy"))
+    unhealthy = sorted(name for name in (expected - refused) & set(services) if not services[name].get("healthy"))
+    not_refused = sorted(
+        name
+        for name in refused & set(services)
+        if services[name].get("healthy") or "allowlist" not in str(services[name].get("error") or "")
+    )
     failures = []
     if status != 200:
         failures.append(f"HTTP {status}")
@@ -116,6 +124,8 @@ def _health_contract_probe() -> Result:
         failures.append(f"missing services={missing}")
     if unhealthy:
         failures.append(f"unhealthy services={unhealthy}")
+    if not_refused:
+        failures.append(f"provider probes not refused by the allowlist={not_refused}")
     if payload.get("mode") != "hybrid":
         failures.append(f"mode={payload.get('mode')!r}")
     if not payload.get("index_ready") or not payload.get("graph_ready"):

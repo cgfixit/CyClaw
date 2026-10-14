@@ -60,7 +60,7 @@ def assert_local_destination(base_url: str, trusted_hosts: object = ()) -> None:
 
 
 def assert_online_destination(*, provider: str, base_url: str, confirmed: bool | None) -> None:
-    """Allowlist the host. Explicit ``confirmed is False`` refuses (I3).
+    """Allowlist the host, https on 443 only. Explicit ``confirmed is False`` refuses (I3).
 
     ``confirmed is None`` means the node was invoked without a gate stamp
     (unit tests / incomplete state): still enforce the host allowlist.
@@ -70,9 +70,20 @@ def assert_online_destination(*, provider: str, base_url: str, confirmed: bool |
     allowed = _ONLINE_HOSTS.get(provider)
     if not allowed:
         raise EndpointTrustError(f"unknown online provider {provider!r}")
-    host = hostname_of(base_url or _DEFAULT_URLS.get(provider, ""))
+    url = base_url or _DEFAULT_URLS.get(provider, "")
+    host = hostname_of(url)
     if host not in allowed:
         raise EndpointTrustError(f"{provider} destination {host!r} is not in the allowlist")
+    # The host alone let http:// or another port on the pinned host carry the
+    # API key and query in cleartext or to a different listener. urlsplit is
+    # lru_cached, so this re-parse of the URL hostname_of just parsed is a hit.
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        raise EndpointTrustError("malformed endpoint URL") from None
+    if parsed.scheme != "https" or port not in (None, 443):
+        raise EndpointTrustError(f"{provider} destination must be https on port 443")
 
 
 def url_for_details(url: str) -> str:
