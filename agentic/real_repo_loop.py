@@ -940,8 +940,22 @@ def run_real_repo_loop(
         # budget) must not land on disk even for a rejected iteration, since
         # the clone persists across iterations and a later iteration's
         # verification would otherwise run against it.
+        #
+        # Judged on where each write would LAND as well as how it was spelled:
+        # an in-clone directory symlink (docs/linkdir -> ../tests) puts
+        # "docs/linkdir/test_x.py" on tests/test_x.py. A path landing_path
+        # refuses keeps its spelling here; write_file refuses it below anyway.
+        landed_paths: dict[str, str] = {}
+        for path in proposed_files:
+            try:
+                landed_paths[path] = tools.landing_path(path)
+            except AgenticError:
+                landed_paths[path] = path
         out_of_scope_files = tuple(
-            path for path in proposed_files if _matches_protected_path(path, protected_write_paths)
+            path
+            for path in proposed_files
+            if _matches_protected_path(path, protected_write_paths)
+            or _matches_protected_path(landed_paths[path], protected_write_paths)
         )
         total_write_bytes = sum(len(content.encode("utf-8")) for content in proposed_files.values())
         write_budget_exceeded = (
@@ -960,9 +974,13 @@ def run_real_repo_loop(
                 # the iterate-on-feedback design), refuse rather than trust a
                 # reconstruction from memory. A path that does not yet exist
                 # is a legitimate create and is unaffected by this check.
-                if path not in shown_paths and path not in ever_written:
+                # Judged on the landed path, like the protected-path gate: the
+                # alias of a file behind a directory symlink fails stat_file,
+                # which would otherwise read as a create.
+                landed_path = landed_paths[path]
+                if landed_path not in shown_paths and landed_path not in ever_written:
                     try:
-                        tools.stat_file(path)
+                        tools.stat_file(landed_path)
                     except AgenticError:
                         pass  # does not exist yet -- a create, always allowed
                     else:
@@ -975,12 +993,15 @@ def run_real_repo_loop(
                         )
                         continue
                 try:
-                    tools.write_file(path, content)
+                    # Record the landed path write_file reports, not the
+                    # spelling: finalize's protected-path re-check, the
+                    # manifest and the review diff must all see the real file.
+                    landed = tools.write_file(path, content)["target"]
                 except AgenticError as exc:
                     write_failed = True
                     write_failure_messages.append(f"{path!r}: {exc.message}")
                     continue
-                written.append(path)
+                written.append(landed)
         ever_written.update(written)
 
         verification: VerificationReport | None = None

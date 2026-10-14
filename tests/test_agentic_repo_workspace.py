@@ -882,10 +882,10 @@ def test_write_file_allows_a_symlink_to_an_ordinary_directory(tmp_path, monkeypa
     #
     # The reported `target` is the RESOLVED path, not the spelled one. That
     # changed when the resolved path became what downstream gates judge:
-    # write_file records `target` in changed_files, and
-    # decide_real_repo_candidate matches changed_files against
-    # protected_write_paths, so reporting the spelled name let an in-clone
-    # symlink land a write on a protected path under an unprotected alias.
+    # real_repo_loop checks the landed path against protected_write_paths and
+    # records `target` in changed_files, so reporting the spelled name let an
+    # in-clone symlink land a write on a protected path under an unprotected
+    # alias.
     # Here the destination is harmless, so the write is still allowed -- only
     # the bookkeeping is now honest about where the bytes went.
     fake = _fake_clone_populating_git_repo(files={"real/keep.txt": "x\n"})
@@ -1376,11 +1376,11 @@ def test_write_file_refuses_a_dangling_symlink_escaping_the_clone(tmp_path, monk
 
 
 def test_write_file_refuses_an_in_clone_symlink_onto_a_protected_path(tmp_path, monkeypatch):
-    """The protected-path gate is checked on the DECLARED name, so a symlink
+    """The protected-path gate was checked on the DECLARED name, so a symlink
     redirected a write onto the tests that judge the candidate.
 
-    decide_real_repo_candidate checks changed_files against
-    protected_write_paths using the path the model asked for. An in-clone
+    real_repo_loop checked protected_write_paths against the path the model
+    asked for, not the one write_file reports here. An in-clone
     symlink (docs/notes.md -> ../tests/test_x.py) is never protected under its
     declared name, resolves inside the clone so containment passes, and the
     write lands on the test file. That is exactly the reward-hack
