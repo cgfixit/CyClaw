@@ -1,0 +1,6 @@
+interface:
+  display_name: "Verify CyClaw Dependencies"
+  short_description: "Audit CyClaw dependency and install-surface drift"
+  default_prompt: "Use $verify-dep to audit CyClaw's pyproject, requirements, constraints, Docker, Conda, platform installer, and supply-chain dependency contracts before changing dependencies or release install paths."
+policy:
+  allow_implicit_invocation: false

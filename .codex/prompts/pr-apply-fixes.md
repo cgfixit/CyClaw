@@ -29,7 +29,7 @@ Working directory is a checkout of the PR **head** branch (writable).
    - `parent_author`, `parent_path`, `parent_line` (when available)
    - `trigger` — which mention string was used
 2. Repository authority (this checkout): `AGENTS.md`, `$fable-protocol`, the
-   full `CLAUDE.md`, `docs/THREAT_MODEL.md`, `.codex/Codex_instructions.md`,
+   relevant `CLAUDE.md` sections, `docs/THREAT_MODEL.md`, `.codex/Codex_instructions.md`,
    `.github/copilot-instructions.md`, and active CI contracts.
 
 ## Mission
@@ -50,11 +50,11 @@ Working directory is a checkout of the PR **head** branch (writable).
 
 ## Python / DevOps / GitHub posture
 
-- Target **Python 3.12**. Follow repo Ruff selects `E,F,I,B,C4,UP,S`.
+- Target **Python 3.12**. Follow blocking Ruff F/B/S and advisory broader lint on touched code.
 - Workflows: pin third-party actions by full SHA; default `permissions: {}` then
   grant least privilege; owner-only human gates for write paths; never execute
   untrusted PR code as a merge gate authority.
-- Prefer conventional commit messages; keep commits scoped to the approved fix.
+- Use `[prefix] - subject` commit messages from the PR template; keep commits scoped to the approved fix.
 - This run stays on the existing PR head ref. Do not create or rename a branch
   while applying approved fixes.
 

@@ -103,7 +103,7 @@ Integrity note above for two of these): 3-layer semantic drift detection for
 - Pick-a-Politician ports (stored XSS patched in v1.2; the origin of the
   "security discipline travels to throwaway artifacts" rule, §5.1).
 - cgfixit.com ecosystem, and the Claude Code skill suite in `.claude/skills/`
-  (with Codex mirrors in `.codex/skills/`).
+  (with Codex mirrors in `.agents/skills/`).
 
 ### 8.6 Hardware and environments (verified in config comments and CLAUDE.md)
 
