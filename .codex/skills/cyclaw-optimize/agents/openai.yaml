@@ -1,4 +1,0 @@
-interface:
-  display_name: "Optimize CyClaw"
-  short_description: "Mac-first, evidence-backed CyClaw optimization"
-  default_prompt: "Use $cyclaw-optimize to assess current CyClaw improvements and implement or publish only within my requested scope, verifying the affected platform contracts."

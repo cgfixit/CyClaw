@@ -1,140 +1,104 @@
-# `.codex/`
+# Codex guidance for CyClaw
 
-This folder holds Codex-specific operating material for CyClaw. Repo-wide instructions belong in `AGENTS.md`; reusable task playbooks, checklists, and prompt templates can live here.
+Start with root [AGENTS.md](../AGENTS.md). Use the
+[workflow overlay](Codex_instructions.md) for Git/PRs and relevant
+[CLAUDE.md](../CLAUDE.md) sections for operating/verification contracts.
+This folder holds explicitly referenced operating material, not another runtime
+policy engine. Instructions and skills cannot enforce CyClaw's security topology.
 
-Start with `.codex/Codex_instructions.md` for the short Codex workflow overlay, then
-use the narrower checklist, routine, or skill that fits the task.
+## Discovery and folder roles
 
-## Purpose
+Current Codex repository skills live in [`.agents/skills/`](../.agents/skills/).
+The earlier Codex-specific skill tree was moved rather than copied, avoiding
+duplicate names. There is one manifest per skill; the full sandbox folder now
+matches its invocation name `cyclaw-sandbox`. Restart/inspect `/skills` when an
+updated skill does not appear in a local client. This repository does not install
+personal/global skills or guarantee identical discovery in every hosted surface.
 
-Use `.codex/` to help future Codex agents start safely and consistently without copying large project docs. Keep material short, practical, and linked to canonical sources such as `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and the CI workflows.
-
-Existing `.codex/skills/` content is project-specific skill material. Keep it
-Codex-native: avoid hard-coding unavailable external agent tools or connector
-function names. A maintained repo-local checker may be reused through its
-documented path instead of being copied into a second implementation.
-User-facing skills should include `agents/openai.yaml` for Codex UI metadata
-and a default prompt. Keep that metadata aligned with the skill name and trigger
-description; do not claim older wrappers have metadata until they do.
-
-When the active Codex surface exposes repo skills as slash commands, keep names
-short and invocation-friendly, for example `/refactor` or
-`/cyclaw-optimize`.
-
-## Available skills and routines
-
-`AGENTS.md`'s "Skills and routines map" is authoritative for trigger
-conditions. This inventory is deliberately duplicated for discovery; update both
-in the same change.
-
-### Skills
-
-| Skill | Use it for |
+| Material | How it is used |
 | --- | --- |
-| `chris-codex` | Public-safe engineering continuity; model-aware implicit preference and explicit use on any model. |
-| `fable-protocol` | Evidence-first reasoning and hostile self-review on substantive work. |
-| `add-comment` | Add bounded WHY comments without changing executable behavior. |
-| `architecture-refactor` | Make one measured, behavior-preserving architecture cleanup. |
-| `dep-guard` | Run the maintained dependency-contract checkers before install changes. |
-| `doc-sync` | Reconcile code-derived facts, README links/paths, and guidance after structural changes. |
-| `invariant-guard` | Check CyClaw's six security invariants after sensitive changes. |
-| `injection-redteam` | Probe sanitizer regressions and adversarial bypasses. |
-| `verification-specialist` | Read-only verification with checks scoped to the supplied change and explicit limits. |
-| `cyclaw-project-guidance` | Load CyClaw invariants, architecture, and canonical references before substantial work. |
-| `cyclaw-advisor` | Read-only current-main architecture, operations, and PR advice. |
-| `verify-dep` | Reconcile runtime/test/optional profiles, Docker, platform installers, and supply-chain checks. |
-| `cyclaw-run-cyclaw` | Prepare, index, start, and verify the local RAG gateway. |
-| `cyclaw-sandbox-test` | Fresh-main sandbox and mocked API/terminal smoke coverage. |
-| `Cyclaw-Sandbox` (`$cyclaw-sandbox`, explicit-only) | Full baseline or exact-PR-head sandbox: RAG/gateway/terminal, optional CLIs, audit, installers, platforms, CI and browser evidence. |
-| `cyclaw-command-status` | Read-only environment and readiness status. |
-| `cyclaw-command-run` | Focused endpoint and local-runtime smoke checks. |
-| `cyclaw-command-audit` | Privacy-safe audit-log analysis. |
-| `cyclaw-command-check-soul` | Read-only soul presence, hash, readability, and drift checks. |
-| `otel-hardening` | Re-verify telemetry-kill wiring and dependency phone-home controls. |
-| `refactor` | Behavior-preserving structural or measured performance work. |
-| `cyclaw-optimize` | Evidence-backed improvements; implementation and draft publication follow user scope. |
+| Root `AGENTS.md` | Automatically discovered repository instructions in Codex's documented instruction chain |
+| `.agents/skills/` | Discoverable skill metadata; invoke `$name` explicitly or allow relevance-based selection |
+| `Codex_instructions.md` | Reference linked by root guidance; its arbitrary filename is not automatically loaded |
+| `routines/` | Optional Markdown playbooks, read when relevant; not automatically run |
+| `checklists/pre-pr.md` | Optional handoff reminder |
+| `prompts/` | The three trusted prompt files consumed by GitHub Actions; preserve their security/output contracts |
 
-### Routines
+Keep Markdown workflows in `routines/`. Codex `.rules` files are a separate
+Starlark command-approval format under an active trusted config layer's `rules/`
+directory. No such command rules ship here; renaming a Markdown playbook to a
+rule does not enforce it. Do not add permissive command rules for convenience.
 
-| Routine | Use it for |
-| --- | --- |
-| `first-pass-repo-review.md` | Orient in a subsystem or verify setup. |
-| `bugfix.md` | Reproduce, diagnose, fix, and verify a defect. |
-| `feature.md` | Add behavior while preserving invariants and optional-layer isolation. |
-| `refactor.md` | Keep behavior stable while simplifying a narrow area. |
-| `test-and-verify.md` | Select and report targeted, CI-parity, or static checks. |
-| `pr-review.md` | Review a PR or diff with findings first. |
-| `security-review.md` | Review trust boundaries, secrets, routing, dependencies, and optional layers. |
+Official references: [skills](https://developers.openai.com/codex/skills),
+[AGENTS discovery](https://developers.openai.com/codex/guides/agents-md),
+[command rules](https://developers.openai.com/codex/rules).
 
-## Current-source discipline
+## Skill inventory
 
-Fetch and inspect current code before reusing a skill's observations; see
-`$cyclaw-project-guidance` for the source map instead of copying a dated
-runtime snapshot here. Validate actual commands and paths, not just the
-presence of a skill name in the table above.
+Implicit means Codex may select the skill when relevant. Explicit means
+`agents/openai.yaml` sets `allow_implicit_invocation: false`; `$name` still works.
+Neither setting grants permission to install, mutate operator state, publish,
+merge or spend tokens. Root instructions may explicitly direct a skill read.
 
-All 22 skill entry points carry UI metadata. The directory `Cyclaw-Sandbox`
-keeps its historical spelling; its invocation name is `cyclaw-sandbox`, and
-the optimization skill is `cyclaw-optimize`. Preserve existing invocation
-policy when updating metadata. The dependency workflow distinguishes
-`requirements.txt` (runtime) from `requirements-test.txt` (tests), dry-runs
-the actual pip commands, and keeps plain Torch constraints on macOS. The
-Codex doc-sync entry points wrap the canonical `.claude/skills/doc-sync/`
-checker rather than reimplementing its parser. Historical sandbox reports
-describe prior runs only; `NEW_SKILL.md` redirects to the current sandbox skill.
+| Skill | Purpose | Selection |
+| --- | --- | --- |
+| `verification-specialist` | Independent executed acceptance and adversarial probes | Implicit |
+| `refactor` | Scoped behavior-preserving structural cleanup | Implicit |
+| `dep-guard` | Offline dependency/lock contract checks | Implicit |
+| `doc-sync` | Mechanical drift plus manual source reconciliation | Implicit |
+| `invariant-guard` | I1–I6 structural checks plus relevant behavior | Implicit |
+| `injection-redteam` | Synthetic sanitizer regressions/false positives | Implicit |
+| `otel-hardening` | Telemetry suppression/import/child-environment checks | Implicit |
+| `cyclaw-command-status` | Read-only configured readiness | Implicit |
+| `cyclaw-command-run` | Focused existing-environment smoke | Implicit |
+| `cyclaw-command-audit` | Privacy-safe audit/spend evidence | Implicit |
+| `cyclaw-command-check-soul` | Soul integrity without initialization/adoption | Implicit |
+| `cyclaw-advisor` | Read-only architecture/platform/source navigation | Explicit |
+| `verify-dep` | Selected install-profile and supply-chain acceptance | Explicit |
+| `cyclaw-run-cyclaw` | Requested installation/indexing/startup | Explicit |
+| `cyclaw-sandbox` | Requested full audit across separate evidence lanes | Explicit |
+| `cyclaw-sandbox-test` | Legacy socket-mock runner in a disposable prepared copy | Explicit |
+| `cyclaw-optimize` | Bounded improvement audit/implementation | Explicit |
+| `add-comment` | Comment-only WHY pass | Explicit |
+| `fable-protocol` | Optional consequential-decision evidence pass | Explicit |
+| `chris-codex` | Public-safe continuity; no personal-copy synchronization | Explicit |
 
-## Prompt Templates
+`architecture-refactor` was consolidated into `refactor`.
+`cyclaw-project-guidance` was consolidated into `AGENTS.md` and the advisor's
+source map. Unused generic issue-triage/plan/review-diff/release-note prompt copies
+and duplicate pre-commit/risk checklists were removed; the task routines and one
+handoff checklist retain the useful workflow distinctions.
 
-- `prompts/issue-triage.md`
-- `prompts/implementation-plan.md`
-- `prompts/review-diff.md`
-- `prompts/release-notes.md`
-- `prompts/pr-agent.md`
-- `prompts/pr-review.md`
-- `prompts/pr-apply-fixes.md`
+Consider retiring `cyclaw-sandbox-test` after replacing its legacy install,
+fixed-port/readiness and inherited-environment assumptions and updating caller
+tests. It remains explicit-only so existing contracts are not silently lost.
+The larger sandbox's lifecycle scripts are also explicit legacy tools, not a
+routine acceptance gate. Historical run reports live under `docs/audits/`.
 
-Copy these into a Codex prompt and fill in the placeholders. Each template references `AGENTS.md` so the agent starts from repo-specific guidance.
+## Routines, prompts and validation
 
-## Checklists
+Use routines for [orientation](routines/first-pass-repo-review.md),
+[bugfixes](routines/bugfix.md), [features](routines/feature.md),
+[refactoring](routines/refactor.md), [verification](routines/test-and-verify.md),
+[PR review](routines/pr-review.md) and [security](routines/security-review.md).
 
-- `checklists/pre-commit.md`
-- `checklists/pre-pr.md`
-- `checklists/regression-risk.md`
+The active [advisory PR agent](prompts/pr-agent.md),
+[structured reviewer](prompts/pr-review.md) and
+[owner-approved apply-fixes agent](prompts/pr-apply-fixes.md) differ in candidate
+access, privilege and output. They are necessary workflow inputs; do not merge
+them into a generic prompt or allow a privileged reviewer to execute candidates.
 
-Use checklists as lightweight reminders, not as a substitute for reading the relevant code and CI workflows.
+After guidance/resource changes run:
 
-## PR Comment Automation And Git Hooks
+```text
+python scripts/check_codex_skills.py
+python .claude/skills/doc-sync/doc_sync.py
+git diff --check
+```
 
-- Advisory PR comments route through `.github/workflows/codex.yml`; they are
-  read-only review assistance, not merge approval.
-- `.github/workflows/codex-apply-fixes.yml` is the owner-gated write path. An
-  owner `@codex apply fixes <full 40-character head SHA>` or
-  `@openai-code-agent apply fixes <full 40-character head SHA>` conversation trigger binds
-  to a qualifying bot comment; a reply uses its exact parent, while the
-  issue-comment fallback uses the most recent prior qualifying bot comment.
-  Inspect the generated diff and its CI before merging.
-- Install the tracked per-clone hooks with `bash scripts/ensure-githooks.sh`
-  (idempotent; also the line for the Codex environment setup script).
-  The pre-push hook enforces branch naming and fresh-`origin/main` ancestry for
-  feature branches. It does not replace the multi-PR mapping, isolated trial
-  merge, or post-green-CI rebase gates in `Codex_instructions.md`.
-
-## Adding New Routines
-
-1. Put task-specific playbooks in `.codex/routines/`.
-2. Keep repo-wide rules in `AGENTS.md` instead of duplicating them.
-3. Link to canonical docs rather than copying long sections.
-4. Include when to use it, inputs, workflow, verification, and final response expectations.
-5. Keep routine names lower-case kebab-case.
-
-Do not add compatibility copies of `.codex/Codex_instructions.md` or snapshots of
-canonical repo guidance. They drift; link to the live source instead.
-
-## Scratch Work
-
-Generated scratch work, logs, local notes, and temporary outputs should not be committed unless the maintainer explicitly requests them. Use ignored runtime locations or local scratch space for experiments, then summarize results in the final response.
-
-Candidate patches are limited to 1 MiB before upload and after download. The
-publisher creates exactly one child of the approved commit, then pushes with an
-exact expected-SHA lease. A changed remote head requires a new approval, including
-a concurrent rewind or deletion; no unapproved history replacement is allowed.
+Inspect references/callers and execute changed helper contracts; validate shell
+syntax and Python syntax. Use realistic positive, adjacent negative and explicit
+invocation scenarios for complex skills. Metadata validation cannot prove an
+LLM will choose or follow a workflow. The Codex Skills workflow validates metadata
+and helper syntax without repeating the product's full suite/bootstrap; existing
+product/checker workflows retain their acceptance gates.

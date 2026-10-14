@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / ".codex" / "skills" / "cyclaw-sandbox-test" / "scripts"
+SCRIPTS = ROOT / ".agents" / "skills" / "cyclaw-sandbox-test" / "scripts"
 
 
 def _load_script(filename: str):
@@ -154,7 +154,7 @@ def test_runner_without_ref_keeps_branch_clone(tmp_path: Path, monkeypatch: pyte
 
 @pytest.mark.parametrize("script", [
     ".claude/skills/CyClaw-Sandbox/terminal_emulation.py",
-    ".codex/skills/Cyclaw-Sandbox/terminal_emulation.py",
+    ".agents/skills/cyclaw-sandbox/terminal_emulation.py",
 ])
 @pytest.mark.parametrize(
     ("health", "status", "expected_timeout"),

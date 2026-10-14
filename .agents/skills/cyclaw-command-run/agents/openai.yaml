@@ -1,0 +1,6 @@
+interface:
+  display_name: "Smoke-Test CyClaw"
+  short_description: "Focused CyClaw runtime smoke checks"
+  default_prompt: "Use $cyclaw-command-run to run the smallest relevant smoke check against an existing CyClaw checkout or server."
+policy:
+  allow_implicit_invocation: true
