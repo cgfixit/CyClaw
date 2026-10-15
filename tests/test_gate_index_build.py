@@ -14,6 +14,7 @@ corrupts the index; a non-loopback caller must not be able to start one).
 
 import logging
 import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -145,6 +146,7 @@ class TestIndexBuildGates:
         async def record(event):
             audited.append(event)
 
+        gate._index_build_cross_site_audit_last.clear()
         with patch.object(gate, "_audit", record):
             resp = idle_client.post("/index/build", headers={"Origin": "https://evil.example"})
         assert resp.status_code == 403
@@ -172,12 +174,46 @@ class TestIndexBuildGates:
         async def record(event):
             audited.append(event)
 
+        gate._index_build_cross_site_audit_last.clear()
         with patch.object(gate, "_audit", record), patch.object(gate, "_run_index_build") as run:
             resp = client.post("/index/build", headers=headers)
         assert resp.status_code == 403
         assert resp.json()["detail"]["code"] == "CROSS_SITE_BLOCKED"
         assert audited == [{"event": "index_build_rejected", "reason": "cross_site", "ip": peer}]
         run.assert_not_called()
+
+    def test_cross_site_refusal_audit_is_throttled_per_ip(self):
+        """Any page the operator visits can loop bodyless cross-site POSTs at
+        the loopback port, so the refusal audit is capped like
+        rate_limit_exceeded: one line per IP per window, every request still
+        refused. A second IP gets its own line, and the map is separate from
+        the rate_limit_exceeded one, so neither event mutes the other."""
+        audited: list[dict] = []
+
+        async def record(event):
+            audited.append(event)
+
+        gate._index_build_cross_site_audit_last.clear()
+        gate._rate_limit_audit_last.clear()
+        gate._rate_limit_audit_last["127.0.0.12"] = time.monotonic()  # DevSkim: ignore DS162092
+        clients = [
+            TestClient(
+                gate.app,
+                base_url="http://localhost",  # DevSkim: ignore DS162092,DS137138 - test loopback host
+                client=(peer, 51234),
+            )
+            for peer in ("127.0.0.12", "127.0.0.13")  # DevSkim: ignore DS162092
+        ]
+        with patch.object(gate, "_audit", record), patch.object(gate, "_run_index_build") as run:
+            codes = [c.post("/index/build", headers={"Origin": "https://evil.example"}).status_code
+                     for c in (clients[0], clients[0], clients[0], clients[1])]
+        assert codes == [403, 403, 403, 403]
+        assert audited == [
+            {"event": "index_build_rejected", "reason": "cross_site", "ip": "127.0.0.12"},
+            {"event": "index_build_rejected", "reason": "cross_site", "ip": "127.0.0.13"},
+        ]
+        run.assert_not_called()
+        gate._rate_limit_audit_last.clear()
 
     @pytest.mark.parametrize("origin", [
         "http://[evil",               # urlparse() itself raises  # DevSkim: ignore DS137138 - malformed Origin rejection fixture
