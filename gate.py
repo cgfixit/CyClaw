@@ -930,7 +930,22 @@ def _run_index_build() -> None:
             _index_build["finished_at"] = time.monotonic()
 
 
-@app.post("/index/build", dependencies=[Depends(_enforce_rate_limit)])
+async def _enforce_index_build_rate_limit(request: Request) -> None:
+    """_enforce_rate_limit for /index/build, auditing a cross-site refusal first.
+
+    _enforce_rate_limit rejects a cross-site request (403 CROSS_SITE_BLOCKED)
+    before the handler runs, so the handler's own audited refusals never see
+    it, and a cross-site header also hid a non-loopback or proxied caller from
+    the audit log. The owner chose auditability over throttling here: the line
+    is written before the limiter, one per refused request, unthrottled.
+    """
+    if _looks_cross_site(request):
+        client_host = request.client.host if request.client else ""
+        await _audit({"event": "index_build_rejected", "reason": "cross_site", "ip": client_host})
+    await _enforce_rate_limit(request)
+
+
+@app.post("/index/build", dependencies=[Depends(_enforce_index_build_rate_limit)])
 async def index_build(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
@@ -961,12 +976,6 @@ async def index_build(
             status_code=403,
             detail={"error": "Index builds must be started from this machine",
                     "code": "INDEX_BUILD_LOOPBACK_ONLY"},
-        )
-    if _looks_cross_site(request):
-        await _audit({"event": "index_build_rejected", "reason": "cross_site", "ip": client_host})
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "Cross-site request rejected", "code": "CROSS_SITE_BLOCKED"},
         )
     if os.environ.get("CYCLAW_API_KEY", ""):
         try:

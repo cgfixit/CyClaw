@@ -140,9 +140,44 @@ class TestIndexBuildGates:
         """A bodyless cross-origin POST is a 'simple request': no preflight, so
         it REACHES the handler and its side effect happens. Same reasoning as
         _looks_cross_site's own docstring."""
-        resp = idle_client.post("/index/build", headers={"Origin": "https://evil.example"})
+        audited: list[dict] = []
+
+        async def record(event):
+            audited.append(event)
+
+        with patch.object(gate, "_audit", record):
+            resp = idle_client.post("/index/build", headers={"Origin": "https://evil.example"})
         assert resp.status_code == 403
         assert resp.json()["detail"]["code"] == "CROSS_SITE_BLOCKED"
+        assert audited == [{"event": "index_build_rejected", "reason": "cross_site", "ip": "127.0.0.1"}]
+
+    @pytest.mark.parametrize("peer, headers", [
+        ("203.0.113.8", {"Origin": "https://evil.example"}),  # DevSkim: ignore DS137138 - TEST-NET-3
+        ("127.0.0.10", {"Origin": "https://evil.example", "X-Forwarded-For": "198.51.100.9"}),  # DevSkim: ignore DS162092
+    ])
+    def test_cross_site_refusal_is_audited_even_from_a_refused_peer(self, peer, headers):
+        """The shared limiter dependency refuses cross-site before the handler,
+        so a cross-site header used to hide a non-loopback or proxied caller
+        from the audit log entirely: 403, no index_build_rejected line. The
+        refusal is now audited before the limiter, unthrottled (owner decision:
+        auditable even when not preventable). Own peer IPs keep the shared
+        127.0.0.1 limiter bucket untouched."""
+        client = TestClient(
+            gate.app,
+            base_url="http://localhost",  # DevSkim: ignore DS162092,DS137138 - test loopback host
+            client=(peer, 51234),
+        )
+        audited: list[dict] = []
+
+        async def record(event):
+            audited.append(event)
+
+        with patch.object(gate, "_audit", record), patch.object(gate, "_run_index_build") as run:
+            resp = client.post("/index/build", headers=headers)
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["code"] == "CROSS_SITE_BLOCKED"
+        assert audited == [{"event": "index_build_rejected", "reason": "cross_site", "ip": peer}]
+        run.assert_not_called()
 
     @pytest.mark.parametrize("origin", [
         "http://[evil",               # urlparse() itself raises  # DevSkim: ignore DS137138 - malformed Origin rejection fixture
@@ -196,8 +231,35 @@ class TestIndexBuildGates:
         }
         build = gate._dependant_call_names(routes[("/index/build", "POST")].dependant)
         status = gate._dependant_call_names(routes[("/index/status", "GET")].dependant)
-        assert "_enforce_rate_limit" in build
-        assert "_enforce_rate_limit" not in status
+        # /index/build's dependency audits a cross-site refusal, then awaits
+        # _enforce_rate_limit itself (a call, not a nested Depends).
+        assert "_enforce_index_build_rate_limit" in build
+        assert not {"_enforce_rate_limit", "_enforce_index_build_rate_limit"} & status
+
+    def test_index_build_dependency_still_enforces_the_limiter(self):
+        """The wrapper must keep /index/build rate-limited, not just audit.
+        _audit is patched so the 429 writes nothing to the repo's audit.jsonl."""
+        client = TestClient(
+            gate.app,
+            base_url="http://localhost",  # DevSkim: ignore DS162092,DS137138 - test loopback host
+            client=("127.0.0.11", 51234),  # DevSkim: ignore DS162092,DS137138
+        )
+
+        async def spent(_ip):
+            return False
+
+        async def record(_event):
+            return None
+
+        with (
+            patch.object(gate, "_check_rate_limit_async", spent),
+            patch.object(gate, "_audit", record),
+            patch.object(gate, "_run_index_build") as run,
+        ):
+            resp = client.post("/index/build")
+        assert resp.status_code == 429
+        assert resp.json()["detail"]["code"] == "RATE_LIMIT"
+        run.assert_not_called()
 
     def test_second_concurrent_build_is_refused_with_409(self, idle_client):
         """Two builds would write the same ChromaDB collection and the same
