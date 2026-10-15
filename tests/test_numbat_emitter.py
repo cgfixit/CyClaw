@@ -476,12 +476,15 @@ def test_rollover_does_not_clobber_the_archive_when_another_writer_wins(tmp_path
 
     original_acquire = numbat_emitter._acquire_rollover_lock
     gate = threading.Event()
+    parked = threading.Event()
+    released: list[bool] = []
 
     def stalling_acquire(lock_path):
         # The loser stat'd the old oversized file, then stalls before the lock --
         # exactly the window that destroyed the archive.
         if threading.current_thread().name == "loser":
-            gate.wait(5)
+            parked.set()
+            released.append(gate.wait(5))
         return original_acquire(lock_path)
 
     def winner() -> None:
@@ -495,12 +498,18 @@ def test_rollover_does_not_clobber_the_archive_when_another_writer_wins(tmp_path
     with mock.patch.object(numbat_emitter, "_acquire_rollover_lock", stalling_acquire):
         t_lose = threading.Thread(target=loser, name="loser")
         t_lose.start()
-        time.sleep(0.05)  # let the loser get past its size check first
+        # Start the winner only once the loser has measured the oversized file
+        # and parked before the lock. A sleep here let a late-scheduled loser
+        # stat the winner's fresh tiny file instead and return early, so the
+        # test passed even with the under-lock inode re-check deleted.
+        assert parked.wait(5), "loser never reached the rollover lock"
         t_win = threading.Thread(target=winner, name="winner")
         t_win.start()
         t_win.join(timeout=10)
         t_lose.join(timeout=10)
 
+    assert not t_win.is_alive() and not t_lose.is_alive()
+    assert released == [True], "loser must have waited for the winner's rollover"
     assert archive.read_text(encoding="utf-8").count("ARCHIVE-LINE") == 500
     assert live.read_text(encoding="utf-8") == "tiny-new-line\n"
     assert not live.with_name(live.name + ".rollover.lock").exists()
