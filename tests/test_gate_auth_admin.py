@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -273,3 +275,41 @@ class TestAdminLifecycle:
             assert r.status_code == 403
             assert r.json()["detail"]["code"] == "CSRF_TOKEN_INVALID"
         assert not manager.get_user("bob").disabled
+
+
+class TestUserLookupsLeaveTheEventLoop:
+    def test_no_async_handler_runs_get_user_on_the_event_loop(self, manager):
+        """get_user takes the manager's connection lock, which a worker can hold
+        through a BEGIN IMMEDIATE busy wait. Called from an async handler it
+        stalled every route on the server for that long, so each lookup must
+        run in a worker thread (no running event loop there)."""
+        manager.create_user("root", _GOOD, role="admin")
+        manager.create_user("bob", _GOOD, role="operator")
+        on_loop: list[str] = []
+        real_get_user = manager.get_user
+
+        def spy(username):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                on_loop.append(username)
+            return real_get_user(username)
+
+        manager.get_user = spy
+        client = _client(manager)
+        _login(client, "root", _GOOD)
+        whoami = client.get("/auth/whoami")
+        assert whoami.status_code == 200
+        h = {"x-cyclaw-csrf": whoami.json()["csrf_token"]}
+        for r in (
+            client.get("/auth/users"),
+            client.post("/auth/users", json={"username": "carol", "password": _GOOD, "role": "operator"}, headers=h),
+            client.post("/auth/users/bob/password", json={"password": _GOOD + "!"}, headers=h),
+            client.post("/auth/users/bob/disable", headers=h),
+            client.post("/auth/users/bob/enable", headers=h),
+            client.get("/auth/audit/summary"),
+        ):
+            assert r.status_code == 200, r.text
+        assert on_loop == []
