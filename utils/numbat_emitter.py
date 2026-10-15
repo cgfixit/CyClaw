@@ -261,12 +261,13 @@ def redact_url_for_numbat(url: str | None) -> str | None:
     """``scheme://host[:port]`` of ``url``; None when it has no usable host.
 
     The pre-action hook records the provider's configured ``base_url``, and
-    utils/endpoint_trust.py pins only the parsed hostname, so a URL like
-    ``https://token@api.x.ai/v1`` or ``https://api.x.ai/proxy/<token>/v1``
-    passes it. The Numbat stream is a persistent file, so everything past
-    the origin -- userinfo, path, query and fragment, any of which can carry
-    a credential -- stays out of it. The host is what endpoint_trust
-    enforces, so it is what a rule can usefully key on.
+    utils/endpoint_trust.py pins the hostname, scheme and port, but nothing
+    else, so a URL like ``https://token@api.x.ai/v1`` or
+    ``https://api.x.ai/proxy/<token>/v1`` passes it. The Numbat stream is a
+    persistent file, so everything past the origin -- userinfo, path, query
+    and fragment, any of which can carry a credential -- stays out of it. The
+    origin is what endpoint_trust enforces, so it is what a rule can usefully
+    key on.
     """
     if not isinstance(url, str) or not url:
         return None
