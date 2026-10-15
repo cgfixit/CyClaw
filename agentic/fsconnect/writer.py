@@ -23,10 +23,15 @@ After the gates, two capacity/rate refusals may still fire (never relaxing a gat
 bandwidth). All refusals raise ``FsWriteRefused`` (exit 4) and are audited.
 
 Two-phase audit (Phase 2, I3 hardening): a ``fsconnect_write_intent`` event is written
-*before* the mutation and a ``fsconnect_write_applied`` event *after*, so a crash
-between them leaves a detectable orphaned intent rather than an unaudited mutation.
-Every event (intent/applied/refused/dryrun) carries a plain-language ``rule_applied``
-string so an auditor can reconstruct *why* each op was allowed or denied.
+*before* the mutation and exactly one terminal event sharing its ``intent_id`` *after*:
+``fsconnect_write_applied`` on success, or ``fsconnect_write_failed`` when the mutation
+raised (an overlong path, an overwrite onto a directory, a full disk). The failed event
+carries the op and the error code/class only -- never file contents -- and the error is
+re-raised unchanged, so CLI exit codes stay 0/2/3/4. An intent with NO terminal event
+therefore still means a crash or interruption mid-write (process killed, power loss,
+KeyboardInterrupt) -- the detectable signal -- and an ordinary failure no longer
+masquerades as one. Every intent/applied/refused/dryrun event carries a plain-language
+``rule_applied`` string so an auditor can reconstruct *why* each op was allowed or denied.
 
 ``FS_WRITE_HARD_DISABLE`` is a module-level, code-level kill switch (default False):
 flip it to True for the most locked-down sites to force dry-run regardless of config.
@@ -40,8 +45,8 @@ import hashlib
 import os
 import time
 import uuid
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
@@ -49,7 +54,7 @@ from agentic.fsconnect import quota, trash
 from agentic.fsconnect.client import build_injection_patterns
 from agentic.fsconnect.config import FsConnectConfig
 from agentic.fsconnect.pathsafe import SafeRoot, ScopedRoots, split_components
-from utils.errors import FsConnectError, FsConnectRuntimeError, FsPathError, FsWriteRefused
+from utils.errors import FsConnectError, FsConnectRuntimeError, FsPathError, FsWriteRefused, RAGError
 from utils.logger import audit_log
 from utils.ratelimit import RateLimiter
 
@@ -437,6 +442,42 @@ class FsWriter:
                    "path": path, "intent_id": intent_id, "rule_applied": rule,
                    "injection_flag_count": len(flags)}, self.config_path)
 
+    def _audit_failed(self, op: str, reason: str, intent_id: str, *, error_code: str,
+                      error_type: str, errno: int | None = None) -> None:
+        # The terminal pair of an intent whose mutation did not happen. Only the
+        # error's code and class go in -- an exception message can quote a path
+        # or OS text, and the intent event already recorded the path.
+        event: dict = {"event": "fsconnect_write_failed", "op": op, "reason": reason,
+                       "intent_id": intent_id, "error_code": error_code, "error_type": error_type,
+                       "rule_applied": "failed: allowed by every gate, but the filesystem "
+                                       "operation raised; nothing was applied"}
+        if errno is not None:
+            event["errno"] = errno
+        audit_log(event, self.config_path)
+
+    @contextmanager
+    def _terminal_on_failure(self, op: str, reason: str, intent_id: str) -> Iterator[None]:
+        """Close an open intent with ``fsconnect_write_failed`` if the body raises, then re-raise.
+
+        Exception, not BaseException: a KeyboardInterrupt/SystemExit mid-write is a
+        genuine interruption and must keep leaving the orphaned intent, the crash
+        signal the module docstring defines.
+        """
+        try:
+            yield
+        except Exception as exc:
+            details = exc.details if isinstance(exc, RAGError) else {}
+            errno = details.get("errno")
+            if errno is None and isinstance(exc, OSError):
+                errno = exc.errno
+            self._audit_failed(
+                op, reason, intent_id,
+                error_code=exc.code if isinstance(exc, RAGError) else "UNTYPED_ERROR",
+                error_type=type(exc).__name__,
+                errno=errno if isinstance(errno, int) else None,
+            )
+            raise
+
     def _allow_rule(self, *, destructive: bool, qnote: str, rnote: str,
                     flags: list[str], extra_parts: list[str] | None = None) -> str:
         parts = ["writes_enabled", "human reason"]
@@ -483,7 +524,8 @@ class FsWriter:
         intent_id = uuid.uuid4().hex
         self._audit_intent("fs_write", reason, target, intent_id,
                            {"bytes": len(data), "overwrite": overwrite})
-        result = self._roots.write_bytes(target, data, root=root, overwrite=overwrite)
+        with self._terminal_on_failure("fs_write", reason, intent_id):
+            result = self._roots.write_bytes(target, data, root=root, overwrite=overwrite)
         self._update_ledger(sr, d_bytes, d_files, ledger=qledger)
         rule = self._allow_rule(destructive=overwrite, qnote=qnote, rnote=rnote, flags=flags)
         self._audit_applied("fs_write", reason, result, flags, intent_id, rule)
@@ -510,7 +552,8 @@ class FsWriter:
         rnote = self._check_rate("fs_append", sr)
         intent_id = uuid.uuid4().hex
         self._audit_intent("fs_append", reason, target, intent_id, {"bytes": len(data)})
-        result = self._roots.append_bytes(target, data, root=root)
+        with self._terminal_on_failure("fs_append", reason, intent_id):
+            result = self._roots.append_bytes(target, data, root=root)
         self._update_ledger(sr, d_bytes, d_files, ledger=qledger)
         rule = self._allow_rule(destructive=False, qnote=qnote, rnote=rnote, flags=flags)
         self._audit_applied("fs_append", reason, result, flags, intent_id, rule)
@@ -531,7 +574,8 @@ class FsWriter:
         rnote = self._check_rate("fs_mkdir", sr)
         intent_id = uuid.uuid4().hex
         self._audit_intent("fs_mkdir", reason, target, intent_id)
-        result = self._roots.mkdir(target, root=root)
+        with self._terminal_on_failure("fs_mkdir", reason, intent_id):
+            result = self._roots.mkdir(target, root=root)
         rule = self._allow_rule(destructive=False, qnote=qnote, rnote=rnote, flags=[])
         self._audit_applied("fs_mkdir", reason, result, [], intent_id, rule)
         return {"status": "applied", "op": "fs_mkdir", "executed": True, "reason": reason,
@@ -553,7 +597,8 @@ class FsWriter:
         rnote = self._check_rate("fs_move", sr)
         intent_id = uuid.uuid4().hex
         self._audit_intent("fs_move", reason, dst, intent_id, {"from": src})
-        result = self._roots.move(src, dst, root=root, overwrite=overwrite)
+        with self._terminal_on_failure("fs_move", reason, intent_id):
+            result = self._roots.move(src, dst, root=root, overwrite=overwrite)
         rule = self._allow_rule(destructive=True, qnote=qnote, rnote=rnote, flags=[])
         self._audit_applied("fs_move", reason, result, [], intent_id, rule)
         return {"status": "applied", "op": "fs_move", "executed": True, "reason": reason,
@@ -598,12 +643,15 @@ class FsWriter:
         rnote = self._check_rate("fs_delete", sr)
         intent_id = uuid.uuid4().hex
         self._audit_intent("fs_delete", reason, target, intent_id, {"mode": mode})
+        with self._terminal_on_failure("fs_delete", reason, intent_id):
+            if purge:
+                result = self._purge(target, kind, root)
+            else:
+                result = self._to_trash(target, kind, size, reason, now, root)
         if purge:
-            result = self._purge(target, kind, root)
             self._update_ledger(sr, d_bytes, d_files, ledger=qledger)
             extra_parts = ["purge (allow_hard_delete)"]
         else:
-            result = self._to_trash(target, kind, size, reason, now, root)
             extra_parts = ["trash-mode (allow_hard_delete not required)"]
         rule = self._allow_rule(destructive=True, qnote=qnote, rnote=rnote, flags=[],
                                 extra_parts=extra_parts)
@@ -691,12 +739,15 @@ class FsWriter:
         for e in targets:
             intent_id = uuid.uuid4().hex
             self._audit_intent("trash_empty", reason, e.name, intent_id, {"trash_entry": e.name})
-            reclaimed, had_payload = self._purge_trash_entry(sr, e, root)
+            with self._terminal_on_failure("trash_empty", reason, intent_id):
+                reclaimed, had_payload = self._purge_trash_entry(sr, e, root)
             if not reclaimed:
-                # Purge silently failed (e.g. a permission error mid-purge) -- no
-                # applied event, no ledger credit. The intent event above still
-                # records the attempt; an auditor sees intent with no matching
-                # applied and knows this entry was not actually removed.
+                # Purge failed (e.g. a permission error mid-purge) and was swallowed
+                # so the loop can go on to the next entry -- no applied event, no
+                # ledger credit. The failed event closes the intent so the entry
+                # reads as "not removed", not as a crash mid-purge.
+                self._audit_failed("trash_empty", reason, intent_id,
+                                   error_code="TRASH_PURGE_INCOMPLETE", error_type="FsConnectError")
                 continue
             rule = ("allowed: writes_enabled + human reason + confirm(destructive) + "
                     f"trash-empty (allow_hard_delete) + {rnote}")
@@ -819,7 +870,8 @@ class FsWriter:
         self._audit_intent("trash_restore", reason, te.original_path, intent_id,
                            {"trash_entry": entry})
         payload = f"{trash.TRASH_DIR}/{entry}"
-        result = self._roots.move(payload, te.original_path, root=root, overwrite=overwrite)
+        with self._terminal_on_failure("trash_restore", reason, intent_id):
+            result = self._roots.move(payload, te.original_path, root=root, overwrite=overwrite)
         with suppress(FsConnectError):
             self._roots.unlink(f"{payload}{trash.META_SUFFIX}", root=root, sha_max_bytes=0)
         rule = ("allowed: writes_enabled + human reason + confirm(destructive) + "

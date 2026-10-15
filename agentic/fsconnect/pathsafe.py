@@ -1118,9 +1118,9 @@ class ScopedRoots:
             # same way the os.open three lines above already does. Without this
             # the commonest case -- os.replace onto an existing DIRECTORY, i.e.
             # one mistyped --path -- escaped as a raw IsADirectoryError, which is
-            # outside the 0/2/3/4 exit contract AND left an
-            # fsconnect_write_intent with no matching _applied, the exact shape
-            # writer.py's docstring defines as the crash/tamper signal.
+            # outside the 0/2/3/4 exit contract. Typing it fixes only the exit
+            # code: the audit pairing (intent closed by fsconnect_write_failed, not
+            # left orphaned) is writer.py's _terminal_on_failure, for any error.
             # BaseException is kept so KeyboardInterrupt still unlinks the temp.
             if isinstance(exc, OSError):
                 raise FsConnectRuntimeError(
