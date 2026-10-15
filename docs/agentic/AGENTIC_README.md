@@ -151,11 +151,10 @@ commit, gated behind a separate human decision
 pushes or opens a GitHub PR on its own: explicit push uses
 `RepoWorkspaceTools.push_branch`; draft publication uses `agentic/writer.py`
 (§5), whose code gate is armed but whose master switch ships off. The
-`real-repo-run*` subcommands are CLI-only:
-`utils/ops_runner.py` accepts run/status/decide/push/publish/discard, but not
-`real-repo-run-plan`. `OpsAgenticRequest.action` in `schemas/api.py` accepts
-none of these coding-loop actions, so `POST /ops/agentic` rejects them with
-422.
+`real-repo-run*` subcommands are CLI-only: `POST /ops/agentic` accepts only
+`status`/`test`/`context`/`propose-skill`/`apply-skill`
+(`OpsAgenticRequest.action` in `schemas/api.py` answers 422 for anything
+else), and `utils/ops_runner.py` allowlists the same five.
 
 Workspace Git calls disable hooks and fsmonitor and reject unexpected local
 Git config entries or values against a post-clone snapshot. A separate signed

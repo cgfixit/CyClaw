@@ -67,9 +67,8 @@ function itself does not choose or gate the provider; it accepts anything
 satisfying ``ProposerClient`` and calls only ``invoke``/``close`` on it.
 
 Wired to ``agentic.cli``'s ``real-repo-run``/``real-repo-run-status``/
-``real-repo-run-decide`` subcommands. ``utils.ops_runner`` carries the same
-actions as a CLI-subprocess shim (never a direct import, per I6), but no HTTP
-route accepts them today, so the pipeline is CLI-only.
+``real-repo-run-decide`` subcommands. No HTTP route or ``utils.ops_runner``
+action reaches them, so the pipeline is CLI-only.
 ``cmd_real_repo_run_decide``'s own ``--push``/``--publish`` flags now call
 ``RepoWorkspaceTools.push_branch``/``agentic.writer.execute_write`` (this
 module itself still does not -- that orchestration lives in ``agentic.cli``,

@@ -89,7 +89,7 @@ def _require_cloud_key(provider: str) -> str:
     key = (os.environ.get(env) or "").strip()
     if not key:
         # The env var's NAME, never its value -- an AgenticError's details reach
-        # the audit log and, via ops_runner, a browser.
+        # the audit log.
         raise AgenticError(f"{env} not set", details={"required_env": env, "provider": provider})
     return key
 
@@ -104,12 +104,12 @@ def build_chat_model(
     ``http_client`` is Grok/ChatXAI only (xAI usage capture); ignored otherwise.
 
     Every model is built with ``max_retries=0``. chat_client._invoke_with_retry
-    is the SINGLE retry policy for this path, and it is budgeted against
-    ops_runner's per-iteration planner_timeout_sec. Leaving the SDK default in
+    is the SINGLE retry policy for this path, and it is budgeted against the
+    per-iteration planner_timeout_sec. Leaving the SDK default in
     place (2 for the OpenAI/xAI/Anthropic clients) would nest that cycle inside
     the outer loop -- up to 3x3 = 9 requests and two levels of backoff for what
     the docs and tests describe as 3 attempts -- which can overrun the
-    iteration budget and get the whole run SIGKILLed at the cap.
+    iteration budget.
     """
     if not settings.is_cloud:
         try:

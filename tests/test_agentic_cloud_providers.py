@@ -381,8 +381,8 @@ def test_build_chat_model_disables_sdk_retries(
     The provider SDKs default to retrying (2 for the OpenAI/xAI/Anthropic
     clients). Left in place, that cycle nests inside _invoke_with_retry's three
     attempts -- up to nine requests and two levels of backoff for what the docs
-    describe as three -- which can overrun ops_runner's per-iteration
-    planner_timeout_sec and get the run SIGKILLed at the cap.
+    describe as three -- which can overrun the per-iteration
+    planner_timeout_sec budget.
     """
     import sys
     import types

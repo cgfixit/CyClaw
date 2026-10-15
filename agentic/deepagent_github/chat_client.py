@@ -79,10 +79,9 @@ _HTTP_USAGE: contextvars.ContextVar[dict[str, object] | None] = contextvars.Cont
 # HTTP 429/5xx are retried (2 extra attempts, bounded provider Retry-After
 # when present, otherwise 1s then 2s exponential backoff),
 # every other 4xx fails fast. Unlike the cloud clients in llm/client.py, a
-# TIMEOUT is deliberately NOT retried: utils/ops_runner budgets each loop
-# iteration at one planner_timeout_sec (720s shipped), so retrying a
-# timed-out call could burn up to 3x that inside a budget sized for 1x and
-# get the whole run SIGKILLed at the 3600s cap. Worst-case wall clock per
+# TIMEOUT is deliberately NOT retried: each loop iteration is budgeted at one
+# planner_timeout_sec (720s shipped), so retrying a timed-out call could burn
+# up to 3x that inside a budget sized for 1x. Worst-case wall clock per
 # call is therefore ~planner_timeout_sec (one full timeout, not retried) or
 # two fast-failing retryable errors plus at most 60s of bounded provider
 # backoff on top of the attempt that succeeds -- and that budget only holds
