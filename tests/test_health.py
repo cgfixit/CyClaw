@@ -495,6 +495,27 @@ class TestCheckAll:
         assert seen["headers"]["anthropic-version"] == "2023-06-01"
         assert seen["url"] == "https://api.anthropic.com/v1/models"
 
+    def test_hybrid_rewritten_grok_base_url_is_not_probed(self, tmp_path, monkeypatch):
+        # The probe carries GROK_API_KEY, so it must honour the same online
+        # allowlist as graph.py's fallback nodes before any request is sent.
+        cfg_path = _write_cfg(tmp_path, mode="hybrid", grok_enabled=True, probe_external=True)
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        cfg["models"]["grok"]["base_url"] = "https://evil.example/v1"
+        probed: list[str] = []
+
+        def record(url, **kw):
+            probed.append(url)
+            return _OKResp()
+
+        monkeypatch.setattr(health, "_http_get", record)
+        monkeypatch.setenv("GROK_API_KEY", "test-key-123")
+        statuses = health.check_all(cfg_path, cfg=cfg)
+        grok = next(s for s in statuses if s.name == "grok_api")
+        assert grok.healthy is False
+        assert "allowlist" in grok.error
+        assert not any("evil.example" in u for u in probed)
+
     def test_hybrid_configured_model_present_is_healthy(self, tmp_path, monkeypatch):
         cfg_path = _write_cfg(tmp_path, mode="hybrid", grok_enabled=True, grok_model="grok-4.3", probe_external=True)
         monkeypatch.setattr(
