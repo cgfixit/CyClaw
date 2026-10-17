@@ -36,7 +36,7 @@ from utils.logger import audit_log
 # invisible-character-strip utils/sanitizer.py's check_input already applies
 # before matching, and a second hand-rolled copy would only ever drift from
 # it, not improve on it.
-from utils.sanitizer import _normalize_for_match
+from utils.sanitizer import _match_probes
 
 logger = logging.getLogger("cyclaw.personality")
 
@@ -336,8 +336,7 @@ class PersonalityManager:
         """Return critical patterns that must not be written to soul.md."""
         # Preserve literal-pattern matches as well as Unicode probe matches.
         # The probe may remove marks or replace separator punctuation.
-        literal_probe = _normalize_for_match(text, fold_separators=False)
-        probe = _normalize_for_match(text)
+        literal_probe, probe = _match_probes(text)
         return [
             src for src, pat in self._enforced_patterns
             if pat.search(text) or pat.search(literal_probe) or pat.search(probe)
@@ -345,8 +344,7 @@ class PersonalityManager:
 
     def _scan_advisory(self, text: str) -> list[str]:
         """Return advisory patterns for human review (propose_evolution)."""
-        literal_probe = _normalize_for_match(text, fold_separators=False)
-        probe = _normalize_for_match(text)
+        literal_probe, probe = _match_probes(text)
         return [
             src for src, pat in self._advisory_patterns
             if pat.search(text) or pat.search(literal_probe) or pat.search(probe)
