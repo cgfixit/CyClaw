@@ -321,6 +321,26 @@ def test_reindex_exit_code_for_dry_run_is_zero_even_when_corpus_changed():
     assert reindex_exit_code_for(result, cfg) == 0
 
 
+@pytest.mark.parametrize(("aborted_for_safety", "expected"), [(False, 2), (True, 1)])
+def test_reindex_exit_code_for_failed_dry_run_is_not_zero(aborted_for_safety, expected):
+    """A failed --dry-run must report failure (1/2), never exit 0 or 10."""
+    cfg = _make_cfg(Path("/tmp"), reindex_on_change=True)
+    result = SyncResult(
+        success=False,
+        direction="dry-run",
+        started_at=0.0,
+        finished_at=0.0,
+        rclone_exit_code=1,
+        events=[],
+        errors=[],
+        log_path=None,
+        aborted_for_safety=aborted_for_safety,
+        dry_run=True,
+        corpus_changed=True,
+    )
+    assert reindex_exit_code_for(result, cfg) == expected
+
+
 # ---------------------------------------------------------------------------
 # Audit dicts -- "file" key, never "query", no secret fields
 # ---------------------------------------------------------------------------
