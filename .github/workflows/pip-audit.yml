@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 6 * * *'
   push:
+    # main only, like ci.yml. A PR branch is covered by pull_request below;
+    # without this filter each push to it ran the six-leg install matrix and
+    # both scans twice, because the push and PR runs use different refs and
+    # so different concurrency groups, and neither cancelled the other.
+    branches: [ main ]
     paths:
       - 'requirements.txt'
       - 'requirements-test.txt'
