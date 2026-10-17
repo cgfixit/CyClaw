@@ -41,7 +41,6 @@ from typing import Any
 from utils.child_environment import child_environment, configured_path_names
 from utils.logger import _get_config, redact_sensitive
 from utils.numbat_emitter import emit_numbat_command, redact_argv_for_numbat
-from utils.repo_paths import canonical_repo_relative_path
 
 # Repo root = parent of utils/. The CLIs run as ``python -m sync.cli`` /
 # ``agentic.cli``; running with cwd=repo-root puts the ``sync`` / ``agentic``
@@ -59,107 +58,12 @@ _SYNC_ACTIONS = frozenset({"status", "test", "sync", "schedule", "unschedule"})
 # subsystem is retired (see agentic/deepagent_github/builder.py's module
 # docstring), so exposing it over HTTP would widen the surface of something
 # nobody is developing. Its omission is a decision, not an oversight.
-_AGENTIC_ACTIONS = frozenset({
-    "status", "test", "context", "propose-skill", "apply-skill",
-    "real-repo-run", "real-repo-run-status", "real-repo-run-decide",
-    "real-repo-run-push", "real-repo-run-publish", "real-repo-run-discard",
-})
+# The real-repo-run* coding loop is absent for a similar reason: it is CLI-only
+# (`python -m agentic.cli`), and no HTTP route has reached it since the coding-
+# harness console was removed (#1367).
+_AGENTIC_ACTIONS = frozenset({"status", "test", "context", "propose-skill", "apply-skill"})
 # agentic subcommands that emit JSON on stdout (vs. human text).
-_AGENTIC_JSON_ACTIONS = frozenset({
-    "context", "propose-skill", "apply-skill",
-    "real-repo-run", "real-repo-run-status", "real-repo-run-decide",
-    "real-repo-run-push", "real-repo-run-publish", "real-repo-run-discard",
-})
-# real-repo-run clones a real repo, calls a model, and runs the caller's own
-# verification checks across up to several iterations -- the shared
-# _TIMEOUT_SEC (120s, sized for status/context/skill ops) would routinely
-# kill a legitimate run partway through. status/decide stay on the short
-# default: a read and a git commit are both fast.
-#
-# Derived per request rather than a flat constant. It WAS a flat 900s, sized
-# when the planner's own timeout was a hardcoded 30s (30 x 3 iterations = 90s,
-# which fit trivially). Making that timeout configurable and defaulting it to
-# 720s -- necessary for any real local model -- inverted the relationship:
-# 720 x the CLI's own default of 3 iterations is 2160s, twice this ceiling,
-# and the harness route accepts up to 10 iterations and 8 check profiles.
-#
-# The failure this prevents is worse than a slow request. subprocess.run's
-# timeout SIGKILLs the child, so agentic.cli never reaches its own
-# `tools.close()`: an over-budget run leaks the whole repo clone on disk AND
-# leaves a permanently `running` record that no later decide/status call can
-# resolve. Verified by emulated rehearsal (2026-08-02) -- the handled paths
-# clean up correctly, this one does not, because it cannot.
-_REAL_REPO_RUN_FALLBACK_PLANNER_SEC = 720  # mirrors agentic.config.DEFAULT_PLANNER_TIMEOUT_SEC
-_REAL_REPO_RUN_DEFAULT_ITERATIONS = 3  # mirrors agentic/cli.py's --max-iterations default
-_REAL_REPO_RUN_CHECK_SEC = 120  # mirrors agentic.executor.runner.DEFAULT_CHECK_TIMEOUT_SEC
-# Clone (gh_client.DEFAULT_CLONE_TIMEOUT_SEC=120) + context fetch (30) +
-# interpreter startup and bookkeeping, with room to spare.
-_REAL_REPO_RUN_OVERHEAD_SEC = 300
-# A ceiling on the ceiling. The per-request maximum (10 iterations x 8
-# profiles) computes to over three hours, and a synchronous HTTP request held
-# open that long is its own failure mode -- an operator watching a dead
-# console cannot tell it from a hang. Capping means a genuinely enormous
-# request fails with a legible AGENTIC_TIMEOUT instead, which is the more
-# honest outcome. Raise it deliberately if a real workload ever needs to.
-# Public so a caller can refuse request shapes whose uncapped budget
-# (real_repo_run_budget_sec below) exceeds this, before any subprocess starts.
-# No caller does today -- the route that did was removed with the Python
-# coding-harness console (#1367) -- so _real_repo_run_timeout_sec's own min()
-# is what actually applies the cap.
-REAL_REPO_RUN_MAX_TIMEOUT_SEC = 3600
-
-
-def real_repo_run_budget_sec(max_iterations: int | None, check_count: int) -> int:
-    """UNCAPPED wall-clock budget for one ``real-repo-run`` request shape.
-
-    Mirrors :func:`sync_timeout_sec`'s shape -- read the authoritative value
-    from config, fall back safely when it is missing or unusable, add overhead
-    -- but is per-call rather than per-action, because this action's cost
-    scales with two request fields (``max_iterations`` and how many check
-    profiles were selected) rather than being fixed by config alone.
-
-    Public (alongside REAL_REPO_RUN_MAX_TIMEOUT_SEC) so a caller can refuse a
-    shape whose budget exceeds the cap at request time: past the cap the
-    subprocess is SIGKILLed mid-flight, which leaks the repo clone and a
-    permanently-``running`` record (see the module comment above -- that path
-    is unrecoverable by design, so the only good failure is the early one).
-    No caller does that today; the route that did was removed with the Python
-    coding-harness console (#1367), leaving :func:`_real_repo_run_timeout_sec`
-    as the only consumer.
-    """
-    try:
-        cfg = _get_config(str(_CONFIG_PATH))
-        deep = ((cfg.get("agentic") or {}).get("deepagent_github") or {})
-        planner_sec = int(deep.get("planner_timeout_sec", _REAL_REPO_RUN_FALLBACK_PLANNER_SEC))
-    except Exception:  # noqa: BLE001 - contractually fail-soft; see below
-        # Deliberately broad. An enumerated tuple already proved incomplete
-        # once: yaml.YAMLError derives straight from Exception, so a malformed
-        # (not merely unreadable) config.yaml escaped it. This function and
-        # sync_timeout_sec() both promise "never raises" to callers that must
-        # answer anyway -- including gate.py's UNAUTHENTICATED /health -- so the
-        # promise is implemented rather than approximated.
-        planner_sec = _REAL_REPO_RUN_FALLBACK_PLANNER_SEC
-    if planner_sec <= 0:
-        planner_sec = _REAL_REPO_RUN_FALLBACK_PLANNER_SEC
-    iterations = max_iterations if max_iterations and max_iterations > 0 else _REAL_REPO_RUN_DEFAULT_ITERATIONS
-    # A rejected iteration pays for both a planner call and a full verification
-    # sweep, so both scale with the iteration count.
-    return (
-        iterations * planner_sec
-        + iterations * max(1, check_count) * _REAL_REPO_RUN_CHECK_SEC
-        + _REAL_REPO_RUN_OVERHEAD_SEC
-    )
-
-
-def _real_repo_run_timeout_sec(max_iterations: int | None, check_count: int) -> int:
-    """Capped subprocess budget: the request-shape budget, held to the ceiling.
-
-    Load-bearing for every caller: nothing upstream pre-validates the request
-    shape today (the console route that once refused over-cap shapes up front is
-    gone), so without the min() an unbounded budget would hand subprocess.run a
-    timeout long enough to look like a hang.
-    """
-    return min(real_repo_run_budget_sec(max_iterations, check_count), REAL_REPO_RUN_MAX_TIMEOUT_SEC)
+_AGENTIC_JSON_ACTIONS = frozenset({"context", "propose-skill", "apply-skill"})
 
 # fsconnect read-only CLI subcommands exposed via /ops/fsconnect.
 _FSCONNECT_ACTIONS = frozenset({"status", "test", "list", "read", "stat", "grep", "glob"})
@@ -254,16 +158,17 @@ def sync_timeout_sec() -> int:
     Mirror that doubled budget here or the shim kills a healthy run mid-check.
 
     Never raises: callers include gate.py's /health, which must answer even
-    when config.yaml is unreadable or malformed. AttributeError is in the
-    caught set (matching :func:`real_repo_run_budget_sec`) because a config
-    file that parses to a non-mapping makes ``cfg.get`` itself fail.
+    when config.yaml is unreadable or malformed. The except is deliberately
+    broad: a config file that parses to a non-mapping makes ``cfg.get`` itself
+    fail (AttributeError), and ``yaml.YAMLError`` derives straight from
+    ``Exception``, so an enumerated tuple already proved incomplete once.
     """
     try:
         cfg = _get_config(str(_CONFIG_PATH))
         block = cfg.get("sync") or {}
         sec = int(block.get("sync_timeout_sec", 3600))
         post_sync_check = bool(block.get("post_sync_check", False))
-    except Exception:  # noqa: BLE001 - contractually fail-soft, same rationale as real_repo_run_budget_sec
+    except Exception:  # noqa: BLE001 - contractually fail-soft; see the docstring
         sec, post_sync_check = 3600, False
     if sec <= 0:
         sec = 3600
@@ -289,11 +194,8 @@ def _ops_environment(argv: list[str]) -> dict[str, str]:
         return child_environment("sql", secret_names=(name,))
     if module == "agentic.cli":
         action = argv[5] if len(argv) > 5 else ""
-        # Only the coding loop invokes a model; the HTTP ops surface has no
-        # cloud-provider selector, so it uses its configured local model.
-        secrets = ("DEEPAGENT_API_KEY",) if action == "real-repo-run" else ()
-        capability = "github" if action in {"context", "test", "real-repo-run", "real-repo-run-push", "real-repo-run-publish"} else "filesystem"
-        return child_environment(capability, secret_names=(*secrets, *configured_path_names(cfg.get("agentic"))))
+        capability = "github" if action in {"context", "test"} else "filesystem"
+        return child_environment(capability, secret_names=configured_path_names(cfg.get("agentic")))
     return child_environment()
 
 
@@ -330,10 +232,10 @@ def _emit_ops_numbat(argv: list[str], result: OpsResult) -> None:
     )
 
 
-def _write_body(body: str, *, prefix: str = "cyclaw_skill_") -> str:
+def _write_body(body: str) -> str:
     """Persist caller-supplied text to a temporary file, never an argv value."""
     handle = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".md", prefix=prefix, delete=False, encoding="utf-8"
+        mode="w", suffix=".md", prefix="cyclaw_skill_", delete=False, encoding="utf-8"
     )
     try:
         handle.write(body)
@@ -342,27 +244,6 @@ def _write_body(body: str, *, prefix: str = "cyclaw_skill_") -> str:
         # we RETURN, so a write failure here (disk full, un-encodable body) would
         # orphan a cyclaw_*.md. Close first (Windows can't unlink an open
         # file), then remove it, before the exception propagates.
-        handle.close()
-        Path(handle.name).unlink(missing_ok=True)
-        raise
-    finally:
-        handle.close()
-    return handle.name
-
-
-def _write_checks_file(checks: list[dict]) -> str:
-    """Persist a verification-checks manifest to a temp file for --checks-file.
-
-    Mirrors _write_body's exact shape for the same reason: a caller-supplied
-    structure (here, a JSON-serializable list of check dicts) is written to
-    disk and passed by path, never interpolated into argv.
-    """
-    handle = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix="cyclaw_checks_", delete=False, encoding="utf-8"
-    )
-    try:
-        json.dump(checks, handle)
-    except (OSError, UnicodeError, TypeError):
         handle.close()
         Path(handle.name).unlink(missing_ok=True)
         raise
@@ -406,15 +287,6 @@ def run_agentic_op(
     body: str | None = None,
     reason: str | None = None,
     confirm: bool = False,
-    instruction: str | None = None,
-    checks: list[dict] | None = None,
-    plan: str | None = None,
-    read_files: list[str] | None = None,
-    branch: str | None = None,
-    commit_message: str | None = None,
-    max_iterations: int | None = None,
-    run_id: str | None = None,
-    decision: str | None = None,
 ) -> OpsResult:
     """Invoke ``python -m agentic.cli <action>`` and normalize the result."""
     # ``context`` takes an optional ``--pr`` / ``--issue`` selector (defaults to
@@ -424,93 +296,21 @@ def run_agentic_op(
     # calling apply without confirm reaches the CLI's own refusal path (exit
     # 4), which is surfaced verbatim rather than masked.
     #
-    # ``real-repo-run`` requires ``instruction``/``checks``/``branch``/
-    # ``commit_message``/``reason`` and takes the same optional ``--pr``/
-    # ``--issue`` selector as ``context``. Like ``apply-skill``, ``confirm`` is
-    # only forwarded when the caller set it — omitting it reaches the CLI's own
-    # refusal path (exit 4), not a silent default. ``checks`` is a
-    # JSON-serializable list of check dicts, written to a temp file and passed
-    # via ``--checks-file`` (never interpolated into argv, mirroring
-    # ``body``/``--body-file`` above) — never defaulted, since guessing a
-    # verification command for an arbitrary configured repo is exactly what
-    # this whole path exists to avoid. ``real-repo-run-status``/
-    # ``real-repo-run-decide`` require ``run_id``; ``decide`` additionally
-    # requires ``decision`` (``"approve"`` or ``"reject"``), validated here
-    # before the subprocess launch even though the CLI's own ``argparse``
-    # ``choices=`` would also catch a bad value.
-    #
-    # ``real-repo-run-push`` and ``real-repo-run-publish`` are the two
-    # escalation steps past an approved run, each its own decision (see the
-    # CLI's own docstrings for why they are separate subcommands rather than
-    # flags on ``decide``). Both require ``run_id``; ``publish`` additionally
-    # requires a non-empty ``reason`` and only appends ``--confirm`` when the
-    # caller set it, reaching the CLI's own refusal path (exit 4) otherwise --
-    # the same "no anonymous mutations" shape as ``apply-skill``. Neither can
-    # succeed on a shipped checkout, though not for the reason this comment
-    # once gave: push needs ``allow_git_write_tools`` (ships ``false``), while
-    # publish's ``agentic/writer.py`` gate ``EXECUTION_ENABLED`` ships ``True``
-    # since 2026-08-07 -- what refuses publish now is ``agentic.enabled``
-    # (ships ``false``) plus the per-call reason/confirm above.
-    #
-    # ``real-repo-run-discard`` requires ``run_id`` and reclaims a decided
-    # run's clone from disk. It is the ONLY reclamation path: an approved
-    # run's clone is deliberately retained past its decision (push/publish
-    # need it), so without this action a console-driven operator accumulates
-    # one full repo clone per approved run with no way to free any of them.
-    # The CLI refuses a still-``pending_decision`` run itself.
-    #
     # Validation raises happen before the subprocess launch. All ``proc``
     # usage lives INSIDE the try so there is no post-``finally`` reference to
     # an unbound name: if ``_run`` raises (e.g. ``subprocess.TimeoutExpired``),
-    # the ``finally`` cleans up the temp body-file/checks-file/plan-file and
-    # the exception propagates before any result is read. All are unlinked on
-    # every exit path (return or raise).
+    # the ``finally`` cleans up the temp body-file and the exception propagates
+    # before any result is read. The body-file is unlinked on every exit path
+    # (return or raise).
     if action not in _AGENTIC_ACTIONS:
         raise OpsError(f"Unknown agentic action: {action!r}")
     if action in {"propose-skill", "apply-skill"} and (not name or not desc):
         raise OpsError(f"{action} requires both name and desc")
     if action == "apply-skill" and not (reason and reason.strip()):
         raise OpsError("apply-skill requires a non-empty reason")
-    if action == "real-repo-run":
-        if not (instruction and instruction.strip()):
-            raise OpsError("real-repo-run requires a non-empty instruction")
-        if not checks:
-            raise OpsError("real-repo-run requires a non-empty checks list")
-        if not branch or not commit_message:
-            raise OpsError("real-repo-run requires both branch and commit_message")
-        if not (reason and reason.strip()):
-            raise OpsError("real-repo-run requires a non-empty reason")
-        if plan is not None and (not isinstance(plan, str) or not plan.strip()):
-            raise OpsError("real-repo-run plan must not be blank")
-        # Browser plan text is written to a temp --plan-file (CLI owns scan/hash);
-        # never treated as a server filesystem path. read_files are --read-file
-        # names only — resolved inside the fresh jailed clone, never the host.
-        if read_files is not None:
-            if not isinstance(read_files, list):
-                raise OpsError("real-repo-run read_files must be a list of repo-relative paths")
-            for path in read_files:
-                if not isinstance(path, str) or canonical_repo_relative_path(path) is None:
-                    raise OpsError(
-                        "real-repo-run read_files must contain non-empty repo-relative "
-                        "paths without NUL bytes, traversal, or absolute/drive forms"
-                    )
-    if action in {
-        "real-repo-run-status", "real-repo-run-decide", "real-repo-run-push", "real-repo-run-publish",
-        "real-repo-run-discard",
-    } and not run_id:
-        raise OpsError(f"{action} requires run_id")
-    if action == "real-repo-run-decide" and decision not in {"approve", "reject"}:
-        raise OpsError("real-repo-run-decide requires decision to be 'approve' or 'reject'")
-    # publish reaches agentic/writer.py's own gate chain, whose reason/confirm
-    # gates it enforces independently -- validated here too so a malformed call
-    # fails before the subprocess launch, matching apply-skill/real-repo-run.
-    if action == "real-repo-run-publish" and not (reason and reason.strip()):
-        raise OpsError("real-repo-run-publish requires a non-empty reason")
 
     argv = [sys.executable, "-m", "agentic.cli", "--config", str(_CONFIG_PATH), action]
     body_file: str | None = None
-    checks_file: str | None = None
-    plan_file: str | None = None
     try:
         if action == "context":
             if pr is not None:
@@ -536,56 +336,8 @@ def run_agentic_op(
                 argv += [f"--reason={reason}"]
             if action == "apply-skill" and confirm:
                 argv.append("--confirm")
-        elif action == "real-repo-run":
-            if pr is not None:
-                argv += ["--pr", str(pr)]
-            elif issue is not None:
-                argv += ["--issue", str(issue)]
-            else:
-                argv.append("--repo")
-            checks_file = _write_checks_file(checks)  # type: ignore[arg-type]
-            argv += [
-                f"--instruction={instruction}",
-                "--checks-file", checks_file,
-                f"--branch={branch}",
-                f"--commit-message={commit_message}",
-                f"--reason={reason}",
-            ]
-            if plan:
-                plan_file = _write_body(plan, prefix="cyclaw_plan_")
-                argv += ["--plan-file", plan_file]
-            for read_file in read_files or ():
-                argv.append(f"--read-file={read_file}")
-            if max_iterations:
-                argv += ["--max-iterations", str(max_iterations)]
-            if confirm:
-                argv.append("--confirm")
-        elif action == "real-repo-run-status":
-            argv += [f"--run-id={run_id}"]
-        elif action == "real-repo-run-decide":
-            # Validated above (decision in {"approve", "reject"}, which excludes
-            # None) before the subprocess launch; asserting it here narrows
-            # str | None -> str for mypy rather than silencing the check.
-            assert decision is not None  # noqa: S101
-            argv += [f"--run-id={run_id}", "--decision", decision]
-        elif action in {"real-repo-run-push", "real-repo-run-discard"}:
-            argv += [f"--run-id={run_id}"]
-        elif action == "real-repo-run-publish":
-            # --reason= single-argv form (not two elements) so a reason that
-            # begins with '-' binds to its option instead of being reparsed as
-            # a flag by the child argparse -- same discipline as apply-skill.
-            argv += [f"--run-id={run_id}", f"--reason={reason}"]
-            if confirm:
-                argv.append("--confirm")
 
-        # Only real-repo-run needs a non-default timeout (a model + verification
-        # loop routinely outlasts _TIMEOUT_SEC); every other action keeps the
-        # original bare _run(argv) call so its own default budget is unchanged.
-        proc = (
-            _run(argv, timeout_sec=_real_repo_run_timeout_sec(max_iterations, len(checks or ())))
-            if action == "real-repo-run"
-            else _run(argv)
-        )
+        proc = _run(argv)
         ok, label = _AGENTIC_LABELS.get(proc.returncode, (False, "unknown"))
         parsed = _maybe_json(proc.stdout) if (ok and action in _AGENTIC_JSON_ACTIONS) else None
         result = OpsResult("agentic", action, proc.returncode, ok, label, proc.stdout, proc.stderr, parsed)
@@ -594,10 +346,6 @@ def run_agentic_op(
     finally:
         if body_file:
             Path(body_file).unlink(missing_ok=True)
-        if checks_file:
-            Path(checks_file).unlink(missing_ok=True)
-        if plan_file:
-            Path(plan_file).unlink(missing_ok=True)
 
 
 def run_fsconnect_op(

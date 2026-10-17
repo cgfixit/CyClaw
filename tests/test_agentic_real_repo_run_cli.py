@@ -1368,8 +1368,8 @@ def test_publish_subcommand_is_still_refused_by_the_hardcoded_execution_flag(
 def test_run_persists_a_running_record_before_the_loop_starts(cfg_path, checks_file, monkeypatch):
     """The 'running' status is now a real, observable state, not documented-but-dead.
 
-    A run killed by an external wall-clock timeout (utils/ops_runner.py wraps
-    this action in one) previously reached no save_run call at all -- no run_id
+    A run killed by an external wall-clock timeout previously reached no
+    save_run call at all -- no run_id
     ever existed, and the clone under workspace_root had nothing on disk
     pointing at it. Persisting a running-status record BEFORE the loop starts
     gives such a clone a discoverable trail (real-repo-run-status finds it;

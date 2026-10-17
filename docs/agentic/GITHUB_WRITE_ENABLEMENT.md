@@ -224,7 +224,8 @@ an unauthorized change.*
       exact list. That assertion is the only thing pinning draft-ness.
 - [x] **C. Head branch is explicit.** `--head` is required and constrained to
       `claude/*`. Without it `gh` infers the head from the process's working
-      directory, which on the ops_runner path is the operator's own checkout.
+      directory, which for a CLI run from the repo root is the operator's own
+      checkout.
 - [x] **D. Repo targeting.** `execute_write` refuses a plan whose `repo` differs
       from the configured one. The config is authoritative; the plan is advisory.
 - [x] **E. Plan integrity.** `execute_write` rebuilds the argv from the plan's
