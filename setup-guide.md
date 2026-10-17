@@ -837,12 +837,11 @@ cookie-authenticated `GET /auth/whoami` rotates the CSRF token.
 |---|---|
 | `200` | success — including a `needs_confirm: true` gate response, which is not an error |
 | `400` | your `Host` header is not in `config.yaml`'s `allowed_hosts`, or the injection filter rejected the query |
-| `401` | missing/invalid `CYCLAW_API_KEY` (or it is unset server-side) |
+| `401` | missing/invalid `CYCLAW_API_KEY` (or it is unset server-side); on `/auth/login`, any failed login — a wrong password, an unknown or disabled user, or an account temporarily locked after too many failed attempts all get the same response |
 | `404` | on a `/soul/*` route: `personality.enabled` is `false` in `config.yaml` |
 | `403` | cross-site request (`CROSS_SITE_BLOCKED`), a non-loopback caller on `/index/build` or `/auth/bootstrap-password`, a missing/invalid CSRF token, or an RBAC denial (`AUTH_ROLE_DENIED`) |
 | `409` | an index build is already running (`INDEX_BUILD_IN_PROGRESS`), or the first admin password is already set |
 | `422` | request body failed Pydantic validation — usually a misspelled field, since the models forbid extras |
-| `423` | `/auth/login` only: account temporarily locked from too many failed attempts — `retry_after_sec` under `detail.details` in the response body |
 | `429` | rate limit — 60 requests/min per IP |
 | `503` | `INDEX_NOT_FOUND` — run `python -m retrieval.indexer` |
 | `504` | the graph exceeded `api.graph_timeout_sec` (780s) |

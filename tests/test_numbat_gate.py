@@ -409,9 +409,9 @@ def test_gate_event_honors_the_query_hash_opt_out(tmp_path, monkeypatch):
 
 
 def test_gate_event_url_carries_no_credentials(tmp_path, monkeypatch):
-    """endpoint_trust pins only the hostname, so userinfo, a path segment or a
-    key in the query string could ride a configured base_url; rules see the
-    origin only."""
+    """endpoint_trust pins the hostname, scheme and port, so userinfo, a path
+    segment or a key in the query string could still ride a configured
+    base_url; rules see the origin only."""
     _rules_dir(tmp_path, ("acme.deny", True))
     fake = _fake(monkeypatch)
     cfg = _cfg(tmp_path)
