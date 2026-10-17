@@ -110,7 +110,17 @@ class ArgvListSandbox:
             stdout, stderr = proc.communicate(timeout=timeout_sec)
         except subprocess.TimeoutExpired:
             _kill_sandbox_tree(proc)
-            leftover_out, leftover_err = proc.communicate()
+            # Bounded: a descendant that called setsid() escapes killpg and
+            # can hold the inherited stdout open, so an unbounded drain hangs.
+            try:
+                leftover_out, leftover_err = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired as exc:
+                leftover_out = exc.stdout
+                for stream in (proc.stdout, proc.stderr):
+                    if stream is not None:
+                        with contextlib.suppress(OSError):
+                            stream.close()
+                proc.wait()
             return SandboxOutcome(
                 exit_code=-1,
                 stdout=truncate_output(stream_to_str(leftover_out)),
