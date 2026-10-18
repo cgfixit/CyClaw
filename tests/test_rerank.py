@@ -279,3 +279,38 @@ def test_hybrid_retriever_delegates_with_its_own_config(monkeypatch):
     retriever.config_path = "/abs/config.yaml"
     assert retriever.rerank_scores("q", ["t"]) == [0.5]
     assert seen == [("q", ["t"], {"models": {}}, "/abs/config.yaml")]
+
+
+class TestLoadSerialization:
+    def test_load_runs_while_holding_the_lock(self, monkeypatch):
+        held = []
+
+        def loader(*_args):
+            held.append(rerank._LOAD_LOCK.locked())
+            return _FakeModel([1.0])
+
+        monkeypatch.setattr(rerank, "_load_cross_encoder", loader)
+        assert rerank.rerank_scores("q", ["t"], _cfg(), "config.yaml") == [1.0]
+        assert held == [True]
+        assert not rerank._LOAD_LOCK.locked()
+
+    def test_scoring_runs_outside_the_lock(self, monkeypatch):
+        held = []
+
+        class _Model:
+            def predict(self, pairs, **_kwargs):
+                held.append(rerank._LOAD_LOCK.locked())
+                return [1.0] * len(pairs)
+
+        monkeypatch.setattr(rerank, "_load_cross_encoder", lambda *_a: _Model())
+        rerank.rerank_scores("q", ["t"], _cfg(), "config.yaml")
+        assert held == [False]
+
+    def test_failed_load_releases_the_lock_and_starts_the_cooldown(self, monkeypatch):
+        monkeypatch.setattr(rerank, "_load_cross_encoder", _offline)
+        with pytest.raises(RerankerError, match="cross-encoder unavailable: offline"):
+            rerank.rerank_scores("q", ["t"], _cfg(), "config.yaml")
+        assert not rerank._LOAD_LOCK.locked()
+        monkeypatch.setattr(rerank, "_load_cross_encoder", lambda *_a: pytest.fail("cooldown must skip the loader"))
+        with pytest.raises(RerankerError, match="recent load failure"):
+            rerank.rerank_scores("q", ["t"], _cfg(), "config.yaml")

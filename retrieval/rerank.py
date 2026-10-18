@@ -19,6 +19,7 @@ the reranker was degraded.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Sequence
 from functools import lru_cache
@@ -49,6 +50,11 @@ log = logging.getLogger("cyclaw.retrieval.rerank")
 # config knob: like the embedder's retry constants, this only shapes a load.
 _RETRY_AFTER_SEC = 300.0
 _failed_at: dict[tuple[str, str | None, str, bool, str], float] = {}
+# Serializes the load and its cooldown check. lru_cache lets concurrent misses
+# each build the model (measured: 4 callers, 4 constructions), and a caller
+# queued behind a failing load must see its _failed_at entry rather than repeat
+# the retry loop. Scoring runs outside the lock, so inference stays concurrent.
+_LOAD_LOCK = threading.Lock()
 
 RerankSettings = tuple[str, str | None, str, bool]
 
@@ -137,6 +143,13 @@ def _load_cross_encoder(
     raise RerankerError("cross-encoder load loop exited without return/raise", details={"model": model})  # pragma: no cover
 
 
+def _unavailable(key: tuple[str, str | None, str, bool, str], model: str, exc: Exception) -> RerankerError:
+    """Start the load cooldown for ``key`` and build the error the caller raises."""
+    _failed_at[key] = time.monotonic()
+    log.warning("cross-encoder %s unavailable; the vault-hit gate falls back to the cosine rule: %s", model, exc)
+    return RerankerError(f"cross-encoder unavailable: {exc}", details={"model": model})
+
+
 def rerank_scores(query: str, texts: Sequence[str], cfg: dict[str, Any], config_path: str) -> list[float] | None:
     """Return one relevance logit per text for ``query``, or None when the reranker is off.
 
@@ -147,19 +160,21 @@ def rerank_scores(query: str, texts: Sequence[str], cfg: dict[str, Any], config_
     if settings is None or not texts:
         return None
     key = (*settings, config_path)
-    failed = _failed_at.get(key)
-    if failed is not None and time.monotonic() - failed < _RETRY_AFTER_SEC:
-        raise RerankerError("cross-encoder unavailable (recent load failure)", details={"model": settings[0]})
+    with _LOAD_LOCK:
+        failed = _failed_at.get(key)
+        if failed is not None and time.monotonic() - failed < _RETRY_AFTER_SEC:
+            raise RerankerError("cross-encoder unavailable (recent load failure)", details={"model": settings[0]})
+        try:
+            model = _load_cross_encoder(*settings, config_path)
+        except Exception as e:  # noqa: BLE001 -- a reranker failure must never take down /query
+            raise _unavailable(key, settings[0], e) from e
     try:
-        model = _load_cross_encoder(*settings, config_path)
         raw = model.predict(
             [(query, text) for text in texts], batch_size=len(texts), show_progress_bar=False, convert_to_numpy=True
         )
         scores = [float(score) for score in raw]
     except Exception as e:  # noqa: BLE001 -- a reranker failure must never take down /query
-        _failed_at[key] = time.monotonic()
-        log.warning("cross-encoder %s unavailable; the vault-hit gate falls back to the cosine rule: %s", settings[0], e)
-        raise RerankerError(f"cross-encoder unavailable: {e}", details={"model": settings[0]}) from e
+        raise _unavailable(key, settings[0], e) from e
     _failed_at.pop(key, None)
     if len(scores) != len(texts):
         raise RerankerError(

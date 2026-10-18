@@ -564,3 +564,85 @@ class TestEmbeddingFingerprint:
     def test_missing_keys_default_to_empty_string(self):
         fp = embeddings.embedding_fingerprint({})
         assert fp == {"model": "", "dim": "", "device": "cpu"}
+
+
+class TestLoadModelSingleFlight:
+    """Concurrent cold callers share one load, and one failure, instead of each repeating it."""
+
+    @pytest.fixture(autouse=True)
+    def _no_stale_failure(self, monkeypatch):
+        monkeypatch.setattr(embeddings, "_load_failures", {"count": 0, "last": None})
+
+    def test_load_runs_while_holding_the_lock(self, monkeypatch):
+        held = []
+
+        def fake_load(name, cache, offline_after_index, config_path):
+            held.append(embeddings._MODEL_LOAD_LOCK.locked())
+            return "model"
+
+        monkeypatch.setattr(embeddings, "_load_model", fake_load)
+        assert embeddings._load_model_single_flight("m", "", False, "c.yaml") == "model"
+        assert held == [True]
+        assert not embeddings._MODEL_LOAD_LOCK.locked()
+
+    def test_caller_queued_behind_a_failing_load_shares_the_failure(self, monkeypatch):
+        import threading
+
+        follower_waiting = threading.Event()
+        follower_result = []
+        real_lock = embeddings._MODEL_LOAD_LOCK
+
+        class _SignallingLock:
+            """Signals once the follower has captured its failure count and is about to block."""
+
+            def __enter__(self):
+                if threading.current_thread().name == "follower":
+                    follower_waiting.set()
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc_info):
+                return real_lock.__exit__(*exc_info)
+
+        monkeypatch.setattr(embeddings, "_MODEL_LOAD_LOCK", _SignallingLock())
+        loads = []
+
+        def follower():
+            try:
+                embeddings._load_model_single_flight("m", "", False, "c.yaml")
+            except OSError as exc:
+                follower_result.append(exc)
+
+        def failing_leader_load(*_args):
+            loads.append(1)
+            thread = threading.Thread(target=follower, name="follower")
+            thread.start()
+            assert follower_waiting.wait(timeout=10)
+            raise OSError("leader failure")
+
+        monkeypatch.setattr(embeddings, "_load_model", failing_leader_load)
+        with pytest.raises(OSError, match="leader failure") as leader:
+            embeddings._load_model_single_flight("m", "", False, "c.yaml")
+        for thread in threading.enumerate():
+            if thread.name == "follower":
+                thread.join(timeout=10)
+        assert loads == [1], "the queued caller must not repeat the retry loop"
+        assert follower_result == [leader.value]
+
+    def test_retry_after_a_failure_runs_a_fresh_load_even_on_a_frozen_clock(self, monkeypatch):
+        # Windows' monotonic clock ticks about every 15 ms, so back-to-back calls can share a
+        # timestamp. Sharing must not depend on the clock: a caller that arrives after the
+        # failure always retries.
+        monkeypatch.setattr(embeddings.time, "monotonic", lambda: 1000.0)
+        calls = []
+
+        def fail_once_then_load(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                raise OSError("fresh failure")
+            return "model"
+
+        monkeypatch.setattr(embeddings, "_load_model", fail_once_then_load)
+        with pytest.raises(OSError, match="fresh failure"):
+            embeddings._load_model_single_flight("m", "", False, "c.yaml")
+        assert embeddings._load_model_single_flight("m", "", False, "c.yaml") == "model"
+        assert len(calls) == 2
