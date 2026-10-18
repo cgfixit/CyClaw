@@ -1145,12 +1145,15 @@ def reindex_exit_code_for(result: SyncResult, cfg: RcloneConfig) -> int:
     10  -- sync OK, corpus changed; caller should run ``python -m retrieval.indexer``.
     1   -- sync failed for safety reasons (--max-delete / --max-transfer tripped).
     2   -- sync failed for any other reason.
+
+    A failed ``--dry-run`` still returns 1 or 2 like a real run; a dry run
+    never returns 10.
     """
+    if not result.success:
+        return 1 if result.aborted_for_safety else 2
     # Dry-run must never signal a real reindex: it previews changes only.
     if result.dry_run:
         return 0
-    if not result.success:
-        return 1 if result.aborted_for_safety else 2
     if cfg.reindex_on_change and result.corpus_changed:
         return cfg.REINDEX_EXIT_CODE
     return 0

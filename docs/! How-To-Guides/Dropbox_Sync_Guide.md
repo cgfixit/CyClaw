@@ -311,7 +311,7 @@ systemctl --user list-timers cyclaw-sync.timer
 python -m sync.cli schedule
 ```
 
-This registers a daily Task Scheduler job named **"CyClaw Dropbox Sync"** running at the time set in `config.yaml` (`schedule_hour`:`schedule_min`). A small launcher batch file (`cyclaw_sync.bat`) is written to the rclone log folder — the task points at this file to avoid Windows quoting issues with paths that contain spaces.
+This registers a daily Task Scheduler job named **"CyClaw Dropbox Sync"** running at the time set in `config.yaml` (`schedule_hour`:`schedule_min`). A small launcher batch file (`cyclaw_sync.bat`) is written to the rclone log folder and holds the sync command; the task runs this file, registered as a quoted path so a folder name with spaces still works.
 
 To verify it was created:
 ```powershell

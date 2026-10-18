@@ -124,7 +124,14 @@ def test_cloud_provider_returns_the_block_when_both_gates_pass():
 
 
 def test_cloud_provider_is_none_when_the_master_gate_is_off():
-    cfg = DeepAgentGitHubConfig(allow_cloud_providers=False, providers={"grok": {"enabled": False}})
+    # Start from a config where both gates pass, then close only the master gate.
+    # __post_init__ refuses to build an enabled provider under a closed gate, so
+    # flip it after construction: with the provider disabled instead, the
+    # provider.enabled check returns None on its own and this test could not
+    # catch the allow_cloud_providers check in cloud_provider() being deleted.
+    cfg = _deep_cfg()
+    assert cfg.cloud_provider("grok") is not None
+    cfg.allow_cloud_providers = False
     assert cfg.cloud_provider("grok") is None
 
 

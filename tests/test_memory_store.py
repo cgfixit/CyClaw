@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from memory.mirror import export_html
 from memory.policy import enforce_content, require_reason
 from memory.store import (
     _SCHEMA_VERSION,
@@ -160,6 +161,18 @@ def test_stage_episode(mem_cfg):
     assert eps[0].query_hash  # hashed
     assert eps[0].raw_query is None
     assert len(eps[0].answer_summary) <= 100
+
+
+def test_export_html_hides_raw_query_when_store_raw_query_is_quoted_false(mem_cfg):
+    """A quoted "false" is a truthy string; the export must gate on `is True`
+    like stage_episode does, or switching raw storage off with a quoted value
+    keeps rendering previously stored raw queries."""
+    mem_cfg["memory"]["episodes"]["store_raw_query"] = True
+    stage_episode(mem_cfg, {"query": "raw probe question", "answer": "ok"})
+    mem_cfg["memory"]["episodes"]["store_raw_query"] = "false"
+    out = export_html(mem_cfg)
+    assert "raw probe question" not in out
+    assert list_episodes(mem_cfg)[0].query_hash in out
 
 
 def test_enforce_content_direct(mem_cfg):

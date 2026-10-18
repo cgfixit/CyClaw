@@ -49,7 +49,7 @@ def status_dict(cfg: Mapping[str, Any]) -> dict[str, Any]:
 def export_html(cfg: Mapping[str, Any], *, max_episodes: int = 100) -> str:
     """Build a minimal offline HTML dump of recent episodes + active facts."""
     mem = dict(cfg.get("memory") or {})
-    store_raw = bool((mem.get("episodes") or {}).get("store_raw_query"))
+    store_raw = (mem.get("episodes") or {}).get("store_raw_query") is True
     episodes = list_episodes(cfg, limit=max_episodes)
     facts = list_facts(cfg, active_only=True, limit=200)
 
