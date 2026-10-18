@@ -88,9 +88,9 @@ def _audit_handle_is_current(handle: TextIO, log_path: Path) -> bool:
     The cache is keyed on the path string, so after an operator renames
     (logrotate without copytruncate, mv) or deletes audit.jsonl, an unchecked
     handle keeps appending to the old inode -- after a delete, every later
-    record is lost. Mirrors utils/numbat_emitter.py's _handle_still_points_at
-    (the WatchedFileHandler check), copied rather than imported because that
-    module imports this one. Any stat error answers "not current".
+    record is lost. This is logging.handlers.WatchedFileHandler's (st_dev,
+    st_ino) check; utils/numbat_emitter.py imports it for its own handle cache.
+    Any stat error answers "not current".
     """
     try:
         held = os.fstat(handle.fileno())

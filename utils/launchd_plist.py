@@ -35,10 +35,10 @@ import os
 import plistlib
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
+from utils import win_schtasks
 from utils.telemetry_kill import scheduler_env_overlay
 
 # Repo-relative path to the Keychain env-injection wrapper -- see
@@ -80,8 +80,9 @@ def python_executable() -> str:
     """Best-guess python interpreter to invoke from a generated plist.
 
     Stricter than ``utils.win_schtasks.python_executable`` (which
-    ``sync.scheduler`` uses): it honours ``CYCLAW_PYTHON``/``CYCLAW_HOME`` and
-    probes the runtime deps, because these plists run CyClaw channels.
+    ``sync.scheduler`` uses, and which this falls back to): it honours
+    ``CYCLAW_PYTHON``/``CYCLAW_HOME`` and probes the runtime deps, because
+    these plists run CyClaw channels.
 
     Resolution order:
       1. ``CYCLAW_PYTHON`` environment variable: a file path, or a name that
@@ -89,12 +90,13 @@ def python_executable() -> str:
          launchd starts jobs with a minimal PATH). Any other value raises
          ``RuntimeError``: an explicit choice is never silently replaced.
       2. ``$CYCLAW_HOME/venv/bin/python`` if it exists.
-      3. ``sys.executable``.
-      4. ``python3`` / ``python`` on PATH.
+      3. ``utils.win_schtasks.python_executable()``: ``sys.executable``, then
+         ``python3`` / ``python`` on PATH, then a bare ``python``.
 
     The chosen interpreter is probed for ``fastapi`` and ``uvicorn``; a
     missing dependency raises ``RuntimeError`` rather than writing a plist
-    that would crash-loop under ``KeepAlive``.
+    that would crash-loop under ``KeepAlive``. Only the bare ``python`` of
+    last resort, which names no file, is returned unprobed.
     """
     candidate: str | None = os.environ.get("CYCLAW_PYTHON")
     if candidate:
@@ -112,15 +114,10 @@ def python_executable() -> str:
         if venv_python.is_file():
             candidate = str(venv_python)
     if not candidate:
-        candidate = sys.executable or "python"
-    if candidate and os.path.isfile(candidate):
+        candidate = win_schtasks.python_executable()
+    if os.path.isfile(candidate):
         _probe_python(candidate)
-        return candidate
-    found = shutil.which("python3") or shutil.which("python")
-    if found:
-        _probe_python(found)
-        return found
-    return "python"
+    return candidate
 
 
 def current_uid() -> int:

@@ -27,7 +27,7 @@ import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
-from agentic.fsconnect.client import build_injection_patterns
+from agentic.fsconnect.client import _MAX_GLOB_DEPTH, build_injection_patterns
 from agentic.fsconnect.config import FsConnectConfig
 from agentic.fsconnect.pathsafe import ScopedRoots, split_components
 from utils.errors import FsConnectError, FsConnectRuntimeError, FsMacOSPermissionError
@@ -42,12 +42,12 @@ _DEFAULT_STAGING = Path(__file__).resolve().parents[2] / "data" / "corpus" / "fs
 # forcing a full re-stage. A dotfile + non-corpus extension, so the retrieval
 # indexer (corpus.extensions = .md/.txt) never ingests it.
 _CACHE_NAME = ".fsindex_cache.json"
-# Ceiling on how many directory levels _walk descends, matching fs_glob's
-# _MAX_GLOB_DEPTH in client.py. _walk recurses once per level, so a deeper tree
+# Ceiling on how many directory levels _walk descends: fs_glob's own limit, so
+# the two walkers cannot disagree. _walk recurses once per level, so a deeper tree
 # raised RecursionError -- not an FsConnectError, so the CLI exited outside its
 # 0/2/3/4 contract, and apply() died after staging files but before saving the
 # ownership cache, leaving those staged copies unprunable.
-_MAX_INDEX_DEPTH = 64
+_MAX_INDEX_DEPTH = _MAX_GLOB_DEPTH
 
 
 class FsIndexer:
