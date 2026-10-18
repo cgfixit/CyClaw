@@ -912,10 +912,11 @@ class RepoWorkspaceTools:
         if resolved == git_dir or git_dir in resolved.parents:
             self._deny_git(tool, "git path may not touch the clone's .git directory", target=target)
         # Report where the write LANDS, not what it was SPELLED. Symlinks make
-        # those different, and every downstream gate reads this return value:
-        # write_file records it in changed_files, and
-        # decide_real_repo_candidate matches changed_files against
-        # protected_write_paths. Returning the declared name was a reproduced
+        # those different, and the downstream gates read this return value:
+        # real_repo_loop checks it (via landing_path) against
+        # protected_write_paths before writing, records write_file's returned
+        # target in changed_files, and finalize re-checks those before
+        # staging. Returning the declared name was a reproduced
         # bypass -- an in-clone symlink (docs/notes.md -> ../tests/test_x.py)
         # is not protected under its declared name, resolves inside the clone
         # so containment passes, and the write lands on the very test file that
@@ -1108,6 +1109,17 @@ class RepoWorkspaceTools:
         self._run_git(tool, ["checkout", "-b", name])
         self._audit("agentic_repo_workspace_git_op", op=tool, branch=name)
         return {"branch": name}
+
+    def landing_path(self, target: str) -> str:
+        """Return the repo-relative path ``write_file(target, ...)`` would land on.
+
+        Writes nothing and checks no git-write gate. It runs ``write_file``'s
+        own validation, so a caller can judge the real destination (an
+        in-clone directory symlink can point ``docs/linkdir/x.py`` at
+        ``tests/x.py``) before any byte is written. Raises ``AgenticError``
+        for a path ``write_file`` would refuse.
+        """
+        return self._validate_write_path("write_file", target, must_exist=False)
 
     def write_file(self, target: str, content: str) -> dict:
         """Write (create or overwrite) one text file's full content in the clone.

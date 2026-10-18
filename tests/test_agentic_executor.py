@@ -161,6 +161,7 @@ def test_timeout_stdout_that_is_already_str_does_not_crash(tmp_path, monkeypatch
     class _FakeProc:
         pid = 1
         returncode = None
+        stdout = stderr = None
 
         def __init__(self, *args, **kwargs):
             pass
@@ -173,6 +174,9 @@ def test_timeout_stdout_that_is_already_str_does_not_crash(tmp_path, monkeypatch
         def kill(self) -> None:
             self.returncode = -1
 
+        def wait(self, timeout=None):
+            return self.returncode
+
     monkeypatch.setattr(subprocess, "Popen", _FakeProc)
     monkeypatch.setattr(
         "agentic.executor.hard_sandbox._kill_sandbox_tree",
@@ -182,6 +186,40 @@ def test_timeout_stdout_that_is_already_str_does_not_crash(tmp_path, monkeypatch
     assert report.ok is False
     assert report.results[0].timed_out is True
     assert report.results[0].stdout == "partial output\n"
+
+
+def test_timeout_drain_is_bounded_when_a_descendant_keeps_the_pipe_open(tmp_path, monkeypatch):
+    """A setsid()'d descendant survives the process-group kill and keeps the
+    inherited stdout open, so the pipe never reaches EOF and an unbounded
+    drain after the timeout kill never returns. The drain must give up and
+    still report a timed-out check with the output read so far.
+    """
+    import subprocess
+
+    class _NeverEofProc:
+        pid = 1
+        returncode = None
+        stdout = stderr = None
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def communicate(self, timeout=None):
+            if timeout is None:
+                raise AssertionError("unbounded drain: this would block until the descendant exits")
+            raise subprocess.TimeoutExpired(cmd=["x"], timeout=timeout, output=b"partial output\n", stderr=None)
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr(subprocess, "Popen", _NeverEofProc)
+    monkeypatch.setattr("agentic.executor.hard_sandbox._kill_sandbox_tree", lambda proc: proc.kill())
+    outcome = ArgvListSandbox().run(["x"], cwd=tmp_path, env={}, timeout_sec=1)
+    assert outcome.timed_out is True
+    assert outcome.stdout == "partial output\n"
 
 
 def test_a_missing_check_binary_fails_the_check_without_crashing(tmp_path):
