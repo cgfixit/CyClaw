@@ -140,7 +140,9 @@ Applied ops return `{"status": "applied", "executed": true, "intent_id": ..., "r
 ## 8. Stage 4 — Steady-state monitoring
 
 - **Daily:** grep the audit JSONL for any `fsconnect_write_intent` whose `intent_id`
-  has no matching `applied`/`refused` (a crash-window candidate — Phase 2 has no
+  has no matching `fsconnect_write_applied` or `fsconnect_write_failed` (a crash-window
+  candidate; a `failed` event is an ordinary error such as a bad path or full disk,
+  re-raised to the caller, not a crash — Phase 2 has no
   `audit-verify` subcommand yet, so this is a manual grep). Check `quota-status` per
   root.
 - **Weekly:** review trash, then purge expired entries. `trash-empty` purges only
