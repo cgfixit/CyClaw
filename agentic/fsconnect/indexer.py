@@ -34,7 +34,9 @@ from utils.errors import FsConnectError, FsConnectRuntimeError, FsMacOSPermissio
 from utils.logger import audit_log
 from utils.telemetry_kill import build_telemetry_safe_env
 
-_DEFAULT_STAGING = Path("data/corpus/fsconnect")
+# Anchored to the repo root: a CWD-relative default staged files into a corpus
+# the retrieval indexer (which reads the anchored data/corpus) never sees.
+_DEFAULT_STAGING = Path(__file__).resolve().parents[2] / "data" / "corpus" / "fsconnect"
 # Skip-cache for incremental apply(), kept beside the staged files so the cache
 # and the staging dir are always consistent: clearing staging drops the cache too,
 # forcing a full re-stage. A dotfile + non-corpus extension, so the retrieval
