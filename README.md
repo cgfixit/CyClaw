@@ -182,6 +182,12 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
    published model. Use your own tag name, but keep a suffix so it never
    overwrites the registry tag `qwen3.8:27b-mlx`. Set `num_ctx` and the
    sampling parameters to fit your Ollama max context, unified memory, and model.
+   A local backend that needs a bearer token reads it from the env var named by
+   `models.local_llm.api_key_env` (default `CYCLAW_LOCAL_LLM_API_KEY`), and the
+   fallback backend from `models.local_llm.fallback.api_key_env` (default
+   `CYCLAW_LOCAL_LLM_FALLBACK_API_KEY`). Unset means no `Authorization` header.
+   An inline `api_key` in `config.yaml` is refused for the primary, and for the
+   fallback only while `fallback.enabled` is true, so keep keys out of the file.
 4. **Governed soul.** `data/personality/soul.md` has SHA-256 drift detection
    and atomic writes; `POST /soul/apply` requires a human `reason` and an
    enforced injection scan. Restore, `/soul/reload`, and startup drift
