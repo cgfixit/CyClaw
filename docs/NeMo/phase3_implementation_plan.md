@@ -9,8 +9,12 @@ related:
   - docs/agentic/AGENTIC_README.md
   - docs/HARNESS_POWERSHELL.md
   - guardrails/rails.py
-  - agentic/registry.py
 ---
+
+> **Status update — 2026-10-18 (agentic removal):** HISTORICAL. The agentic
+> code this plan names (`agentic/registry.py`, the harness optimizer,
+> `agentic.cli`, the skills-registry subcommands and sqlconnect) was removed too (`docs/changelog.txt`, 2026-10-18
+> entry). Of the `agentic/` package only `fsconnect/` and `netconnect/` remain.
 
 > Current status, 2026-10-03: this file preserves a historical plan. The shipped
 > configuration now enables guardrails. Missing or failed NeMo checks use
