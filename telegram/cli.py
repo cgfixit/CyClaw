@@ -285,10 +285,15 @@ def cmd_poll_plist(args: argparse.Namespace) -> int:
     if cfg.mode != "chat":
         _err("poll-plist requires telegram.mode: chat (current mode refuses inbound).")
         return EXIT_ENV
+    try:
+        python = launchd_plist.python_executable()
+    except RuntimeError as exc:
+        _err(str(exc))
+        return EXIT_ENV
 
     repo_root = Path(__file__).resolve().parent.parent
     inner_argv = [
-        launchd_plist.python_executable(),
+        python,
         "-m",
         "telegram.cli",
         "--config",
@@ -355,8 +360,12 @@ def cmd_health_plist(args: argparse.Namespace) -> int:
         _err("--interval-sec must be > 0")
         return EXIT_FAIL
 
+    try:
+        py = launchd_plist.python_executable()
+    except RuntimeError as exc:
+        _err(str(exc))
+        return EXIT_ENV
     repo_root = Path(__file__).resolve().parent.parent
-    py = launchd_plist.python_executable()
     config_arg = shlex.quote(str(Path(args.config).resolve()))
     health_url = shlex.quote(f"{cfg.query.base_url}/health")
     health_cmd = (
