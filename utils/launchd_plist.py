@@ -57,7 +57,7 @@ def _probe_python(candidate: str) -> None:
     callers have one exception to map to their exit code.
     """
     try:
-        probe = subprocess.run(  # noqa: S603 -- argv list, interpreter resolved before call
+        probe = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, operator-chosen interpreter
             [candidate, "-c", "import fastapi, uvicorn"],
             capture_output=True,
             text=True,
