@@ -239,6 +239,9 @@ def _write_body(body: str) -> str:
     )
     try:
         handle.write(body)
+        # Inside the try: a short body is only buffered by write(), so a full
+        # disk surfaces here, when close() flushes it.
+        handle.close()
     except (OSError, UnicodeError):
         # The file already exists on disk; run_agentic_op only unlinks the name
         # we RETURN, so a write failure here (disk full, un-encodable body) would
@@ -247,8 +250,6 @@ def _write_body(body: str) -> str:
         handle.close()
         Path(handle.name).unlink(missing_ok=True)
         raise
-    finally:
-        handle.close()
     return handle.name
 
 
