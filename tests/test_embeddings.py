@@ -564,3 +564,50 @@ class TestEmbeddingFingerprint:
     def test_missing_keys_default_to_empty_string(self):
         fp = embeddings.embedding_fingerprint({})
         assert fp == {"model": "", "dim": "", "device": "cpu"}
+
+
+class TestLoadModelSingleFlight:
+    """Concurrent cold callers share one load, and one failure, instead of each repeating it."""
+
+    @pytest.fixture(autouse=True)
+    def _no_stale_failure(self, monkeypatch):
+        monkeypatch.setattr(embeddings, "_last_load_failure", None)
+
+    def test_load_runs_while_holding_the_lock(self, monkeypatch):
+        held = []
+
+        def fake_load(name, cache, offline_after_index, config_path):
+            held.append(embeddings._MODEL_LOAD_LOCK.locked())
+            return "model"
+
+        monkeypatch.setattr(embeddings, "_load_model", fake_load)
+        assert embeddings._load_model_single_flight("m", "", False, "c.yaml") == "model"
+        assert held == [True]
+        assert not embeddings._MODEL_LOAD_LOCK.locked()
+
+    def test_failure_that_landed_after_arrival_is_shared(self, monkeypatch):
+        shared = OSError("shared failure")
+        monkeypatch.setattr(embeddings, "_last_load_failure", (embeddings.time.monotonic() + 60, shared))
+        monkeypatch.setattr(
+            embeddings, "_load_model", lambda *a: pytest.fail("a queued caller must not repeat the retry loop")
+        )
+        with pytest.raises(OSError) as raised:
+            embeddings._load_model_single_flight("m", "", False, "c.yaml")
+        assert raised.value is shared
+
+    def test_failure_before_arrival_is_retried_and_recorded(self, monkeypatch):
+        monkeypatch.setattr(embeddings, "_last_load_failure", (embeddings.time.monotonic() - 60, OSError("old")))
+        calls = []
+
+        def fail_once_then_load(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                raise OSError("fresh failure")
+            return "model"
+
+        monkeypatch.setattr(embeddings, "_load_model", fail_once_then_load)
+        with pytest.raises(OSError, match="fresh failure"):
+            embeddings._load_model_single_flight("m", "", False, "c.yaml")
+        assert embeddings._last_load_failure[1].args == ("fresh failure",)
+        assert embeddings._load_model_single_flight("m", "", False, "c.yaml") == "model"
+        assert len(calls) == 2
