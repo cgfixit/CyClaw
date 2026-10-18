@@ -163,6 +163,55 @@ def test_main_maps_typed_errors_and_does_not_mask_untyped_bugs(tmp_path, monkeyp
         cli.main(["--config", cp, "status"])
 
 
+@pytest.mark.parametrize("stage", ["connect", "execute"])
+def test_query_driver_error_exits_fail_without_leaking_the_dsn(tmp_path, monkeypatch, capsys, stage):
+    """A database error is an op failure (exit 2), not a traceback (exit 1).
+
+    The fake psycopg placed in sys.modules is what SqlClient's lazy import
+    returns, so this drives the real _import_driver -> _execute -> _run path.
+    Its error text carries the DSN password, as libpq's conninfo parse errors
+    do; only the exception class name may reach stdout or stderr.
+    """
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    secret = "hunter2-must-not-leak"
+    secret_dsn = f"postgresql://reader:{secret}@db.internal/prod"
+    monkeypatch.setenv("CYCLAW_TEST_SQL_DSN", secret_dsn)
+
+    class Error(Exception):
+        pass
+
+    class OperationalError(Error):
+        pass
+
+    class _Cursor:
+        description = [("c",)]
+
+        def execute(self, sql, params=()):
+            if "set_config" not in sql:
+                raise OperationalError(f"query failed on {secret_dsn}")
+
+        def fetchmany(self, n):
+            return []
+
+    def connect(dsn):
+        if stage == "connect":
+            raise OperationalError(f'missing "=" after "{dsn}" in connection info string')
+        return SimpleNamespace(read_only=False, cursor=_Cursor, close=lambda: None)
+
+    psycopg = ModuleType("psycopg")
+    psycopg.Error = Error
+    psycopg.connect = connect
+    monkeypatch.setitem(sys.modules, "psycopg", psycopg)
+
+    cp = _cfg(tmp_path, {"enabled": True, "dsn_env": "CYCLAW_TEST_SQL_DSN"})
+    assert cli.main(["--config", cp, "query", "--sql", "SELECT 1"]) == cli.EXIT_FAIL
+    captured = capsys.readouterr()
+    assert "database error (OperationalError)" in captured.err
+    assert secret not in captured.out + captured.err
+
+
 @pytest.mark.usefixtures("isolated_logging")
 def test_main_wires_logging_before_dispatch(tmp_path):
     """main() must call setup_logging before dispatch, not leave it uncalled.
