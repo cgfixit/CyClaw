@@ -500,9 +500,10 @@ class AuthManager:
                 # account can accrue its own lockout from attempts made while
                 # it was disabled. Re-enabling it is a deliberate
                 # administrative decision to make it usable again NOW --
-                # leaving a stale lockout in place would have `cyclaw-user
-                # enable` still return 423 until the ceiling drains, the same
-                # bug set_password() closes for the password-reset path.
+                # leaving a stale lockout in place would keep refusing the
+                # re-enabled account's correct password (the same uniform 401
+                # as a wrong one) until the ceiling drains, the same bug
+                # set_password() closes for the password-reset path.
                 self.conn.execute(self._sql_reset_lockout, (canonical,))
             self.conn.commit()
             if not cur.rowcount:
@@ -534,8 +535,8 @@ class AuthManager:
                 # Clearing the lockout is what makes the CLI an actual recovery
                 # path. login() checks is_locked() BEFORE verifying the
                 # password, so without this a `cyclaw-user passwd` on a locked
-                # account leaves the owner getting 423 with their brand-new
-                # correct password until the 15-minute ceiling drains --
+                # account leaves the owner getting the uniform 401 with their
+                # brand-new correct password until the 15-minute ceiling drains --
                 # and docs/AUTHENTICATION_DESIGN.md §9 names exactly this local
                 # CLI as the mitigation for lockout-as-denial-of-service.
                 # It is also the right semantics on its own: the counter
