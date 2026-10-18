@@ -121,14 +121,14 @@ def test_helper_preserves_config_outside_fsconnect_and_file_mode(tmp_path: Path)
     config.chmod(0o640)
     before = config.read_text(encoding="utf-8")
     prefix, rest = before.split("fsconnect:", maxsplit=1)
-    _old_block, suffix = rest.split("# ===========================\n# SQL connector", maxsplit=1)
+    _old_block, suffix = rest.split("# === Passive LAN inventory connector", maxsplit=1)
     root = tmp_path / "CyClaw-FS"
     root.mkdir()
 
     enable_readlist(config, root)
     after = config.read_text(encoding="utf-8")
     assert after.startswith(prefix + "fsconnect:")
-    assert after.endswith("# ===========================\n# SQL connector" + suffix)
+    assert after.endswith("# === Passive LAN inventory connector" + suffix)
     if os.name != "nt":
         assert stat.S_IMODE(config.stat().st_mode) == 0o640
 
