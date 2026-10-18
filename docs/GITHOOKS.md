@@ -65,8 +65,20 @@ What the scans are careful about:
 
 - **Diffs are read as text.** `git diff` and `git log -p` run with `--text`, so a
   `.gitattributes` `-diff`/`binary` rule or a NUL byte cannot turn a key into
-  "Binary files differ". Random bytes in media and archives (`SEC_BINARY_GLOBS`)
-  are exempt from the bidi check only; secret patterns still run on them.
+  "Binary files differ". Only raster images, audio/video, fonts and PDF in
+  `SEC_MEDIA_GLOBS` may skip a bidi/tag hit, and only when that line is invalid
+  UTF-8 and `iconv` is available. Valid UTF-8 media-looking text, archives,
+  Office documents and executables are reported; secret patterns run on every
+  file. Inspect a finding rather than bypassing the hook; the fixture allowlist
+  and operator-only controls below retain their existing scope.
+- **Filenames cannot spoof the media exception.** Colons are encoded as `%3A`
+  in scan records and `path:line` diagnostics. A name such as
+  `fake.png:payload.whl` remains an archive. Tag messages and raw-blob refs are
+  labeled by object type and never treated as media filenames; tree blobs use
+  their actual filenames.
+- **Renames scan the destination bytes.** Content scans disable Git rename
+  detection, so an unchanged media blob renamed to an archive or executable
+  cannot carry its old media exception into the new filename.
 - **Added lines that start with `++ `** are content, not a `+++` file header.
   The header is only read before a file's first hunk.
 - **Type changes count.** A file replaced by a symlink whose target is a key is

@@ -83,16 +83,13 @@ SEC_MAX_NEW_FILE_KB=2048
 # is no longer ignored means .gitignore lost a rule.
 SEC_IGNORE_PROBES=( '.env' '.env.local' 'probe.pem' 'probe.key' )
 
-# Compressed or media formats. Content scans read every diff as text (so a `-diff`
-# attribute cannot hide a key), which also means random bytes in these files can
-# look like a 3-byte bidi sequence; the bidi check skips them. Secret patterns
-# still run on them.
-SEC_BINARY_GLOBS=(
+# Media formats only. Random non-UTF-8 bytes can resemble bidi/tag sequences;
+# only these filenames are eligible for that exception. Archives, Office files
+# and executables stay scanned. Secret patterns still run on every file.
+SEC_MEDIA_GLOBS=(
   '*.png' '*.jpg' '*.jpeg' '*.gif' '*.webp' '*.heic' '*.bmp' '*.ico' '*.tif' '*.tiff'
   '*.mp4' '*.mov' '*.m4a' '*.mp3' '*.wav' '*.avi' '*.mkv' '*.webm'
-  '*.pdf' '*.docx' '*.xlsx' '*.pptx'
-  '*.zip' '*.tar' '*.tgz' '*.gz' '*.bz2' '*.xz' '*.7z' '*.rar' '*.jar' '*.whl'
-  '*.woff' '*.woff2' '*.ttf' '*.otf' '*.so' '*.dll' '*.dylib' '*.exe'
+  '*.pdf' '*.woff' '*.woff2' '*.ttf' '*.otf'
 )
 
 # Home-directory user names that are obviously placeholders.
@@ -248,7 +245,7 @@ sec__diff_lines() {
     }
     /^commit / { inh = 0; next }
     # git ends a ---/+++ path that contains a space with a TAB; strip it, or the
-    # path never matches a glob (SEC_BINARY_GLOBS) and is reported with a TAB.
+    # path never matches a glob (SEC_MEDIA_GLOBS) and is reported with a TAB.
     inh == 0 && /^--- / { g = $0; sub(/^--- (a\/)?/, "", g); sub(/\t$/, "", g); next }
     inh == 0 && /^\+\+\+ / { f = $0; sub(/^\+\+\+ (b\/)?/, "", f); sub(/\t$/, "", f); next }
     /^@@/ {
@@ -259,6 +256,8 @@ sec__diff_lines() {
     }
     inh == 1 && length($0) > 0 {
       pre = substr($0, 1, ncol)
+      # A colon in the filename must not impersonate a path:line delimiter.
+      gsub(/:/, "%3A", f); gsub(/:/, "%3A", g)
       if (mode == "added") {
         if (length(pre) == ncol && pre ~ /^\++$/) print f ":" ln ":" substr($0, ncol + 1)
       } else if (pre ~ /-/) {
@@ -274,7 +273,7 @@ sec__added_lines() { sec__diff_lines added; }
 # stdin: raw file content. stdout: LABEL:line:content, the added-lines shape,
 # so a blob or tag message can go through the same scans as a diff.
 sec__label_lines() {
-  LC_ALL=C tr -d '\000' | LC_ALL=C awk -v p="$1" '{ print p ":" NR ":" $0 }'
+  LC_ALL=C tr -d '\000' | LC_ALL=C awk -v p="$1" 'BEGIN { gsub(/:/, "%3A", p) } { print p ":" NR ":" $0 }'
 }
 
 # sec__check_files FILES WHERE [BLOCK_FILES [PROTECTED_FILES]]   (newline-separated)
@@ -382,12 +381,12 @@ sec__validate_config() {
   return "$rc"
 }
 
-# sec__drop_binary_paths HITS   drops path:line:content hits in SEC_BINARY_GLOBS files.
+# sec__drop_binary_paths HITS   drops invalid-UTF-8 hits in SEC_MEDIA_GLOBS files.
 sec__drop_binary_paths() {
   local line body
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    if sec__match_any "${line%%:*}" ${SEC_BINARY_GLOBS[@]+"${SEC_BINARY_GLOBS[@]}"} &&
+    if sec__match_any "${line%%:*}" ${SEC_MEDIA_GLOBS[@]+"${SEC_MEDIA_GLOBS[@]}"} &&
       command -v iconv >/dev/null 2>&1; then
       # The name alone is not proof: a binary's bytes are almost never valid
       # UTF-8, while a hidden mark in a text file renamed .pdf is. Without
@@ -597,7 +596,8 @@ sec__gitleaks_text() {
 # Content scans read the diff as text no matter what .gitattributes or a NUL
 # byte says (`-diff`/`binary` would otherwise print "Binary files differ" and
 # no added lines), and never run a textconv driver.
-SEC__DIFF_OPTS=( --no-color --no-ext-diff --no-textconv --text )
+# Scan the destination bytes even when an unchanged media blob is renamed.
+SEC__DIFF_OPTS=( --no-color --no-ext-diff --no-textconv --no-renames --text )
 
 sec_pre_commit() {
   local rc=0 files bfiles pfiles
@@ -696,7 +696,8 @@ sec_pre_push_ref() {
   # tag object in the chain, so each message is scanned (^{} would skip them).
   otype="$(git cat-file -t "$local_sha" 2>/dev/null || echo missing)"
   while [[ "$otype" == tag ]]; do
-    added="$(git cat-file -p "$local_sha" | sec__label_lines "$remote_ref")"
+    # Ref names are not filenames and must never select the media exception.
+    added="$(git cat-file -p "$local_sha" | sec__label_lines "$remote_ref (tag message)")"
     sec__scan_added "tag message for '$remote_ref'" "$added" || rc=1
     sec__gitleaks_text "tag message for '$remote_ref'" "$added" || rc=1
     local_sha="$(git cat-file tag "$local_sha" | sed -n '1s/^object //p')"
@@ -705,7 +706,7 @@ sec_pre_push_ref() {
   case "$otype" in
     commit) ;;
     blob)
-      added="$(git cat-file blob "$local_sha" | sec__label_lines "$remote_ref")"
+      added="$(git cat-file blob "$local_sha" | sec__label_lines "$remote_ref (blob)")"
       sec__scan_added "blob published as '$remote_ref'" "$added" || rc=1
       sec__gitleaks_text "blob published as '$remote_ref'" "$added" || rc=1 ;;
     tree)
