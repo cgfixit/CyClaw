@@ -370,27 +370,34 @@ _RATE_LIMIT_AUDIT_CAP = 1024
 _rate_limit_audit_last: dict[str, float] = {}
 
 
-def _should_audit_rate_limit(client_ip: str, now: float) -> bool:
-    """True at most once per IP per rate-limit window; hard-caps the map."""
-    last = _rate_limit_audit_last.get(client_ip)
+def _should_audit_rate_limit(
+    client_ip: str, now: float, last_seen: dict[str, float] | None = None,
+) -> bool:
+    """True at most once per IP per rate-limit window; hard-caps the map.
+
+    ``last_seen`` defaults to the rate_limit_exceeded map. /index/build's
+    cross-site refusals pass their own, so neither event mutes the other.
+    """
+    seen = _rate_limit_audit_last if last_seen is None else last_seen
+    last = seen.get(client_ip)
     if last is not None and now - last < RATE_LIMIT_WINDOW:
         return False
-    _rate_limit_audit_last[client_ip] = now
+    seen[client_ip] = now
     # Bound the map under a flood from many distinct IPs: drop stale entries
     # first, then evict oldest until we're at the cap. A many-IP flood inside
     # one window would otherwise grow unbounded because nothing is older than
     # RATE_LIMIT_WINDOW.
-    if len(_rate_limit_audit_last) > _RATE_LIMIT_AUDIT_CAP:
+    if len(seen) > _RATE_LIMIT_AUDIT_CAP:
         cutoff = now - RATE_LIMIT_WINDOW
-        for ip in [ip for ip, ts in _rate_limit_audit_last.items() if ts < cutoff]:
-            del _rate_limit_audit_last[ip]
-        overflow = len(_rate_limit_audit_last) - _RATE_LIMIT_AUDIT_CAP
+        for ip in [ip for ip, ts in seen.items() if ts < cutoff]:
+            del seen[ip]
+        overflow = len(seen) - _RATE_LIMIT_AUDIT_CAP
         if overflow > 0:
             oldest = sorted(
-                _rate_limit_audit_last, key=_rate_limit_audit_last.get
+                seen, key=seen.get
             )[:overflow]
             for ip in oldest:
-                del _rate_limit_audit_last[ip]
+                del seen[ip]
     return True
 
 
@@ -934,7 +941,30 @@ def _run_index_build() -> None:
             _index_build["finished_at"] = time.monotonic()
 
 
-@app.post("/index/build", dependencies=[Depends(_enforce_rate_limit)])
+# Throttle state for /index/build's cross-site refusal audit, kept apart from
+# _rate_limit_audit_last so the two events never suppress each other.
+_index_build_cross_site_audit_last: dict[str, float] = {}
+
+
+async def _enforce_index_build_rate_limit(request: Request) -> None:
+    """_enforce_rate_limit for /index/build, auditing a cross-site refusal first.
+
+    _enforce_rate_limit rejects a cross-site request (403 CROSS_SITE_BLOCKED)
+    before the handler runs, so the handler's own audited refusals never see
+    it, and a cross-site header also hid a non-loopback or proxied caller from
+    the audit log. The refusal is now audited before the limiter, throttled
+    like rate_limit_exceeded (one line per IP per rate-limit window): any page
+    the operator visits can send these bodyless POSTs in a loop, and an
+    unthrottled line per request would let it grow audit.jsonl without bound.
+    """
+    if _looks_cross_site(request):
+        client_host = request.client.host if request.client else ""
+        if _should_audit_rate_limit(client_host, time.monotonic(), _index_build_cross_site_audit_last):
+            await _audit({"event": "index_build_rejected", "reason": "cross_site", "ip": client_host})
+    await _enforce_rate_limit(request)
+
+
+@app.post("/index/build", dependencies=[Depends(_enforce_index_build_rate_limit)])
 async def index_build(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
@@ -965,12 +995,6 @@ async def index_build(
             status_code=403,
             detail={"error": "Index builds must be started from this machine",
                     "code": "INDEX_BUILD_LOOPBACK_ONLY"},
-        )
-    if _looks_cross_site(request):
-        await _audit({"event": "index_build_rejected", "reason": "cross_site", "ip": client_host})
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "Cross-site request rejected", "code": "CROSS_SITE_BLOCKED"},
         )
     if os.environ.get("CYCLAW_API_KEY", ""):
         try:
