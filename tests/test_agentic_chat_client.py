@@ -590,10 +590,9 @@ def test_invoke_retries_a_5xx_carried_on_the_response_attribute(test_config, mon
 
 
 def test_invoke_never_retries_a_timeout(test_config, monkeypatch):
-    """ops_runner budgets each iteration at ONE planner_timeout_sec; retrying a
-    timed-out call would burn up to 3x that and get the run SIGKILLed at the
-    cap, so timeouts fail fast (same rationale as llm/client.py's local
-    retry_on_timeout=False)."""
+    """Each iteration is budgeted at ONE planner_timeout_sec; retrying a
+    timed-out call would burn up to 3x that, so timeouts fail fast (same
+    rationale as llm/client.py's local retry_on_timeout=False)."""
     cfg, config_path = test_config
     stub = _FlakyStubModel([_FakeAPITimeoutError(), _FakeAPITimeoutError()])
     monkeypatch.setattr(chat_client_module, "build_chat_model", lambda settings, **kwargs: stub)

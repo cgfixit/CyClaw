@@ -592,25 +592,44 @@ class SqlClient:
     def _execute(self, sql: str, params: tuple = ()) -> dict:  # pragma: no cover - needs live DB
         driver = self._import_driver()
         dsn = self._dsn()
-        conn = driver.connect(dsn)
+        # A DB-API driver (psycopg, pyodbc) raises every database-side failure as a
+        # subclass of its module-level Error: a refused connection (whose text can
+        # echo the DSN, password included), a missing relation, or the QueryCanceled
+        # our own statement_timeout provokes on purpose. Uncaught, those left cli.py
+        # as a traceback with exit 1, which utils/ops_runner.py labels "unknown".
+        # They become the base SqlConnectError, which cli._run maps to exit 2 ("op
+        # or query failed"); SqlConnectRuntimeError would land in exit 3, the
+        # env/config bucket an unset DSN uses. Only the class name is kept, and the
+        # driver error is not chained (from None), so its text cannot reach stderr
+        # or a logged traceback. A driver object without Error (the unit-test
+        # fakes) yields (), which an except clause never matches.
+        driver_error = getattr(driver, "Error", None) or ()
         try:
-            self._enforce_read_only(driver, conn)
-            cur = conn.cursor()
-            self._apply_statement_timeout(conn, cur)
-            cur.execute(sql, params)
-            cols, col_types = _columns_and_types(cur.description)
-            rows = cur.fetchmany(self.sql_cfg.max_rows + 1)
-            truncated = len(rows) > self.sql_cfg.max_rows
-            rows = rows[: self.sql_cfg.max_rows]
-            return {
-                "columns": cols,
-                "column_types": col_types,
-                "rows": [list(r) for r in rows],
-                "row_count": len(rows),
-                "truncated": truncated,
-            }
-        finally:
-            conn.close()
+            conn = driver.connect(dsn)
+            try:
+                self._enforce_read_only(driver, conn)
+                cur = conn.cursor()
+                self._apply_statement_timeout(conn, cur)
+                cur.execute(sql, params)
+                cols, col_types = _columns_and_types(cur.description)
+                rows = cur.fetchmany(self.sql_cfg.max_rows + 1)
+                truncated = len(rows) > self.sql_cfg.max_rows
+                rows = rows[: self.sql_cfg.max_rows]
+                return {
+                    "columns": cols,
+                    "column_types": col_types,
+                    "rows": [list(r) for r in rows],
+                    "row_count": len(rows),
+                    "truncated": truncated,
+                }
+            finally:
+                conn.close()
+        except driver_error as exc:
+            raise SqlConnectError(
+                f"database error ({type(exc).__name__})",
+                code="SQLCONNECT_DB_ERROR",
+                details={"driver": self.sql_cfg.driver},
+            ) from None
 
     def schema_list(self) -> dict:
         self._guard_op("schema_list")

@@ -1090,6 +1090,14 @@ class ScopedRoots:
             os.stat(leaf, dir_fd=pfd, follow_symlinks=False)
         except FileNotFoundError:
             return
+        except OSError as exc:
+            # Only "absent" proves the create is safe. Any other failure (one
+            # overlong --path gives ENAMETOOLONG) escaped raw, as exit 1 outside
+            # the 0/2/3/4 contract; typed like the other leaf stats in this class.
+            raise FsPathError(
+                f"cannot stat {leaf!r} before writing",
+                details={"errno": exc.errno, "strerror": exc.strerror},
+            ) from exc
         raise FsConnectRuntimeError(
             f"{leaf!r} already exists; pass overwrite to replace it",
             details={"clobber": leaf},
@@ -1118,9 +1126,9 @@ class ScopedRoots:
             # same way the os.open three lines above already does. Without this
             # the commonest case -- os.replace onto an existing DIRECTORY, i.e.
             # one mistyped --path -- escaped as a raw IsADirectoryError, which is
-            # outside the 0/2/3/4 exit contract AND left an
-            # fsconnect_write_intent with no matching _applied, the exact shape
-            # writer.py's docstring defines as the crash/tamper signal.
+            # outside the 0/2/3/4 exit contract. Typing it fixes only the exit
+            # code: the audit pairing (intent closed by fsconnect_write_failed, not
+            # left orphaned) is writer.py's _terminal_on_failure, for any error.
             # BaseException is kept so KeyboardInterrupt still unlinks the temp.
             if isinstance(exc, OSError):
                 raise FsConnectRuntimeError(
@@ -1164,8 +1172,20 @@ class ScopedRoots:
                 except BaseException:
                     os.close(fd)
                     raise
-                with os.fdopen(fd, "ab", closefd=True) as f:
-                    f.write(data)
+                try:
+                    with os.fdopen(fd, "ab", closefd=True) as f:
+                        f.write(data)
+                except OSError as exc:
+                    # EFBIG (RLIMIT_FSIZE), ENOSPC or EIO escaped raw (exit 1). The
+                    # file is buffered, so it usually surfaces from the flush on
+                    # close, by which point the with-block has closed fd. A failing
+                    # fdopen gets no extra close either: io.open closes an fd it has
+                    # already taken, and before that, on this fstat-checked regular
+                    # file, only a MemoryError could stop it.
+                    raise FsConnectRuntimeError(
+                        "could not complete append",
+                        details={"errno": exc.errno, "strerror": exc.strerror},
+                    ) from exc
             return {"bytes": len(data), "path": self._display(sr, comps)}
         return self._append_win(sr, comps, data)  # pragma: no cover
 
@@ -1204,6 +1224,14 @@ class ScopedRoots:
                         os.stat(dleaf, dir_fd=dpfd, follow_symlinks=False)
                     except FileNotFoundError:
                         pass
+                    except OSError as exc:
+                        # Same gap as _guard_clobber_posix: an overlong --dst failed
+                        # here with a raw ENAMETOOLONG, before the os.replace below
+                        # that already converts its own OSError.
+                        raise FsPathError(
+                            f"cannot stat destination {dleaf!r}",
+                            details={"errno": exc.errno, "strerror": exc.strerror},
+                        ) from exc
                     else:
                         raise FsConnectRuntimeError(
                             f"destination {dleaf!r} exists; pass overwrite",

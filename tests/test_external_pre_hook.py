@@ -408,9 +408,9 @@ def test_allow_verdict_is_emitted_as_the_egress_about_to_happen(tmp_path: Path, 
 
 
 def test_verdict_url_carries_no_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """utils/endpoint_trust.py pins only the hostname, so a base_url with
-    userinfo, a path segment or a key in its query passes it; the persistent
-    stream keeps only the origin."""
+    """utils/endpoint_trust.py pins the hostname, scheme and port, so a
+    base_url with userinfo, a path segment or a key in its query still passes
+    it; the persistent stream keeps only the origin."""
     cfg = _hook_config(tmp_path)
     cfg["models"] = {"grok": {"base_url": "https://ops:s3cr3t-tok@api.x.ai/p4th-tok/v1?api_key=k3y-val#frag"}}
     monkeypatch.setattr(subprocess, "run", _allow_run)

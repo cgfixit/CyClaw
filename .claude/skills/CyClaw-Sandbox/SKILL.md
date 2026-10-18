@@ -166,7 +166,8 @@ cd <scratch-copy> && CYCLAW_API_KEY=<random> GROK_API_KEY=dummy <venv>/bin/pytho
   loopback only and 409s once set; `/auth/login` returns the session cookie
   and CSRF token; `POST /query` now needs the session (or a device token) and
   the `audit` role is 403 `AUTH_ROLE_DENIED`; a wrong-password burst locks the
-  account (423); a disabled admin can't pass `require_api_key`. `cyclaw-user`
+  account, which still answers the uniform 401 (even for the right password);
+  a disabled admin can't pass `require_api_key`. `cyclaw-user`
   (`python -m utils.authn_cli`) manages users locally. TLS: `cyclaw-gen-cert`
   then `api.tls.enabled: true` marks the cookie `secure`.
 - **Memory** (`memory.enabled`, `memory.facts.retrieval_enabled`,

@@ -75,7 +75,7 @@ least-privilege database role. MSSQL's ODBC read-only hint is not enforcement.
 | **DNS-rebinding → state-changing POST** | `TrustedHostMiddleware` Host allow-list (outside CORS and the routes; wrapped in turn by `_MaxBodySizeMiddleware`, so an oversized body is refused 413 before the Host check, and by the outermost `_SecurityHeadersMiddleware`) | `gate.py`, `config.yaml` |
 | **Unauthorized cross-origin reads** | CORS allow-list | `gate.py`, `config.yaml` |
 | **Cross-site POST to `/query`** (CSRF riding a session cookie, or the `api_key_optional` bypass) | `_reject_cross_site_query` (403 `CROSS_SITE_BLOCKED`), attached **unconditionally** — independent of `auth.enabled`, which it was **not** before issue #1201: the shipped default left `/query` with no cross-site check of its own, protected only incidentally by a JSON-only body forcing a CORS preflight. The same-origin predicate requires the `Origin` host, port **and** scheme to equal this request's own, and the host to be in `security.allowed_hosts`. A request carrying neither `Origin` nor `Sec-Fetch-Site` is allowed (curl, PowerShell, Telegram, schedulers — not CSRF vectors) | `gate.py`, `config.yaml` |
-| **Unauthorized index rebuild** (corpus swap / resource burn) | Loopback socket peer **and** no reverse-proxy forwarding header (`X-Forwarded-For`/`-Host`/`-Proto`, `X-Real-IP`, `Forwarded`; refused as `proxied`, #1526 F7) **and** same-origin, all unconditional. Once `CYCLAW_API_KEY` is set, also `require_api_key`'s credentials (Bearer key, console cookie + CSRF, or an enabled admin login + CSRF; 401 `INDEX_BUILD_AUTH_REQUIRED`, audited as `credential`, #1528), because a same-host proxy or tunnel that strips those headers is indistinguishable from a local caller. **Residual gap:** with the key unset (a genuine first run) only the header-based gate applies, since key-gating then fails closed and would brick the first-run flow the route exists to unblock — so do not front an unkeyed CyClaw with a header-stripping proxy; rate-limited; every refusal audited (`index_build_rejected`); one build at a time (409) | `gate.py` |
+| **Unauthorized index rebuild** (corpus swap / resource burn) | Loopback socket peer **and** no reverse-proxy forwarding header (`X-Forwarded-For`/`-Host`/`-Proto`, `X-Real-IP`, `Forwarded`; refused as `proxied`, #1526 F7) **and** same-origin, all unconditional. Once `CYCLAW_API_KEY` is set, also `require_api_key`'s credentials (Bearer key, console cookie + CSRF, or an enabled admin login + CSRF; 401 `INDEX_BUILD_AUTH_REQUIRED`, audited as `credential`, #1528), because a same-host proxy or tunnel that strips those headers is indistinguishable from a local caller. **Residual gap:** with the key unset (a genuine first run) only the header-based gate applies, since key-gating then fails closed and would brick the first-run flow the route exists to unblock — so do not front an unkeyed CyClaw with a header-stripping proxy; rate-limited; every gate refusal audited (`index_build_rejected`: `non_loopback`, `proxied`, `cross_site`, `credential`), the cross-site one before the limiter, so a cross-site header cannot hide a refused caller, and throttled to one line per IP per rate-limit window because any page the operator visits can loop those bodyless POSTs; one build at a time (409) | `gate.py` |
 | **Index-progress probe** (`GET /index/status`, unauthenticated by design) | Returns build state only — never corpus content — from a lock-guarded snapshot. Deliberately **exempt** from the per-IP limit: the console polls it every 1.5 s for the length of a build, which would otherwise spend two-thirds of the operator's own budget. Same posture `GET /health` already has | `gate.py`, `static/terminal.js` |
 | **Uncontrolled external model calls** | Triple-gate: `mode=hybrid` **and** the selected provider's `grok.enabled`/`claude.enabled` **and** `user_confirmed_online` | `graph.py`, `config.yaml` |
 | **Uncontrolled evaluation egress** | Standalone CLI refuses unless `CYCLAW_EVAL_LIVE=1` and `ANTHROPIC_API_KEY` are both present; Anthropic origin is exact-pinned; contestant is loopback-only; embedding downloads are forced offline | `tests/judge_eval.py`, `tests/test_judge_eval.py` |
@@ -1133,6 +1133,9 @@ What this changes in the surface this document describes:
   reaches the pipeline after this removal. Its gates
   (`agentic.enabled`, `deepagent_github.enabled`, `allow_git_write_tools`)
   still ship `false`.
+  **Superseded in part 2026-10-15:** the unreachable `real-repo-run*` dispatch
+  was then removed from `utils/ops_runner.py`, which now allowlists the same
+  five actions as `OpsAgenticRequest.action`. The pipeline is still CLI-only.
 - **Windows coding-console support is withdrawn from CyClaw.**
   `powershell/Invoke-CyClaw.ps1` now starts the RAG gateway only. The
   coding console's future Windows path is CG-agent-harness once its Windows
@@ -1214,7 +1217,8 @@ What issue #1458 changed, and the boundaries that follow:
   host endpoint fields, and the query's keyed HMAC fingerprint. Only the URL's origin
   (`scheme://host[:port]`) enters an event; userinfo, path, query and
   fragment are dropped, because `utils/endpoint_trust.py` pins only the
-  hostname and a credential can ride any of them. The hash is omitted from
+  hostname, the https scheme and port 443, and a credential can ride any of
+  the dropped parts. The hash is omitted from
   the temp fixture and the stream when
   `logging.audit_fields.include_query_hash` is false. Neither engine sees
   query text, soul text, or retrieved context. For each call, the numbat

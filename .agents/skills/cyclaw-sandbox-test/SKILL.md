@@ -28,6 +28,9 @@ environment. The runner can reuse a responder and cannot prove PID ownership;
 matching model IDs do not make an operator service safe to reuse. Remove real
 credentials and DB DSNs from its child environment. It temporarily enables
 provider health probes and points dummy-key clients at a loopback mock.
+In hybrid mode `/health` must report `ollama` and `embeddings_local` healthy and
+`grok_api` and `claude_api` unhealthy, because the online destination allowlist
+(https on port 443 only) refuses the loopback mock before a probe sends a key.
 Those probes cannot prove production online-destination or graph consent policy.
 
 The runner writes index/log/report state and exercises soul reload/ops and

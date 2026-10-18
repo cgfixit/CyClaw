@@ -560,10 +560,9 @@ python -m agentic.cli real-repo-run-publish --run-id "<id>" --reason "..." --con
 python -m agentic.cli real-repo-run-discard --run-id "<id>"
 ```
 
-**CLI-only.** `utils/ops_runner.py` accepts `real-repo-run` and its
-`-status`, `-decide`, `-push`, `-publish`, and `-discard` actions, but excludes
-`real-repo-run-plan`. `schemas/api.py`'s `OpsAgenticRequest.action` and
-`gate_ops.py` expose only `status`/`test`/`context`/`propose-skill`/`apply-skill`.
+**CLI-only.** `schemas/api.py`'s `OpsAgenticRequest.action` and
+`gate_ops.py` expose only `status`/`test`/`context`/`propose-skill`/`apply-skill`,
+and `utils/ops_runner.py` allowlists the same five.
 `POST /ops/agentic` therefore rejects all coding-loop actions with 422.
 No HTTP route reaches the pipeline.
 

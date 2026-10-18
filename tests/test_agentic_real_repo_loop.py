@@ -1686,6 +1686,86 @@ def test_protected_path_gate_cannot_be_bypassed_by_respelling_the_path(tmp_path,
     mverify.assert_not_called()
 
 
+def test_protected_path_gate_judges_where_a_write_lands_through_a_directory_symlink(tmp_path, monkeypatch):
+    """An in-clone DIRECTORY symlink (docs/linkdir -> ../tests) lands a write
+    spelled docs/linkdir/test_x.py on tests/test_x.py.
+
+    The gate matched only the spelling, the overwrite backstop read the
+    symlink refusal as "a create", and changed_files recorded the alias -- so
+    finalize's re-check and the review diff both missed the protected file
+    that approve would stage. The landed path must be judged before any write.
+    """
+    block = "=== FILE docs/linkdir/test_x.py ===\ndef test_x(): assert True\n=== END FILE ===\nfix"
+    files = {"README.md": "hello\n", "docs/index.md": "docs\n", "tests/test_ok.py": "def test_ok(): pass\n"}
+    with _cloned_tools(tmp_path, monkeypatch, files=files) as tools:
+        try:
+            (Path(tools.worktree) / "docs" / "linkdir").symlink_to(Path("..") / "tests", target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"symlink creation unavailable on this host: {exc}")
+        client = _loop_client(lambda request: _chat_response(block))
+        try:
+            with patch("agentic.real_repo_loop.run_verification") as mverify:
+                result = run_real_repo_loop(
+                    tools,
+                    client,
+                    instruction="add a test",
+                    checks=[Check("noop", (sys.executable, "-c", "pass"))],
+                    branch_name="agent/scope",
+                    commit_message="x",
+                    max_iterations=1,
+                    reason="test run",
+                    confirm=True,
+                    protected_write_paths=["tests/"],
+                )
+        finally:
+            client.close()
+
+        # Inside the with-block: close() deletes the whole clone.
+        assert not (Path(tools.worktree) / "tests" / "test_x.py").exists()
+
+    assert result.accepted is False
+    assert "out_of_scope_write" in result.iterations[0].decision.rejected_gates
+    mverify.assert_not_called()
+
+
+def test_overwrite_guard_judges_where_a_write_lands_through_a_directory_symlink(tmp_path, monkeypatch):
+    """docs/linkdir -> ../src, so docs/linkdir/keep.py replaces src/keep.py.
+
+    The model was never shown src/keep.py. stat_file refuses the symlinked
+    spelling, which the backstop read as "a create", so an unprotected
+    directory symlink still let a whole-file replacement destroy unseen content.
+    """
+    block = "=== FILE docs/linkdir/keep.py ===\nreplaced blind\n=== END FILE ===\nfix"
+    files = {"README.md": "hello\n", "docs/index.md": "docs\n", "src/keep.py": "original content\n"}
+    with _cloned_tools(tmp_path, monkeypatch, files=files) as tools:
+        try:
+            (Path(tools.worktree) / "docs" / "linkdir").symlink_to(Path("..") / "src", target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"symlink creation unavailable on this host: {exc}")
+        client = _loop_client(lambda request: _chat_response(block))
+        try:
+            with patch("agentic.real_repo_loop.run_verification") as mverify:
+                result = run_real_repo_loop(
+                    tools,
+                    client,
+                    instruction="edit keep.py",
+                    checks=[_MARKER_CHECK],
+                    branch_name="agent/blind",
+                    commit_message="x",
+                    max_iterations=1,
+                    reason="test run",
+                    confirm=True,
+                )
+        finally:
+            client.close()
+
+        assert (Path(tools.worktree) / "src" / "keep.py").read_text(encoding="utf-8") == "original content\n"
+
+    assert result.accepted is False
+    assert "file_write_failed" in result.iterations[0].decision.rejected_gates
+    mverify.assert_not_called()
+
+
 def test_changed_files_are_canonical_so_the_review_diff_can_match_them(tmp_path, monkeypatch):
     """The other half of the same bug, and the more dangerous half.
 

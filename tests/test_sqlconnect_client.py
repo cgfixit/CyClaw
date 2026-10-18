@@ -443,6 +443,82 @@ def test_execute_readonly_fails_closed_when_set_attr_rejected(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# driver errors: typed for the exit-code API, never echoing the DSN
+# ---------------------------------------------------------------------------
+
+_SECRET_DSN = "postgresql://reader:hunter2-must-not-leak@db.internal:5432/prod"
+
+
+class FakeDbError(Exception):
+    """A DB-API module's ``Error`` base class (psycopg.Error / pyodbc.Error)."""
+
+
+class FakeOperationalError(FakeDbError):
+    pass
+
+
+class FakeUndefinedTable(FakeDbError):
+    pass
+
+
+class _ClosingConn(_FakeConn):
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _failing_driver(stage: str) -> SimpleNamespace:
+    """A DB-API-shaped driver whose ``connect`` or user-query ``execute`` fails."""
+    conn = _ClosingConn()
+
+    def connect(dsn):
+        if stage == "connect":
+            # libpq echoes an unparseable conninfo string back verbatim.
+            raise FakeOperationalError(f'missing "=" after "{dsn}" in connection info string')
+        return conn
+
+    def execute(sql, params=()):
+        if "set_config" not in sql:  # the statement_timeout SET succeeds; the query fails
+            raise FakeUndefinedTable(f'relation "nope" does not exist ({_SECRET_DSN})')
+
+    if stage == "execute":
+        conn.cur.execute = execute
+    return SimpleNamespace(Error=FakeDbError, connect=connect, conn=conn)
+
+
+@pytest.mark.parametrize(
+    ("stage", "type_name"),
+    [("connect", "FakeOperationalError"), ("execute", "FakeUndefinedTable")],
+)
+def test_execute_maps_driver_errors_to_a_typed_error_without_the_dsn(monkeypatch, stage, type_name):
+    """A DB-API driver error must reach cli._run typed, never raw.
+
+    Raw, it escaped the CLI as a traceback (exit 1, which ops_runner labels
+    "unknown") whose text could carry the DSN password. The typed error names
+    only the driver's exception class, and is the base SqlConnectError that
+    cli._run maps to exit 2; SqlConnectRuntimeError would be exit 3, the
+    env/config bucket.
+    """
+    sc = SqlConnectConfig(driver="postgres")
+    monkeypatch.setenv(sc.dsn_env, _SECRET_DSN)
+    client = SqlClient({}, sc)
+    fake = _failing_driver(stage)
+    monkeypatch.setattr(client, "_import_driver", lambda: fake)
+    with pytest.raises(SqlConnectError) as excinfo:
+        client._execute("SELECT * FROM nope")
+    err = excinfo.value
+    assert type(err) is SqlConnectError
+    assert err.message == f"database error ({type_name})"
+    assert "hunter2" not in f"{err} {err.details}"
+    assert err.__cause__ is None and err.__suppress_context__, "the DSN-bearing driver error must not be chained"
+    if stage == "execute":
+        assert fake.conn.closed, "the connection must still be closed when the query fails"
+
+
+# ---------------------------------------------------------------------------
 # column type metadata
 # ---------------------------------------------------------------------------
 

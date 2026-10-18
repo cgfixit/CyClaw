@@ -218,6 +218,9 @@ the rclone log and `sync_failed` audit events for a partial failure. With
 `auto_reindex: true`, the CLI runs the indexer instead of returning 10; a
 caught sync error still returns failure even if that rebuild succeeds.
 
+A failed `--dry-run` returns the same 1, 2 or 3 as a real run. A dry run never
+returns 10: it previews changes only, so there is nothing to reindex.
+
 A standalone reindex needs a gateway restart to load the new retriever. The
 separate `POST /index/build` route rebuilds in the gateway and replaces its
 retriever after a successful build.

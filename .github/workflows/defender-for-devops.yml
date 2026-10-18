@@ -60,10 +60,15 @@ jobs:
         include:
           - os: ubuntu-latest
             label: linux
+            # Linux keeps the original `bandit` SARIF category so GitHub treats
+            # it as the same analysis as before the matrix; a new name would
+            # strand the existing alerts under a configuration nothing updates.
+            sarif_category: bandit
             lock_file: locks/requirements-ci-bandit-lock-linux.txt
 
           - os: macos-latest
             label: macos
+            sarif_category: bandit-macos
             # CyClaw does not currently generate a separately named macOS
             # Bandit lock. The Bandit/SARIF dependency set is platform-neutral,
             # and the existing lock contains hashes for the published PyYAML
@@ -137,4 +142,4 @@ jobs:
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: bandit.sarif
-          category: bandit-${{ matrix.label }}
+          category: ${{ matrix.sarif_category }}

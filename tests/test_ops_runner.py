@@ -96,9 +96,19 @@ def test_sync_exit_code_labels(monkeypatch: pytest.MonkeyPatch, code: int, ok: b
 # ------------------------------------------------------------------------- agentic
 
 
-def test_agentic_unknown_action_raises() -> None:
-    with pytest.raises(OpsError):
-        run_agentic_op("delete-repo")
+@pytest.mark.parametrize(
+    "action",
+    [
+        "delete-repo",
+        # The real-repo-run* coding loop is CLI-only, so the allowlist refuses
+        # it like any other unknown verb.
+        "real-repo-run", "real-repo-run-status", "real-repo-run-decide",
+        "real-repo-run-push", "real-repo-run-publish", "real-repo-run-discard",
+    ],
+)
+def test_agentic_unknown_action_raises(action: str) -> None:
+    with pytest.raises(OpsError, match="Unknown agentic action"):
+        run_agentic_op(action)
 
 
 def test_agentic_context_repo_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,19 +238,6 @@ def test_write_body_unlinks_temp_file_when_write_fails(monkeypatch: pytest.Monke
     assert not orphan.exists()
 
 
-def test_write_checks_file_unlinks_temp_file_when_write_fails(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    from pathlib import Path
-
-    orphan = tmp_path / "cyclaw_checks_boom.json"
-    orphan.write_text("stale", encoding="utf-8")
-    monkeypatch.setattr(
-        ops_runner.tempfile, "NamedTemporaryFile", lambda *a, **k: _WriteFailsHandle(str(orphan))
-    )
-    with pytest.raises(OSError):
-        ops_runner._write_checks_file([{"name": "x", "argv": ["y"]}])
-    assert not orphan.exists()
-
-
 def test_agentic_apply_no_confirm_omits_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     runner, captured = _fake_run(returncode=4, stderr="apply-skill requires --confirm")
     monkeypatch.setattr(ops_runner, "_run", runner)
@@ -313,249 +310,6 @@ def test_to_dict_redacts_subprocess_output(monkeypatch: pytest.MonkeyPatch) -> N
     assert "[REDACTED_SECRET]" in d["stdout"]
     assert "[REDACTED_SECRET]" in d["stderr"]
     assert "[REDACTED_SECRET]" in d["parsed"]["nested"][0]
-
-
-@pytest.mark.parametrize(
-    ("kwargs", "match"),
-    [
-        ({"checks": [{"name": "x", "argv": ["y"]}], "branch": "agent/x", "commit_message": "m", "reason": "r"},
-         "instruction"),
-        ({"instruction": "do it", "branch": "agent/x", "commit_message": "m", "reason": "r"}, "checks"),
-        ({"instruction": "do it", "checks": [{"name": "x", "argv": ["y"]}], "commit_message": "m", "reason": "r"},
-         "branch"),
-        ({"instruction": "do it", "checks": [{"name": "x", "argv": ["y"]}], "branch": "agent/x", "reason": "r"},
-         "branch"),
-        ({"instruction": "do it", "checks": [{"name": "x", "argv": ["y"]}], "branch": "agent/x",
-          "commit_message": "m"}, "reason"),
-    ],
-)
-def test_real_repo_run_requires_its_fields(kwargs, match) -> None:
-    with pytest.raises(OpsError, match=match):
-        run_agentic_op("real-repo-run", **kwargs)
-
-
-@pytest.mark.parametrize(
-    ("optional", "match"),
-    [
-        ({"plan": "   "}, "plan"),
-        ({"read_files": ["safe.py\x00not-safe.py"]}, "read_files"),
-        ({"read_files": "safe.py"}, "read_files"),
-        ({"read_files": ["/etc/passwd"]}, "read_files"),
-        ({"read_files": ["../secret"]}, "read_files"),
-        ({"read_files": ["-flag"]}, "read_files"),
-    ],
-)
-def test_real_repo_run_rejects_invalid_optional_browser_values(optional, match) -> None:
-    with pytest.raises(OpsError, match=match):
-        run_agentic_op(
-            "real-repo-run", instruction="x", checks=[{"name": "x", "argv": ["y"]}],
-            branch="agent/x", commit_message="m", reason="r", **optional,
-        )
-
-
-def test_real_repo_run_argv_shape_and_temp_file_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
-    from pathlib import Path
-
-    captured: list[list[str]] = []
-    captured_plan: list[str] = []
-
-    def runner(argv, *, timeout_sec=None):
-        del timeout_sec
-        captured.append(argv)
-        plan_path = Path(argv[argv.index("--plan-file") + 1])
-        captured_plan.append(plan_path.read_text(encoding="utf-8"))
-        return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"status": "pending_decision"}', stderr="")
-
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    checks = [{"name": "pytest", "argv": ["python", "-m", "pytest"]}]
-    plan = "Review this candidate before applying it."
-    res = run_agentic_op(
-        "real-repo-run", instruction="add a marker", checks=checks, branch="agent/topic",
-        commit_message="add marker", reason="test run", confirm=True, max_iterations=5,
-        plan=plan, read_files=["src/marker.py", "tests/test_marker.py"],
-    )
-    argv = captured[0]
-    assert "--repo" in argv  # default target when pr/issue omitted
-    assert "--instruction=add a marker" in argv
-    assert "--branch=agent/topic" in argv
-    assert "--commit-message=add marker" in argv
-    assert "--reason=test run" in argv
-    assert "--confirm" in argv
-    assert argv[argv.index("--max-iterations") + 1] == "5"
-
-    assert "--checks-file" in argv
-    checks_path = argv[argv.index("--checks-file") + 1]
-    plan_path = argv[argv.index("--plan-file") + 1]
-    assert not Path(checks_path).exists()  # cleaned up after the run
-    assert captured_plan == [plan]
-    assert not Path(plan_path).exists()  # the reviewed plan is not retained by the shim
-    assert "--read-file=src/marker.py" in argv
-    assert "--read-file=tests/test_marker.py" in argv
-    assert res.parsed == {"status": "pending_decision"}
-
-
-def test_real_repo_run_pr_and_issue_selectors(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout="{}")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    checks = [{"name": "x", "argv": ["y"]}]
-    run_agentic_op(
-        "real-repo-run", pr=42, instruction="x", checks=checks, branch="agent/x",
-        commit_message="m", reason="r",
-    )
-    assert "--pr" in captured[0] and "42" in captured[0]
-    captured.clear()
-    run_agentic_op(
-        "real-repo-run", issue=7, instruction="x", checks=checks, branch="agent/x",
-        commit_message="m", reason="r",
-    )
-    assert "--issue" in captured[0] and "7" in captured[0]
-
-
-def test_real_repo_run_no_confirm_omits_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=4, stderr="refused")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op(
-        "real-repo-run", instruction="x", checks=[{"name": "x", "argv": ["y"]}],
-        branch="agent/x", commit_message="m", reason="r", confirm=False,
-    )
-    assert "--confirm" not in captured[0]
-    assert res.exit_code == 4 and res.label == "write_refused"
-
-
-def test_real_repo_run_uses_the_long_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen_timeouts: list[int | None] = []
-
-    def runner(argv, *, timeout_sec=None):
-        seen_timeouts.append(timeout_sec)
-        return subprocess.CompletedProcess(args=argv, returncode=0, stdout="{}", stderr="")
-
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    run_agentic_op(
-        "real-repo-run", instruction="x", checks=[{"name": "x", "argv": ["y"]}],
-        branch="agent/x", commit_message="m", reason="r",
-    )
-    assert seen_timeouts == [ops_runner._real_repo_run_timeout_sec(None, 1)]  # noqa: SLF001
-
-
-# --------------------------------------------------------------- real-repo-run budget
-
-def test_real_repo_run_budget_covers_every_iteration_of_planner_and_checks(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The budget must outlast what the run is actually allowed to spend.
-
-    Regression for a real inversion: this was a flat 900s, sized when the
-    planner's own timeout was a hardcoded 30s. Once that became configurable
-    and defaulted to 600s, three iterations alone (the CLI's own default)
-    could spend 1800s -- twice the ceiling -- and blowing it SIGKILLs the CLI
-    before its own cleanup runs, leaking the clone and stranding a
-    permanently `running` record.
-    """
-    monkeypatch.setattr(
-        ops_runner, "_get_config",
-        lambda _path: {"agentic": {"deepagent_github": {"planner_timeout_sec": 600}}},
-    )
-    budget = ops_runner._real_repo_run_timeout_sec(3, 1)  # noqa: SLF001
-    assert budget > 3 * 600, "must outlast three full planner calls"
-    assert budget >= 3 * 600 + 3 * 120, "and their verification sweeps"
-
-
-def test_real_repo_run_budget_tracks_a_raised_planner_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Raising planner_timeout_sec must move the ceiling with it, not strand it."""
-    monkeypatch.setattr(
-        ops_runner, "_get_config",
-        lambda _path: {"agentic": {"deepagent_github": {"planner_timeout_sec": 200}}},
-    )
-    low = ops_runner._real_repo_run_timeout_sec(2, 1)  # noqa: SLF001
-    monkeypatch.setattr(
-        ops_runner, "_get_config",
-        lambda _path: {"agentic": {"deepagent_github": {"planner_timeout_sec": 400}}},
-    )
-    high = ops_runner._real_repo_run_timeout_sec(2, 1)  # noqa: SLF001
-    assert high - low == 2 * (400 - 200)
-
-
-def test_real_repo_run_budget_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The route's own maxima compute past three hours; a synchronous HTTP
-    request held open that long is its own failure mode, so the budget caps."""
-    monkeypatch.setattr(
-        ops_runner, "_get_config",
-        lambda _path: {"agentic": {"deepagent_github": {"planner_timeout_sec": 600}}},
-    )
-    assert ops_runner._real_repo_run_timeout_sec(10, 8) == ops_runner.REAL_REPO_RUN_MAX_TIMEOUT_SEC  # noqa: SLF001
-
-
-@pytest.mark.parametrize("bad_cfg", [{}, {"agentic": None}, {"agentic": {"deepagent_github": None}}])
-def test_real_repo_run_budget_falls_back_on_missing_config(
-    monkeypatch: pytest.MonkeyPatch, bad_cfg: dict
-) -> None:
-    monkeypatch.setattr(ops_runner, "_get_config", lambda _path: bad_cfg)
-    expected = (
-        3 * ops_runner._REAL_REPO_RUN_FALLBACK_PLANNER_SEC  # noqa: SLF001
-        + 3 * 120
-        + ops_runner._REAL_REPO_RUN_OVERHEAD_SEC  # noqa: SLF001
-    )
-    assert ops_runner._real_repo_run_timeout_sec(None, 1) == expected  # noqa: SLF001
-
-
-def test_real_repo_run_budget_falls_back_on_unreadable_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _boom(_path):
-        raise OSError("config missing")
-
-    monkeypatch.setattr(ops_runner, "_get_config", _boom)
-    assert ops_runner._real_repo_run_timeout_sec(1, 1) > 0  # noqa: SLF001
-
-
-def test_real_repo_run_temp_files_are_cleaned_up_when_run_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    from pathlib import Path
-
-    captured_argv: list[list[str]] = []
-
-    def raising_run(argv, *, timeout_sec=None):
-        captured_argv.append(argv)
-        raise subprocess.TimeoutExpired(cmd=argv, timeout=1)
-
-    monkeypatch.setattr(ops_runner, "_run", raising_run)
-    with pytest.raises(subprocess.TimeoutExpired):
-        run_agentic_op(
-            "real-repo-run", instruction="x", checks=[{"name": "x", "argv": ["y"]}],
-            branch="agent/x", commit_message="m", reason="r", plan="reviewed plan",
-        )
-    argv = captured_argv[0]
-    checks_path = argv[argv.index("--checks-file") + 1]
-    plan_path = argv[argv.index("--plan-file") + 1]
-    assert not Path(checks_path).exists()
-    assert not Path(plan_path).exists()
-
-
-def test_real_repo_run_status_requires_run_id() -> None:
-    with pytest.raises(OpsError, match="run_id"):
-        run_agentic_op("real-repo-run-status")
-
-
-def test_real_repo_run_status_argv(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout='{"status": "pending_decision"}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op("real-repo-run-status", run_id="abc123")
-    assert "--run-id=abc123" in captured[0]
-    assert res.parsed == {"status": "pending_decision"}
-
-
-def test_real_repo_run_decide_requires_run_id_and_decision() -> None:
-    with pytest.raises(OpsError, match="run_id"):
-        run_agentic_op("real-repo-run-decide", decision="approve")
-    with pytest.raises(OpsError, match="approve.*reject"):
-        run_agentic_op("real-repo-run-decide", run_id="abc123", decision="maybe")
-
-
-def test_real_repo_run_decide_argv(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout='{"status": "approved"}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op("real-repo-run-decide", run_id="abc123", decision="approve")
-    argv = captured[0]
-    assert "--run-id=abc123" in argv
-    assert argv[-2:] == ["--decision", "approve"]
-    assert res.parsed == {"status": "approved"}
 
 
 # ----------------------------------------------------------------------- isolation
@@ -758,52 +512,6 @@ def test_sync_timeout_sec_fallback_on_unreadable_config(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(ops_runner, "_get_config", _boom)
     assert ops_runner.sync_timeout_sec() == 3600 + 60
-
-
-def test_real_repo_run_push_and_discard_argv(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both carry only --run-id; neither had any argv coverage."""
-    for action in ("real-repo-run-push", "real-repo-run-discard"):
-        runner, captured = _fake_run(returncode=0, stdout='{"status": "approved"}')
-        monkeypatch.setattr(ops_runner, "_run", runner)
-        run_agentic_op(action, run_id="abc123")
-        assert action in captured[0]
-        assert "--run-id=abc123" in captured[0]
-
-
-def test_real_repo_run_publish_argv_binds_a_dash_leading_reason(monkeypatch: pytest.MonkeyPatch) -> None:
-    """--reason=<value> as ONE argv element, not two.
-
-    A reason beginning with '-' would otherwise be reparsed by the child's
-    argparse as a flag rather than bound to --reason. The equivalent defense
-    for apply-skill is tested; this path had no argv coverage at all.
-    """
-    runner, captured = _fake_run(returncode=0, stdout='{"status": "approved"}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    run_agentic_op("real-repo-run-publish", run_id="abc123", reason="--not-a-flag", confirm=True)
-    assert "--reason=--not-a-flag" in captured[0]
-    assert "--not-a-flag" not in [a for a in captured[0] if not a.startswith("--reason=")]
-    assert "--confirm" in captured[0]
-
-
-def test_real_repo_run_publish_omits_confirm_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Reaches the CLI's own refusal path (exit 4) rather than being defaulted."""
-    runner, captured = _fake_run(returncode=4, stdout="")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    run_agentic_op("real-repo-run-publish", run_id="abc123", reason="r")
-    assert "--confirm" not in captured[0]
-
-
-@pytest.mark.parametrize("field", ["instruction", "reason"])
-def test_real_repo_run_refuses_a_whitespace_only_free_text_field(field: str) -> None:
-    """The .strip() specifically -- Field(min_length=1) upstream does not strip,
-    so this shim is the layer that actually catches "   "."""
-    kwargs = {
-        "instruction": "do a thing", "checks": [{"name": "a", "argv": ["true"]}],
-        "branch": "agent/x", "commit_message": "m", "reason": "r",
-    }
-    kwargs[field] = "   "
-    with pytest.raises(OpsError, match=f"non-empty {field}"):
-        run_agentic_op("real-repo-run", **kwargs)
 
 
 def test_sync_timeout_sec_never_raises_on_a_malformed_config(monkeypatch: pytest.MonkeyPatch) -> None:

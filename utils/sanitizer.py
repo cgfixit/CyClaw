@@ -36,6 +36,11 @@ _DEFAULT_MAX_INPUT_CHARS = 4000
 # rest of the config readers.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Separator runs folded to one space in the folded probe. Shared by
+# _normalize_for_match and _match_probes so the two can never disagree.
+_SEPARATOR_RUN = re.compile(r"[_\-.·]+")
+
+
 def _normalize_for_match(text: str, *, fold_separators: bool = True) -> str:
     """Fold an inspection copy; never rewrite accepted user/corpus content.
 
@@ -55,7 +60,18 @@ def _normalize_for_match(text: str, *, fold_separators: bool = True) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
     text = unicodedata.normalize("NFKC", text).casefold().translate(CONFUSABLE_FOLD)
-    return re.sub(r"[_\-.·]+", " ", text) if fold_separators else text
+    return _SEPARATOR_RUN.sub(" ", text) if fold_separators else text
+
+
+def _match_probes(text: str) -> tuple[str, str]:
+    """Return ``(literal_probe, folded_probe)`` from one normalization pass.
+
+    The two probes differ only in the final separator fold, so building the
+    folded one from the literal one gives the same strings as two
+    _normalize_for_match calls while running the Unicode pipeline once.
+    """
+    literal_probe = _normalize_for_match(text, fold_separators=False)
+    return literal_probe, _SEPARATOR_RUN.sub(" ", literal_probe)
 
 
 def _resolve_config_path(config_path: str) -> Path:
@@ -151,8 +167,7 @@ def check_input(query: str, config_path: str = "config.yaml", *, max_chars_overr
             details={"length": len(query), "max": max_chars},
         )
 
-    literal_probe = _normalize_for_match(query, fold_separators=False)
-    probe = _normalize_for_match(query)
+    literal_probe, probe = _match_probes(query)
     for pattern in patterns:
         if pattern.search(query) or pattern.search(literal_probe) or pattern.search(probe):
             raise PromptInjectionError(
@@ -176,8 +191,7 @@ def sanitize_chunk(text: str, config_path: str = "config.yaml") -> str:
         text = pattern.sub("[FILTERED]", text)
     # Folded offsets do not map to original text. Reject the remaining chunk
     # as a whole if an obfuscated instruction survived raw substitution.
-    literal_probe = _normalize_for_match(text, fold_separators=False)
-    probe = _normalize_for_match(text)
+    literal_probe, probe = _match_probes(text)
     if any(pattern.search(literal_probe) or pattern.search(probe) for pattern in patterns):
         return "[FILTERED]"
     return text

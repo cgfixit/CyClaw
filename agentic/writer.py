@@ -155,8 +155,8 @@ def _build_write_argv(op: str, repo: str, params: dict, gh_bin: str = "gh") -> l
     if op == "pr_create":
         # --head is REQUIRED, never inferred. Without it `gh` picks the head
         # branch from the git state of whatever directory the process happens
-        # to be in -- which on the ops_runner path is the operator's own CyClaw
-        # checkout, so an omitted --head would open a PR from whatever branch
+        # to be in -- which for a CLI run from the repo root is the operator's own
+        # CyClaw checkout, so an omitted --head would open a PR from whatever branch
         # they had checked out at the time. --base is likewise explicit rather
         # than left to the repo default.
         head = _require_head_branch(op, params)

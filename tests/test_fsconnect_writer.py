@@ -250,6 +250,70 @@ def test_intent_precedes_applied(env):
     assert evs.index("fsconnect_write_intent") < evs.index("fsconnect_write_applied")
 
 
+def _terminal_pairs(audit):
+    evs = [e for e in _events(audit) if e["event"] in (
+        "fsconnect_write_intent", "fsconnect_write_applied", "fsconnect_write_failed")]
+    return [(e["event"], e.get("intent_id")) for e in evs], evs
+
+
+@pytest.mark.parametrize("target", ["adir", "a" * 300], ids=["onto_directory", "overlong_name"])
+def test_post_intent_failure_closes_intent_with_failed(env, target):
+    """An ordinary error after the intent must not read as the crash/tamper signal.
+
+    The intent was audited, then pathsafe raised (os.replace onto a directory, or
+    a leaf over NAME_MAX). The writer must close the intent with
+    fsconnect_write_failed under the same intent_id and re-raise the SAME typed
+    error, so the CLI exit code (2) does not move.
+    """
+    cfg, fs_cfg, cp, wz, audit = env
+    fs_cfg.writes_enabled = True
+    (wz / "adir").mkdir(parents=True)
+    with FsWriter(cfg, fs_cfg, config_path=cp) as w, pytest.raises(FsConnectRuntimeError) as excinfo:
+        w.fs_write(target, b"SECRET-BODY", reason="typo", confirm=True, overwrite=True)
+    pairs, evs = _terminal_pairs(audit)
+    assert [p[0] for p in pairs] == ["fsconnect_write_intent", "fsconnect_write_failed"]
+    assert pairs[0][1] and pairs[0][1] == pairs[1][1]
+    failed = evs[1]
+    assert failed["op"] == "fs_write"
+    assert failed["error_code"] == excinfo.value.code == "FSCONNECT_RUNTIME_ERROR"
+    assert "SECRET-BODY" not in audit.read_text(), "the payload must never reach the audit log"
+
+
+def test_post_intent_untyped_error_still_closes_intent(env, monkeypatch):
+    """Even an untyped exception from pathsafe is paired, and propagates unchanged."""
+    cfg, fs_cfg, cp, _wz, audit = env
+    fs_cfg.writes_enabled = True
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("disk went away")
+
+    with FsWriter(cfg, fs_cfg, config_path=cp) as w:
+        monkeypatch.setattr(w._roots, "append_bytes", _boom)
+        with pytest.raises(RuntimeError, match="disk went away"):
+            w.fs_append("log.txt", b"x", reason="r")
+    pairs, evs = _terminal_pairs(audit)
+    assert [p[0] for p in pairs] == ["fsconnect_write_intent", "fsconnect_write_failed"]
+    assert pairs[0][1] == pairs[1][1]
+    assert evs[1]["error_code"] == "UNTYPED_ERROR" and evs[1]["error_type"] == "RuntimeError"
+    assert "disk went away" not in audit.read_text()
+
+
+def test_keyboard_interrupt_leaves_intent_orphaned(env, monkeypatch):
+    """A genuine interruption keeps the documented crash signal: intent, no terminal."""
+    cfg, fs_cfg, cp, _wz, audit = env
+    fs_cfg.writes_enabled = True
+
+    def _interrupt(*_a, **_k):
+        raise KeyboardInterrupt
+
+    with FsWriter(cfg, fs_cfg, config_path=cp) as w:
+        monkeypatch.setattr(w._roots, "write_bytes", _interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            w.fs_write("x.txt", b"x", reason="r")
+    pairs, _ = _terminal_pairs(audit)
+    assert [p[0] for p in pairs] == ["fsconnect_write_intent"]
+
+
 # ---------------------------------------------------------------------------
 # reserved-name enforcement (item 4)
 # ---------------------------------------------------------------------------
