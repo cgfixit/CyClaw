@@ -592,7 +592,7 @@ CURATED_QA: list[dict[str, str]] = [
         "FsWriteRefused, FsConnectRuntimeError\n"
         "- SqlConnectError → SqlConnectConfigError, SqlDriverNotInstalledError, SqlConnectRuntimeError\n"
         "- TelegramError → TelegramConfigError, TelegramRefused, TelegramRuntimeError\n"
-        "- AuthError → AuthConfigError, AuthLoginFailed, AuthAccountLocked, AuthUserExists, "
+        "- AuthError → AuthConfigError, AuthLoginFailed, AuthUserExists, "
         "AuthUserNotFound, AuthPermissionDenied, AuthLastAdmin, AuthTokenLabelExists\n\n"
         "Design pattern: each out-of-band feature gets its own hierarchy mirroring SyncError's convention — "
         "a dedicated base so the gateway can stay oblivious to features it never imports."
