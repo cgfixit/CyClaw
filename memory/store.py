@@ -254,10 +254,10 @@ def _row_to_proposal(row: sqlite3.Row) -> MemoryProposal:
     return MemoryProposal(
         id=int(row["id"]),
         action=row["action"],  # type: ignore[arg-type]
-        payload=payload if isinstance(payload, dict) else {},
+        payload=payload,
         reason=row["reason"] or "",
         status=row["status"],  # type: ignore[arg-type]
-        injection_flags=[str(f) for f in flags] if isinstance(flags, list) else [],
+        injection_flags=[str(f) for f in flags],
         created_at=row["created_at"] or "",
         resolved_at=row["resolved_at"],
         resolved_reason=row["resolved_reason"],

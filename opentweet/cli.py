@@ -154,7 +154,7 @@ def cmd_post(args: argparse.Namespace) -> int:
     if args.schedule and not cfg.schedule_enabled:
         _err("--schedule requires opentweet.schedule_enabled: true")
         return EXIT_ENV
-    want_schedule = bool(args.schedule) and cfg.schedule_enabled
+    want_schedule = bool(args.schedule)
     try:
         result = post_once(
             cfg,

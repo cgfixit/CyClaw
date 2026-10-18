@@ -244,7 +244,7 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
             # GrokClient uses. With no key configured (the default offline posture),
             # report a clear "key not set" state instead of a misleading 401/network
             # error, and skip the doomed request entirely.
-            # .strip() matches llm/client.py:485 -- a key carrying a trailing
+            # .strip() matches GrokClient.__init__ -- a key carrying a trailing
             # newline (CRLF .env, --env-file, EnvironmentFile) is an illegal HTTP
             # header value, and h11 puts the whole value in the exception it
             # raises. Stripping at read means the probe simply works instead of
@@ -260,7 +260,7 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
                     results.append(HealthStatus(name="grok_api", healthy=False, error=_safe_error(exc)))
                 else:
                     results.append(_ping(
-                        f"{grok_base}/models", "grok_api",
+                        f"{grok_base.rstrip('/')}/models", "grok_api",
                         headers={"Authorization": f"Bearer {api_key}"},
                         expect_model=cfg["models"]["grok"].get("model", ""),
                     ))
@@ -272,7 +272,7 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
         if (probe_external and cfg["app"]["mode"] == "hybrid" and
                 cfg["models"].get("claude", {}).get("enabled") is True):
             claude_cfg = cfg["models"]["claude"]
-            # .strip() matches llm/client.py:543 -- see the GROK_API_KEY note above.
+            # .strip() matches ClaudeClient.__init__ -- see the GROK_API_KEY note above.
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
             if api_key:
                 # Same allowlist as the Grok probe above.
