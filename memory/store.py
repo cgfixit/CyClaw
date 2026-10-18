@@ -44,6 +44,9 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def _mem_cfg(cfg: Mapping[str, Any]) -> dict[str, Any]:
     return dict(cfg.get("memory") or {})
 
@@ -51,7 +54,10 @@ def _mem_cfg(cfg: Mapping[str, Any]) -> dict[str, Any]:
 def _db_path(cfg: Mapping[str, Any]) -> Path:
     mem = _mem_cfg(cfg)
     raw = mem.get("db_path") or "data/memory/cyclaw_memory.db"
-    return Path(str(raw))
+    # Anchored like the soul/auth/audit paths: a CWD-relative path made an MCP
+    # or graph process launched from another directory open an empty DB there.
+    path = Path(str(raw)).expanduser()
+    return path if path.is_absolute() else _REPO_ROOT / path
 
 
 def _max_active_facts(cfg: Mapping[str, Any]) -> int | None:
