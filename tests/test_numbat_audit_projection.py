@@ -219,11 +219,7 @@ def test_projection_fail_soft_on_disk_error(proj_cfg, monkeypatch: pytest.Monkey
 # under test would make this vacuous -- dropping an entry would delete its own
 # test case instead of failing it.
 _DUAL_EMIT_EVENTS = {
-    "agentic_executor_check_result": "agentic/executor/runner.py",
     "fsconnect_read": "agentic/fsconnect/client.py::_audit",
-    "sqlconnect_read": "agentic/sqlconnect/client.py::_audit_sql",
-    "agentic_real_repo_change_decided": "agentic/real_repo_loop.py",
-    "agentic_real_repo_change_approved": "agentic/real_repo_loop.py",
 }
 
 

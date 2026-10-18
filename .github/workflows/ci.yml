@@ -28,10 +28,6 @@
 #   - ollama-mock-smoke: a real-socket HTTP-server test of LocalLLMClient
 #     against the OpenAI-compatible endpoint, complementing (not replacing)
 #     tests/test_client.py's monkeypatched error-mapping/retry coverage
-#   - real-repo-run-smoke (2026-08, docs/agentic/DEFERRED_WORK.md D1): a
-#     real-socket, real subprocess (deterministic fake gh), real local-git-clone smoke of the
-#     real-repo-run wiring, closing a gap the existing CLI contract tests
-#     leave open by mocking every outer boundary in Python
 #   - Aligns with v1.9.0 invariants (reproducible CI security gate, Python 3.12, stable Chroma pin)
 #   - Cross-ref: cyclaw-privacy + python-development best practices for observable, testable CI
 # ==============================================================================
@@ -519,26 +515,6 @@ jobs:
             $env:USERPROFILE = $OriginalUserProfile
           }
 
-  # Same script as the test job's Linux bwrap step (#1626, measured on
-  # #1641 run 38352458013). continue-on-error keeps the job off the required
-  # check set. The assertions are the strict 26.04+ branch of that script.
-  # This job does not write kernel.apparmor_restrict_unprivileged_userns.
-  ubuntu-26-04-bwrap:
-    name: ubuntu-26.04 bwrap
-    runs-on: ubuntu-26.04
-    continue-on-error: true
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Version-aware bwrap AppArmor proof
-        shell: bash
-        run: bash scripts/ci/bwrap-apparmor-check.sh
-
   test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -558,20 +534,9 @@ jobs:
         # because torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu
         # for macOS -- confirmed on this matrix leg's first run, and documented
         # in setup-guide.md.
-        # Native bwrap confinement is proven on both Linux legs. Check names
-        # stay ubuntu-latest and ubuntu-22.04. Which proof runs is VERSION_ID
-        # from /etc/os-release inside scripts/ci/bwrap-apparmor-check.sh, shared
-        # with the non-required ubuntu-26.04 job:
-        #   22.04 keeps the jammy pin and stock confinement.
-        #   24.04 keeps the noble pin, the stock refusal, cyclaw-bwrap, then
-        #   confinement. It never writes the userns sysctl.
-        #   26.04+ does not load cyclaw-bwrap and does not install the noble
-        #   pin. It requires the sysctl to read 1, Ubuntu's bwrap profile in
-        #   enforce mode, a non-/usr/bin copy to be refused, and /usr/bin/bwrap
-        #   confinement to pass.
-        #   Any other version fails the job.
-        # GitHub moves ubuntu-latest to Ubuntu 26 between 2026-10-19 and
-        # 2026-11-19. The required check name stays ubuntu-latest.
+        # Both Linux legs stay release gates (check names ubuntu-latest and
+        # ubuntu-22.04) after the bubblewrap proof they used to carry was
+        # removed with agentic/executor/ in October 2026.
         os: [ubuntu-latest, ubuntu-22.04, windows-latest, macos-latest]
     # All four legs (ubuntu-latest, ubuntu-22.04, Windows, macOS) are release gates.
     # Platform-specific skips are reported below with `pytest -rs`; a failing
@@ -581,16 +546,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Version-aware bwrap AppArmor proof
-        # 22.04, 24.04, and 26.04+ share scripts/ci/bwrap-apparmor-check.sh with
-        # the non-required ubuntu-26.04 job. The script never writes
-        # kernel.apparmor_restrict_unprivileged_userns. 24.04 still proves the
-        # stock refusal, loads deploy/apparmor/cyclaw-bwrap, then proves
-        # confinement. 26.04+ does not load that profile.
-        if: runner.os == 'Linux'
-        shell: bash
-        run: bash scripts/ci/bwrap-apparmor-check.sh
 
       - name: macOS install-script smoke test (layout + shim + profile integration)
         if: runner.os == 'macOS'
@@ -1190,10 +1145,6 @@ jobs:
           # full suite runs these again, quietly.
           pytest -vv -rs tests/test_gate.py::TestCelMonitorRequestPath tests/test_numbat_cel.py
 
-      - name: Verify native agentic confinement or explicit Windows refusal
-        shell: bash
-        run: python scripts/verify_agentic_sandbox.py
-
       - name: Run tests + coverage
         shell: bash
         run: |
@@ -1290,7 +1241,6 @@ jobs:
         # at module load time -- rank-bm25/nltk/numpy are required even though
         # this specific test file never touches retrieval. Same minimal set
         # postgres-backend already installs for the identical reason.
-        # (this exact install line is duplicated in the sibling job below/above -- both are small, single-purpose smoke lanes; a real shared step would need a composite action for what is currently only 2 call sites, which this repo's own minimal-abstraction convention argues against for now)
         run: |
           python -m pip install --upgrade "pip==26.2.1"
           pip install --require-hashes -r locks/requirements-ci-smoke-lock-linux.txt
@@ -1300,145 +1250,6 @@ jobs:
 
       - name: Final status
         run: echo "Ollama mock verification completed (llm.client OpenAI-compatible path, real socket)"
-
-  # Real-socket, real subprocess (deterministic fake gh), real local-git-clone smoke for real-repo-run
-  # wiring. tests/test_agentic_real_repo_run_cli.py already covers this
-  # command's contract exhaustively, but mocks all three of its outer
-  # boundaries in Python (agentic.context.run_read, repo_workspace.run_read,
-  # LocalProposerClient.invoke) -- none of them ever touch a real socket, a
-  # real gh subprocess, or a real timeout. An emulated rehearsal found two
-  # real defects in exactly that gap (planner timeout never reaching the
-  # model client; ops_runner's ceiling not scaling with it once it did) that
-  # were invisible to every existing test for the same reason. See
-  # docs/agentic/DEFERRED_WORK.md D1 for the full design rationale. Same
-  # no-torch/chromadb reasoning as ollama-mock-smoke above: agentic/ never
-  # imports retrieval/gate/graph (invariant I6).
-  real-repo-run-smoke:
-    name: real-repo-run-smoke
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install Linux verification filesystem/PID/network sandbox
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          # ubuntu-22.04 jammy pin (apt has no digest pin).
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
-          bwrap --version
-          test "$(bwrap --version)" = "bubblewrap 0.6.1"
-          # Keep stock AppArmor/user-namespace policy. The native gate below
-          # must fail if this runner cannot establish the required confinement.
-          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
-            --ro-bind / / --proc /proc --dev /dev /bin/true
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          # Same key as the sibling ollama-mock-smoke job above.
-          cache-dependency-path: |
-            locks/requirements-ci-smoke-lock-linux.txt
-            .github/workflows/ci.yml
-
-      - name: Install real-repo-run-smoke test deps (no torch/chromadb needed)
-        # Same minimal set ollama-mock-smoke installs, for the same reason
-        # (conftest.py imports retrieval.hybrid_search -> rank_bm25 at module
-        # load time regardless of which test file is targeted). Verified by
-        # reading every module on the --repo (local-model) real-repo-run call
-        # path's own import list -- none needs anything beyond this set; the
-        # cloud-provider path (langchain_core et al.) is lazily imported only
-        # inside cmd_real_repo_run's `if provider:` branch, which this smoke
-        # test's --repo (no --provider) invocation never reaches.
-        # (this exact install line is duplicated in the sibling job below/above -- both are small, single-purpose smoke lanes; a real shared step would need a composite action for what is currently only 2 call sites, which this repo's own minimal-abstraction convention argues against for now)
-        run: |
-          python -m pip install --upgrade "pip==26.2.1"
-          pip install --require-hashes -r locks/requirements-ci-smoke-lock-linux.txt
-
-      - name: Verify native agentic confinement or explicit Windows refusal
-        shell: bash
-        run: python scripts/verify_agentic_sandbox.py
-
-      - name: Run real-repo-run smoke test
-        run: pytest tests/test_agentic_real_repo_run_smoke.py -v --tb=short
-
-      - name: Final status
-        run: echo "real-repo-run smoke completed (real socket/subprocess/local clone; fake gh; no live GitHub)"
-
-  # Optional Deep Agents contract check. This deliberately installs only the
-  # lightweight agentic dependency set; default runtime CI remains offline-first.
-  deepagents-harness:
-    name: deepagents-harness (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          # The heaviest install in the file. The hashed lock is the cache key.
-          cache-dependency-path: |
-            locks/requirements-ci-deepagents-lock-linux.txt
-            locks/requirements-ci-deepagents-lock-macos.txt
-            locks/requirements-ci-deepagents-lock-windows.txt
-            .github/workflows/ci.yml
-
-      - name: Install optional Deep Agents harness dependencies
-        shell: bash
-        run: |
-          python -m pip install --upgrade "pip==26.2.1"
-          case "${{ runner.os }}" in
-            Linux) deepagents_lock=locks/requirements-ci-deepagents-lock-linux.txt ;;
-            Windows) deepagents_lock=locks/requirements-ci-deepagents-lock-windows.txt ;;
-            macOS) deepagents_lock=locks/requirements-ci-deepagents-lock-macos.txt ;;
-          esac
-          pip install --require-hashes -r "$deepagents_lock"
-          python -m pip check
-
-      - name: Verify Deep Agents HITL and fixture runner
-        shell: bash
-        run: |
-          pytest tests/test_agentic_harness_phase679.py tests/test_agentic_deepagent_optional.py \
-            tests/test_agentic_cloud_chat_model_wire_format.py -q --tb=short
-
-      - name: Audit optional Deep Agents dependencies (freeze, not hand-written)
-        if: runner.os == 'Linux'
-        # Captures the versions actually resolved/installed above rather than a
-        # hardcoded string -- a hand-maintained version list here would be the
-        # same class of silent-drift risk dep-guard's D8 check exists to catch
-        # for torch (a bumped constraints.txt pin wouldn't update a hardcoded
-        # copy elsewhere, so pip-audit would keep auditing a version nobody runs).
-        # The alternation was previously '(deepagents|langchain|langchain-openai)=='
-        # which required '==' immediately after the token, so every other
-        # langchain-* distribution -- langchain-anthropic and langchain-google-genai
-        # (both MANDATORY deps of deepagents), plus langsmith and now langchain-xai
-        # -- was installed but never audited.
-        shell: bash
-        env:
-          DEEPAGENTS_FREEZE: deepagents-requirements.txt
-        run: |
-          pip install pip-audit==2.10.1
-          pip freeze | grep -Ei '^(deepagents|langchain|langchain-[a-z0-9-]+|langsmith)==' > "$DEEPAGENTS_FREEZE"
-          cat "$DEEPAGENTS_FREEZE"
-          pip-audit -r "$DEEPAGENTS_FREEZE"
 
   # ==============================================================================
   # Postgres backend job (opt-in DB paths)
@@ -1573,8 +1384,6 @@ jobs:
 
   verify-skills:
     name: verify-skills (${{ matrix.skill }})
-    # Same supported Linux image as `test` and `real-repo-run-smoke`: bubblewrap
-    # confinement is mandatory and Ubuntu 24.04 stock AppArmor denies it.
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     # Deliberately runs IN PARALLEL with `test` (needs only discover-skills).
@@ -1609,20 +1418,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Install Linux verification filesystem/PID/network sandbox
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          # ubuntu-22.04 jammy pin (apt has no digest pin).
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
-          bwrap --version
-          test "$(bwrap --version)" = "bubblewrap 0.6.1"
-          # Keep stock AppArmor/user-namespace policy. The native gate below
-          # must fail if this runner cannot establish the required confinement.
-          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
-            --ro-bind / / --proc /proc --dev /dev /bin/true
 
       - name: Setup Python 3.12 (stdlib profile)
         if: matrix.profile == 'stdlib'

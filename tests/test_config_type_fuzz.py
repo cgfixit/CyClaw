@@ -54,12 +54,10 @@ _WRONG_VALUES: dict[str, object] = {
 # section -> (module, loader). Each loader reads through its module's
 # _get_config, which the test replaces, so nothing touches disk.
 _LOADERS: dict[str, tuple[str, str]] = {
-    "agentic": ("agentic.config", "load_agentic_config"),
     "fsconnect": ("agentic.fsconnect.config", "load_fsconnect_config"),
     "guardrails": ("guardrails.config", "load_guardrails_config"),
     "netconnect": ("agentic.netconnect.config", "load_netconnect_config"),
     "opentweet": ("opentweet.config", "load_opentweet_config"),
-    "sqlconnect": ("agentic.sqlconnect.config", "load_sqlconnect_config"),
     "sync": ("sync.config", "load_sync_config"),
     "telegram": ("telegram.config", "load_telegram_config"),
 }

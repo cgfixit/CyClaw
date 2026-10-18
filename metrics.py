@@ -353,15 +353,11 @@ def _print_spend(spend: dict | None) -> None:
         print(f"  rate_unknown: {spend['rate_unknown']}")
 
 
-# Injection findings emitted by agentic/context.py over GitHub-sourced text.
-# Declared here as literals rather than imported from agentic.context, which
-# exports the same two code constants. gate.py calls summarize_audit() to serve
-# GET /audit/summary, so importing agentic from this module would pull
-# agentic -> guardrails -> utils.personality into the gate process. The I6
-# isolation test AST-parses gate.py and only sees DIRECT imports, so that would
-# stay green while the invariant's actual intent was broken. test_metrics.py
-# imports both modules and asserts these match -- a test may import anything,
-# this module may not.
+# Injection findings the GitHub-context fetcher (agentic/context.py) wrote over
+# GitHub-sourced text. That producer was removed in October 2026; these literals
+# stay so audit logs written before the removal still summarize, and so
+# GET /audit/summary keeps its injection_findings shape. gate.py calls
+# summarize_audit(), so this module must never import agentic (I6).
 INJECTION_EVENT = "agentic_context_injection_finding"
 INJECTION_FINDING_CODE = "github_content_injection_pattern"
 SCANNER_UNAVAILABLE_CODE = "github_content_scanner_unavailable"
@@ -629,8 +625,8 @@ def print_metrics(config_path: str = "config.yaml"):
         for line in seq_lines:
             print(line)
     # Deliberately OUTSIDE the `if summary["rag_query_count"]` block above. These
-    # findings come from the out-of-band agentic context fetchers, so the audit log
-    # that contains them typically has zero RAG queries -- nesting this section
+    # findings came from the (since-removed) out-of-band GitHub context fetcher, so
+    # an audit log that contains them typically has zero RAG queries -- nesting this section
     # there would hide it on exactly the logs it exists to describe.
     # by_repo is in the summary dict for GET /audit/summary but not printed: the
     # threat model is single-operator, so the CLI would print one constant line.

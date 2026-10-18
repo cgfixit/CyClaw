@@ -1,7 +1,7 @@
 """Direct unit tests for utils/selftest.py — the shared self-test helpers.
 
-Five subsystems build their operator-facing ``selftest`` output on these four
-functions (agentic, sync, guardrails, fsconnect, sqlconnect), but every existing
+Several subsystems build their operator-facing ``selftest`` output on these four
+functions (sync, guardrails, fsconnect, telegram), but every existing
 test exercises them only indirectly through one of those callers. That leaves
 the contract itself — in particular "a SKIP counts as passed" — pinned nowhere,
 so a change to it would surface as a confusing failure in an unrelated

@@ -22,7 +22,7 @@ const proposalWarning = document.getElementById('proposalWarning');
 const proposalPreview = document.getElementById('proposalPreview');
 const soulToggleBtn = document.getElementById('soulToggleBtn');
 
-// Sync + Agentic console refs (mirror the soul console ref/element naming).
+// Sync console refs (mirror the soul console ref/element naming).
 const syncPanel = document.getElementById('syncPanel');
 const syncStatus = document.getElementById('syncStatus');
 const syncBox = document.getElementById('syncBox');
@@ -30,17 +30,8 @@ const syncMeta = document.getElementById('syncMeta');
 const syncWarning = document.getElementById('syncWarning');
 const syncPreview = document.getElementById('syncPreview');
 const syncToggleBtn = document.getElementById('syncToggleBtn');
-const agenticPanel = document.getElementById('agenticPanel');
-const agenticStatus = document.getElementById('agenticStatus');
-const agenticBox = document.getElementById('agenticBox');
-const agenticMeta = document.getElementById('agenticMeta');
-const agenticWarning = document.getElementById('agenticWarning');
-const agenticPreview = document.getElementById('agenticPreview');
-const agenticToggleBtn = document.getElementById('agenticToggleBtn');
-const agenticConfirm = document.getElementById('agenticConfirm');
-const agenticApplyBtn = document.getElementById('agenticApplyBtn');
 
-// FS + SQL console refs (mirror sync/agentic naming).
+// FS console refs (mirror sync naming).
 const fsPanel = document.getElementById('fsPanel');
 const fsStatus = document.getElementById('fsStatus');
 const fsBox = document.getElementById('fsBox');
@@ -48,13 +39,6 @@ const fsMeta = document.getElementById('fsMeta');
 const fsWarning = document.getElementById('fsWarning');
 const fsPreview = document.getElementById('fsPreview');
 const fsToggleBtn = document.getElementById('fsToggleBtn');
-const sqlPanel = document.getElementById('sqlPanel');
-const sqlStatus = document.getElementById('sqlStatus');
-const sqlBox = document.getElementById('sqlBox');
-const sqlMeta = document.getElementById('sqlMeta');
-const sqlWarning = document.getElementById('sqlWarning');
-const sqlPreview = document.getElementById('sqlPreview');
-const sqlToggleBtn = document.getElementById('sqlToggleBtn');
 
 let queryCount = 0;
 // Client-side /query abort, in ms. MUST stay above the server's graph_timeout_sec
@@ -504,7 +488,7 @@ function extractErrorMessage(err, fallback = 'Unknown error') {
 // 200 with an `error` field carrying graph.py's "{code}: {message}" stamp
 // (utils/errors.py's LLMServiceError / LLMUnavailableError / GrokServiceError /
 // ClaudeServiceError / EmbeddingServiceError). utils/errors.py declares dozens of other classes --
-// soul, ops, agentic, fsconnect, sqlconnect, auth-admin -- none of which this
+// soul, ops, fsconnect, auth-admin -- none of which this
 // console's /query path can ever surface, so they have no entry here. An
 // unmapped code (or none at all) falls back to the raw server message rather
 // than a translation, per describeQueryError below.
@@ -1231,7 +1215,7 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
     input.value = '';
     if (slash === '/help') {
       if (emptyState) emptyState.remove();
-      addEntry('system', '', 'Commands: /users, /admin, /audit, /help. Soul, Sync, Agentic, FS, and SQL are Advanced toolbar buttons. This is the RAG console — other /text is sent as a query.');
+      addEntry('system', '', 'Commands: /users, /admin, /audit, /help. Soul, Sync, and FS are Advanced toolbar buttons. This is the RAG console — other /text is sent as a query.');
       return;
     }
     if (slash === '/audit') openAuditPanel();
@@ -1752,7 +1736,7 @@ async function restoreSoul() {
 }
 
 // ============================================================================
-// SYNC + AGENTIC OPS CONSOLES
+// SYNC + FS OPS CONSOLES
 // Same async/fetch/status idiom as the Soul Console. Both POST to /ops/* with
 // the API key from authHeaders(); both render the exit-code envelope so failure
 // states (safety-fuse abort, env/config error, write refused) are explicit.
@@ -1762,7 +1746,7 @@ async function restoreSoul() {
 // non-zero (the exit code lives in the JSON envelope); only gateway-level
 // problems (401/422/400/429/500) trip the !resp.ok branch.
 // Server-side budgets these calls must outlive (utils/ops_runner.py):
-// /ops/{agentic,fsconnect,sqlconnect} subprocesses are killed at 120s
+// /ops/fsconnect subprocesses are killed at 120s
 // (_TIMEOUT_SEC), and /ops/sync action=sync at sync_timeout_sec*2 + 60
 // = up to 7260s with post_sync_check. The old 60s client ceiling aborted
 // the tab while the CLI kept running under its single-instance lock and
@@ -1870,139 +1854,6 @@ async function toggleSyncPanel() {
   }
 }
 
-// ---- Agentic Console -------------------------------------------------------
-
-let agenticConfig = { enabled: false, mode: 'read', writes_enabled: false };
-
-function setAgenticStatus(message, tone = '') {
-  agenticStatus.textContent = message || '';
-  agenticStatus.className = `soul-status${tone ? ` ${tone}` : ''}`;
-}
-
-function agenticLabelMsg(data) {
-  switch (data.exit_code) {
-    case 0:  return 'OK';
-    case 2:  return 'operation failed';
-    case 3:  return 'env/config error (gh missing/too old, or config invalid)';
-    case 4:  return 'WRITE REFUSED by gate';
-    default: return `exit ${data.exit_code}`;
-  }
-}
-
-// label is the sentence; key is the config/CLI token behind it, shown muted
-// so the row reads as a requirement first and a setting second. Built with
-// createElement, never innerHTML: both strings are hardcoded today, but this
-// keeps the next caller honest.
-function setGate(id, ok, label, key) {
-  const el = document.getElementById(id);
-  el.textContent = `${ok ? '✓' : '✗'} ${label}`;
-  if (key) {
-    const k = document.createElement('span');
-    k.className = 'gate-key';
-    k.textContent = key;
-    el.appendChild(document.createTextNode(' '));
-    el.appendChild(k);
-  }
-  el.className = `gate-row ${ok ? 'ok' : 'bad'}`;
-}
-
-// The 4-gate checklist. Apply stays disabled until all four pass. Gates 1-2 are
-// config-driven (mode=write + writes_enabled), so with the shipped defaults
-// (mode=read, writes_enabled=false) the Apply button is disabled and cannot fire a
-// skills-registry write from the console. This is a UI governance overlay on top of
-// the registry's own gate (reason + injection scan + --confirm) — strictly stricter,
-// never weaker. (GitHub writes are separate and stay stubbed in agentic/writer.py.)
-function refreshAgenticGates() {
-  const reasonOk  = document.getElementById('agenticReason').value.trim().length > 0;
-  const confirmOk = agenticConfirm.checked;
-  const modeOk    = agenticConfig.mode === 'write';
-  const writesOk  = agenticConfig.writes_enabled === true;
-  setGate('gateMode', modeOk, 'Agentic mode allows writes', 'mode = write');
-  setGate('gateWrites', writesOk, 'Writes are switched on in config', 'writes_enabled = true');
-  setGate('gateReason', reasonOk, 'A reason is given', 'reason');
-  setGate('gateConfirm', confirmOk, 'You confirmed the review', '--confirm');
-  const allOk = modeOk && writesOk && reasonOk && confirmOk;
-  agenticApplyBtn.disabled = !allOk;
-  agenticApplyBtn.textContent = allOk
-    ? 'Apply Skill (confirm write)'
-    : (writesOk ? 'Apply Skill' : 'Apply Skill (writes disabled)');
-}
-
-function applyAgenticConfig(config) {
-  if (!config) return;
-  agenticConfig = config;
-  document.getElementById('agenticEnabled').textContent = `enabled: ${config.enabled}`;
-  document.getElementById('agenticMode').textContent = `mode: ${config.mode}`;
-  document.getElementById('agenticWrites').textContent = `writes_enabled: ${config.writes_enabled}`;
-  refreshAgenticGates();
-}
-
-async function runAgentic(action, opts = {}) {
-  setAgenticStatus(`Running agentic ${action}...`);
-  try {
-    const data = await callOps('/ops/agentic', { action, ...opts });
-    applyAgenticConfig(data.config);
-    renderOps(agenticBox, agenticMeta, agenticWarning, agenticPreview, data);
-    let extra = '';
-    if (data.parsed && typeof data.parsed.governance_score === 'number') {
-      extra = ` · governance_score: ${data.parsed.governance_score}/100`;
-    }
-    setAgenticStatus(`[${action}] ${agenticLabelMsg(data)}${extra}`, data.ok ? 'success' : 'error');
-    addEntry('system', '', `→ ops/agentic ${action} exit ${data.exit_code} (${data.label})`);
-    return true;
-  } catch (e) {
-    setAgenticStatus(e.message, 'error');
-    return false;
-  }
-}
-
-function agenticStatusCmd()    { return runAgentic('status'); }
-function agenticRegistryHealth(){ return runAgentic('status'); }  // status carries registry_version + skills
-
-function agenticContextPR() {
-  const n = parseInt(document.getElementById('agenticNum').value, 10);
-  if (Number.isNaN(n)) { setAgenticStatus('Enter a PR number first.', 'error'); return; }
-  return runAgentic('context', { pr: n });
-}
-function agenticContextIssue() {
-  const n = parseInt(document.getElementById('agenticNum').value, 10);
-  if (Number.isNaN(n)) { setAgenticStatus('Enter an issue number first.', 'error'); return; }
-  return runAgentic('context', { issue: n });
-}
-function agenticPropose() {
-  const name = document.getElementById('agenticName').value.trim();
-  const desc = document.getElementById('agenticDesc').value.trim();
-  const body = document.getElementById('agenticBody').value;
-  const reason = document.getElementById('agenticReason').value.trim();
-  if (!name || !desc) { setAgenticStatus('Skill name and description are required.', 'error'); return; }
-  return runAgentic('propose-skill', { name, desc, body: body || null, reason: reason || null });
-}
-function agenticApply() {
-  const name = document.getElementById('agenticName').value.trim();
-  const desc = document.getElementById('agenticDesc').value.trim();
-  const body = document.getElementById('agenticBody').value;
-  const reason = document.getElementById('agenticReason').value.trim();
-  if (!name || !desc) { setAgenticStatus('Skill name and description are required.', 'error'); return; }
-  if (!reason) { setAgenticStatus('A non-empty reason is required to apply.', 'error'); return; }
-  return runAgentic('apply-skill', { name, desc, body: body || null, reason, confirm: agenticConfirm.checked });
-}
-
-let agenticLoaded = false;
-async function toggleAgenticPanel() {
-  agenticPanel.classList.toggle('open');
-  const open = agenticPanel.classList.contains('open');
-  agenticToggleBtn.textContent = open ? 'Hide Agentic' : 'Agentic Console';
-  if (open) refreshAgenticGates();
-  if (open && !agenticLoaded) {
-    if (!hasOperatorAccess()) {
-      setAgenticStatus('Unlock operator tools (toolbar) to load agentic status.', 'error');
-      openOperatorDialog();
-    } else {
-      agenticLoaded = await runAgentic('status');
-    }
-  }
-}
-
 // ---- FS Console --------------------------------------------------------------
 
 function setFsStatus(message, tone = '') {
@@ -2094,82 +1945,6 @@ async function toggleFsPanel() {
   }
 }
 
-// ---- SQL Console -------------------------------------------------------------
-
-function setSqlStatus(message, tone = '') {
-  sqlStatus.textContent = message || '';
-  sqlStatus.className = `soul-status${tone ? ` ${tone}` : ''}`;
-}
-
-function sqlLabelMsg(data) {
-  switch (data.exit_code) {
-    case 0:  return 'OK';
-    case 2:  return 'operation failed';
-    case 3:  return 'env/config error (driver missing, DSN unset, or config invalid)';
-    default: return `exit ${data.exit_code}`;
-  }
-}
-
-function applySqlConfig(config) {
-  if (!config) return;
-  document.getElementById('sqlEnabled').textContent = `enabled: ${config.enabled}`;
-  document.getElementById('sqlDriver').textContent = `driver: ${config.driver}`;
-  document.getElementById('sqlReadOnly').textContent = `read_only: ${config.read_only}`;
-}
-
-async function runSql(action, opts = {}) {
-  setSqlStatus(`Running sqlconnect ${action}...`);
-  try {
-    const data = await callOps('/ops/sqlconnect', { action, ...opts });
-    applySqlConfig(data.config);
-    renderOps(sqlBox, sqlMeta, sqlWarning, sqlPreview, data);
-    setSqlStatus(`[${action}] ${sqlLabelMsg(data)}`, data.ok ? 'success' : 'error');
-    addEntry('system', '', `→ ops/sqlconnect ${action} exit ${data.exit_code} (${data.label})`);
-    return true;
-  } catch (e) {
-    setSqlStatus(e.message, 'error');
-    return false;
-  }
-}
-
-function sqlStatusCmd()  { return runSql('status'); }
-function sqlSchemaCmd()  { return runSql('schema'); }
-function sqlPreviewCmd() {
-  const table = document.getElementById('sqlTable').value.trim();
-  if (!table) { setSqlStatus('Enter a table name first.', 'error'); return; }
-  return runSql('query', { table });
-}
-function sqlCountCmd() {
-  const table = document.getElementById('sqlTable').value.trim();
-  if (!table) { setSqlStatus('Enter a table name first.', 'error'); return; }
-  return runSql('query', { table, count: true });
-}
-function sqlRunCmd() {
-  const sql = document.getElementById('sqlQuery').value.trim();
-  if (!sql) { setSqlStatus('Enter a SQL query first.', 'error'); return; }
-  return runSql('query', { sql, fmt: document.getElementById('sqlFmt').value });
-}
-function sqlExplainCmd() {
-  const sql = document.getElementById('sqlQuery').value.trim();
-  if (!sql) { setSqlStatus('Enter a SQL query first.', 'error'); return; }
-  return runSql('query', { sql, explain: true });
-}
-
-let sqlLoaded = false;
-async function toggleSqlPanel() {
-  sqlPanel.classList.toggle('open');
-  const open = sqlPanel.classList.contains('open');
-  sqlToggleBtn.textContent = open ? 'Hide SQL' : 'SQL Console';
-  if (open && !sqlLoaded) {
-    if (!hasOperatorAccess()) {
-      setSqlStatus('Unlock operator tools (toolbar) to load sqlconnect status.', 'error');
-      openOperatorDialog();
-    } else {
-      sqlLoaded = await runSql('status');
-    }
-  }
-}
-
 // TEXT CONTEXTS ONLY -- not attribute-safe. Serializing a text node escapes
 // &, < and >, but leaves " and ' intact, which is correct and sufficient for
 // every current use (all of them element text). Interpolating this into a
@@ -2193,9 +1968,7 @@ document.addEventListener('keydown', function(e) {
     });
     soulToggleBtn.textContent = 'Soul Console';
     syncToggleBtn.textContent = 'Sync Console';
-    agenticToggleBtn.textContent = 'Agentic Console';
     fsToggleBtn.textContent = 'FS Console';
-    sqlToggleBtn.textContent = 'SQL Console';
   }
 });
 
@@ -2228,9 +2001,7 @@ input.focus();
 // data, so this is a mechanical move, not a behavior change.
 document.getElementById('soulToggleBtn').addEventListener('click', toggleSoulPanel);
 document.getElementById('syncToggleBtn').addEventListener('click', toggleSyncPanel);
-document.getElementById('agenticToggleBtn').addEventListener('click', toggleAgenticPanel);
 document.getElementById('fsToggleBtn').addEventListener('click', toggleFsPanel);
-document.getElementById('sqlToggleBtn').addEventListener('click', toggleSqlPanel);
 const usersToggleBtn = document.getElementById('usersToggleBtn');
 if (usersToggleBtn) usersToggleBtn.addEventListener('click', openUsersPanel);
 const auditToggleBtn = document.getElementById('auditToggleBtn');
@@ -2245,31 +2016,18 @@ document.getElementById('syncDryRunBtn').addEventListener('click', syncDryRun);
 document.getElementById('syncPullBtn').addEventListener('click', syncPull);
 document.getElementById('syncScheduleOnBtn').addEventListener('click', syncScheduleOn);
 document.getElementById('syncScheduleOffBtn').addEventListener('click', syncScheduleOff);
-document.getElementById('agenticContextPRBtn').addEventListener('click', agenticContextPR);
-document.getElementById('agenticContextIssueBtn').addEventListener('click', agenticContextIssue);
-document.getElementById('agenticStatusBtn').addEventListener('click', agenticStatusCmd);
-document.getElementById('agenticRegistryHealthBtn').addEventListener('click', agenticRegistryHealth);
-document.getElementById('agenticProposeBtn').addEventListener('click', agenticPropose);
-document.getElementById('agenticApplyBtn').addEventListener('click', agenticApply);
 document.getElementById('fsStatusBtn').addEventListener('click', fsStatusCmd);
 document.getElementById('fsListBtn').addEventListener('click', fsListCmd);
 document.getElementById('fsReadBtn').addEventListener('click', fsReadCmd);
 document.getElementById('fsStatBtn').addEventListener('click', fsStatCmd);
 document.getElementById('fsGrepBtn').addEventListener('click', fsGrepCmd);
 document.getElementById('fsGlobBtn').addEventListener('click', fsGlobCmd);
-document.getElementById('sqlStatusBtn').addEventListener('click', sqlStatusCmd);
-document.getElementById('sqlSchemaBtn').addEventListener('click', sqlSchemaCmd);
-document.getElementById('sqlPreviewBtn').addEventListener('click', sqlPreviewCmd);
-document.getElementById('sqlCountBtn').addEventListener('click', sqlCountCmd);
-document.getElementById('sqlRunBtn').addEventListener('click', sqlRunCmd);
-document.getElementById('sqlExplainBtn').addEventListener('click', sqlExplainCmd);
 // submitQuery(confirmedOnline, onlineProvider) treats any non-null first
 // argument as "user already confirmed" -- addEventListener passes the click's
 // PointerEvent as that argument, so a bare `submitQuery` reference here would
 // silently take the wrong branch and never send a plain query. Call with no
 // arguments, matching the original onclick="submitQuery()" contract.
 document.getElementById('sendBtn').addEventListener('click', () => submitQuery());
-document.getElementById('agenticReason').addEventListener('input', refreshAgenticGates);
 if (document.getElementById('authLoginBtn')) {
   document.getElementById('authLoginBtn').addEventListener('click', () => login());
 }
@@ -2324,4 +2082,3 @@ if (apiKeyInput) {
 }
 // Pairing first, so the auth refresh that follows paints the unlocked state.
 redeemPairingFromUrl().finally(() => refreshAuthUi());
-document.getElementById('agenticConfirm').addEventListener('change', refreshAgenticGates);

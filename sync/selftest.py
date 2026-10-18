@@ -24,8 +24,8 @@ from utils.selftest import fail, finalize, ok, skip
 # Exported so sync/cli.py's cmd_test can detect this specific failure (a
 # totally unloadable config.yaml, an env/config error) without run_self_test
 # having to change its shared (passed, total, output_lines) return shape --
-# that shape is also used by agentic/, agentic/sqlconnect/, agentic/fsconnect/,
-# telegram/, and guardrails/'s own selftest modules, so widening it here would
+# that shape is also used by agentic/fsconnect/, telegram/, and guardrails/'s
+# own selftest modules, so widening it here would
 # ripple across every one of them for a fix scoped to this module alone.
 CONFIG_CHECK_LABEL = "01. Config loads and validates"
 

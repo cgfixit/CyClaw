@@ -2,7 +2,7 @@
 
 Issue #1458 Phase 4. ``tests/numbat_shaped_events.py`` drives every production
 producer of the Numbat stream (mainline audit projection, pre-action hook
-verdicts, CEL monitor, ops/fsconnect/sqlconnect action plane) and returns what
+verdicts, CEL monitor, ops/fsconnect action plane) and returns what
 they wrote. This module holds that output to three contracts:
 
 1. the committed golden file, so emitter shape drift fails the unit lane on
@@ -134,7 +134,7 @@ def test_every_producer_family_is_represented(live_clean) -> None:
     """A producer that silently stops emitting must not shrink the fixture."""
     artifact_types = {event["evidence"]["artifact_type"] for event in live_clean}
     assert artifact_types == {
-        "cyclaw_audit_jsonl", "pre_action_hook", "cel_monitor", "ops_runner", "fsconnect", "sqlconnect",
+        "cyclaw_audit_jsonl", "pre_action_hook", "cel_monitor", "ops_runner", "fsconnect",
     }
     tags = {tag for event in live_clean for tag in event["tags"]}
     assert {

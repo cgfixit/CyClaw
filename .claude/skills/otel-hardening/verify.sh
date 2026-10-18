@@ -57,7 +57,7 @@ fi
 _mktree() {
   local d; d="$(mktemp -d)"
   mkdir -p "$d/utils" "$d/retrieval" "$d/guardrails" "$d/docs/security-philosophy" \
-           "$d/macos" "$d/powershell" "$d/windows" "$d/agentic/executor" \
+           "$d/macos" "$d/powershell" "$d/windows" \
            "$d/agentic/fsconnect" "$d/sync" "$d/telegram" "$d/opentweet"
   cp "$repo_root/pyproject.toml" "$repo_root/constraints.txt" "$repo_root/requirements.txt" \
      "$repo_root/environment.yml" "$repo_root/Dockerfile" "$repo_root/docker-compose.yml" "$d/"
@@ -69,8 +69,6 @@ _mktree() {
   cp "$repo_root/macos/invoke-cyclaw.sh" "$repo_root/macos/generate_service_plist.py" "$d/macos/"
   cp "$repo_root/powershell/Invoke-CyClaw.ps1" "$repo_root/powershell/Install-CyClaw.ps1" "$d/powershell/"
   cp "$repo_root/windows/generate_service_task.py" "$d/windows/"
-  cp "$repo_root/agentic/executor/runner.py" "$d/agentic/executor/"
-  cp "$repo_root/agentic/gh_client.py" "$repo_root/agentic/writer.py" "$d/agentic/"
   cp "$repo_root/agentic/fsconnect/cli.py" "$d/agentic/fsconnect/"
   cp "$repo_root/sync/cli.py" "$repo_root/sync/scheduler.py" "$d/sync/"
   cp "$repo_root/telegram/cli.py" "$d/telegram/"
@@ -244,8 +242,8 @@ _expect "T12 programmatic-bypass mutation" 2 "FAIL  \[T12\]"
 
 # 18. T12: a child-env builder drops the canonical map.
 a="$(_mktree)"
-_mutate "$a/agentic/gh_client.py" '
-text = text.replace("build_telemetry_safe_env", "plain_environ_passthrough")'
+_mutate "$a/sync/cli.py" '
+text = text.replace("child_environment", "plain_environ_passthrough")'
 _expect "T12 dropped-builder mutation" 2 "FAIL  \[T12\]"
 
 # 19. T13: unclassified new dependency — WARN default, FAIL under --strict.
@@ -581,7 +579,7 @@ if ! _mutate "$a/.claude/skills/otel-hardening/check_otel.py" '
 text = text.replace(
     "\"& $exe @exeArgs\")),\n)",
     "\"& $exe @exeArgs\")),\n"
-    "    (\"executor-check\", \".claude/hooks/session-start-sync-check.sh\", (\"git \",)),\n)", 1)
+    "    (\"pre-action-hook-command\", \".claude/hooks/session-start-sync-check.sh\", (\"git \",)),\n)", 1)
 text = text.replace(
     "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n",
     "    (\"curl\", \".claude/skills/CyClaw-Sandbox/smoke.sh\", (\x27curl -sf \"$BASE/health\"\x27,)),\n"

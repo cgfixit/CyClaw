@@ -3,7 +3,7 @@
 CyClaw Terminal Console Integration Tests
 
 Requires a running CyClaw gateway with CYCLAW_API_KEY set.
-Tests all 5 console panels via their REST endpoints.
+Tests all 3 console panels via their REST endpoints.
 
 Usage:
     CYCLAW_API_KEY=test-key python gate.py &
@@ -123,7 +123,7 @@ class ConsoleTest:
 
         # 2. API Key Authentication
         print(f"\n{B}--- API Key Authentication ---{N}")
-        for path in ["/soul", "/soul/propose", "/ops/sync", "/ops/agentic", "/ops/fsconnect", "/ops/sqlconnect"]:
+        for path in ["/soul", "/soul/propose", "/ops/sync", "/ops/fsconnect"]:
             method = "GET" if path == "/soul" else "POST"
             if path.startswith("/ops/"):
                 body = {"action": "status"}
@@ -171,25 +171,7 @@ class ConsoleTest:
         status, data = self._request("POST", "/ops/sync", body={"action": "destroy"})
         self._check("/ops/sync unknown -> 400/422", status in (400, 422), f"status={status}")
 
-        # 5. Agentic Console
-        print(f"\n{B}--- Agentic Console (/ops/agentic) ---{N}")
-        status, data = self._request("POST", "/ops/agentic", body={"action": "status"})
-        self._check("/ops/agentic status", status == 200, f"status={status}")
-        if status == 200:
-            self._check("agentic has config", "config" in data)
-            if "config" in data:
-                self._check("agentic config has mode", "mode" in data["config"])
-                self._check("agentic config has writes_enabled", "writes_enabled" in data["config"])
-
-        status, data = self._request("POST", "/ops/agentic",
-            body={"action": "propose-skill", "name": "test-skill", "desc": "A test skill",
-                  "body": "# Test", "reason": "test"})
-        self._check("/ops/agentic propose-skill", status == 200, f"status={status}")
-
-        status, data = self._request("POST", "/ops/agentic", body={"action": "hack"})
-        self._check("/ops/agentic unknown -> 400/422", status in (400, 422), f"status={status}")
-
-        # 6. Filesystem Console
+        # 5. Filesystem Console
         print(f"\n{B}--- Filesystem Console (/ops/fsconnect) ---{N}")
         status, data = self._request("POST", "/ops/fsconnect", body={"action": "status"})
         self._check("/ops/fsconnect status", status == 200, f"status={status}")
@@ -201,34 +183,7 @@ class ConsoleTest:
         status, data = self._request("POST", "/ops/fsconnect", body={"action": "destroy"})
         self._check("/ops/fsconnect unknown -> 400/422", status in (400, 422), f"status={status}")
 
-        # 7. SQL Console
-        print(f"\n{B}--- SQL Console (/ops/sqlconnect) ---{N}")
-        status, data = self._request("POST", "/ops/sqlconnect", body={"action": "status"})
-        self._check("/ops/sqlconnect status", status == 200, f"status={status}")
-        if status == 200:
-            self._check("sqlconnect has config", "config" in data)
-
-        status, data = self._request("POST", "/ops/sqlconnect", body={"action": "schema"})
-        self._check("/ops/sqlconnect schema (no DSN)", status == 200, f"status={status}")
-
-        status, data = self._request("POST", "/ops/sqlconnect",
-            body={"action": "query", "sql": "SELECT 1 as test"})
-        self._check("/ops/sqlconnect query SELECT", status == 200, f"status={status}")
-
-        status, data = self._request("POST", "/ops/sqlconnect",
-            body={"action": "query", "sql": "DROP TABLE users"})
-        self._check("/ops/sqlconnect query DROP rejected", status == 200)
-        if status == 200:
-            output = " ".join(str(data.get(key, "")) for key in ("stdout", "stderr", "label")).lower()
-            self._check(
-                "DROP query remains disabled or rejected",
-                data.get("exit_code", 0) != 0 or "disabled" in output or "read-only" in output,
-            )
-
-        status, data = self._request("POST", "/ops/sqlconnect", body={"action": "hack"})
-        self._check("/ops/sqlconnect unknown -> 400/422", status in (400, 422), f"status={status}")
-
-        # 8. Audit Summary
+        # 6. Audit Summary
         print(f"\n{B}--- Audit Summary ---{N}")
         status, data = self._request("GET", "/audit/summary")
         self._check("/audit/summary", status == 200, f"status={status}")

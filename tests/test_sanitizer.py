@@ -88,9 +88,9 @@ class TestCheckInput:
     def test_max_chars_override_admits_input_the_config_cap_would_reject(self, filter_config):
         """filter_config's own cap is 100; the override raises the ceiling for
 
-        this one call without touching config.yaml (used by
-        agentic.deepagent_github.handoff.sanitize_handoff for a real-repo-loop
-        prompt, which routinely exceeds a RAG-chat-tuned cap).
+        this one call without touching config.yaml (its one caller,
+        the real-repo loop's handoff sanitizer, was removed in October 2026;
+        the parameter stays because utils/sanitizer.py is a protected path).
         """
         result = check_input("x" * 150, filter_config, max_chars_override=1000)
         assert result == "x" * 150
