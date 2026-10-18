@@ -210,3 +210,18 @@ def test_writer_list_dir_audits_skipped_stat_names_not_contents(tmp_path, monkey
     assert "bad.txt" in skips[0]["sample_names"]
     assert "payload-secret" not in blob
     assert "Input/output error" not in blob
+
+
+def test_future_dated_ledger_is_stale():
+    # A clock stepped back (or a ledger from a skewed host) gives a negative
+    # age that never reached recompute_hours, so the ledger was never rebuilt.
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime(2026, 10, 18, 12, 0, tzinfo=UTC)
+
+    def ledger(at: datetime) -> quota.QuotaLedger:
+        return quota.QuotaLedger(used_bytes=0, file_count=0, computed_at=quota.iso(at), generation=1)
+
+    assert quota.is_stale(ledger(now + timedelta(days=3)), now, 24)
+    assert not quota.is_stale(ledger(now - timedelta(hours=1)), now, 24)
+    assert quota.is_stale(ledger(now - timedelta(hours=24)), now, 24)
