@@ -17,6 +17,8 @@ patch gate._serve so no real server is started.
 
 import socket
 
+import pytest
+
 import gate
 
 
@@ -38,6 +40,17 @@ class TestPortDetection:
             assert gate._is_port_in_use("127.0.0.1", port) is True  # DevSkim: ignore DS162092 - test loopback probe
         finally:
             s.close()
+
+    @pytest.mark.skipif(not socket.has_ipv6, reason="Python built without IPv6 support")
+    def test_ipv6_loopback_host_does_not_raise(self):
+        # api.host "::1" passes _require_loopback_bind; an AF_INET-only probe
+        # raised socket.gaierror outside main()'s try. With or without an IPv6
+        # stack on the host, the probe must answer instead of raising.
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))  # DevSkim: ignore DS162092 - test loopback bind
+        free_port = s.getsockname()[1]
+        s.close()
+        assert isinstance(gate._is_port_in_use("::1", free_port), bool)
 
 
 class TestMainStartup:
