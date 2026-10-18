@@ -1,131 +1,40 @@
 # CyClaw Project Rules
 
-Scoped behavioral rules and non-negotiable constraints for Claude Code sessions in this repository.
+Rules for Claude Code sessions that `CLAUDE.md` does not already state. `CLAUDE.md`
+is authoritative for everything else (the six invariants §3, traps §4, conventions §5,
+escalation tiers §7, git identity and branch namespaces §10) and is loaded in the same
+session, so it is not restated here. The Hard Rules below are the one deliberate repeat.
 
 ---
 
-## Security Invariants (Enforced by Graph Topology)
+## Python specifics
 
-1. **RAG-First Invariant**  
-   `retrieve` is the unconditional entry node — no LLM call precedes retrieval. No exceptions.
+- `requires-python >=3.12,<3.13`: numpy 1.26.x has no cp313 wheels, so 3.13 stays out
+  until that pin moves.
+- Secrets are read directly via `os.environ`/`os.getenv`; `pydantic-settings` is only a
+  chromadb transitive, not a CyClaw pattern.
+- Data-modifying scripts default to a safe dry-run, with `--apply` to act (see
+  `retrieval/clear_cache.py`). There is no `--dry-run` flag — safe is the default.
+- Async: prefer `asyncio.TaskGroup` (3.11+) with `asyncio.gather` fallback.
 
-2. **Topology = Policy**  
-   Routing is enforced by LangGraph edges only, never by LLM decisions or runtime checks.
+## Dependency notes
 
-3. **Triple-Gated External Access**  
-   A call to Grok or Claude — whichever provider is selected per-query via
-   `online_provider` — requires **all three** conditions simultaneously:
-   - `config.app.mode == "hybrid"`
-   - `config.models.<provider>.enabled == true` (`grok` or `claude`)
-   - `user_confirmed_online == true`
+- **PyYAML:** install with `pip install -r requirements.txt -c constraints.txt --ignore-installed PyYAML`.
 
-4. **Audit Convergence**  
-   All eleven upstream paths must converge at `audit_logger` node before END. No shortcuts.
+## Facts CLAUDE.md does not state
 
-5. **Soul Governance**  
-   Mutations to `data/personality/soul.md` require an explicit human `reason` string. Never autonomous modification.
-
----
-
-## Code Standards (Mandatory)
-
-### Python
-
-- **Default:** Python 3.12 (`requires-python: >=3.12,<3.13` — numpy 1.26.x has no cp313 wheels)
-- **Typing:** Fully annotated. `from __future__ import annotations` in new modules (the floor is 3.12, so there is no <3.10 case to gate on).
-- **Linting:** `ruff check` + `ruff format` (line-length 120, py312)
-- **Type Checking:** `mypy --strict --python-version 3.12 --explicit-package-bases` on the lines you touch — best-effort, not CI-enforced, and the repo does not pass it clean end-to-end (see `CLAUDE.md` §4)
-- **No Secrets:** Environment variables only (read directly via `os.environ`/`os.getenv`; `pydantic-settings` is only a chromadb transitive, not a CyClaw pattern). Never hardcode tokens.
-- **No Mutations:** Data-modifying scripts must default to a safe dry-run, with `--apply` to act (see `retrieval/clear_cache.py`). There is no `--dry-run` flag — safe is the default.
-- **Async:** Prefer `asyncio.TaskGroup` (3.11+) with `asyncio.gather` fallback.
-- **Safety:** No `shell=True` with user input. Always use `subprocess.run([...], list)`.
-
-### Database & Configuration
-
-- **Config Source of Truth:** `config.yaml` only. No hardcoded tunables.
-- **Soul File:** Lives at `data/personality/soul.md`; absence self-heals to a default at boot (`PersonalityManager._load_soul`) — treat absence as identity drift to investigate, not a startup blocker. Never add a boot crash for it (`CLAUDE.md` §4).
-- **Database Backend:** SQLite default; Postgres via `CYCLAW_DB_URL` env var or `config.personality.database_url`.
-- **ChromaDB:** Embedded `PersistentClient` only — never HTTP client.
-
-### Testing
-
-- **Coverage Target:** 80% minimum, enforced by CI rather than reproduced locally (measured across the 17 sources in `pyproject.toml`'s `[tool.coverage.run]`: `gate`, `gate_ops`, `gate_auth`, `gate_memory`, `graph`, `mcp_hybrid_server`, `metrics`, `llm`, `retrieval`, `utils`, `sync`, `agentic`, `guardrails`, `telegram`, `opentweet`, `memory`, `schemas`)
-- **Verification:** follow `CLAUDE.md` §5 "Verification policy": run the changed code directly, then lint/static checks, then let GitHub Actions run the suites; at most one targeted test file as a last resort. Do not run the full suite or the `--cov` run as a routine step.
-- **Full-suite command (CI / owner only):** `GROK_API_KEY=dummy pytest tests/ -q --tb=short`
-- **No Live Services:** All external deps mocked via `tests/conftest.py`
-- **Exit Codes:** Respect exit code conventions (0=success, 2=operation failed, 3=env/config error, 4=write refused)
-
----
-
-## Module Isolation Rules
-
-### Never Import Into Core Paths
-
-The following modules **must never** import `agentic/`, `sync/`, `guardrails/`,
-`telegram/`, `opentweet/`, or each other:
-- `gate.py` — FastAPI server entry
-- `gate_ops.py` / `gate_auth.py` / `gate_memory.py` — route modules registered onto gate.py's app
-- `graph.py` — LangGraph security topology
-- `mcp_hybrid_server.py` — MCP server
-
-Rationale: architectural isolation preserves I6 (module isolation), the sixth
-of CyClaw's six security invariants — see `CLAUDE.md` §3. The five listed
-above under "Security Invariants (Enforced by Graph Topology)" are the ones
-graph topology enforces; this one is enforced by import structure instead,
-which is why it gets its own section rather than a sixth numbered entry there.
-
-### Out-of-Band Execution
-
-- **`agentic/`** — Run via `python -m agentic.cli`. Reads GitHub, proposes/applies skills, governs write gate.
-- **`sync/`** — Run via `python -m sync.cli`. Dropbox corpus sync via `rclone`.
-- **`telegram/`** — Run via `python -m telegram.cli`. Optional notify/chat channel, shipped `enabled: false`; inbound chat text only ever reaches the RAG pipeline via loopback `POST /query`, never a direct call into `graph.py`.
-
----
-
-## Retrieval Invariants
-
-### Hybrid Search Pattern
-
-All retrieval must use the **RRF fusion** (Reciprocal Rank Fusion, k=60):
-- **Leg 1:** ChromaDB semantic search (local CPU embeddings, `all-MiniLM-L6-v2`)
-- **Leg 2:** BM25Okapi keyword search (local, no external dependencies)
-- **Fusion:** Rank combining both signals; never bypass either leg.
-
-See `retrieval/hybrid_search.py` for implementation.
-
----
-
-## Git Workflow
-
-- **Identity:** Claude Code commits as the session runtime's identity: in the cloud `Claude <noreply@anthropic.com>` (signed, so GitHub shows it Verified), locally the operator's own git identity. Never set `CyClaw Agent` for a Claude Code commit; that driver-agnostic identity (`utils/agent_identity.py`) belongs to CyClaw's own agentic loop. See `CLAUDE.md` §10.
-
-- **Feature Branches:** Develop on a documented vendor prefix (`grok/`, `claude/`, `codex/`, `kimi/`, `agent/`, `CyClaw/`, `cyclaw/` — see `utils.agent_identity.ALLOWED_BRANCH_PREFIXES` and the PR template). Enforced by `.githooks/` pre-commit + pre-push after `bash scripts/ensure-githooks.sh`. Do not push to `main` directly when a feature branch and open PR exist.
-
-- **Commits:** Clear, descriptive messages. Reference issue numbers when applicable.
-
-- **Force Push:** Never without explicit user approval. An external **session-runtime** stop hook — not wired in this repo's `.claude/settings.json`, which registers no `Stop` hook — may block `--force-with-lease`. See `CLAUDE.md` §10.
-
----
+- Retrieval always runs both legs (ChromaDB semantic + BM25 keyword) fused by RRF; never bypass either leg.
+- The torch CPU-first install order also keeps the pin inside the CVE-2025-32434 patched range (fixed in 2.6.0).
+- Soul DB: SQLite by default; Postgres via `CYCLAW_DB_URL` or `config.personality.database_url`.
+- `telegram/` runs out-of-band via `python -m telegram.cli`; `sync/` performs the Dropbox corpus sync via `rclone`.
+- Commit messages reference issue numbers when applicable.
+- Blocker notes go in `docs/work/SESSION_NOTES.md`; `.claude/session-notes/` does not exist and must not be created.
 
 ## Documentation Standards
 
 - **CLAUDE.md is authoritative** — update it when architecture, modules, or behavioral rules change.
 - **.claude/ structure** — keep the documented commands/hooks/rules/skills tree in sync.
-- **Agentic Governance Docs** — `docs/agentic/AGENTIC_README.md` + `SKILLS_REGISTRY_GOVERNANCE.md` are binding.
-- **Session Notes** — optional but encouraged; the active log is `docs/work/SESSION_NOTES.md`.
 - **Owner PII stays out of committed files** — `.claude/skills/`, `.claude/rules/`, `CLAUDE.md`, and `docs/` are GitHub-public. The owner's *chosen* public attribution is fine and already in tracked docs: GitHub handle `cgfixit`, the byline name he signs guides with, and `cgfixit.com` links. Everything else is out: date of birth, email addresses, home location, phone, private accounts, or any personal detail beyond that byline, even in an agent-facing prompt file (learned 2026-09-02 on PR #1272, where the owner stripped a handle/email/location/sites block from `fable-5.1-cc`, since consolidated into `fable-protocol` §8 — see that file's §11). Personal identity belongs only in the user-level `~/.claude/skills/` copy.
-
----
-
-## Risk Tier Classification
-
-| Tier | Examples | Required Safeguard |
-|---|---|---|
-| **Low** | Local, reversible, no sensitive data, narrow scope | Standard checks |
-| **Medium** | Shared code paths, moderate impact, recoverable | Expand tests; document rollback path |
-| **High** | Production data, destructive commands, broad impact | Explicit user approval FIRST |
-
-**Default:** Choose the higher tier when uncertain.
 
 ---
 
@@ -139,26 +48,3 @@ See `retrieval/hybrid_search.py` for implementation.
 - ✋ **Never import `agentic/`, `sync/`, or other out-of-band modules into the core six: `gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`.**
 
 ---
-
-## Dependency Notes
-
-- **PyYAML:** Install with `pip install -r requirements.txt -c constraints.txt --ignore-installed PyYAML`
-- **torch:** Install `torch==2.13.0+cpu` **before** `requirements.txt` (CVE-2025-32434 was fixed in 2.6.0; 2.13.0 is within the patched range — install order still matters to ensure CPU wheel resolves correctly)
-- **ChromaDB CVE-2026-45829:** Accepted; threat model is embedded-only (`PersistentClient`), not HTTP.
-
----
-
-## Environment Quirks
-
-- `status: degraded` in `/health` is normal without Ollama running.
-- `TELEMETRY KILL` messages on startup are intentional (LangChain/Chroma/OTel env vars blocked).
-- `GROK_API_KEY` must be set in test environment (any non-empty value works offline).
-
----
-
-## Escalation Paths
-
-- **Undefined behavior:** Post in `#cyclaw-dev` Slack.
-- **Security concerns:** File a private security issue on GitHub.
-- **Configuration drift:** Run `/CyClaw-Sandbox` and report findings.
-- **Stuck on a blocker:** Record it in `docs/work/SESSION_NOTES.md` (the active log, as this file already says above) + Slack before context compaction. `.claude/session-notes/` does not exist.
