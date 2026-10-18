@@ -12,6 +12,7 @@ instead of copying dependency pins or hardware assumptions into new guidance.
 | Windows launcher | `powershell/`, Windows installer jobs in `ci.yml`. PowerShell 5.1 must be tested natively; Git Bash does not prove that contract. |
 | Executor sandbox | `agentic/executor/hard_sandbox.py`: Darwin Seatbelt, Linux bubblewrap netns; Windows is unsupported and `production_sandbox()` refuses it, as it does any missing capability. Verify actual platform probes before claiming enforcement. |
 | Telemetry | `utils/telemetry_kill.py`, `utils/onnx_telemetry.py`, maintained otel checker. Pre-import environment suppression plus ONNX load seams; not a firewall. |
+| State path anchoring | `memory/store.py`, `agentic/fsconnect/config.py`, `gate.py`, `agentic/unslop_bridge.py` (#1689). Memory DB, fsconnect rate/staging, gateway rate DB, unslop metrics resolve against repo root unless absolute. Closes CWD-dependent empty-DB / rate-reset / staging-miss holes for MCP clients, fsconnect CLI, and cron. |
 
 Production executor verification must not fall back to the test-only
 `ArgvListSandbox` or an unconstrained subprocess. Windows process-tree controls
