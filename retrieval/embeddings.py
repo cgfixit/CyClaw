@@ -21,7 +21,7 @@ import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -177,15 +177,16 @@ def _index_or_bm25_present(config_path: str) -> bool:
 # each built the model (measured: 4 constructions for 4 callers). Callers go
 # through _load_model_single_flight, which serializes the miss.
 _MODEL_LOAD_LOCK = threading.Lock()
-# Failed loads so far, and the most recent one's exception. A caller that was
-# already waiting on the lock when a load failed shares that failure instead of
-# repeating the retry loop (3 attempts, 2 s sleeps): serialized, four queued
-# callers would otherwise take 4x as long to fail as four parallel ones did. A
-# caller arriving after the failure retries from scratch, as before. A counter,
-# not a timestamp: Windows' monotonic clock ticks about every 15 ms, so a retry
-# right after a failure could carry the same stamp and be handed a stale error.
-_load_failure_count = 0
-_last_load_failure: Exception | None = None
+# "count" is the number of failed loads so far, "last" the most recent one's
+# exception. A caller that was already waiting on the lock when a load failed
+# shares that failure instead of repeating the retry loop (3 attempts, 2 s
+# sleeps): serialized, four queued callers would otherwise take 4x as long to
+# fail as four parallel ones did. A caller arriving after the failure retries
+# from scratch, as before. A counter, not a timestamp: Windows' monotonic clock
+# ticks about every 15 ms, so a retry right after a failure could carry the
+# same stamp and be handed a stale error. Mutated in place rather than rebound,
+# so no `global` statement is needed.
+_load_failures: dict[str, Any] = {"count": 0, "last": None}
 
 
 @lru_cache(maxsize=1)
@@ -266,16 +267,15 @@ def _load_model_single_flight(
     model_name: str, cache_dir: str, offline_after_index: bool, config_path: str
 ) -> "SentenceTransformer":
     """_load_model, but concurrent callers wait for one load instead of each running their own."""
-    global _load_failure_count, _last_load_failure
-    failures_when_arrived = _load_failure_count
+    failures_when_arrived = _load_failures["count"]
     with _MODEL_LOAD_LOCK:
-        if _load_failure_count != failures_when_arrived and _last_load_failure is not None:
-            raise _last_load_failure
+        if _load_failures["count"] != failures_when_arrived and _load_failures["last"] is not None:
+            raise _load_failures["last"]
         try:
             return _load_model(model_name, cache_dir, offline_after_index, config_path)
         except Exception as exc:
-            _load_failure_count += 1
-            _last_load_failure = exc
+            _load_failures["count"] += 1
+            _load_failures["last"] = exc
             raise
 
 

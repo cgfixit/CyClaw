@@ -571,8 +571,7 @@ class TestLoadModelSingleFlight:
 
     @pytest.fixture(autouse=True)
     def _no_stale_failure(self, monkeypatch):
-        monkeypatch.setattr(embeddings, "_load_failure_count", 0)
-        monkeypatch.setattr(embeddings, "_last_load_failure", None)
+        monkeypatch.setattr(embeddings, "_load_failures", {"count": 0, "last": None})
 
     def test_load_runs_while_holding_the_lock(self, monkeypatch):
         held = []
