@@ -143,6 +143,26 @@ def cmd_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _fetch_context_bundle(
+    cfg: AgenticConfig, args: argparse.Namespace, app_cfg: dict, *, include_diff: bool = True
+) -> dict | int:
+    """Fetch the ``--pr``, ``--issue`` or repo bundle, or print the failure and return its exit code."""
+    from agentic import context
+
+    try:
+        if args.pr is not None:
+            return context.fetch_pr_context(cfg, args.pr, include_diff=include_diff, app_cfg=app_cfg)
+        if args.issue is not None:
+            return context.fetch_issue_context(cfg, args.issue, app_cfg=app_cfg)
+        return context.fetch_repo_context(cfg, app_cfg=app_cfg)
+    except (GhNotInstalledError, GhVersionError) as exc:
+        _err(exc.message)
+        return EXIT_ENV
+    except AgenticError as exc:
+        _err(exc.message)
+        return EXIT_FAIL
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     cfg = _load(args)
     if cfg is None:
@@ -150,23 +170,12 @@ def cmd_context(args: argparse.Namespace) -> int:
     if not getattr(cfg, "enabled", False):
         return _disabled_noop()
 
-    from agentic import context
     # Pass the full config so the injection scan over GitHub-sourced text sees the
     # operator's banned_patterns, not just the OWASP baseline.
     app_cfg = _get_config(args.config)
-    try:
-        if args.pr is not None:
-            bundle = context.fetch_pr_context(cfg, args.pr, include_diff=not args.no_diff, app_cfg=app_cfg)
-        elif args.issue is not None:
-            bundle = context.fetch_issue_context(cfg, args.issue, app_cfg=app_cfg)
-        else:
-            bundle = context.fetch_repo_context(cfg, app_cfg=app_cfg)
-    except (GhNotInstalledError, GhVersionError) as exc:
-        _err(exc.message)
-        return EXIT_ENV
-    except AgenticError as exc:
-        _err(exc.message)
-        return EXIT_FAIL
+    bundle = _fetch_context_bundle(cfg, args, app_cfg, include_diff=not args.no_diff)
+    if isinstance(bundle, int):
+        return bundle
 
     print(json.dumps(bundle, indent=2, default=str))
     return EXIT_OK
@@ -232,44 +241,20 @@ def cmd_deepagent_plan(args: argparse.Namespace) -> int:
     if not cfg.deepagent_github.enabled:
         return _deepagent_github_disabled_noop()
 
-    from agentic import context
     from agentic.deepagent_github.builder import build_deepagent_github
     from agentic.deepagent_github.core import DeepAgentGitHubTask
-    from agentic.deepagent_github.model_adapter import cloud_key_available
     from agentic.deepagent_github.runners import draft_plan
 
     app_cfg = _get_config(args.config)
     provider: str | None = args.provider
     if provider:
-        # Gates 3 and 4. cloud_provider() returns None unless BOTH
-        # allow_cloud_providers and the provider's own enabled flag are true.
-        if cfg.deepagent_github.cloud_provider(provider) is None:
-            _err(f"cloud provider {provider!r} is not enabled (gates 3/4)")
-            return EXIT_ENV
-        # Gate 5: key presence only, no network probe.
-        if not cloud_key_available(provider):
-            _err(f"cloud provider {provider!r} has no API key set (gate 5)")
-            return EXIT_ENV
-        # Gate 6: per-run human confirmation, the agentic analog of
-        # user_confirmed_online. Same shape as apply-skill's --confirm.
-        if not args.confirm_online:
-            _err(f"--confirm-online is required to drive the loop with {provider!r} (gate 6)")
-            return EXIT_REFUSED
-        audit_log({"event": "agentic_deepagent_cloud_confirmed", "provider": provider}, cfg=app_cfg)
+        refusal = _resolve_cloud_provider_gates(cfg, args, app_cfg)
+        if refusal is not None:
+            return refusal
 
-    try:
-        if args.pr is not None:
-            bundle = context.fetch_pr_context(cfg, args.pr, app_cfg=app_cfg)
-        elif args.issue is not None:
-            bundle = context.fetch_issue_context(cfg, args.issue, app_cfg=app_cfg)
-        else:
-            bundle = context.fetch_repo_context(cfg, app_cfg=app_cfg)
-    except (GhNotInstalledError, GhVersionError) as exc:
-        _err(exc.message)
-        return EXIT_ENV
-    except AgenticError as exc:
-        _err(exc.message)
-        return EXIT_FAIL
+    bundle = _fetch_context_bundle(cfg, args, app_cfg)
+    if isinstance(bundle, int):
+        return bundle
 
     # An injection finding means GitHub-sourced text carries an injection shape.
     # The inbound scan is advisory (a PR may legitimately DISCUSS injection), but
@@ -521,8 +506,7 @@ def _load_checks_file(path: str) -> tuple[Check, ...]:
         # raise bare ValueError/TypeError. Outside this conversion they escape
         # every `except AgenticError` between here and main(), so a checks file
         # with `"timeout_sec": "soon"` produced a traceback and exit 1 -- a code
-        # that is not in the documented 0/2/3/4 set and that
-        # utils/ops_runner.py's _AGENTIC_LABELS maps to "unknown".
+        # that is not in the documented 0/2/3/4 set.
         try:
             if "timeout_sec" in entry:
                 kwargs["timeout_sec"] = int(entry["timeout_sec"])
@@ -542,20 +526,26 @@ def _real_repo_runs_dir(cfg: AgenticConfig) -> Path:
 def _resolve_cloud_provider_gates(cfg: AgenticConfig, args: argparse.Namespace, app_cfg: dict) -> int | None:
     """Assert cloud gates 3-6 for a provider-driven command. None => allowed.
 
-    Extracted verbatim from ``cmd_real_repo_run`` rather than reimplemented so
-    ``real-repo-run-plan`` cannot drift into a weaker chain than the command it
-    feeds. Gates 1 and 2 (``agentic.enabled``, ``deepagent_github.enabled``)
-    stay at each caller, because their refusal messages differ.
+    The one copy of the chain, shared by ``deepagent-plan``, ``real-repo-run``
+    and ``real-repo-run-plan`` so no provider-driven command can drift into a
+    weaker chain than the others. Gates 1 and 2 (``agentic.enabled``,
+    ``deepagent_github.enabled``) stay at each caller, because their refusal
+    messages differ.
     """
     from agentic.deepagent_github.model_adapter import cloud_key_available
 
     provider = args.provider
+    # Gates 3 and 4. cloud_provider() returns None unless BOTH
+    # allow_cloud_providers and the provider's own enabled flag are true.
     if cfg.deepagent_github.cloud_provider(provider) is None:
         _err(f"cloud provider {provider!r} is not enabled (gates 3/4)")
         return EXIT_ENV
+    # Gate 5: key presence only, no network probe.
     if not cloud_key_available(provider):
         _err(f"cloud provider {provider!r} has no API key set (gate 5)")
         return EXIT_ENV
+    # Gate 6: per-run human confirmation, the agentic analog of
+    # user_confirmed_online. Same shape as apply-skill's --confirm.
     if not args.confirm_online:
         _err(f"--confirm-online is required to drive the loop with {provider!r} (gate 6)")
         return EXIT_REFUSED
@@ -607,22 +597,11 @@ def cmd_real_repo_run_plan(args: argparse.Namespace) -> int:
     if refusal is not None:
         return refusal
 
-    from agentic import context
     from agentic.real_repo_loop import generate_plan
 
-    try:
-        if args.pr is not None:
-            bundle = context.fetch_pr_context(cfg, args.pr, app_cfg=app_cfg)
-        elif args.issue is not None:
-            bundle = context.fetch_issue_context(cfg, args.issue, app_cfg=app_cfg)
-        else:
-            bundle = context.fetch_repo_context(cfg, app_cfg=app_cfg)
-    except (GhNotInstalledError, GhVersionError) as exc:
-        _err(exc.message)
-        return EXIT_ENV
-    except AgenticError as exc:
-        _err(exc.message)
-        return EXIT_FAIL
+    bundle = _fetch_context_bundle(cfg, args, app_cfg)
+    if isinstance(bundle, int):
+        return bundle
 
     # Identical refusal to cmd_real_repo_run's: attacker-authored PR/issue text
     # reaching a PLANNER is the same exposure as it reaching a coder, and a
@@ -716,24 +695,9 @@ def cmd_real_repo_run(args: argparse.Namespace) -> int:
     app_cfg = _get_config(args.config)
     provider: str | None = args.provider
     if provider:
-        from agentic.deepagent_github.model_adapter import cloud_key_available
-
-        # Gates 3 and 4, exactly as cmd_deepagent_plan asserts them: cloud_provider()
-        # returns None unless BOTH allow_cloud_providers and this provider's own
-        # enabled flag are true.
-        if cfg.deepagent_github.cloud_provider(provider) is None:
-            _err(f"cloud provider {provider!r} is not enabled (gates 3/4)")
-            return EXIT_ENV
-        # Gate 5: key presence only, no network probe.
-        if not cloud_key_available(provider):
-            _err(f"cloud provider {provider!r} has no API key set (gate 5)")
-            return EXIT_ENV
-        # Gate 6: per-run human confirmation, the agentic analog of
-        # user_confirmed_online. Same shape as apply-skill's --confirm.
-        if not args.confirm_online:
-            _err(f"--confirm-online is required to drive the loop with {provider!r} (gate 6)")
-            return EXIT_REFUSED
-        audit_log({"event": "agentic_deepagent_cloud_confirmed", "provider": provider}, cfg=app_cfg)
+        refusal = _resolve_cloud_provider_gates(cfg, args, app_cfg)
+        if refusal is not None:
+            return refusal
     else:
         # Checked eagerly, before the context fetch or the clone -- both real
         # network I/O -- matching the existing eager validation of --checks-file
@@ -776,24 +740,13 @@ def cmd_real_repo_run(args: argparse.Namespace) -> int:
     if refusal is not None:
         return refusal
 
-    from agentic import context
     from agentic.deepagent_github.repo_workspace import RepoWorkspaceTools
     from agentic.real_repo_loop import run_real_repo_loop
     from agentic.real_repo_run_store import RealRepoRunRecord, new_run_id, save_run
 
-    try:
-        if args.pr is not None:
-            bundle = context.fetch_pr_context(cfg, args.pr, app_cfg=app_cfg)
-        elif args.issue is not None:
-            bundle = context.fetch_issue_context(cfg, args.issue, app_cfg=app_cfg)
-        else:
-            bundle = context.fetch_repo_context(cfg, app_cfg=app_cfg)
-    except (GhNotInstalledError, GhVersionError) as exc:
-        _err(exc.message)
-        return EXIT_ENV
-    except AgenticError as exc:
-        _err(exc.message)
-        return EXIT_FAIL
+    bundle = _fetch_context_bundle(cfg, args, app_cfg)
+    if isinstance(bundle, int):
+        return bundle
 
     blocking = _blocking_context_findings(bundle)
     if blocking:
