@@ -64,7 +64,7 @@ Reviewer: ______   Date: ______   Deployment: ______   Config sha256: ______
 - [ ] An append loop past a root's `quota_bytes` is refused with `failed_gate="quota"` (`test_append_loop_eventually_denied`).
 - [ ] More than `max_ops` writes in a window are refused with `failed_gate="rate_limit"` **across separate CLI invocations** (sqlite persistence; `test_limit_persists_across_invocations`).
 - [ ] `kill -9` mid-write leaves no partial file visible (`O_EXCL` tmp + atomic `os.replace` + parent-dir fsync); the orphaned `*.cyclaw-tmp` is swept by `trash-empty`.
-- [ ] Audit review: after the above, every `fsconnect_write_intent` has a matching `fsconnect_write_applied` or `fsconnect_write_refused` (grep the audit JSONL by `intent_id`). **Note:** there is no `audit-verify` subcommand in Phase 2 — this is a manual grep until it ships.
+- [ ] Audit review: after the above, every `fsconnect_write_intent` has a matching `fsconnect_write_applied` or `fsconnect_write_failed` with the same `intent_id` (grep the audit JSONL by `intent_id`; `fsconnect_write_refused` carries no `intent_id`, so it never closes one). An intent with neither is the crash signal. **Note:** there is no `audit-verify` subcommand in Phase 2 — this is a manual grep until it ships.
 
 ## E. Compliance controls mapped
 

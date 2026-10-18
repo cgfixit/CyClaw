@@ -243,15 +243,16 @@ def test_main_maps_typed_errors_and_does_not_mask_untyped_bugs(tmp_path, monkeyp
 
 
 def test_atomic_write_onto_a_directory_is_typed_not_a_raw_oserror(tmp_path):
-    """One mistyped --path must not look like a crash mid-write.
+    """One mistyped --path must fail as a typed error, not a raw OSError.
 
-    os.replace onto an existing DIRECTORY raises IsADirectoryError. The os.open
-    of the temp file three lines above it already converted its OSError, but the
-    write/replace/fsync block re-raised bare. Two
-    consequences: exit 1, outside the documented 0/2/3/4 set; and an
-    fsconnect_write_intent with no matching _applied, which writer.py's own
-    docstring defines as the crash/tamper signal -- so a typo manufactured a
-    false security alarm.
+    os.replace onto an existing DIRECTORY raises IsADirectoryError. Every other
+    OSError in pathsafe is already converted (the os.open three lines above this
+    one does exactly that), but the write/replace/fsync block re-raised bare, so
+    the CLI exited 1, outside the documented 0/2/3/4 set. Typing the error fixes
+    that exit code only. It does not by itself close the writer's
+    fsconnect_write_intent; FsWriter emits fsconnect_write_failed for any
+    post-intent error, pinned by test_fsconnect_writer's
+    test_post_intent_failure_closes_intent_with_failed.
     """
     from agentic.fsconnect.pathsafe import ScopedRoots
     from utils.errors import FsConnectError
