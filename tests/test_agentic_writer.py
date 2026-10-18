@@ -384,7 +384,7 @@ def test_a_plan_naming_another_repo_is_refused(monkeypatch, tmp_path: Path):
 def test_pr_create_requires_a_claude_head_branch(bad_head, tmp_path: Path):
     """Without --head, gh infers the head branch from the process's cwd.
 
-    On the ops_runner path that cwd is the operator's own checkout, so an
+    For a CLI run from the repo root that cwd is the operator's own checkout, so an
     omitted head would open a PR from whatever branch they had checked out.
     It is required, and constrained to the agent/ namespace.
     """

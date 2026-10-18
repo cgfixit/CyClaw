@@ -1133,6 +1133,9 @@ What this changes in the surface this document describes:
   reaches the pipeline after this removal. Its gates
   (`agentic.enabled`, `deepagent_github.enabled`, `allow_git_write_tools`)
   still ship `false`.
+  **Superseded in part 2026-10-15:** the unreachable `real-repo-run*` dispatch
+  was then removed from `utils/ops_runner.py`, which now allowlists the same
+  five actions as `OpsAgenticRequest.action`. The pipeline is still CLI-only.
 - **Windows coding-console support is withdrawn from CyClaw.**
   `powershell/Invoke-CyClaw.ps1` now starts the RAG gateway only. The
   coding console's future Windows path is CG-agent-harness once its Windows

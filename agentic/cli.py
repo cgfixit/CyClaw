@@ -459,11 +459,10 @@ def _refuse_if_injected_instruction(instruction: str, app_cfg: dict, *, repo: st
     finding posture, as the ``--plan-file`` scan, so the two operator-supplied-
     text paths cannot drift into different strengths.
 
-    This is not a remote-attacker surface (every entry path -- direct CLI, or
-    a caller going through ``utils.ops_runner``'s shim -- requires the
-    operator to type or paste the value themselves), it is a confused-deputy
-    one: text pasted from a ticket, chat, or web page straight into a command
-    that clones and writes to a real repo. A human typing ``--instruction``
+    This is not a remote-attacker surface (the only entry path is this CLI,
+    where the operator types or pastes the value themselves), it is a
+    confused-deputy one: text pasted from a ticket, chat, or web page straight
+    into a command that clones and writes to a real repo. A human typing ``--instruction``
     is not the same act as auditing every character of what they typed for
     injection shapes -- the same reasoning the ``--plan-file`` scan's comment
     already applies to a human-approved plan.
@@ -855,15 +854,14 @@ def cmd_real_repo_run(args: argparse.Namespace) -> int:
         return EXIT_FAIL
 
     # Persisted BEFORE the loop runs, not only after it finishes. This command
-    # runs under a hard wall-clock budget (see utils/ops_runner.py's
-    # real-repo-run action timeout); a kill on overrun previously left this
-    # process with no chance to reach any save_run call below, so the clone
-    # under workspace_root had NOTHING on disk pointing at it -- unreachable
-    # by real-repo-run-status, and indistinguishable from garbage by anything
-    # that might reclaim it later (see real-repo-run-discard). This also makes
-    # the "running" state agentic/real_repo_run_store.py's own docstring
-    # already documents an actual, observable state rather than one nothing
-    # ever writes.
+    # can be SIGKILLed mid-run (e.g. by an external wall-clock timeout); a kill
+    # previously left this process with no chance to reach any save_run call
+    # below, so the clone under workspace_root had NOTHING on disk pointing at
+    # it -- unreachable by real-repo-run-status, and indistinguishable from
+    # garbage by anything that might reclaim it later (see
+    # real-repo-run-discard). This also makes the "running" state
+    # agentic/real_repo_run_store.py's own docstring already documents an
+    # actual, observable state rather than one nothing ever writes.
     try:
         save_run(
             runs_dir,
@@ -1316,7 +1314,7 @@ def cmd_real_repo_run_decide(args: argparse.Namespace) -> int:
     # Persisted HERE, before the escalations, not only at the end. The git
     # commit has already landed by this point, and --push/--publish spend up to
     # ~3 minutes of network time after it; an interruption anywhere in that
-    # window (Ctrl-C, SIGKILL on the ops_runner wall clock, an OSError out of
+    # window (Ctrl-C, a SIGKILL from an external timeout, an OSError out of
     # subprocess.run) previously left the record at pending_decision on disk
     # while a real commit -- and possibly a pushed branch and an open PR --
     # existed. That state was unrecoverable for approve: a retried decide
@@ -1486,9 +1484,9 @@ def cmd_real_repo_run_discard(args: argparse.Namespace) -> int:
     not yet approved or rejected a live candidate, and discarding then would
     destroy it with no decision ever recorded. Every other status is eligible
     -- including ``running``, which only survives past its own command's exit
-    if the owning process was killed before finishing (e.g. by the wall-clock
-    timeout wrapping this action -- see ``utils/ops_runner.py``), leaving a
-    clone with nothing else pointing at it.
+    if the owning process was killed before finishing (e.g. SIGKILLed by an
+    external wall-clock timeout), leaving a clone with nothing else pointing
+    at it.
 
     Idempotent: the clone directory may already be gone (an already-rejected
     run closes its own clone; discarding twice is harmless), in which case
