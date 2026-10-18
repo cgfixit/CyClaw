@@ -16,11 +16,12 @@ Security note (2026-06):
 
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -170,6 +171,24 @@ def _index_or_bm25_present(config_path: str) -> bool:
     return bool(bm25_path) and Path(bm25_path).is_file()
 
 
+# lru_cache memoizes a finished load but does not make concurrent misses wait
+# for each other, and gate.py serves queries on up to api.max_concurrent_queries
+# threads with no boot-time warm-up. Four simultaneous first queries therefore
+# each built the model (measured: 4 constructions for 4 callers). Callers go
+# through _load_model_single_flight, which serializes the miss.
+_MODEL_LOAD_LOCK = threading.Lock()
+# "count" is the number of failed loads so far, "last" the most recent one's
+# exception. A caller that was already waiting on the lock when a load failed
+# shares that failure instead of repeating the retry loop (3 attempts, 2 s
+# sleeps): serialized, four queued callers would otherwise take 4x as long to
+# fail as four parallel ones did. A caller arriving after the failure retries
+# from scratch, as before. A counter, not a timestamp: Windows' monotonic clock
+# ticks about every 15 ms, so a retry right after a failure could carry the
+# same stamp and be handed a stale error. Mutated in place rather than rebound,
+# so no `global` statement is needed.
+_load_failures: dict[str, Any] = {"count": 0, "last": None}
+
+
 @lru_cache(maxsize=1)
 def _load_model(model_name: str, cache_dir: str, offline_after_index: bool, config_path: str) -> "SentenceTransformer":
     """Load SentenceTransformer with security-conscious defaults.
@@ -243,6 +262,22 @@ def _load_model(model_name: str, cache_dir: str, offline_after_index: bool, conf
         "embedding model load loop exited without return/raise",
         details={"model": model_name},
     )
+
+def _load_model_single_flight(
+    model_name: str, cache_dir: str, offline_after_index: bool, config_path: str
+) -> "SentenceTransformer":
+    """_load_model, but concurrent callers wait for one load instead of each running their own."""
+    failures_when_arrived = _load_failures["count"]
+    with _MODEL_LOAD_LOCK:
+        if _load_failures["count"] != failures_when_arrived and _load_failures["last"] is not None:
+            raise _load_failures["last"]
+        try:
+            return _load_model(model_name, cache_dir, offline_after_index, config_path)
+        except Exception as exc:
+            _load_failures["count"] += 1
+            _load_failures["last"] = exc
+            raise
+
 
 @lru_cache(maxsize=8)
 def _embeddings_cfg(config_path: str) -> tuple:
@@ -328,7 +363,7 @@ def _cached_embedding(text: str, config_path: str) -> tuple:
     """
     try:
         model_name, cache_dir, offline_after_index = _embeddings_cfg(config_path)
-        model = _load_model(model_name, cache_dir, offline_after_index, config_path)
+        model = _load_model_single_flight(model_name, cache_dir, offline_after_index, config_path)
         return tuple(model.encode(text, normalize_embeddings=True).tolist())
     except EmbeddingServiceError:
         raise
@@ -370,7 +405,7 @@ def get_token_counter(config_path: str = "config.yaml") -> tuple[Callable[[list[
     get_embeddings_batch, this is the build path: a load failure aborts.
     """
     model_name, cache_dir, offline_after_index = _embeddings_cfg(config_path)
-    model = _load_model(model_name, cache_dir, offline_after_index, config_path)
+    model = _load_model_single_flight(model_name, cache_dir, offline_after_index, config_path)
     tokenizer = model.tokenizer
 
     def count(texts: list[str]) -> list[int]:
@@ -386,5 +421,5 @@ def get_embeddings_batch(texts: list[str], config_path: str = "config.yaml") -> 
     # degrading here would silently produce a semantic index with missing
     # vectors. Only the query path (_cached_embedding) soft-degrades.
     model_name, cache_dir, offline_after_index = _embeddings_cfg(config_path)
-    model = _load_model(model_name, cache_dir, offline_after_index, config_path)
+    model = _load_model_single_flight(model_name, cache_dir, offline_after_index, config_path)
     return model.encode(texts, normalize_embeddings=True, show_progress_bar=True).tolist()
