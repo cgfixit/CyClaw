@@ -1,7 +1,8 @@
 # `scripts/` — repo development hygiene
 
-Contributor-side tooling for this clone's git workflow, one operator
-throughput probe, and measurement tools. Nothing here is imported by gate.py / graph.py / llm at
+Contributor-side tooling for this clone's git workflow, the hashed-lock
+refresh and check tools, CI checks, one operator throughput probe, and
+measurement tools. Nothing here is imported by gate.py / graph.py / llm at
 runtime.
 
 ## Scripts
@@ -14,6 +15,11 @@ runtime.
 | `measure_local_llm_throughput.py` | Operator probe: hits loopback Ollama `POST /api/generate` and prints prefill/decode tok/s from the runner's own nanosecond counters. stdlib only. Not imported by gate/graph/llm. See `docs/! How-To-Guides/OLLAMA_SETUP.md`. |
 | `cyclaw-eval-dogfood.py` | Opt-in local Qwen dogfood matrix (`CYCLAW_EVAL_DOGFOOD=1`). Isolated groundedness index + sanitizer probe; optional loopback generate(). Never required CI. See `tests/fixtures/groundedness/DOGFOOD.md`. |
 | `rerank_bakeoff.py` | Issue #1456 reranker choice: builds the `data/corpus` and `data/corpus` + `docs/` indexes, scores every probe window that clears the cosine gate with five candidate cross-encoders (chunk and passage granularity), and applies a pre-registered rule: pick a model and threshold on the older probes, then judge it on `tests/rerank_probes.py`'s fresh ones. Needs the full install and Hugging Face access on a cold cache. Report only; not a CI gate. First run (PR #1464): no configuration passed; see `docs/audits/2026-09-26-reranker-bakeoff.md`. |
+| `check_lock_contract.py` | Offline freshness check for the hashed locks (#1526): fails when a lock's inputs, pins, hashes or output set no longer match `pyproject.toml`, `constraints.txt` and `scripts/ci-lock-inputs/`; `--wheel dist/*.whl` also checks the built wheel's metadata. It does not claim a fresh resolve would pick the same versions. Run by `ci.yml`. |
+| `refresh-runtime-lock.sh` | Regenerates the runtime and torch locks (`locks/requirements-lock-*.txt`, `locks/requirements-torch-lock-*.txt`) with `uv pip compile`, seeded from the tracked locks so unchanged transitive pins stay put. Runs only on an arm64 macOS host. |
+| `refresh-ci-locks.sh` | Same approach for the CI tool and extra install sets compiled from `scripts/ci-lock-inputs/*.txt` (ruff, bandit, numbat, the Postgres and agentic extras, …), so those jobs install with `--require-hashes`. Leaves the runtime and torch locks to `refresh-runtime-lock.sh`. arm64 macOS only. |
+| `verify_agentic_sandbox.py` | Native acceptance check for the agentic verification sandbox on the host it runs on, with no software stand-in: real confinement, credential exclusion and gitless no-copyback, plus (Linux) bwrap timeout teardown of a detached descendant. On Windows it expects the sandbox's explicit refusal. Run by `ci.yml`. |
+| `ci/bwrap-apparmor-check.sh` | Linux CI proof that bubblewrap runs confined under the AppArmor policy for the runner's Ubuntu release (22.04, 24.04, 26.04+; any other release fails). Reads the userns sysctl, never writes it. Run by `ci.yml`; the profile it loads, `deploy/apparmor/cyclaw-bwrap`, is pinned by `tests/security/test_bwrap_apparmor_profile_scope.py`. |
 | `compare_vector_backends.py` | Issue #1255 Phase C spike tool: builds two isolated semantic indices from the same corpus + embeddings (real `retrieval.vector_store` Chroma writer vs. a prototype-only sqlite-vec writer), runs index-doctor's fixed probe set through both, and reports top-1/overlap agreement plus build/query wall-clock. Not wired into any CI job; `sqlite-vec` is test-only (`requirements-test.txt`), not a runtime dependency. See `docs/audits/2026-09-21-sqlite-vec-phase-c-spike.md`. |
 
 ## Related
