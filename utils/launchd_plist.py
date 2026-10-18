@@ -52,15 +52,23 @@ def _probe_python(candidate: str) -> None:
     A plist that points at a Python without fastapi/uvicorn will crash-loop
     on launch and KeepAlive will restart it forever. This probe is fast and
     fail-closed: it raises RuntimeError with a clear message instead of
-    emitting a broken plist.
+    emitting a broken plist. An interpreter that cannot be started at all
+    (not executable, hangs past the timeout) raises the same RuntimeError, so
+    callers have one exception to map to their exit code.
     """
-    probe = subprocess.run(  # noqa: S603 -- argv list, interpreter resolved before call
-        [candidate, "-c", "import fastapi, uvicorn"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
+    try:
+        probe = subprocess.run(  # noqa: S603  # nosec B603 - argv list, no shell, operator-chosen interpreter
+            [candidate, "-c", "import fastapi, uvicorn"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(
+            f"launchd plist target interpreter {candidate!r} could not be run ({exc}); "
+            "set CYCLAW_PYTHON to a Python that has the runtime deps"
+        ) from exc
     if probe.returncode != 0:
         raise RuntimeError(
             f"launchd plist target interpreter {candidate!r} cannot import fastapi/uvicorn; "

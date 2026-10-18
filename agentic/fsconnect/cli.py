@@ -337,9 +337,15 @@ def cmd_trash_empty_plist(args: argparse.Namespace) -> int:
         _err("no writable root configured (set fsconnect.writable_roots, or pass --root)")
         return EXIT_FAIL
 
+    try:
+        python = launchd_plist.python_executable()
+    except RuntimeError as exc:
+        _err(str(exc))
+        return EXIT_ENV
+
     repo_root = Path(__file__).resolve().parent.parent.parent
     program_args = [
-        launchd_plist.python_executable(),
+        python,
         "-m",
         "agentic.fsconnect.cli",
         "--config",
