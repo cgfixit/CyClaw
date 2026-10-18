@@ -41,6 +41,25 @@ def test_probe_maps_an_unrunnable_interpreter_to_runtime_error() -> None:
             launchd_plist._probe_python("/slow/python")
 
 
+def test_invalid_cyclaw_python_raises_instead_of_falling_back(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # An explicit override that names nothing runnable must not be silently
+    # replaced by another interpreter; generators map this to exit 3.
+    for bad in (str(tmp_path / "missing-python"), str(tmp_path), "cyclaw-no-such-command"):
+        monkeypatch.setenv("CYCLAW_PYTHON", bad)
+        with pytest.raises(RuntimeError, match="CYCLAW_PYTHON"):
+            launchd_plist.python_executable()
+
+
+def test_cyclaw_python_command_name_resolves_to_absolute_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CYCLAW_PYTHON", "cyclaw-test-python")
+    with (
+        patch("utils.launchd_plist.shutil.which", return_value="/opt/py/bin/cyclaw-test-python"),
+        patch("utils.launchd_plist._probe_python") as probe,
+    ):
+        assert launchd_plist.python_executable() == "/opt/py/bin/cyclaw-test-python"
+    probe.assert_called_once_with("/opt/py/bin/cyclaw-test-python")
+
+
 def test_current_uid_matches_os_getuid_when_present() -> None:
     if hasattr(os, "getuid"):
         assert launchd_plist.current_uid() == os.getuid()
