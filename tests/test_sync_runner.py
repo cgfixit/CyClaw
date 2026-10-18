@@ -227,6 +227,25 @@ def test_parse_log_missing_file_tolerant(tmp_path):
     assert errors == []
 
 
+@pytest.mark.parametrize("verb,kind", [
+    ("Copied (new)", "added"),
+    ("Copied (replaced existing)", "modified"),
+    ("Updated modification time", "modified"),
+    ("Updated modification time in destination", "modified"),
+    ("Deleted", "deleted"),
+])
+def test_parse_log_preserves_colons_in_filenames(tmp_path, verb, kind):
+    paths = ("folder/2026: review.md", "note:bisync-report.md", "note: Copied (new):final.md")
+    log_path = tmp_path / "rclone.log"
+    log_path.write_text(
+        "".join(f"2026/10/17 02:10:01 INFO  : {path}: {verb}\n" for path in paths),
+        encoding="utf-8",
+    )
+    events, errors = parse_log(str(log_path))
+    assert events == [FileEvent(kind=kind, path=path) for path in paths]
+    assert errors == []
+
+
 def test_hash_changed_files_streams_and_skips_deleted(tmp_path):
     f = tmp_path / "a.md"
     f.write_text("hello", encoding="utf-8")
@@ -998,14 +1017,15 @@ def test_run_post_sync_check_timeout_soft_fails(tmp_path):
     assert any(e.get("event") == "sync_check_timeout" and e.get("ok") is False for e in events)
 
 
-def test_run_post_sync_check_subprocess_failure_is_audited(tmp_path):
-    """FileNotFoundError/SubprocessError must be audited like the other soft-fails."""
+@pytest.mark.parametrize("failure", [FileNotFoundError, PermissionError, OSError, subprocess.SubprocessError])
+def test_run_post_sync_check_subprocess_failure_is_audited(tmp_path, failure):
+    """All launch failures must soft-fail without exposing the exception message."""
     cfg = _make_cfg(tmp_path)
-    with patch("sync.runner.subprocess.run", side_effect=FileNotFoundError("no rclone binary")), \
+    with patch("sync.runner.subprocess.run", side_effect=failure("private launch detail")), \
          _patch_audit() as audit:
         cr = run_post_sync_check(cfg, rclone_bin=FAKE_RCLONE)
     assert cr.ok is False
-    assert any("subprocess failed" in e for e in cr.errors)
+    assert cr.errors == [f"rclone check subprocess failed: {failure.__name__}"]
     events = [call.args[0] for call in audit.call_args_list]
     assert any(e.get("event") == "sync_check_subprocess_failed" and e.get("ok") is False for e in events)
 
@@ -1078,6 +1098,36 @@ def test_run_sync_calls_check_on_success_when_configured(tmp_path):
     assert mrun.call_count == 3
     check_calls = [c for c in mrun.call_args_list if c.args[0][1] == "check"]
     assert len(check_calls) == 1
+
+
+def test_run_sync_check_oserror_preserves_file_audit_and_reindex(tmp_path):
+    cfg = _make_cfg(tmp_path, post_sync_check=True)
+    name = "note:bisync-report.md"
+
+    def dispatch(argv, **kwargs):
+        if argv[1] == "version":
+            return _version_mock("1.70.0")
+        if argv[1] == "check":
+            raise PermissionError("private launch detail")
+        Path(cfg.log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(cfg.log_path).write_text(f"2026/10/17 02:10:01 INFO  : {name}: Copied (new)\n", encoding="utf-8")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("sync.runner.shutil.which", return_value=FAKE_RCLONE), \
+         patch("sync.runner.subprocess.run", side_effect=dispatch), \
+         _patch_audit() as audit:
+        result = run_sync(cfg, rclone_bin=FAKE_RCLONE)
+
+    assert result.success is True  # The copy completed; only the check failed.
+    assert result.check_result is not None and result.check_result.ok is False
+    assert result.events == [FileEvent(kind="added", path=name)]
+    assert result.corpus_changed is True
+    assert reindex_exit_code_for(result, cfg) == 10
+    events = [call.args[0] for call in audit.call_args_list]
+    assert [event["event"] for event in events] == [
+        "sync_started", "sync_check_subprocess_failed", "sync_file_added", "sync_completed",
+    ]
+    assert events[2]["file"] == name
 
 
 def test_run_sync_skips_check_on_dry_run(tmp_path):
