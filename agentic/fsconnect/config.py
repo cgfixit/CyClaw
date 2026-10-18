@@ -24,6 +24,7 @@ import os
 import posixpath
 import sys
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 from agentic.fsconnect.protected_paths import validate_root
 from utils.errors import FsConnectConfigError
@@ -378,11 +379,23 @@ class FsConnectConfig:
             "max_ops": max_ops,
             "window_seconds": rl.get("window_seconds", DEFAULT_RATE_WINDOW_SECONDS),
             "global_max_ops": rl.get("global_max_ops", 2 * max_ops),
-            "db_path": rl.get("db_path", DEFAULT_RATE_DB_PATH),
+            "db_path": _anchored_db_path(rl.get("db_path", DEFAULT_RATE_DB_PATH)),
         }
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def _anchored_db_path(raw: object) -> str | None:
+    """Repo-root-anchored rate DB path; a null/empty value keeps the in-memory limiter.
+
+    Resolving against the CWD gave a CLI run from another directory a fresh,
+    empty rate DB, so the write-rate brake reset whenever the directory changed.
+    """
+    if not raw:
+        return None
+    path = Path(str(raw)).expanduser()
+    return str(path if path.is_absolute() else Path(__file__).resolve().parents[2] / path)
 
 
 def load_fsconnect_config(config_path: str = "config.yaml") -> FsConnectConfig:
