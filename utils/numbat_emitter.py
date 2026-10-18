@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, TextIO
 from urllib.parse import urlsplit, urlunsplit
 
-from utils.logger import _anchor, _get_config
+from utils.logger import _anchor, _audit_handle_is_current, _get_config
 
 logger = logging.getLogger("cyclaw.numbat_emitter")
 
@@ -495,27 +495,6 @@ def build_event(
 _NUMBAT_HANDLES: dict[str, TextIO] = {}
 
 
-def _handle_still_points_at(handle: TextIO, path: Path) -> bool:
-    """True when the cached handle still refers to the file living at ``path``.
-
-    The cache is keyed on the path STRING, but a rename moves the name off the
-    inode the handle holds. Another process rolls this same stream over -- the
-    action plane runs in ops_runner children while a long-lived gate.py holds
-    its handle open -- so after that child's os.replace, an unchecked cached
-    handle keeps appending into the .1 generation, and the NEXT rollover
-    deletes the whole backlog. Verified: without this check the live file stops
-    existing and every later event lands in .1.
-
-    This is the check logging.handlers.WatchedFileHandler makes, for exactly
-    this reason. Fail-soft: any stat error answers "not current", which costs a
-    reopen and never an exception (this module must never raise).
-    """
-    try:
-        return os.fstat(handle.fileno()).st_ino == path.stat().st_ino
-    except OSError:
-        return False
-
-
 def _numbat_handle(path: Path) -> TextIO:
     """Return the cached append-mode handle for path, opening it if needed.
 
@@ -523,7 +502,15 @@ def _numbat_handle(path: Path) -> TextIO:
     """
     key = str(path)
     handle = _NUMBAT_HANDLES.get(key)
-    if handle is not None and not handle.closed and not _handle_still_points_at(handle, path):
+    # The cache is keyed on the path STRING, but a rename moves the name off the
+    # inode the handle holds. Another process rolls this same stream over -- the
+    # action plane runs in ops_runner children while a long-lived gate.py holds
+    # its handle open -- so after that child's os.replace, an unchecked cached
+    # handle keeps appending into the .1 generation, and the NEXT rollover
+    # deletes the whole backlog. Verified: without this check the live file stops
+    # existing and every later event lands in .1. The check never raises: a stat
+    # error answers "not current", which costs a reopen.
+    if handle is not None and not handle.closed and not _audit_handle_is_current(handle, path):
         # Someone rolled the stream over underneath us; drop the stale inode.
         try:
             handle.close()
