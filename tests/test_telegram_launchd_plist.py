@@ -63,6 +63,19 @@ def test_poll_plist_requires_chat_mode(tmp_path: Path) -> None:
     assert _run(cp, tmp_path / "home", "poll-plist") == EXIT_ENV
 
 
+@pytest.mark.parametrize("command", [["poll-plist"], ["health-plist"]])
+def test_plist_interpreter_probe_failure_is_exit_env(tmp_path: Path, capsys, command: list[str]) -> None:
+    cp = _write(tmp_path, {"enabled": True, "mode": "chat", "allowed_chat_ids": ["1"]})
+    home = tmp_path / "home"
+    with patch(
+        "utils.launchd_plist.python_executable",
+        side_effect=RuntimeError("launchd plist target interpreter cannot import fastapi/uvicorn"),
+    ):
+        assert _run(cp, home, *command) == EXIT_ENV
+    assert "cannot import fastapi/uvicorn" in capsys.readouterr().err
+    assert not (home / "Library" / "LaunchAgents").exists()
+
+
 def test_poll_plist_generates_valid_plist(tmp_path: Path, capsys) -> None:
     cp = _write(tmp_path, {"enabled": True, "mode": "chat", "allowed_chat_ids": ["12345"]})
     home = tmp_path / "home"
