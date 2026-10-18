@@ -112,6 +112,38 @@ class TestAuditLogWriteFailure:
         assert event == {"event": "test_event"}  # caller's dict is never mutated
 
 
+# An operator rotating (logrotate without copytruncate, mv) or deleting
+# audit.jsonl under a running server: the cached handle used to keep appending
+# to the old inode, so after a delete every later record was lost.
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX rename/unlink-over-open-file semantics; Windows locks an open file",
+)
+class TestAuditHandleRotation:
+    @staticmethod
+    def _events(path: pathlib.Path) -> list[str]:
+        return [json.loads(line)["event"] for line in path.read_text().splitlines()]
+
+    def test_rename_reopens_the_live_path(self, tmp_path):
+        live, rotated = tmp_path / "audit.jsonl", tmp_path / "audit.jsonl.1"
+        cfg = {"logging": {"audit_file": str(live), "audit_fields": {}}}
+        logger.audit_log({"event": "before"}, cfg=cfg)
+        os.rename(live, rotated)
+        logger.audit_log({"event": "after"}, cfg=cfg)
+        logger.close_audit_handles()
+        assert self._events(live) == ["after"]
+        assert self._events(rotated) == ["before"]
+
+    def test_delete_reopens_the_live_path(self, tmp_path):
+        live = tmp_path / "audit.jsonl"
+        cfg = {"logging": {"audit_file": str(live), "audit_fields": {}}}
+        logger.audit_log({"event": "before"}, cfg=cfg)
+        os.remove(live)
+        logger.audit_log({"event": "after"}, cfg=cfg)
+        logger.close_audit_handles()
+        assert self._events(live) == ["after"]
+
+
 class TestAuditLogSerializationFailure:
     """audit_log() has ~100 call sites across the repo; a non-JSON-serializable
     field or a non-string "query" value anywhere in the event dict must degrade

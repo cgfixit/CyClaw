@@ -89,7 +89,9 @@ _cyclaw_linux_generate_key() {
     printf 'b2%.0s' {1..20}
   fi
 }
-touch "$HOME/$RUNNER-started"
+# The helper sleeps only while the creation lock is held by someone else, so
+# this marks the moment a runner is provably queued behind the other one.
+sleep() { touch "$HOME/$RUNNER-waiting"; command sleep "$@"; }
 cyclaw_linux_ensure_api_key || exit $?
 printf '%s' "$CYCLAW_API_KEY" > "$HOME/$RUNNER-result"
 """
@@ -112,8 +114,10 @@ printf '%s' "$CYCLAW_API_KEY" > "$HOME/$RUNNER-result"
             stderr=subprocess.PIPE,
             text=True,
         )
-        _wait_file(tmp_path / "second-started")
-        time.sleep(0.2)
+        # Release the first runner only once the second waits on the lock. A
+        # fixed sleep let a late-scheduled second runner start after the key
+        # was stored, load it and pass without ever exercising the recheck.
+        _wait_file(tmp_path / "second-waiting")
         (tmp_path / "release").touch()
         outputs = [first.communicate(timeout=15), second.communicate(timeout=15)]
         assert first.returncode == second.returncode == 0, outputs

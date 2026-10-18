@@ -532,7 +532,7 @@ def register_auth_routes(
         cyclaw_session: str | None = Cookie(default=None, alias=session_cookie),
     ) -> AuthWhoamiResponse:
         manager = _require_enabled()
-        user = manager.get_user(username)
+        user = await asyncio.to_thread(manager.get_user, username)
         role = user.role if user is not None else authn.DEFAULT_ROLE
         # Rotate only for a cookie that already authenticated as this user.
         # Device-token whoami must not mint a CSRF -- there is no browser to
@@ -589,6 +589,11 @@ def register_auth_routes(
             ) from exc
         raise exc
 
+    # Sync on purpose. Async handlers call this and manager.get_user through
+    # asyncio.to_thread, and the sync _require_write_actor dependency already
+    # runs in FastAPI's threadpool. The lookup takes the manager's connection
+    # lock, which a worker can hold through a BEGIN IMMEDIATE busy wait (or a
+    # Postgres round trip); on the event loop that wait stalled every route.
     def _user_from_identity(username: str) -> UserSummary:
         manager = _require_enabled()
         user = manager.get_user(username)
@@ -690,7 +695,7 @@ def register_auth_routes(
 
     @app.get("/auth/users", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_list_users(username: str = Depends(require_session_or_token)) -> list[AuthUserRecord]:
-        actor = _user_from_identity(username)
+        actor = await asyncio.to_thread(_user_from_identity, username)
         _assert_can_list(actor)
         manager = _require_enabled()
         users = await asyncio.to_thread(manager.list_users)
@@ -714,7 +719,7 @@ def register_auth_routes(
         except Exception as exc:
             _raise_auth_error(exc)
         await audit({_EVENT_KEY: "auth_user_created", "username": actor.username, "target": created, "role": role})
-        user = manager.get_user(created)
+        user = await asyncio.to_thread(manager.get_user, created)
         if user is None:
             raise HTTPException(
                 status_code=500,
@@ -733,7 +738,7 @@ def register_auth_routes(
         actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
         manager = _require_enabled()
-        target = manager.get_user(username)
+        target = await asyncio.to_thread(manager.get_user, username)
         if target is None:
             _raise_auth_error(AuthUserNotFound(f"unknown user: {username}", details={"username": username}))
         _assert_can_touch(actor, target)
@@ -791,7 +796,7 @@ def register_auth_routes(
         username: str, actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
         manager = _require_enabled()
-        target = manager.get_user(username)
+        target = await asyncio.to_thread(manager.get_user, username)
         if target is None:
             _raise_auth_error(AuthUserNotFound(f"unknown user: {username}", details={"username": username}))
         _assert_can_touch(actor, target)
@@ -810,7 +815,7 @@ def register_auth_routes(
         username: str, actor: UserSummary = Depends(_require_write_actor),
     ) -> dict[str, bool]:
         manager = _require_enabled()
-        target = manager.get_user(username)
+        target = await asyncio.to_thread(manager.get_user, username)
         if target is None:
             _raise_auth_error(AuthUserNotFound(f"unknown user: {username}", details={"username": username}))
         _assert_can_touch(actor, target)
@@ -844,7 +849,7 @@ def register_auth_routes(
 
     @app.get("/auth/audit/summary", dependencies=[Depends(_enforce_same_origin), Depends(enforce_rate_limit)])
     async def auth_audit_summary(username: str = Depends(require_session_or_token)) -> dict:
-        actor = _user_from_identity(username)
+        actor = await asyncio.to_thread(_user_from_identity, username)
         if actor.role not in {"admin", "audit"}:
             raise HTTPException(
                 status_code=_HTTP_FORBIDDEN,

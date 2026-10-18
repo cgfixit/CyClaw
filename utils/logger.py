@@ -82,6 +82,24 @@ def _private_open(path: Path) -> TextIO:
         raise
 
 
+def _audit_handle_is_current(handle: TextIO, log_path: Path) -> bool:
+    """True when the cached handle still refers to the file living at log_path.
+
+    The cache is keyed on the path string, so after an operator renames
+    (logrotate without copytruncate, mv) or deletes audit.jsonl, an unchecked
+    handle keeps appending to the old inode -- after a delete, every later
+    record is lost. Mirrors utils/numbat_emitter.py's _handle_still_points_at
+    (the WatchedFileHandler check), copied rather than imported because that
+    module imports this one. Any stat error answers "not current".
+    """
+    try:
+        held = os.fstat(handle.fileno())
+        live = log_path.stat()
+    except OSError:
+        return False
+    return (held.st_ino, held.st_dev) == (live.st_ino, live.st_dev)
+
+
 def _audit_handle(log_path: Path) -> TextIO:
     """Return the cached append-mode handle for log_path, opening it if needed.
 
@@ -89,6 +107,18 @@ def _audit_handle(log_path: Path) -> TextIO:
     """
     key = str(log_path)
     handle = _AUDIT_HANDLES.get(key)
+    if handle is not None and not handle.closed and not _audit_handle_is_current(handle, log_path):
+        # The file was rotated or deleted underneath us; drop the stale inode
+        # and reopen at the live path below. Unregister its atexit close so
+        # each rotation does not leave one more entry behind.
+        atexit.unregister(handle.close)
+        try:
+            handle.close()
+        except OSError:
+            # Losing the fd is acceptable: the reopen below is what matters.
+            pass
+        _AUDIT_HANDLES.pop(key, None)
+        handle = None
     if handle is None or handle.closed:
         _private_directory(log_path.parent)
         # Intentionally long-lived: cached in _AUDIT_HANDLES and reused across
@@ -1099,6 +1129,9 @@ def _resolve_redactors(cfg: dict) -> tuple[tuple[re.Pattern, str], ...]:
             if not isinstance(pattern, str)
         ),
     )
+    # Exact live values are removed before the configured regexes so unusual
+    # token formats are still covered. Skip short values to avoid destroying
+    # ordinary prose.
     live_values = tuple(
         (re.compile(re.escape(value)), "[REDACTED_SECRET]")
         for name, value in os.environ.items()
@@ -1110,11 +1143,6 @@ def _resolve_redactors(cfg: dict) -> tuple[tuple[re.Pattern, str], ...]:
 def redact_sensitive(text: str, cfg: dict | None = None) -> str:
     if cfg is None:
         cfg = _get_config()
-    # Exact live values are removed before regexes so unusual token formats are
-    # still covered. Skip short values to avoid destroying ordinary prose.
-    for name, value in os.environ.items():
-        if SECRET_POLICY.is_secret_name(name) and len(value) >= 8:
-            text = text.replace(value, "[REDACTED_SECRET]")
     for pattern, replacement in _resolve_redactors(cfg):
         text = pattern.sub(replacement, text)
     return text

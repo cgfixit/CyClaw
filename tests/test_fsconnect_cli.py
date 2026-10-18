@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -262,6 +263,65 @@ def test_atomic_write_onto_a_directory_is_typed_not_a_raw_oserror(tmp_path):
         scoped.write_bytes("adir", b"PWN", root=str(root), overwrite=True)
     assert "atomic write" in str(excinfo.value)
     assert (root / "adir").is_dir(), "the directory must be left untouched"
+
+
+def test_overlong_no_clobber_targets_are_typed_not_a_raw_oserror(tmp_path):
+    """The no-clobber pre-checks must not leak ENAMETOOLONG as a raw OSError.
+
+    write (without overwrite) and move both stat their target first so they can
+    refuse a clobber, and both caught only FileNotFoundError: one overlong
+    --path or --dst escaped as OSError, exit 1, outside the 0/2/3/4 set.
+    """
+    from agentic.fsconnect.pathsafe import ScopedRoots
+    from utils.errors import FsConnectError
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "src.txt").write_text("keep", encoding="utf-8")
+    overlong = "a" * (os.pathconf(root, "PC_NAME_MAX") + 1)
+    with ScopedRoots([str(root)]) as scoped:
+        with pytest.raises(FsConnectError) as write_exc:
+            scoped.write_bytes(overlong, b"x", root=str(root), overwrite=False)
+        with pytest.raises(FsConnectError) as move_exc:
+            scoped.move("src.txt", overlong, root=str(root))
+    assert write_exc.value.details["errno"] == errno.ENAMETOOLONG
+    assert move_exc.value.details["errno"] == errno.ENAMETOOLONG
+    assert (root / "src.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_append_write_failure_is_typed_and_closes_the_file(tmp_path, monkeypatch):
+    """A failing append write (EFBIG past RLIMIT_FSIZE, ENOSPC) must be typed.
+
+    The append's open and fstat were already converted, but its write was not:
+    appending to a file at the size limit escaped as OSError [Errno 27], exit 1.
+    The fake raises from the flush on close, where a buffered append's EFBIG
+    really surfaces, and the file object must still end up closed.
+    """
+    from agentic.fsconnect.pathsafe import ScopedRoots
+    from utils.errors import FsConnectError
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "log.txt").write_bytes(b"z")
+    real_fdopen = os.fdopen
+    opened = []
+
+    def _fdopen_at_the_size_limit(fd, *args, **kwargs):
+        f = real_fdopen(fd, *args, **kwargs)
+
+        def _flush():
+            raise OSError(errno.EFBIG, os.strerror(errno.EFBIG))
+
+        f.flush = _flush
+        opened.append(f)
+        return f
+
+    monkeypatch.setattr(os, "fdopen", _fdopen_at_the_size_limit)
+    with ScopedRoots([str(root)]) as scoped, pytest.raises(FsConnectError) as excinfo:
+        scoped.append_bytes("log.txt", b"more", root=str(root))
+    assert excinfo.value.details["errno"] == errno.EFBIG
+    assert len(opened) == 1 and opened[0].closed, "the append fd must not leak"
+    assert (root / "log.txt").read_bytes() == b"z"
 
 
 @pytest.mark.usefixtures("isolated_logging")
