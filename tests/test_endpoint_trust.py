@@ -32,6 +32,19 @@ def test_online_allowlist() -> None:
         assert_online_destination(provider="claude", base_url="https://api.x.ai/v1", confirmed=True)
 
 
+def test_online_pinned_host_requires_https_on_443() -> None:
+    # The pinned host alone let http:// send the API key and query in cleartext.
+    assert_online_destination(provider="grok", base_url="https://api.x.ai:443/v1", confirmed=True)
+    for url in (
+        "http://api.x.ai/v1",  # DevSkim: ignore DS137138 - cleartext provider URL rejection; no connection
+        "https://api.x.ai:8443/v1",
+    ):
+        with pytest.raises(EndpointTrustError, match="https on port 443"):
+            assert_online_destination(provider="grok", base_url=url, confirmed=True)
+    with pytest.raises(EndpointTrustError, match="malformed endpoint URL"):
+        assert_online_destination(provider="grok", base_url="https://api.x.ai:99999/v1", confirmed=True)
+
+
 @pytest.mark.parametrize("url", ["http://[::1", "http://[not-ip]/"])  # DevSkim: ignore DS137138 - malformed endpoint rejection fixtures
 def test_malformed_url_is_typed(url):
     with pytest.raises(EndpointTrustError, match="malformed endpoint URL"):

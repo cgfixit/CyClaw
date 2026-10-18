@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import httpx
 import yaml
 
-from .endpoint_trust import EndpointTrustError, assert_local_destination, is_loopback_url
+from .endpoint_trust import EndpointTrustError, assert_local_destination, assert_online_destination, is_loopback_url
 from .errors import HealthStatus
 from .logger import redact_sensitive
 
@@ -251,11 +251,19 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
             # reporting an invalid request.
             api_key = os.environ.get("GROK_API_KEY", "").strip()
             if api_key:
-                results.append(_ping(
-                    f"{grok_base}/models", "grok_api",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    expect_model=cfg["models"]["grok"].get("model", ""),
-                ))
+                # Same destination allowlist as graph.py's fallback nodes: the
+                # probe carries the real key, so a rewritten base_url must not
+                # receive it (or receive it in cleartext).
+                try:
+                    assert_online_destination(provider="grok", base_url=grok_base, confirmed=None)
+                except EndpointTrustError as exc:
+                    results.append(HealthStatus(name="grok_api", healthy=False, error=_safe_error(exc)))
+                else:
+                    results.append(_ping(
+                        f"{grok_base}/models", "grok_api",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        expect_model=cfg["models"]["grok"].get("model", ""),
+                    ))
             else:
                 results.append(HealthStatus(
                     name="grok_api", healthy=False,
@@ -267,14 +275,20 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
             # .strip() matches llm/client.py:543 -- see the GROK_API_KEY note above.
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
             if api_key:
-                results.append(_ping(
-                    f"{claude_cfg['base_url'].rstrip('/')}/models", "claude_api",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": claude_cfg.get("anthropic_version", "2023-06-01"),
-                    },
-                    expect_model=claude_cfg.get("model", ""),
-                ))
+                # Same allowlist as the Grok probe above.
+                try:
+                    assert_online_destination(provider="claude", base_url=claude_cfg["base_url"], confirmed=None)
+                except EndpointTrustError as exc:
+                    results.append(HealthStatus(name="claude_api", healthy=False, error=_safe_error(exc)))
+                else:
+                    results.append(_ping(
+                        f"{claude_cfg['base_url'].rstrip('/')}/models", "claude_api",
+                        headers={
+                            "x-api-key": api_key,
+                            "anthropic-version": claude_cfg.get("anthropic_version", "2023-06-01"),
+                        },
+                        expect_model=claude_cfg.get("model", ""),
+                    ))
             else:
                 results.append(HealthStatus(
                     name="claude_api", healthy=False,

@@ -105,7 +105,7 @@ its dependency bootstrap is Linux-oriented.
 ## What It Exercises
 
 - Mock Ollama: `GET /v1/models` and `POST /v1/chat/completions` on `127.0.0.1:11434`.
-- Mock external providers: dummy-key Grok and Claude clients pointed at the loopback mock; `/health` must report `ollama`, `grok_api`, `claude_api`, and `embeddings_local` healthy in hybrid mode.
+- Mock external providers: dummy-key Grok and Claude clients pointed at the loopback mock; in hybrid mode `/health` must report `ollama` and `embeddings_local` healthy, and `grok_api` and `claude_api` unhealthy because the online destination allowlist refuses the loopback mock before the probe sends a key.
 - Runtime prep: `data/personality`, `index`, and `logs` directories; `GROK_API_KEY=dummy`; `ANTHROPIC_API_KEY=dummy`; `CYCLAW_API_KEY` set to a dummy local key.
 - RAG/API smoke: `/health`, `/query` vault-hit, alternate RAG query, offline-declined query, broad miss-style query, and prompt-injection rejection.
 - Terminal console surfaces: `/`, `/static/terminal.html`, `/soul`, `/soul/reload`, unauthenticated fail-closed checks for `/soul/propose`, `/soul/apply`, `/soul/restore`, `/audit/summary`, `/ops/sync`, `/ops/agentic`, `/ops/fsconnect`, and `/ops/sqlconnect`.

@@ -1214,7 +1214,8 @@ What issue #1458 changed, and the boundaries that follow:
   host endpoint fields, and the query's keyed HMAC fingerprint. Only the URL's origin
   (`scheme://host[:port]`) enters an event; userinfo, path, query and
   fragment are dropped, because `utils/endpoint_trust.py` pins only the
-  hostname and a credential can ride any of them. The hash is omitted from
+  hostname, the https scheme and port 443, and a credential can ride any of
+  the dropped parts. The hash is omitted from
   the temp fixture and the stream when
   `logging.audit_fields.include_query_hash` is false. Neither engine sees
   query text, soul text, or retrieved context. For each call, the numbat
