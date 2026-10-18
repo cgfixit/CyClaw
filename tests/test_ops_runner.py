@@ -238,6 +238,36 @@ def test_write_body_unlinks_temp_file_when_write_fails(monkeypatch: pytest.Monke
     assert not orphan.exists()
 
 
+class _FlushFailsHandle(_WriteFailsHandle):
+    # A short body is only buffered by write(); the disk-full error comes from
+    # the flush inside the first close().
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.closes = 0
+
+    def write(self, body: str) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closes += 1
+        if self.closes == 1:
+            raise OSError("disk full")
+
+
+def test_write_body_unlinks_temp_file_when_flush_at_close_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    orphan = tmp_path / "cyclaw_skill_flush.md"
+    orphan.write_text("stale", encoding="utf-8")
+    monkeypatch.setattr(
+        ops_runner.tempfile, "NamedTemporaryFile", lambda *a, **k: _FlushFailsHandle(str(orphan))
+    )
+    with pytest.raises(OSError):
+        ops_runner._write_body("# body")
+    assert not orphan.exists()
+
+
 def test_agentic_apply_no_confirm_omits_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     runner, captured = _fake_run(returncode=4, stderr="apply-skill requires --confirm")
     monkeypatch.setattr(ops_runner, "_run", runner)

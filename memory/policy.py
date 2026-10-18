@@ -14,8 +14,9 @@ from utils.personality import ENFORCED_SOUL_PATTERNS, OWASP_INJECTION_PATTERNS
 # import of personality_db._harden_pg_conninfo documents: this is the exact
 # NFKC-fold + invisible-character-strip utils/sanitizer.py's check_input
 # already applies before matching, and a second hand-rolled copy would only
-# ever drift from it, not improve on it.
-from utils.sanitizer import _normalize_for_match
+# ever drift from it, not improve on it. _match_probes builds both probes from
+# one normalization pass, as check_input does since #1675.
+from utils.sanitizer import _match_probes
 
 logger = logging.getLogger("cyclaw.memory.policy")
 
@@ -77,8 +78,7 @@ def scan_content(content: str, cfg: dict[str, Any], *, enforced: bool = True) ->
     """Return matched pattern sources. enforced=True uses critical set only."""
     base = ENFORCED_SOUL_PATTERNS if enforced else OWASP_INJECTION_PATTERNS
     # Keep literal-pattern matches when folding removes marks/punctuation.
-    literal_probe = _normalize_for_match(content or "", fold_separators=False)
-    probe = _normalize_for_match(content or "")
+    literal_probe, probe = _match_probes(content or "")
     return [
         src for src, pat in _compile_patterns(base, cfg)
         if pat.search(content or "") or pat.search(literal_probe) or pat.search(probe)
