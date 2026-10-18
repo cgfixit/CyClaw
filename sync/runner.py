@@ -127,16 +127,17 @@ def check_rclone_version(rclone_bin: str = "rclone") -> tuple[int, int, int]:
 # Log parsing
 # ---------------------------------------------------------------------------
 
-# rclone's default log verbs are stable; we anchor on the trailing verb only:
+# Match rclone's INFO prefix and trailing verb so colons inside a filename
+# cannot be mistaken for the separator before the filename:
 #   2026/05/21 02:10:01 INFO  : file.md: Copied (new)
 #   2026/05/21 02:10:01 INFO  : file.md: Copied (replaced existing)
 #   2026/05/21 02:10:01 INFO  : file.md: Deleted
-_LOG_ADDED_RE = re.compile(r":\s*([^:]+?):\s*Copied\s*\(new\)", re.IGNORECASE)
+_LOG_ADDED_RE = re.compile(r"\bINFO\s*:\s*(.+):\s*Copied\s*\(new\)\s*$", re.IGNORECASE)
 _LOG_MODIFIED_RE = re.compile(
-    r":\s*([^:]+?):\s*(?:Copied \(replaced existing\)|Updated modification time)",
+    r"\bINFO\s*:\s*(.+):\s*(?:Copied \(replaced existing\)|Updated modification time(?: in destination)?)\s*$",
     re.IGNORECASE,
 )
-_LOG_DELETED_RE = re.compile(r":\s*([^:]+?):\s*Deleted(?:\s|$)", re.IGNORECASE)
+_LOG_DELETED_RE = re.compile(r"\bINFO\s*:\s*(.+):\s*Deleted\s*$", re.IGNORECASE)
 _LOG_ERROR_RE = re.compile(r"\bERROR\b\s*:\s*(.+)", re.IGNORECASE)
 
 # rclone check summary + mismatch patterns. check outputs to stderr (or stdout
@@ -438,7 +439,7 @@ def run_post_sync_check(
         )
         audit_log({"event": "sync_check_timeout", **result.to_audit_dict()})
         return result
-    except (FileNotFoundError, subprocess.SubprocessError) as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         result = CheckResult(
             ok=False,
             missing_local=0,
