@@ -193,4 +193,4 @@ The security gate runs after the hooks CyClaw already had, in the same files:
 
 Add the file name of the LOCAL ONLY global memory pack to `SEC_BLOCKED_GLOBS` in your `private.conf`, so the name itself is not published.
 
-CyClaw's own agentic pipeline pins `core.hooksPath` to an empty directory for its workspace proofs (`agentic/executor/apply.py`) and clones (`agentic/deepagent_github/repo_workspace.py`). Those commits bypass the gate by design; `gitleaks.yml`, `dotenv-guard` and `invariant-guard` in CI cover them.
+No CyClaw component makes commits of its own any more: the agentic coding loop, whose workspace proofs and clones pinned `core.hooksPath` to an empty directory and so bypassed this gate, was removed in October 2026. Every commit in this repository now passes through these hooks or through CI (`gitleaks.yml`, `dotenv-guard`, `invariant-guard`).

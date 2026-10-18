@@ -1,5 +1,7 @@
 # Waku-Tools → CyClaw Harness — Implementation Plan (2026-08-17)
 
+> **Status update — 2026-10-18 (agentic removal):** The agentic executor, real-repo loop and skills registry this plan cites as CyClaw's counter-examples were removed too (`docs/changelog.txt`, 2026-10-18 entry). The rejection rationale below still stands; the modules it names do not.
+
 > **Status update — 2026-09-11 (doc-sync, PR #1367):** HISTORICAL. The Python coding-harness console (`harness/`, `static/harness.html`, `:8790`, every `/api/*` route named below) was removed from CyClaw; the coding console now lives in the sibling Rust project CG-agent-harness. Nothing below is a live claim.
 
 > **Status update — 2026-09-06 (docs review, Claude Code):** PARTIAL. Only Slice S1 shipped: `harness/tools_view.py:102,104` carries the `web-search`/`keys` catalog rows and `tests/test_harness_tools_contract.py` exists and enforces the two-way contract. S2 (`/memory search`), S4 (engine-backed web search), and S5 (`retrieval/corpus_report.py`) were never started — no `search` subcommand in `static/harness.html`'s `/memory` handler (verified `static/harness.html:931-969`), no `engine` code in `harness/web_search.py`, and `retrieval/corpus_report.py` does not exist. S3 (run manifests) remains a deliberate, documented deferral per the plan's own text.
@@ -69,7 +71,7 @@ Per-tool rejections, each with the rule that rejects it:
 | `registry.py` model dispatcher | Model selects + executes tools | I2 (topology = policy: routing is never an LLM decision) and the `harness/agent_policy.py` boundary — the console sends profile **names**, never argv; a model-driven dispatcher reverses that |
 | `workspace.py` auto-run | Executes model-authored code by default | Inverts the name-not-argv boundary (`harness/agent_policy.py` module docstring); CyClaw's executor runs only operator-declared checks inside a jail, and `real_repo_loop` requires a human decision before any commit |
 | `update_soul` | Model appends to its own soul file | I5 / PROJECT_RULES Hard Rule: soul mutation requires a human `reason` through `PersonalityManager`; the harness `/soul` toggle deliberately never writes `soul.md` |
-| `create_skill` | Model writes new skill files for itself | Governed skills registry: writes to `data/agentic/skills_registry.json` stay behind `python -m agentic.cli apply-skill` (`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`); `GET /api/registry` is read-only by design |
+| `create_skill` | Model writes new skill files for itself | Governed skills registry: writes to `data/agentic/skills_registry.json` stayed behind the agentic `apply-skill` subcommand (registry, CLI and its governance doc all removed 2026-10-18); `GET /api/registry` was read-only by design |
 | `search.py` open web search | Engine results fed raw into model context | The shipped `/web` design is the deliberate inverse (allowlist-only, DNS-checked, fail-closed). Note: engine-backed **discovery** is planned (S4, owner decision D2) — what stays rejected is waku's *shape*: raw engine output entering the model's context automatically |
 | `memory_admin.py` / `notes.py` | Model-writable memory/notes | The harness `/memory` note store is operator-written, injection-scanned, capped, and `writable_from_harness: false` toward the RAG `memory/` store — already the CyClaw-shaped version of this idea (landed independently) |
 

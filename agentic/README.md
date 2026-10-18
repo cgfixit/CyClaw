@@ -50,8 +50,8 @@ Threat-model scope: [`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md).
 
 ## Removed in October 2026
 
-The main `python -m agentic.cli` (GitHub context, GitHub write gate, skills
-registry), the real-repo coding loop, the verification executor, the DeepAgents
+The main agentic CLI (`agentic/cli.py`: GitHub context, GitHub write gate,
+skills registry), the real-repo coding loop, the verification executor, the DeepAgents
 harness and harness optimizer, the UNSLOP rail, and the SQL connector
 (`agentic.sqlconnect`) were removed from this package. What went and why:
 [`docs/agentic/AGENTIC_README.md` §8](../docs/agentic/AGENTIC_README.md#8-removed-in-october-2026).

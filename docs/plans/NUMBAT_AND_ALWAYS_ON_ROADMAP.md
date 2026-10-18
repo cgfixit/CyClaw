@@ -12,7 +12,7 @@
 > | Pre-action hook before Grok/Claude (`utils/external_pre_hook.py`, `utils/numbat_gate.py`) | `policy.fallback.pre_action_hook.enabled` | off. Since #1467, `engine: numbat` has the pinned CLI evaluate each proposed call (`numbat rules test`): a matching `enforce: true` rule, or any failure, denies. The `command:` example that `config.yaml` used to suggest (`numbat hook pre-tool --agent cyclaw`) never worked: the pinned 0.2.0 CLI exits 0, which the hook reads as allow |
 > | Hook-verdict emission (Slice A) | `pre_action_hook.emit_verdict` | ships `true` since #1467, but inert while the hook is off |
 > | CEL monitor (Slice B, `utils/numbat_cel.py`) | `numbat.cel.enabled` | off; monitor-only |
-> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures, one live executor-jail run, and, since #1466, representative events from each producer family, mainline `/query` and `/ops/*` included, written by the real emitter code. The combined NeMo/Numbat runtime lane now also exercises actual gateway HTTP calls with counted synthetic providers and real evaluators. The shaped-event lane remains narrower: `tests/numbat_shaped_events.py` feeds the emitters inputs modeled on `graph.py`, `gate.py`, `ops_runner` and the connectors, so an emit site whose arguments drift from those, or one it skips (`real_repo_loop`'s two), is not scored. Nothing scores the live stream |
+> | CLI scoring | none | CI only (`.github/workflows/numbat-rules.yml`): committed fixtures, one live `ops_runner` event run (the executor-jail run it replaced went with the executor on 2026-10-18), and, since #1466, representative events from each producer family, mainline `/query` and `/ops/*` included, written by the real emitter code. The combined NeMo/Numbat runtime lane now also exercises actual gateway HTTP calls with counted synthetic providers and real evaluators. The shaped-event lane remains narrower: `tests/numbat_shaped_events.py` feeds the emitters inputs modeled on `graph.py`, `gate.py`, `ops_runner` and the connectors, so an emit site whose arguments drift from those is not scored. Nothing scores the live stream |
 >
 > Checking the live stream against the pinned CLI (Phase 4 of #1458) found that
 > the CLI **rejected** it. Every mainline `/query` event carried a
@@ -80,8 +80,9 @@ Any step that needs an invariant exception is rejected:
 ### Step 1 — Audit NDJSON dual-write
 
 **DONE (action plane):** #973 merged `utils/numbat_emitter.py` —
-executor checks, `ops_runner` subprocesses, `real_repo_loop` decisions,
-fsconnect/sqlconnect operations project to `logs/numbat-events.ndjsonl`
+`ops_runner` subprocesses and fsconnect operations project to
+`logs/numbat-events.ndjsonl` (executor checks, `real_repo_loop` decisions and
+sqlconnect operations did too until those producers were removed on 2026-10-18)
 (schema 0.3.0, Numbat CLI 0.2.0 wire contract, `source_agent: "unknown"`,
 `source_type: "hook"`, `tags: ["cyclaw", ...]`). #981 pins the CLI in CI
 with emitter-shaped fixtures.

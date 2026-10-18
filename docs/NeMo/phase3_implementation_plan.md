@@ -294,8 +294,9 @@ proof.
   as unwired, which Phase 2 changed)
 - `docs/NeMo/phase2_implementation_plan.md` — the input-rail node contract and
   the inversion-shim decision
-- `docs/agentic/AGENTIC_README.md`, `docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md` —
-  binding governance for the layer this redirect targets
+- `docs/agentic/AGENTIC_README.md` — the agentic package guide (since
+  2026-10-18 it covers only fsconnect and netconnect; the skills-registry
+  governance doc this line also cited was deleted with the registry)
 - `docs/HARNESS_POWERSHELL.md` — the PowerShell harness contract
 - `docs/THREAT_MODEL.md` — single-operator, loopback-bound scope; the basis for
   the capability-asymmetry argument

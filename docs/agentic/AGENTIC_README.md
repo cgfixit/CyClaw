@@ -3,9 +3,9 @@
 **Status:** Experimental and default-off. The `agentic/` package now holds two
 out-of-band connectors, each with its own CLI: the scoped filesystem connector
 (`python -m agentic.fsconnect.cli`) and the passive LAN inventory connector
-(`python -m agentic.netconnect.cli`). There is no `python -m agentic.cli`; the
-GitHub layer, skills registry, coding loop, verification executor and SQL
-connector that used to live here were removed in October 2026 (§8).
+(`python -m agentic.netconnect.cli`). The package-level CLI (`agentic/cli.py`)
+is gone: the GitHub layer, skills registry, coding loop, verification executor
+and SQL connector that used to live here were removed in October 2026 (§8).
 
 The six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`,
 `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`) never import this
@@ -174,7 +174,7 @@ Until October 2026 the agentic package also carried a GitHub-facing coding
 layer and a SQL connector. All of it was deleted, together with its config
 blocks, tests, console panels and routes:
 
-- the main CLI `python -m agentic.cli` and its config loader;
+- the main CLI (`agentic/cli.py`) and its config loader (`agentic/config.py`);
 - read-only GitHub PR/issue context via `gh`, and the GitHub write gate that
   could open a draft PR;
 - the governed skills registry (`data/agentic/skills_registry.json`);
