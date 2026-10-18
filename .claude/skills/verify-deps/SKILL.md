@@ -171,14 +171,12 @@ warnings, 2 on a failure; `--strict` promotes warnings to a failure.
 surface). Any new name this check reports requires investigation.
 
 `pyodbc` is declared only in the `mssql` extra (and pinned in
-`constraints.txt`), never in the base dependencies: `agentic/sqlconnect/client.py`
-imports it inside a function and raises a friendly "pyodbc is not installed"
-if absent, so a disabled connector needs nothing installed, and a base
-declaration would put an MSSQL driver on every box for a connector that ships
-off. It still carries an `_IMPORT_ALLOWLIST` entry with that reason so E3
-never flags it as a base-surface gap. Keep the allowlist an argued exception
-list — a new entry needs its reason written next to it, or it becomes a
-silencer.
+`constraints.txt`), never in the base dependencies. Its only importer,
+`agentic/sqlconnect/client.py`, was removed with that connector on
+2026-10-18, so E3 has nothing to flag and `pyodbc` no longer holds an
+`_IMPORT_ALLOWLIST` entry (the allowlist is empty today). Keep the
+allowlist an argued exception list — a new entry needs its reason written
+next to it, or it becomes a silencer.
 
 ### Step 4 — Verify each install surface's primary command actually resolves
 

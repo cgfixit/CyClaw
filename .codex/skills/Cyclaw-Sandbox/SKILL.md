@@ -32,15 +32,13 @@ What remains must still be covered:
   `static/terminal.html`, `static/terminal.js`, and `static/auth_admin.js`.
 - RAG graph, retrieval, model clients, soul, auth, optional memory/export,
   audit, spend, Numbat and sequence analysis; retrieval-only MCP over stdio.
-  The optional Unslop bridge remains a log-only agentic prose-quality check.
-- Out-of-band connectors and channels, installers and OS glue. `agentic/`
-  and its governed `real-repo-run` CLI remain. `agentic/harness_optimizer/` is
-  retained optimizer code: its fixture loop is retired, while governance and
-  model-adapter modules still serve the real-repo CLI. Its `mcp/` directory
-  contains Python workspace tools, not an MCP server.
-- The retired DeepAgents builder still has code/tests/CI. Distinguish that
-  compatibility lane from the live `real_repo_loop.py` consumer; do not
-  silently delete either because the browser console was removed.
+- Out-of-band connectors and channels, installers and OS glue. Under
+  `agentic/` only `fsconnect/` (`/ops/fsconnect` plus its CLI) and
+  `netconnect/` (CLI only) remain. The agentic GitHub layer (`agentic.cli`,
+  skills registry, real-repo loop, `harness_optimizer/`, DeepAgents builder,
+  `executor/` sandbox, Unslop bridge) and `agentic/sqlconnect/` were removed
+  on 2026-10-18 with `/ops/agentic` and `/ops/sqlconnect`; test that both
+  routes return 404, not that they work.
 
 Use [test-specifications.md](test-specifications.md) for the source/test map,
 current trust boundaries, and platform acceptance. `NEW_SKILL.md` is only a
@@ -62,8 +60,8 @@ report for `57e052ed`; none of its PASS counts describe today's checkout.
   Keep the operator's checkout, soul, Keychain and existing services intact.
 - Never reuse an unknown listener as a mock. Tie readiness to the child PID,
   checkout, port and expected mock response. Stop only processes this run owns.
-- No real cloud calls, paid evaluation, SQL writes, agentic publication,
-  connector upload or credential-store mutation in a mock verification run.
+- No real cloud calls, paid evaluation, connector writes or uploads, or
+  credential-store mutation in a mock verification run.
   An armed writer is not authorization. Use isolated fixtures for mutations.
 - Record `PASS`, `FAIL`, `SKIP`, or `NOT RUN` per lane with command, SHA,
   environment and reason. A skip or stub is not a runtime pass. Reports contain
@@ -182,8 +180,8 @@ report for `57e052ed`; none of its PASS counts describe today's checkout.
   setup/cleanup and isolate them before use; they are not read-only checks or
   proof the whole product works. Prefer current CI commands for install proof.
 - `test_terminal_consoles.py` issues authenticated ops, including sync dry-run
-  and SQL probes. Use disabled/mocked connectors and a disposable database;
-  do not point it at the operator's service. `terminal_emulation.py` needs
+  and fsconnect probes. Use disabled/mocked connectors; do not point it at
+  the operator's service. `terminal_emulation.py` needs
   httpx; its missing-dependency zero exit is a `SKIP`, not a pass.
 - `macos-smoke.sh` and `windows-smoke.ps1` cover a gateway subset (only fsconnect
   status among ops). They do not prove all REST routes, Keychain/CredMan, APFS,

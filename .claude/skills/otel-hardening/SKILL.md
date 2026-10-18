@@ -35,7 +35,7 @@ these values silence vendor telemetry readers; they do not close sockets.
 | Pure child builder | same | `build_telemetry_safe_env(base)` — copy, overlay, scrub; shares the `_enforce` core with `apply_telemetry_kill()` so parent/child cannot drift; `scheduler_env_overlay()` for generated jobs; `python -m utils.telemetry_kill --export {shell,powershell}` for launchers |
 | ONNX API half | `utils/onnx_telemetry.py` | `suppress_onnx_telemetry()` — getattr-guarded, idempotent, absent-safe; called at `retrieval/vector_store.py` (both chromadb client sites) and `guardrails/integration.py` (`force_import=True` before `LLMRails`) |
 | Conditional HF pair | `retrieval/embeddings.py` | `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` only once the model is confirmed cached — never unconditional |
-| Delivery surfaces | Dockerfile + docker-compose, `macos/invoke-cyclaw.sh`, `powershell/Invoke-CyClaw.ps1` + `Install-CyClaw.ps1` shim, all plist/task/cron generators, `agentic/executor/runner.py`, gh spawn sites, `sync/cli.py` | canonical env exists BEFORE the interpreter/tool starts |
+| Delivery surfaces | Dockerfile + docker-compose, `macos/invoke-cyclaw.sh`, `powershell/Invoke-CyClaw.ps1` + `Install-CyClaw.ps1` shim, all plist/task/cron generators, gh spawn sites, `sync/cli.py` | canonical env exists BEFORE the interpreter/tool starts |
 | Independent oracle + inventory | `.claude/skills/otel-hardening/check_otel.py` | the second copy of every name→value pair, and the category 1–5 classification of every component |
 | Reference doc | `docs/security-philosophy/cyclaw_telemetry_kill.env` | `export KEY=value`, three sections (unconditional / ancillary / conditional), checker- and pytest-enforced |
 
@@ -136,9 +136,9 @@ these values silence vendor telemetry readers; they do not close sockets.
    `optional-dependencies` group, AND `[build-system].requires` (the build
    backend is an install surface too; it was skipped until PR #1502). A spawn
    site whose executable is chosen at run time (the pre-action hook's
-   `command` engine, the executor's caller-declared checks, the
-   secret-injecting exec wrappers `cyclaw-keychain-env.sh` and
-   `CyClaw-CredMan-Env.ps1` that run whatever follows their `--`) cannot be
+   `command` engine, the secret-injecting exec wrappers
+   `cyclaw-keychain-env.sh` and `CyClaw-CredMan-Env.ps1` that run whatever
+   follows their `--`) cannot be
    named by a static sweep: it goes in `DYNAMIC_LAUNCHER_SITES` with the
    source marker that proves it spawns (the `exec "$@"` / `& $exe @exeArgs`
    line, not the usage text), and its row describes the surface and who
@@ -237,10 +237,10 @@ these values silence vendor telemetry readers; they do not close sockets.
   deletion directives (see `utils/win_schtasks.py`); do not "fix" by skipping
   them.
 - **`NO_PROXY="*"` bypasses proxies — it does not fail-close networking.**
-  The executor's env scrub is best-effort software control (THREAT_MODEL §4
-  wording), and its allowlist is exactly why the canonical overlay must be
-  re-applied there (`build_telemetry_safe_env`), or children run
-  telemetry-live.
+  The child-environment allowlist (`utils/child_environment.py`) limits
+  inheritance and is not isolation (its own docstring), and that allowlist
+  is exactly why the canonical overlay must be re-applied there
+  (`build_telemetry_safe_env`), or children run telemetry-live.
 - **verify-skills CI is `continue-on-error`** — a red check_otel/verify.sh leg
   does not block a merge; the blocking skill jobs are `invariant-guard`,
   `doc-sync` and `dotenv-guard`. Treat a red leg as real work anyway.

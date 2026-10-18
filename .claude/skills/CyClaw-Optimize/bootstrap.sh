@@ -80,7 +80,7 @@ hr
 
 echo "## File counts by area"
 for d in gate.py graph.py mcp_hybrid_server.py metrics.py \
-         agentic agentic/fsconnect agentic/deepagent_github \
+         agentic agentic/fsconnect agentic/netconnect \
          sync retrieval utils schemas llm \
          macos powershell \
          tests .github .claude config.yaml requirements.txt pyproject.toml; do

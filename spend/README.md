@@ -47,10 +47,10 @@ threading lock so concurrent calls cannot interleave a partial line.
 | `reasoning_tokens` | Grok reasoning tokens, billed at the output rate |
 | `vendor_cost_ticks` | xAI's own `cost_in_usd_ticks`, when the response carries it |
 | `usage_missing` | `true` when the vendor returned a billed response CyClaw could not parse usage from |
-| `source` | One of `query`, `agentic`, `eval`; anything else normalizes to `unknown` |
+| `source` | One of `query`, `agentic`, `eval`; anything else normalizes to `unknown`. `agentic` appears only on rows written before the agentic planner was removed in October 2026 |
 | `query_hash` | Optional. The same persistent HMAC-SHA256 query fingerprint the audit log uses, accepted only as 64 lowercase hex characters |
 | `route_path` | Optional. Up to 16 graph hops, each matching `^[a-z][a-z0-9_]{0,63}$` |
-| `outcome` | Optional. `failed_after_billing` on the row the agentic proposer writes when Grok returned a billed 2xx and the SDK raised afterwards (usage captured from the wire, so the tokens are real); absent on every ordinary row |
+| `outcome` | Optional. `failed_after_billing` on a row the (since-removed) agentic proposer wrote when Grok returned a billed 2xx and the SDK raised afterwards (usage captured from the wire, so the tokens are real); absent on every ordinary row |
 
 ### What is never recorded
 
@@ -67,7 +67,7 @@ environment (or, on Darwin, in Keychain items that a wrapper exports into the
 environment). `config.yaml` names the provider and model; it never contains the
 secret.
 
-| Provider | Env var `llm/client.py` and `agentic/` actually read | Dummy / missing |
+| Provider | Env var `llm/client.py` actually reads | Dummy / missing |
 |---|---|---|
 | Grok (xAI) | `GROK_API_KEY` | Client reports unavailable; no spend row |
 | Claude (Anthropic) | `ANTHROPIC_API_KEY` (not `CLAUDE_API_KEY`) | Same: unavailable, no spend row |
@@ -87,7 +87,6 @@ wrapper and will 401 if you force-read the wrong secret.
 
 A billed call still needs the same confirmation gates as the rest of CyClaw.
 `/query` is I3 (hybrid mode, provider enabled, `user_confirmed_online`). The
-agentic cloud planner is the six-condition chain plus `--confirm-online`. The
 ledger cannot grant a call those gates refused.
 
 ## Where the ledger lives
@@ -108,11 +107,14 @@ request path, because a full disk must not turn a paid answer into a failed one.
 
 ## Who writes to the ledger
 
-Two production call sites, distinguished by `source`:
+One production call site writes the ledger:
 
 - **`llm/client.py`** — the triple-gated `/query` fallback, `source: "query"`.
-- **`agentic/deepagent_github/chat_client.py`** — the out-of-band cloud
-  planner, `source: "agentic"`.
+
+Until October 2026 the out-of-band cloud planner
+(`agentic/deepagent_github/chat_client.py`) also wrote rows with
+`source: "agentic"`. It was removed with the agentic coding loop; older rows
+still parse and are reported under that source.
 
 The opt-in evaluators (`tests/judge_eval.py`, `tests/judge_calibrate.py`) also
 use `llm/client.py` with `source: "eval"` and write to
@@ -204,13 +206,12 @@ check. Compare the same window:
 
 Grok long-context: once the prompt crosses 200k tokens, xAI bills the **whole
 request** on the long band (`$4` / `$12` for `grok-4.5`, not `$2` / `$6`). The
-rate table implements that switch. A large agentic plan can therefore cost
-about twice the short-band estimate.
+rate table implements that switch. A request past that threshold therefore
+costs about twice the short-band estimate.
 
 ### Live probes (they spend real money)
 
-Two disjoint stacks. A green `/query` probe does not prove the agentic hook
-still captures ticks.
+One stack remains since the agentic planner's removal (October 2026).
 
 **`/query` plane** (`llm/client.py`, `source: "query"`). Opt-in, not collected
 by pytest, fails closed unless the live flag is set:
@@ -224,24 +225,6 @@ The probe writes a **temp** ledger and deletes it — it does not append
 `logs/spend.jsonl`. Capture stdout (`model`, `ticks`, `table_usd`,
 `vendor_usd`, `delta_usd`). It asserts that no forbidden field (query, prompt,
 content, messages, api_key, authorization) reached the ledger.
-
-**Agentic plane** (`agentic/deepagent_github/chat_client.py`,
-`source: "agentic"`). One-shot plan, no clone, no commit. Needs the optional
-cloud extra (`langchain-xai` for Grok, `langchain-anthropic` for Claude),
-`agentic.enabled` and `deepagent_github.enabled` on (use a temp `--config`
-overlay; do not flip the shipped `config.yaml`), the matching API key, and
-`--confirm-online`:
-
-```bash
-python -m agentic.cli --config /path/to/overlay.yaml real-repo-run-plan \
-    --repo --instruction "..." --provider grok --confirm-online --out plan.md
-python -m agentic.cli --config /path/to/overlay.yaml real-repo-run-plan \
-    --repo --instruction "..." --provider claude --confirm-online --out plan.md
-```
-
-That path **does** append `logging.spend_file`. Do not pass `--provider` through
-to a following `real-repo-run` if the intent was "cloud plans, local
-implements" — see `docs/agentic/AGENTIC_README.md`.
 
 ## Joining spend to the audit trail
 

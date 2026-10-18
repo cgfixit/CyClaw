@@ -7,8 +7,8 @@ description: >
   subsystem's own selftest, gate import), the in-process LangGraph swarm, and a live gate.py
   probed against the CLAUDE.md route contract, all in scratch copies that never
   touch your working tree. Opt-in manual steps cover what no script can
-  (auth-enabled config, a real Ollama, MCP stdio, the agentic sandbox, the
-  out-of-band subsystems). The pytest suites, the coverage gate and the
+  (auth-enabled config, a real Ollama, MCP stdio, the out-of-band
+  subsystems). The pytest suites, the coverage gate and the
   macOS/Windows smoke steps belong to GitHub Actions; this skill only
   reproduces them when a CI job is red. Not CyClaw's session-memory docs
   (`docs/memories/`) -- it tests the product's `/memory/*` REST API.
@@ -26,7 +26,7 @@ live `gate.py`, booted from the real `config.yaml`, answers every route in
 CLAUDE.md §2 with the status that table promises (401/403/404/413/422/429/503
 included). It does **not** mean the pytest suites or the 80% coverage gate
 pass (Actions runs those on the PR), that a 27B-class model answered well,
-that browser JS ran, or that the auth-enabled, memory-enabled or agentic
+that browser JS ran, or that the auth-enabled, memory-enabled or fsconnect
 write paths work: those are the opt-in steps below, SKIP until you do them.
 
 **Verification order** is CLAUDE.md §5's, applied to a whole checkout: run the
@@ -50,7 +50,7 @@ L is the local default. Always use the CyClaw **3.12** venv's interpreter
 |---|---|---|---|---|
 | **L. Local audit** (default) | `<venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py` | **Local** | Stages 0–4 below in about a minute (measured, cloud sandbox, warm venv): checkers + ruff, run-the-code, swarm, live route contract, rate limit | pytest, coverage, browser JS, opt-in subsystems |
 | **B. In-process swarm** | `run_full_verification.py` | Local (Ladder L stage 3 runs it) | 9 phases through the real LangGraph runtime with deterministic Chroma/embedding doubles; prints its own totals | Live HTTP, real Chroma persistence |
-| **D. Quick Mode** (`/run`) | `SMOKE_SKIP_PYTEST=1 PYTHON=<venv>/bin/python bash .claude/skills/CyClaw-Sandbox/smoke.sh` | Local, in place | Sections A–E against a gate it starts on :8787 in **your** tree (soul.md backed up and restored); fsconnect/sqlconnect/NeMo probes Ladder L lacks | The route-contract sweep, the swarm |
+| **D. Quick Mode** (`/run`) | `SMOKE_SKIP_PYTEST=1 PYTHON=<venv>/bin/python bash .claude/skills/CyClaw-Sandbox/smoke.sh` | Local, in place | Sections A, B, D, E against a gate it starts on :8787 in **your** tree (soul.md backed up and restored); fsconnect/NeMo probes Ladder L lacks | The route-contract sweep, the swarm |
 | **C. CI lifecycle** | `verify.sh` | **GitHub Actions** (`verify-skills`, conda lane) | Clean venv + full pytest + RAG smoke + live gate | Run locally only to reproduce a red job |
 | **E. Live API bomb** | `macos-smoke.sh` / `windows-smoke.ps1` | **GitHub Actions** (macOS/Windows live-smoke steps) | Matching live-HTTP checks against an already-running gate | Run by hand only to reproduce; `macos-smoke.sh` is also a quick by-hand pass on a Mac |
 | **F. Full local audit** | Steps section below | Local, owner-run | Ladder L plus every opt-in step you mark PASS | Anything marked SKIP |
@@ -59,7 +59,7 @@ L is the local default. Always use the CyClaw **3.12** venv's interpreter
 
 The full `pytest tests/` suite on four OS legs, the `--cov` run and its 80%
 `fail_under`, `ci_rag_smoke.py`, `verify.sh`, `smoke.sh` section F, the
-macOS/Windows live smokes, the native agentic-sandbox job, lint.yml's ruff
+macOS/Windows live smokes, lint.yml's ruff
 gate, CodeQL/DevSkim, dep and lock contracts, and the PR-template check. Read
 the PR's check results instead. Reproduce one only when it is red and the log
 alone doesn't explain it, and then run that job's own command (verify.sh
@@ -74,14 +74,14 @@ skill (mostly in CI).
 | Surface | File(s) | What Ladder L checks live | Pinned by |
 |---|---|---|---|
 | Gate core | `gate.py` | `/health` open; `/` serves the console; `/docs` `/redoc` `/openapi.json` 404; five security headers on every response; `/index/status` open and not rate-limited; `/soul*` and `/audit/summary` 401 without the key, 200 with it; body over `security.max_request_body_bytes` is 413; cross-site `POST /query` 403 `CROSS_SITE_BLOCKED` with auth off (no `Origin`/`Sec-Fetch-Site` at all is allowed); `POST /index/build` 401 without the key and 403 `INDEX_BUILD_LOOPBACK_ONLY` behind a forwarding header (both refusals precede any build) | `tests/test_gate*.py`, `gate_runtime_check.py` (route subset) |
-| Ops | `gate_ops.py` | `POST /ops/{sync,agentic,fsconnect,sqlconnect}` 401 without the key; an unknown `action` is 422 at the schema boundary (closed `Literal`, `schemas/api.py`), never a handler 400 | `test_terminal_consoles.py`, `tests/test_gate_ops*.py` |
+| Ops | `gate_ops.py` | `POST /ops/{sync,fsconnect}` 401 without the key; an unknown `action` is 422 at the schema boundary (closed `Literal`, `schemas/api.py`), never a handler 400; `/ops/agentic` and `/ops/sqlconnect` (removed 2026-10-18) are 404 even with the key | `test_terminal_consoles.py`, `tests/test_gate_ops*.py` |
 | Auth | `gate_auth.py` | `/auth/setup-status`, `/auth/whoami`, `/auth/users`, `POST /auth/login` all **503** (never 404) while `auth.enabled` ships false. A malformed login body is 422 first: validation runs before the 503 | `tests/test_auth_admin_contract.py`, `tests/test_due_diligence_invariants.py` |
 | Memory | `gate_memory.py`, `memory/` | `/memory/status` 401 without the key, 200 with it, every `*enabled` flag a strict bool; `/memory/{facts,episodes,proposals}` and `/query/export/html` 404 while their toggles ship off. `python -m memory.selftest` drives the store, policy, fusion and export offline | `tests/test_memory_*.py` |
 | Query path | `gate.py` → `graph.py` | Only with a built `index/`: vault hit (`needs_confirm` false, hits > 0), injection 400, declined-online stays `offline-best-effort` or `local`. Without an index every `/query` is 503 `INDEX_NOT_FOUND` **before** the injection filter, so those three are SKIP, not FAIL | `tests/test_graph.py`, `tests/ci_rag_smoke.py` (CI) |
 | Rate limit | `utils/ratelimit.py` | 60/min per IP (derive from `api.rate_limit`): the 61st `GET /soul` is 429, and `/health` + `/index/status` still answer 200 | `tests/test_ratelimit*.py` |
-| Console | `static/terminal.html` + `terminal.js` + `auth_admin.js` (CSP forces `script-src 'self'`; read all three) | `test_terminal_consoles.py` (5 panels, 41 checks at last run, derive) and, with an index, `terminal_emulation.py` (the console's own fetch lifecycle, with its graph-timeout-derived read deadline) | `tests/test_terminal_contract.py` (its `_POST_PATHS` pins every POST route; derive the count) |
+| Console | `static/terminal.html` + `terminal.js` + `auth_admin.js` (CSP forces `script-src 'self'`; read all three) | `test_terminal_consoles.py` (one block per console panel; derive the panel and check counts) and, with an index, `terminal_emulation.py` (the console's own fetch lifecycle, with its graph-timeout-derived read deadline) | `tests/test_terminal_contract.py` (its `_POST_PATHS` pins every POST route; derive the count) |
 | Graph | `graph.py` | Via the swarm: 12 nodes, 4 routers (`score_router`, `guardrail_router`, `pre_action_hook_router`, `user_gate_router`), all paths through `audit_logger` | `invariant-guard`, `tests/test_graph.py` |
-| CLIs | `sync/cli.py`, `agentic/cli.py`, `agentic/{fsconnect,sqlconnect,netconnect}/cli.py`, `telegram/cli.py`, `opentweet/cli.py`, `guardrails/cli.py`, `utils/authn_cli.py`, `utils/gen_cert.py`, `retrieval/indexer.py`, `retrieval/clear_cache.py`, `metrics.py`, `utils/telemetry_kill.py` | `--help` exits 0 for all; `status` for telegram/opentweet/netconnect/fsconnect reports shipped-off with exit 0; `clear_cache` with no `--apply` deletes nothing; `telemetry_kill --export shell` prints. Exit codes are an API (CLAUDE.md §4); never hardcode a subcommand count here | `tests/test_*_cli.py` |
+| CLIs | `sync/cli.py`, `agentic/{fsconnect,netconnect}/cli.py`, `telegram/cli.py`, `opentweet/cli.py`, `guardrails/cli.py`, `utils/authn_cli.py`, `utils/gen_cert.py`, `retrieval/indexer.py`, `retrieval/clear_cache.py`, `metrics.py`, `utils/telemetry_kill.py` | `--help` exits 0 for all; `status` for telegram/opentweet/netconnect/fsconnect reports shipped-off with exit 0; `clear_cache` with no `--apply` deletes nothing; `telemetry_kill --export shell` prints. Exit codes are an API (CLAUDE.md §4); never hardcode a subcommand count here | `tests/test_*_cli.py` |
 | Telemetry | `utils/telemetry_kill.py`, `utils/onnx_telemetry.py` | Owned by `otel-hardening`; Ladder L runs `check_otel.py --strict --as-of <today>` and `gate_runtime_check.py` confirms the kill env is live at import | `otel-hardening/check_otel.py`, `tests/test_telemetry_kill.py` |
 | MCP | `mcp_hybrid_server.py`, `mcp_manifest.json` | Not live in Ladder L (stdio, no HTTP); see step 7 | `tests/test_mcp_server.py`, `tests/test_mcp_manifest.py` |
 
@@ -130,7 +130,7 @@ can't judge, e.g. a new key's default.
 |---|---|
 | 0 preflight | 3.12 interpreter, checkout sha/branch, ahead/behind `origin/main`, uncommitted edits noted (they are audited too) |
 | 1 static | `invariant-guard`, `dotenv-guard`, `doc-sync`, `config-guard`, `dep-guard`, `verify-deps/check_env_drift.py --strict`, `otel-hardening --strict`; `ruff check --select F,B,S .` (lint.yml's blocking gate) and the advisory `E,F,I,B,C4,UP,S --ignore E501` pass. Ruff missing is SKIP |
-| 2 run the code | `gate_runtime_check.py`; each subsystem's operator pre-flight (`python -m {sync,agentic,agentic.fsconnect,agentic.sqlconnect,agentic.netconnect,guardrails,telegram,opentweet}.cli test` and `python -m memory.selftest`), no network and no mocks; every CLI's `--help`; the shipped-off `status` reports; `clear_cache` dry-run; `telemetry_kill --export shell`. A selftest whose only failure is a missing external binary (rclone) is SKIP |
+| 2 run the code | `gate_runtime_check.py`; each subsystem's operator pre-flight (`python -m {sync,agentic.fsconnect,agentic.netconnect,guardrails,telegram,opentweet}.cli test` and `python -m memory.selftest`), no network and no mocks; every CLI's `--help`; the shipped-off `status` reports; `clear_cache` dry-run; `telemetry_kill --export shell`. A selftest whose only failure is a missing external binary (rclone) is SKIP |
 | 3 swarm | `run_full_verification.py` in a scratch copy (149/149 checks at last run, derive); reports the Ollama realism tier |
 | 4 live gate | `uvicorn gate:app` from a scratch copy on :8791 (next free port if busy) with a random `CYCLAW_API_KEY`: the route-contract probes in the table above, `test_terminal_consoles.py`, and `terminal_emulation.py` when an index exists. That launch raises only the scratch copy's rate limit so the probes don't trip it; a second launch on the **shipped** limit then proves the 429 |
 
@@ -190,26 +190,22 @@ cd <scratch-copy> && CYCLAW_API_KEY=<random> GROK_API_KEY=dummy <venv>/bin/pytho
 - **Sequence detection** (`utils/sequence_detect.py`, forensic-only):
   `metrics` joins it; `grep -rn sequence_detect gate*.py graph.py mcp*.py`
   returns nothing.
-- **Telegram / OpenTweet / netconnect / unslop** ship off; Ladder L already
+- **Telegram / OpenTweet / netconnect** ship off; Ladder L already
   checks the off-state reports. Turning one on needs its own credentials and a
   scratch config; follow its README (`docs/channels/`, `agentic/netconnect/`)
   (netconnect's scope rules are in `agentic/netconnect/scope.py`) and confirm the off-box behaviour it documents (OpenTweet always sends
   `user_confirmed_online: false` and drafts by default; netconnect never
   probes actively and fails closed on an empty or over-broad scope).
-- **fsconnect / sqlconnect:** Quick Mode sections B–C probe path safety, the
-  op whitelist and the SELECT/WITH-only guard in your tree.
+- **fsconnect:** Quick Mode section B probes path safety, emulated reads
+  and the dry-run/live write split in your tree.
 
-### 7. Opt-in: MCP, agentic sandbox, OS glue
+### 7. Opt-in: MCP, OS glue
 
 - **MCP:** `<venv>/bin/python mcp_hybrid_server.py` speaks stdio; point an
   MCP client at it and confirm a single `hybrid_search` tool, `sampling: None`,
   and that an injection query is refused before retrieval. Manifest drift: in
   a scratch copy flip a byte of `mcp_manifest.json` and confirm startup audits
   `mcp_manifest_drift` and exits 1 before the index opens.
-- **Agentic verification sandbox:** `<venv>/bin/python scripts/verify_agentic_sandbox.py`
-  runs a real confinement check (Seatbelt on macOS, bubblewrap on Linux).
-  Without the capability it raises `HardSandboxUnavailable`: fail-closed is
-  the correct result, record SKIP with the reason.
 - **Scheduler:** `sync/scheduler.py::get_scheduler` picks the configured
   backend; an unsupported pairing (e.g. `launchd` off Darwin) is a clean
   `SchedulerError`, never a silent fallback.
@@ -236,10 +232,12 @@ SMOKE_SKIP_PYTEST=1 PYTHON=<venv>/bin/python bash .claude/skills/CyClaw-Sandbox/
 Runs **in place**: builds an index if `index/bm25.json` is missing, starts its
 own gate on :8787 (it waits for the port to be free), backs up and restores
 `soul.md`, and writes `.claude/sandbox-test.txt` (gitignored). Sections: A core
-API, B fsconnect, C sqlconnect, D NeMo soft-import, E Postgres (SKIP without
+API, B fsconnect, D NeMo soft-import, E Postgres (SKIP without
 `CYCLAW_DB_URL`), F full pytest (SKIP when `SMOKE_SKIP_PYTEST` is set; CI leaves
-it unset), G report. Measured: 10 passed, 4 skipped, 33 s. A green Quick Mode
-is not evidence Ladder L would pass, nor the reverse.
+it unset), G report. C (sqlconnect) was retired on 2026-10-18; the other
+letters stay put because this file, `/run` and dated audits cite them.
+Measured: 10 passed, 4 skipped, 33 s. A green Quick Mode is not evidence
+Ladder L would pass, nor the reverse.
 
 ## Bundled resources
 
@@ -295,7 +293,7 @@ Confirm each still holds at a full audit; never report one as a new finding.
 ## Guardrails
 
 The invariants this skill verifies. Row numbers are historical labels
-(18–21 retired); count the rows you report.
+(11–12 and 18–21 retired); count the rows you report.
 
 | # | Invariant | Check |
 |---|---|---|
@@ -305,8 +303,6 @@ The invariants this skill verifies. Row numbers are historical labels
 | 8 | FsConnect read-only default | `fsconnect.writes_enabled=false`, `follow_symlinks=false` |
 | 9 | FsConnect pathsafe | Paths resolve through `ScopedRoots` with `O_NOFOLLOW` (Quick Mode B) |
 | 10 | FsConnect op whitelist | Closed list; derive from `fsconnect.allowed_fs_ops` |
-| 11 | SQL read-only default | `sqlconnect.read_only=true`, `allow_write=false` |
-| 12 | SQL query guard | SELECT/WITH only; comments and `;` rejected (Quick Mode C, console DROP probe) |
 | 13 | Module isolation (I6) | `invariant-guard` I6 + Quick Mode's fsconnect `sys.modules` probe |
 | 14 | Soul privacy | Soul preamble never forwarded to Grok/Claude (swarm triple-gate phase) |
 | 15 | API key gate | Every `/soul*`, `/ops/*`, `/memory/*`, `/audit/summary`, `/query/export/html` 401s without the key and fails closed while it is unset; `/index/build` joins once the key is set (Ladder L stage 4) |
@@ -352,8 +348,6 @@ The invariants this skill verifies. Row numbers are historical labels
 - **`sync.cli test` writes rclone's filter file** under `XDG_CONFIG_HOME`
   (default `~/.config/rclone/`). Ladder L points that at its scratch dir; run
   by hand, it writes your real one (the same file a real sync writes).
-- **`scripts/verify_agentic_sandbox.py` without bubblewrap/Seatbelt raises
-  `HardSandboxUnavailable`.** That is the fail-closed contract working.
 
 ## Mock embedding and Chroma doubles
 

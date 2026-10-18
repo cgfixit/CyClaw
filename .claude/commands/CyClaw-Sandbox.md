@@ -4,8 +4,8 @@ description: >
   stdlib checkers, ruff, every CLI and subsystem selftest, the in-process
   LangGraph swarm, and a live gate.py probed against the CLAUDE.md route
   contract, all in scratch copies that leave your working tree untouched.
-  Opt-in steps cover auth, memory, a real Ollama, MCP and the agentic
-  sandbox. pytest and coverage stay with GitHub Actions. Produces a report.
+  Opt-in steps cover auth, memory, a real Ollama, MCP and the out-of-band
+  subsystems. pytest and coverage stay with GitHub Actions. Produces a report.
 ---
 
 Invoke the `CyClaw-Sandbox` skill and run the local audit (Ladder L), then

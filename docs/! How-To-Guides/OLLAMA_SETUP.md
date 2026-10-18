@@ -84,7 +84,7 @@ ollama run qwen3.8:27b-mlx "Say hello"
 | Model | Command | Notes |
 |-------|---------|-------|
 | Qwen 3.8 27B MLX 4-bit (default) | `ollama pull qwen3.8:27b-mlx` | What `config.yaml` ships. Apple Silicon MLX 4-bit, ~18 GB. Third-party M5 Pro 48 GB reports ~29–34 tok/s decode — **measure on your machine** (`python3 scripts/measure_local_llm_throughput.py`). |
-| Qwen 3.8 27B MLX NVFP4 | `ollama pull qwen3.8:27b-nvfp4` | Same ~18 GB. NVFP4 4-bit (higher quality than q4_K_M per Ollama's MLX blog). Candidate upgrade on 48 GB; switch `models.local_llm.model`, `guardrails.model`, and `agentic.deepagent_github.model` together (C11 checks the first two) only after measuring tok/s + answer quality. |
+| Qwen 3.8 27B MLX NVFP4 | `ollama pull qwen3.8:27b-nvfp4` | Same ~18 GB. NVFP4 4-bit (higher quality than q4_K_M per Ollama's MLX blog). Candidate upgrade on 48 GB; switch `models.local_llm.model` and `guardrails.model` together (C11 checks the pair) only after measuring tok/s + answer quality. |
 | Qwen 3.8 27B MLX MXFP8 | `ollama pull qwen3.8:27b-mxfp8` | ~32 GB 8-bit MLX. Fits 48 GB only with a tight KV budget — measure, watch Activity Monitor, do not assume. |
 | Qwen 3.8 27B MLX BF16 | `ollama pull qwen3.8:27b-mlx-bf16` | ~56 GB. **Does not fit 48 GB unified.** |
 | Qwen 3.8 27B (generic GGUF) | `ollama pull qwen3.8:27b` | Same weights without the MLX tag. Use on Intel/Windows/Linux, then set `models.local_llm.model` and `guardrails.model` to this tag |
@@ -95,7 +95,7 @@ ollama run qwen3.8:27b-mlx "Say hello"
 
 > **Note:** Model tags are case-sensitive in Ollama. Use the exact lowercase tag `ollama list` prints (e.g. `qwen3.8:27b-mlx`), not a display name like `Qwen3.8-27B-Instruct`.
 >
-> **Changing model = changing `config.yaml`.** Set `models.local_llm.model` and `guardrails.model` to the same tag. Set `agentic.deepagent_github.model` too when the planner uses this same Ollama instance; leave it alone when it points at its own `openai_compatible` or other endpoint, which may not host this tag. `config-guard`'s C11 check **warns** if the first two drift (it only fails under `--strict`; it does not read the agentic field). Smaller model? Everything still works. Larger? Re-check `num_ctx` below.
+> **Changing model = changing `config.yaml`.** Set `models.local_llm.model` and `guardrails.model` to the same tag. `config-guard`'s C11 check **warns** if they drift (it only fails under `--strict`). Smaller model? Everything still works. Larger? Re-check `num_ctx` below.
 
 ---
 
@@ -146,7 +146,7 @@ models:
     max_tokens: 4096
 ```
 
-**If you pulled a different model in Step 2,** set `models.local_llm.model`, `guardrails.model`, and `agentic.deepagent_github.model` to that tag (e.g. `mistral:7b`, `llama3.1:8b`). `config-guard`'s C11 check **warns** if the first two drift (fails only under `--strict`).
+**If you pulled a different model in Step 2,** set `models.local_llm.model` and `guardrails.model` to that tag (e.g. `mistral:7b`, `llama3.1:8b`). `config-guard`'s C11 check **warns** if they drift (fails only under `--strict`).
 
 ---
 
@@ -195,17 +195,16 @@ You should get a JSON response with an `answer` field and `model_used: "local"`.
 ## Switching Models
 
 Ollama makes swapping models cheap — no reindex, no reinstall. It does take a
-small config edit (three keys, see below):
+small config edit (two keys, see below):
 
 ```bash
 # Pull a new model
 ollama pull mistral:7b
 
-# Edit config.yaml -> these three must match the tag you pulled:
+# Edit config.yaml -> these two must match the tag you pulled:
 #   models.local_llm.model:          "mistral:7b"
 #   guardrails.model:                "mistral:7b"
-#   agentic.deepagent_github.model:  "mistral:7b"
-# (config-guard's C11 check warns if the first two disagree; --strict makes it fail)
+# (config-guard's C11 check warns if they disagree; --strict makes it fail)
 
 # Restart CyClaw (no need to reindex — the index is model-independent;
 # it is built from the embedding model, not the chat model)
@@ -234,7 +233,7 @@ the backward-compatible path for a custom config, not a way to turn it off.
 
 | Endpoint | Control | Used by |
 |---|---|---|
-| `/v1/chat/completions` (OpenAI-compatible) | `"reasoning_effort": "none"` | `/query`, the agentic local proposer, NeMo guardrails |
+| `/v1/chat/completions` (OpenAI-compatible) | `"reasoning_effort": "none"` | `/query`, NeMo guardrails |
 | `/api/chat`, `/api/generate` (native) | `"think": false` | `scripts/measure_local_llm_throughput.py` |
 
 Sending `think` to the OpenAI-compatible endpoint does nothing, and
@@ -299,54 +298,6 @@ ollama run qwen3.8:27b-mlx
 The config.yaml formula: `Ollama num_ctx >= max_context_tokens + max_tokens + ~1500 headroom`
 With defaults: `16000 + 4096 + 1500 = 21596`, so **32768** is the shipped RAG recommendation (~11.2k tokens spare — deliberate, because the ~4-chars/token estimate under-counts Qwen3 BPE on technical text; see the `retrieval.max_context_tokens` comment in `config.yaml`).
 
-### The agentic real-repo coding loop needs more headroom than that
-
-The formula above is derived only from the `/query` RAG path's budget
-(`retrieval.max_context_tokens` + `models.local_llm.max_tokens`). Driving
-`agentic/real_repo_loop.py` (`real-repo-run` / `real-repo-run-plan`) against
-the same Ollama instance can build a per-iteration prompt several times
-larger than a typical `/query`. The shipped 32768 window already covers
-that worst case. The "0% processing" stall still applies if you lower
-`num_ctx` below the loop's real size.
-
-Summing the loop's own documented per-component caps (`agentic/real_repo_loop.py`):
-a declared plan folded into the prompt (`_MAX_PLAN_CHARS`, 6,000 chars), existing
-files read for edit-in-place context (`_MAX_TOTAL_READ_CHARS`, 12,000 chars),
-prior-iteration verification feedback (`_MAX_FEEDBACK_TOTAL_CHARS`, at least
-4,000 chars once check output is included), quoted GitHub PR/issue context
-capped in `agentic/cli.py` (8,000 chars), the fixed system prompt (~900 chars),
-and an instruction up to 8,192 chars
-— the worst case is roughly **39,000–40,000 characters of INPUT alone for one
-iteration**, before reserving any output budget. At this project's own
-~4-chars/token convention (see the formula above), that is approximately
-**9,750–10,000 input tokens**. The shipped RAG window of **32768** already
-covers that load (and the older 24576 real-repo-run size). Do not retune
-agentic loop caps to fill the extra room.
-
-This is arithmetic over the loop's own stated caps, not a number CyClaw states
-anywhere as a recommendation — treat it as a floor to reason from, not a
-guarantee. Real invocations are usually much smaller (a short instruction, no
-`read_paths`, no plan file); the worst case only bites when you actually use
-several of these inputs together (e.g. a declared plan **and** several
-`read_paths` **and** a PR/issue's context on the same run).
-
-If you use `real-repo-run`/`real-repo-run-plan` with `read_paths`, a declared
-plan, or GitHub context, the shipped `OLLAMA_CONTEXT_LENGTH=32768` already
-covers that pathway. `24576` remains a valid *lower* optional size if you
-want a tighter KV cache after measuring real usage:
-
-```bash
-export OLLAMA_CONTEXT_LENGTH=24576   # lower optional; shipped default is 32768
-ollama serve
-```
-
-Neither proposer client (`agentic/harness_optimizer/model_adapter.py`'s
-`LocalProposerClient`, used by default, or
-`agentic/deepagent_github/chat_client.py`'s `ChatModelProposerClient`, used
-with `--provider`) sends `num_ctx` in its own request — exactly like the RAG
-path, this is 100% an out-of-band, operator-set Ollama setting, and neither
-client can request a bigger window for a single large call on your behalf.
-
 **On Apple Silicon specifically** (e.g. a Mac with 48GB of unified memory): a
 larger `num_ctx` grows Ollama's KV-cache, and unlike a discrete-GPU box, that
 cache shares the *same* memory pool as the model weights, CyClaw's own Python
@@ -407,20 +358,17 @@ This Modelfile does not disable thinking. Send `think: false` on the native API 
 
 Two ordered passes over eight local tags are recorded in [`local-model-bakeoff-2026-10-10.md`](../bakeoff/local-model-bakeoff-2026-10-10.md). The latest pass is the 12:20:44 capture. That record picks no winner and is not a reason to change the shipped default. The measurement script is not stored in this repo.
 
-Point all three config fields at the derived tag together, then restart CyClaw:
+Point both config fields at the derived tag together, then restart CyClaw:
 
 ```yaml
 models:
   local_llm:
     model: "qwen3.8:27b-mlx-cg"
-agentic:
-  deepagent_github:
-    model: "qwen3.8:27b-mlx-cg"
 guardrails:
   model: "qwen3.8:27b-mlx-cg"
 ```
 
-C11 warns if `guardrails.model` and `models.local_llm.model` differ. It does not read `agentic.deepagent_github.model`; set that one by hand so the planner hits the same tag. `python -m guardrails.cli model` compares `guardrails.model` with `guardrails/qwen_manifest.yaml`, which stays the registry tag. A derived tag reports a tag mismatch there. That command is operator-run and is not on the request path.
+C11 warns if `guardrails.model` and `models.local_llm.model` differ. `python -m guardrails.cli model` compares `guardrails.model` with `guardrails/qwen_manifest.yaml`, which stays the registry tag. A derived tag reports a tag mismatch there. That command is operator-run and is not on the request path.
 
 `macos/setup-from-clone.sh` prints these steps as a hint. It does not run `ollama create`.
 

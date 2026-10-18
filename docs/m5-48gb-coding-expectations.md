@@ -1,7 +1,7 @@
 # M5 Pro 48 GB coding expectations (local cached 27B)
 
-**Status (2026-08-27, context note 2026-10-10):** Operator doctrine for the CyClaw real-repo loop on the
-machine this repo is developed on: **MacBook Pro, Apple M5 Pro, 48 GB unified
+**Status (2026-08-27, context note 2026-10-10, scope note 2026-10-18):** Operator doctrine for the
+local model on the machine this repo is developed on: **MacBook Pro, Apple M5 Pro, 48 GB unified
 memory.** Local stack: Ollama `qwen3.8:27b-mlx`, `reasoning_effort: none`.
 The shipped context budget is `num_ctx` 32768 via `OLLAMA_CONTEXT_LENGTH` in
 `macos/ollama-mlx.env`, or the derived tag in
@@ -11,10 +11,13 @@ not bake that parameter. This is not a hardware upgrade guide and not an invaria
 This box is **not** an M5 Max and **not** a base M5. Do not copy Max tok/s
 benchmarks (70+ decode on 27B+DFlash, 128 GB residency) onto this SKU.
 
-Canonical loop guide: [`docs/agentic/AGENTIC_README.md`](agentic/AGENTIC_README.md) §9–§10.
-Package map: [`agentic/README.md`](../agentic/README.md).
+This doc was written for CyClaw's real-repo coding loop, which was removed in
+October 2026 ([what went](agentic/AGENTIC_README.md#8-removed-in-october-2026)).
+The hardware facts, the context budget, and the burst and scratchpad rules
+still apply to the local `/query` model and to any external coding harness
+that drives the same Ollama instance.
 
-Yes, 48 GB can do more than burst. **The loop is what keeps it on burst.**
+Yes, 48 GB can do more than burst. **The workflow is what keeps it on burst.**
 A scratchpad helps the window, not the model. Used wrong, it just makes 27B
 mistakes durable.
 
@@ -78,8 +81,6 @@ What you ship and run is the constraint:
 | Ollama `num_ctx` | **32768** | Shipped `OLLAMA_CONTEXT_LENGTH` in `macos/ollama-mlx.env`. The registry tag does not set this; pin it with that env file in the serving process, or with the derived tag in OLLAMA_SETUP.md. Prompt + reserved `max_tokens` must fit or Ollama stalls at "0% processing" |
 | RAG budget | `max_context_tokens` 16000 + `max_tokens` 4096 + ~1500 headroom = 21,596 | The `/query`-path floor inside the 32k window (raised from 4000 on 2026-08-28, then 8000 on the 16k window; `num_ctx` — not this budget — bounds KV memory, so the bigger budget costs prefill time, not a new memory ceiling) |
 | Query deadlines | **720s** local LLM timeout; **780s** graph timeout | The inner timeout must fire first so a stalled Ollama request reports its LLM failure before the outer request deadline; the 60-second margin covers retrieval, routing, audit work, and cold embedding startup |
-| Agentic local prompt | **~8,000 chars** GitHub context (`_MAX_LOOP_CONTEXT_CHARS`) — but a worst-case real-repo-run iteration (plan + read_paths + feedback + instruction) can reach **~39–40k chars ≈ 10k tokens**; see OLLAMA_SETUP.md "The agentic real-repo coding loop needs more headroom" (shipped 32768 already covers it; `num_ctx` 24576 remains a lower optional size for that pathway) | Not 200k. `max_handoff_chars: 200000` is the **cloud egress** cap |
-| Plan file | `_MAX_PLAN_CHARS` **6,000**; `planner_max_tokens` **3072** | A plan the size of a diff means the planner misbehaved |
 | Local model | `qwen3.8:27b-mlx`, `reasoning_effort: none` | Thinking-on burns the 32k window before a patch exists |
 
 The machine can physically hold 64k–128k context; the shipped env file sets
@@ -91,8 +92,8 @@ Raising `num_ctx` to 64k is feasible, worsens TTFT, and still leaves you with a
 Project decision: the local 27B is a **supervised executor**; Claude Code /
 Grok stays the architect for anything touching invariants. The burst pattern
 is one implementation file + one test, thinking off, with the I6 list
-off-limits (`gate.py` / `graph.py` / `mcp_hybrid_server.py` / `agentic/` for
-the 27B job itself / `soul.md` / `INVARIANTS.md` / `config.yaml`). A bigger
+off-limits (`gate.py` / `graph.py` / `mcp_hybrid_server.py` / `agentic/` /
+`soul.md` / `INVARIANTS.md` / `config.yaml`). A bigger
 slice of one file, a test, and a short plan is fine; a whole implementation
 plan is not what 48 GB buys.
 
@@ -102,10 +103,9 @@ plan is not what 48 GB buys.
 
 - Implement a human-approved `plan.md` that lists at most one implementation
   file and one test file.
-- Whole-file replace of a file it was shown via `--read-file` (full content,
-  not truncated).
+- Whole-file replace of a file it was shown in full (not truncated).
 - Follow a numbered "Do this" list that names existing functions/paths.
-- Fix the last executor failure line when that line is in the prompt.
+- Fix the last test failure line when that line is in the prompt.
 - Calibration class: console / test-only bursts in the size of
   PRs #1086, #1132 (scoped to two files), #1148.
 
@@ -113,27 +113,17 @@ plan is not what 48 GB buys.
 
 - Architecture, new subsystems, provider/runtime swaps (DFlash, oMLX bind,
   pointing `models.local_llm` at a second server).
-- NeMo rails through `graph.py`, Numbat CEL, Unslopify as a product change,
-  telemetry kill-switch (#1134 / #1128 / #1129 / #1149 class).
+- NeMo rails through `graph.py`, Numbat CEL, telemetry kill-switch
+  (#1134 / #1128 / #1129 / #1149 class).
 - Editing `gate.py`, `graph.py`, `mcp_hybrid_server.py`, `soul.md`,
   `INVARIANTS.md`, `config.yaml`.
-- Inventing invariants or rewriting `protected_write_paths` "so the run passes."
+- Inventing invariants or rewriting tests or protected paths "so the run passes."
 
-The online planner (`real-repo-run-plan --provider grok --confirm-online`)
-must emit a burst plan, not a design doc. The prompt contract for that lives
-in `PLAN_SYSTEM_PROMPT` (`agentic/real_repo_loop.py`). `PLANNER_SYSTEM_PROMPT`
-is the **coder** prompt — the name is a trap. Do not hand the 27B an
-architect prompt and call it local autonomy.
-
-Prompt-safety recap (enforced in code, not just this doc): Instruction-only;
-untrusted GitHub fence + defuse; no `=== FILE ===` in the plan; `--instruction`
-and `--plan-file` injection-scanned; audit hashes; `--confirm-online` for
-cloud. See `docs/agentic/AGENTIC_README.md` §10.
-
-**MCP is not the coding loop.** `real-repo-run` is CLI/subprocess. It does
-not import or start `mcp_hybrid_server.py`. `agentic/harness_optimizer/mcp`
-is a package name for sidecar tool wrappers, not that server. A 27B burst
-must not plan MCP tool additions or a VPS/DeepAgent MCP handoff.
+A plan handed to the 27B from a cloud model must be a burst plan (files to
+touch, one-line rationale each), not a design doc. Treat any quoted PR, issue,
+or corpus text inside that plan as untrusted background, never as permission.
+The MCP server `mcp_hybrid_server.py` is retrieval-only and is not a coding
+tool surface; a 27B burst must not plan MCP tool additions.
 
 ## Scratchpad before compact
 
@@ -171,7 +161,7 @@ You already have the durable slots. Do not invent a fourth brain.
 
 | Slot | Role |
 |---|---|
-| `plan.md` via `real-repo-run-plan` | Human-approved, injection-scanned, 6k cap, hashed onto the run |
+| A short `plan.md` | Written or approved by the architect (human, Claude, or Grok), never by the 27B |
 | `docs/work/SESSION_NOTES.md` | Current state, files, errors, next step |
 | `docs/memories/` + consolidation | Session-end / 12h pass — not a live coding scratchpad |
 | `memory/` facts | Human propose/apply only. Auto-extract from LLM output is **not** implemented (memory-poisoning) |
@@ -183,11 +173,11 @@ skill and I5 exist to stop.
 
 ## Operator rules (scratchpad / paging)
 
-1. Scratchpad = run-scoped file next to the jailed clone or `docs/work/SESSION_NOTES.md`, not a new DB and not `docs/memories/`.
+1. Scratchpad = run-scoped file in the coding harness's workspace or `docs/work/SESSION_NOTES.md`, not a new DB and not `docs/memories/`.
 2. Schema, not a diary: `goal`, `constraints` (I6 list), `files`, `last_error`, `next_edit`. Cap it (~2k tokens/section, same spirit as session notes).
 3. 27B may **append** errors and file paths. It does not get to rewrite constraints or invent facts.
 4. Compact **after** the write. Next turn loads: system + I6 list + scratchpad slice + current file + current test. Not the whole transcript.
-5. Do not enable raw-query persistence. Do not send the scratchpad to Grok/Claude unless the operator passed `--confirm-online` for that call. Default `send_local_context_to_grok/claude` is false.
+5. Do not enable raw-query persistence. Do not send the scratchpad to Grok/Claude unless the operator explicitly confirmed that call. Default `send_local_context_to_grok/claude` is false.
 
 ## Data handling (cyclaw-privacy notes, not counsel)
 

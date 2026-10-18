@@ -11,9 +11,9 @@ Verifies:
   2. Triple-gate online API fallback (Grok + Claude) with mocked HTTP
   3. API key redaction parity (Anthropic keys redacted same as Grok)
   4. _external_fallback_node shared implementation
-  5. Representative REST source contracts (soul, sync, agentic, fs, sql)
+  5. Representative REST source contracts (soul, sync, fs)
   6. Due-diligence invariants (unwired require_user_confirm, module isolation)
-  7. Terminal HTML contract (5 panels, explicit provider buttons)
+  7. Terminal HTML contract (3 ops panels, explicit provider buttons)
 
 Usage:
     python3 .codex/skills/Cyclaw-Sandbox/run_full_verification.py
@@ -466,13 +466,7 @@ def phase_config_invariants() -> PhaseResult:
         ("fsconnect.enabled == false", cfg.get("fsconnect", {}).get("enabled") is False),
         ("fsconnect.allow_macos_volume_roots == false",
          cfg.get("fsconnect", {}).get("allow_macos_volume_roots") is False),
-        ("sqlconnect block present", "sqlconnect" in cfg),
-        ("sqlconnect.read_only == true", cfg.get("sqlconnect", {}).get("read_only") is True),
         ("sync block present", "sync" in cfg),
-        ("agentic block present", "agentic" in cfg),
-        ("agentic.enabled == false", cfg.get("agentic", {}).get("enabled") is False),
-        ("agentic.mode == 'write'", cfg.get("agentic", {}).get("mode") == "write"),
-        ("agentic.writes_enabled == true", cfg.get("agentic", {}).get("writes_enabled") is True),
         ("grok_max_prompt_chars == 8000", fallback_cfg.get("grok_max_prompt_chars") == 8000),
         ("claude_max_prompt_chars == 8000", fallback_cfg.get("claude_max_prompt_chars") == 8000),
         ("send_local_context_to_grok == false", fallback_cfg.get("send_local_context_to_grok") is False),
@@ -533,7 +527,7 @@ def phase_build_corpus() -> PhaseResult:
             "# CyClaw Overview\n\nCyClaw is an offline-first RAG system. "
             "It retrieves from local vault before calling any LLM. "
             "Key features: hybrid search, triple-gated external API fallback, "
-            "soul governance, zero telemetry, and read-only filesystem/sql connectors."
+            "soul governance, zero telemetry, and a read-only filesystem connector."
         ),
         "cyclaw_architecture.md": (
             "# Architecture\n\nThe graph flow: retrieve (N1) -> route_by_score (N2) -> "
@@ -1143,7 +1137,7 @@ def phase_terminal_consoles() -> PhaseResult:
     gateway_files = ("gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py")
     gate_src = "\n".join(Path(fname).read_text(encoding="utf-8") for fname in gateway_files)
 
-    # Verify all 12 endpoints
+    # Verify all 10 endpoints
     endpoints = [
         ("/health", "GET"),
         ("/query", "POST"),
@@ -1154,9 +1148,7 @@ def phase_terminal_consoles() -> PhaseResult:
         ("/soul/restore", "POST"),
         ("/audit/summary", "GET"),
         ("/ops/sync", "POST"),
-        ("/ops/agentic", "POST"),
         ("/ops/fsconnect", "POST"),
-        ("/ops/sqlconnect", "POST"),
     ]
 
     log("\n  --- Endpoint Registration ---")
@@ -1169,7 +1161,7 @@ def phase_terminal_consoles() -> PhaseResult:
     # Verify ops_runner delegation
     log("\n  --- Ops Runner Delegation ---")
     runner_src = Path("utils/ops_runner.py").read_text(encoding="utf-8")
-    for name in ("run_sync_op", "run_agentic_op", "run_fsconnect_op", "run_sqlconnect_op"):
+    for name in ("run_sync_op", "run_fsconnect_op"):
         found = f"def {name}" in runner_src
         status = f"{G}PASS{N}" if found else f"{R}FAIL{N}"
         log(f"    [{status}] {name} in ops_runner.py")
@@ -1177,34 +1169,11 @@ def phase_terminal_consoles() -> PhaseResult:
 
     # Verify action whitelists
     log("\n  --- Action Whitelists ---")
-    for name in ("_SYNC_ACTIONS", "_AGENTIC_ACTIONS", "_FSCONNECT_ACTIONS", "_SQLCONNECT_ACTIONS"):
+    for name in ("_SYNC_ACTIONS", "_FSCONNECT_ACTIONS"):
         found = name in runner_src
         status = f"{G}PASS{N}" if found else f"{R}FAIL{N}"
         log(f"    [{status}] {name} whitelist defined")
         phase.checks.append(Check(f"whitelist_{name}", found))
-
-    # SQL read-only guards
-    log("\n  --- SQL Security Guards ---")
-    try:
-        from agentic.sqlconnect.client import assert_read_only_sql
-        phase.checks.append(Check("sql_guards_importable", True))
-
-        for sql, should_pass, name in [
-            ("SELECT * FROM users", True, "select_pass"),
-            ("DROP TABLE users", False, "drop_blocked"),
-            ("", False, "empty_blocked"),
-            ("SELECT 1; DROP TABLE x", False, "semicolon_blocked"),
-            ("-- comment", False, "comment_blocked"),
-        ]:
-            try:
-                assert_read_only_sql(sql)
-                actual_pass = True
-            except Exception:
-                actual_pass = False
-            phase.checks.append(Check(f"sql_guard_{name}", actual_pass == should_pass))
-    except ImportError as e:
-        log(f"    {Y}SKIP{N} SQL guards import: {e}")
-        phase.checks.append(Check("sql_guards_importable", False, str(e)))
 
     # Security headers
     log("\n  --- Security Headers & Middleware ---")
@@ -1241,14 +1210,12 @@ def phase_terminal_html() -> PhaseResult:
     script = Path("static/terminal.js").read_text(encoding="utf-8")
     terminal_surface = html + "\n" + script
 
-    # All 5 console panels
+    # The three ops console panels
     log("\n  --- Console Panels ---")
     panels = [
         ("Soul Console", "soulPanel", "soulToggleBtn"),
         ("Sync Console", "syncPanel", "syncToggleBtn"),
-        ("Agentic Console", "agenticPanel", "agenticToggleBtn"),
         ("FS Console", "fsPanel", "fsToggleBtn"),
-        ("SQL Console", "sqlPanel", "sqlToggleBtn"),
     ]
     for name, panel_id, btn_id in panels:
         passed = panel_id in html and btn_id in html
@@ -1280,9 +1247,7 @@ def phase_terminal_html() -> PhaseResult:
         ("soul_reload", "/soul/reload"),
         ("soul_restore", "/soul/restore"),
         ("sync_ops", "/ops/sync"),
-        ("agentic_ops", "/ops/agentic"),
         ("fs_ops", "/ops/fsconnect"),
-        ("sql_ops", "/ops/sqlconnect"),
     ]:
         found = endpoint in terminal_surface
         status = f"{G}PASS{N}" if found else f"{R}FAIL{N}"

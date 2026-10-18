@@ -30,9 +30,9 @@ scope. Code establishes behavior; it does not authorize changing policy.
 | Container/LAN model | docs/DOCKER.md explains explicit trusted host setup. Such models receive local context and soul without cloud confirmation; hostname matching is not DNS/IP pinning. |
 | Query auth | gate.py attaches session/device-token auth when auth.enabled is literal true; same-origin protection is unconditional. |
 | API-key bypass | security.api_key_optional is separately gated by loopback peer, forwarding headers, and origin; it does not disable auth/RBAC. |
-| Optional state | Shipped auth, memory, and agentic masters are off. Guardrails, hybrid, external providers, and the Numbat stream are enabled. NeMo is a required base dependency with deterministic fallback on runtime failure. Read actual config before claiming active behavior. |
+| Optional state | Shipped auth, memory, and connector (fsconnect/netconnect) masters are off. Guardrails, hybrid, external providers, and the Numbat stream are enabled. NeMo is a required base dependency with deterministic fallback on runtime failure. Read actual config before claiming active behavior. |
 | MCP | Retrieval-only, input-sanitized, no generation/sampling path. |
-| Agent execution | utils/ops_runner.py, agentic/executor/. Broker permission is not reason/confirm authorization. |
+| Out-of-band execution | utils/ops_runner.py, the subprocess shim behind /ops/sync and /ops/fsconnect (the agentic/executor/ sandbox was removed 2026-10-18). Broker permission is not reason/confirm authorization. |
 
 Use the current invariant checker and targeted endpoint/graph/auth tests.
 Neither a static pass nor a configured flag proves every runtime path.

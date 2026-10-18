@@ -15,8 +15,8 @@ CyClaw is an **offline-first, loopback-only** local AI gateway. Items 1–6 are 
 3. **Triple-gated external access** — Grok/Claude require `app.mode=="hybrid"` AND `models.<provider>.enabled` AND per-query human confirmation. The shipped config satisfies the first two gates for both providers; the per-query confirmation cannot be pre-set, and a usable provider key is still required at the call site.
 4. **Audit convergence** — every path terminates in `audit_logger` (keyed HMAC-SHA256 query fingerprints, PII + secret redaction, append-only JSONL).
 5. **Soul governance** — identity evolution requires a human-authored reason; atomic writes; SHA-256 drift detection on startup.
-6. **Out-of-band connectors** — `agentic/`, `sync/`, `guardrails/`, `telegram/`, and `opentweet/` are never imported by the core six (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`), and never import them. `sync/` and `agentic/` ship disabled and run via audited argv-list subprocess shims. Guardrails ships enabled with a required NeMo dependency. Missing or failed live NeMo checks run deterministic input and soul-leak checks on every answer route and record `guardrail_degraded`. Grounding remains local-only. A fallback refusal also records `guardrail_blocked`; an unexpected wrapper error ends generation without replay. These checks cannot grant a route. Explicit `guardrails.enabled: false`, or an absent block, leaves the graph guards as pass-through. Agentic verification runs in disposable copies under a required `production_sandbox()` (Darwin Seatbelt; Linux bubblewrap filesystem, PID and network namespaces; Windows and missing capabilities fail closed, `agentic/executor/`). That is process confinement, not a microVM or a host-read isolation boundary. Preparing the verification mirror is cooperatively bounded (special files skipped, deadline checked between copy callbacks, no hard time or disk quota), an accepted availability limitation for trusted local worktrees that makes no hostile repository safe to execute (`docs/THREAT_MODEL.md`, 2026-10-08).
-7. **No unsolicited secondary telemetry** — every vendor telemetry/analytics path is disabled before the dependency that reads it initializes: canonical env maps (`utils/telemetry_kill.py`) applied at import time by every Python entry point AND delivered as literal environment at every process boundary (Docker ENV, launchers, generated launchd plists / Windows tasks / cron lines, verifier and `gh` children), plus the post-import ONNX Runtime API call at the load seams. `gate.py` prints a verification table at startup; the other appliers enforce silently and are pinned by tests + the `otel-hardening` checker. Stated precisely: these controls silence telemetry readers — they are **not** a general network kill switch, and CyClaw's *intentional* egress is governed by its own gates (see **Egress classification** below).
+6. **Out-of-band connectors** — `agentic/`, `sync/`, `guardrails/`, `telegram/`, and `opentweet/` are never imported by the core six (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`), and never import them. `sync/` and `agentic/` ship disabled and run via audited argv-list subprocess shims. Guardrails ships enabled with a required NeMo dependency. Missing or failed live NeMo checks run deterministic input and soul-leak checks on every answer route and record `guardrail_degraded`. Grounding remains local-only. A fallback refusal also records `guardrail_blocked`; an unexpected wrapper error ends generation without replay. These checks cannot grant a route. Explicit `guardrails.enabled: false`, or an absent block, leaves the graph guards as pass-through. The agentic verification executor, its process sandbox, the GitHub coding loop and the SQL connector were removed in October 2026; `agentic/` now holds only the filesystem and passive network connectors, neither of which executes repository code (`docs/THREAT_MODEL.md`, nineteenth amendment).
+7. **No unsolicited secondary telemetry** — every vendor telemetry/analytics path is disabled before the dependency that reads it initializes: canonical env maps (`utils/telemetry_kill.py`) applied at import time by every Python entry point AND delivered as literal environment at every process boundary (Docker ENV, launchers, generated launchd plists / Windows tasks / cron lines, `/ops/*`, rclone and pre-action-hook children), plus the post-import ONNX Runtime API call at the load seams. `gate.py` prints a verification table at startup; the other appliers enforce silently and are pinned by tests + the `otel-hardening` checker. Stated precisely: these controls silence telemetry readers — they are **not** a general network kill switch, and CyClaw's *intentional* egress is governed by its own gates (see **Egress classification** below).
 8. **Loopback binding** — `127.0.0.1:8787` (gateway) and `127.0.0.1:11434` (Ollama); request bodies capped at `security.max_request_body_bytes` (1 MiB, 413 above it); per-IP rate limiting; strict security headers + TrustedHost. Operator routes (`/soul/*`, `/ops/*`, `/audit/summary`, `/memory/*`, `/query/export/html`) need `require_api_key`'s credentials: Bearer `CYCLAW_API_KEY` or the console cookie, both of which fail closed while the key is unset, or (with `auth.enabled`) an enabled admin's login, the one credential that works without the key; `/query`, `/index/build` (loopback peer + same-origin + no forwarding header, plus the key once set), `/console/session`, and the session-governed `/auth/*` routes have their own gates ([`INVARIANTS.md`](INVARIANTS.md) Rule 6, threat-model amendments fourteen, fifteen, and eighteen).
 9. **Commit-time gate** — the tracked `.githooks/` (`_security.sh` + `security.conf`, installed by `scripts/ensure-githooks.sh`) refuse commits that carry secrets, private data, or protected-path edits, and refuse pushes that carry secrets or private data or rewrite a protected branch, unless an explicit operator override is set; a protected-path edit that reaches `pre-push` without the pre-commit hook gets a reminder only ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)). A speed bump for people and agents, not a boundary: `gitleaks.yml` and the `main` ruleset are the controls.
 
@@ -138,7 +138,8 @@ or launcher lands unclassified:
    `--no_telemetry` private build CyClaw does not claim), the generic OTel SDK
    (with `OTEL_CONFIG_FILE`/`OTEL_EXPERIMENTAL_CONFIG_FILE` removed outright
    because declarative config outranks the SDK-disable values), GitHub CLI
-   usage telemetry (`GH_TELEMETRY=false` forced on every `gh` child), and
+   usage telemetry (`GH_TELEMETRY=false` in every governed environment, so a
+   `gh` the operator runs from one inherits it), and
    PowerShell host telemetry (`POWERSHELL_TELEMETRY_OPTOUT=1`, which pwsh
    reads once at its own startup — the installed cmd shim and generated task
    wrappers set it *before* the `powershell` line; setting it inside a running
@@ -150,10 +151,10 @@ or launcher lands unclassified:
    `HOMEBREW_NO_ANALYTICS=1` before its own `brew` calls). Kept in a separate
    map (`UPDATE_CHECK_OPT_OUT`) so no report counts them as telemetry.
 3. **Intentional, policy-gated feature traffic** — triple-gated Grok/Claude
-   cloud fallbacks, the gated cloud-planner adapters, Telegram and OpenTweet
+   cloud fallbacks, Telegram and OpenTweet
    (first-party httpx clients performing intentional remote API operations;
    there is no installed vendor SDK and therefore no SDK telemetry key to
-   set), rclone/Dropbox corpus sync, operator-configured SQL endpoints, and
+   set), rclone/Dropbox corpus sync, and
    the one-time embedding-model bootstrap fetch (`HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` stay conditional
    on the model being cached, or on the opt-in
    `models.embeddings.offline_after_index` flag plus a completed retrieval
@@ -174,15 +175,13 @@ or launcher lands unclassified:
    its first-use CDN model fetch is functional egress when a NeMo
    feature invokes that loader; active gateway check flows need no
    embedding fetch), git's local subcommands (documented out of the overlay:
-   it reads none of the canonical names), the vendored Unslop scanners, and
-   the core web/runtime/dev libraries. The operator install and setup
+   it reads none of the canonical names), and the core web/runtime/dev
+   libraries. The operator install and setup
    surface's own fetches are category 3, not here: the installers' `git
-   clone`/`pull` of the repository and the agentic workspace's doubly-gated
-   `git push`, `pip` and `uv` index access in the installers, the Dockerfile,
+   clone`/`pull` of the repository, `pip` and `uv` index access in the installers, the Dockerfile,
    the lock-refresh scripts and the cloud venv driver, the Dockerfile's
-   build-stage `apt-get` install, the setup script's `gh auth` calls and the
-   agentic layer's gated `gh pr` operations (gh's own telemetry and update
-   checks stay in categories 1 and 2), the confirmed Homebrew
+   build-stage `apt-get` install, the setup script's `gh auth` calls (gh's own
+   telemetry and update checks stay in categories 1 and 2), the confirmed Homebrew
    Python install, the confirmed Ollama model pull and the Ollama
    installer/download page, and the loopback readiness probes (`curl`, the
    Windows smoke suite's PowerShell HTTP cmdlets) -- all operator- or
@@ -209,12 +208,12 @@ and require their platform checks before closing the umbrella.
 | Concern | Disposition and boundary |
 |---|---|
 | TLS cookie deletion and public paths | Correct secure deletion attributes; redact paths containing spaces and UNC paths; retain distinct Windows corpus-relative citations. Implemented by [#1635](https://github.com/cgfixit/CyClaw/pull/1635); see [authentication design](docs/AUTHENTICATION_DESIGN.md). |
-| Git origin and helper lifetime | Independent origin pin and bounded helper-tree lifetime are owned by [#1630](https://github.com/cgfixit/CyClaw/pull/1630) (including startup/cleanup corrections), linked to [#1558](https://github.com/cgfixit/CyClaw/issues/1558). Require its checks and review; this umbrella does not duplicate that implementation. Global/system Git config and credential helpers remain operator-trusted. |
+| Git origin and helper lifetime | **Moot since 2026-10-18:** the agentic clone workspace this row covered was removed (`docs/THREAT_MODEL.md`, nineteenth amendment); kept as the closure record. Independent origin pin and bounded helper-tree lifetime are owned by [#1630](https://github.com/cgfixit/CyClaw/pull/1630) (including startup/cleanup corrections), linked to [#1558](https://github.com/cgfixit/CyClaw/issues/1558). Require its checks and review; this umbrella does not duplicate that implementation. Global/system Git config and credential helpers remain operator-trusted. |
 | Lock and wheel truthfulness ([#1631](https://github.com/cgfixit/CyClaw/pull/1631)) | Validate every maintained runtime/CI lock against its inputs, constraints and recorded hashes; stage whole refresh groups before publication; compare base wheel metadata. This detects drift, not reproducibility against a changing package index. Abrupt host failure during multi-file publication is detected by the stamp; it is not a filesystem transaction. |
 | Codex patch publication (#1631) | Bound the patch before upload and after download; require the exact approved old head at the remote update and a single child commit. Same-repository gating is already present. Workflow trust/ruleset governance and alert 1726 remain recorded in #1558 and the workflow-risk register above; accepted alert status is not remediation. |
 | Encrypted scheduled sync ([#1632](https://github.com/cgfixit/CyClaw/pull/1632)) | Retrieve only `RCLONE_CONFIG_PASS` at execution time from macOS Keychain or Windows Credential Manager; never write it into a schedule. Missing interactive unlock, inaccessible credentials or unavailable rclone must fail noninteractively. Linux automatic keystore retrieval is unsupported; secure operator-managed environment injection remains available. See [sync setup](docs/SYNC_README.md). |
-| Verification confinement | Accept host-readable files and detached macOS descendants as documented limits; use trusted worktrees. Windows verification remains refused. No native isolation parity or hostile multi-tenant execution claim. Mirror preparation's cooperative time/disk limitation was dispositioned in #1557. |
-| MSSQL read-only behavior | Least-privilege DB roles are mandatory. ODBC access-mode hints and SQL screening are defense in depth; no deployed MSSQL enforcement evidence is claimed. Native integration validation is follow-up before expanding deployment claims. |
+| Verification confinement | **Moot since 2026-10-18:** the verification executor was removed (nineteenth amendment); kept as the closure record. Accept host-readable files and detached macOS descendants as documented limits; use trusted worktrees. Windows verification remains refused. No native isolation parity or hostile multi-tenant execution claim. Mirror preparation's cooperative time/disk limitation was dispositioned in #1557. |
+| MSSQL read-only behavior | **Moot since 2026-10-18:** the SQL connector was removed (nineteenth amendment); kept as the closure record. Least-privilege DB roles are mandatory. ODBC access-mode hints and SQL screening are defense in depth; no deployed MSSQL enforcement evidence is claimed. Native integration validation is follow-up before expanding deployment claims. |
 | Windows TLS private keys | [#1635](https://github.com/cgfixit/CyClaw/pull/1635) applies an owner-only protected DACL to temporary outputs before writing secret bytes; fail if restriction fails. Native Windows CI must validate the descriptor before merge. Administrator/backup privileges and pre-existing copies are outside this per-file control. |
 | Cookie transmission to other ports | Accepted browser limitation: cookies cannot be port-scoped. Use a dedicated hostname and TLS when other local services are untrusted. Origin-bound tokens do not prevent theft and replay. |
 | `key_configured` / 401 setup-state disclosure | Accepted low-impact configuration-state disclosure for the single-operator loopback service; no key value is disclosed. Revisit for remote or multi-tenant deployments. |
@@ -232,8 +231,8 @@ their documented limits: pattern screening is heuristic; attempt ceilings do not
 measure dollar spend; operator configuration and code review remain trust inputs.
 Request bodies are counted while streaming, including absent/false Content-Length.
 
-Optional follow-up research: stronger host-read and detached-process isolation,
-a native Windows verification sandbox, idle/reboot keystore availability under
-real service identities, deployed MSSQL role verification, CSP styling migration,
-and browser multi-tab CSRF ergonomics. A live-provider transfer or installed-service
+Optional follow-up research: idle/reboot keystore availability under real
+service identities, CSP styling migration, and browser multi-tab CSRF
+ergonomics. (Host-read isolation, a Windows verification sandbox and MSSQL role
+verification left this list when the executor and SQL connector were removed.) A live-provider transfer or installed-service
 reboot test is not implied by disposable local-config or hosted CI evidence.
