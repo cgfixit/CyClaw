@@ -1,8 +1,10 @@
 ---
 name: cyclaw-advisor
-description: Give read-only, source-backed CyClaw architecture, operations, and PR advice; inspect current code before describing routing, auth, retrieval, local models, or optional layers.
+description: Read-only CyClaw architecture and operations advisor for origin/main e73c434f (2026-10-18). High-signal since prior simplified form — ops_runner _write_body unlinks temp file on flush failure (disk-full orphan fix, #1686), Grok /health probe rstrip('/') (#1686), CYCLAW_PYTHON fail-closed exit 3 if not runnable file/command (#1687). Graph still 12 nodes. Six invariants and I6 unchanged (ops_runner subprocess-shim contract intact; unreachable real-repo-run dispatch removed earlier #1678).
 metadata:
   short-description: Current CyClaw architecture and operations advice
+  recorded-head: e73c434f36c93c264a58dae5a685fb7bcbce92c9
+  recorded-date: "2026-10-18"
 ---
 
 # CyClaw Advisor
@@ -14,6 +16,9 @@ out that authorized work using the relevant implementation workflow.
 Record the inspected base/head SHA. Fetch current main for repository/PR advice;
 for runtime troubleshooting distinguish the running checkout and operator config
 from upstream defaults. List open PRs before recommending overlapping work.
+
+This file was refreshed against `origin/main` `e73c434f` on 2026-10-18. It is a
+routing aid, not an authority snapshot. Code and `config.yaml` still win.
 
 ## Request path
 
@@ -63,6 +68,16 @@ its tests before claiming a platform sandbox guarantee. Windows has no
 backend: `production_sandbox()` refuses it, because Job Objects control
 process trees but confine neither filesystem nor network. See
 [environment notes](CyClaw-environment.md) for the platform source map.
+
+## Latest merges into origin/main (high-signal only)
+
+- **e73c434f / #1687** (2026-10-18): CYCLAW_PYTHON fail-closed — `utils/launchd_plist.py` now raises RuntimeError (exit 3) if explicit CYCLAW_PYTHON is not a runnable file or PATH command; absolute path recorded. No invariant impact.
+- **f287f888 / #1686** (2026-10-18): ops_runner `_write_body` moves close() into try so disk-full flush failure unlinks temp file (no orphan of skill text); Grok `/health` probe rstrip('/') on base_url; dead branches dropped in memory/policy, store, opentweet. Touches subprocess-shim cleanup only. Invariants 46/0 unchanged.
+- Earlier: #1678 removed unreachable real-repo-run dispatch from ops_runner (allowlist matches schema's five actions).
+
+## Recent activity summary
+
+Main tip is e73c434f (2026-10-18). High-signal activity is confined to out-of-band ops_runner cleanup (temp-file orphan on flush failure) and macOS launcher interpreter resolution (CYCLAW_PYTHON exit 3). Graph topology remains 12 nodes with audit convergence through guardrail_output; six invariants and I6 isolation unchanged. No new core contracts, NeMo changes, or EXECUTION_ENABLED posture shifts. Prefer live code and config.yaml over this routing aid.
 
 ## Advice and verification
 
