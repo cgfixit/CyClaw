@@ -333,6 +333,14 @@ events describe what rclone *would* copy, not what changed).
 | `sync_completed` | success | `direction`, `duration_sec`, `rclone_exit_code`, `counts`, `errors_n`, `aborted_for_safety`, `dry_run`, `corpus_changed` |
 | `sync_failed` | failure (rclone ran, exit ≠ 0) | same field set as `sync_completed` |
 | `sync_failed` | **exceptional** exit (timeout, retry-budget exhaustion, subprocess error) | same field set as above, **plus `error_type`** (the exception's type name only — never its message); `rclone_exit_code` is the last observed code or `null` if rclone never returned one. Any change evidence harvested before the exception fired is preserved (e.g. a file copied just before a timeout still counts toward `corpus_changed`/`counts`). |
+| `sync_check_subprocess_failed` | optional post-sync check could not launch (including permission or executable-format errors) | `ok: false`, `missing_local`, `missing_remote`, `differences`, `errors_n` |
+
+Per-file events preserve the complete relative filename, including colons in
+macOS/POSIX names, so SHA-256 lookup and the corpus-change signal use the copied
+file's actual path. If the copy succeeds but the optional integrity check cannot
+launch, its failed check result is returned alongside the successful copy result;
+per-file audits and exit 10 for a changed corpus are still emitted. This does not
+certify integrity: inspect `check_ok: false` and the check audit event.
 
 No field is ever named `query` (that would be SHA-256-hashed by the logger).
 
