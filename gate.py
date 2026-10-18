@@ -247,7 +247,10 @@ validate_api_numeric_config(cfg)
 _rl_cfg = ((cfg.get("api", {}) or {}).get("rate_limit", {})) or {}
 RATE_LIMIT_REQUESTS = _rl_cfg.get("max_requests", 60)
 RATE_LIMIT_WINDOW = _rl_cfg.get("window_seconds", 60)  # seconds
-RATE_LIMIT_DB_PATH = _rl_cfg.get("persist_path") or None
+# Anchored to _BASE_DIR like config.yaml and static/: a relative persist_path
+# otherwise followed the launch directory, silently resetting the limiter.
+_rl_persist = _rl_cfg.get("persist_path")
+RATE_LIMIT_DB_PATH = str(_BASE_DIR / Path(str(_rl_persist)).expanduser()) if _rl_persist else None
 # Rate-limit Postgres is a separate opt-in from the personality database:
 # explicit database_url, then CYCLAW_RATELIMIT_DB_URL; never CYCLAW_DB_URL.
 RATE_LIMIT_DB_URL = (

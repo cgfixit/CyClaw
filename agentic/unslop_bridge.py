@@ -206,7 +206,11 @@ def build_unslop_probe(
         }
 
     unslop_cfg = cfg.get("unslop") or {}
-    metrics_path = Path(unslop_cfg.get("metrics_path", "logs/unslop.jsonl"))
+    metrics_path = Path(unslop_cfg.get("metrics_path", "logs/unslop.jsonl")).expanduser()
+    if not metrics_path.is_absolute():
+        # Repo-root anchor, as utils/logger.py does for logs/: a CWD-relative
+        # path scattered metrics across whichever directory the loop ran from.
+        metrics_path = Path(__file__).resolve().parent.parent / metrics_path
 
     def _probe(
         response_text: str,
