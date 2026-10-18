@@ -88,11 +88,15 @@ class _OKResp:
 class _ModelsResp(_OKResp):
     """OpenAI-style /models envelope with a configurable model-id list."""
 
-    def __init__(self, model_ids):
+    def __init__(self, model_ids, has_more=None):
         self._ids = model_ids
+        self._has_more = has_more
 
     def json(self):
-        return {"object": "list", "data": [{"id": mid} for mid in self._ids]}
+        body = {"object": "list", "data": [{"id": mid} for mid in self._ids]}
+        if self._has_more is not None:
+            body["has_more"] = self._has_more
+        return body
 
 
 @pytest.fixture(autouse=True)
@@ -493,7 +497,7 @@ class TestCheckAll:
         assert claude.healthy is True
         assert seen["headers"]["x-api-key"] == "test-key-123"
         assert seen["headers"]["anthropic-version"] == "2023-06-01"
-        assert seen["url"] == "https://api.anthropic.com/v1/models"
+        assert seen["url"] == "https://api.anthropic.com/v1/models?limit=1000"
 
     def test_hybrid_rewritten_grok_base_url_is_not_probed(self, tmp_path, monkeypatch):
         # The probe carries GROK_API_KEY, so it must honour the same online
@@ -582,6 +586,29 @@ class TestCheckAll:
         claude = next(s for s in statuses if s.name == "claude_api")
         assert claude.healthy is False
         assert "claude-2.1" in claude.error
+        assert "not in provider /models list" in claude.error
+
+    def test_hybrid_claude_model_on_a_later_page_is_not_reported_missing(self, tmp_path, monkeypatch):
+        # Anthropic's /v1/models is paginated: a page with has_more=true that
+        # does not list the pin says nothing about whether the pin exists.
+        cfg_path = _write_cfg(tmp_path, mode="hybrid", claude_enabled=True, claude_model="claude-sonnet-5", probe_external=True)
+        monkeypatch.setattr(
+            health, "_http_get", lambda url, **kw: _ModelsResp(["claude-opus-4-8"], has_more=True)
+        )
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-123")
+        statuses = health.check_all(cfg_path)
+        claude = next(s for s in statuses if s.name == "claude_api")
+        assert claude.healthy is True
+
+    def test_hybrid_claude_complete_page_still_reports_retired_pin(self, tmp_path, monkeypatch):
+        cfg_path = _write_cfg(tmp_path, mode="hybrid", claude_enabled=True, claude_model="claude-2.1", probe_external=True)
+        monkeypatch.setattr(
+            health, "_http_get", lambda url, **kw: _ModelsResp(["claude-sonnet-5"], has_more=False)
+        )
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-123")
+        statuses = health.check_all(cfg_path)
+        claude = next(s for s in statuses if s.name == "claude_api")
+        assert claude.healthy is False
         assert "not in provider /models list" in claude.error
 
     def test_hybrid_unparseable_models_body_stays_healthy_claude(self, tmp_path, monkeypatch):

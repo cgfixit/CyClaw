@@ -45,6 +45,7 @@ import logging
 import os
 import posixpath
 import re
+import secrets
 import stat as statmod
 import sys
 from collections.abc import Callable, Iterator
@@ -1104,7 +1105,11 @@ class ScopedRoots:
         )
 
     def _atomic_write_posix(self, pfd: int, leaf: str, data: bytes) -> None:
-        tmp = f".{leaf}.{os.getpid()}.cyclaw-tmp"
+        # A random suffix, not the PID alone: a crash leftover from a recycled
+        # PID (every `docker run` is PID 1) made O_EXCL fail every write to this
+        # leaf until the 24 h orphan sweep. The .cyclaw-tmp suffix keeps the
+        # quota and sweep filters matching.
+        tmp = f".{leaf}.{os.getpid()}.{secrets.token_hex(4)}.cyclaw-tmp"
         try:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_NOFOLLOW, 0o600, dir_fd=pfd)
         except OSError as exc:
@@ -1479,7 +1484,7 @@ class ScopedRoots:
         real = self._win_resolve(sr, comps, must_exist=False)
         if real.exists() and not overwrite:
             raise FsConnectRuntimeError(f"{real} already exists; pass overwrite")
-        tmp = real.with_name(f".{real.name}.{os.getpid()}.cyclaw-tmp")
+        tmp = real.with_name(f".{real.name}.{os.getpid()}.{secrets.token_hex(4)}.cyclaw-tmp")
         tmp.write_bytes(data)
         os.replace(tmp, real)
         return {"bytes": len(data), "sha256": sha, "path": str(real)}

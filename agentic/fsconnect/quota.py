@@ -125,14 +125,17 @@ def recompute(sr: SafeRoot, now: datetime, generation: int) -> QuotaLedger:
 
 
 def is_stale(ledger: QuotaLedger | None, now: datetime, recompute_hours: int) -> bool:
-    """True if the ledger is missing, undated, or older than ``recompute_hours``."""
+    """True if the ledger is missing, undated, future-dated, or older than ``recompute_hours``."""
     if ledger is None:
         return True
     dt = parse_iso(ledger.computed_at)
     if dt is None:
         return True
     age_hours = (now.astimezone(UTC) - dt).total_seconds() / 3600.0
-    return age_hours >= recompute_hours
+    # A negative age (clock stepped back, ledger written on a skewed host) would
+    # otherwise never reach the threshold, and writer.py carries computed_at
+    # forward unchanged, so out-of-band writes would stay uncounted for good.
+    return age_hours < 0 or age_hours >= recompute_hours
 
 
 __all__ = [

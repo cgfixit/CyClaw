@@ -163,8 +163,7 @@ def load_run(runs_dir: Path, run_id: str) -> RealRepoRunRecord:
         # shapes (a non-dict `data`, an unexpected key, a missing required
         # one), and it used to run OUTSIDE this try: the error skipped past
         # every caller's `except AgenticError`, reached main() uncaught, and
-        # exited 1 -- a code outside the documented 0/2/3/4 API, which
-        # utils/ops_runner.py maps to an unclassifiable "unknown" result.
+        # exited 1 -- a code outside the documented 0/2/3/4 API.
         raise AgenticError("run record is unreadable or corrupt", details={"run_id": run_id}) from exc
 
 

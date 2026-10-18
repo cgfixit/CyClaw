@@ -196,9 +196,16 @@ def apply_candidate_artifact(
             }
             _atomic_json(artifact_path, record)
             memory_path = Path(harness_cfg.memory_dir) / f"{proposal.variant_id}-{proposal.proposal_sha256[:12]}.json"
-            _atomic_json(memory_path, {key: value for key, value in record.items() if key != "proposal_text"})
+            memory_error: OSError | None = None
+            try:
+                _atomic_json(memory_path, {key: value for key, value in record.items() if key != "proposal_text"})
+            except OSError as exc:
+                memory_error = exc
         finally:
             _release_artifact_lock(lock_dir)
+    # The artifact is on disk from here on, so its acceptance is audited even
+    # when the memory record failed; otherwise a retry wrote version N+1 and
+    # version N existed with no audit event at all.
     audit_log(
         {
             "event": "agentic_harness_candidate_accepted",
@@ -209,6 +216,18 @@ def apply_candidate_artifact(
         config_path=config_path,
         cfg=cfg,
     )
+    if memory_error is not None:
+        audit_log(
+            {
+                "event": "agentic_harness_memory_record_failed",
+                "variant_id": proposal.variant_id,
+                "version": version,
+                "errno": memory_error.errno,
+            },
+            config_path=config_path,
+            cfg=cfg,
+        )
+        raise memory_error
     audit_log(
         {"event": "agentic_harness_memory_recorded", "variant_id": proposal.variant_id, "version": version},
         config_path=config_path,

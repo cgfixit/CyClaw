@@ -282,7 +282,9 @@ def check_all(config_path: str = "config.yaml", cfg: dict | None = None) -> list
                     results.append(HealthStatus(name="claude_api", healthy=False, error=_safe_error(exc)))
                 else:
                     results.append(_ping(
-                        f"{claude_cfg['base_url'].rstrip('/')}/models", "claude_api",
+                        # The list is paginated (default 20, max 1000); the
+                        # default page can omit the configured model entirely.
+                        f"{claude_cfg['base_url'].rstrip('/')}/models?limit=1000", "claude_api",
                         headers={
                             "x-api-key": api_key,
                             "anthropic-version": claude_cfg.get("anthropic_version", "2023-06-01"),
@@ -391,6 +393,10 @@ def _ping(
             payload = resp.json()
             data = payload.get("data") if isinstance(payload, dict) else None
             listed = {m.get("id") for m in data if isinstance(m, dict)} if isinstance(data, list) else None
+            # A partial page (Anthropic's has_more) cannot prove the model is
+            # absent, so it is not treated as authoritative.
+            if isinstance(payload, dict) and payload.get("has_more") is True:
+                listed = None
         except ValueError:
             listed = None
         if listed is not None and expect_model not in listed:
