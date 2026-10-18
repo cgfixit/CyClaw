@@ -411,6 +411,49 @@ def test_apply_candidate_artifact_releases_lock(tmp_path: Path) -> None:
     assert not lock_dir.exists()  # lock dir gone after a normal apply
 
 
+def test_apply_candidate_artifact_audits_acceptance_when_memory_record_fails(tmp_path: Path) -> None:
+    # The accepted artifact is written before the memory record; a failing
+    # memory write used to skip the acceptance audit event entirely.
+    workspace, cfg = _workspace(tmp_path)
+    workspace.proposal_path.write_text("# Proposal\n\nGeneral fix.", encoding="utf-8")
+    decision = decide_candidate(
+        baseline=RunReport("baseline", train_passed=True, holdout_passed=True, score=0.1),
+        candidate=RunReport(
+            "candidate",
+            train_passed=True,
+            holdout_passed=True,
+            score=0.9,
+            changed_surfaces=("planner",),
+        ),
+        allowed_surface_ids={"planner"},
+        proposal_present=True,
+    )
+    proposal = propose_candidate_application(decision, Variant("candidate", ("planner",), "proposal.md", str(workspace.root)), workspace, cfg=cfg)
+    config = _config(harness={"enabled": True})
+    config.mode = "write"
+    config.writes_enabled = True
+    config.harness_optimizer.output_dir = str(tmp_path / "output")
+    blocker = tmp_path / "memory-is-a-file"
+    blocker.write_text("not a directory", encoding="utf-8")
+    config.harness_optimizer.memory_dir = str(blocker)
+
+    with pytest.raises(OSError):
+        apply_candidate_artifact(proposal, config, reason="apply once", confirm=True, cfg=cfg)
+
+    artifact = tmp_path / "output" / "accepted" / f"{proposal.variant_id}.json"
+    assert json.loads(artifact.read_text(encoding="utf-8"))["version"] == 1
+    close_audit_handles()
+    events = [
+        json.loads(line)["event"]
+        for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert "agentic_harness_candidate_accepted" in events
+    assert "agentic_harness_memory_record_failed" in events
+    assert "agentic_harness_memory_recorded" not in events
+    assert not artifact.with_suffix(artifact.suffix + ".lock.d").exists()
+
+
 def test_stale_candidate_lock_is_reclaimed(tmp_path: Path) -> None:
     # A lock left by a crashed run (older than _LOCK_STALE_SEC) must be reclaimed
     # so a stale directory can never wedge the artifact accept path forever.

@@ -526,3 +526,14 @@ def test_successful_construction_still_holds_and_releases_fds(tmp_path):
         if os.name != "nt":
             assert _open_fd_count() == before + 2
     assert _open_fd_count() == before
+
+
+def test_write_survives_crash_leftover_from_a_recycled_pid(wroot):
+    # A killed process leaves .<leaf>.<pid>.cyclaw-tmp behind; when a later run
+    # reuses that PID (PID 1 in every container), O_EXCL on a PID-only name
+    # refused every write to the leaf until the 24 h orphan sweep.
+    sr, wr = wroot
+    (wr / f".out.txt.{os.getpid()}.cyclaw-tmp").write_bytes(b"")
+    res = sr.write_bytes("out.txt", b"generated", overwrite=False)
+    assert res["bytes"] == 9
+    assert (wr / "out.txt").read_bytes() == b"generated"
