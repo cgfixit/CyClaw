@@ -239,8 +239,8 @@ def test_write_body_unlinks_temp_file_when_write_fails(monkeypatch: pytest.Monke
 
 
 class _FlushFailsHandle(_WriteFailsHandle):
-    """A short body is only buffered by write(); the disk-full error comes from
-    the flush inside the first close()."""
+    # A short body is only buffered by write(); the disk-full error comes from
+    # the flush inside the first close().
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
