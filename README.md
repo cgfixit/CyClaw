@@ -35,6 +35,8 @@ Security review #1526's [residual decision register](SECURITY.md#issue-1526-resi
 separates implemented controls, accepted limits (native Windows verification
 stays disabled; supported confinement still permits host reads), and optional research.
 
+# CyClaw gives operators governed answers from private local documents without cloud exfiltration. Retrieval-first hybrid RAG, topology-enforced gates, and full audit trails ensure fail-closed behavior plus human consent on any external call—suited to regulated or air-gapped environments. On a single workstation it turns an existing library into a measurable, auditable Q&A system with explicit retrieval floors and spend controls.
+
 ## Quick Start
 
 **macOS (Apple Silicon)** — install, keys, Ollama, index, and startup:
