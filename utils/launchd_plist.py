@@ -84,7 +84,10 @@ def python_executable() -> str:
     probes the runtime deps, because these plists run CyClaw channels.
 
     Resolution order:
-      1. ``CYCLAW_PYTHON`` environment variable.
+      1. ``CYCLAW_PYTHON`` environment variable: a file path, or a name that
+         resolves on PATH (written to the plist as an absolute path, since
+         launchd starts jobs with a minimal PATH). Any other value raises
+         ``RuntimeError``: an explicit choice is never silently replaced.
       2. ``$CYCLAW_HOME/venv/bin/python`` if it exists.
       3. ``sys.executable``.
       4. ``python3`` / ``python`` on PATH.
@@ -94,12 +97,20 @@ def python_executable() -> str:
     that would crash-loop under ``KeepAlive``.
     """
     candidate: str | None = os.environ.get("CYCLAW_PYTHON")
-    if not candidate:
-        home = os.environ.get("CYCLAW_HOME")
-        if home:
-            venv_python = Path(home) / "venv" / "bin" / "python"
-            if venv_python.is_file():
-                candidate = str(venv_python)
+    if candidate:
+        explicit = candidate if os.path.isfile(candidate) else shutil.which(candidate)
+        if not explicit:
+            raise RuntimeError(
+                f"CYCLAW_PYTHON={candidate!r} is neither a file nor a command on PATH; "
+                "point it at a Python that has the runtime deps, or unset it"
+            )
+        _probe_python(explicit)
+        return explicit
+    home = os.environ.get("CYCLAW_HOME")
+    if home:
+        venv_python = Path(home) / "venv" / "bin" / "python"
+        if venv_python.is_file():
+            candidate = str(venv_python)
     if not candidate:
         candidate = sys.executable or "python"
     if candidate and os.path.isfile(candidate):
