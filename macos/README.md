@@ -212,6 +212,14 @@ Generators write resolved paths and (for Telegram) chain the Keychain
 wrapper so tokens never appear in the plist. They print a `launchctl
 bootstrap` command; they never load the agent themselves.
 
+The plist's interpreter is `CYCLAW_PYTHON` when it names an existing file,
+else `$CYCLAW_HOME/venv/bin/python` when it exists, else the Python running the
+generator (`utils/launchd_plist.py`). A `CYCLAW_PYTHON` that names no file is
+not an error: the generator falls back to `python3`/`python` on `PATH`, so check
+the interpreter in the printed plist. Whichever is chosen must import `fastapi`
+and `uvicorn`; if it cannot, the generator refuses with exit 3 and writes
+nothing, because launchd would otherwise restart a broken agent forever.
+
 Hand-editing a template: replace every `REPLACE_*` value, create
 `~/Library/Logs/CyClaw`, test `ProgramArguments` by hand, then copy to
 `~/Library/LaunchAgents/` and load **explicitly**.

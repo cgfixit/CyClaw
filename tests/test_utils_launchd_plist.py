@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import os
 import plistlib
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from utils import launchd_plist
 
@@ -22,6 +25,20 @@ def _completed(returncode: int = 0) -> MagicMock:
 
 def test_python_executable_prefers_sys_executable() -> None:
     assert launchd_plist.python_executable()  # non-empty, resolvable in this env
+
+
+def test_probe_maps_an_unrunnable_interpreter_to_runtime_error() -> None:
+    # Callers map RuntimeError to exit 3; a raw OSError/TimeoutExpired would
+    # escape them as a traceback.
+    with patch("utils.launchd_plist.subprocess.run", side_effect=PermissionError(13, "denied")):
+        with pytest.raises(RuntimeError, match="could not be run"):
+            launchd_plist._probe_python("/not/executable/python")
+    with patch(
+        "utils.launchd_plist.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="python", timeout=10),
+    ):
+        with pytest.raises(RuntimeError, match="could not be run"):
+            launchd_plist._probe_python("/slow/python")
 
 
 def test_current_uid_matches_os_getuid_when_present() -> None:

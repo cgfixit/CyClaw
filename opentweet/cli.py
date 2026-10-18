@@ -213,7 +213,11 @@ def cmd_schedule_plist(args: argparse.Namespace) -> int:
         return _disabled_notice()
 
     repo_root = Path(__file__).resolve().parent.parent
-    inner_argv = _post_inner_argv(cfg, args.config)
+    try:
+        inner_argv = _post_inner_argv(cfg, args.config)
+    except RuntimeError as exc:
+        _err(str(exc))
+        return EXIT_ENV
     secrets = [(args.token_service, cfg.api_key_env)]
     if args.query_env_service:
         secrets.append((args.query_env_service, cfg.query.api_key_env))

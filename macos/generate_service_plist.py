@@ -163,7 +163,12 @@ def main(argv: list[str] | None = None) -> int:
     env: dict[str, str] = dict(scheduler_env_overlay())
 
     port = _read_gate_port(Path(args.config).resolve())
-    inner_argv = [launchd_plist.python_executable(), str(_REPO_ROOT / "gate.py")]
+    try:
+        python = launchd_plist.python_executable()
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 3
+    inner_argv = [python, str(_REPO_ROOT / "gate.py")]
     # NOTE: gate.py does not accept --config; it always loads config.yaml from
     # the repo root (anchored via _BASE_DIR). The --config flag above is for the
     # operator's verification only ("what port will this use?"); the actual plist
