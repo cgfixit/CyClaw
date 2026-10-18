@@ -43,8 +43,7 @@ def run_read(
             return client.fs_largest(target, root=root, top=top, min_bytes=min_bytes)
         # Typed, not ValueError: fsconnect/cli.py's _run_read() only catches
         # FsConnectError, so a bare builtin would escape as an uncaught traceback
-        # (exit 1) instead of the documented fsconnect exit-code API. Mirrors
-        # sqlconnect/context.py's run_op() for the same reason.
+        # (exit 1) instead of the documented fsconnect exit-code API.
         raise FsConnectError(
             f"unknown read op: {op!r}",
             code="FSCONNECT_BAD_ARG",
