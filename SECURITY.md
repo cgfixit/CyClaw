@@ -198,7 +198,7 @@ image ENV instead.
 
 Sensitive paths are listed in `.github/CODEOWNERS`; changes there are review-requested automatically.
 
-Bidi and tag-character checks in `.githooks/_security.sh` skip a hit only when the file name matches `SEC_BINARY_GLOBS` and the line is invalid UTF-8 (and `iconv` is available). Executable and archive types (`*.whl`, `*.jar`, `*.so`, `*.dll`, `*.exe`, `*.dylib`) are currently exempt under that condition; #1624 tracks narrowing. Secret patterns still run on these files.
+Bidi and tag-character checks in `.githooks/_security.sh` skip a hit only when the file name matches the media-only `SEC_MEDIA_GLOBS` list (raster images, audio/video, fonts and PDF), the line is invalid UTF-8, and `iconv` is available. Archives, Office documents and executables are not exempt; valid UTF-8 media-looking text is reported too. Filename colons are encoded as `%3A` in scan records so they cannot spoof a media suffix; tag messages and raw-blob refs never receive the media exception. Renames scan destination bytes, so an unchanged media blob renamed to an executable or archive is checked under its new name. Secret patterns still run on every file. These are raw-byte scans, not archive unpacking or media decoding. Hooks remain a speed bump; CI remains the enforcement layer.
 
 ## Issue #1526 residual decisions (2026-10-12)
 
