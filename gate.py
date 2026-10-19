@@ -1001,7 +1001,9 @@ async def index_build(
         )
     if os.environ.get("CYCLAW_API_KEY", ""):
         try:
-            require_api_key(request, credentials, cyclaw_console, cyclaw_session)
+            # Off the event loop: an admin-session cookie means an auth-DB lookup,
+            # which every Depends(require_api_key) route already runs in a thread.
+            await asyncio.to_thread(require_api_key, request, credentials, cyclaw_console, cyclaw_session)
         except HTTPException as exc:
             await _audit({"event": "index_build_rejected", "reason": "credential", "ip": client_host})
             if exc.status_code != 401:
