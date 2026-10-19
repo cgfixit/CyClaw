@@ -149,7 +149,7 @@ for mutation in missing-metadata optional-only wrong-release missing-constraint 
     missing-metadata) sed -i.bak '/"torch==/d' "$i/pyproject.toml" ;;
     optional-only)
       sed -i.bak '/"torch==/d' "$i/pyproject.toml"
-      sed -i.bak '/^mssql = \[/a\
+      sed -i.bak '/^pgvector = \[/a\
     "torch=='"$real_pin"'",\
 ' "$i/pyproject.toml"
       ;;

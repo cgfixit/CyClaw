@@ -131,16 +131,9 @@ compile_lock "$linux" requirements-ci-numbat-lock-linux.txt "$inputs/numbat.txt"
 compile_lock "$linux" requirements-ci-postgres-lock-linux.txt "$inputs/postgres-job.txt"
 compile_lock "$linux" requirements-ci-bandit-lock-linux.txt "$inputs/bandit.txt"
 
-compile_lock "$linux" requirements-ci-deepagents-lock-linux.txt "$inputs/deepagents.txt"
-compile_lock "$windows" requirements-ci-deepagents-lock-windows.txt "$inputs/deepagents.txt"
-compile_lock native requirements-ci-deepagents-lock-macos.txt "$inputs/deepagents.txt"
-
 compile_lock "$linux" requirements-extra-lock-postgres-linux.txt "$inputs/extra-postgres.txt"
 compile_lock "$linux" requirements-extra-lock-pgvector-linux.txt "$inputs/extra-pgvector.txt"
-compile_lock "$linux" requirements-extra-lock-mssql-linux.txt "$inputs/extra-mssql.txt"
 compile_lock "$linux" requirements-extra-lock-dev-linux.txt "$inputs/extra-dev.txt"
-compile_lock "$linux" requirements-extra-lock-agentic-deepagents-linux.txt "$inputs/extra-agentic-deepagents.txt"
-compile_lock "$linux" requirements-extra-lock-agentic-deepagents-cloud-linux.txt "$inputs/extra-agentic-deepagents-cloud.txt"
 
 "$python_bin" "$repo_root/scripts/check_lock_contract.py" --publish ci --staged "$lock_dir"
 echo "ci locks written"

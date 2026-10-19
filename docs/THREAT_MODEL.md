@@ -1332,5 +1332,5 @@ amendment), and every core-path control. Earlier amendments that describe the
 removed code (the first through sixth, the eighth's agentic bullets, and the
 sixteenth's pipeline bullet) are kept as the dated record and marked
 superseded where they start. The `agentic-deepagents`,
-`agentic-deepagents-cloud` and `mssql` dependency extras are now unused and
-leave in a follow-up change.
+`agentic-deepagents-cloud` and `mssql` dependency extras went with them, in a
+follow-up change that re-locked on the macOS host.

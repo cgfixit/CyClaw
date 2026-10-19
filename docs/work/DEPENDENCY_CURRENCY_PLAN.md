@@ -2,10 +2,11 @@
 
 > **Status update — 2026-09-28 (doc drift vs `constraints.txt`):** the 2026-09-06
 > re-verify below is no longer the pin set. Current constraints are `ruff`
-> `0.16.8`, `mypy` `2.3.0`, `langgraph` `1.2.11`, `langchain` `1.4.2`,
-> `langchain-openai` `1.6.2`, `fastapi` `0.141.1`, `uvicorn` `0.53.0`,
-> `langchain-core` `1.6.3`, `psycopg` `3.3.6`, `pgvector` `0.5.0`, and
-> `websockets` `15.0.1`. The psycopg/pgvector bump this note used to leave open
+> `0.16.8`, `mypy` `2.3.0`, `langgraph` `1.2.11`, `fastapi` `0.141.1`,
+> `uvicorn` `0.53.0`, `langchain-core` `1.6.3`, `psycopg` `3.3.6`, `pgvector`
+> `0.5.0`, and `websockets` `15.0.1`. (`langchain` and `langchain-openai` left
+> `constraints.txt` with the `agentic-deepagents` extra after the 2026-10-18
+> agentic removal; they are no longer bump candidates.) The psycopg/pgvector bump this note used to leave open
 > has landed. `websockets` is still `15.0.1`. Tables under the older status
 > blocks stay historical.
 
@@ -125,16 +126,14 @@ libraries that a routine bump would be likely to break.
 | `pgvector` | 0.4.2 | 0.5.0 | minor |
 
 **Where pinned:** `langgraph` in all 4 surfaces; `langchain`/`langchain-openai`
-in `pyproject.toml` (`agentic-deepagents` extra) + `constraints.txt` only
-(not in the default install path; since the 2026-10-18 agentic removal no
-CyClaw code imports them, and the extra is slated for removal); `psycopg`/`pgvector` in `pyproject.toml` (`postgres`/`pgvector`
+are no longer pinned anywhere (the `agentic-deepagents` extra was dropped after
+the 2026-10-18 agentic removal); `psycopg`/`pgvector` in `pyproject.toml` (`postgres`/`pgvector`
 extras) + `constraints.txt` only. Note `psycopg-binary` is pinned separately
 in `constraints.txt` (constraints files can't carry the `[binary]` extra) —
 bump both together.
 
 **Verification after bumping:**
 - `langgraph`: `GROK_API_KEY=dummy pytest tests/test_graph.py tests/test_due_diligence_invariants.py -q`, then `python3 .claude/skills/invariant-guard/check_invariants.py` (I1-I4 depend on `graph.py`'s actual LangGraph wiring behaving the way the checker expects — a `langgraph` bump that changes edge/routing semantics would be exactly the kind of regression the checker exists to catch).
-- `langchain`/`langchain-openai`: no test target remains — `tests/test_agentic_harness_phase679.py`, `tests/test_agentic_deepagent_optional.py` and the `deepagents-harness` CI job went with the agentic coding loop on 2026-10-18. Drop these pins with the orphaned extra rather than bumping them.
 - `psycopg`/`pgvector`: `pytest tests/test_personality_postgres.py tests/test_ratelimit_postgres.py tests/test_pgvector_store.py -q` against a live Postgres/pgvector service (the `postgres-backend` CI job's own test target — needs the service container, not runnable standalone without one).
 
 ---
@@ -177,8 +176,7 @@ bump both together.
 ## Suggested execution shape for the follow-up PR(s)
 
 1. **Tier 1** (`ruff`, `mypy`) — one small PR, `ruff check` clean, done.
-2. **Tier 2** (`langgraph`, `langchain`, `langchain-openai`, `psycopg`,
-   `pgvector`) — one PR, run each package's listed verification command,
+2. **Tier 2** (`langgraph`, `psycopg`, `pgvector`) — one PR, run each package's listed verification command,
    confirm `dep-guard` and `invariant-guard` still pass clean after.
 3. **Tier 3** (`fastapi`, `uvicorn`, `langchain-core`) — one PR, full test
    suite, changelog-checked first.
