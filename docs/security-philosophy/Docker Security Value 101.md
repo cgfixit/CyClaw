@@ -3,7 +3,7 @@
 **Status:** operator education · claim-vs-reality · not a threat-model amendment
 **Authority:** running code + `docs/THREAT_MODEL.md` + `docs/DOCKER.md` + `deploy/{seccomp,falco,apparmor}/` win if this file and those disagree.
 **Audience:** operator who needs ELI5 first, then Tech101, then an honest map of what CyClaw actually ships.
-**Date:** 2026-08-28
+**Date:** 2026-08-28 (agentic-executor passages updated 2026-10-18 after its removal)
 
 **One-line map:** containers are cheap apartments on a shared building (the host kernel). AppArmor is the lease. Seccomp is which buttons on the elevator you are allowed to press. Falco is the hallway camera that *records*, it does not lock doors. Firecracker/microVMs are “give that tenant their own tiny house with their own electrical panel.” CyClaw ships the apartment + lease + elevator limits + optional camera. It does **not** ship the tiny house. That is explicit in the threat model, not an oversight.
 
@@ -34,9 +34,9 @@ Imagine a big apartment building. The building’s plumbing, electricity, and fr
 - **gVisor** = fake kernel in userspace that intercepts syscalls. Stronger than Docker, weaker/weirder than a real VM.
 - **Kata Containers** = “run this OCI container inside a lightweight VM.” Not an isolation primitive itself; it *uses* Firecracker/Cloud Hypervisor/QEMU.
 - **Landlock** = newer Linux LSM, path-based, no privileged profile load. CyClaw deferred it.
-- **Seatbelt (`sandbox-exec`)** = macOS’s version of “lease + no network + stay in this folder.” CyClaw’s agentic executor uses this on Darwin.
-- **Windows Job Object** can bound process lifetime, but cannot confine filesystem or network access. CyClaw refuses Windows verification until an equivalent confinement boundary exists.
-- **bubblewrap** gives Linux verification a read-only host filesystem view, a writable disposable copy, and separate PID/network namespaces. CyClaw refuses execution if this boundary cannot be created.
+- **Seatbelt (`sandbox-exec`)** = macOS’s version of “lease + no network + stay in this folder.” CyClaw’s agentic executor used this on Darwin until it was removed (2026-10-18).
+- **Windows Job Object** can bound process lifetime, but cannot confine filesystem or network access. That is why CyClaw's removed executor refused Windows verification.
+- **bubblewrap** gives a Linux child a read-only host filesystem view, a writable disposable copy, and separate PID/network namespaces. CyClaw's removed executor used it for verification checks.
 
 ---
 
@@ -90,7 +90,7 @@ CyClaw’s `deploy/apparmor/cyclaw-gate` is Stage 4: opt-in candidate. Writes on
 
 Runtime detection. eBPF (modern probe, kernel ≳ 5.8) or older drivers. Reads syscalls from the host and matches rules.
 
-CyClaw overlay (`deploy/falco/falco_rules.yaml`) watches five things: unexpected exec, any shell, write outside allowed roots, unexpected outbound, optional tool outbound (`git`/`gh`/`rclone`). Detection only. Never blocks.
+CyClaw overlay (`deploy/falco/falco_rules.yaml`) watches five things: unexpected exec, any shell, write outside allowed roots, unexpected outbound, optional tool outbound (`rclone`/`git`). Detection only. Never blocks.
 
 Why it ships **disabled**: the sidecar is privileged with host `/proc`, tracing, and a Docker socket mount. `:ro` on the socket inode does **not** make the Docker API read-only. Giving an auto-responder that socket to “kill the bad container” is how you add a privileged DoS control plane. Leave it off unless you accept host-kernel access and will actually read the logs.
 
@@ -120,7 +120,7 @@ Kata = OCI runtime that *puts the container in a VM*. Cloud Hypervisor = cousin 
 | gVisor | “can we pretend to be the kernel in userspace?” | host kernel still there, narrower surface | not shipped |
 | Firecracker / Kata / Cloud HV | “does this workload have its own kernel?” | no (guest kernel) | not shipped, Stage 5 parked |
 | Full VM / hypervisor | same, heavier | no | Docker Desktop’s Linux VM is this *for the whole engine*, not per workload |
-| Darwin Seatbelt / Linux bubblewrap | native child confinement for the **agentic executor**, not the gate | yes | shipped in `production_sandbox()`; missing confinement fails closed and Windows verification is refused |
+| Darwin Seatbelt / Linux bubblewrap | native child confinement for the **agentic executor**, not the gate | yes | removed 2026-10-18 with the executor (`production_sandbox()` no longer exists) |
 
 Threat-model self-score: **4/10 versus hostile-workload containment.** Proportionate for “I run my RAG server on a box I own.” Insufficient if you start selling “the agent can execute untrusted code safely.”
 
@@ -142,13 +142,7 @@ Application policy is still the primary boundary: RAG-first, topology=policy, tr
 - AppArmor `cyclaw-gate` overlay
 - custom seccomp allowlist (procedure exists, artifact does not)
 
-**Agentic executor jail (`production_sandbox()`, #1153/#1160) — different product surface from Docker:**
-
-- Windows: verification is refused before a child starts; Job Objects alone are insufficient.
-- macOS: `sandbox-exec` Seatbelt — deny network, writes limited to a fresh Gitless copy and private scratch; authoritative checkout, `.git` and trusted baseline stay unwritable. Detached descendants remain confined.
-- Linux: bubblewrap — filesystem, PID and network isolation; read-only host mounts and only the disposable copy/private scratch writable.
-- Every check gets a fresh copy. Only status/output returns; check-generated files are never copied back.
-- missing binary / EPERM → `HardSandboxUnavailable`. No silent `subprocess.run` fallback in production
+**Agentic executor jail (`production_sandbox()`, #1153/#1160) — removed 2026-10-18.** The Seatbelt/bubblewrap child jail that confined the agentic verification checks went with the executor and the coding loop (`docs/THREAT_MODEL.md`, nineteenth amendment). Nothing in CyClaw now runs code from a model-patched worktree, so there is no child jail to describe here.
 
 **Explicit non-goals from `docs/THREAT_MODEL.md`:** no per-workload microVM, no defense against hostile local root, no internet-facing multi-tenant deployment, no “the confirmation checkbox was a human.” `user_confirmed_online` is a self-asserted field on an unauthenticated `/query` unless you turn auth on.
 
@@ -172,9 +166,9 @@ Turn on Falco if: you will read the logs and accept a privileged sidecar. Otherw
 
 Finish Stage 3 (traced seccomp) and Stage 4 (enforced AppArmor) if: you run the GHCR image on a real Linux host as the long-term path and want the container to fail closed on “shell appeared” / “wrote `/etc`.”
 
-Reach for Firecracker/gVisor/Kata if and only if: the executor runs code you did not pick, for a tenant you do not trust, on a host that holds other tenants’ data. That is a threat-model amendment, not a compose flag. CyClaw’s own docs say do not add that wiring without that amendment and Stage-3-quality evidence.
+Reach for Firecracker/gVisor/Kata if and only if: a code executor runs code you did not pick, for a tenant you do not trust, on a host that holds other tenants’ data. That is a threat-model amendment, not a compose flag. CyClaw’s own docs say do not add that wiring without that amendment and Stage-3-quality evidence.
 
-The common lie in 2026 agent-sandbox marketing is collapsing all of the above into the word “sandboxed.” A process with a timeout is not a sandbox. A container is a sandbox of one strength. A microVM is another. CyClaw uses the first two (and platform child jails for the executor) and documents the third as parked. Keep the words honest and the architecture stays a moat. Inflate them and it becomes a career-signal problem the first time someone who knows KVM reads the README.
+The common lie in 2026 agent-sandbox marketing is collapsing all of the above into the word “sandboxed.” A process with a timeout is not a sandbox. A container is a sandbox of one strength. A microVM is another. CyClaw uses the first two and documents the third as parked. Keep the words honest and the architecture stays a moat. Inflate them and it becomes a career-signal problem the first time someone who knows KVM reads the README.
 
 ---
 
@@ -234,13 +228,13 @@ Two different “breakouts.” Do not mix them.
 Class	What it is	What stops it	Is this PsyClaw’s problem?
 Policy breakout	Model uses tools, files, or network you gave it, or abuses an allowed side channel	Don’t grant the tool. Offline default. Human gate. Soul/RAG scanners	Yes. This is the HF story.
 Kernel / runtime escape	Compromised process exploits shared kernel, docker.sock, GPU toolkit, and becomes host root	Custom seccomp, AppArmor, then gVisor/Kata/microVM	Only if you run untrusted code or multi-tenant Linux. Not your Mac laptop SKU.
-Your model is on the host. Putting the gate in Docker does not put the model in a box. An “escaped” gate on a single-operator Mac still has whatever you already granted via /ops, fsconnect, real-repo, or a bind mount.
+Your model is on the host. Putting the gate in Docker does not put the model in a box. An “escaped” gate on a single-operator Mac still has whatever you already granted via /ops, fsconnect, or a bind mount.
 You are already doing the load-bearing control
 Mostly-offline exists for this exact reason. OpenAI’s box was not air-gapped. The package proxy was the internet. CyClaw’s analog is: no outbound unless user_confirmed_online, hybrid search behind that gate, agentic writes human-gated, no “pip install whatever the model asked.” Keep that. Do not replace it with compose.
 What to spend the next dollar on
 Application first. LSM second, and only on the Linux path.
 1. Keep doors closed. No model-facing shell, no package install tool, no docker.sock, no unrestricted /web, no auto-loaded LaunchAgents. That is how OpenAI’s isolation died — an exception that looked harmless.
-2. Keep I1–I6 and production_sandbox() honest. Prompt injection → tool/soul/file/egress is your real breakout. Verification requires Seatbelt or bubblewrap confinement and refuses unsupported hosts; Docker around the gateway does not establish that child boundary.
+2. Keep I1–I6 honest. Prompt injection → tool/soul/file/egress is your real breakout. (The Seatbelt/bubblewrap verification jail and `production_sandbox()` went with the agentic executor on 2026-10-18.)
 3. Treat RAG/soul as hostile input. The HF side of the incident was “untrusted content executed on a worker.” Your equivalent is a poisoned corpus or a soul edit. Scanners and refuse-empty-reason already exist. That is the same class of bug.
 4. Docker + builtin seccomp + later AppArmor + default-off Falco stays the next Linux operator step if the gate process is compromised. It shrinks what a wrecked Python process can do to that host. It does not stop “the agent cheated.” Falco watches after the fact and needs a privileged sidecar. Do not sell it as breakout prevention.
 5. Stage 5 / microVM only if the product becomes untrusted skills, multi-user, internet-bind, or GPU multi-tenant. Your threat model already parks that. Do not pull it forward because of a lab eval with refusals off.

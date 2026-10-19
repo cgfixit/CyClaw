@@ -1,5 +1,7 @@
 # CyClaw Safe Agentic Enhancement — Master Plan (v0.1)
 
+> **Status update — 2026-10-18 (agentic removal):** REMOVED. The agentic layer this plan designed (GitHub context via `gh`, the GitHub write gate, the governed skills registry and the `agentic/cli.py` entry point) was deleted from the repository in October 2026; only the separately planned fsconnect and netconnect connectors remain (`docs/changelog.txt`, 2026-10-18 entry; `docs/THREAT_MODEL.md`, nineteenth amendment). Everything below is design history kept for its reasoning; none of it describes the current tree, and none of its open items will be picked up.
+>
 > **Status update — 2026-09-06 (docs review, Claude Code):** MOSTLY_COMPLETE. This doc's own inline 2026-08-15 corrections are accurate against current code: `agentic.enabled` ships `false`, but `EXECUTION_ENABLED` was armed 2026-08-07 and `agentic/real_repo_loop.py` implements `execute_write` for exactly one operation (`pr_create`, draft-only) behind the four-gate chain; `harness/registry_view.py`/`harness/skills_view.py` surface the registry read-only as roadmap item 4 claims. What remains unimplemented per the doc's own text: `pr_comment`/`issue_comment` stay plan-only (no `execute_write` support), so "real writes" is narrower than full parity.
 >
 > **What's left:**
@@ -100,7 +102,8 @@ behind the same `agentic.enabled` + mode flags), accepting the extra SCA surface
    by a sandboxed verification layer (`agentic/executor/`). **[Status correction
    2026-08-15]: subsequently armed.** `EXECUTION_ENABLED` was flipped to `True`
    on 2026-08-07 per the operator-signed checklist in
-   `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` — again consistent with this
+   `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` (deleted 2026-10-18; in git
+   history) — again consistent with this
    plan's own precondition that arming needed explicit sign-off first, which it
    got. `execute_write` is now live for exactly one operation (`pr_create`,
    always `--draft`); `pr_comment`/`issue_comment` remain plan-only. The write

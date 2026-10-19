@@ -2,10 +2,12 @@
 # CyClaw expanded smoke driver — exercises all major subsystems:
 #   - Core API (gateway + graph)
 #   - agentic/fsconnect (reads, writes, OS platform detection)
-#   - agentic/sqlconnect (read-only guard)
 #   - NeMo guardrails (soft import, offline path, rails)
 #   - PostgreSQL backends (skipped cleanly if CYCLAW_DB_URL unset)
 #   - Full pytest suite
+# Section letters are stable labels, not a sequence: C (agentic/sqlconnect)
+# was retired with that connector on 2026-10-18, and D-G kept their letters
+# because skills, commands and dated audits cite them (F = the full suite).
 # Run from the repo root: bash .agents/skills/cyclaw-sandbox/smoke.sh
 # Requires: deps installed, retrieval index built.
 # Env: GROK_API_KEY (default "dummy"), PYTHON (default "python3.12"), PORT (default 8787)
@@ -326,63 +328,6 @@ STATUS=$?
 [ $STATUS -eq 0 ] || { fail "agentic/fsconnect checks (see output above)"; }
 
 # ════════════════════════════════════════════════════════════════════════════
-section "C — agentic/sqlconnect (read-only guard)"
-# ════════════════════════════════════════════════════════════════════════════
-
-"$PYTHON" << 'PYEOF'
-import sys
-
-# 14. Lazy import gate for sqlconnect on core path
-import gate  # already imported; check modules
-mods = [m for m in sys.modules if 'sqlconnect' in m]
-assert not mods, f'ISOLATION BROKEN: {mods}'
-print("  PASS  agentic/sqlconnect lazy import isolation")
-
-from agentic.sqlconnect.client import assert_read_only_sql
-from utils.errors import SqlConnectError
-
-# 15. SELECT accepted
-result = assert_read_only_sql("SELECT id, name FROM users WHERE active = 1")
-assert "select" in result.lower()
-print("  PASS  sqlconnect SELECT guard (valid query accepted)")
-
-# 15b. WITH/CTE accepted
-result = assert_read_only_sql("WITH cte AS (SELECT id FROM t) SELECT * FROM cte")
-print("  PASS  sqlconnect WITH/CTE guard (accepted)")
-
-# 16. DML rejected
-for dml in ["INSERT INTO t VALUES (1)", "UPDATE t SET x=1", "DELETE FROM t"]:
-    try:
-        assert_read_only_sql(dml)
-        print(f"  FAIL  DML not rejected: {dml[:30]}")
-        sys.exit(1)
-    except SqlConnectError:
-        pass
-print("  PASS  sqlconnect DML rejection (INSERT/UPDATE/DELETE blocked)")
-
-# 17. SQL comment injection blocked
-for bad in ["SELECT 1 -- comment", "SELECT 1 /* block */"]:
-    try:
-        assert_read_only_sql(bad)
-        print(f"  FAIL  SQL comment not blocked: {bad[:40]}")
-        sys.exit(1)
-    except SqlConnectError:
-        pass
-print("  PASS  sqlconnect comment injection blocked (-- and /* */)")
-
-# 18. Multi-statement blocked
-try:
-    assert_read_only_sql("SELECT 1; DROP TABLE users")
-    print("  FAIL  multi-statement not blocked")
-    sys.exit(1)
-except SqlConnectError:
-    pass
-print("  PASS  sqlconnect multi-statement blocked (stacked ; rejected)")
-PYEOF
-STATUS=$?
-[ $STATUS -eq 0 ] || { fail "agentic/sqlconnect checks (see output above)"; }
-
-# ════════════════════════════════════════════════════════════════════════════
 section "D — NeMo guardrails"
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -534,7 +479,6 @@ Overall:   $OVERALL
 ## Sections
 - A: Core API (gateway + graph)
 - B: agentic/fsconnect (reads, writes, OS platform)
-- C: agentic/sqlconnect (read-only guard)
 - D: NeMo guardrails (soft import, offline path, rails)
 - E: PostgreSQL backends (soul DB, rate limiter, pgvector) — $([ -z "$PG_DSN" ] && echo "SKIPPED (no CYCLAW_DB_URL)" || echo "RAN")
 - F: Full pytest suite (passed=$PASSED skipped=$SKIPPED failed=${FAILED_C:-0})

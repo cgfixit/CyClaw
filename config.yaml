@@ -16,7 +16,7 @@ models:
     base_url: "http://127.0.0.1:11434/v1"  # DevSkim: ignore DS162092,DS137138 - Ollama loopback, offline-only
     # Optional api_key (not set here; quote numeric-looking values). With no key,
     # llm/client.py sends no Authorization header. fallback.api_key is separate.
-    model: "qwen3.8:27b-mlx"            # keep in sync with guardrails.model and agentic.deepagent_github.model
+    model: "qwen3.8:27b-mlx"            # keep in sync with guardrails.model
     # none | low | medium | high | max; sent only when provider is "ollama".
     # Absent or empty omits the field (Ollama then thinks by default); an invalid
     # value fails at boot. "none" requests thinking off; older Ollama rejects it,
@@ -651,115 +651,6 @@ sync:
   # extra_excludes:              # optional, appended AFTER hardened block
   #   - "scratch/**"
 
-# === Agentic layer (out-of-band, experimental v0.1) ===
-# Runs only via `python -m agentic.cli`; never imported by gate.py, graph.py
-# or the MCP server. enabled: false (or no enabled key) makes the CLI no-op;
-# a missing block is a config error. Reads use the `gh` CLI (argv list, no
-# shell, no token forwarded by CyClaw). The GitHub write path is armed in
-# code (agentic/writer.py EXECUTION_ENABLED=True) and by mode/writes_enabled
-# below; each write still needs a reason and confirm. Full gate chain:
-# docs/agentic/GITHUB_WRITE_ENABLEMENT.md.
-agentic:
-  enabled: false                 # off by default; CLI no-ops (exit 0) while false
-  repo: "cgfixit/CyClaw"         # validated: owner/name, no shell metacharacters
-  mode: "write"                  # "read" | "write" (armed; still needs enabled + reason + confirm)
-  writes_enabled: true           # second flag; writes need mode=write AND this AND reason AND confirm
-  gh_min_version: "2.40.0"       # `gh` version floor (X.Y.Z)
-  gh_timeout_sec: 30             # wall-clock ceiling per gh read subprocess
-  gh_retries: 2                  # extra attempts on a transient gh failure (timeout/5xx/429); others fail fast
-  registry_path: "data/agentic/skills_registry.json"  # validated: under repo data/ tree
-  allowed_read_ops:              # only these read ops may run
-    - pr_view
-    - pr_list
-    - pr_diff
-    - issue_view
-    - issue_list
-    - repo_view
-  # Real-repo coding pipeline (`real-repo-run`, agentic/real_repo_loop.py) plus the
-  # retired DeepAgents graph. Never imported by the core request path (I6).
-  # allow_deepagents_dependency and the allow_filesystem/shell/github flags govern
-  # only the retired graph; the real-repo pipeline reads every other key.
-  deepagent_github:
-    enabled: false
-    provider: "ollama"                          # "ollama" | "openai_compatible"
-    base_url: "http://127.0.0.1:11434/v1"        # DevSkim: ignore DS162092,DS137138 - local Ollama; config load refuses a non-loopback URL
-    model: "qwen3.8:27b-mlx"                    # keep in sync with models.local_llm.model and guardrails.model
-    # Per-call HTTP timeout for the planner's model call (local and cloud clients).
-    # Separate from models.local_llm.timeout_sec because this package cannot import
-    # the core (I6); its prompts are comparably large.
-    planner_timeout_sec: 720
-    # Reserved completion tokens per plan/coding call. Keep prompt + this budget
-    # below Ollama num_ctx; raise only after measuring.
-    planner_max_tokens: 3072
-    allow_deepagents_dependency: false           # extras must be installed explicitly
-    # Retired DeepAgents tool surface only. Real-repo file writes gate on
-    # allow_git_write_tools, not this flag.
-    allow_filesystem_write_tools: false
-    allow_shell_execution: false                 # no generic shell tool; true is refused (not implemented)
-    allow_github_writes: false                   # true is refused; agentic/writer.py owns GitHub writes
-    # Gates write_file and git checkout -b/add/commit/diff/push in a clone this
-    # layer made under workspace_root. push_branch reaches the real origin remote
-    # when armed; PR calls stay with agentic/writer.py. Separate from allow_shell_execution.
-    allow_git_write_tools: false
-    # A candidate that writes any of these is refused: they judge its own
-    # acceptance, so rewriting them would pass its checks by construction.
-    # An entry ending in "/" matches that directory; a bare filename matches at
-    # any depth.
-    protected_write_paths:
-      - "tests/"
-      - "conftest.py"
-      - ".github/"
-      - ".git/"
-      - "pyproject.toml"
-      - "setup.cfg"
-      - "pytest.ini"
-      # ruff config files override [tool.ruff] in pyproject.toml; tox.ini and
-      # noxfile.py can redefine how a declared check runs.
-      - ".ruff.toml"
-      - "ruff.toml"
-      - "tox.ini"
-      - "noxfile.py"
-      - ".claude/"
-      - ".codex/"
-      # config.yaml holds the safety tunables that config-validating checks read;
-      # CLAUDE.md holds the rules this loop runs under.
-      - "config.yaml"
-      - "CLAUDE.md"
-    max_write_budget_bytes: 100000               # total bytes ONE iteration may write; not per-file
-    # Blocks proposed content shaped like exfiltration, a reverse shell, obfuscated
-    # exec or a pipe-to-shell install; the prompt-injection scan misses these. A
-    # heuristic (see agentic/harness_optimizer/governance.py::inspect_code_shape).
-    # Set false only if it blocks a legitimate change; human diff review at
-    # pending_decision is the real gate either way.
-    scan_code_shape: true
-    # Length cap for cloud-provider prompts (sanitize_handoff); a longer prompt is
-    # refused, not truncated. Larger than policy.prompt_filter.max_input_chars (4000)
-    # because a real-repo prompt bundles read files and PR/issue diffs.
-    max_handoff_chars: 200000
-    workspace_root: "data/agentic/workspaces"    # validated: under repo data/ tree
-    # Gate 3 of six for cloud coding-loop providers: agentic.enabled,
-    # deepagent_github.enabled, allow_cloud_providers, providers.<name>.enabled,
-    # the provider's API key env var, and a per-run --confirm-online.
-    # A provider enabled while this is false is a config error (agentic config load fails).
-    allow_cloud_providers: true
-    providers:
-      grok:
-        enabled: true
-        model: "grok-4.5"                        # cite models.grok.model; re-verify at enable time
-      claude:
-        enabled: true
-        model: "claude-sonnet-5"                 # cite models.claude.model; same drift warning
-  # Governed harness optimizer. Applying a candidate only records a versioned local
-  # artifact, after the deterministic gates and a human reason/confirmation; it
-  # never mutates source, soul.md or GitHub.
-  harness_optimizer:
-    enabled: false
-    max_iterations: 3
-    require_human_confirm_for_accept: true
-    output_dir: "data/agentic/harness_optimizer/runs"
-    memory_dir: "data/agentic/harness_optimizer/memory"
-    allow_local_model_judge: false
-
 # === Filesystem connector (out-of-band) [v0.1 — experimental] ===
 # Absent or enabled: false disables it. Runs only via `python -m agentic.fsconnect.cli`;
 # never imported by gate.py, graph.py or the MCP server. Reads are scoped to
@@ -817,26 +708,6 @@ fsconnect:
   index_max_file_bytes: 10485760
   index_incremental: false       # true => skip files unchanged (size+mtime) since the last run
 
-# ===========================
-# SQL connector (out-of-band, READ-ONLY)  [v0.1 — disabled scaffold]
-# ===========================
-# Read-only Postgres / MSSQL, run only via `python -m agentic.sqlconnect.cli`.
-# enabled: false => CLI no-op; a missing block is a config error (exit 3). Neither touches the gateway.
-sqlconnect:
-  enabled: false
-  driver: "postgres"             # "postgres" | "mssql"
-  dsn_env: "CYCLAW_SQL_DSN"      # DSN comes from this env var only, never YAML
-  allowed_sql_ops:               # read ops to allow
-    - schema_list
-    - table_preview
-    - run_select                 # one SELECT/WITH statement only
-    - explain                    # query plan for a SELECT/WITH (Postgres only)
-    - row_count                  # count(*) without fetching rows
-  read_only: true                # must be true; a driver that can't open a read-only session is refused
-  statement_timeout_ms: 5000     # MSSQL uses whole seconds (min 1)
-  max_rows: 1000
-  allow_write: false             # must be false; v0.1 cannot write
-
 # === Passive LAN inventory connector (out-of-band) [v0.1] ===
 # Reads local host metadata and the OS's existing neighbor cache only: no ping,
 # port probe, subnet sweep, packet send, scheduler or API route. Every returned
@@ -867,7 +738,7 @@ guardrails:
                                   #   Active flows use Python checks, never extra LLM calls.
   engine: "openai"               # Ollama exposes an OpenAI-compatible API
   base_url: "http://127.0.0.1:11434/v1"  # DevSkim: ignore DS162092,DS137138 - loopback Ollama, offline-only
-  model: "qwen3.8:27b-mlx"           # keep in sync with models.local_llm.model and agentic.deepagent_github.model
+  model: "qwen3.8:27b-mlx"           # keep in sync with models.local_llm.model
   nemo_config_dir: "guardrails/config"  # holds config.yml + rails.co
   metrics_path: "logs/guardrails.jsonl" # separate from the audit log; hashes only
   block_message: "I can't help with that request. It was stopped by a CyClaw safety guardrail."
@@ -898,14 +769,6 @@ guardrails:
     - your instructions
     - persona
     - short-term memory
-
-# === UNSLOP: offline prose-quality rail for agentic/real_repo_loop.py (default off) ===
-# Flags AI-writing tells in local-model output. Log-only: findings are appended to
-# rejection feedback and never change acceptance. No network; scanners are vendored
-# under agentic/vendor/unslop/.
-unslop:
-  enabled: false
-  metrics_path: "logs/unslop.jsonl"
 
 # === Telegram channel (out-of-band) [v0.1; default off] ===
 # Runs only via `python -m telegram.cli`; gate.py, graph.py and mcp_hybrid_server.py

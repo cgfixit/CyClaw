@@ -14,9 +14,9 @@ Three independent surfaces can use Postgres; each is off unless you configure a 
 | Rate-limiter persistence | in-memory | `api.rate_limit.database_url` or `CYCLAW_RATELIMIT_DB_URL` (deliberately does **not** fall back to `CYCLAW_DB_URL` — see `gate.py`) | `rate_hits` |
 | Vector store (pgvector) | ChromaDB | `indexing.vector_backend: pgvector` + `indexing.database_url` / `CYCLAW_VECTOR_DB_URL` / `CYCLAW_DB_URL` | `kb_chunks` (+ HNSW index) |
 
-> The external `agentic/sqlconnect/` connector is a *separate* feature (read-only
-> access to an operator's own Postgres/MSSQL) and is unrelated to these internal
-> backends.
+> These are CyClaw's own internal stores. The separate read-only SQL connector
+> (`agentic/sqlconnect/`) that once queried an operator's own Postgres/MSSQL was
+> removed in October 2026 and never used these backends.
 
 ## Install
 

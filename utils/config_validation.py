@@ -5,7 +5,7 @@ Validates ``retrieval`` and ``personality`` blocks at boot so typos like
 instead of silent mis-routing or empty-prompt degradation at request time.
 
 Mirrors the dataclass ``__post_init__`` validation that ``sync/config.py`` and
-``agentic/config.py`` already perform for their blocks.
+``agentic/fsconnect/config.py`` already perform for their blocks.
 """
 
 from __future__ import annotations

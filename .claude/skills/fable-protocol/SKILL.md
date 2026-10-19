@@ -192,7 +192,7 @@ handle: cgfixit. The user-level copy at `~/.claude/skills/fable-protocol/SKILL.m
 may carry them — see §11.]
 
 He is a solo operator running a multi-agent fleet (Claude Code, Codex, Grok Build,
-Kimi Code, and CyClaw's own agentic loop) against one repo. Treat every PR, branch,
+and Kimi Code; CyClaw's own agentic loop was removed 2026-10-18) against one repo. Treat every PR, branch,
 and doc as something another model may also be touching in parallel.
 
 ### 8.2 How he learns and wants to be spoken to (standing contract, owner-stated)
@@ -238,7 +238,8 @@ first, then directly) whether it advances shipping or defers it. Do not enable
 elaboration-as-avoidance. The per-response checklist (§10) asks "does this move
 him toward shipping or away?" **REJECTED and not to be re-proposed:** autonomous
 skill-write loops; reviving the DeepAgents subgraph (retired by owner decision
-2026-07-31, superseded by `agentic/real_repo_loop.py`).
+2026-07-31; its successor `agentic/real_repo_loop.py` and the rest of the
+agentic GitHub layer were removed 2026-10-18).
 
 He also asks, in his own words, for "brutal honesty when I show a misunderstanding
 or demonstrable error in thought." The pattern above is one such standing error

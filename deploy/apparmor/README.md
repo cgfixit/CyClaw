@@ -16,7 +16,7 @@ It intentionally omits shells, `git`, `gh`, and `rclone`. Python-only `/ops`
 children can still start through the allowed interpreter and inherit this same
 profile; `/ops` actions that need an external executable fail closed. Treat it
 as one gate-runtime policy, not process-role isolation, until optional
-ops/executor processes are split into separately confined services.
+`/ops` processes are split into separately confined services.
 
 IPv4/IPv6 raw sockets, packet sockets, and AF_ALG are denied. Unprivileged
 netlink raw sockets remain allowed because glibc uses them for address-family
@@ -77,61 +77,18 @@ sudo apparmor_parser -R deploy/apparmor/cyclaw-gate
 docker compose up
 ```
 
-## `cyclaw-bwrap`: user namespaces for the agentic sandbox (Ubuntu 24.04)
+## Former `cyclaw-bwrap` profile (removed 2026-10-18)
 
-**Status: opt-in host profile, separate from `cyclaw-gate`.** Stock Ubuntu
-24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`, so bubblewrap
-cannot create its namespaces and `scripts/verify_agentic_sandbox.py` refuses
-(fails closed). The `deploy/apparmor/cyclaw-bwrap` profile lifts that block
-for one binary only. Never set the global sysctl to `0` instead: that removes
-the restriction for every program on the host. Ubuntu 26.04 and newer already
-ship an enforce-mode `bwrap` profile; do not load this one beside it (see
-below).
+This directory used to ship a second, host-level profile, `cyclaw-bwrap`, that
+let `/usr/bin/bwrap` create user namespaces on stock Ubuntu 24.04 for the
+agentic verification sandbox. The sandbox, its executor and
+`scripts/verify_agentic_sandbox.py` were removed in October 2026
+(`docs/THREAT_MODEL.md`, nineteenth amendment), so the profile went with them.
+`cyclaw-gate` above is now the only AppArmor profile CyClaw ships.
 
-What the profile grants:
-
-- It attaches to exactly `/usr/bin/bwrap`, the path apt's `bubblewrap`
-  package installs. There are no globs, no other binaries, and no
-  `local/` include.
-- Its only rule is `userns,`.
-- It uses `flags=(unconfined)`, so **bwrap itself runs without AppArmor
-  confinement**. The profile does not sandbox bwrap. CyClaw's sandbox comes
-  from bwrap's own flags (`--unshare-all --cap-drop ALL --die-with-parent
-  --new-session` in `agentic/executor/hard_sandbox.py`).
-- It needs AppArmor 4 (`abi <abi/4.0>`), so Ubuntu 24.04 or newer.
-
-Load, verify, and remove:
+A host that loaded `cyclaw-bwrap` keeps it until it is removed by hand:
 
 ```bash
-sudo apparmor_parser -r deploy/apparmor/cyclaw-bwrap
-python scripts/verify_agentic_sandbox.py
-sudo apparmor_parser -R deploy/apparmor/cyclaw-bwrap
+sudo apparmor_parser -R /etc/apparmor.d/cyclaw-bwrap
+sudo rm /etc/apparmor.d/cyclaw-bwrap
 ```
-
-To load it at boot, install it to `/etc/apparmor.d/cyclaw-bwrap` first; the
-[setup guide](../../setup-guide.md) has those commands.
-
-**Why not Ubuntu's `bwrap-userns-restrict`.** AppArmor's extra-profiles ship a
-stricter option that confines `bwrap` and stacks every child under
-`unpriv_bwrap` (no capabilities inside the namespace). CyClaw defaults to the
-one-rule profile on Ubuntu 24.04 because the stricter one is not userns-only
-(it also allows `capability`, `mount`, `ptrace`, `dbus`, `network`, and
-`rwlkm` on `/**`, a much larger policy that must match the host ABI — upstream
-declares `abi <abi/5.0>`), its main gain is what `--cap-drop ALL` already
-provides (what it adds is protection against *other* bwrap callers on the
-host), and CI on Ubuntu 24.04 proves the one-rule profile.
-
-**Ubuntu 26.04 and newer.** Those images already load
-`/etc/apparmor.d/bwrap-userns-restrict` (`profile bwrap /usr/bin/bwrap`) in
-enforce mode while the sysctl stays 1. `/usr/bin/bwrap` passes confinement.
-A copy at another path is refused with
-`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`. CI on those
-versions does not load `cyclaw-bwrap`. Loading it beside the stock profile
-makes `/usr/bin/bwrap` fail the same way. Do not install the 24.04 package pin
-`bubblewrap=0.9.0-1ubuntu0.3` there; use the candidate in `apt-cache policy
-bubblewrap`'s version table.
-
-**Residual risk.** With `cyclaw-bwrap` loaded, any local user can run
-`/usr/bin/bwrap` to get a user namespace — acceptable on a single-user CyClaw
-workstation. On shared hosts load `bwrap-userns-restrict` instead and rerun the
-verifier; never load both, since both attach to `/usr/bin/bwrap`.

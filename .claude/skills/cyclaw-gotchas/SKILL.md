@@ -263,7 +263,8 @@ expire it.
   READMEs returned 11 findings; all 11 held up on re-read, and the re-read
   cost seconds each.
 - **Docstrings are docs.** When a README derives from a package docstring,
-  fix both in the same commit or the drift regrows (`agentic/harness_optimizer`).
+  fix both in the same commit or the drift regrows (seen on the since-removed
+  `agentic/harness_optimizer`).
 - **`doc_sync.py` covers structured facts only** (D1–D13: skills list, entry
   points, config numbers, routes, node count, hook claims, the M5 doctrine
   citations, and README path/link/`python -m`/record-table references).

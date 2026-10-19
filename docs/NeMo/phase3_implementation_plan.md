@@ -9,8 +9,12 @@ related:
   - docs/agentic/AGENTIC_README.md
   - docs/HARNESS_POWERSHELL.md
   - guardrails/rails.py
-  - agentic/registry.py
 ---
+
+> **Status update — 2026-10-18 (agentic removal):** HISTORICAL. The agentic
+> code this plan names (`agentic/registry.py`, the harness optimizer,
+> `agentic.cli`, the skills-registry subcommands and sqlconnect) was removed too (`docs/changelog.txt`, 2026-10-18
+> entry). Of the `agentic/` package only `fsconnect/` and `netconnect/` remain.
 
 > Current status, 2026-10-03: this file preserves a historical plan. The shipped
 > configuration now enables guardrails. Missing or failed NeMo checks use
@@ -294,8 +298,9 @@ proof.
   as unwired, which Phase 2 changed)
 - `docs/NeMo/phase2_implementation_plan.md` — the input-rail node contract and
   the inversion-shim decision
-- `docs/agentic/AGENTIC_README.md`, `docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md` —
-  binding governance for the layer this redirect targets
+- `docs/agentic/AGENTIC_README.md` — the agentic package guide (since
+  2026-10-18 it covers only fsconnect and netconnect; the skills-registry
+  governance doc this line also cited was deleted with the registry)
 - `docs/HARNESS_POWERSHELL.md` — the PowerShell harness contract
 - `docs/THREAT_MODEL.md` — single-operator, loopback-bound scope; the basis for
   the capability-asymmetry argument

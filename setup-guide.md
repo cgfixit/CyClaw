@@ -5,7 +5,7 @@ Install execution verified 2026-07-29 against `main` (macOS path 2026-08-02);
 documentation reconciled with code 2026-09-21.
 
 This is the canonical setup guide (`docs/work/SETUP.md` and `docs/! How-To-Guides/setup-guide.md` redirect here). For the
-full architecture tour — agentic layer, filesystem/SQL connectors, NeMo
+full architecture tour — filesystem and network connectors, NeMo
 Guardrails, Telegram channel design, and the security model — see
 [`README.md`](README.md). This guide covers what's needed to get the core RAG
 gateway running and how to exercise every REST endpoint from a terminal.
@@ -158,106 +158,6 @@ Linux operators use the same file. For a one-line readiness check instead:
 ```bash
 curl -s http://127.0.0.1:8787/health
 ```
-
-### Optional agentic verification sandbox
-
-The gateway does not need a verification sandbox. Agentic repository checks do:
-Linux requires `bubblewrap` and permission to create its filesystem, PID and
-network namespaces. On Debian or Ubuntu, install the distribution package before
-enabling those checks (the version pins below are Ubuntu-only):
-
-```bash
-sudo apt-get update
-# Pins match the amd64 CI runners (also available for i386); not ARM.
-# Ubuntu 22.04 amd64/i386:
-sudo apt-get install --yes --no-install-recommends bubblewrap=0.6.1-1ubuntu0.3
-# Ubuntu 24.04 amd64/i386:
-# sudo apt-get install --yes --no-install-recommends bubblewrap=0.9.0-1ubuntu0.3
-# Ubuntu 26.04 and newer: do not use the 24.04 pin. Install the candidate
-# listed in `apt-cache policy bubblewrap`'s version table. On the 2026-10-13
-# GitHub ubuntu-26.04 image that candidate was 0.11.1-1ubuntu0.3.
-# Ubuntu ARM or Debian (inspect and use the distribution's current candidate):
-# apt-cache policy bubblewrap
-# sudo apt-get install --yes --no-install-recommends bubblewrap
-bwrap --version
-python scripts/verify_agentic_sandbox.py
-```
-
-The [Ubuntu package matrix](https://packages.ubuntu.com/bubblewrap) lists
-different ARM builds: as of 2026-10-08, Jammy arm64 is `0.6.1-1` and Noble
-arm64 is `0.9.0-1build1`. The x86 pins above therefore do not resolve on those
-ARM archives. Those older ARM versions are availability observations, not
-security approvals or instructions to downgrade; check the distribution's
-current candidate and security updates. CI installation evidence here is amd64;
-ARM operators must run the native probe on their own host.
-
-The command runs a disposable native confinement probe, without a test-suite
-runner. On Linux it also times out a check with a detached descendant and
-confirms namespace teardown removes that descendant. A missing backend or host
-policy that prevents isolation must fail this check; do not disable AppArmor or
-kernel restrictions to make it pass. Use a host
-with an administrator-approved bubblewrap policy instead.
-
-#### Stock Ubuntu 24.04: load the bubblewrap AppArmor profile
-
-Stock Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor, so
-bubblewrap cannot create its sandbox there. `scripts/verify_agentic_sandbox.py`
-then fails with `HardSandboxUnavailable: bubblewrap namespaces unavailable`, and
-CyClaw refuses agentic repository verification. That refusal fails closed: no
-check runs unconfined. The gateway and retrieval are not affected.
-
-The supported fix is the repository's bubblewrap-scoped AppArmor profile,
-[`deploy/apparmor/cyclaw-bwrap`](deploy/apparmor/README.md). It attaches only to
-`/usr/bin/bwrap` (the path the `bubblewrap` package installs) and grants that
-one binary user namespaces; every other program keeps the stock restriction.
-Because the profile is unconfined, bubblewrap itself runs without AppArmor
-confinement; the sandbox it builds is the boundary.
-
-Install and load it from the repository root, then rerun the probe:
-
-```bash
-sudo install -m 0644 deploy/apparmor/cyclaw-bwrap /etc/apparmor.d/cyclaw-bwrap
-sudo apparmor_parser -r /etc/apparmor.d/cyclaw-bwrap
-python scripts/verify_agentic_sandbox.py
-```
-
-A profile in `/etc/apparmor.d/` is reloaded at boot. To remove it:
-
-```bash
-sudo apparmor_parser -R /etc/apparmor.d/cyclaw-bwrap
-sudo rm /etc/apparmor.d/cyclaw-bwrap
-```
-
-This profile lets any local user start bubblewrap in a user namespace, which is
-fine on a single-user CyClaw workstation. On a shared or multi-user host, load
-Ubuntu's stricter `bwrap-userns-restrict` profile instead, as described in
-[`deploy/apparmor/README.md`](deploy/apparmor/README.md). Never load both;
-they attach to the same binary.
-
-#### Ubuntu 26.04 and newer: do not load `cyclaw-bwrap`
-
-Ubuntu 26.04 already loads `/etc/apparmor.d/bwrap-userns-restrict`
-(`profile bwrap /usr/bin/bwrap`) in enforce mode, and
-`kernel.apparmor_restrict_unprivileged_userns` stays 1. `/usr/bin/bwrap` can
-create its namespaces. A copy of `bwrap` at any other path is still refused
-(`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`).
-
-Do not load `cyclaw-bwrap` on that host. Both profiles attach to
-`/usr/bin/bwrap`, and with both loaded the confinement command fails the same
-way. Do not install the Ubuntu 24.04 pin `0.9.0-1ubuntu0.3` there; it is not
-in the `apt-cache policy bubblewrap` version table. Install the candidate
-that table lists. Do not write the sysctl.
-
-Do not turn off the system-wide user-namespace restriction to make the probe
-pass; that removes the protection for every program on the host, not just
-bubblewrap.
-
-macOS uses its Seatbelt backend and can run the same probe. Windows currently
-refuses agentic repository verification before launching a check: a Job Object
-does not provide the required filesystem/network boundary. The probe confirms
-that refusal on Windows. This does not disable the gateway or retrieval there.
-All supported checks run in a fresh Gitless copy and never copy writes back to
-the authoritative checkout. See [agentic workspace tools](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
 
 ---
 
@@ -491,11 +391,11 @@ public release to `2.13.0`; it cannot select the CPU wheel index. Keep the
 platform's Torch pre-install and constraints steps for editable and wheel installs.
 
 The `all` aggregate adds guardrails, cloud SDKs, and CEL to `full`. Both exclude
-`mssql`, which is an explicit native-driver opt-in. Before installing `.[mssql]`
-with the same platform constraints, install the native unixODBC driver manager
-on macOS/Linux and Microsoft's SQL Server ODBC driver for your platform.
-Windows uses its system ODBC driver manager. Installing the Python `pyodbc`
-package alone does not provide these native prerequisites.
+`mssql`. `full` still pulls `agentic-deepagents` and `all` adds
+`agentic-deepagents-cloud`: those extras and `mssql` served the agentic coding
+loop and the SQL connector, which were removed in October 2026. No CyClaw code
+imports them now; they leave the package metadata and locks in a follow-up
+change that needs a macOS re-lock. Do not install `.[mssql]`.
 
 Use `python gate.py` (or `cyclaw-server`) for normal startup: `gate.main()`
 applies the bind guard, TLS configuration, port override, and
@@ -765,9 +665,7 @@ caller always needs the real key or an admin login. See `INVARIANTS.md` Rule 6.
 | `/soul/restore` | POST | restore from the `.bak` copy |
 | `/audit/summary` | GET | aggregate audit stats only — never raw query text |
 | `/ops/sync` | POST | Dropbox corpus sync shim |
-| `/ops/agentic` | POST | agentic-layer shim |
-| `/ops/fsconnect` | POST | filesystem-connector shim |
-| `/ops/sqlconnect` | POST | SQL-connector shim |
+| `/ops/fsconnect` | POST | filesystem-connector shim (read-only actions) |
 | `/memory/status` | GET | memory flags + counts (200 even when off) |
 | `/memory/facts` | GET | list active facts (404 if master off) |
 | `/memory/episodes` | GET | list staged episodes (404 if master off) |
@@ -803,15 +701,11 @@ curl -s -X POST http://127.0.0.1:8787/soul/propose \
   --header "@$AUTH_HEADER" -H 'Content-Type: application/json' \
   -d '{"new_soul":"# Soul\n\nBe concise.","reason":"testing the scanner"}'
 
-# Operator consoles. "status" is the read-only action on each; every one of the
-# four takes an `action` field and nothing else is required.
+# Operator consoles. "status" is the read-only action on each; both take an
+# `action` field and nothing else is required.
 curl -s -X POST http://127.0.0.1:8787/ops/sync \
   --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
-curl -s -X POST http://127.0.0.1:8787/ops/agentic \
-  --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
 curl -s -X POST http://127.0.0.1:8787/ops/fsconnect \
-  --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
-curl -s -X POST http://127.0.0.1:8787/ops/sqlconnect \
   --header "@$AUTH_HEADER" -H 'Content-Type: application/json' -d '{"action":"status"}'
 ```
 
@@ -824,7 +718,6 @@ curl -s -X POST http://127.0.0.1:8787/ops/sqlconnect \
 | `POST /soul/reload` | adopts on-disk soul content without scanning; may record drift recovery or initialize a missing soul |
 | `POST /ops/sync` | with `action: "sync"` this is a **real rclone corpus transfer**. Only `"dry_run": true` makes it read-only; `action: "status"` is the safe probe |
 | `POST /ops/sync` with `action: "schedule"` / `"unschedule"` | installs or removes the sync schedule |
-| `POST /ops/agentic` | with `action: "apply-skill"` this writes a skill file. `action: "status"` is the safe probe |
 | `POST /memory/propose`, `/memory/apply`, `/memory/reject` | stage, apply, or reject a stored proposal when the corresponding memory gates are enabled |
 
 Use the `"status"` action on each `/ops/*` endpoint to inspect subsystem state.
@@ -920,12 +813,6 @@ a large model, not less — a bigger model does not raise `num_ctx` for you.
 Full detail, including the per-session `/set parameter num_ctx` alternative:
 [`docs/! How-To-Guides/OLLAMA_SETUP.md`](docs/!%20How-To-Guides/OLLAMA_SETUP.md).
 
-**Driving `agentic/real_repo_loop.py`** (`real-repo-run`/`real-repo-run-plan`)
-against the same Ollama instance
-needs more headroom than the formula above — that pathway's per-iteration
-prompt can legitimately run several times larger. See
-[`OLLAMA_SETUP.md`'s agentic context guidance](docs/!%20How-To-Guides/OLLAMA_SETUP.md#the-agentic-real-repo-coding-loop-needs-more-headroom-than-that).
-
 The shipped `local_llm.timeout_sec: 720` and `max_tokens: 4096` are sized for a
 dense ~27B MLX model on M5 Pro class Apple Silicon (see `CLAUDE.md`'s
 load-bearing-numbers table). Measure actual tok/s on the machine with
@@ -959,8 +846,8 @@ to be set.
 
 `/query`, `/health`, and the terminal UI itself need no key. But
 `/soul`, `/soul/propose`, `/soul/apply`, `/soul/reload`, and `/soul/restore`
-— along with the `/ops/sync`, `/ops/agentic`, `/ops/fsconnect`, and
-`/ops/sqlconnect` operator consoles — all require a Bearer `CYCLAW_API_KEY`
+— along with the `/ops/sync` and `/ops/fsconnect` operator consoles — all
+require a Bearer `CYCLAW_API_KEY`
 and fail **closed** (401) if it's unset. This is easy to miss because the
 terminal UI itself loads with no key at all; you'll only hit it when you try
 to use one of those consoles. The native installers persist this key in
@@ -1164,11 +1051,12 @@ and [Track B verification record](docs/audits/2026-10-03-nemo-track-b.md).
 
 ### Other layers
 
-CyClaw also ships a GitHub-context/governed-skills **agentic layer** and its
-real-repo coding loop, a local/SMB **filesystem connector**, a read-only **SQL
-connector**, an explicitly scoped passive **network connector**, a facts +
-episodes **memory store**, and the out-of-band **Telegram** and **OpenTweet**
-channels. Those layers ship disabled until you edit `config.yaml`.
+CyClaw also ships a local/SMB **filesystem connector**, an explicitly scoped
+passive **network connector**, a facts + episodes **memory store**, and the
+out-of-band **Telegram** and **OpenTweet** channels. Those layers ship
+disabled until you edit `config.yaml`. (The GitHub-facing agentic coding loop
+and the read-only SQL connector were removed in October 2026; see
+[`docs/agentic/AGENTIC_README.md`](docs/agentic/AGENTIC_README.md#8-removed-in-october-2026).)
 
 **NeMo Guardrails** ships enabled and its engine is a required base dependency.
 Without NeMo, deterministic input and soul-leak checks still run, and the

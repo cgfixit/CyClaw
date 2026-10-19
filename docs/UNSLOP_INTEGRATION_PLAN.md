@@ -1,5 +1,7 @@
 # Unslop Integration Plan — Offline Prose-Quality Rail for the Agentic Loop
 
+> **Status update — 2026-10-18 (agentic removal):** REMOVED. The UNSLOP rail (`agentic/unslop_bridge.py`, the vendored scanners under `agentic/vendor/unslop/`, the `unslop:` config block) and the real-repo loop it ran inside were deleted from the repository in October 2026 (`docs/changelog.txt`, 2026-10-18 entry; `docs/THREAT_MODEL.md`, nineteenth amendment). Everything below is design history kept for its reasoning; none of it describes the current tree, and none of its open items will be picked up.
+
 **Status:** v1 shipped in [#1029](https://github.com/cgfixit/CyClaw/pull/1029).
 **Original plan date:** 2026-08-21. **Status verified:** 2026-09-02 against
 `origin/main`. **v1 scope:** a default-off, fully-offline, non-blocking

@@ -14,8 +14,15 @@ entry point, harness launch/service targets, its `/api/*` endpoints and
 `tests/test_harness*`. The old extractor HTML/JS was removed in `c9b6b866`.
 Check the source inventory and packaging manifest instead of trying to boot
 these features. On the isolated gateway, confirm the removed HTML path returns
-404. Do not turn `agentic/harness_optimizer/`, `tests/test_agentic_harness*`, or the
-retired-but-retained DeepAgents compatibility suite into false deletion claims.
+404.
+
+On 2026-10-18 the agentic GitHub layer (`agentic/cli.py`, the skills
+registry, `real_repo_loop.py`, `harness_optimizer/`, `deepagent_github/`,
+the `executor/` verification sandbox, the Unslop bridge and `vendor/`) and
+`agentic/sqlconnect/` were removed together with `/ops/agentic`,
+`/ops/sqlconnect` and their `config.yaml` blocks. Confirm both routes return
+404 on the isolated gateway. Only `agentic/fsconnect/` and
+`agentic/netconnect/` remain under `agentic/`.
 
 The only shipped HTML console is `static/terminal.html`. It loads
 `static/terminal.js` and `static/auth_admin.js`; inspect all three for browser
@@ -59,7 +66,7 @@ disabled subprocess result.
 | `POST /query` | Schema 422, rate 429, injection rejection, correct routes/answers, timeout/error envelope. Same-origin always; session/device token and role checks only when auth enabled. API-key success is not session-auth proof. | `tests/test_gate.py`, `tests/test_gate_query_auth.py`, `tests/test_graph_outcomes.py` |
 | `POST /index/build`, `GET /index/status` | Build always requires loopback peer, no forwarding headers and same origin; once `CYCLAW_API_KEY` is set it also requires API-key-route credentials. Verify rate limit, one-build-at-a-time and owned process completion with synthetic data. Status is an unrate-limited progress probe, not corpus content. | `tests/test_gate_index_build.py` |
 | `/soul`, `/soul/propose`, `/soul/apply`, `/soul/reload`, `/soul/restore` | API-key refusal, reason and scan on apply, atomic replacement. Restore uses a vetted backup; reload/drift adopt trusted disk content unscanned. Do not mutate the committed or operator soul. | `tests/test_gate.py`, `tests/test_personality.py`, `tests/test_due_diligence_invariants.py` |
-| `/audit/summary`, `/ops/sync`, `/ops/agentic`, `/ops/fsconnect`, `/ops/sqlconnect` | Key gate, action schema and subprocess result; disabled/mocked connectors. Test optional-key bypass only with loopback peer, no forwarding headers, non-cross-site request. | `tests/test_gate.py`, `tests/test_gate_ops.py` |
+| `/audit/summary`, `/ops/sync`, `/ops/fsconnect` | Key gate, action schema and subprocess result; disabled/mocked connectors. Test optional-key bypass only with loopback peer, no forwarding headers, non-cross-site request. | `tests/test_gate.py`, `tests/test_gate_ops.py` |
 | `/auth/*` | Off returns 503; bootstrap loopback/no-proxy rules; login/session+CSRF, logout/whoami, user/password/role/disable/enable/delete policies, last-admin protection, audit role and token revocation. CLI device-token lifecycle is distinct. | `tests/test_gate_auth.py`, `tests/test_gate_auth_admin.py`, `tests/test_authn_rbac.py`, `tests/test_authn_manager.py`, `tests/test_authn_cli.py` |
 | `/memory/*`, `/query/export/html` | Key-gated status; default-off subfeature gating; isolated facts/episodes/proposals, reason+scan on apply and safe HTML export. No shared operator DB. | `tests/test_memory_routes.py`, `tests/test_memory_store.py`, `tests/test_memory_policy.py`, `tests/test_memory_fusion.py`, `tests/test_memory_metadata_prompt_isolation.py` |
 
@@ -79,11 +86,9 @@ its visible container check does not cover the full matrix above.
 | Audit/privacy | Hashed queries under shipped `include_query_hash: true`; redacted secrets, audit convergence, no raw corpus. Turning hashing off changes that guarantee. `tests/test_logger.py`, `tests/test_metrics.py`, `tests/test_due_diligence_invariants.py`. |
 | Spend/Numbat/sequences | Separate ledgers/projections, correct provider counts, no duplicate projection, fail-soft Numbat, hashed joins. `tests/test_spend.py`, `tests/test_metrics_spend.py`, `tests/test_numbat_emitter.py`, `tests/test_numbat_audit_projection.py`, `tests/test_sequence_detect.py`. |
 | Guardrails | Disabled pass-through and enabled input/output/hook behavior; bridge runs in process. Distinguish real NeMo engine checks from heuristic mocks. Follow current guardrails workflow/jobs. |
-| Agentic and connectors | Remaining CLI/ops surface, denied writes by default, jailed paths, SQL read-only guards, approval/apply/verify/commit/push boundaries. `tests/test_agentic_real_repo_run_smoke.py`, `tests/test_agentic_executor.py`, `tests/test_agentic_hard_sandbox.py`, and relevant `test_agentic*`, `test_fsconnect*`, `test_sqlconnect*`, `test_netconnect*` groups. No live publication. |
-| Optimizer | `agentic/harness_optimizer/` retains a retired fixture loop plus governance/model-adapter code used by the real-repo CLI. Its `mcp/` contains Python tools, not a server; use `tests/test_agentic_harness_optimizer.py` and its dedicated source/tests for history, lock and workspace contracts. The deleted console is not a prerequisite. |
-| Unslop | `agentic/unslop_bridge.py` remains default-off, log-only and non-blocking in the local real-repo loop; it grants no execution authority. Use `tests/test_unslop_bridge.py` and `tests/test_unslop_suggest.py`; verify hashed metrics. |
+| Connectors | fsconnect (`/ops/fsconnect` plus its CLI) and netconnect (CLI only): denied writes by default, jailed paths, passive-only LAN inventory with a fail-closed scope. `tests/test_agentic_isolation.py` and the relevant `test_fsconnect*`, `test_netconnect*` groups. No live publication. |
 | Channels and sync | Telegram/OpenTweet/sync remain default-off out-of-band paths; mock service calls. Neither channel bypasses gateway consent. Native scheduler tests require the matching platform. |
-| Optional services/kit | PostgreSQL/pgvector and DeepAgents compatibility jobs need their selected profiles. `tests/judge_eval.py` is paid opt-in evaluation, not routine smoke. `tools/lora_finetune/tests/` is outside root pytest discovery; use its own workflow. |
+| Optional services/kit | PostgreSQL/pgvector jobs need their selected profiles. `tests/judge_eval.py` is paid opt-in evaluation, not routine smoke. `tools/lora_finetune/tests/` is outside root pytest discovery; use its own workflow. |
 
 ## Installation and platform evidence
 
@@ -102,7 +107,6 @@ config/layout, synthetic index creation and the same gateway checks.
 | Storage | Resolve each consumer, not just `CYCLAW_HOME`: default corpus/index/soul/auth/log paths anchor to the repo. Memory's DB path expands `~` and anchors relative paths to the repo (`memory/store.py`); use explicit absolute temporary paths in fixtures. Docker mounts determine host locations. |
 | Native macOS | Plain Torch via constrained temporary manifests; installer layout, launchd/Keychain wrappers, dotenv modes, BSD stat under shadowed PATH, allexport and failed-source behavior; APFS and `/Volumes` tests on Darwin. Simulation is not native acceptance. |
 | Native Windows | Constrained CPU Torch, installer/shims, Task Scheduler/CredMan, ACL/path checks. A Linux or macOS pass cannot establish these. |
-| Executor containment | Darwin denies network and restricts writes but permits reads; Linux uses a network namespace; Windows is refused before a child starts (Job Objects confine neither filesystem nor network). Missing required backend fails closed. Do not call these equivalent isolation. |
 
 Use the relevant installer/launcher tests under `tests/`, including
 `tests/test_setup_from_clone.py`, `tests/test_setup_cyclaw_keys.py`,

@@ -36,8 +36,8 @@ consolidates the threat-model assumptions previously scattered across
 | Tenancy | **Single-tenant.** Every authenticated operator, any role, reaches the same corpus, the same soul, and the same local model. No mutual isolation between users is attempted — multi-operator is not multi-tenant. |
 | Data store | Embedded ChromaDB (`PersistentClient`) + local BM25 + SQLite. No HTTP DB. |
 | LLM | Local Ollama over loopback; optional Grok and/or Claude fallback (triple-gated per provider). **Since 2026-08-07 the shipped `config.yaml` satisfies two of those three gates** — `app.mode: "hybrid"` and both `models.grok.enabled` / `models.claude.enabled` are `true`. The third, `user_confirmed_online`, is per-request and cannot be pre-set by config. See the eighth amendment in §5. |
-| Outbound model egress | **Three planes.** Core and agentic are not fully off by default; see the eighth amendment in §5. Core plane: two of its three gates ship satisfied (`app.mode: "hybrid"`, both providers `enabled: true`); only the per-request `user_confirmed_online` still stands. Agentic plane: `allow_cloud_providers` and both `providers.<name>.enabled` ship `true`; `agentic.enabled`, `deepagent_github.enabled`, the API-key env var, and `--confirm-online` still stand. Evaluation plane: `tests/judge_eval.py` is a standalone, default-off forensic tool requiring `CYCLAW_EVAL_LIVE=1` and `ANTHROPIC_API_KEY`; it is never imported by a production or live-request path. The core graph's triple-gated fallback is `mode==hybrid` AND `<provider>.enabled` AND `user_confirmed_online`. The out-of-band Deep Agents harness has a six-condition chain: `agentic.enabled`, `deepagent_github.enabled`, `allow_cloud_providers`, `providers.<name>.enabled`, the provider's API-key env var present, and a per-run `--confirm-online`. External destinations remain `api.x.ai` and `api.anthropic.com`; the evaluation plane permits only `api.anthropic.com`. `agentic/deepagent_github/handoff.py` implements a `HandoffEnvelope`/`sanitize_handoff` to record agentic egress as a SHA-256 of the outbound prompt, its length, the context doc ids, and a redaction count, never the prompt text. **The agentic chain has two consumers with different egress-recording states (see §5's fifth amendment):** `agentic/cli.py`'s `real-repo-run --provider`, wired to `agentic.deepagent_github.chat_client.ChatModelProposerClient`, calls `sanitize_handoff` on every real invocation. The separate, still-unwired `builder.py`/DeepAgents-graph path (`deepagent-plan`, probe-only) passes its cloud `BaseChatModel` straight to `creator(model=model, ...)` without `sanitize_handoff`; that path's egress is not recorded and remains out-of-scope follow-on work. |
-| Agentic / sync layers | **Out-of-band, opt-in, disabled by default.** Never imported by the six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`; I6). The Python coding-console package that used to sit beside them was removed on 2026-09-11 (sixteenth amendment). |
+| Outbound model egress | **Two planes.** Core plane: two of its three gates ship satisfied (`app.mode: "hybrid"`, both providers `enabled: true`); only the per-request `user_confirmed_online` still stands (see the eighth amendment in §5). The core graph's triple-gated fallback is `mode==hybrid` AND `<provider>.enabled` AND `user_confirmed_online`. Evaluation plane: `tests/judge_eval.py` is a standalone, default-off forensic tool requiring `CYCLAW_EVAL_LIVE=1` and `ANTHROPIC_API_KEY`; it is never imported by a production or live-request path. External destinations remain `api.x.ai` and `api.anthropic.com`; the evaluation plane permits only `api.anthropic.com`. A third, agentic plane (cloud planner and coder calls from the out-of-band coding loop, behind a six-condition chain) existed until 2026-10-18 and was removed with that loop (nineteenth amendment). |
+| Agentic / sync layers | **Out-of-band, opt-in, disabled by default.** Never imported by the six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`; I6). The Python coding-console package that used to sit beside them was removed on 2026-09-11 (sixteenth amendment); the GitHub coding layer, verification executor and SQL connector inside `agentic/` were removed on 2026-10-18 (nineteenth amendment), leaving only the filesystem and passive network connectors there. |
 | Host | A machine the operator controls. Host root is **trusted**. |
 
 If you deploy outside these assumptions (internet-facing, multi-tenant, running
@@ -53,15 +53,14 @@ attempts per UTC day and 1000 per UTC month by default. Reservations commit to
 SQLite in a private directory before transmission, including retries and guardrail regenerations.
 The ledger is trusted local state, not tamper-proof against its own OS user. Failed
 attempts are charged; corrupt or unavailable storage refuses egress. These are call
-ceilings, not a dollar guarantee, and do not cover separate agentic providers.
+ceilings, not a dollar guarantee.
 Graph work has four dedicated slots by default; timeout or cancellation does not
 release a slot until the underlying worker actually finishes.
 
 Input inspection checks both original text and a derived Unicode copy: ASCII Tags
 are decoded, format/variation/combining marks are removed, TR39-data-derived
 confusables are folded, and separators normalized. This is a heuristic, not full
-TR39 conformance or exhaustive injection detection. SQL lexical guards require a
-least-privilege database role. MSSQL's ODBC read-only hint is not enforcement.
+TR39 conformance or exhaustive injection detection.
 
 ## 2. In-scope adversaries & the control that answers each
 
@@ -79,9 +78,9 @@ least-privilege database role. MSSQL's ODBC read-only hint is not enforcement.
 | **Index-progress probe** (`GET /index/status`, unauthenticated by design) | Returns build state only — never corpus content — from a lock-guarded snapshot. Deliberately **exempt** from the per-IP limit: the console polls it every 1.5 s for the length of a build, which would otherwise spend two-thirds of the operator's own budget. Same posture `GET /health` already has | `gate.py`, `static/terminal.js` |
 | **Uncontrolled external model calls** | Triple-gate: `mode=hybrid` **and** the selected provider's `grok.enabled`/`claude.enabled` **and** `user_confirmed_online` | `graph.py`, `config.yaml` |
 | **Uncontrolled evaluation egress** | Standalone CLI refuses unless `CYCLAW_EVAL_LIVE=1` and `ANTHROPIC_API_KEY` are both present; Anthropic origin is exact-pinned; contestant is loopback-only; embedding downloads are forced offline | `tests/judge_eval.py`, `tests/test_judge_eval.py` |
-| **Telemetry / data exfil via tracing** | Telemetry-kill env vars set before any third-party import from one shared mapping (`utils/telemetry_kill.py`), applied at import time by every maintained Python chokepoint — gateway, MCP server, metrics, the retrieval indexer/vector-store/cache CLIs, the auth/cert CLIs, and the sync/agentic/guardrails/telegram/opentweet packages (invariant-guard G1 pins 14 of these orderings) — AND delivered as literal environment before the interpreter starts at every process boundary: Docker ENV, the shipped launchers, generated launchd plists / Windows tasks / cron lines, verifier and `gh` children (`build_telemetry_safe_env`). An ambient value in the operator's environment is overwritten, not inherited; the declarative-OTel config names are removed outright. These controls silence telemetry readers only — they are not a network kill switch, and intentional policy-gated egress is classified separately (SECURITY.md); HF Hub network calls are additionally cut off via `local_files_only=True` once the embedding model (and `models.reranker`'s cross-encoder, which `retrieval/rerank.py` loads the same way) is confirmed cached on disk (the `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` env vars alone do not gate this in-process — huggingface_hub latches that constant at its own import time, which the eligibility probe itself triggers before the env vars are set; `local_files_only` is passed directly to `SentenceTransformer(...)` instead, which gates independently); raw query text never persisted (hashes only) | `utils/telemetry_kill.py`, `gate.py`, `mcp_hybrid_server.py`, `retrieval/vector_store.py`, `retrieval/embeddings.py`, `retrieval/rerank.py`, `utils/logger.py` |
+| **Telemetry / data exfil via tracing** | Telemetry-kill env vars set before any third-party import from one shared mapping (`utils/telemetry_kill.py`), applied at import time by every maintained Python chokepoint — gateway, MCP server, metrics, the retrieval indexer/vector-store/cache CLIs, the auth/cert CLIs, and the sync/agentic/guardrails/telegram/opentweet packages (invariant-guard G1 pins 14 of these orderings) — AND delivered as literal environment before the interpreter starts at every process boundary: Docker ENV, the shipped launchers, generated launchd plists / Windows tasks / cron lines, `/ops/*`, sync and hook children (`build_telemetry_safe_env`). An ambient value in the operator's environment is overwritten, not inherited; the declarative-OTel config names are removed outright. These controls silence telemetry readers only — they are not a network kill switch, and intentional policy-gated egress is classified separately (SECURITY.md); HF Hub network calls are additionally cut off via `local_files_only=True` once the embedding model (and `models.reranker`'s cross-encoder, which `retrieval/rerank.py` loads the same way) is confirmed cached on disk (the `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` env vars alone do not gate this in-process — huggingface_hub latches that constant at its own import time, which the eligibility probe itself triggers before the env vars are set; `local_files_only` is passed directly to `SentenceTransformer(...)` instead, which gates independently); raw query text never persisted (hashes only) | `utils/telemetry_kill.py`, `gate.py`, `mcp_hybrid_server.py`, `retrieval/vector_store.py`, `retrieval/embeddings.py`, `retrieval/rerank.py`, `utils/logger.py` |
 | **DoS (request flood / runaway process)** | Per-IP rate limit (60/min) on every API route except the two unauthenticated read-only probes `GET /health` and `GET /index/status`. The console page `GET /` and the `/static` mount are static-asset surfaces and carry no rate-limit dependency either; container `mem`/`pids`/`cpus` limits | `utils/ratelimit.py`, `docker-compose.yml` |
-| **Compromised out-of-band subprocess** (rclone/gh) | argv-list only (no `shell=True`); absolute binary paths; Docker builtin seccomp; non-root; `no-new-privileges`; `cap_drop: ALL`; read-only rootfs | `sync/`, `agentic/`, `Dockerfile`, `docker-compose.yml`, `deploy/seccomp/` |
+| **Compromised out-of-band subprocess** (rclone, the OS neighbor-cache command) | argv-list only (no `shell=True`); absolute binary paths; Docker builtin seccomp; non-root; `no-new-privileges`; `cap_drop: ALL`; read-only rootfs | `sync/`, `agentic/`, `Dockerfile`, `docker-compose.yml`, `deploy/seccomp/` |
 
 ---
 
@@ -119,41 +118,13 @@ module isolation — I6 is the import-isolation invariant). See
 > controls. These are out of scope **by design** for the single-operator model.
 
 - **Untrusted multi-tenant code execution.** CyClaw is not a platform for running
-  arbitrary user-supplied code. `agentic/executor/` (added after this document's
-  original write-up; see §5's dated note) can run `pytest`/`ruff`/the invariant
-  guard as subprocesses over a worktree — that is real code execution, and this
-  bullet no longer claims the agentic layer executes nothing. What it still
-  claims, and what remains true: this is not multi-tenant, and it is not a
-  platform for arbitrary *third-party* code — see §5 for the distinction and its
-  limits.
-- **Filesystem and network confinement for verification.** Checks execute in a
-  disposable gitless source mirror, and no check-generated files are copied back.
-  macOS Seatbelt permits writes only to that mirror and its private scratch
-  directory. The authoritative checkout, Git metadata, and baseline stay read-only.
-  Detached macOS descendants can survive process-group cleanup, but remain under
-  the inherited confinement. Linux requires bubblewrap filesystem, network, and PID
-  namespaces. Windows verification refuses to run until an equivalent filesystem
-  boundary exists; a Job Object alone does not qualify. Missing backends fail closed.
-  **The boundary confines writes and network; it does not hide the host.** Checks
-  can still read host files that bubblewrap or Seatbelt mount read-only into the
-  sandbox (operator home, system libraries, other world-readable paths). Treat
-  host-readable secrets as in scope for injection-driven reads.
-- **Verification mirror preparation is cooperatively bounded.** The trusted
-  operator's worktree is copied before confinement starts. FIFOs, sockets and
-  device nodes are skipped; unreadable metadata or copy errors refuse the check.
-  The deadline is checked between directory callbacks, while summarizing the
-  mirror and after the copy. It cannot interrupt an individual stalled regular
-  file or metadata operation, and there is no byte budget. A slow filesystem or
-  large worktree can therefore exceed the nominal check timeout or exhaust disk
-  space. This is an accepted availability limitation for trusted local worktrees;
-  use bounded worktrees on responsive local storage. It is not a hard time or
-  disk quota and does not make hostile repositories safe to execute.
-  The pre-check mirror event records file/symlink count, regular-file bytes, a
-  SHA-256 of the sorted relative-path list (JSON encoded), and skipped special
-  paths, without file contents or a full manifest. This is metadata evidence,
-  not a content-integrity digest or a record of later host-file reads. Failed
-  copies retain their mirror error detail and emit the same single canonical
-  check-result event and Numbat command projection as executed checks.
+  arbitrary user-supplied code. From the verification executor's arrival (after
+  this document's original write-up) until 2026-10-18, the agentic layer could
+  run `pytest`/`ruff`/the invariant guard as Seatbelt- or bubblewrap-confined
+  subprocesses over a model-patched worktree. That executor and the coding loop
+  that fed it were removed (nineteenth amendment in §5), and with them the
+  former non-goals about verification confinement and mirror preparation.
+  Nothing in CyClaw now executes code from a model-patched worktree.
 - **Kernel / hypervisor escape.** There is **no per-workload microVM**
   (gVisor/Firecracker). Container isolation shares the container host's Linux
   kernel. On Docker Desktop that kernel is in the managed Linux VM rather than
@@ -200,36 +171,21 @@ module isolation — I6 is the import-isolation invariant). See
 ## 5. Why microVM isolation is **not yet** required here
 
 A 2026 review may call for gVisor/Firecracker around "agentic code that can
-touch fs/sql." For the shipped CyClaw model that control remains conditional,
-not because execution risk was removed, but because the operator, host, target
-repository, and explicitly enabled workload are trusted and single-tenant:
+touch fs/sql." Since 2026-10-18 the agentic layer neither executes repository
+code nor touches SQL (nineteenth amendment, below); what remains of it is
+listed here. The dated amendments that follow record the earlier, larger
+surface and why that did not need a microVM either, given a trusted,
+single-tenant operator, host, target repository, and explicitly enabled
+workload:
 
-- **GitHub writes are implemented and the code-level flag is armed** (amended by
-  P10, then by the operator enablement of 2026-08-07 — see the fourth and
-  eighth amendments in §5). `agentic/writer.py` ships `EXECUTION_ENABLED = True`
-  and `agentic.mode`/`agentic.writes_enabled` ship open. What holds the line on
-  a shipped checkout is now a **single** config gate — `agentic.enabled`, which
-  ships `false` — plus the per-call `reason` and `confirm`, which are supplied
-  by the same caller that requests the write. `execute_write()` re-runs the full
-  gate on every call rather than trusting the plan it is handed, and
-  `agentic.enabled` is checked first, ahead of everything else. A rollback that
-  needs no source edit is available via `CYCLAW_AGENTIC_WRITE_DISABLE`.
-- **SQL is read-only-guarded.** `agentic/sqlconnect/client.py` rejects every
-  non-`SELECT` statement (and comments, and multi-statements) before execution.
-  A *second*, distinct guard rejects side-effect **functions** by name
-  (`pg_read_*`, `pg_ls_*`, `lo_export`, `dblink*`, `pg_sleep`, …). That one is
-  explicitly defense-in-depth for an over-privileged DSN — the case a read-only
-  connector exists to contain — and it was bypassable until 2026-08-08:
-  PostgreSQL un-escapes a unicode-escaped identifier (`U&"pg_\0072ead_file"`)
-  into the plain built-in *before* the grammar runs, while the name-scan saw the
-  raw escaped text and matched nothing. Verified against a live PostgreSQL 16,
-  including the schema-qualified form; `/etc/passwd` was read back through the
-  guard. The `U&` prefix is now refused outright rather than decoded, matching
-  the neighbouring `E'...'` rule — reimplementing Postgres's UIDENT rules
-  (`\XXXX`, `\+XXXXXX`, surrogate pairs, a `UESCAPE` clause that redefines the
-  escape character) would make any gap in that decoder a fresh bypass. The
-  statement-keyword half above was never affected: those keywords cannot be
-  spelled as quoted identifiers.
+- **GitHub writes no longer exist.** The `gh`-backed draft-PR write gate
+  (`agentic/writer.py`), its push path and the read-only GitHub context were
+  removed on 2026-10-18 (nineteenth amendment). No CyClaw code path opens a
+  pull request or pushes a branch.
+- **The SQL connector no longer exists.** `agentic/sqlconnect/` and its
+  SELECT-only and side-effect-function guards (including the 2026-08-08 fix
+  that refused PostgreSQL `U&` unicode-escaped identifiers) were removed on
+  2026-10-18; they remain in git history.
 - **Filesystem writes are triple-gated and off by default.** `writes_enabled`
   defaults `False`; writes additionally require a non-empty `reason` and `confirm`,
   and are confined to an allow-list of writable roots via zero-TOCTOU path checks.
@@ -241,26 +197,24 @@ repository, and explicitly enabled workload are trusted and single-tenant:
   `shell=False` and a timeout. There is no ping, port probe, subnet sweep,
   scheduler, `/ops` route, or request-path import. Cache contents are staleable
   hints and do not prove reachability or completeness.
-- **Local governed writes exist and are not the same thing as GitHub writes.**
-  Two agentic write paths are shipped, working, and default-off:
-  `agentic/fsconnect/writer.py` (the filesystem writer above, which carries its
-  own `FS_WRITE_HARD_DISABLE` module constant alongside the config gates) and
-  `agentic/harness_optimizer/patching.py::apply_candidate_artifact`, which
-  writes a SHA-256-versioned JSON record under `data/agentic/harness_optimizer/`
-  after eight sequential gates including an independent injection re-check. Read
-  "GitHub writes are hard-killed" above as scoped to GitHub — not as "the
-  agentic layer never writes anything."
-- **The skills registry never auto-writes.** `propose_skill` is advisory-only;
-  `apply_skill` enforces the injection gate + `reason` and writes atomically to a
-  single confined JSON path. All registry operations (`propose-skill` /
-  `apply-skill`) are additionally gated on the `agentic.enabled` master switch:
-  when the layer is disabled they no-op, so a registry write can never occur while
-  the operator believes the layer is off (including via the API-key-gated
-  `POST /ops/agentic` console).
+- **One local governed write path exists.** `agentic/fsconnect/writer.py` (the
+  filesystem writer above, which carries its own `FS_WRITE_HARD_DISABLE` module
+  constant alongside the config gates) is shipped, working, and default-off.
+  The harness optimizer's versioned-artifact writer and the skills registry,
+  the other two governed agentic writers, were removed on 2026-10-18 together
+  with `POST /ops/agentic`.
 - **No `shell=True` anywhere.** Every subprocess uses argv-list form with an
   absolute/fixed binary path.
 - **Core paths exec nothing.** `gate.py`/`graph.py`/`mcp_hybrid_server.py` spawn
   no subprocesses and never import the agentic/sync layers.
+
+> **Historical record, superseded 2026-10-18.** From here through the fourth
+> amendment, and in the agentic bullets of the fifth, sixth and eighth
+> amendments, this section records the agentic coding layer (verification
+> executor, harness optimizer, real-repo loop, GitHub write path, skills
+> registry, SQL connector) as it stood on each date. All of that code was
+> removed on 2026-10-18 (nineteenth amendment). These paragraphs are the dated
+> reasoning record, not a description of the current tree.
 
 The residual blast radius, as originally written here, was a governed,
 injection-scanned JSON registry write and read-only GitHub/SQL access — **not**
@@ -431,6 +385,10 @@ narrower and more precise reason than "nothing executes":
 
 ### Fourth amendment — the GitHub write path is implemented (P10)
 
+> **Superseded 2026-10-18:** the GitHub write path, the executor and the
+> real-repo loop this amendment describes were removed (nineteenth amendment).
+> Kept as the dated record.
+
 - **What changed.** `execute_write()` was a stub that raised
   `NotImplementedError`. It now performs `gh pr create --draft` for real, and
   `RepoWorkspaceTools.push_branch()` can push one `claude/` branch to origin.
@@ -439,8 +397,9 @@ narrower and more precise reason than "nothing executes":
 - **What did NOT change at P10 time: the shipped posture.** `EXECUTION_ENABLED`
   was still `False`, and `agentic.enabled` / `agentic.mode` /
   `agentic.writes_enabled` still shipped closed. Six independent gates, any one
-  of which refuses (see `docs/agentic/GITHUB_WRITE_ENABLEMENT.md`'s gate-chain
-  table). P10 deliberately did not flip the flag — arming it is a
+  of which refuses (see the gate-chain table in
+  `docs/agentic/GITHUB_WRITE_ENABLEMENT.md`, deleted 2026-10-18 and kept in git
+  history). P10 deliberately did not flip the flag — arming it is a
   filed-checklist operator procedure, matching how the analogous fsconnect write
   enablement was handled.
   **Superseded 2026-08-07:** the checklist was signed and the flag and config
@@ -489,6 +448,9 @@ not attacker-chosen at the command level.
 
 ### Fifth amendment — `run_real_repo_loop` now has real callers, including one with a cloud-provider planner
 
+> **Superseded 2026-10-18:** `run_real_repo_loop`, its CLI and its cloud
+> planner were removed (nineteenth amendment). Kept as the dated record.
+
 - **What changed.** The third amendment's "what still does not exist" bullet
   is stale: `agentic/cli.py`'s `real-repo-run` subcommand calls
   `run_real_repo_loop` directly, and `harness/server.py`'s `POST
@@ -526,6 +488,10 @@ not attacker-chosen at the command level.
 
 ### Sixth amendment — the write path is now network-reachable (still disarmed)
 
+> **Superseded 2026-10-18:** the write path was removed (nineteenth
+> amendment); its harness routes had already gone on 2026-09-11 (sixteenth
+> amendment). Kept as the dated record.
+
 - **What changed.** The fifth amendment above said `push_branch`/`execute_write`
   were "still not forwarded through any harness HTTP route, which only passes
   `decision` today." That was true when written and is no longer. Both are now
@@ -551,7 +517,8 @@ not attacker-chosen at the command level.
   open; `allow_git_write_tools` and `agentic.enabled` still ship `false`. See
   the eighth amendment.
 - **This is the checklist's own trigger, and it fired.**
-  `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` item A said that if reachability
+  `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` (deleted 2026-10-18; in git
+  history) item A said that if reachability
   ever changed the checklist was void and had to be re-run. It was re-run on
   2026-07-31; that document, not this one, is authoritative on the gate chain
   and carries the open operator decisions.
@@ -609,13 +576,18 @@ not attacker-chosen at the command level.
 
 ### Eighth amendment — the operator armed the write path and hybrid mode (2026-08-07)
 
+> **Superseded in part 2026-10-18:** the agentic-plane, gate-depth, rollback,
+> check-file-boundary and inverted-rollback bullets describe code removed in
+> the nineteenth amendment. The core-plane, what-is-NOT-sent, `/health` and
+> posture-regression bullets still hold.
+
 **This amendment supersedes every "ships disarmed / off by default" statement
 about the GitHub write path and the external providers elsewhere in this
 document.** Where an earlier amendment says the posture did not change, it is
 describing its own point in time and is retained as a historical record.
 
-- **What happened.** The operator signed
-  `docs/agentic/GITHUB_WRITE_ENABLEMENT.md`'s security-review checklist
+- **What happened.** The operator signed the security-review checklist in
+  `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` (deleted 2026-10-18; in git history)
   (`Sign-off: CG, 8.7.2026`) and, in the same commit, opened the write and
   hybrid gates. A follow-up PR reconciled the config so it validates and
   updated the tests that pinned the disarmed posture.
@@ -697,7 +669,8 @@ describing its own point in time and is retained as a historical record.
 with gVisor/Firecracker.** The current baseline is proportionate for the stated
 trusted, single-operator model, but it does not contain a container-host kernel
 escape, ordinary-socket exfiltration, destructive writes inside carve-outs, or
-hostile verification code. Falco is detection-only and disabled by default.
+or hostile code in an operator-configured subprocess. Falco is detection-only
+and disabled by default.
 
 | Stage | Control | Status |
 |---|---|---|
@@ -763,9 +736,9 @@ bind decision never depends on DNS.
 
 1. `CYCLAW_ALLOW_NON_LOOPBACK_BIND=1` — the explicit opt-out, which logs a
    warning naming the unauthenticated routes. Note the polarity: this is
-   opt-**in** to the risky state, the inverse of `agentic/writer.py`'s
-   disable-only kill switch, because here the dangerous configuration is the
-   non-default one.
+   opt-**in** to the risky state, the inverse of the (since-removed)
+   `agentic/writer.py` disable-only kill switch, because here the dangerous
+   configuration is the non-default one.
 2. `auth.enabled` **and** `api.tls.enabled` both set to the literal boolean
    `true` in `config.yaml`, **and** `/query` demonstrably carrying an
    authentication dependency. This is the durable path
@@ -1136,6 +1109,8 @@ What this changes in the surface this document describes:
   **Superseded in part 2026-10-15:** the unreachable `real-repo-run*` dispatch
   was then removed from `utils/ops_runner.py`, which now allowlists the same
   five actions as `OpsAgenticRequest.action`. The pipeline is still CLI-only.
+  **Superseded 2026-10-18:** the pipeline, `python -m agentic.cli` and
+  `POST /ops/agentic` were then removed outright (nineteenth amendment).
 - **Windows coding-console support is withdrawn from CyClaw.**
   `powershell/Invoke-CyClaw.ps1` now starts the RAG gateway only. The
   coding console's future Windows path is CG-agent-harness once its Windows
@@ -1306,3 +1281,56 @@ The boundaries that follow:
   A browser extension with cookie access, or malware running as the
   operator, can take the cookie, as it could already take the key from the
   keystore.
+
+### Nineteenth amendment — the agentic coding layer and the SQL connector are removed (2026-10-18)
+
+Everything in `agentic/` except the filesystem and passive network connectors
+is gone from this repository:
+
+- `python -m agentic.cli`, with its read-only GitHub context via `gh`, the
+  GitHub write gate (`agentic/writer.py`: draft `pr_create`,
+  `EXECUTION_ENABLED`, `CYCLAW_AGENTIC_WRITE_DISABLE`) and the governed skills
+  registry (`agentic/registry.py`, `data/agentic/skills_registry.json`).
+- The real-repo coding loop (`agentic/real_repo_loop.py`, `real-repo-run*`),
+  its `RepoWorkspaceTools` clone jail, the retired DeepAgents harness and the
+  harness optimizer.
+- The verification executor (`agentic/executor/`, `production_sandbox()`:
+  Seatbelt on macOS, bubblewrap on Linux), `scripts/verify_agentic_sandbox.py`
+  and the `deploy/apparmor/cyclaw-bwrap` profile that let bubblewrap create its
+  namespaces on stock Ubuntu 24.04.
+- The UNSLOP prose rail and its vendored scanners.
+- The read-only Postgres/MSSQL connector (`agentic/sqlconnect/`).
+- `POST /ops/agentic`, `POST /ops/sqlconnect`, the `agentic:`, `unslop:` and
+  `sqlconnect:` config blocks, and the Agentic and SQL console panels.
+
+What this changes in the surface this document describes:
+
+- **No code runs from a model-patched worktree.** §4's verification-confinement
+  and mirror-preparation non-goals are retired with the executor. Stage 5 in
+  §6 stays conditional for a simpler reason than before: the remaining agentic
+  code does scoped file I/O and reads a neighbor cache, and never runs a
+  repository's tests or tools.
+- **No GitHub egress or mutation.** CyClaw no longer spawns `gh`, and no code
+  path pushes a branch or opens a pull request. `GH_TELEMETRY=false` stays in
+  the canonical kill map (`utils/telemetry_kill.py`) so a `gh` the operator
+  runs from a governed environment still inherits it.
+- **Outbound model egress is two planes** (§1): core and evaluation. The
+  six-condition agentic cloud chain and its `sanitize_handoff` egress record
+  went with the loop.
+- **No SQL surface.** The least-privilege database-role requirement and the
+  MSSQL ODBC read-only caveat no longer apply to anything in CyClaw.
+- **`/ops/*` is two routes:** `POST /ops/sync` and `POST /ops/fsconnect`, both
+  API-key-gated, rate-limited and audited, each running its CLI through
+  `utils/ops_runner.py`.
+- **I6 is unchanged.** `agentic` is still one of the five out-of-band packages
+  the core six never import; `agentic/__init__.py` now only applies the
+  telemetry kill before `agentic.fsconnect` or `agentic.netconnect` loads.
+
+What did not change: the filesystem connector's write gates and the passive
+network connector's scope rules (§5 bullets), the core-plane posture (eighth
+amendment), and every core-path control. Earlier amendments that describe the
+removed code (the first through sixth, the eighth's agentic bullets, and the
+sixteenth's pipeline bullet) are kept as the dated record and marked
+superseded where they start. The `agentic-deepagents`,
+`agentic-deepagents-cloud` and `mssql` dependency extras are now unused and
+leave in a follow-up change.

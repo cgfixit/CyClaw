@@ -58,8 +58,8 @@ def pytest_configure(config):
     # resolves those against the REPO ROOT on purpose (never cwd), so a full
     # run used to write ~1.8 MB into the working tree's logs/ from ~600 tests,
     # and concurrent runs from other checkouts raced on the same files.
-    # Most offenders are agentic fixtures that copy the shipped config.yaml,
-    # so fixing the config dicts one by one would not have reached them.
+    # Many offenders were fixtures that copy the shipped config.yaml, so
+    # fixing the config dicts one by one would not have reached them.
     #
     # A structural backstop instead: for the whole run, relative sink paths
     # resolve under a per-run temp dir; absolute paths (every test's own
@@ -218,41 +218,6 @@ TEST_CONFIG = {
 }
 
 
-@pytest.fixture(autouse=True)
-def _disarm_agentic_write_execution(request, monkeypatch):
-    # Structural backstop against the unit lane opening a real pull request.
-    #
-    # agentic/writer.py's EXECUTION_ENABLED ships True (operator enablement,
-    # 2026-08-07), and the real-repo CLI fixtures copy the shipped config.yaml
-    # -- which now carries mode: "write" + writes_enabled: true -- and then set
-    # enabled = True to exercise the pipeline. The only remaining thing between
-    # a mis-stubbed test and a live `gh pr create --repo cgfixit/CyClaw` is
-    # whether that individual test remembered to stub or monkeypatch. `gh` is
-    # absent from most dev containers but IS preinstalled on GitHub Actions
-    # runners, so "it didn't fire locally" is not evidence.
-    #
-    # Before the flag was armed this role was played by a source constant that
-    # no test could accidentally satisfy. This fixture restores that property
-    # at the suite level rather than leaving it to per-test discipline.
-    #
-    # Tests that are ABOUT the armed posture opt out with:
-    #     @pytest.mark.uses_shipped_execution_flag
-    # and are then responsible for their own stubbing.
-    if request.node.get_closest_marker("uses_shipped_execution_flag"):
-        return
-    try:
-        import agentic.writer as _writer
-    except ModuleNotFoundError as exc:
-        # Only the absent agentic package itself means "nothing to disarm".
-        # A ModuleNotFoundError naming anything else is a broken transitive
-        # import INSIDE agentic/writer.py -- swallowing it would leave
-        # EXECUTION_ENABLED armed for the whole session, so re-raise.
-        if exc.name == "agentic" or (exc.name or "").startswith("agentic."):
-            return
-        raise
-    monkeypatch.setattr(_writer, "EXECUTION_ENABLED", False)
-
-
 # The loggers utils/logger.setup_logging attaches handlers to: the real root
 # (the log file, while logging.capture_third_party is on), "cyclaw" (a console
 # handler, plus the log file when capture is off) and "agentic" (the same
@@ -273,9 +238,9 @@ def _remove_logging_handlers_the_test_added():
     # in a process, so which test does it depends on the run. In the full
     # suite, gate's import at collection makes that call before any test. In
     # a run that collects no module importing gate, the first test to reach
-    # it does, often through an agentic CLI's main() without knowing it: when
-    # only the files that mention setup_logging run, that is
-    # tests/test_agentic_cli.py's test_status_runs. Its console handler stayed
+    # it does, often through an out-of-band CLI's main() without knowing it:
+    # when only the files that mention setup_logging ran, that was the (since
+    # removed) tests/test_agentic_cli.py's test_status_runs. Its console handler stayed
     # on "cyclaw" and "agentic", bound to that test's capsys stream, which
     # pytest closes after the test, and a later test that flushed those
     # loggers' handlers failed with "I/O operation on closed file".
@@ -527,18 +492,3 @@ def client(request, tmp_path):
         yield pair
 
 
-@pytest.fixture(autouse=True)
-def _inject_argv_list_sandbox_except_hard_sandbox(request, monkeypatch):
-    """Use a double only for portable contract tests.
-
-    Hard-sandbox and real-repo smoke tests keep the production factory so
-    native POSIX confinement and Windows refusal remain acceptance gates.
-    """
-    path = getattr(request.node, "fspath", None)
-    if path is not None and any(name in str(path) for name in (
-        "test_agentic_hard_sandbox", "test_agentic_real_repo_run_smoke",
-    )):
-        return
-    from tests.executor_sandbox_double import inject_argv_list_sandbox
-
-    inject_argv_list_sandbox(monkeypatch)

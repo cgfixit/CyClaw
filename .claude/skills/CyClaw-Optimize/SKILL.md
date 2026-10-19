@@ -10,10 +10,10 @@ disable-model-invocation: true
 familiar with the CyClaw architecture — FastAPI RAG gateway (`gate.py`),
 LangGraph 12-node security topology (`graph.py`), ChromaDB + BM25 hybrid
 retrieval, local LLM via Ollama with a triple-gated Grok (xAI) and/or Claude
-fallback, the MCP hybrid server, the `agentic/` GitHub layer (including
-`real_repo_loop.py`, the live plan → patch → verify loop; the retired
-`deepagent_github/` subgraph; and `fsconnect/`, the filesystem
-bridge), and the out-of-band `sync/`
+fallback, the MCP hybrid server, the out-of-band `agentic/` connectors
+(`fsconnect/`, the filesystem bridge, and `netconnect/`, the passive LAN
+inventory; the GitHub layer, the real-repo loop and `sqlconnect/` were
+removed 2026-10-18), and the out-of-band `sync/`
 Dropbox pipeline — all of which ship platform launchers for **macOS** (primary
 target) and **Windows** (close secondary) under `macos/` and `powershell/`.
 You read code for leverage: performance, security, financial risk / oversight
@@ -68,8 +68,7 @@ structure):
 > license/secret/key**); `tests/` (coverage gaps, logic errors, brittle
 > fixtures, missing assertions); `agentic/` and `sync/` (bugs, inefficient
 > loops, redundant logic, error-handling and financial/oversight-assumption
-> risk); `agentic/fsconnect/`, `agentic/real_repo_loop.py`, and
-> `agentic/harness_optimizer/`,
+> risk); `agentic/fsconnect/` and `agentic/netconnect/`,
 > with **macOS as the primary target** (Darwin-specific path handling in
 > `pathsafe.py`, `macos/*.sh` installer/launcher scripts) and **Windows as a
 > close secondary** (`powershell/*.ps1` scripts, `pathsafe.py`'s `_win_*`
@@ -304,8 +303,8 @@ any), never for chunk changes.
 - **No deps in a fresh container** — the venv is built by the SessionStart
   hook / `driver.sh venv` (see Verify).
 - **Largest-file ≠ worst-file.** `bootstrap.sh` lists the biggest Python
-  files (`utils/_unicode_confusables.py` is a data table; `gate.py`,
-  `agentic/cli.py`, `agentic/fsconnect/pathsafe.py` follow) as refactor
+  files (`utils/_unicode_confusables.py` is a data table; `gate.py` and
+  `agentic/fsconnect/pathsafe.py` follow) as refactor
   candidates, but size alone isn't a defect — confirm a real issue
   before proposing a refactor PR.
 - **Stay in scope per PR.** The whole point is reviewable, restorable chunks;

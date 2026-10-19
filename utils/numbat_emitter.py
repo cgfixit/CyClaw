@@ -3,9 +3,8 @@
 Two planes feed one stream, written to ``logs/numbat-events.ndjsonl``
 alongside the authoritative ``audit.jsonl``:
 
-* ACTION plane — CyClaw's existing action records (executor check runs,
-  ops_runner subprocess invocations, real_repo_loop decisions,
-  fsconnect/sqlconnect operations) emitted directly at the call site via
+* ACTION plane — CyClaw's existing action records (ops_runner subprocess
+  invocations, fsconnect operations) emitted directly at the call site via
   ``emit_numbat_event`` / ``emit_numbat_command``.
 * MAINLINE plane — every redacted ``audit.jsonl`` record, projected by
   ``project_audit_record`` (PR #1033). Events whose own code path already
@@ -1164,7 +1163,7 @@ _AUDIT_PREVIEW_PRIORITY = (
 # Unknown events fall back to ("tool.call", "tool", "low") -- an audit line
 # is never dropped, just downgraded in confidence.
 # Audit events written by the out-of-band ACTION plane already have direct
-# Numbat emits (e.g. agentic/executor/runner.py calls emit_numbat_command).
+# Numbat emits (e.g. agentic/fsconnect/client.py calls emit_numbat_event).
 # Projecting them again from the mainline audit trail would double-write and
 # reorder the NDJSON stream, so project_audit_record skips them.
 #
@@ -1173,16 +1172,8 @@ _AUDIT_PREVIEW_PRIORITY = (
 # record. Each entry below is paired with the emit site that makes it a
 # duplicate -- keep them in step when either side moves.
 _AUDIT_ACTION_PLANE_EVENTS: frozenset[str] = frozenset({
-    # agentic/executor/runner.py -- emit_numbat_command, same loop iteration
-    "agentic_executor_check_result",
     # agentic/fsconnect/client.py::_audit -- emit_numbat_event("file.read")
     "fsconnect_read",
-    # agentic/sqlconnect/client.py::_audit_sql -- emit_numbat_event("command.exec")
-    "sqlconnect_read",
-    # agentic/real_repo_loop.py -- emit_numbat_event("permission.approved"/"denied")
-    "agentic_real_repo_change_decided",
-    # agentic/real_repo_loop.py -- emit_numbat_event("command.exec", "git commit")
-    "agentic_real_repo_change_approved",
 })
 
 _AUDIT_EVENT_MAP: dict[str, tuple[str, str, str]] = {

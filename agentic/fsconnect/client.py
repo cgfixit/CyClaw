@@ -54,8 +54,7 @@ def build_injection_patterns(cfg: dict) -> list[tuple[str, re.Pattern[str]]]:
 
     Thin re-export of the shared builder in ``guardrails.rails`` -- the pattern
     union, dedup order, IGNORECASE flag, and memoization all live there now so
-    this scanner cannot drift from the skills-registry and harness-optimizer
-    ones. The ADVISORY posture stays here: guardrails owns how the pattern set is
+    this scanner cannot drift from any other caller of that builder. The ADVISORY posture stays here: guardrails owns how the pattern set is
     built, never whether a given caller blocks on a hit.
     """
     return _shared_build_injection_patterns(cfg)

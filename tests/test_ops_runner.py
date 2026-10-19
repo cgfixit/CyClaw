@@ -1,8 +1,7 @@
-"""Tests for utils.ops_runner — the subprocess shim behind /ops/sync and /ops/agentic.
+"""Tests for utils.ops_runner — the subprocess shim behind /ops/sync and /ops/fsconnect.
 
 Most cases replace ``_run`` to capture argv and return a synthetic result.
-The isolation test and the DSN status probe use real child interpreters; neither
-contacts an external service.
+The isolation test uses a real child interpreter; it contacts no external service.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ import sys
 import pytest
 
 from utils import ops_runner
-from utils.ops_runner import OpsError, _ops_environment, run_agentic_op, run_fsconnect_op, run_sqlconnect_op, run_sync_op
+from utils.ops_runner import OpsError, run_fsconnect_op, run_sync_op
 
 
 def _fake_run(returncode: int = 0, stdout: str = "", stderr: str = ""):
@@ -93,220 +92,6 @@ def test_sync_exit_code_labels(monkeypatch: pytest.MonkeyPatch, code: int, ok: b
     assert res.ok is ok and res.label == label and res.exit_code == code
 
 
-# ------------------------------------------------------------------------- agentic
-
-
-@pytest.mark.parametrize(
-    "action",
-    [
-        "delete-repo",
-        # The real-repo-run* coding loop is CLI-only, so the allowlist refuses
-        # it like any other unknown verb.
-        "real-repo-run", "real-repo-run-status", "real-repo-run-decide",
-        "real-repo-run-push", "real-repo-run-publish", "real-repo-run-discard",
-    ],
-)
-def test_agentic_unknown_action_raises(action: str) -> None:
-    with pytest.raises(OpsError, match="Unknown agentic action"):
-        run_agentic_op(action)
-
-
-def test_agentic_context_repo_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout='{"repo": "x"}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op("context")
-    assert "--repo" in captured[0]
-    assert res.parsed == {"repo": "x"}  # JSON action parsed on success
-
-
-def test_agentic_context_pr_and_issue(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout="{}")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    run_agentic_op("context", pr=42)
-    assert captured[0][-2:] == ["--pr", "42"]
-    captured.clear()
-    run_agentic_op("context", issue=7, no_diff=True)
-    assert "--issue" in captured[0] and "7" in captured[0] and "--no-diff" in captured[0]
-
-
-def test_agentic_propose_requires_name_desc() -> None:
-    with pytest.raises(OpsError):
-        run_agentic_op("propose-skill", name="x")  # missing desc
-
-
-def test_agentic_apply_requires_reason() -> None:
-    with pytest.raises(OpsError):
-        run_agentic_op("apply-skill", name="x", desc="y", reason="   ")
-
-
-def test_agentic_apply_confirm_and_body_file(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    runner, captured = _fake_run(returncode=0, stdout='{"status": "applied"}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op(
-        "apply-skill", name="demo", desc="a demo skill", body="# body\ncontent",
-        reason="adding demo", confirm=True,
-    )
-    argv = captured[0]
-    # name/desc/reason are passed in --opt=value form so a leading-dash value
-    # cannot be reparsed by the child argparse as a separate flag.
-    assert "--name=demo" in argv and "--desc=a demo skill" in argv
-    assert "--reason=adding demo" in argv
-    assert "--confirm" in argv
-    # body routed through a temp --body-file, never inlined as an argv token
-    assert "--body-file" in argv
-    body_idx = argv.index("--body-file") + 1
-    assert "# body" not in argv  # the literal body is not on the command line
-    # the temp file is cleaned up after the run
-    from pathlib import Path
-    assert not Path(argv[body_idx]).exists()
-    assert res.parsed == {"status": "applied"}
-
-
-def test_agentic_leading_dash_value_bound_to_option(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A desc/reason that begins with '-' must travel as a single --opt=value argv
-    # element, never as a bare token the child argparse could mistake for a flag.
-    runner, captured = _fake_run(returncode=0, stdout='{"status": "applied"}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    run_agentic_op(
-        "apply-skill", name="demo", desc="-- dashed desc",
-        reason="-x suspicious reason", confirm=True,
-    )
-    argv = captured[0]
-    assert "--desc=-- dashed desc" in argv
-    assert "--reason=-x suspicious reason" in argv
-    # No bare element equals the raw leading-dash value.
-    assert "-- dashed desc" not in argv
-    assert "-x suspicious reason" not in argv
-
-
-def test_agentic_apply_body_file_cleaned_up_when_run_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    # run_agentic_op's docstring promises the temp --body-file is unlinked on
-    # EVERY exit path, "return or raise". Only the return path was covered; this
-    # locks in the finally-block cleanup when _run raises (e.g. the CLI hangs and
-    # subprocess.TimeoutExpired fires) so a crashing op cannot leak skill-body
-    # temp files into the OS temp dir on repeated failures.
-    from pathlib import Path
-
-    captured: list[list[str]] = []
-
-    def _boom(argv: list[str]) -> subprocess.CompletedProcess[str]:
-        captured.append(argv)
-        raise subprocess.TimeoutExpired(cmd=argv, timeout=1)
-
-    monkeypatch.setattr(ops_runner, "_run", _boom)
-
-    with pytest.raises(subprocess.TimeoutExpired):
-        run_agentic_op(
-            "apply-skill", name="demo", desc="a demo skill", body="# body\ncontent",
-            reason="adding demo", confirm=True,
-        )
-
-    # The body-file was created and handed to _run, then unlinked by the finally
-    # block despite _run raising.
-    argv = captured[0]
-    body_file = argv[argv.index("--body-file") + 1]
-    assert not Path(body_file).exists()
-
-
-class _WriteFailsHandle:
-    """Stand-in for NamedTemporaryFile whose .write raises after the on-disk
-    file already exists — the exact orphan scenario _write_body must clean up."""
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def write(self, body: str) -> None:
-        raise OSError("disk full")
-
-    def close(self) -> None:
-        pass
-
-
-def test_write_body_unlinks_temp_file_when_write_fails(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    # _write_body creates the temp file BEFORE writing; run_agentic_op only unlinks
-    # the name _write_body RETURNS, so a mid-write failure must remove its own
-    # orphan here or it leaks a cyclaw_skill_*.md into the OS temp dir.
-    from pathlib import Path
-
-    orphan = tmp_path / "cyclaw_skill_boom.md"
-    orphan.write_text("stale", encoding="utf-8")  # simulate the created-but-unwritten temp file
-    monkeypatch.setattr(
-        ops_runner.tempfile, "NamedTemporaryFile", lambda *a, **k: _WriteFailsHandle(str(orphan))
-    )
-    with pytest.raises(OSError):
-        ops_runner._write_body("# body")
-    assert not orphan.exists()
-
-
-class _FlushFailsHandle(_WriteFailsHandle):
-    # A short body is only buffered by write(); the disk-full error comes from
-    # the flush inside the first close().
-
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
-        self.closes = 0
-
-    def write(self, body: str) -> None:
-        pass
-
-    def close(self) -> None:
-        self.closes += 1
-        if self.closes == 1:
-            raise OSError("disk full")
-
-
-def test_write_body_unlinks_temp_file_when_flush_at_close_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    orphan = tmp_path / "cyclaw_skill_flush.md"
-    orphan.write_text("stale", encoding="utf-8")
-    monkeypatch.setattr(
-        ops_runner.tempfile, "NamedTemporaryFile", lambda *a, **k: _FlushFailsHandle(str(orphan))
-    )
-    with pytest.raises(OSError):
-        ops_runner._write_body("# body")
-    assert not orphan.exists()
-
-
-def test_agentic_apply_no_confirm_omits_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=4, stderr="apply-skill requires --confirm")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op("apply-skill", name="x", desc="y", reason="r", confirm=False)
-    assert "--confirm" not in captured[0]
-    assert res.exit_code == 4 and res.label == "write_refused" and res.ok is False
-
-
-@pytest.mark.parametrize(
-    "code,ok,label",
-    [(0, True, "ok"), (2, False, "failed"), (3, False, "env_config"),
-     (4, False, "write_refused"), (77, False, "unknown")],
-)
-def test_agentic_exit_code_labels(monkeypatch: pytest.MonkeyPatch, code: int, ok: bool, label: str) -> None:
-    runner, _ = _fake_run(returncode=code, stdout="{}" if code == 0 else "")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op("status")
-    assert res.ok is ok and res.label == label
-
-
-def test_agentic_text_action_not_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
-    # status emits human text, not JSON — parsed must stay None even on success.
-    runner, _ = _fake_run(returncode=0, stdout="  enabled... False")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op("status")
-    assert res.parsed is None
-
-
-def test_agentic_json_action_with_non_json_stdout_yields_none_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A JSON-emitting action (context) that returns exit 0 but garbled stdout
-    # silently degrades to parsed=None rather than raising. Documents the
-    # _maybe_json contract: non-JSON output from JSON actions is not an error.
-    runner, _ = _fake_run(returncode=0, stdout="not-valid-json-at-all")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_agentic_op("context")
-    assert res.ok is True
-    assert res.parsed is None
-
-
 def test_to_dict_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     runner, _ = _fake_run(returncode=0, stdout="ok")
     monkeypatch.setattr(ops_runner, "_run", runner)
@@ -340,9 +125,6 @@ def test_to_dict_redacts_subprocess_output(monkeypatch: pytest.MonkeyPatch) -> N
     assert "[REDACTED_SECRET]" in d["stdout"]
     assert "[REDACTED_SECRET]" in d["stderr"]
     assert "[REDACTED_SECRET]" in d["parsed"]["nested"][0]
-
-
-# ----------------------------------------------------------------------- isolation
 
 
 # --------------------------------------------------------------------- fsconnect
@@ -429,67 +211,6 @@ def test_fsconnect_exit_code_labels(monkeypatch: pytest.MonkeyPatch, code: int, 
     assert res.ok is ok and res.label == label
 
 
-# ------------------------------------------------------------------- sqlconnect
-
-
-def test_sqlconnect_unknown_action_raises() -> None:
-    with pytest.raises(OpsError):
-        run_sqlconnect_op("drop-table")
-
-
-def test_sqlconnect_status_argv(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout="ok")
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_sqlconnect_op("status")
-    argv = captured[0]
-    assert argv[0] == sys.executable
-    assert argv[1:3] == ["-m", "agentic.sqlconnect.cli"]
-    assert "--config" in argv and argv[-1] == "status"
-    assert res.ok is True and res.label == "ok"
-
-
-def test_sqlconnect_query_sql_argv(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout='{"rows": []}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_sqlconnect_op("query", sql="SELECT 1", fmt="csv")
-    argv = captured[0]
-    assert "--sql=SELECT 1" in argv                 # free text -> --opt=value form
-    assert "--format" in argv and "csv" in argv     # constrained enum -> two-token is safe
-    assert res.parsed == {"rows": []}
-
-
-def test_sqlconnect_query_table_count(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout='{"count": 42}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    run_sqlconnect_op("query", table="public.users", count=True)
-    argv = captured[0]
-    assert "--table=public.users" in argv
-    assert "--count" in argv
-
-
-def test_sqlconnect_query_explain(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner, captured = _fake_run(returncode=0, stdout='{"plan": "Seq Scan"}')
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    run_sqlconnect_op("query", sql="SELECT 1", explain=True)
-    assert "--explain" in captured[0]
-
-
-def test_sqlconnect_query_requires_sql_or_table() -> None:
-    with pytest.raises(OpsError):
-        run_sqlconnect_op("query")
-
-
-@pytest.mark.parametrize(
-    "code,ok,label",
-    [(0, True, "ok"), (2, False, "failed"), (3, False, "env_config"), (77, False, "unknown")],
-)
-def test_sqlconnect_exit_code_labels(monkeypatch: pytest.MonkeyPatch, code: int, ok: bool, label: str) -> None:
-    runner, _ = _fake_run(returncode=code)
-    monkeypatch.setattr(ops_runner, "_run", runner)
-    res = run_sqlconnect_op("status")
-    assert res.ok is ok and res.label == label
-
-
 # ----------------------------------------------------------------------- isolation
 
 
@@ -549,68 +270,3 @@ def test_sync_timeout_sec_never_raises_on_a_malformed_config(monkeypatch: pytest
     non-mapping must degrade to the shipped budget rather than 500 the probe."""
     monkeypatch.setattr(ops_runner, "_get_config", lambda _path: "not-a-mapping")
     assert ops_runner.sync_timeout_sec() == 3660
-
-
-def test_ops_environment_dsn_env_must_be_secret(monkeypatch: pytest.MonkeyPatch) -> None:
-    """sqlconnect.dsn_env must resolve to a secret-policy name, not a path decoy."""
-    cfg = {"sqlconnect": {"dsn_env": "NOT_A_SECRET_PATH"}}
-    monkeypatch.setattr(ops_runner, "_get_config", lambda _p: cfg)
-    with pytest.raises(OpsError, match="secret environment variable"):
-        _ops_environment(["python", "-m", "agentic.sqlconnect.cli", "status"])
-
-
-def test_ops_environment_default_dsn_env_is_admitted(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ops_runner, "_get_config", lambda _p: {"sqlconnect": {}})
-    monkeypatch.setenv("CYCLAW_SQL_DSN", "postgresql://x")
-    env = _ops_environment(["python", "-m", "agentic.sqlconnect.cli", "status"])
-    assert env.get("CYCLAW_SQL_DSN") == "postgresql://x"
-
-
-def test_sql_status_scopes_dsn_and_keeps_canary_out_of_output_and_audit(tmp_path, monkeypatch, capsys, caplog):
-    import json
-
-    import yaml
-
-    from utils.logger import audit_log
-
-    canary = "synthetic-issue-1557-dsn-value"
-    cfg = {
-        "sqlconnect": {"enabled": False, "dsn_env": "ISSUE_1557_DSN"},
-        "logging": {"audit_file": str(tmp_path / "audit.jsonl"), "log_file": str(tmp_path / "app.log")},
-        "numbat": {"enabled": True, "output_path": str(tmp_path / "numbat.ndjsonl")},
-    }
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
-    monkeypatch.setattr(ops_runner, "_CONFIG_PATH", config_path)
-    monkeypatch.setenv("ISSUE_1557_DSN", canary)
-    monkeypatch.setenv("UNRELATED_SECRET", "synthetic-unrelated-value")
-    monkeypatch.setenv("FAKEROOT", str(tmp_path))
-    real_environment = ops_runner.child_environment
-    selected = []
-
-    def environment(capability, *, secret_names):
-        selected.append((capability, secret_names))
-        env = real_environment(capability, secret_names=secret_names)
-        assert env["ISSUE_1557_DSN"] == canary
-        assert "UNRELATED_SECRET" not in env and "FAKEROOT" not in env
-        return env
-
-    monkeypatch.setattr(ops_runner, "child_environment", environment)
-    result = run_sqlconnect_op("status")
-    assert result.ok
-    assert selected == [("sql", ("ISSUE_1557_DSN",))]
-    assert "ISSUE_1557_DSN" in result.stdout
-    # The same secret-policy name also protects driver-like diagnostics at the
-    # browser serialization and authoritative audit sinks, without regex config.
-    diagnostic = ops_runner.OpsResult("sqlconnect", "query", 3, False, "env_config", "", canary)
-    assert canary not in json.dumps(diagnostic.to_dict())
-    audit_log({"event": "dsn_canary_probe", "error": canary}, cfg=cfg)
-    captured = capsys.readouterr()
-    outputs = result.stdout + result.stderr + captured.out + captured.err + caplog.text
-    for name in ("audit.jsonl", "app.log", "numbat.ndjsonl"):
-        path = tmp_path / name
-        if path.exists():
-            outputs += path.read_text(encoding="utf-8")
-    assert (tmp_path / "audit.jsonl").is_file()
-    assert (tmp_path / "numbat.ndjsonl").is_file()
-    assert canary not in outputs

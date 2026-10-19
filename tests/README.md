@@ -76,7 +76,6 @@ auto-discovered and need no coverage-source entry.
 | Path | What it is |
 |---|---|
 | `conftest.py` | Shared config, retriever, and LLM fixtures. `test_config` is a **deepcopy** on purpose — a shallow copy leaks mutations across tests (`test_conftest_fixtures` guards this). |
-| `fixtures/github_coding_repo/` | Canned repo used by the agentic real-repo-loop tests. |
 | `ci_rag_smoke.py` | Deliberately NOT `test_*`-named so pytest ignores it; runs as a separate CI step against a real index. Renaming it double-runs it and drags ChromaDB into the unit lane. |
 | `judge_eval.py` | Default-off 52-case groundedness evaluator. Builds an isolated real Chroma/BM25 index; the opt-in judge is Claude or a second loopback model. See `docs/EVALS.md`. |
 | `rerank_probes.py` | Answer keys for every answerable RAG probe, plus a fresh held-out probe set, for choosing the reranker veto (issue #1456). Labels a window by whether an answer key is in it, never by a model score. Read by `scripts/rerank_bakeoff.py` and `test_rerank_bakeoff.py`; no heavy imports. |
@@ -84,9 +83,9 @@ auto-discovered and need no coverage-source entry.
 | `TEST_SUITE_AUDIT.md`, `VERIFICATION_REPORT_3.12.md` | Point-in-time audit reports, kept beside the suite they audited. |
 | `apipsTest.ps1`, `cmd2index.bat` | Windows-side manual helpers; not collected by pytest. |
 | `nemo_runtime/` | Real NeMo engine, combined NeMo/Numbat CLI/CEL gateway HTTP acceptance, and logging privacy checks with a loopback-only harness (`network_jail.py`, `mock_openai.py`); collected with the main suite and skipped unless `CYCLAW_NEMO_RUNTIME=1`. |
-| `executor_sandbox_double.py`, `spend_live_probe.py` | Helper doubles/probes, not `test_*`-named, so not collected. |
+| `spend_live_probe.py` | Opt-in live spend probe, not `test_*`-named, so not collected. |
 | `import_graph.py` | The AST import walker shared by the six `test_*_isolation.py` I6 guards; not collected. |
-| `numbat_shaped_events.py` | Drives one representative event per producer family (mainline audit projection, pre-action hook verdicts, CEL monitor, ops/fsconnect/sqlconnect; not the executor or `real_repo_loop`) into a throwaway stream; `python -m tests.numbat_shaped_events --frozen --out ...` regenerates `fixtures/numbat/cyclaw-shaped-*.ndjson`. Not collected; `test_numbat_cyclaw_shaped.py` and `numbat-rules.yml`'s `numbat-stream-contract` job hold its output to the pinned Numbat CLI and schema (issue #1458). |
+| `numbat_shaped_events.py` | Drives one representative event per producer family (mainline audit projection, pre-action hook verdicts, CEL monitor, ops/fsconnect) into a throwaway stream; `python -m tests.numbat_shaped_events --frozen --out ...` regenerates `fixtures/numbat/cyclaw-shaped-*.ndjson`. Not collected; `test_numbat_cyclaw_shaped.py` and `numbat-rules.yml`'s `numbat-stream-contract` job hold its output to the pinned Numbat CLI and schema (issue #1458). |
 
 ## Conventions that bite
 

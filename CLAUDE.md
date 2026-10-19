@@ -90,7 +90,7 @@ LLM decision.
 | GET | `/console/session` | none (same-origin) | rate-limited; whether this browser can use the API-key routes, plus the console CSRF token; cross-site 403 |
 | POST | `/console/session` | **Bearer key or one-time pairing code** | rate-limited, same-origin, audited; sets the HttpOnly console cookie that satisfies `require_api_key`; 401 when `CYCLAW_API_KEY` is unset |
 | POST | `/console/session/end` | none (same-origin) | rate-limited, audited; deletes this browser's console cookie |
-| POST | `/ops/sync` `/ops/agentic` `/ops/fsconnect` `/ops/sqlconnect` | **API key** | rate-limited; subprocess shims |
+| POST | `/ops/sync` `/ops/fsconnect` | **API key** | rate-limited; subprocess shims |
 | GET | `/auth/setup-status` | same-origin (no-Origin curl/MCP allowed) | rate-limited; whether the bootstrap admin still needs a password |
 | POST | `/auth/bootstrap-password` | loopback peer, no forwarding headers, same-origin | first admin password; 403 off-box or proxied; 409 once set |
 | POST | `/auth/login` | none | cross-site rejection precedes rate limiting; session cookie + CSRF token on success |
@@ -109,7 +109,7 @@ LLM decision.
 | POST | `/memory/propose` `/memory/reject` `/memory/apply` | **API key** | rate-limited; non-empty `reason` required; injection scan on apply |
 | GET | `/query/export/html` | **API key** | rate-limited; 404 unless both `memory.enabled` and `memory.export_html.enabled` are true |
 
-The four `/ops/*` endpoints reach out-of-band subsystems ONLY through
+The two `/ops/*` endpoints reach out-of-band subsystems ONLY through
 `utils/ops_runner.py` (a `subprocess.run([...])` shim); they never import them.
 
 **API key routes** are gated by `gate.py`'s `require_api_key`, which fails
@@ -173,10 +173,7 @@ Module docstrings are the detailed reference; this is the index.
 | `metrics.py` | `cyclaw-metrics`: forensic `audit.jsonl`/`logs/spend.jsonl` analyzer; not imported by the core six |
 | `mcp_hybrid_server.py` | MCP server: `hybrid_search` only, no LLM, `sampling: None` |
 | `sync/` | Out-of-band Dropbox corpus sync (`python -m sync.cli`) |
-| `agentic/` | Out-of-band GitHub context + governed skills registry (`python -m agentic.cli`); connectors `fsconnect/` (local/SMB), `sqlconnect/` (SELECT/WITH-only), `netconnect/` (passive LAN inventory, no active probes) |
-| `agentic/real_repo_loop.py` | Plan → patch → verify → (human decides) → commit against a jailed clone. CLI-only, no HTTP route (`docs/agentic/AGENTIC_README.md` §9). Push/PR gated (`allow_git_write_tools` and `agentic.enabled` ship false) |
-| `agentic/executor/` | Verification in disposable gitless copies under a required `production_sandbox()` (Seatbelt or bubblewrap; Windows and missing capabilities fail closed). Not a microVM or host-read isolation boundary (`docs/THREAT_MODEL.md`) |
-| `agentic/deepagent_github/` | Live: `RepoWorkspaceTools` (jailed clone/read/write/commit/push) and the cloud planner, gated off by default (`builder.py`'s DeepAgents subgraph is retired) |
+| `agentic/` | Out-of-band connectors only, both shipped off: `fsconnect/` (local/SMB, `python -m agentic.fsconnect.cli`, `/ops/fsconnect`) and `netconnect/` (passive LAN inventory, no active probes, CLI only). `__init__.py` only applies the telemetry kill. The GitHub context layer, skills registry, real-repo coding loop, executor sandbox, harness optimizer and `sqlconnect` were removed 2026-10-18 (`docs/changelog.txt`) |
 | `guardrails/` | Enabled by default with required but soft-imported NeMo: offline input/output rails, and the broker wraps every answer node with `check()` or deterministic checks on degradation. No LLM-backed rail is active |
 | `telegram/` / `opentweet/` | Out-of-band channels, both shipped off and reaching the RAG only via loopback `POST /query`. Telegram: only `/online on <grok\|claude>` (with `allow_hybrid_confirm`) can set `user_confirmed_online`. OpenTweet: always `user_confirmed_online: false`, default write is a draft. `docs/channels/` |
 
@@ -244,8 +241,8 @@ the test that pins each (`tests/test_due_diligence_invariants.py`).
   **Rule:** they exist only after `pip install -e .`; `python -m …` always works.
 - **Trap:** running `pytest` in a fresh container, or assuming its `python3` is
   3.12. **Rule:** a fresh clone has NO Python deps, and on `sandbox-ccr-default`
-  bare `python3`/`pytest` are 3.11, under which `test_agentic_*` fails
-  (`shutil.rmtree(onexc=...)` is 3.12+) — easy to mistake for a red `main`. Use `driver.sh venv` (the `cyclaw-gotchas` skill), which builds a
+  bare `python3`/`pytest` are 3.11, under which 3.12-only code fails
+  (e.g. `shutil.rmtree(onexc=...)`) — easy to mistake for a red `main`. Use `driver.sh venv` (the `cyclaw-gotchas` skill), which builds a
   3.12 venv outside the repo and handles a proxy-denied `download.pytorch.org`. Never change the system `python3`
   (`update-alternatives`): the runtime's own hooks resolve through it.
 - **Trap:** assuming the server refuses to boot without `GROK_API_KEY`, or
@@ -342,7 +339,7 @@ the test that pins each (`tests/test_due_diligence_invariants.py`).
   **Rule:** asserted verbatim in `test_graph`. Success paths never emit an
   `error` key (it would clobber an upstream error).
 - **Trap:** a generic `sys.exit(1)` from a CLI.
-  **Rule:** exit codes are an API: agentic `0` ok · `2` failed · `3`
+  **Rule:** exit codes are an API: fsconnect `0` ok · `2` failed · `3`
   env/config · `4` write refused; sync `10` = corpus changed → reindex;
   `clear_cache` `0`/`2`/`3`.
 - **Trap:** "optimizing" the BM25 store to pickle.
@@ -558,7 +555,7 @@ python -m retrieval.indexer            # or: cyclaw-index
 # the full suite or the --cov run; these are for the owner, CI, or step 4.
 GROK_API_KEY=dummy pytest tests/ -q --tb=short   # full suite: CI/owner only
 GROK_API_KEY=dummy pytest tests/test_graph.py -q --tb=short   # single file
-GROK_API_KEY=dummy pytest tests/test_agentic_*.py -q          # agentic only
+GROK_API_KEY=dummy pytest tests/test_fsconnect_*.py -q        # fsconnect only
 GROK_API_KEY=dummy python tests/ci_rag_smoke.py               # real-index RAG smoke
 GROK_API_KEY=dummy pytest tools/lora_finetune/tests/ -q --tb=short  # not under testpaths
 
@@ -589,11 +586,11 @@ python3 .claude/skills/index-doctor/doctor.py --rebuild
 python3 .claude/skills/injection-redteam/redteam.py
 ```
 
-CI targets Python 3.12 on four `test` legs (ubuntu-latest, ubuntu-22.04 for the
-AppArmor-profiled bwrap policy, windows, macos), all release gates. In `ci.yml`
+CI targets Python 3.12 on four `test` legs (ubuntu-latest, ubuntu-22.04,
+windows, macos), all release gates. In `ci.yml`
 only `verify-skills` carries `continue-on-error`. Coverage sources live in
 `pyproject.toml`'s `[tool.coverage.run]`. `tests/conftest.py` mocks all external deps; `tests/` holds about
-220 auto-collected `test_*.py` files.
+190 auto-collected `test_*.py` files.
 
 ---
 
@@ -662,8 +659,9 @@ security gate: secrets, private data, protected paths, and main/force pushes
 `CyClaw Agent`: `Claude <noreply@anthropic.com>`
 in the cloud, the operator's own identity locally. `git var GIT_COMMITTER_IDENT`
 should show it before committing; clear a stale pin with
-`git config --local --unset user.email` (and `user.name`). `CyClaw Agent` belongs
-only to CyClaw's own agentic loop (`utils/agent_identity.py`).
+`git config --local --unset user.email` (and `user.name`). `CyClaw Agent` was
+the identity of CyClaw's own agentic loop (removed 2026-10-18); its defaults and
+the branch-prefix allowlist still live in `utils/agent_identity.py`.
 
 **Branch namespaces** (`.github/PULL_REQUEST_TEMPLATE.md`; hooks and
 `utils/agent_identity.py` accept every row):
@@ -697,5 +695,4 @@ before you consider the session done.
   workers gather evidence and produce artifacts, never architectural decisions.
   Dispatch read-only research in parallel, serialize write-heavy work per file
   set, and give each worker a self-contained prompt.
-- Agentic governance: `docs/agentic/AGENTIC_README.md`,
-  `docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`.
+- Out-of-band connectors (fsconnect, netconnect): `docs/agentic/AGENTIC_README.md`.

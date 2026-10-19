@@ -1,5 +1,7 @@
 # CyClaw GitHub Deep Agent + Harness Optimizer Implementation Plan
 
+> **Status update — 2026-10-18 (agentic removal):** REMOVED. Everything this plan covers (`agentic/deepagent_github/`, `agentic/harness_optimizer/`, `agentic/real_repo_loop.py` and the `agentic/cli.py` entry point) was deleted from the repository in October 2026 (`docs/changelog.txt`, 2026-10-18 entry; `docs/THREAT_MODEL.md`, nineteenth amendment). Everything below is design history kept for its reasoning; none of it describes the current tree, and none of its open items will be picked up.
+>
 > **Status update — 2026-09-06 (docs review, Claude Code):** SUPERSEDED (per this doc's own header) by `agentic/real_repo_loop.py`, the live plan→patch→verify→commit path. Verified: `agentic/real_repo_loop.py` exists and is wired into `agentic.cli`'s `real-repo-run*` subcommands and the harness's authenticated agent-run routes (CLAUDE.md's module table). The code this plan produced — `agentic/deepagent_github/` (`builder.py`, `subagents.py`, `tools.py`, `permissions.py`) and `agentic/harness_optimizer/` — both still exist in full and remain disabled by default (`config.yaml`'s `agentic:` block), unmodified since the 2026-07-31 retirement decision, exactly as the header states.
 >
 > **What's left:**
@@ -29,7 +31,7 @@ apply. Phase 9 is a security gate, not authorization to add an executor.
 This document uses the requested filename because `docs/agentic/` already uses
 explicit, topic-scoped governance and roadmap names such as
 `CyClaw_Safe_Agentic_Enhancement_Plan.md`,
-`SKILLS_REGISTRY_GOVERNANCE.md`, and `FSCONNECT_SQL_ROADMAP.md`. The requested
+`SKILLS_REGISTRY_GOVERNANCE.md` (deleted 2026-10-18), and `FSCONNECT_SQL_ROADMAP.md`. The requested
 name is precise and fits that convention.
 
 ## 2. Executive Summary

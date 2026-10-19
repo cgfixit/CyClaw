@@ -126,15 +126,15 @@ libraries that a routine bump would be likely to break.
 
 **Where pinned:** `langgraph` in all 4 surfaces; `langchain`/`langchain-openai`
 in `pyproject.toml` (`agentic-deepagents` extra) + `constraints.txt` only
-(not in the default install path — `agentic.deepagent_github` lazy-imports
-them); `psycopg`/`pgvector` in `pyproject.toml` (`postgres`/`pgvector`
+(not in the default install path; since the 2026-10-18 agentic removal no
+CyClaw code imports them, and the extra is slated for removal); `psycopg`/`pgvector` in `pyproject.toml` (`postgres`/`pgvector`
 extras) + `constraints.txt` only. Note `psycopg-binary` is pinned separately
 in `constraints.txt` (constraints files can't carry the `[binary]` extra) —
 bump both together.
 
 **Verification after bumping:**
 - `langgraph`: `GROK_API_KEY=dummy pytest tests/test_graph.py tests/test_due_diligence_invariants.py -q`, then `python3 .claude/skills/invariant-guard/check_invariants.py` (I1-I4 depend on `graph.py`'s actual LangGraph wiring behaving the way the checker expects — a `langgraph` bump that changes edge/routing semantics would be exactly the kind of regression the checker exists to catch).
-- `langchain`/`langchain-openai`: `pytest tests/test_agentic_harness_phase679.py tests/test_agentic_deepagent_optional.py -q` (the `deepagents-harness` CI job's own test target).
+- `langchain`/`langchain-openai`: no test target remains — `tests/test_agentic_harness_phase679.py`, `tests/test_agentic_deepagent_optional.py` and the `deepagents-harness` CI job went with the agentic coding loop on 2026-10-18. Drop these pins with the orphaned extra rather than bumping them.
 - `psycopg`/`pgvector`: `pytest tests/test_personality_postgres.py tests/test_ratelimit_postgres.py tests/test_pgvector_store.py -q` against a live Postgres/pgvector service (the `postgres-backend` CI job's own test target — needs the service container, not runnable standalone without one).
 
 ---
@@ -158,9 +158,9 @@ bump both together.
 - **`langchain-core`** — same reasoning as the langgraph/langchain bumps
   above, but note `pyproject.toml`'s comment for `chromadb`'s CVE mentions
   `langchain-core` is a base dependency (not an optional extra like
-  `langchain`), so this one affects the *default* install, not just the
-  agentic/deepagents opt-in path. Run the full test suite, not just the
-  agentic-scoped subset.
+  `langchain`), so this one affects the *default* install. Run the full test
+  suite (the agentic/deepagents opt-in path it used to be compared with was
+  removed on 2026-10-18).
 - **`websockets`** is the one genuine outlier: `constraints.txt`'s own
   comment says it's pinned direct specifically because
   `langgraph-sdk imports websockets.asyncio at graph import time; keep this

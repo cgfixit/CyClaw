@@ -220,32 +220,7 @@ def test_disabled_is_a_noop(tmp_path: Path) -> None:
     assert not out.exists()
 
 
-def test_executor_emits_command_exec(tmp_path: Path, numbat_cfg: tuple[str, Path]) -> None:
-    from agentic.executor import Check, run_verification
-
-    config_path, out = numbat_cfg
-    cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
-    report = run_verification(
-        tmp_path,
-        [Check("ok", ("python", "-c", "print(1)"))],
-        config_path=config_path,
-        cfg=cfg,
-    )
-    assert report.ok
-    records = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
-    # The mainline audit trail now projects into the same file
-    # (artifact_type "cyclaw_audit_jsonl"); this test asserts the executor's
-    # action-plane records, so exclude the audit projection.
-    records = [r for r in records if r["evidence"]["artifact_type"] != "cyclaw_audit_jsonl"]
-    assert len(records) == 2
-    assert records[0]["event_type"] == "command.exec"
-    assert records[0]["tool_name"] == "executor"
-    assert "exit_code" not in records[0]
-    assert records[1]["event_type"] == "command.result"
-    assert records[1]["exit_code"] == 0
-
-
-def test_ops_runner_redacts_reason(monkeypatch: pytest.MonkeyPatch, numbat_cfg: tuple[str, Path]) -> None:
+def test_ops_runner_redacts_search_pattern(monkeypatch: pytest.MonkeyPatch, numbat_cfg: tuple[str, Path]) -> None:
     import subprocess
 
     from utils import ops_runner
@@ -260,20 +235,14 @@ def test_ops_runner_redacts_reason(monkeypatch: pytest.MonkeyPatch, numbat_cfg: 
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout="{}", stderr="")
 
     monkeypatch.setattr(ops_runner, "_run", _fake_run)
-    ops_runner.run_agentic_op(
-        "apply-skill",
-        name="demo",
-        desc="desc",
-        reason="super secret reason",
-        confirm=True,
-    )
+    ops_runner.run_fsconnect_op("grep", root="docs", path="notes.md", pattern="AKIAEXAMPLEKEY123")
     lines = out.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
     blob = "\n".join(lines)
-    assert "super secret reason" not in blob
+    assert "AKIAEXAMPLEKEY123" not in blob
     record = json.loads(lines[0])
-    assert "--reason=<redacted>" in record["command"]
-    assert record["tags"][-1] == "apply-skill"
+    assert "--pattern=<redacted>" in record["command"]
+    assert record["tags"][-1] == "grep"
     assert json.loads(lines[1])["event_type"] == "command.result"
 
 

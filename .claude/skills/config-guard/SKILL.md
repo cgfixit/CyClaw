@@ -55,7 +55,7 @@ It checks (severity in brackets):
 | C8 | WARN | `retrieval.rrf_k == 60` (the documented authoritative fusion constant) |
 | C9 | WARN | committed provider posture matches the documented default: `app.mode == hybrid`, `grok`/`claude` literal `true` (per-request confirmation remains a separate runtime gate) |
 | C10 | WARN | `policy.fallback.send_local_context_to_{grok,claude}` stays `false` (no off-box context leak by default) |
-| C11 | WARN | `guardrails.model`/`base_url` track the local LLM (config.yaml says keep in sync; the third member of that sync, `agentic.deepagent_github.model`, is not checked here) |
+| C11 | WARN | `guardrails.model`/`base_url` track the local LLM (config.yaml says keep in sync) |
 | C12 | FAIL | `macos/ollama-mlx.env` `OLLAMA_CONTEXT_LENGTH` ≥ `max_context_tokens + max_tokens + 1500` (on-disk env file, not a live `ollama ps`). Symbol-dense tokenizer estimate stays INFO. |
 | C13 | WARN | `security.api_key_optional` is not `true` while `api.host` is non-loopback. `gate.py`'s `_require_loopback_bind` refuses that pair at boot; this is the pre-boot warning for the same control (the bypass itself stays peer-gated at runtime) |
 

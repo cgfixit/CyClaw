@@ -418,7 +418,6 @@ split by role.
 | Ollama/LM Studio | Keep model/GPU outside the sandbox and connect through gVisor netstack; never use host networking. | Requires TAP/NAT or vsock proxying; host service must be exposed only to the microVM path. |
 | CPU/memory/startup | Adds a userspace kernel and helper processes; CPU-bound paths may be modest, I/O/network paths slower. No CyClaw numbers exist—measure them. | VMM startup can be small, but published VMM-only numbers exclude guest kernel, Python, Torch, Chroma, and app memory. Total cold start is materially higher. |
 | Single-operator operations | Moderate: install/patch one OCI runtime, select `runtime: runsc`, benchmark and debug compatibility. | High: KVM host, guest kernel/rootfs lifecycle, jailer, TAP/NAT/firewall, storage, updates, backups, supervision. |
-| `real_repo_loop` | Git/worktree bind mounts can work but file-heavy operations may slow. A separate no-network executor remains preferable. | Ordinary host bind-mounted worktrees do not map cleanly; stage through a block image, network service, or vsock. |
 | Telegram | Normal DNS/TCP/TLS through netstack; keep the channel as a separate role. | Normal guest egress after TAP/NAT policy; more machinery for no additional product value. |
 | Apple silicon | Supports Linux ARM64, not a native macOS Docker Desktop custom-runtime guarantee. It must run in a controllable Linux VM. | Requires ARM64 Linux with `/dev/kvm`; a Mac host by itself is not a Firecracker deployment target. |
 | Falco visibility | Host eBPF observes `runsc`, not a complete guest syscall stream; Falco 0.44 removed its gVisor engine. | Host Falco sees the VMM/TAP, not guest syscalls; guest monitoring is separate. |
@@ -440,9 +439,10 @@ operations.
 Stage 5 becomes mandatory if any one of these becomes true:
 
 - CyClaw intentionally executes code/tests from untrusted repositories or PRs.
-- A remote caller or public Telegram bot can reach the executor.
+- A remote caller or public Telegram bot can reach a code executor (none ships
+  since the agentic executor was removed in October 2026).
 - Multiple mutually untrusted operators share the host.
-- The executor receives host credentials, SSH agents, the Docker socket, or
+- Such an executor receives host credentials, SSH agents, the Docker socket, or
   broad host mounts.
 - The service becomes internet-facing or makes a contractual isolation claim.
 - Adversarial test workloads become a supported product feature.

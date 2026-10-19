@@ -236,7 +236,7 @@ _print_derived_tag_hint() {
   esac
   # Anchored to the checkout: setup-cyclaw.sh runs this script from any cwd.
   printf '  optional, not run here: ollama create qwen3.8:27b-mlx-cg -f %q\n' "$REPO_DIR/macos/Modelfile.cg"
-  echo "  Then set models.local_llm.model and guardrails.model together (and agentic.deepagent_github.model if the planner uses this Ollama)."
+  echo "  Then set models.local_llm.model and guardrails.model together."
   echo "  Docs: docs/! How-To-Guides/OLLAMA_SETUP.md (Pin the context window with a derived tag)."
 }
 
@@ -586,7 +586,7 @@ fi
 _SHIPPED_MODEL="$(_read_shipped_model)"
 if [ -n "$_SHIPPED_MODEL" ] && [ "$OLLAMA_MODEL" != "$_SHIPPED_MODEL" ]; then
   warn "using Ollama tag $OLLAMA_MODEL but config.yaml ships $_SHIPPED_MODEL."
-  warn "update models.local_llm.model, guardrails.model, and agentic.deepagent_github.model together (config-guard C11 checks the first two) or /query will 404."
+  warn "update models.local_llm.model and guardrails.model together (config-guard C11 checks the pair) or /query will 404."
 fi
 _print_derived_tag_hint
 

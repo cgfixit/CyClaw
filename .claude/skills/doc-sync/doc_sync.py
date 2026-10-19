@@ -243,7 +243,7 @@ _D9_RUNTIME_PATHS = re.compile(
           \.git/                     # e.g. babysit-state.json, written into the git dir
         | logs/                      # audit.jsonl, spend.jsonl, numbat NDJSON, guardrails
         | index/                     # chroma/ + bm25.json, built by retrieval.indexer
-        | data/(memory|auth|agentic/workspaces)/
+        | data/(memory|auth)/
         | \.emb_cache/
         | outputs_[A-Za-z0-9_]+/     # lora kit training output tree
     )""",
@@ -251,10 +251,10 @@ _D9_RUNTIME_PATHS = re.compile(
 )
 
 # A cited path that is *documented as absent* is the doc doing its job, not
-# drift. All three phrasings below are live in this repo: unslop's "Files
-# deliberately excluded" heading, deploy/seccomp's "The three former
-# repository profiles were removed", and .claude/README.md's "a file deleted
-# on `main`". Matched against the surrounding claim unit and the nearest
+# drift. Phrasings this was built from: deploy/seccomp's "The three former
+# repository profiles were removed", .claude/README.md's "a file deleted on
+# `main`", and the vendored unslop README's "Files deliberately excluded"
+# heading (gone with agentic/vendor/ in October 2026). Matched against the surrounding claim unit and the nearest
 # heading, reusing the same machinery D4/D8 use for their own context tests.
 _D9_ABSENT_ON_PURPOSE = re.compile(
     r"delet|remov|exclud|retired|never (?:vendored|created|committed)"
@@ -323,7 +323,6 @@ _D11_EXTERNAL = {
     "build": "PEP 517 front-end, dev-only",
     "json.tool": "stdlib",
     "http.server": "stdlib",
-    "unslop": "vendored under agentic/vendor/, invoked by its own package name",
 }
 _D11_MODULE = re.compile(r"python3?\s+-m\s+([A-Za-z_][A-Za-z0-9_.]*)")
 
@@ -1009,9 +1008,9 @@ def main(argv: list[str] | None = None) -> int:
             cited = m.group(1)
             # Only multi-segment paths. A bare `falco.yaml` in prose is the
             # Falco *image's* /etc/falco/falco.yaml, `proposal.md` is a
-            # generated workspace artifact, and unslop's eight "excluded"
-            # filenames are upstream files this repo deliberately did not
-            # vendor -- none are repo-relative claims, and treating them as
+            # generated workspace artifact, and the (since removed) vendored
+            # unslop README's eight "excluded" filenames were upstream files
+            # this repo did not vendor -- none are repo-relative claims, and treating them as
             # such produced 13 false positives when this ran by hand.
             if "/" not in cited or cited.startswith(("http", "~", "/")):
                 continue

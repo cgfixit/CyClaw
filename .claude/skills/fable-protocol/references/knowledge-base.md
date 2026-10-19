@@ -77,9 +77,11 @@ Agent`, owner decision 2026-09-26), subscribe to every PR you open and drive
 it to green with no polling beside a live subscription.
 
 **Where the frontier is** (verify against `git log` and
-`docs/changelog.txt` — this paragraph is a pointer, not a record): the live
-agentic path is `agentic/real_repo_loop.py` (plan → patch → verify → human
-decides → commit); the Python coding-harness console was removed 2026-09-11
+`docs/changelog.txt` — this paragraph is a pointer, not a record): the
+agentic GitHub layer (the real-repo coding loop, skills registry, DeepAgents
+code, verification sandbox) and `agentic/sqlconnect/` were removed
+2026-10-18, leaving `agentic/fsconnect/` and `agentic/netconnect/`; the
+Python coding-harness console was removed 2026-09-11
 and that role moved to the sibling CG-agent-harness repo; per-user auth
 (RBAC, sessions, CSRF, device tokens, TLS), the default-off memory subsystem,
 the default-off Telegram/OpenTweet channels, and the Numbat NDJSON plane all
@@ -125,7 +127,8 @@ Integrity note above for two of these): 3-layer semantic drift detection for
 | Decision | Status | Where |
 |---|---|---|
 | Autonomous skill-write loops | rejected | `SKILL.md` §8.3 |
-| DeepAgents subgraph | retired 2026-07-31, code kept | CLAUDE.md §2 key modules |
+| DeepAgents subgraph | retired 2026-07-31; code removed 2026-10-18 | `git log` |
+| Agentic GitHub layer, real-repo loop, `sqlconnect` | removed 2026-10-18 (with `/ops/agentic`, `/ops/sqlconnect`) | `git log` |
 | chromadb CVE-2026-45829 | risk-accepted, embedded only | SECURITY.md (PROJECT_RULES.md restates it) |
 | `min_score` 0.028 | intentional RRF scale | CLAUDE.md §2, §4 |
 | `HF_HUB_OFFLINE` out of kill map | intentional | CLAUDE.md §4 |

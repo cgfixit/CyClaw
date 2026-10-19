@@ -155,14 +155,9 @@ def check_python_version() -> None:
 #
 # Intentionally-undeclared modules go here WITH the reason, so the allowlist
 # stays an argued exception list rather than a silencer.
-_IMPORT_ALLOWLIST = {
-    # Lazy-imported operator-supplied driver: agentic/sqlconnect/client.py
-    # imports it inside a function and raises a friendly "pyodbc is not
-    # installed (pip install pyodbc)" if absent, so a disabled connector needs
-    # nothing installed. Declaring it would install an MSSQL driver on every
-    # box for a connector that ships disabled.
-    "pyodbc",
-}
+# (pyodbc sat here for agentic/sqlconnect until that connector was removed in
+# October 2026.)
+_IMPORT_ALLOWLIST: set[str] = set()
 _FIRST_PARTY = {
     "utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "telegram",
     "opentweet",
@@ -284,6 +279,7 @@ def check_undeclared_imports() -> dict[str, list[str]]:
 # back into documentation nobody re-derived.
 _PINNED_NOT_IMPORTED = {
     "websockets": "transitive of uvicorn[standard] (requires websockets>=13.0); pinned so this surface fixes the version the extra would float",
+    "langchain-core": "transitive of langgraph and nemoguardrails; pinned so graph.py's stack resolves a fixed version. Its one direct importer, agentic/deepagent_github, was removed in October 2026",
 }
 
 

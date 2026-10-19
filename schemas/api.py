@@ -112,7 +112,7 @@ class SoulEvolutionRequest(BaseModel):
 
 
 # --- Ops console request models -------------------------------------------------
-# These back the terminal console's Sync + Agentic panels (/ops/sync, /ops/agentic).
+# These back the terminal console's Sync + Filesystem panels (/ops/sync, /ops/fsconnect).
 # action is a closed Literal so an unknown verb is rejected at the schema boundary
 # (HTTP 422) before any subprocess is spawned; extra='forbid' + strict=True block
 # silent field injection. The gateway never imports sync/ or agentic/ — it shells
@@ -122,21 +122,6 @@ class OpsSyncRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     action: Literal["status", "test", "sync", "schedule", "unschedule"]
     dry_run: bool = False
-
-
-class OpsAgenticRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid', strict=True)
-    action: Literal["status", "test", "context", "propose-skill", "apply-skill"]
-    # context selectors
-    pr: int | None = Field(default=None, ge=1)
-    issue: int | None = Field(default=None, ge=1)
-    no_diff: bool = False
-    # skills-registry fields (propose-skill / apply-skill)
-    name: str | None = Field(default=None, max_length=128)
-    desc: str | None = Field(default=None, max_length=512)
-    body: str | None = Field(default=None, max_length=65536)
-    reason: str | None = Field(default=None, max_length=4096)
-    confirm: bool = False
 
 
 # --- Filesystem connector (out-of-band, /ops/fsconnect) ----------------------
@@ -154,19 +139,6 @@ class OpsFsConnectRequest(BaseModel):
     # up the FastAPI worker.
     regex: Literal[False] = False
     recursive: bool = True
-
-
-# --- SQL connector (out-of-band, /ops/sqlconnect) -----------------------------
-# Mirrors the sqlconnect CLI subcommands. Read-only by construction. action is a
-# closed Literal; sql is capped to prevent oversized payloads.
-class OpsSqlConnectRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid', strict=True)
-    action: Literal["status", "test", "schema", "query"]
-    sql: str | None = Field(default=None, max_length=65536)
-    table: str | None = Field(default=None, max_length=256)
-    explain: bool = False
-    count: bool = False
-    fmt: Literal["json", "csv"] = "json"
 
 
 # --- Per-user authentication (docs/AUTHENTICATION_DESIGN.md, Stage 2) --------

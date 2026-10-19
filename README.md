@@ -213,8 +213,8 @@ Rules 1–9 and the test behind each.
 **Storage and console.** `indexing.vector_backend` defaults to embedded
 `chroma` (optional `pgvector`); BM25 is JSON, never pickle.
 `static/terminal.html` provides queries, the first-run build panel, health
-chips, Soul, Sync, Agentic, Filesystem, and SQL panels, plus Users and Audit
-when auth is on.
+chips, Soul, Sync, and Filesystem panels, plus Users and Audit when auth is
+on.
 
 ### Optional layers at a glance
 
@@ -224,8 +224,7 @@ when auth is on.
 | [Memory](docs/memory/README.md) | SQLite/FTS5 facts and episodes, propose/apply, optional retrieval fusion and HTML export | off |
 | [NeMo Guardrails](#nemo-guardrails) | Deny-only input/output checks, deterministic fallback on NeMo failure | on |
 | [Dropbox sync](docs/SYNC_README.md) | Out-of-band `rclone` corpus pull | CLI |
-| [Connectors](agentic/README.md) | Scoped filesystem, SELECT-only SQL, passive LAN inventory | off |
-| [Agentic loop](docs/agentic/AGENTIC_README.md) | GitHub context, skills, clone/plan/patch/verify, human decisions | off |
+| [Connectors](docs/agentic/AGENTIC_README.md) | Scoped filesystem, passive LAN inventory | off |
 | [Telegram](docs/channels/TELEGRAM_DESIGN.md) / [OpenTweet](docs/channels/OPENTWEET_DESIGN.md) | Phone remote and X drafts through loopback `/query` | off |
 | [Numbat stream](docs/security-philosophy/numbat_secondary_evaluator.md) / [pre-action hook](docs/security-philosophy/numbat_pre_action_gate.md) | Derived NDJSON, observation only; deny-only gate before a confirmed external call | on / off |
 | [Spend ledger](#spend-tracking) | Billed token counts | on |
@@ -371,13 +370,12 @@ computed at read time, so rate-card fixes re-price history. Rows exclude
 queries, prompts, and keys, and a failed write drops the row, not the answer.
 Core Grok/Claude requests also reserve a durable call allowance before each
 POST attempt, retries included: 100 per UTC day and 1,000 per UTC month by
-default (zero denies all). Optional agentic providers are excluded, and dollar
-spend is not enforced.
+default (zero denies all). Dollar spend is not enforced.
 
 | `source` | Writer | Covers |
 |---|---|---|
 | `query` | `llm/client.py` | Confirmed `/query` fallback |
-| `agentic` | `agentic/deepagent_github/chat_client.py` | Out-of-band planner calls |
+| `agentic` | none since October 2026 (the agentic coding loop was removed) | Historical rows only; still parsed and reported |
 | `eval` | `tests/judge_eval.py` | Opt-in judge runs, kept separately under `logs/evals/` |
 
 `python -m metrics` reports `today` and `last_7d` tokens and USD by provider
@@ -439,32 +437,21 @@ caches before a no-egress run. GPU-free dry run:
 `python tools/lora_finetune/dryrun_finetune.py`
 ([toolkit](tools/lora_finetune/README.md)).
 
-**Agentic coding.** `agentic.enabled: false` makes the out-of-band CLI a
-no-op; writes also need a per-call `reason` and `confirm`, and
-`allow_git_write_tools` ships false. `python -m agentic.cli real-repo-run`
-clones into a jail, plans, patches, and verifies, then waits for a human
-decision before committing; push and draft PR are separate decisions. Checks
-run in fresh gitless copies under Linux bubblewrap or macOS Seatbelt and fail
-closed without them (Windows refuses); no platform uses a microVM
-([threat model](docs/THREAT_MODEL.md)). `real-repo-run*` is CLI-only
-(`POST /ops/agentic` returns 422). Git helper containment, identity pinning,
-and orphan cleanup: [workspace controls](agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
+**Connectors.** Both ship off, outside the request path: `fsconnect`
+(bounded reads; writes gated, refused on Windows) and `netconnect` (passive,
+explicit RFC1918/loopback CIDRs). Neither calls an LLM. The GitHub coding loop,
+skills registry, verification executor, and SQL connector that used to sit
+beside them were removed in October 2026
+([what went](docs/agentic/AGENTIC_README.md#8-removed-in-october-2026)).
 
 ```bash
-python -m agentic.cli status
-python -m agentic.cli context --repo          # also --pr 123 / --issue 45
+python -m agentic.fsconnect.cli status
+python -m agentic.netconnect.cli status
 ```
 
-[Real-repo loop](agentic/README.md#2-real-repo-coding-loop),
-[governed harness](docs/agentic/AGENTIC_README.md#9-governed-github-coding-harness),
-and [write rollback](docs/agentic/GITHUB_WRITE_ENABLEMENT.md).
-
-**Connectors.** All three ship off, outside the request path: `fsconnect`
-(bounded reads; writes gated, refused on Windows), `sqlconnect` (SELECT/WITH
-only), and `netconnect` (passive, explicit RFC1918/loopback CIDRs).
-[Filesystem](agentic/README.md#5-filesystem-connector),
-[SQL](agentic/README.md#6-sql-connector-read-only), and
-[passive network](agentic/README.md#7-passive-network-connector).
+[Filesystem](docs/agentic/AGENTIC_README.md#2-filesystem-connector-agenticfsconnect),
+[passive network](docs/agentic/AGENTIC_README.md#3-passive-network-connector-agenticnetconnect),
+and the [package map](agentic/README.md).
 
 ### NeMo Guardrails
 
@@ -572,7 +559,7 @@ CyClaw/
 ```
 
 `data/corpus/` is the sample corpus, `data/personality/soul.md` the live
-soul; `data/agentic/skills_registry.json` ships empty.
+soul.
 
 ---
 

@@ -136,7 +136,7 @@ class GuardrailsConfig:
 
     def _validate_enabled(self) -> None:
         # YAML can load enabled: "false" as a string; truthy strings would turn
-        # the layer ON. Same fail-closed pattern as sqlconnect/sync bools.
+        # the layer ON. Same fail-closed pattern as the fsconnect/sync bools.
         if not isinstance(self.enabled, bool):
             raise GuardrailsConfigError(
                 f"guardrails.enabled must be a boolean true/false, got: {self.enabled!r}",

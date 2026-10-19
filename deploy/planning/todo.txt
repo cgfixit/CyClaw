@@ -54,13 +54,13 @@ Two different “breakouts.” Do not mix them.
 Class	What it is	What stops it	Is this PsyClaw’s problem?
 Policy breakout	Model uses tools, files, or network you gave it, or abuses an allowed side channel	Don’t grant the tool. Offline default. Human gate. Soul/RAG scanners	Yes. This is the HF story.
 Kernel / runtime escape	Compromised process exploits shared kernel, docker.sock, GPU toolkit, and becomes host root	Custom seccomp, AppArmor, then gVisor/Kata/microVM	Only if you run untrusted code or multi-tenant Linux. Not your Mac laptop SKU.
-Your model is on the host. Putting the gate in Docker does not put the model in a box. An “escaped” gate on a single-operator Mac still has whatever you already granted via /ops, fsconnect, real-repo, or a bind mount.
+Your model is on the host. Putting the gate in Docker does not put the model in a box. An “escaped” gate on a single-operator Mac still has whatever you already granted via /ops, fsconnect, or a bind mount.
 You are already doing the load-bearing control
 Mostly-offline exists for this exact reason. OpenAI’s box was not air-gapped. The package proxy was the internet. CyClaw’s analog is: no outbound unless user_confirmed_online, hybrid search behind that gate, agentic writes human-gated, no “pip install whatever the model asked.” Keep that. Do not replace it with compose.
 What to spend the next dollar on
 Application first. LSM second, and only on the Linux path.
 1. Keep doors closed. No model-facing shell, no package install tool, no docker.sock, no unrestricted /web, no auto-loaded LaunchAgents. That is how OpenAI’s isolation died — an exception that looked harmless.
-2. Keep I1–I6 and production_sandbox() honest. Prompt injection → tool/soul/file/egress is your real breakout. The child jail (Job Object / Seatbelt / unshare --net) is the right box for verification runs, not Docker around the whole app.
+2. Keep I1–I6 honest. Prompt injection → tool/soul/file/egress is your real breakout. (The verification-run child jail and production_sandbox() went with the agentic coding loop on 2026-10-18; nothing here runs model-patched code now.)
 3. Treat RAG/soul as hostile input. The HF side of the incident was “untrusted content executed on a worker.” Your equivalent is a poisoned corpus or a soul edit. Scanners and refuse-empty-reason already exist. That is the same class of bug.
 4. Docker + builtin seccomp + later AppArmor + default-off Falco stays the next Linux operator step if the gate process is compromised. It shrinks what a wrecked Python process can do to that host. It does not stop “the agent cheated.” Falco watches after the fact and needs a privileged sidecar. Do not sell it as breakout prevention.
 5. Stage 5 / microVM only if the product becomes untrusted skills, multi-user, internet-bind, or GPU multi-tenant. Your threat model already parks that. Do not pull it forward because of a lab eval with refusals off.

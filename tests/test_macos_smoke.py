@@ -108,8 +108,9 @@ def test_macos_smoke_covers_windows_smoke_endpoints() -> None:
         assert path in win, f"windows-smoke.ps1 lost {path} — update _SHARED_PATHS"
         assert path in mac, f"macos-smoke.sh missing Windows twin path {path}"
     assert "/ops/sync" in mac
-    assert "/ops/agentic" in mac
-    assert "/ops/sqlconnect" in mac
+    assert "/ops/fsconnect" in mac
+    assert "/ops/agentic" not in mac
+    assert "/ops/sqlconnect" not in mac
 
 
 def test_ci_invokes_macos_smoke_full_bomb() -> None:

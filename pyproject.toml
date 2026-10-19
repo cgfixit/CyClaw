@@ -185,13 +185,12 @@ filterwarnings = [
     'ignore:Using `httpx` with `starlette\.testclient` is deprecated; install `httpx2` instead\.',
 ]
 markers = [
-    "uses_shipped_execution_flag: test reads the real shipped EXECUTION_ENABLED value",
     "nemo_runtime: real nemoguardrails==0.24 engine tests (set CYCLAW_NEMO_RUNTIME=1)",
 ]
 
 [tool.coverage.run]
 source = ["gate", "gate_ops", "gate_auth", "gate_memory", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils", "sync", "agentic", "guardrails", "telegram", "opentweet", "memory", "schemas"]
-omit = ["tests/*", "*/test_*", "*/__pycache__/*", "agentic/fsconnect/*", "agentic/sqlconnect/*", "agentic/netconnect/*", "agentic/vendor/*"]
+omit = ["tests/*", "*/test_*", "*/__pycache__/*", "agentic/fsconnect/*", "agentic/netconnect/*"]
 
 [tool.coverage.report]
 fail_under = 80
@@ -205,7 +204,7 @@ exclude_also = [
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-exclude = [".claude", "agentic/vendor"]
+exclude = [".claude"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "C4", "UP", "S"]

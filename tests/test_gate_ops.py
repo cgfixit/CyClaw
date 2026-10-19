@@ -31,20 +31,14 @@ from utils.ops_runner import OpsError, OpsResult
 _TEST_CFG: dict[str, Any] = {
     "sync": {"enabled": True, "direction": "pull", "max_delete": 25,
              "max_transfer": "500M", "schedule_hour": 2, "schedule_min": 30},
-    "agentic": {"enabled": True, "mode": "read", "writes_enabled": False,
-                "repo": "CGFixIT/CyClaw"},
     "fsconnect": {"enabled": False, "allowed_roots": ["/srv/share"],
                   "writes_enabled": False, "max_file_bytes": 1024},
-    "sqlconnect": {"enabled": False, "driver": "mssql", "read_only": True,
-                   "max_rows": 50},
 }
 
-_OPS_ROUTES = ("/ops/sync", "/ops/agentic", "/ops/fsconnect", "/ops/sqlconnect")
+_OPS_ROUTES = ("/ops/sync", "/ops/fsconnect")
 _ROUTE_BODIES = {
     "/ops/sync": {"action": "status"},
-    "/ops/agentic": {"action": "status"},
     "/ops/fsconnect": {"action": "status"},
-    "/ops/sqlconnect": {"action": "status"},
 }
 
 
@@ -228,44 +222,6 @@ class TestOpsSync:
         assert [e["event"] for e in audit_events] == ["ops_sync_timeout"]
 
 
-class TestOpsAgentic:
-    def test_context_forwards_selectors(self, monkeypatch):
-        monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
-        client, audit_events = _build_app()
-        with patch("gate_ops.run_agentic_op", return_value=_result("agentic", "context")) as runner:
-            resp = client.post(
-                "/ops/agentic", json={"action": "context", "pr": 123, "no_diff": True},
-                headers={"Authorization": "Bearer test-key-123"},
-            )
-        assert resp.status_code == 200
-        assert resp.json()["config"] == {
-            "enabled": True, "mode": "read", "writes_enabled": False,
-            "repo": "CGFixIT/CyClaw",
-        }
-        runner.assert_called_once_with(
-            "context", pr=123, issue=None, no_diff=True,
-            name=None, desc=None, body=None, reason=None, confirm=False,
-        )
-        assert [e["event"] for e in audit_events] == ["ops_agentic_executed"]
-
-    def test_apply_skill_forwards_reason_and_confirm(self, monkeypatch):
-        monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
-        client, _ = _build_app()
-        with patch("gate_ops.run_agentic_op", return_value=_result("agentic", "apply-skill")) as runner:
-            resp = client.post(
-                "/ops/agentic",
-                json={"action": "apply-skill", "name": "deploy", "desc": "runbook",
-                      "reason": "add deploy runbook", "confirm": True},
-                headers={"Authorization": "Bearer test-key-123"},
-            )
-        assert resp.status_code == 200
-        runner.assert_called_once_with(
-            "apply-skill", pr=None, issue=None, no_diff=False,
-            name="deploy", desc="runbook", body=None,
-            reason="add deploy runbook", confirm=True,
-        )
-
-
 class TestOpsFsConnect:
     def test_read_forwards_scoped_args(self, monkeypatch):
         monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
@@ -300,39 +256,14 @@ class TestOpsFsConnect:
         runner.assert_not_called()
 
 
-class TestOpsSqlConnect:
-    def test_table_query_forwards_args(self, monkeypatch):
-        monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
-        client, audit_events = _build_app()
-        with patch("gate_ops.run_sqlconnect_op", return_value=_result("sqlconnect", "query")) as runner:
-            resp = client.post(
-                "/ops/sqlconnect",
-                json={"action": "query", "table": "public.users", "count": True},
-                headers={"Authorization": "Bearer test-key-123"},
-            )
-        assert resp.status_code == 200
-        assert resp.json()["config"] == {
-            "enabled": False, "driver": "mssql", "read_only": True, "max_rows": 50,
-        }
-        runner.assert_called_once_with(
-            "query", sql=None, table="public.users",
-            explain=False, count=True, fmt="json",
-        )
-        assert [e["event"] for e in audit_events] == ["ops_sqlconnect_executed"]
-
-
 class TestOpsErrorMapping:
     """The OpsError -> 400 / unexpected -> sanitized 500 contract is uniform
-    across the agentic, fsconnect, and sqlconnect routes (the sync route's
+    for the fsconnect route (the sync route's
     mapping is covered explicitly in TestOpsSync above)."""
 
     _CASES = (
-        ("/ops/agentic", {"action": "status"}, "gate_ops.run_agentic_op",
-         "ops_agentic_rejected", "ops_agentic_error"),
         ("/ops/fsconnect", {"action": "status"}, "gate_ops.run_fsconnect_op",
          "ops_fsconnect_rejected", "ops_fsconnect_error"),
-        ("/ops/sqlconnect", {"action": "status"}, "gate_ops.run_sqlconnect_op",
-         "ops_sqlconnect_rejected", "ops_sqlconnect_error"),
     )
 
     @pytest.mark.parametrize(
@@ -380,9 +311,7 @@ class TestOpsRateLimit:
         client, _ = _build_app(rate_limited=True)
         with (
             patch("gate_ops.run_sync_op") as sync_runner,
-            patch("gate_ops.run_agentic_op") as agentic_runner,
             patch("gate_ops.run_fsconnect_op") as fs_runner,
-            patch("gate_ops.run_sqlconnect_op") as sql_runner,
         ):
             resp = client.post(
                 path, json=_ROUTE_BODIES[path],
@@ -390,5 +319,20 @@ class TestOpsRateLimit:
             )
         assert resp.status_code == 429
         assert resp.json()["detail"]["code"] == "RATE_LIMIT"
-        for runner in (sync_runner, agentic_runner, fs_runner, sql_runner):
+        for runner in (sync_runner, fs_runner):
             runner.assert_not_called()
+
+
+class TestRemovedOpsRoutes:
+    """/ops/agentic and /ops/sqlconnect were removed with their subsystems."""
+
+    @pytest.mark.parametrize("path", ["/ops/agentic", "/ops/sqlconnect"])
+    def test_removed_route_is_not_registered(self, monkeypatch, path):
+        monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
+        client, audit_events = _build_app()
+        resp = client.post(
+            path, json={"action": "status"},
+            headers={"Authorization": "Bearer test-key-123"},
+        )
+        assert resp.status_code == 404
+        assert audit_events == []

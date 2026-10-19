@@ -26,8 +26,8 @@ from typing import Any
 
 logger = logging.getLogger("cyclaw.personality_db")
 
-# Connection hardening defaults (Postgres). statement_timeout mirrors the
-# sqlconnect convention (agentic/sqlconnect/config.py: statement_timeout_ms=5000).
+# Connection hardening defaults (Postgres). A 5 s statement_timeout bounds a
+# stuck query without cutting off a normal soul-version read or write.
 _PG_APP_NAME = "cyclaw"
 _PG_CONNECT_TIMEOUT_S = 10
 _PG_STATEMENT_TIMEOUT_MS = 5000

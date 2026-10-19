@@ -9,7 +9,7 @@ grepping.
 
 | Document | Owns |
 |---|---|
-| `THREAT_MODEL.md` | Security scope: trusted-operator (single by default, a small trusted set behind `auth.enabled`), loopback-bound, single-tenant — plus every amendment (executor, telegram, armed external providers). Read before any security-touching change. |
+| `THREAT_MODEL.md` | Security scope: trusted-operator (single by default, a small trusted set behind `auth.enabled`), loopback-bound, single-tenant — plus every amendment (executor and its 2026-10-18 removal, telegram, armed external providers). Read before any security-touching change. |
 | `../setup-guide.md` | Canonical install/run guide (Windows · macOS · Linux). `! How-To-Guides/setup-guide.md` and `work/SETUP.md` are pointers only. |
 | `../CLAUDE.md` / `../AGENTS.md` | Operating contract for agents (invariants, traps, commands). |
 | `../INVARIANTS.md` (repo root) | Which guarantee is enforced by code vs. convention, and the test pinning each. |
@@ -23,7 +23,7 @@ grepping.
 | `SYNC_README.md` | Dropbox corpus sync design + setup. |
 | `channels/TELEGRAM_DESIGN.md` | Telegram channel architecture, T1–T4 phase gates. |
 | `channels/OPENTWEET_DESIGN.md` | OpenTweet X channel: weekly OOB poster, draft-default, I6 isolation. |
-| `agentic/AGENTIC_README.md`, `agentic/SKILLS_REGISTRY_GOVERNANCE.md`, `agentic/GITHUB_WRITE_ENABLEMENT.md` | Agentic layer governance (binding). |
+| `agentic/AGENTIC_README.md`, `agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md`, `agentic/FSCONNECT_SECURITY_REVIEW_CHECKLIST.md` | Out-of-band connectors (fsconnect, netconnect): user guide, fsconnect write enablement and its security sign-off (binding). |
 | `AUTHENTICATION_DESIGN.md` | Per-user auth, all six stages landed: primitives, sessions + `/auth/*`, the credential on `/query` when `auth.enabled`, TLS (`cyclaw-gen-cert`), the re-keyed bind guard, and RBAC roles `admin`/`operator`/`audit`. |
 | `memory/` | Optional memory subsystem plan and README. |
 | [`../spend/README.md`](../spend/README.md) | Online-LLM token ledger: what `logs/spend.jsonl` records, why dollars are derived at read time, and how `cyclaw-metrics` reports them. |

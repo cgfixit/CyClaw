@@ -778,9 +778,6 @@
   .operator-dialog input { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
   .operator-dialog .operator-error { color: var(--accent-red); min-height: 1.2em; }
   .operator-dialog .operator-lead { color: var(--text-primary); }
-  /* Gates read as sentences; the config key that backs each one stays visible
-     but recessive, for the operator who will go edit config.yaml. */
-  .gate-key { color: var(--text-muted); font-size: var(--fs-micro); margin-left: 6px; }
   .operator-dialog .operator-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
   .toolbar-btn {
@@ -844,8 +841,7 @@
      placeholders and should stay narrow. */
   #apiKeyInput { min-width: 22ch; }
 
-  .api-key-input,
-  .compact-select {
+  .api-key-input {
     min-height: 32px;
     background: var(--bg-input);
     border: 1px solid var(--border);
@@ -855,8 +851,6 @@
     font-size: var(--fs-micro);
     color: var(--text-secondary);
     outline: none;
-  }
-  .api-key-input {
     flex: 0 1 220px;
     min-width: 180px;
     margin-left: auto;
@@ -1012,40 +1006,6 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) var(--bg-primary);
   }
-  /* ── AGENTIC 4-GATE CHECKLIST (Sync/Agentic panels reuse all soul classes) ── */
-  .gate-checklist {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    font-family: var(--mono);
-    font-size: var(--fs-micro);
-    color: var(--text-muted);
-    border-left: 2px solid var(--border);
-    padding: 4px 0 4px 10px;
-  }
-  .gate-row.ok { color: var(--accent-green); }
-  .gate-row.bad { color: var(--accent-amber); }
-  .gate-confirm-label {
-    font-family: var(--mono);
-    font-size: var(--fs-small);
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    cursor: pointer;
-  }
-  .soul-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-    border-color: var(--border);
-    color: var(--text-muted);
-    transform: none;
-  }
-  .soul-btn:disabled:hover {
-    color: var(--text-muted);
-    border-color: var(--border);
-    background: var(--bg-tertiary);
-  }
 
   @media (max-width: 720px) {
     .header,
@@ -1195,7 +1155,7 @@
      case 5). Every selector here is class-based, so the tags carry no style. -->
 <main class="main">
   <nav class="soul-toolbar" aria-label="Operator tools">
-    <!-- Advanced mode. The five subsystem consoles below were previously
+    <!-- Advanced mode. The subsystem consoles below were previously
          visible to every visitor with no gating at all, so the first thing a
          non-engineer saw was five operator tools they had to learn to ignore.
          They are operator surfaces, not user surfaces: each one shims an
@@ -1214,12 +1174,10 @@
     <span class="advanced-tools" id="advancedTools" hidden>
       <button class="toolbar-btn" id="soulToggleBtn" aria-label="Toggle Soul Console (Escape to close)">Soul Console</button>
       <button class="toolbar-btn" id="syncToggleBtn" aria-label="Toggle Sync Console (Escape to close)">Sync Console</button>
-      <button class="toolbar-btn" id="agenticToggleBtn" aria-label="Toggle Agentic Console (Escape to close)">Agentic Console</button>
       <button class="toolbar-btn" id="fsToggleBtn" aria-label="Toggle FS Console (Escape to close)">FS Console</button>
-      <button class="toolbar-btn" id="sqlToggleBtn" aria-label="Toggle SQL Console (Escape to close)">SQL Console</button>
       <button class="toolbar-btn" id="usersToggleBtn" hidden aria-label="Toggle Users panel">Users</button>
       <button class="toolbar-btn" id="auditToggleBtn" hidden aria-label="Toggle Audit panel">Audit</button>
-      <span class="toolbar-hint">soul · corpus sync · agentic · fs · sql — all loopback, audited, API-key gated</span>
+      <span class="toolbar-hint">soul · corpus sync · fs — all loopback, audited, API-key gated</span>
     </span>
     <span class="toolbar-auth" id="toolbarAuth">
       <span id="authSetupBox" hidden>
@@ -1251,7 +1209,7 @@
     <form id="operatorForm" method="dialog">
       <h2 id="operatorDialogTitle">Unlock operator tools</h2>
       <p class="operator-lead" id="operatorDialogLead" hidden></p>
-      <p>Soul, sync, agentic, FS, SQL, memory and audit tools need CYCLAW_API_KEY. Paste it once: this console trades it for a browser cookie and does not keep the key.</p>
+      <p>Soul, sync, FS, memory and audit tools need CYCLAW_API_KEY. Paste it once: this console trades it for a browser cookie and does not keep the key.</p>
       <p id="operatorDialogAdmin" hidden>Login is on: logging in as an admin unlocks these tools without the key.</p>
       <p>Easiest: start CyClaw with its launcher (<code>macos/invoke-cyclaw.sh</code> or <code>powershell\Invoke-CyClaw.ps1</code>), which unlocks this console for you. Or copy the key from your keystore:</p>
       <span class="toolbar-hint">macOS</span>
@@ -1319,53 +1277,6 @@
     </div>
   </div>
 
-  <!-- AGENTIC CONSOLE — drives the out-of-band agentic/ CLI via POST /ops/agentic -->
-  <div class="soul-panel" id="agenticPanel">
-    <div class="soul-header">
-      <div class="soul-title">Agentic Console</div>
-      <div class="soul-meta">
-        <span id="agenticEnabled">enabled: --</span>
-        <span id="agenticMode">mode: --</span>
-        <span id="agenticWrites">writes_enabled: --</span>
-      </div>
-    </div>
-    <div class="soul-actions">
-      <input class="soul-reason" id="agenticNum" type="text" inputmode="numeric"
-             placeholder="PR / Issue # (for Fetch Context)" style="max-width:260px;">
-      <button class="soul-btn" id="agenticContextPRBtn">Fetch PR</button>
-      <button class="soul-btn" id="agenticContextIssueBtn">Fetch Issue</button>
-      <button class="soul-btn" id="agenticStatusBtn">Status</button>
-      <button class="soul-btn" id="agenticRegistryHealthBtn">Registry Health</button>
-    </div>
-    <input class="soul-reason" id="agenticName" type="text" placeholder="skill name (for propose / apply)">
-    <input class="soul-reason" id="agenticDesc" type="text" placeholder="skill description">
-    <textarea class="soul-editor" id="agenticBody" placeholder="skill body (markdown)..." style="min-height:120px;"></textarea>
-    <input class="soul-reason" id="agenticReason" type="text"
-           placeholder="reason for change (required to apply a skill)">
-    <div class="soul-actions">
-      <button class="soul-btn" id="agenticProposeBtn">Propose Skill</button>
-      <label class="gate-confirm-label"><input type="checkbox" id="agenticConfirm"> I reviewed this skill and want to apply it <span class="gate-key">--confirm</span></label>
-      <button class="soul-btn apply" id="agenticApplyBtn" disabled>Apply Skill (writes disabled)</button>
-    </div>
-    <!-- 4-gate checklist: Apply stays disabled until all four show ✓. Gates 1-2
-         (mode=write, writes_enabled) come from the route's config block; gates 3-4
-         (reason, --confirm) from the inputs above. This is a UI governance overlay:
-         with the shipped defaults (writes_enabled:false) the Apply button is disabled,
-         so no skills-registry write can be triggered from the console at all. -->
-    <div class="gate-checklist" id="agenticGates">
-      <div class="gate-row bad" id="gateMode">✗ Agentic mode allows writes <span class="gate-key">mode = write</span></div>
-      <div class="gate-row bad" id="gateWrites">✗ Writes are switched on in config <span class="gate-key">writes_enabled = true</span></div>
-      <div class="gate-row bad" id="gateReason">✗ A reason is given <span class="gate-key">reason</span></div>
-      <div class="gate-row bad" id="gateConfirm">✗ You confirmed the review <span class="gate-key">--confirm</span></div>
-    </div>
-    <div class="soul-status" id="agenticStatus"></div>
-    <div class="proposal-box" id="agenticBox">
-      <div class="proposal-meta" id="agenticMeta"></div>
-      <div class="proposal-warning" id="agenticWarning"></div>
-      <pre class="proposal-preview" id="agenticPreview"></pre>
-    </div>
-  </div>
-
   <!-- FS CONSOLE — drives the out-of-band agentic/fsconnect/ CLI via POST /ops/fsconnect -->
   <div class="soul-panel" id="fsPanel">
     <div class="soul-header">
@@ -1395,42 +1306,6 @@
       <div class="proposal-meta" id="fsMeta"></div>
       <div class="proposal-warning" id="fsWarning"></div>
       <pre class="proposal-preview" id="fsPreview"></pre>
-    </div>
-  </div>
-
-  <!-- SQL CONSOLE — drives the out-of-band agentic/sqlconnect/ CLI via POST /ops/sqlconnect -->
-  <div class="soul-panel" id="sqlPanel">
-    <div class="soul-header">
-      <div class="soul-title">SQL Console</div>
-      <div class="soul-meta">
-        <span id="sqlEnabled">enabled: --</span>
-        <span id="sqlDriver">driver: --</span>
-        <span id="sqlReadOnly">read_only: --</span>
-      </div>
-    </div>
-    <div class="soul-actions">
-      <button class="soul-btn" id="sqlStatusBtn">Status</button>
-      <button class="soul-btn" id="sqlSchemaBtn">Schema</button>
-    </div>
-    <div class="soul-actions">
-      <input class="soul-reason" id="sqlTable" type="text" placeholder="schema.table (for preview / count)" style="max-width:300px;">
-      <button class="soul-btn" id="sqlPreviewBtn">Preview</button>
-      <button class="soul-btn" id="sqlCountBtn">Count</button>
-    </div>
-    <textarea class="soul-editor" id="sqlQuery" placeholder="SELECT ... (read-only query)" style="min-height:80px;"></textarea>
-    <div class="soul-actions">
-      <button class="soul-btn" id="sqlRunBtn">Run Query</button>
-      <button class="soul-btn" id="sqlExplainBtn">Explain</button>
-      <select class="compact-select" id="sqlFmt">
-        <option value="json">JSON</option>
-        <option value="csv">CSV</option>
-      </select>
-    </div>
-    <div class="soul-status" id="sqlStatus"></div>
-    <div class="proposal-box" id="sqlBox">
-      <div class="proposal-meta" id="sqlMeta"></div>
-      <div class="proposal-warning" id="sqlWarning"></div>
-      <pre class="proposal-preview" id="sqlPreview"></pre>
     </div>
   </div>
 

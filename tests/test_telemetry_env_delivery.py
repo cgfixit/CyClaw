@@ -83,15 +83,6 @@ def test_sitecustomize_probe_build_telemetry_safe_env(tmp_path, monkeypatch):
     _assert_canonical_at_startup(_probe_at_interpreter_startup(build_telemetry_safe_env(), tmp_path))
 
 
-def test_sitecustomize_probe_executor_child_env(tmp_path, monkeypatch):
-    from agentic.executor.runner import _scrubbed_env
-
-    monkeypatch.setenv("GH_TELEMETRY", "log")
-    monkeypatch.setenv("GROK_API_KEY", "secret-should-not-cross")
-    snapshot = _probe_at_interpreter_startup(_scrubbed_env(), tmp_path)
-    _assert_canonical_at_startup(snapshot)
-
-
 def test_sitecustomize_probe_scheduler_overlay(tmp_path):
     """A generated job's env is the overlay + whatever the scheduler adds;
     the overlay alone must already pin every canonical value at startup."""
@@ -136,89 +127,6 @@ def test_sitecustomize_probe_export_cli_roundtrip(tmp_path):
     )
     assert completed.returncode == 0, completed.stderr
     _assert_canonical_at_startup(json.loads(out_file.read_text(encoding="utf-8")))
-
-
-# ---------------------------------------------------------------------------
-# agentic verifier children
-# ---------------------------------------------------------------------------
-
-
-def test_executor_children_retain_controls_and_exclude_secrets(tmp_path, monkeypatch):
-    from agentic.executor.runner import Check, run_verification
-
-    monkeypatch.setenv("GH_TELEMETRY", "true")
-    monkeypatch.setenv("GROK_API_KEY", "secret-should-not-cross")
-    snippet = (
-        "import json, os, sys\n"
-        "sys.stdout.write(json.dumps({\n"
-        "    'gh': os.environ.get('GH_TELEMETRY'),\n"
-        "    'otel': os.environ.get('OTEL_SDK_DISABLED'),\n"
-        "    'pipvc': os.environ.get('PIP_DISABLE_PIP_VERSION_CHECK'),\n"
-        "    'grok': os.environ.get('GROK_API_KEY'),\n"
-        "    'cfg': os.environ.get('OTEL_CONFIG_FILE'),\n"
-        "}))\n"
-    )
-    report = run_verification(tmp_path, [Check(name="env-probe", argv=(sys.executable, "-c", snippet))])
-    assert report.ok is True
-    seen = json.loads(report.results[0].stdout)
-    assert seen == {"gh": "false", "otel": "true", "pipvc": "1", "grok": None, "cfg": None}
-
-
-# ---------------------------------------------------------------------------
-# gh spawn sites
-# ---------------------------------------------------------------------------
-
-
-def test_gh_version_probe_receives_forced_safe_env(monkeypatch):
-    import agentic.gh_client as gh_client
-
-    monkeypatch.setenv("GH_TELEMETRY", "true")
-    monkeypatch.setenv("GH_NO_UPDATE_NOTIFIER", "0")
-    captured: dict[str, dict[str, str]] = {}
-
-    def fake_run(argv, **kwargs):
-        captured["env"] = kwargs["env"]
-        return subprocess.CompletedProcess(argv, 0, stdout="gh version 2.90.0 (2026-01-01)\n", stderr="")
-
-    monkeypatch.setattr(gh_client.shutil, "which", lambda name: "/fake/bin/gh")
-    monkeypatch.setattr(gh_client.subprocess, "run", fake_run)
-    gh_client.check_gh_version()
-    env = captured["env"]
-    assert env["GH_TELEMETRY"] == "false", "ambient GH_TELEMETRY=true must never reach a gh child"
-    assert env["GH_NO_UPDATE_NOTIFIER"] == "1"
-    assert env["GH_NO_EXTENSION_UPDATE_NOTIFIER"] == "1"
-
-
-def test_gh_read_op_receives_forced_safe_env(monkeypatch):
-    import agentic.gh_client as gh_client
-
-    monkeypatch.setenv("GH_TELEMETRY", "log")
-    captured: dict[str, dict[str, str]] = {}
-
-    def fake_run(argv, **kwargs):
-        captured["env"] = kwargs["env"]
-        # run_read's internal check_gh_version probe must parse; the read op
-        # itself returns JSON.
-        if argv[-1] == "version":
-            return subprocess.CompletedProcess(argv, 0, stdout="gh version 2.90.0 (2026-01-01)\n", stderr="")
-        return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
-
-    monkeypatch.setattr(gh_client.shutil, "which", lambda name: "/fake/bin/gh")
-    monkeypatch.setattr(gh_client.subprocess, "run", fake_run)
-    gh_client.run_read("repo_view", "cgfixit/CyClaw", gh_bin="/fake/bin/gh")
-    assert captured["env"]["GH_TELEMETRY"] == "false"
-    # GH_TOKEN-style auth still flows: the base is the full inherited env.
-    monkeypatch.setenv("GH_TOKEN", "auth-token-passes-through")
-    gh_client.run_read("repo_view", "cgfixit/CyClaw", gh_bin="/fake/bin/gh")
-    assert captured["env"]["GH_TOKEN"] == "auth-token-passes-through"
-
-
-def test_writer_execute_references_safe_env_builder():
-    """The writer's spawn is gated behind EXECUTION_ENABLED plumbing that
-    conftest deliberately disarms; pin the wiring at source level (the
-    otel-hardening checker's T12 enforces the same from outside pytest)."""
-    source = (REPO_ROOT / "agentic" / "writer.py").read_text(encoding="utf-8")
-    assert "env=build_telemetry_safe_env()" in source
 
 
 # ---------------------------------------------------------------------------
