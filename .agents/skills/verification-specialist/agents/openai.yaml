@@ -1,0 +1,6 @@
+interface:
+  display_name: "CyClaw Verification Specialist"
+  short_description: "Independent evidence-backed verification"
+  default_prompt: "Use $verification-specialist to challenge this change with executed acceptance checks, adversarial probes, side-effect inspection and a scoped verdict."
+policy:
+  allow_implicit_invocation: true

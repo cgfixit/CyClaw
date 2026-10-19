@@ -1,11 +1,13 @@
-"""Agent git identity — single source for agentic committer + branch namespace.
+"""Agent git identity — single source for the committer identity + branch namespace.
 
 Why this module exists
 ----------------------
-CyClaw's agentic write path (repo_workspace commits, writer PR heads, harness
-console branch validation) used to hardcode ``Claude`` /
-``noreply@anthropic.com`` / ``claude/``. That misattributes work when the
-driver is a local Qwen model, Grok, Kimi, Codex, or any non-Claude-Code agent.
+The branch-prefix allowlist here is what ``.githooks/`` and the PR template
+keep aligned. It began as the identity CyClaw's own agentic coding loop
+committed under (that loop was removed in October 2026), where hardcoding
+``Claude`` / ``noreply@anthropic.com`` / ``claude/`` would misattribute work
+when the driver is a local Qwen model, Grok, Kimi, Codex, or any
+non-Claude-Code agent.
 
 Defaults here are intentionally **driver-agnostic** for *committer* identity.
 Branch *validation* accepts every vendor prefix listed in
@@ -24,8 +26,8 @@ Load-bearing constraints
 * Every allowed prefix must be alphanumeric-led so ``git checkout -b <name>``
   and ``gh pr create --head`` cannot reparse the name as a flag (no leading
   ``-``).
-* Lives under ``utils/`` so both ``agentic/`` and ``harness/`` can import it
-  without violating I6 (harness must not import agentic).
+* Lives under ``utils/`` so any out-of-band package can import it without
+  violating I6 (the core six never import ``agentic/`` and vice versa).
 * Values resolve at import time. Tests that override env must
   ``importlib.reload`` this module first, then any consumer that re-bound the
   symbols at its own import.

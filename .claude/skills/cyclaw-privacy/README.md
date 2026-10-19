@@ -7,5 +7,5 @@ licensed counsel. See `SKILL.md` for the full protocol; `verify.sh` and
 `bootstrap.sh` ship alongside it. This is not a troubleshooting skill.
 
 Renamed from `cyclaw-advisor` 2026-09-11 (issue #1351) to resolve an
-in-repo name collision with the unrelated `.codex/skills/cyclaw-advisor`
+in-repo name collision with the unrelated `.agents/skills/cyclaw-advisor`
 (architecture/PR advice, not privacy/DPA — see `AGENTS.md`'s Codex map).

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Refactor CyClaw"
-  short_description: "Behavior-preserving CyClaw refactoring"
-  default_prompt: "Use $refactor to make one evidence-backed, behavior-preserving CyClaw cleanup and verify it against the current baseline."

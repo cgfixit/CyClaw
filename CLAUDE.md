@@ -626,7 +626,7 @@ their scripts directly.
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop, user-invoked only | Iterative refactor loops |
 | `/add-comment` | task, user-invoked only | Comment-only pass adding ELI5-toned WHY comments |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails |
-| `/cyclaw-privacy` | mode, user-invoked only | "Legal" persona for privacy/DPA/DSR/breach review (distinct from `.codex/skills/cyclaw-advisor`) |
+| `/cyclaw-privacy` | mode, user-invoked only | "Legal" persona for privacy/DPA/DSR/breach review (distinct from `.agents/skills/cyclaw-advisor`) |
 | `/cyclaw-gotchas` | reference + driver | Sandbox traps plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Model-invocable on purpose: load it before installing deps, running tests, launching `gate.py`, or driving a PR |
 
 `/audit`, `/check-soul`, `/conversation-summary`, `/run`, and `/status` are
@@ -691,6 +691,10 @@ before you consider the session done.
 
 ## Reference
 
+- Agent fan-out is capped (owner decision, 2026-10-19): `.claude/settings.json`
+  denies the `Workflow` tool and puts every `Agent` spawn behind an approval
+  prompt. Ask before using more than 2 subagents on one task; never work around
+  the cap with a different orchestration tool.
 - Multi-agent work: the coordinator owns synthesis and final correctness;
   workers gather evidence and produce artifacts, never architectural decisions.
   Dispatch read-only research in parallel, serialize write-heavy work per file

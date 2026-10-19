@@ -9,7 +9,7 @@ name: Codex Agent (PR Comments)
 permissions: {}
 
 on:
-  issue_comment:
+  issue_comment: # zizmor: ignore[dangerous-triggers] owner-only (author, actor, triggering_actor); PR head is never checked out, review data comes from API text files in a read-only Codex sandbox
     types: [created]
 
 # Manual, advisory PR assistance only. Automatic reviews live in pr-review.yml.

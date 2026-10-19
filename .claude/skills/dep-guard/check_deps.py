@@ -274,7 +274,7 @@ _TORCH_SCRIPT_FILES = (
     "macos/install-cyclaw.sh",
     "powershell/Install-CyClaw.ps1",
     ".claude/skills/CyClaw-Sandbox/verify.sh",
-    ".codex/skills/cyclaw-sandbox-test/scripts/run_sandbox_test.py",
+    ".agents/skills/cyclaw-sandbox-test/scripts/run_sandbox_test.py",
 )
 # Agent-facing docs/SKILL.md install instructions with the same hardcoded
 # pin. Drift here misleads but executes nothing -> WARN, same posture as the

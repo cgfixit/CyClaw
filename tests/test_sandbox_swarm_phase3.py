@@ -15,7 +15,7 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 _CLAUDE = _REPO / ".claude" / "skills" / "CyClaw-Sandbox" / "run_full_verification.py"
-_CODEX = _REPO / ".codex" / "skills" / "Cyclaw-Sandbox" / "run_full_verification.py"
+_CODEX = _REPO / ".agents" / "skills" / "cyclaw-sandbox" / "run_full_verification.py"
 
 
 def _load_claude_verifier():

@@ -58,6 +58,10 @@ KC_TELEGRAM="com.cgfixit.cyclaw.telegram-bot-token"
 KC_GROK="com.cgfixit.cyclaw.grok-api-key"
 KC_ANTHROPIC="com.cgfixit.cyclaw.anthropic-api-key"
 KC_GH="com.cgfixit.cyclaw.gh-token"
+# Retired with the SQL connector (2026-10-18) and dropped from secret-policy.tsv,
+# so the policy-driven list below no longer names it. Kept here so an item an
+# operator stored by hand is still removed.
+KC_LEGACY_SQL_DSN="com.cgfixit.cyclaw.sql-dsn"
 
 confirm_destructive() {
   local prompt="$1" answer=""
@@ -152,13 +156,13 @@ remove_keychain_item() {
 }
 
 # Every Keychain service purge_cyclaw_keychain deletes, one per line: the five
-# installer services, then each other exact-name service in secret-policy.tsv,
+# installer services and the retired sql-dsn item, then each other exact-name service in secret-policy.tsv,
 # de-duplicated. Service names only -- never a secret value. The prompt and the
 # purge both read this, so the count shown can't drift from what is deleted.
 cyclaw_keychain_services() {
   local seen policy_file kind service
   seen=""
-  for service in "$KC_API" "$KC_TELEGRAM" "$KC_GROK" "$KC_ANTHROPIC" "$KC_GH"; do
+  for service in "$KC_API" "$KC_TELEGRAM" "$KC_GROK" "$KC_ANTHROPIC" "$KC_GH" "$KC_LEGACY_SQL_DSN"; do
     seen="$seen
 $service"
     printf '%s\n' "$service"

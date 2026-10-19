@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-Guidance for any AI agent working in CyClaw: Codex, Grok, Kimi, Perplexity, Claude, and CyClaw itself. Read `.codex/skills/fable-protocol/SKILL.md` (or the driver's `.claude/skills/` equivalent) before substantive work, then the relevant task skill. Explicit user instructions and existing authorization govern scope.
+Guidance for any AI agent working in CyClaw: Codex, Grok, Kimi, Perplexity, Claude, and CyClaw itself. Use the relevant task skill when its workflow adds needed project knowledge. Do not load every skill or full document for a minor edit. Explicit user instructions and existing authorization govern scope.
 
 ## Sources of truth
 
@@ -54,19 +54,14 @@ Use four-space indentation, typed Python, snake_case, the existing 120-column st
 
 ## Skills and routines map
 
-`.codex/README.md` mirrors the Codex skill map; update both when skills change. Each Codex skill has `.codex/skills/<name>/SKILL.md` and `agents/openai.yaml`. Other drivers use `.claude/skills/` equivalents where available; a skill missing from a local sandbox may still exist on GitHub `main`, so check there before declaring it absent. Live memory lives only in `docs/memories/`.
-
-| Skill/directory | Use |
-|---|---|
-| `fable-protocol`, `cyclaw-project-guidance`, `chris-codex` | Evidence discipline, current sources, engineering continuity |
-| `cyclaw-advisor`, `verification-specialist` | Read-only advice or independent verification |
-| `add-comment`, `architecture-refactor`, `refactor`, `cyclaw-optimize` | Scoped documentation, refactoring, or warranted improvement |
-| `dep-guard`, `verify-dep`, `doc-sync`, `invariant-guard` | Dependency, documentation, and invariant checks |
-| `injection-redteam`, `otel-hardening` | Sanitizer and telemetry boundary checks |
-| `cyclaw-run-cyclaw`, `cyclaw-sandbox-test`, `Cyclaw-Sandbox` | Setup, isolated smoke, or explicitly requested full sandbox verification |
-| `cyclaw-command-status`, `cyclaw-command-run`, `cyclaw-command-audit`, `cyclaw-command-check-soul` | Read-only status, runtime, audit, and soul checks |
-
-Use `.codex/routines/` for review, bugfix, feature, refactor, test/verify, PR, and security workflows; checklists and prompts live beside it.
+The single Codex inventory and invocation policy live in `.codex/README.md`.
+Repository skills use `.agents/skills/<name>/SKILL.md` with `agents/openai.yaml`.
+Other drivers use `.claude/skills/` where available. Read task-relevant guidance;
+skill invocation is not authorization and metadata cannot enforce per-model routing.
+Use `.codex/routines/` for optional task playbooks, `.codex/checklists/pre-pr.md`
+for a handoff reminder, and `.codex/prompts/` for trusted GitHub workflow inputs.
+Markdown routines are not executable command rules. Live memory belongs only in
+`docs/memories/`. Check current source before declaring a skill or feature absent.
 
 ## Git, reviews, and completion
 

@@ -150,7 +150,6 @@ Coverage `fail_under = 80` is configured in `pyproject.toml` and enforced by CI 
 | `semgrep.yml` | Semgrep SAST |
 | `devskim.yml` | DevSkim security linting |
 | `defender-for-devops.yml` | Microsoft Defender for DevOps |
-| `fortify.yml` | Fortify SAST |
 | `numbat-rules.yml` | Numbat NDJSON rule-fixture contract check |
 | `copilot-setup-steps.yml` | Copilot environment bootstrap |
 | `claude.yml` `codex.yml` `codex-apply-fixes.yml` `codex-skills.yml` | Owner-triggered @-mention coding-assistant workflows (each secret-gated; see individual headers) |

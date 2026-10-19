@@ -1,0 +1,6 @@
+interface:
+  display_name: "CyClaw Status"
+  short_description: "Read-only CyClaw environment status"
+  default_prompt: "Use $cyclaw-command-status to inspect CyClaw environment, configuration, runtime prerequisites, and live health without changing local state."
+policy:
+  allow_implicit_invocation: true

@@ -79,7 +79,7 @@ Representative sites: `tests/test_gate.py:19`, `tests/test_gate_ops.py:26`,
 
 The skill scripts no longer construct a `TestClient`.
 `.claude/skills/CyClaw-Sandbox/run_full_verification.py` and its
-`.codex/skills/Cyclaw-Sandbox/` twin have no `TestClient` reference, so the
+`.agents/skills/cyclaw-sandbox/` twin have no `TestClient` reference, so the
 out-of-pytest warning path this note used to name is not a current consumer.
 
 The warning remains purely a **test-time** concern — `httpx` is used at runtime by

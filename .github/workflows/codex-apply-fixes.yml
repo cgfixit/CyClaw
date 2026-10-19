@@ -8,7 +8,7 @@ name: Codex Apply Fixes (PR Reply)
 on:
   pull_request_review_comment:
     types: [created]
-  issue_comment:
+  issue_comment: # zizmor: ignore[dangerous-triggers] owner-only and SHA-bound with a verified bot parent comment; candidate edits run on a separate runner with no write token and publish only a one-commit patch
     types: [created]
 concurrency:
   group: codex-apply-fixes-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}

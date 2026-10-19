@@ -47,7 +47,7 @@ def _coerce_top_k(raw: object) -> int:
     """
     try:
         value = int(raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: JSON 1e999 -> inf
         return _DEFAULT_TOP_K
     if value < 1:
         return _DEFAULT_TOP_K

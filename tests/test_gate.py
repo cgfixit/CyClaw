@@ -1829,8 +1829,8 @@ class TestProxyHeaderTrust:
         shell_spawns = (
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "verify.sh",
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "smoke.sh",
-            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "verify.sh",
-            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "smoke.sh",
+            root / ".agents" / "skills" / "cyclaw-sandbox" / "verify.sh",
+            root / ".agents" / "skills" / "cyclaw-sandbox" / "smoke.sh",
         )
         for path in shell_spawns:
             spawn = [
@@ -1848,7 +1848,7 @@ class TestProxyHeaderTrust:
         assert '"--no-proxy-headers"' in ci
 
         runner = (
-            root / ".codex" / "skills" / "cyclaw-sandbox-test" / "scripts" / "run_sandbox_test.py"
+            root / ".agents" / "skills" / "cyclaw-sandbox-test" / "scripts" / "run_sandbox_test.py"
         ).read_text(encoding="utf-8")
         assert "--no-proxy-headers" in runner
         assert '"-m", "uvicorn", "gate:app"' in runner
@@ -1863,8 +1863,8 @@ class TestProxyHeaderTrust:
             root / ".claude" / "skills" / "speed-refactor" / "SKILL.md",
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "macos-smoke.sh",
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "windows-smoke.ps1",
-            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "macos-smoke.sh",
-            root / ".codex" / "skills" / "Cyclaw-Sandbox" / "windows-smoke.ps1",
+            root / ".agents" / "skills" / "cyclaw-sandbox" / "macos-smoke.sh",
+            root / ".agents" / "skills" / "cyclaw-sandbox" / "windows-smoke.ps1",
             root / "docs" / "! How-To-Guides" / "OLLAMA_SETUP.md",
         )
         for path in recipe_docs:

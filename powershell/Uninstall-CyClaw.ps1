@@ -160,6 +160,9 @@ if (Test-Path -LiteralPath $secretStore) {
         # Target names only (never a secret value), derived from the same
         # policy file the purge walks, so the prompt can't drift from it.
         $credTargets = @($script:CyclawSecretTargets.Values | Where-Object { $_ } | Sort-Object -Unique)
+        # The retired SQL connector's item (dropped from the policy 2026-10-18) stays
+        # listed so one an operator stored by hand is removed too.
+        $credTargets = @(($credTargets + 'com.cgfixit.cyclaw.sql-dsn') | Sort-Object -Unique)
         Write-CyClawHost "[cyclaw] -RemoveCredentials targets these $($credTargets.Count) Credential Manager items:"
         foreach ($credTarget in $credTargets) { Write-CyClawHost "[cyclaw]   $credTarget" }
         if (-not (Confirm-CyclawDestructive "Delete these $($credTargets.Count) CyClaw Credential Manager items?")) {

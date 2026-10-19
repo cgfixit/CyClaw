@@ -25,6 +25,12 @@
   },
   "permissions": {
     "defaultMode": "default",
+    "deny": [
+      "Workflow"
+    ],
+    "ask": [
+      "Agent"
+    ],
     "allow": [
       "Read",
       "Grep",

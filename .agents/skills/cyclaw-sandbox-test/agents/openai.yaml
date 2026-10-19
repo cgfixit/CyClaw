@@ -1,0 +1,6 @@
+interface:
+  display_name: "CyClaw Sandbox Test"
+  short_description: "Legacy CyClaw socket-mock smoke"
+  default_prompt: "Use $cyclaw-sandbox-test only in a disposable prepared checkout, with legacy runner limits reported explicitly."
+policy:
+  allow_implicit_invocation: false

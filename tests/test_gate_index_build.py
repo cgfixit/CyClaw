@@ -12,6 +12,7 @@ GATES -- which is where the risk actually is (a concurrent second build
 corrupts the index; a non-loopback caller must not be able to start one).
 """
 
+import asyncio
 import logging
 import threading
 import time
@@ -358,6 +359,25 @@ class TestIndexBuildCredentialGate:
             resp = client.post("/index/build", headers={"Authorization": "Bearer not-the-key"})
         assert resp.status_code == 401
         run.assert_not_called()
+
+    def test_credential_check_runs_off_the_event_loop(self, client, monkeypatch):
+        # An admin-session cookie makes require_api_key hit the auth DB; that
+        # must not block the event loop (every Depends route already threads it).
+        monkeypatch.setenv("CYCLAW_API_KEY", self.KEY)
+        on_loop = []
+        real = gate.require_api_key
+
+        def spy(*args):
+            try:
+                asyncio.get_running_loop()
+                on_loop.append(True)
+            except RuntimeError:
+                on_loop.append(False)
+            return real(*args)
+
+        with patch.object(gate, "require_api_key", spy), patch.object(gate, "_run_index_build"):
+            client.post("/index/build", headers={"Authorization": "Bearer not-the-key"})
+        assert on_loop == [False]
 
     def test_key_set_and_bearer_key_starts_a_build(self, client, monkeypatch):
         monkeypatch.setenv("CYCLAW_API_KEY", self.KEY)

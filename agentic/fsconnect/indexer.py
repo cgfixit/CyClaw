@@ -30,6 +30,7 @@ from pathlib import Path
 from agentic.fsconnect.client import _MAX_GLOB_DEPTH, build_injection_patterns
 from agentic.fsconnect.config import FsConnectConfig
 from agentic.fsconnect.pathsafe import ScopedRoots, split_components
+from agentic.fsconnect.trash import TRASH_DIR
 from utils.errors import FsConnectError, FsConnectRuntimeError, FsMacOSPermissionError
 from utils.logger import audit_log
 from utils.telemetry_kill import build_telemetry_safe_env
@@ -95,6 +96,10 @@ class FsIndexer:
             name = entry["name"]
             child = f"{rel}/{name}" if rel else name
             if entry["type"] == "dir":
+                # fs_delete moves items into <root>/.cyclaw-trash with their names
+                # intact; walking it would re-index deleted documents into the RAG.
+                if not rel and name.casefold() == TRASH_DIR.casefold():
+                    continue
                 if depth >= _MAX_INDEX_DEPTH:
                     # Record the un-walked subtree rather than raise, as fs_glob
                     # does: siblings at this level are still enumerated.

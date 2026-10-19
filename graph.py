@@ -719,7 +719,9 @@ def _external_fallback_node(
             "error": f"ENDPOINT_TRUST: {exc}",
         }
     fallback_cfg = cfg.get("policy", {}).get("fallback", {})
-    send_ctx = fallback_cfg.get(f"send_local_context_to_{provider}", False)
+    # Literal-boolean read, as gate.py does for models.<provider>.enabled: a
+    # quoted "false"/"no"/"0" in config.yaml must not send vault text off-box.
+    send_ctx = fallback_cfg.get(f"send_local_context_to_{provider}", False) is True
     docs = state.get("retrieved_docs", []) if send_ctx else []
 
     # Per-request nonce (see the UNTRUSTED_NOTE comment above). Generated once,

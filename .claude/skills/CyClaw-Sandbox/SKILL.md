@@ -269,7 +269,7 @@ them knowing a workflow and its pinning tests read them.
   triple-gate, redaction, due-diligence classes, console endpoints). Read it
   when a swarm phase fails.
 
-The Codex port lives at `.codex/skills/Cyclaw-Sandbox/`; this copy is canonical.
+The Codex port lives at `.agents/skills/cyclaw-sandbox/`; this copy is canonical.
 
 ## Known residuals
 

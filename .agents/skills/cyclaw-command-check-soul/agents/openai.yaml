@@ -1,0 +1,6 @@
+interface:
+  display_name: "Check CyClaw Soul"
+  short_description: "Read-only CyClaw soul integrity checks"
+  default_prompt: "Use $cyclaw-command-check-soul to verify CyClaw soul presence, encoding, hash, and recorded integrity state without mutating it."
+policy:
+  allow_implicit_invocation: true
