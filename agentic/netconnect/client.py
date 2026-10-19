@@ -39,6 +39,9 @@ def _normalize_mac(raw: str) -> str | None:
         return None
     if re.fullmatch(r"[0-9a-f]{12}", value):
         return ":".join(value[index:index + 2] for index in range(0, 12, 2))
+    if re.fullmatch(r"[0-9a-f]{1,2}(?::[0-9a-f]{1,2}){5}", value):
+        # macOS ``arp -an`` prints octets without zero padding (0:11:32:ab:cd:ef).
+        return ":".join(part.zfill(2) for part in value.split(":"))
     if not _MAC_RE.fullmatch(value):
         return None
     return value.replace("-", ":")
