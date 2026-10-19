@@ -40,7 +40,9 @@ starting paid/cloud or host-mutating checks.
 For a prepared disposable candidate, Tier 0 can run from its root:
 
 ```bash
-CYCLAW_REPO="$PWD" CYCLAW_SKIP_ENSURE=1 GROK_API_KEY=dummy   CYCLAW_RESULTS_FILE="$CYCLAW_AUDIT_TEMP/query-results.json"   python .agents/skills/cyclaw-sandbox/run_full_verification.py
+CYCLAW_REPO="$PWD" CYCLAW_SKIP_ENSURE=1 GROK_API_KEY=dummy \
+  CYCLAW_RESULTS_FILE="$CYCLAW_AUDIT_TEMP/query-results.json" \
+  python .agents/skills/cyclaw-sandbox/run_full_verification.py
 ```
 
 Create `CYCLAW_AUDIT_TEMP` as an owned external temp directory first. Tier 0
@@ -49,6 +51,8 @@ lane. For an isolated running gateway, helpers include `gate_runtime_check.py`,
 `terminal_emulation.py` and `browser_render_check.py`; inspect their arguments,
 credentials and side effects before execution. Missing dependencies are skips,
 even when a legacy helper returns zero. Direct uvicorn skips `gate.main()`.
+The terminal probe and `mock_ollama.py` delegate to the maintained Claude
+implementations; update those implementations rather than restoring copies.
 
 ## Legacy helper limits
 

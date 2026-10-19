@@ -44,9 +44,9 @@ Working directory is a checkout of the PR **head** branch (writable).
    subprocess boundary.
 6. Do **not** introduce secrets, force-push, rewrite history, or touch unrelated
    files.
-7. After edits, run the lightest meaningful verification for the files you
-   touched (for docs/workflows: `git diff --check` and YAML/shell sanity; for
-   Python: targeted ruff/pytest when practical). If a check cannot run, say so.
+7. Execute the changed behavior, then relevant static checks (`actionlint` for
+   workflows, Ruff F/B/S for Python, `git diff --check` for every diff). Follow
+   `CLAUDE.md` section 5 for Actions and focused-test coverage; report skips.
 
 ## Python / DevOps / GitHub posture
 

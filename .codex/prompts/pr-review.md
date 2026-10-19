@@ -28,7 +28,7 @@ For changed Python, apply the repository's Python 3.12 contract:
 Check all six CyClaw invariants:
 
 1. Retrieval remains the unconditional first graph node.
-2. Routing policy remains in graph edges and the three documented routers, not prompts or ad-hoc runtime branches.
+2. Routing policy remains in graph edges and the documented routers, not prompts or ad-hoc runtime branches.
 3. Each selected external provider still requires hybrid mode and provider enablement at client construction plus explicit user confirmation and client availability in routing.
 4. Every upstream graph path converges on `audit_logger` before `END`.
 5. Soul writes require a non-empty human reason and remain atomic; do not overclaim that reload/drift paths are injection-scanned.

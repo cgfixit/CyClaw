@@ -11,8 +11,9 @@ policy engine. Instructions and skills cannot enforce CyClaw's security topology
 Current Codex repository skills live in [`.agents/skills/`](../.agents/skills/).
 The earlier Codex-specific skill tree was moved rather than copied, avoiding
 duplicate names. There is one manifest per skill; the full sandbox folder now
-matches its invocation name `cyclaw-sandbox`. Restart/inspect `/skills` when an
-updated skill does not appear in a local client. This repository does not install
+matches its invocation name `cyclaw-sandbox`. Codex detects skill changes
+automatically; inspect the skill list and restart if an update is missing.
+This repository does not install
 personal/global skills or guarantee identical discovery in every hosted surface.
 
 | Material | How it is used |
@@ -29,7 +30,7 @@ Starlark command-approval format under an active trusted config layer's `rules/`
 directory. No such command rules ship here; renaming a Markdown playbook to a
 rule does not enforce it. Do not add permissive command rules for convenience.
 
-Official references: [skills](https://developers.openai.com/codex/skills),
+Official references: [skills](https://learn.chatgpt.com/docs/build-skills),
 [AGENTS discovery](https://developers.openai.com/codex/guides/agents-md),
 [command rules](https://developers.openai.com/codex/rules).
 
@@ -74,6 +75,9 @@ fixed-port/readiness and inherited-environment assumptions and updating caller
 tests. It remains explicit-only so existing contracts are not silently lost.
 The larger sandbox's lifecycle scripts are also explicit legacy tools, not a
 routine acceptance gate. Historical run reports live under `docs/audits/`.
+Its socket mock and terminal probe use thin entry points to the maintained
+Claude scripts, as doc-sync already does; driver-specific verifier behavior
+remains local.
 
 ## Routines, prompts and validation
 

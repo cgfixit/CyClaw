@@ -6,8 +6,9 @@ description: "Make a scoped, behavior-preserving CyClaw structural cleanup. Use 
 
 # Refactor CyClaw
 
-Follow `.codex/routines/refactor.md`. Read the affected callers and contracts;
-record the concrete problem and a comparable baseline before editing.
+Read the affected callers and contracts; record the concrete problem and a
+comparable baseline before editing. Use `.codex/Codex_instructions.md` for
+authorized publication.
 
 Prefer deletion or reuse over a new abstraction. Make one coherent cleanup,
 preserving public APIs, typed errors, timeouts/retries, destination checks,

@@ -20,7 +20,7 @@ health probes or relax trusted destinations/key bypass to make a request pass.
 Use fixture credentials without printing them. Preserve CSRF/RBAC/origin and
 peer/proxy distinctions. A missing index has an expected 503 path.
 
-Run `python -m tests.ci_rag_smoke` only in a prepared disposable environment
+Run `python tests/ci_rag_smoke.py` only in a prepared disposable environment
 when retrieval is relevant; it can load models and index state. Follow
 `CLAUDE.md` section 5 for further checks. Report mock versus real evidence,
 denied/error cases, exit/status codes and unavailable lanes.

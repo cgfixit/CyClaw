@@ -8,8 +8,8 @@ instead of copying dependency pins or hardware assumptions into new guidance.
 | Python and install profiles | `pyproject.toml`, `constraints.txt`, `requirements*.txt`, `locks/README.md`, `environment.yml`, `setup-guide.md`. Python 3.12; platform-correct Torch first. |
 | Apple Silicon model sizing | `docs/m5-48gb-coding-expectations.md`, `macos/ollama-mlx.env`, `config.yaml`. Do not infer the active user's hardware from these reference profiles. |
 | Container host model | `docs/DOCKER.md`, `models.local_llm.trusted_hosts`, and `assert_local_destination`. Trust is exact by hostname/IP, not DNS pinning. |
-| macOS dotenv | `macos/invoke-cyclaw.sh`, `setup-from-clone.sh`, `setup-cyclaw.sh`: BSD `/usr/bin/stat`, mode 600/400, source-status fallback, restore allexport. |
-| Windows launcher | `powershell/`, Windows installer jobs in `ci.yml`. PowerShell 5.1 must be tested natively; Git Bash does not prove that contract. |
+| macOS dotenv | `macos/invoke-cyclaw.sh`, `macos/setup-from-clone.sh`, `macos/setup-cyclaw.sh`: BSD `/usr/bin/stat`, mode 600/400, source-status fallback, restore allexport. |
+| Windows launcher | `powershell/`, Windows installer jobs in `.github/workflows/ci.yml`. PowerShell 5.1 must be tested natively; Git Bash does not prove that contract. |
 | Executor sandbox | `agentic/executor/hard_sandbox.py`: Darwin Seatbelt, Linux bubblewrap netns; Windows is unsupported and `production_sandbox()` refuses it, as it does any missing capability. Verify actual platform probes before claiming enforcement. |
 | Telemetry | `utils/telemetry_kill.py`, `utils/onnx_telemetry.py`, maintained otel checker. Pre-import environment suppression plus ONNX load seams; not a firewall. |
 
