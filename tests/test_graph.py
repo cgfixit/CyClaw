@@ -926,6 +926,19 @@ class TestGrokFallbackPrompt:
     def _cfg(self, send_ctx):
         return {"policy": {"fallback": {"send_local_context_to_grok": send_ctx}}}
 
+    @pytest.mark.parametrize("value", ["false", "no", "0", "off", 1])
+    @pytest.mark.parametrize("provider", ["grok", "claude"])
+    def test_send_context_needs_literal_true(self, provider, value):
+        # A quoted "false" in config.yaml is a truthy string; only the literal
+        # boolean true may forward vault text off-box.
+        node, client = ((grok_fallback_node, MockGrokClient()) if provider == "grok"
+                        else (claude_fallback_node, MockClaudeClient()))
+        state = {"query": "q", "retrieved_docs": [
+            {"text": "VAULT-SECRET", "score": 0.9, "source": "v.md", "chunk_id": 0}]}
+        cfg = {"policy": {"fallback": {f"send_local_context_to_{provider}": value}}}
+        node(state, **{provider: client}, cfg=cfg)
+        assert "VAULT-SECRET" not in client.last_prompt
+
     def test_forwarded_context_includes_source_and_score_headers(self, tmp_path):
         grok = MockGrokClient()
         state = {
