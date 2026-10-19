@@ -20,7 +20,7 @@ name: Claude Code (PR Comments)
 permissions: {}
 
 on:
-  issue_comment:
+  issue_comment: # zizmor: ignore[dangerous-triggers] owner-only (author, actor, triggering_actor), open same-repo PRs only (fork lookup step), default-branch checkout with persist-credentials false; the PR head is never checked out
     types: [created]
 
 concurrency:
