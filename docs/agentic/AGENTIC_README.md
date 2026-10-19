@@ -193,5 +193,5 @@ amendment), was reachable only from the command line. It was also the only
 part of CyClaw that executed repository code or wrote to GitHub; removing it
 retires that surface. The dated record is the `docs/changelog.txt` entry and
 the threat model's nineteenth amendment. The `agentic-deepagents`,
-`agentic-deepagents-cloud` and `mssql` dependency extras are now unused and are
-removed in a follow-up change.
+`agentic-deepagents-cloud` and `mssql` dependency extras and their locks were
+dropped in a follow-up change.

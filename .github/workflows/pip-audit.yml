@@ -14,7 +14,7 @@ on:
       - 'requirements-test.txt'
       - 'constraints.txt'
       # pyproject.toml declares every optional extra (postgres, pgvector,
-      # agentic-deepagents, agentic-deepagents-cloud, dev,
+      # dev,
       # test). Without it here, adding or bumping an optional dependency
       # changed no triggering path and this workflow never ran on the change.
       - 'pyproject.toml'
@@ -300,11 +300,10 @@ jobs:
     # -- that is the declared scope contract, enforced by
     # .claude/skills/verify-deps/check_env_drift.py check E4. Every optional
     # capability therefore had zero CVE coverage:
-    # The deepagents agentic-coding stack, the Grok and Claude
-    # cloud SDKs, and the Postgres/pgvector backends. This job closes that.
+    # the Postgres/pgvector backends, the dev tools and the CEL backend. This
+    # job closes that.
     #
-    # Deliberately NOT merged into the `scan` job: the extras are opt-in and
-    # deepagents pulls a large transitive tree, so keeping
+    # Deliberately NOT merged into the `scan` job: the extras are opt-in, so keeping
     # them separate means a resolution problem in an optional stack cannot mask
     # or block the base-runtime audit that actually gates every install.
     name: scan-optional (extras CVE scan)

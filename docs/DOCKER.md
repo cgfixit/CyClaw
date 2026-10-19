@@ -190,9 +190,7 @@ Do **not** bake Ollama or model weights into the CyClaw image.
 
 Optional extras are **not** in the image (`requirements.txt` only). Install
 inside a derived image only if you accept that surface — never for the default
-offline path. The `agentic-deepagents`, `agentic-deepagents-cloud` and `mssql`
-extras are unused since the agentic coding loop and SQL connector were removed
-(October 2026); do not install them.
+offline path.
 
 ## Publishing (maintainers)
 

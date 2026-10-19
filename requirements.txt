@@ -39,9 +39,8 @@ rank-bm25==0.2.2
 numpy==1.26.4
 nltk==3.10.3
 nemoguardrails==0.24.0
-# Optional Postgres / pgvector / mssql backends (NOT installed by default — the base
+# Optional Postgres / pgvector backends (NOT installed by default — the base
 # install stays SQLite + ChromaDB, offline-first). Enable via the pyproject extras instead:
 #   pip install 'cyclaw[postgres]' -c constraints.txt   # soul DB + rate limiter over Postgres (CYCLAW_DB_URL)
 #   pip install 'cyclaw[pgvector]' -c constraints.txt   # also the pgvector vector backend
-#   pip install 'cyclaw[mssql]' -c constraints.txt      # agentic.sqlconnect's mssql driver (config.yaml sqlconnect.driver: "mssql")
-# psycopg / pgvector / pyodbc are all lazy-imported, so leaving these out costs nothing.
+# psycopg / pgvector are lazy-imported, so leaving these out costs nothing.
