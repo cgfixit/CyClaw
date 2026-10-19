@@ -212,13 +212,16 @@ class FsWriter:
         """
         if not comps:
             return
-        if comps[0] == trash.TRASH_DIR:
+        # Casefolded: default APFS/HFS+ volumes are case-insensitive, so
+        # ".Cyclaw-Trash" would alias the real trash dir (as protected_paths does).
+        if comps[0].casefold() == trash.TRASH_DIR.casefold():
             self._refuse(op, "reserved_name",
                          f"{trash.TRASH_DIR!r} is reserved; use the trash-* subcommands",
                          "denied: reserved name .cyclaw-trash (use trash subcommands)",
                          extra={"component": comps[0]})
         leaf = comps[-1]
-        if leaf == quota.QUOTA_FILE or leaf.endswith(".cyclaw-tmp"):
+        folded = leaf.casefold()
+        if folded == quota.QUOTA_FILE.casefold() or folded.endswith(".cyclaw-tmp"):
             self._refuse(op, "reserved_name",
                          f"{leaf!r} is a reserved internal filename",
                          "denied: reserved internal filename",
@@ -319,13 +322,15 @@ class FsWriter:
         ledger = self._quota_ledger(op, sr)
         proj_bytes = ledger.used_bytes + delta_bytes
         proj_files = ledger.file_count + delta_files
-        if spec.quota_bytes is not None and proj_bytes > spec.quota_bytes:  # type: ignore[attr-defined]
+        # Each limit only refuses an op that grows that axis: a root already over
+        # quota must still be able to delete or shrink its way back under it.
+        if delta_bytes > 0 and spec.quota_bytes is not None and proj_bytes > spec.quota_bytes:  # type: ignore[attr-defined]
             self._refuse(op, "quota",
                          f"projected usage {proj_bytes} exceeds quota_bytes {spec.quota_bytes}",  # type: ignore[attr-defined]
                          f"denied: quota bytes {proj_bytes}/{spec.quota_bytes} exceeded",  # type: ignore[attr-defined]
                          extra={"used": ledger.used_bytes, "quota": spec.quota_bytes,  # type: ignore[attr-defined]
                                 "requested": delta_bytes})
-        if spec.max_files is not None and proj_files > spec.max_files:  # type: ignore[attr-defined]
+        if delta_files > 0 and spec.max_files is not None and proj_files > spec.max_files:  # type: ignore[attr-defined]
             self._refuse(op, "quota",
                          f"projected file count {proj_files} exceeds max_files {spec.max_files}",  # type: ignore[attr-defined]
                          f"denied: quota files {proj_files}/{spec.max_files} exceeded",  # type: ignore[attr-defined]
