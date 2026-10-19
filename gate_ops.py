@@ -113,8 +113,7 @@ def register_ops_routes(
             await audit({"event": f"ops_{route}_rejected", "action": action, "error": str(e)})
             raise HTTPException(status_code=400, detail={"error": str(e), "code": "OPS_BAD_ACTION"}) from e
         except subprocess.TimeoutExpired as e:
-            # The shim SIGKILLed the CLI at its budget. A typed 504 (matching the
-            # harness console's AGENTIC_TIMEOUT for the identical failure) lets the
+            # The shim SIGKILLed the CLI at its budget. A typed 504 lets the
             # operator distinguish "ran too long, killed" from "errored". The
             # message is built here, never from str(e) -- TimeoutExpired's repr
             # embeds the full argv, which does not belong in an HTTP body.

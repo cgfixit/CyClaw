@@ -259,8 +259,9 @@ def record_external_usage(
     unpinned alias (e.g. ``claude-sonnet-5``) can be re-pointed upstream, and
     the ledger must show what actually served/billed alongside what was asked.
     ``outcome`` marks a row whose call was billed but did not produce an answer
-    (today only the agentic proposer's ``failed_after_billing``); absent on the
-    ordinary success rows so readers that never learned it see no shape change.
+    (``failed_after_billing`` was written by the removed agentic proposer;
+    no current caller passes it); absent on the ordinary success rows so
+    readers that never learned it see no shape change.
     """
     _warn_once_if_stale()
     normalized = _normalize_provider(provider)
