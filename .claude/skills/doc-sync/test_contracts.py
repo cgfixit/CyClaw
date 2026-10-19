@@ -54,7 +54,7 @@ class ContractTests(unittest.TestCase):
 
     @staticmethod
     def run_checker(root: Path, wrapper: bool = False) -> subprocess.CompletedProcess[str]:
-        checker = ROOT / ".codex/skills/doc-sync/doc_sync.py" if wrapper else CHECKER
+        checker = ROOT / ".agents/skills/doc-sync/doc_sync.py" if wrapper else CHECKER
         return subprocess.run(  # noqa: S603 - current interpreter and repository CLI
             [sys.executable, str(checker), "--repo-root", str(root), "--json"],
             capture_output=True, text=True, check=False,
@@ -75,6 +75,21 @@ class ContractTests(unittest.TestCase):
     def assert_clean(self, wrapper: bool = False) -> None:
         result = self.run_checker(self.root, wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_moved_repository_skills_remain_in_drift_scan(self) -> None:
+        path = self.root / ".agents/skills/probe/SKILL.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            "# Synthetic CyClaw skill\n\n"
+            "The CyClaw graph.py topology is a 99-node graph.\n\n"
+            "The sanitizer enforces 99 banned_patterns.\n\n"
+            "The stop hook blocks --force-with-lease.\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker(self.root, wrapper=True)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        for check in ("D4", "D6", "D8"):
+            self.assertIn(f"DRIFT [{check}]", result.stdout)
 
     def test_stale_timeout_cannot_borrow_unrelated_correct_number(self) -> None:
         self.replace("CLAUDE.md", "| `780` | `api.graph_timeout_sec` |",

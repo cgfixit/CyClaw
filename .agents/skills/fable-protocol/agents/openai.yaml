@@ -1,0 +1,6 @@
+interface:
+  display_name: "Fable Protocol"
+  short_description: "Evidence-first CyClaw engineering discipline"
+  default_prompt: "Use $fable-protocol to challenge this consequential CyClaw decision against current evidence and identify a check that could disprove it."
+policy:
+  allow_implicit_invocation: false

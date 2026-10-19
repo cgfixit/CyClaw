@@ -56,16 +56,9 @@ from urllib.parse import unquote
 #   - doc-sync's own directories: verify.sh's test fixtures are literal
 #     strings of the exact claims these checks look for, and scanning them
 #     makes the checker flag its own test data as live drift.
-#   - NEW_SKILL.md: a deliberately version-pinned snapshot ("Baseline of this
-#     document: main @ <hash>... Supersedes the <date> baseline") describing
-#     the repo as of a past commit. Its counts are correct FOR THAT BASELINE,
-#     not the current tree, so as soon as the real count changes again this
-#     file would otherwise be flagged and an agent misdirected to "fix" a
-#     historical record (Codex P2 on PR #1308).
 _AGENT_SCAN_EXCLUDE = (
     ".claude/skills/doc-sync",
-    ".codex/skills/doc-sync",
-    ".codex/skills/Cyclaw-Sandbox/NEW_SKILL.md",
+    ".agents/skills/doc-sync",
 )
 
 
@@ -617,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
     # Agent-facing prompt/rule files. Globbed rather than listed because skills
     # and commands are added routinely, and a new one citing the count must not
     # need an edit here to be covered.
-    for sub in (".claude/skills", ".claude/commands", ".claude/rules", ".codex"):
+    for sub in (".claude/skills", ".claude/commands", ".claude/rules", ".codex", ".agents"):
         base = root / sub
         if base.is_dir():
             for fp in sorted(base.rglob("*.md")):
@@ -803,7 +796,7 @@ def main(argv: list[str] | None = None) -> int:
     # strings D6 looks for, as literal test-fixture printf data -- scanning
     # its own directory makes the checker self-flag on its own test data, not
     # a real agent-facing claim. Shares _AGENT_SCAN_EXCLUDE with D4/D8.
-    for sub in (".claude/skills", ".claude/commands", ".codex"):
+    for sub in (".claude/skills", ".claude/commands", ".codex", ".agents"):
         base = root / sub
         if base.is_dir():
             for fp in sorted(base.rglob("*.md")):
@@ -957,7 +950,7 @@ def main(argv: list[str] | None = None) -> int:
         # archived memories and superseded NeMo phase plans correctly describe
         # the graph as it was when they were written; flagging them would make
         # D8 fire 17 times on a healthy tree and be ignored within a week.
-        for sub in (".claude/skills", ".claude/commands", ".claude/rules", ".codex"):
+        for sub in (".claude/skills", ".claude/commands", ".claude/rules", ".codex", ".agents"):
             base = root / sub
             if base.is_dir():
                 for fp in sorted(base.rglob("*.md")):

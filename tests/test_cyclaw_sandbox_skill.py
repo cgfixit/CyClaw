@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,7 +14,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / ".codex" / "skills" / "cyclaw-sandbox-test" / "scripts"
+SCRIPTS = ROOT / ".agents" / "skills" / "cyclaw-sandbox-test" / "scripts"
 
 
 def _load_script(filename: str):
@@ -152,9 +153,20 @@ def test_runner_without_ref_keeps_branch_clone(tmp_path: Path, monkeypatch: pyte
     assert seen[0][:5] == ["git", "clone", "--branch", "main", "--single-branch"]
 
 
+@pytest.mark.parametrize("option, expected_exit", [("--help", 0), ("--unknown-option", 2)])
+def test_full_sandbox_mock_cli_works_outside_repo(tmp_path: Path, option: str, expected_exit: int) -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / ".agents/skills/cyclaw-sandbox/mock_ollama.py"), option],
+        cwd=tmp_path, capture_output=True, text=True, timeout=10, check=False,
+    )
+    assert result.returncode == expected_exit, result.stderr
+    assert "--model" in result.stdout if expected_exit == 0 else "unrecognized arguments" in result.stderr
+    assert "READY" not in result.stdout + result.stderr
+
+
 @pytest.mark.parametrize("script", [
     ".claude/skills/CyClaw-Sandbox/terminal_emulation.py",
-    ".codex/skills/Cyclaw-Sandbox/terminal_emulation.py",
+    ".agents/skills/cyclaw-sandbox/terminal_emulation.py",
 ])
 @pytest.mark.parametrize(
     ("health", "status", "expected_timeout"),

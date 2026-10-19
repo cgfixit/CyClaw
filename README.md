@@ -30,6 +30,8 @@ enabled; it provides neither tenant isolation nor a microVM
 Step-by-step installs and every REST call: [Full Setup Guide](setup-guide.md).
 Contributor rules for people and agents: [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md),
 and the tracked git-hook gate in [`docs/GITHOOKS.md`](docs/GITHOOKS.md).
+Codex skill discovery, invocation policies and review workflows:
+[Codex guidance](.codex/README.md) (repository skills in `.agents/skills/`).
 
 Security review #1526's [residual decision register](SECURITY.md#issue-1526-residual-decisions-2026-10-12)
 separates implemented controls, accepted limits (native Windows verification
@@ -570,6 +572,7 @@ Docs each section above links are not repeated here.
 | [`setup-guide.md`](setup-guide.md) | Install paths, Docker, conda, and every REST call |
 | [`INVARIANTS.md`](INVARIANTS.md) | Rules 1–9, code vs convention, and the test that pins each |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) / [`docs/GITHOOKS.md`](docs/GITHOOKS.md) | Request-path map, agent rules, and the commit/push security gate |
+| [`.codex/README.md`](.codex/README.md) | Codex skill inventory, explicit-only tools, verification and trusted PR prompts |
 | [`SECURITY.md`](SECURITY.md) / [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Egress, accepted CVEs, disclosure; scope, bind exceptions, amendments |
 | [`docs/AUTHENTICATION_DESIGN.md`](docs/AUTHENTICATION_DESIGN.md) / [`docs/DOCKER.md`](docs/DOCKER.md) | Per-user auth; GHCR image and compose hardening |
 | [`docs/security-philosophy/`](docs/security-philosophy/) | Telemetry suppression, offline operation, and Numbat designs |

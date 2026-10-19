@@ -1,14 +1,17 @@
-# Pre-PR Checklist
+# Handoff checklist
 
-- Summarize the change and why it is needed.
-- Confirm no existing Claude/Copilot/Codex instructions were overwritten unintentionally.
-- Confirm Codex guidance links to canonical repo files instead of carrying
-  duplicate instruction snapshots.
-- Follow the fresh-main, shared-file overlap/trial-merge, PR-template, and
-  post-push CI gates in `.codex/Codex_instructions.md`.
-- Run the lightest meaningful verification from `AGENTS.md`.
-- For broad changes, mirror the relevant command sequence in `.github/workflows/ci.yml`.
-- Check optional-layer isolation: `sync/`, `agentic/`, and `guardrails/` should not become required by `gate.py`, `graph.py`, or `mcp_hybrid_server.py`.
-- Confirm loopback-only binding remains intact unless the maintainer approved otherwise.
-- Note whether `gh` or GitHub connector permissions were needed and whether they worked.
-- Include commands run, failures, skipped checks, and residual risk in the PR body.
+Use when preparing a commit/authorized draft or review handoff; this is an
+optional reminder, not a second policy or automatically loaded Codex file.
+
+- Requested outcome and scope match the final diff; unrelated edits are preserved.
+- Exact base/head and relevant open-PR overlap/integration order are recorded.
+- I1–I6, destinations/consent, auth/CSRF, audit, telemetry and protected state
+  were considered where the changed path reaches them.
+- Direct evidence and relevant static checks were inspected; skips, mocks,
+  platform limits and current-head CI state are stated accurately.
+- Skill metadata/references/callers and documentation match the resulting tree.
+- No private corpus, raw queries, credentials, indexes, logs or local DBs are staged.
+- Git/publication follows `.codex/Codex_instructions.md`; no hook bypasses,
+  implicit merges or unauthorized history rewrites.
+- The PR uses the full repository template, with agent-instruction/workflow
+  review note, merge order, ELI5 and current final timestamp.

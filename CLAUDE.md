@@ -626,7 +626,7 @@ their scripts directly.
 | `/architecture-refactor` `/speed-refactor` `/tests-refactor` `/logging-refactor` | loop, user-invoked only | Iterative refactor loops |
 | `/add-comment` | task, user-invoked only | Comment-only pass adding ELI5-toned WHY comments |
 | `/karpathy-guidelines` | mode | Anti-overcomplication guardrails |
-| `/cyclaw-privacy` | mode, user-invoked only | "Legal" persona for privacy/DPA/DSR/breach review (distinct from `.codex/skills/cyclaw-advisor`) |
+| `/cyclaw-privacy` | mode, user-invoked only | "Legal" persona for privacy/DPA/DSR/breach review (distinct from `.agents/skills/cyclaw-advisor`) |
 | `/cyclaw-gotchas` | reference + driver | Sandbox traps plus `driver.sh` (`inventory`/`venv`/`serve`/`probe`/`stop`/`test`/`checks`). Model-invocable on purpose: load it before installing deps, running tests, launching `gate.py`, or driving a PR |
 
 `/audit`, `/check-soul`, `/conversation-summary`, `/run`, and `/status` are
