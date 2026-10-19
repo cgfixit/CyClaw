@@ -120,7 +120,7 @@ If this is a relatively large, complex, or core-path change, kick off the discus
 _Required on every PR, including a lone one (write "independent, only open PR"). Keep every entry to 3 short lines so it reads on a phone: the PR, its impact, the action._
 
 - **Order:** chronological (lowest PR number first) unless a real dependency exists. Name the dependency in that PR's `Impact:` line.
-- **Status:** `Safe ✅` (trial merge clean against current `main`), `Dirty ⚠️` (conflicts, or stacked on something unmerged), `Blocked ⛔` (red CI, unresolved blocking review, or still a draft that is not ready).
+- **Status:** `Safe` (trial merge clean against current `main`), `Dirty` (conflicts, or stacked on something unmerged), `Blocked` (red CI, unresolved blocking review, or still a draft that is not ready).
 - **Trial merge note (required):** say you verified it, with the date and the `main` SHA. Locally: `git fetch origin && git switch --detach origin/main && git merge --no-commit --no-ff origin/<branch>`, then `git merge --abort`. A "Safe" is only true until the next merge into `main`; re-run it right before merging.
 - **If a PR is Dirty:** prefer a local rebase (or `git rebase --onto origin/main <old-parent-tip> <branch>` for a stacked child whose parent was squash-merged) over GitHub's "Update branch" button. Force-pushing a rebased branch is fine only on a branch that is yours alone, with `--force-with-lease`, and with the owner's OK.
 
@@ -128,15 +128,15 @@ _Required on every PR, including a lone one (write "independent, only open PR").
 ## Suggested merge order of open PRs
 _Trial merges verified (`git merge --no-commit --no-ff` + abort) against main @ 1a2b3c4d on 2026-10-10._
 
-**#45** · Safe ✅  
+**#45** · Safe  
 Impact: Base advisor skill prompts + routing.  
 Action: Merge first. Trial merge clean vs main.
 
-**#47** · Dirty ⚠️  
+**#47** · Dirty  
 Impact: RAG context injection (depends on #45 schema).  
 Action: After #45 merges → rebase this branch onto main → force-push if personal → re-verify trial merge.
 
-**#48** · Safe ✅  
+**#48** · Safe  
 Impact: Docs-only examples.  
 Action: Merge anytime after #45. Clean.
 
