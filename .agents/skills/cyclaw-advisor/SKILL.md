@@ -18,7 +18,7 @@ then trace actual callers. Do not infer behavior from old audits or feature name
 | Auth, peer/origin and CSRF | `gate.py`, `gate_auth.py`, `utils/authn_manager.py`, `utils/console_session.py` |
 | Soul or memory | `utils/personality.py`, `utils/personality_db.py`, `gate_memory.py`, `docs/memory/README.md` |
 | Audit and observation | `utils/logger.py`, `utils/numbat_emitter.py`, `metrics.py` |
-| Governed tools/execution | `utils/ops_runner.py`, `agentic/real_repo_loop.py`, `agentic/executor/`, `docs/agentic/AGENTIC_README.md` |
+| Governed tools/execution | `utils/ops_runner.py`, `agentic/fsconnect/`, `agentic/netconnect/`, `docs/agentic/AGENTIC_README.md` |
 | MCP | `mcp_hybrid_server.py`: sanitized retrieval; no generation/sampling |
 | Installation/platforms | [Environment source map](CyClaw-environment.md) |
 
