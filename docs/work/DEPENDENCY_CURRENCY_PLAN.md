@@ -2,10 +2,11 @@
 
 > **Status update — 2026-09-28 (doc drift vs `constraints.txt`):** the 2026-09-06
 > re-verify below is no longer the pin set. Current constraints are `ruff`
-> `0.16.8`, `mypy` `2.3.0`, `langgraph` `1.2.11`, `langchain` `1.4.2`,
-> `langchain-openai` `1.6.2`, `fastapi` `0.141.1`, `uvicorn` `0.53.0`,
-> `langchain-core` `1.6.3`, `psycopg` `3.3.6`, `pgvector` `0.5.0`, and
-> `websockets` `15.0.1`. The psycopg/pgvector bump this note used to leave open
+> `0.16.8`, `mypy` `2.3.0`, `langgraph` `1.2.11`, `fastapi` `0.141.1`,
+> `uvicorn` `0.53.0`, `langchain-core` `1.6.3`, `psycopg` `3.3.6`, `pgvector`
+> `0.5.0`, and `websockets` `15.0.1`. (`langchain` and `langchain-openai` left
+> `constraints.txt` with the `agentic-deepagents` extra after the 2026-10-18
+> agentic removal; they are no longer bump candidates.) The psycopg/pgvector bump this note used to leave open
 > has landed. `websockets` is still `15.0.1`. Tables under the older status
 > blocks stay historical.
 
@@ -175,8 +176,7 @@ bump both together.
 ## Suggested execution shape for the follow-up PR(s)
 
 1. **Tier 1** (`ruff`, `mypy`) — one small PR, `ruff check` clean, done.
-2. **Tier 2** (`langgraph`, `langchain`, `langchain-openai`, `psycopg`,
-   `pgvector`) — one PR, run each package's listed verification command,
+2. **Tier 2** (`langgraph`, `psycopg`, `pgvector`) — one PR, run each package's listed verification command,
    confirm `dep-guard` and `invariant-guard` still pass clean after.
 3. **Tier 3** (`fastapi`, `uvicorn`, `langchain-core`) — one PR, full test
    suite, changelog-checked first.
