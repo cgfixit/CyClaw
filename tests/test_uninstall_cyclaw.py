@@ -101,7 +101,7 @@ _SERVICES = (
     "com.cgfixit.cyclaw.grok-api-key",
     "com.cgfixit.cyclaw.anthropic-api-key",
     "com.cgfixit.cyclaw.gh-token",
-    "com.cgfixit.cyclaw.sql-dsn",
+    "com.cgfixit.cyclaw.sql-dsn",  # retired; uninstall-cyclaw.sh still deletes it
     "com.cgfixit.cyclaw.db-url",
     "com.cgfixit.cyclaw.vector-db-url",
     "com.cgfixit.cyclaw.ratelimit-db-url",

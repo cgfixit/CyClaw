@@ -1326,7 +1326,9 @@ fi
 
 _prompt_secret "GitHub token (ghp_ / github_pat_)" "GH_TOKEN" "$KC_GH" GH_VAL
 if [ -n "$GH_VAL" ]; then
-  # CyClaw agentic reads GH_TOKEN; some gh(1) versions also honour GITHUB_TOKEN.
+  # Nothing in CyClaw's runtime reads this (the agentic GitHub layer was removed
+  # 2026-10-18). It is kept for setup-from-clone.sh's optional gh(1) login; some
+  # gh versions also honour GITHUB_TOKEN.
   _persist "GH_TOKEN" "$KC_GH" "$GH_VAL" "GITHUB_TOKEN"
 else
   step "GitHub: skipped — gh stays logged in via its own keyring if you already ran gh auth login"

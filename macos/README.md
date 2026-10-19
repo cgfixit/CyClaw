@@ -80,7 +80,7 @@ script ran, the block follows that directory instead of `~/.CyClaw`.
 `utils/secret-policy.tsv` (shared with the Python and PowerShell loaders)
 defines secret classification: an `exact` name row, each mapped to its
 Keychain service (`CYCLAW_API_KEY`, `TELEGRAM_BOT_TOKEN`, `GROK_API_KEY`,
-`ANTHROPIC_API_KEY`, `GH_TOKEN`/`GITHUB_TOKEN`, `CYCLAW_SQL_DSN`, the
+`ANTHROPIC_API_KEY`, `GH_TOKEN`/`GITHUB_TOKEN`, the
 `CYCLAW_*_DB_URL` family, `RCLONE_CONFIG_PASS`, …), or a `suffix` row
 (`API_KEY`, `CREDENTIALS`, `PASSWORD`, `SECRET`, `TOKEN`, `PAT`, `DSN`,
 `DB_URL`, `KEY`). Those values live in the Keychain, and `cyclaw` and launchd
@@ -138,7 +138,7 @@ updating CyClaw so an existing schedule receives script fixes.
 | `TELEGRAM_BOT_TOKEN` | Prompt (skip ok) | `com.cgfixit.cyclaw.telegram-bot-token` |
 | `ANTHROPIC_API_KEY` | Prompt (skip ok) | `com.cgfixit.cyclaw.anthropic-api-key` |
 | `GROK_API_KEY` | Prompt (skip ok) or `--grok-dummy` | `com.cgfixit.cyclaw.grok-api-key` |
-| `GH_TOKEN` (+ `GITHUB_TOKEN`) | Prompt (skip ok) | `com.cgfixit.cyclaw.gh-token` |
+| `GH_TOKEN` (+ `GITHUB_TOKEN`) | Prompt (skip ok); only used for the optional `gh auth login` in `setup-from-clone.sh`, the gateway never reads it | `com.cgfixit.cyclaw.gh-token` |
 
 Claude is `ANTHROPIC_API_KEY` because that is the only name `llm/client.py`
 reads.

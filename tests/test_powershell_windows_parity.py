@@ -53,14 +53,14 @@ foreach ($name in @('CYCLAW_SQL_DSN', 'CYCLAW_DB_URL', 'GH_PAT', 'DB_CREDENTIALS
     if (-not (Test-CyclawSecretName $name)) { throw "classifier missed $name" }
 }
 Import-CyclawCredentialSecrets
-foreach ($name in @('CYCLAW_SQL_DSN', 'CYCLAW_DB_URL', 'CYCLAW_VECTOR_DB_URL',
+foreach ($name in @('CYCLAW_DB_URL', 'CYCLAW_VECTOR_DB_URL',
                     'CYCLAW_RATELIMIT_DB_URL', 'CYCLAW_AUTH_DB_URL')) {
     $expected = 'vault-' + $script:CyclawSecretTargets[$name]
     if ([Environment]::GetEnvironmentVariable($name) -cne $expected) {
         throw "Credential Manager target not loaded for $name"
     }
 }
-foreach ($name in @('GH_PAT', 'DB_CREDENTIALS')) {
+foreach ($name in @('CYCLAW_SQL_DSN', 'GH_PAT', 'DB_CREDENTIALS')) {
     if ([Environment]::GetEnvironmentVariable($name)) { throw "unmapped $name was loaded" }
 }
 'OK'

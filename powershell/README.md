@@ -45,7 +45,7 @@ those lines. `Test-CyclawSecretName` in `CyClaw-SecretStore.ps1` classifies a
 name as secret from `utils/secret-policy.tsv` (shared with the bash and Python
 loaders): an `exact` row mapped to its Credential Manager target
 (`CYCLAW_API_KEY`, `TELEGRAM_BOT_TOKEN`, `GROK_API_KEY`, `ANTHROPIC_API_KEY`,
-`GH_TOKEN`/`GITHUB_TOKEN`, `CYCLAW_SQL_DSN`, the `CYCLAW_*_DB_URL` family,
+`GH_TOKEN`/`GITHUB_TOKEN`, the `CYCLAW_*_DB_URL` family,
 `RCLONE_CONFIG_PASS`, …) or a `suffix` row (`API_KEY`, `CREDENTIALS`,
 `PASSWORD`, `SECRET`, `TOKEN`, `PAT`, `DSN`, `DB_URL`, `KEY`).
 
