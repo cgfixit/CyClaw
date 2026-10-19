@@ -13,14 +13,8 @@ contract check below.
 | `requirements-lock-{linux,macos,windows}.txt` | the runtime closure (`requirements.txt` under `constraints.txt`) | `scripts/refresh-runtime-lock.sh` |
 | `requirements-torch-lock-{linux,macos,windows}.txt` | torch alone, installed first | `scripts/refresh-runtime-lock.sh` |
 | `requirements-test-lock-{linux,macos,windows}.txt` | the test tools (`requirements-test.txt`) | `scripts/refresh-ci-locks.sh` |
-| `requirements-ci-*-lock-*.txt` | one lock per CI job's tool set (smoke, yaml, ruff, cel, numbat, postgres, bandit, deepagents) | `scripts/refresh-ci-locks.sh` |
-| `requirements-extra-lock-*.txt` | optional extras (postgres, pgvector, mssql, dev, agentic deepagents) | `scripts/refresh-ci-locks.sh` |
-
-The `deepagents` CI lock and the `mssql`, `agentic-deepagents` and
-`agentic-deepagents-cloud` extra locks are orphaned: the agentic coding loop
-and SQL connector they served were removed in October 2026. They stay until a
-follow-up change drops the extras and re-locks on the arm64 macOS host the
-refresh scripts require; do not install them in the meantime.
+| `requirements-ci-*-lock-*.txt` | one lock per CI job's tool set (smoke, yaml, ruff, cel, numbat, postgres, bandit) | `scripts/refresh-ci-locks.sh` |
+| `requirements-extra-lock-*.txt` | optional extras (postgres, pgvector, dev) | `scripts/refresh-ci-locks.sh` |
 | `runtime-inputs.json`, `ci-inputs.json` | SHA-256 of every input and output of the two refresh scripts | written by the refresh scripts |
 
 The CI job inputs live in `scripts/ci-lock-inputs/*.txt`.

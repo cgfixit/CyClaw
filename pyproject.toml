@@ -65,10 +65,6 @@ postgres = [
 pgvector = [
     "pgvector==0.5.0",
 ]
-# Native ODBC prerequisites are operator-installed; excluded from full and all.
-mssql = [
-    "pyodbc==5.3.0",
-]
 # Optional CEL sanitizer backend for Numbat monitor-only rules (issue #1128
 # Slice B). Not in `full` because it is default-off and a local-only install
 # should not carry an extra policy engine it will not use.
@@ -103,41 +99,16 @@ dev = [
     "bandit==1.9.4",
     "pytest-cov==7.1.0",
 ]
-agentic-deepagents = [
-    "deepagents==0.6.12",
-    "langchain==1.4.2",
-    "langchain-openai==1.6.2",
-    # langchain-anthropic is a MANDATORY (non-extra) dependency of deepagents
-    # 0.6.12, so installing this extra already pulls it. Pinned explicitly rather
-    # than left floating in deepagents' own >=1.4.7,<2 range, because an unpinned
-    # transitive defeats the exact-pin reproducibility constraints.txt exists for
-    # -- and because the Claude cloud provider imports it directly.
-    "langchain-anthropic==1.7.2",
-    # deepagents 0.6.12 ALSO mandatorily requires langchain-google-genai, langsmith,
-    # and wcmatch (verified against its PyPI Requires-Dist, not the package's own
-    # docs, which are silent on this) -- these install unconditionally too, but
-    # nothing in CyClaw imports them directly, so they are pinned in
-    # constraints.txt only (reproducibility), not listed as extra entries here.
-]
-# Grok only. Deliberately a SEPARATE extra from agentic-deepagents so a local-only
-# install never pulls a cloud SDK it will not use, and deliberately NOT part of
-# `full` below, which is what CI and dev boxes install.
-agentic-deepagents-cloud = [
-    "langchain-xai==1.3.0",
-]
 full = [
     "cyclaw[postgres]",
     "cyclaw[pgvector]",
     "cyclaw[dev]",
     "cyclaw[test]",
-    "cyclaw[agentic-deepagents]",
 ]
 # Broad optional-feature aggregate for manual smoke testing. Extends full with
-# cloud SDKs and the CEL backend. MSSQL remains a separate opt-in
-# because it requires an operator-installed ODBC driver manager and SQL Server driver.
+# the CEL backend.
 all = [
     "cyclaw[full]",
-    "cyclaw[agentic-deepagents-cloud]",
     "cyclaw[numbat-cel]",
 ]
 

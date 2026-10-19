@@ -390,12 +390,9 @@ form in this guide is chosen because it needs no self-install; add
 public release to `2.13.0`; it cannot select the CPU wheel index. Keep the
 platform's Torch pre-install and constraints steps for editable and wheel installs.
 
-The `all` aggregate adds guardrails, cloud SDKs, and CEL to `full`. Both exclude
-`mssql`. `full` still pulls `agentic-deepagents` and `all` adds
-`agentic-deepagents-cloud`: those extras and `mssql` served the agentic coding
-loop and the SQL connector, which were removed in October 2026. No CyClaw code
-imports them now; they leave the package metadata and locks in a follow-up
-change that needs a macOS re-lock. Do not install `.[mssql]`.
+The `all` aggregate adds the CEL backend to `full`. The `agentic-deepagents`,
+`agentic-deepagents-cloud` and `mssql` extras were dropped with the agentic
+coding loop and the SQL connector they served (October 2026).
 
 Use `python gate.py` (or `cyclaw-server`) for normal startup: `gate.main()`
 applies the bind guard, TLS configuration, port override, and

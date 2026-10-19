@@ -50,11 +50,10 @@ def catalog(group: str) -> dict[str, str]:
     else:
         for platform in ("linux", "windows", "macos"):
             mapping[f"requirements-test-lock-{platform}.txt"] = "requirements-test.txt"
-            mapping[f"requirements-ci-deepagents-lock-{platform}.txt"] = "scripts/ci-lock-inputs/deepagents.txt"
         for name in ("smoke", "yaml", "ruff", "cel", "numbat", "postgres", "bandit"):
             source = "postgres-job" if name == "postgres" else name
             mapping[f"requirements-ci-{name}-lock-linux.txt"] = f"scripts/ci-lock-inputs/{source}.txt"
-        for name in ("postgres", "pgvector", "mssql", "dev", "agentic-deepagents", "agentic-deepagents-cloud"):
+        for name in ("postgres", "pgvector", "dev"):
             mapping[f"requirements-extra-lock-{name}-linux.txt"] = f"scripts/ci-lock-inputs/extra-{name}.txt"
     return mapping
 

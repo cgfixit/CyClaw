@@ -170,10 +170,8 @@ warnings, 2 on a failure; `--strict` promotes warnings to a failure.
 `huggingface_hub` and `starlette`, were promoted to explicit pins on every
 surface). Any new name this check reports requires investigation.
 
-`pyodbc` is declared only in the `mssql` extra (and pinned in
-`constraints.txt`), never in the base dependencies. Its only importer,
-`agentic/sqlconnect/client.py`, was removed with that connector on
-2026-10-18, so E3 has nothing to flag and `pyodbc` no longer holds an
+`pyodbc` (the old `mssql` extra) left every manifest with
+`agentic/sqlconnect` in October 2026, so it no longer holds an
 `_IMPORT_ALLOWLIST` entry (the allowlist is empty today). Keep the
 allowlist an argued exception list — a new entry needs its reason written
 next to it, or it becomes a silencer.
@@ -408,8 +406,8 @@ delegates Step 1 to it rather than duplicating it).
   exactly the non-empty columns of its `extract_pins.py` row (extras-only
   and constraints-only packages never enter `requirements.txt` or
   `environment.yml`; of the LangChain family only `langchain-core` and
-  `langgraph` are base, `langchain` itself is the `agentic-deepagents`
-  extra; `pydantic-core` is constraints-only even though it moves in
+  `langgraph` are base (`langsmith` is their constraints-only
+  transitive); `pydantic-core` is constraints-only even though it moves in
   lock-step with base-runtime `pydantic`, and a lock-step pair whose new
   parent exists on PyPI is a candidate, not an exception; `tzdata` is the `test` extra + `requirements-test.txt` + the
   `python-tzdata` conda pin, not base runtime — and a reclassified package

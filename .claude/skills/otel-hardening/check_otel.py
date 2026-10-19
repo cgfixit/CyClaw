@@ -136,7 +136,8 @@ LAST_VERIFIED_VENDOR_PINS = {
     # useful "for Analytics, debugging" -- not a telemetry call). langgraph's
     # own package carries no telemetry mechanism, matching the pre-existing
     # "langgraph-cli analytics" inventory row's own note.
-    "langchain": "1.4.2",
+    # langchain itself left the manifests with the agentic-deepagents extra
+    # (October 2026); langchain-core, a base dependency, is what stays.
     "langchain-core": "1.6.3",
     "langgraph": "1.2.11",
     # 0.23.0 -> 0.24.0 re-verified 2026-08-27 against the installed 0.24.0
@@ -161,8 +162,8 @@ LAST_VERIFIED_VENDOR_PINS = {
     # Category 5 therefore still holds -- all hub traffic flows through
     # huggingface-hub, which carries its own category-1 and category-3 rows.
     "sentence-transformers": "6.1.0",
-    # Not a pyproject direct pin -- lives in constraints.txt (deepagents
-    # transitive). Tracked here because the whole 4-name LANGSMITH_/LANGCHAIN_
+    # Not a pyproject direct pin -- lives in constraints.txt (a runtime
+    # transitive of langchain-core). Tracked here because the whole 4-name LANGSMITH_/LANGCHAIN_
     # tracing block defends against exactly this package; verified 2026-08-15
     # (precedence in utils.py:141/get_env_var), re-confirmed 2026-08-27, and
     # re-verified again 0.10.15 -> 0.13.0 (2026-09-21) against the installed
@@ -262,7 +263,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
                      "LANGSMITH_TRACING": "false", "LANGCHAIN_TRACING": "false",
                      "LANGSMITH_OTEL_ENABLED": "false"},
         "url": "https://docs.smith.langchain.com/observability/how_to_guides/trace_with_langchain",
-        "versions": "langchain==1.4.2, langchain-core==1.6.3, langgraph==1.2.11, langsmith==0.13.0",
+        "versions": "langchain-core==1.6.3, langgraph==1.2.11, langsmith==0.13.0",
         "enforcement": "env before import (get_env_var lru_cache latches); 5 credential/destination "
                        "names popped; upload attempted even with no API key, so the pop alone is not enough",
         "scope": "every graph invocation",
@@ -430,23 +431,6 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "I3; llm/client.py; trust_env=False on httpx clients",
     },
     {
-        "name": "cloud planner adapters (deepagents + langchain-openai/anthropic/google-genai/xai)",
-        "category": 3, "controls": {},
-        "url": "docs/agentic/AGENTIC_README.md",
-        "versions": "agentic-deepagents extra: deepagents==0.6.12, langchain==1.4.2, langchain-openai==1.6.2, "
-                    "langchain-anthropic==1.7.2; agentic-deepagents-cloud extra: langchain-xai==1.3.0; "
-                    "deepagents' mandatory transitives pinned in constraints.txt only: "
-                    "langchain-google-genai==4.4.0, langsmith==0.13.0 (its own category-1 row), wcmatch==11.0",
-        "enforcement": "no first-party importer since agentic/deepagent_github and the real-repo loop were "
-                       "removed in October 2026; the packages ship only in the optional extras until a macOS "
-                       "re-lock drops them. Tracing would be killed by the same env block. "
-                       "The provider SDKs these adapters wrap (openai, anthropic, google-genai, xai) carry no "
-                       "vendor telemetry env switch of their own: their only egress is the model call itself",
-        "scope": "optional extras only (no importer)", "reviewed": "2026-10-18",
-        "evidence": "policy-gated feature traffic, not telemetry; versions re-read from pyproject.toml/"
-                    "constraints.txt 2026-09-28 (a pin bump changes nothing about the classification)",
-    },
-    {
         "name": "telegram channel", "category": 3, "controls": {},
         "url": "docs/channels/TELEGRAM_DESIGN.md",
         "versions": "first-party httpx client (no vendor SDK; no SDK telemetry key exists)",
@@ -471,13 +455,12 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "evidence": "intentional data-plane traffic; scheduler now delivers the canonical env regardless",
     },
     {
-        "name": "sql connectors (pgvector/psycopg/pyodbc)", "category": 3, "controls": {},
-        "url": "docs/agentic/AGENTIC_README.md",
-        "versions": "postgres extra: psycopg==3.3.6 + psycopg-binary==3.3.6; pgvector extra: pgvector==0.5.0; "
-                    "mssql extra: pyodbc==5.3.0",
+        "name": "postgres drivers (pgvector/psycopg)", "category": 3, "controls": {},
+        "url": "docs/POSTGRES_BACKEND.md",
+        "versions": "postgres extra: psycopg==3.3.6 + psycopg-binary==3.3.6; pgvector extra: pgvector==0.5.0",
         "enforcement": "operator-configured database endpoints (the pgvector store and the Postgres "
-                       "soul/auth/rate-limit backends); pyodbc (mssql extra) has had no importer since "
-                       "agentic/sqlconnect was removed in October 2026",
+                       "soul/auth/rate-limit backends); the mssql extra (pyodbc) was dropped with "
+                       "agentic/sqlconnect in October 2026",
         "scope": "vector-store and Postgres backends", "reviewed": "2026-10-18",
         "evidence": "database traffic is the feature; no vendor telemetry mechanism in these drivers",
     },
@@ -898,7 +881,6 @@ INVENTORY: tuple[dict[str, object], ...] = (
 # a new unmapped component is the strict-mode finding the issue demands.
 INVENTORY_ALIASES: dict[str, str] = {
     "chromadb": "chromadb",
-    "langchain": "langchain/langsmith tracing",
     "langchain-core": "langchain/langsmith tracing",
     "langgraph": "langchain/langsmith tracing",
     "langsmith": "langchain/langsmith tracing",
@@ -906,15 +888,9 @@ INVENTORY_ALIASES: dict[str, str] = {
     "nemoguardrails": "nemoguardrails usage stats",
     "onnxruntime": "onnxruntime",
     "opentelemetry-exporter-otlp-proto-grpc": "opentelemetry sdk",
-    "deepagents": "cloud planner adapters (deepagents + langchain-openai/anthropic/google-genai/xai)",
-    "langchain-openai": "cloud planner adapters (deepagents + langchain-openai/anthropic/google-genai/xai)",
-    "langchain-anthropic": "cloud planner adapters (deepagents + langchain-openai/anthropic/google-genai/xai)",
-    "langchain-google-genai": "cloud planner adapters (deepagents + langchain-openai/anthropic/google-genai/xai)",
-    "langchain-xai": "cloud planner adapters (deepagents + langchain-openai/anthropic/google-genai/xai)",
-    "pgvector": "sql connectors (pgvector/psycopg/pyodbc)",
-    "psycopg": "sql connectors (pgvector/psycopg/pyodbc)",
-    "psycopg-binary": "sql connectors (pgvector/psycopg/pyodbc)",
-    "pyodbc": "sql connectors (pgvector/psycopg/pyodbc)",
+    "pgvector": "postgres drivers (pgvector/psycopg)",
+    "psycopg": "postgres drivers (pgvector/psycopg)",
+    "psycopg-binary": "postgres drivers (pgvector/psycopg)",
     "sentence-transformers": "sentence-transformers/transformers/torch stack",
     "transformers": "sentence-transformers/transformers/torch stack",
     "torch": "sentence-transformers/transformers/torch stack",
@@ -1001,7 +977,6 @@ INVENTORY_ALIASES: dict[str, str] = {
     "packaging": "core web/runtime libs",
     "pydantic-core": "core web/runtime libs",
     "pydantic-settings": "core web/runtime libs",
-    "wcmatch": "core web/runtime libs",
     # [build-system].requires -- swept since 2026-09-28
     "hatchling": "core web/runtime libs",
     # constraints.txt-only pin (torch's transitive setuptools>=77.0.3 floor,
