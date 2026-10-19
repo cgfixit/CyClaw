@@ -80,7 +80,7 @@ requires a real engine and shipped-rule allow/refuse results; fallback cannot pa
    macOS constraints copy for editable/extras dry-runs too; the exact recipe
    lives in `setup-guide.md`. Report resolution separately from installation.
    `full` and `all` are aggregates, not synonyms for every extra: inspect their
-   membership (`all` is `full` plus `numbat-cel`).
+   membership (currently `all` omits the standalone `mssql` extra).
 6. For a pin or dependency change, use the existing `pip-audit`, OSV, Trivy,
    Dependabot, and optional-extras CI paths. Verify releases and advisories from
    authoritative sources, preserve accepted-risk documentation, and never
