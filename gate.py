@@ -1491,7 +1491,7 @@ async def audit_summary(request: Request):
     return summary
 
 
-# The four /ops/* endpoints (out-of-band sync/ + agentic/ control surface) live
+# The two /ops/* endpoints (out-of-band sync/ + agentic/fsconnect control surface) live
 # in gate_ops.py as one bounded module; the security callables defined above are
 # injected so auth, rate limiting, auditing, and error sanitization stay
 # byte-identical to the pre-extraction handlers. gate_ops imports nothing from

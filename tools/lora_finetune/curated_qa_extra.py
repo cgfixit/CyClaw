@@ -8,7 +8,7 @@ github.com/CGFixIT/CyClaw main on 2026-09-07:
                             HF_HUB_OFFLINE deliberately excluded, build_telemetry_safe_env,
                             stdlib-only constraint)
   - utils/errors.py         (RAGError code+details hierarchy, SoulPersistenceError,
-                            SyncError sub-code bypass, AgenticError OOB mirror)
+                            SyncError sub-code bypass, FsConnectError OOB mirror)
   - utils/sanitizer.py      (Unicode/Tag/confusable probe folding, lru_cache per-path,
                             DOTALL for newline straddling, warn-on-degrade)
   - graph.py                (GraphState, _GeneratingClient Protocol, _format_context_chunks)
@@ -546,7 +546,7 @@ EXTRA_QA: list[dict] = [
             "stays oblivious to (I6 isolation): SyncError (and its sub-errors "
             "RcloneNotInstalledError, RcloneVersionError, RcloneTimeoutError, "
             "SyncConfigError, SchedulerError, SyncRuntimeError) for Dropbox/rclone "
-            "sync; AgenticError for the GitHub-context / skills layer. The gateway "
+            "sync; FsConnectError and NetConnectError for the agentic/ connectors. The gateway "
             "never imports agentic or sync, so those error types can't surface "
             "through the core request path — they're handled in their own OOB "
             "consoles.\n\n"

@@ -12,9 +12,9 @@
 #     operator's deliberate hook manager is never overwritten.
 #   - GITHOOKS_SKIP_INSTALL=1: does nothing (operator opt-out).
 #
-# Pipelines that run git with their own `-c core.hooksPath=...` (CyClaw's
-# agentic executor, CGagentHarness's coding pipeline, codex-apply-fixes.yml)
-# are unaffected: a command-line value outranks repository config.
+# Pipelines that run git with their own `-c core.hooksPath=...` (CGagentHarness's
+# coding pipeline, codex-apply-fixes.yml) are unaffected: a command-line value
+# outranks repository config.
 set -u
 
 say() { printf '[githooks] %s\n' "$*"; }
