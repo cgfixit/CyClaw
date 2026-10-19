@@ -23,7 +23,7 @@ on:
   pull_request:
     branches: [ main ]
   # Weekly safety net — Fridays 09:23 UTC. Staggered away from the other
-  # scheduled scanners (devskim/osv/pip-audit/codeql/fortify/defender) so the
+  # scheduled scanners (devskim/osv/pip-audit/codeql/defender) so the
   # security workflows don't all contend for runners at once.
   # NOTE: scheduled triggers only fire from the repository's default branch.
   schedule:
