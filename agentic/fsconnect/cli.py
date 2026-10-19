@@ -610,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
     ok/failed/env_config/write_refused and everything else to "unknown".
     Most subcommands convert their own failures, but a handler at the dispatch
     point covers the whole class rather than the call sites known today --
-    the same fix agentic/cli.py::main received in #824.
+    the same fix the (since-removed) agentic/cli.py::main received in #824.
 
     Deliberately narrow: only the typed hierarchy is classified, so a genuine
     bug still surfaces as a traceback instead of being flattened into a tidy

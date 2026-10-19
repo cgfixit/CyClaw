@@ -1,8 +1,9 @@
 """Unit tests for the injection-findings aggregation in metrics.py.
 
-``agentic/context.py`` writes one ``agentic_context_injection_finding`` audit
-event per GitHub-sourced text field that matched a governed injection pattern.
-These tests pin how metrics.py reads them back: the counts, the isolation
+``agentic/context.py`` (removed October 2026) wrote one
+``agentic_context_injection_finding`` audit event per GitHub-sourced text field
+that matched a governed injection pattern. metrics.py still reads them back from
+older audit logs, and these tests pin how: the counts, the isolation
 constraint that keeps ``agentic`` out of the gate process, and the render
 placement that keeps the section visible on agentic-only audit logs.
 """
@@ -73,19 +74,6 @@ def test_metrics_does_not_import_agentic():
             imported.add(node.module.split(".")[0])
     assert "agentic" not in imported
     assert "guardrails" not in imported
-
-
-def test_code_constants_match_the_producer():
-    """The locally-declared literals must stay in step with agentic/context.py.
-
-    This test may import agentic; metrics.py may not. That asymmetry is the whole
-    point -- it buys drift detection without the runtime coupling.
-    """
-    from agentic.context import INJECTION_FINDING_CODE as producer_finding
-    from agentic.context import SCANNER_UNAVAILABLE_CODE as producer_unavailable
-
-    assert INJECTION_FINDING_CODE == producer_finding
-    assert SCANNER_UNAVAILABLE_CODE == producer_unavailable
 
 
 # --- aggregation -----------------------------------------------------------

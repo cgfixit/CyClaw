@@ -535,8 +535,7 @@ def main(argv: list[str] | None = None) -> int:
     # returned dict). Unlike gate.py's curated "heavy" allowlist, a thin __init__.py
     # has no legitimate early import to allow-list around: everything it imports
     # besides the kill itself is a submodule that could transitively reach a
-    # telemetry-capable library (agentic.registry -> guardrails.rails is one such
-    # path today), so the bar here is stricter -- precede EVERY other import, not
+    # telemetry-capable library (guardrails.rails pulls NeMo), so the bar here is stricter -- precede EVERY other import, not
     # just a known-heavy subset.
     for label, tree in (
         ("agentic/__init__.py", agentic_init_tree),
@@ -551,7 +550,9 @@ def main(argv: list[str] | None = None) -> int:
     ):
         pkg_kill_line = kill_call_line(tree)
         first_import = first_other_import_line(tree, skip_dotted_module="utils.telemetry_kill")
-        if pkg_kill_line is not None and first_import is not None and pkg_kill_line < first_import:
+        if pkg_kill_line is not None and (first_import is None or pkg_kill_line < first_import):
+            # No other import at all (agentic/__init__.py since the October 2026
+            # removal) is the strongest form of "the kill comes first".
             ok(f"{label}: telemetry kill (line {pkg_kill_line}) precedes first other import (line {first_import})")
         else:
             fail(f"{label}: telemetry kill precedes first other import",

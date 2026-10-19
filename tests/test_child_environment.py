@@ -55,28 +55,12 @@ def test_sync_capability_includes_discovery_and_rclone() -> None:
     assert "GH_TOKEN" not in env
 
 
-def test_github_capability_includes_gh_tokens() -> None:
-    source = {
-        "PATH": "/bin",
-        "HOME": "/home/op",
-        "GH_TOKEN": "ghp_x",
-        "GITHUB_TOKEN": "ghs_y",
-        "GH_HOST": "github.com",
-        "RCLONE_CONFIG_PASS": "nope",
-    }
-    env = child_environment("github", source=source)
-    assert env["GH_TOKEN"] == "ghp_x"
-    assert env["GITHUB_TOKEN"] == "ghs_y"
-    assert env["GH_HOST"] == "github.com"
-    assert "RCLONE_CONFIG_PASS" not in env
-
-
-@pytest.mark.parametrize("capability", ["filesystem", "sql", "verification"])
-def test_filesystem_sql_verification_capabilities(capability: str) -> None:
+@pytest.mark.parametrize("capability", ["filesystem", "helper"])
+def test_filesystem_and_helper_capabilities(capability: str) -> None:
     source = {"PATH": "/bin", "HOME": "/home/op", "USERPROFILE": r"C:\Users\op", "SECRET": "x"}
     env = child_environment(capability, source=source)
     assert env["PATH"] == "/bin"
-    if capability in {"filesystem", "sql"}:
+    if capability == "filesystem":
         assert env["HOME"] == "/home/op"
         assert env["USERPROFILE"] == r"C:\Users\op"
     else:
@@ -95,7 +79,7 @@ def test_secret_names_are_copied_explicitly_only() -> None:
         "DSN": "postgres://u:p@localhost/db",
         "OTHER_SECRET": "nope",
     }
-    env = child_environment("sql", secret_names=("DSN",), source=source)
+    env = child_environment("filesystem", secret_names=("DSN",), source=source)
     assert env["DSN"] == "postgres://u:p@localhost/db"
     assert "OTHER_SECRET" not in env
 

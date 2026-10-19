@@ -56,9 +56,10 @@ python -m tests.ci_rag_smoke
 python -m pytest tests/ -q --tb=short
 ```
 
-Use targeted agentic, sync, guardrails, Postgres, or connector tests only when
-that optional integration is in scope. Ordinary core verification must not
-require Ollama, Grok, Claude, rclone, Postgres, or live GitHub credentials.
+Use targeted sync, guardrails, Postgres, or connector (fsconnect/netconnect)
+tests only when that optional integration is in scope. Ordinary core
+verification must not require Ollama, Grok, Claude, rclone, Postgres, or live
+GitHub credentials.
 
 Report setup performed, server lifecycle, endpoint/test results, unavailable
 optional services, and generated files left uncommitted. Stop the server when

@@ -1966,9 +1966,8 @@ class TestLoopbackBindGuard:
 
     def test_explicit_env_opt_in_allows_a_non_loopback_bind(self, monkeypatch):
         # The escape hatch has to work, or an operator who genuinely fronts CyClaw
-        # with their own auth is stuck. It is opt-IN (default deny), the inverse of
-        # agentic/writer.py's disable-only switch, because here the risky state is
-        # the non-default one.
+        # with their own auth is stuck. It is opt-IN (default deny) because here
+        # the risky state is the non-default one.
         import gate
         monkeypatch.setenv(gate._ALLOW_NON_LOOPBACK_ENV, "1")
         assert gate._require_loopback_bind("0.0.0.0") is True  # noqa: S104 - asserting the opt-in

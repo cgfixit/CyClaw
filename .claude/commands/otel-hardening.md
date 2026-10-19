@@ -6,10 +6,10 @@ description: >-
   ONNX Runtime suppression (ORT_DISABLE_TELEMETRY before import + the
   disable_telemetry_events() API at the load seams), and the process-boundary
   delivery surfaces (Docker ENV/compose, macOS/PowerShell launchers, generated
-  launchd plists / Windows tasks / cron lines, agentic verifier children, gh
-  children) — via a static checker with an INDEPENDENT name→value oracle and a
-  category-1-to-5 egress classification of every dependency, provider,
-  executable, connector, scheduled job, and launcher. Then a live vendor-doc
+  launchd plists / Windows tasks / cron lines, gh children) — via a static
+  checker with an INDEPENDENT name→value oracle and a category-1-to-5 egress
+  classification of every dependency, provider, executable, connector,
+  scheduled job, and launcher. Then a live vendor-doc
   sweep for drift since each control's last review date. Use when asked to
   audit/harden/re-verify telemetry, check for phone-home leaks, after bumping
   any telemetry-capable vendor pin, when adding a dependency or process

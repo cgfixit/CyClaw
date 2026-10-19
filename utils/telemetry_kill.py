@@ -160,8 +160,12 @@ TELEMETRY_KILL: dict[str, str] = {
     "ORT_TELEMETRY_OPT_OUT": "1",
     # GitHub CLI usage telemetry (gh >= 2.83): GH_TELEMETRY accepts
     # true/false/log, defaults on. Pinned to the literal "false" so a gh
-    # child spawned by agentic/gh_client.py / agentic/writer.py can never
-    # inherit an ambient "true" or "log". Update-check suppression for gh is
+    # child spawned from a governed environment can never inherit an ambient
+    # "true" or "log". CyClaw's own gh spawn sites (agentic/gh_client.py,
+    # agentic/writer.py) were removed in October 2026; the key stays because
+    # the otel-hardening oracle and docs/security-philosophy/
+    # cyclaw_telemetry_kill.env still pin it, and dropping a kill key is a
+    # contract change of its own. Update-check suppression for gh is
     # the SEPARATE ancillary pair in UPDATE_CHECK_OPT_OUT below -- version
     # checks are egress but not telemetry, and the two must not be conflated.
     # Reviewed 2026-08-27 (gh help environment).
@@ -211,8 +215,8 @@ TELEMETRY_KILL: dict[str, str] = {
 # no report, test, or checker ever counts these as telemetry controls: a
 # version check is network egress but reports nothing about usage. They are
 # still unconditionally applied (harmless where unread, inherited by every
-# child), because the processes that read them -- gh, pip inside the agentic
-# verifier, PowerShell task wrappers -- are all launched from environments
+# child), because the processes that read them -- gh, pip, PowerShell task
+# wrappers -- are all launched from environments
 # this module governs. HF_HUB_DISABLE_UPDATE_CHECK is deliberately NOT here:
 # it governs the `hf` CLI, which no CyClaw code path launches; it is
 # documented in docs/security-philosophy/cyclaw_telemetry_kill.env for

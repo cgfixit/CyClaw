@@ -10,10 +10,9 @@
 # Then, from the repo root:
 #   ..claude\skills\CyClaw-Sandbox\windows-smoke.ps1
 #
-# Coverage gap (documented choice, not an oversight): of the four gate.py
+# Coverage gap (documented choice, not an oversight): of the two gate.py
 # /ops/* endpoints, only /ops/fsconnect's "status" action is exercised below
-# (check 7). /ops/sync, /ops/agentic, and /ops/sqlconnect are NOT yet
-# covered by this script.
+# (check 7). /ops/sync is NOT yet covered by this script.
 #
 # Privacy (cyclaw-privacy): loopback-only; CYCLAW_API_KEY is never printed;
 # queries are hashed in the audit log (never raw). Advisory only, not

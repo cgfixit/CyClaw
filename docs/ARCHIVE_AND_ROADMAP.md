@@ -5,6 +5,12 @@
 > (re-created because this link had been dangling). The 2026-08-02 closed-item
 > log is [`docs/zWork/remaining_work_STALE.md`](zWork/remaining_work_STALE.md).
 > This file is history and rationale, not the live backlog.
+>
+> **2026-10-18:** the agentic GitHub layer, skills registry, real-repo loop,
+> verification executor, harness optimizer and SQL connector recorded below
+> were removed from the repository (`docs/changelog.txt`, 2026-10-18 entry).
+> Only `agentic/fsconnect/` and `agentic/netconnect/` remain; read every other
+> `agentic/` section here as history.
 
 This file is the single home for retired design history, superseded plans, and
 scratch research that fed CyClaw's `agentic/` and `sync/` layers. It condenses
@@ -95,10 +101,10 @@ still at its original path** (see the Status note above).
 **Files that stay separate and are NOT folded in here**, because they are
 binding governance, a live checklist with a real (possibly still-open)
 sign-off line, or a dated historical record: `docs/agentic/AGENTIC_README.md`,
-`docs/agentic/SKILLS_REGISTRY_GOVERNANCE.md`, `docs/THREAT_MODEL.md`,
+`docs/THREAT_MODEL.md`,
 `docs/agentic/FSCONNECT_SECURITY_REVIEW_CHECKLIST.md`,
 `docs/agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md`,
-`docs/agentic/GITHUB_WRITE_ENABLEMENT.md`, `docs/!TERMINAL_UX_NEXT_STEPS.md`,
+`docs/!TERMINAL_UX_NEXT_STEPS.md`,
 `docs/SECCOMP_EBPF_HARDENING.md`, `docs/PONYTAIL_PLUGIN.md`,
 `docs/POSTGRES_BACKEND.md`, `docs/analysis/TESTCLIENT_HTTPX_DEPRECATION.md`,
 `docs/HARNESS_POWERSHELL.md`, `docs/SYNC_README.md`, `docs/NeMo/README.md`,
@@ -533,7 +539,9 @@ roadmap, checked against the current tree:
    was signed and `EXECUTION_ENABLED`, `agentic.mode`, and
    `agentic.writes_enabled` were opened, leaving `agentic.enabled` as the
    master switch that still refuses. See
-   `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` for the enablement path.
+   `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` for the enablement path (that
+   document and the write path were deleted on 2026-10-18; both remain in git
+   history).
 4. "Optional: surface registry skills to the operator tooling (still
    read-only at runtime)." Best read as **still open** as a discrete
    deliverable — no dedicated doc or module claims this was done as specified;

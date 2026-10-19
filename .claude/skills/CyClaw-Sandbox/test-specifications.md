@@ -304,9 +304,10 @@ From `tests/test_due_diligence_invariants.py` (14 test classes):
 
 ### TestShippedCoreConfigContract
 - Pins the SHIPPED `config.yaml`'s core posture keys
-- `TestShippedAgenticConfigContract` (`tests/test_agentic_config.py`) already
-  pins the agentic block against the real file; the core request path had no
-  equivalent, and the gap is not hypothetical -- the operator commit of
+- The out-of-band `agentic:` block had its own shipped-file pin
+  (`TestShippedAgenticConfigContract`, removed with that block on
+  2026-10-18); the core request path had no equivalent, and the gap is not
+  hypothetical -- the operator commit of
   2026-08-07 flipped `app.mode`, the since-removed `app.debug`, and BOTH `models.<provider>.enabled`
   in the shipped file and no test broke, because no test read those keys from it
 - Matters specifically for I3: per `INVARIANTS.md`, two of the triple gate's
@@ -326,6 +327,10 @@ From `tests/test_due_diligence_invariants.py` (14 test classes):
 ---
 
 ## Terminal Console Endpoint Tests
+
+The Agentic (`AG-*`) and SQL (`SQL-*`) console cases were retired on
+2026-10-18 with `/ops/agentic` and `/ops/sqlconnect`; both paths now answer
+404 and the console no longer calls them.
 
 ### Soul Console (`/soul/*`)
 
@@ -353,18 +358,6 @@ All endpoints require `CYCLAW_API_KEY`.
 | SYNC-5 | `unschedule` | `{action: "unschedule"}` | Schedule disabled |
 | SYNC-6 | unknown | `{action: "destroy"}` | 400, `OPS_BAD_ACTION` |
 
-### Agentic Console (`/ops/agentic`)
-
-| Test | Action | Body | Expected |
-|------|--------|------|----------|
-| AG-1 | `status` | `{action: "status"}` | `{config: {enabled, mode, writes_enabled}, ...}` |
-| AG-2 | `context` + pr | `{action: "context", pr: 123}` | PR context |
-| AG-3 | `context` + issue | `{action: "context", issue: 456}` | Issue context |
-| AG-4 | `propose-skill` | `{action: "propose-skill", name, desc, body, reason}` | Proposal |
-| AG-5 | `apply-skill` (locked) | defaults | 4-gate checklist fails |
-| AG-6 | `apply-skill` (open) | `{..., confirm: true}` | Requires all 4 gates |
-| AG-7 | unknown | `{action: "hack"}` | 400 |
-
 ### Filesystem Console (`/ops/fsconnect`)
 
 | Test | Action | Body | Expected |
@@ -376,19 +369,6 @@ All endpoints require `CYCLAW_API_KEY`.
 | FS-5 | `grep` | `{action: "grep", root, path, pattern}` | `{matches, match_count}` |
 | FS-6 | `glob` | `{action: "glob", root, pattern}` | `{matches, match_count}` |
 | FS-7 | unknown | `{action: "delete"}` | 400 |
-
-### SQL Console (`/ops/sqlconnect`)
-
-| Test | Action | Body | Expected |
-|------|--------|------|----------|
-| SQL-1 | `status` | `{action: "status"}` | `{config: {enabled, driver, read_only, max_rows}}` |
-| SQL-2 | `schema` | `{action: "schema"}` | Error envelope when DSN unset |
-| SQL-3 | `query` + table | `{action: "query", table: "users"}` | Table preview |
-| SQL-4 | `query` + sql | `{action: "query", sql: "SELECT 1"}` | Query results |
-| SQL-5 | `query` + explain | `{action: "query", sql: "...", explain: true}` | Explain plan |
-| SQL-6 | `query` + fmt | `{action: "query", sql: "...", fmt: "csv"}` | CSV output |
-| SQL-7 | unknown | `{action: "drop"}` | 400 |
-| SQL-8 | write SQL | `{action: "query", sql: "INSERT..."}` | Rejected by guard |
 
 ---
 

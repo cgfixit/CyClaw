@@ -1,5 +1,11 @@
 # CyClaw console: "good for a dentist" — implementation plan
 
+> **Status update — 2026-10-18 (agentic removal):** The Agentic and SQL
+> consoles and their `/ops/agentic` / `/ops/sqlconnect` routes were removed
+> (`docs/changelog.txt`, 2026-10-18 entry). The toolbar now has five operator
+> surfaces — Soul, Sync and FS always visible, Users and Audit role-hidden —
+> where the inventory below counts seven.
+
 > **Status update — 2026-09-06 (remaining #1331 items):** COMPLETE. The four
 > original PRs in §4 remain shipped. Item 1 of the leftover list (plain-language
 > confirm prompt) shipped in #1342. Items 2–4 ship with the console change that
@@ -38,16 +44,16 @@ All four leftover items from issue #1331 are done:
 
 ### "Is /ops the fsconnect and sqlagent (and if separate all 3 sections)?"
 
-**Four, not two or three** — and the second name is `sqlconnect`, not "sqlagent":
+**Two since 2026-10-18** (four when this plan was written; `/ops/agentic` and
+`/ops/sqlconnect`, with their Agentic and SQL Console panels, were removed with
+the agentic coding layer and the SQL connector):
 
 | Route | Shims | Has a toolbar button? |
 |---|---|---|
 | `/ops/sync` | Dropbox corpus sync (`sync/`) | Yes — "Sync Console" |
-| `/ops/agentic` | GitHub context + skills registry (`agentic/`) | Yes — "Agentic Console" |
 | `/ops/fsconnect` | Local/SMB filesystem connector | Yes — "FS Console" |
-| `/ops/sqlconnect` | SELECT/WITH-only SQL connector | Yes — "SQL Console" |
 
-All four share one identical security posture and one shared handler body
+Both share one identical security posture and one shared handler body
 (`gate_ops.py`, the `_run_ops_route` helper from #1066).
 
 **But the advanced-mode question is bigger than `/ops`.** The toolbar has

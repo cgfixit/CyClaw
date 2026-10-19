@@ -68,8 +68,8 @@ offline input checks plus, when the engine is available, a NeMo
 `generate_async` call that can invoke the model. It is not the gateway broker
 (`guardrails.broker.GuardrailBroker`, which never grants external access) and
 must not be wired into `/query`, where it would duplicate generation.
-`agentic/executor` has its own sandbox and approval contracts and no NeMo call;
-MCP `tools/call` remains unwrapped. `python -m guardrails.call_inventory` fails
+MCP `tools/call` remains unwrapped (the agentic executor, which had its own
+sandbox and no NeMo call, was removed in October 2026). `python -m guardrails.call_inventory` fails
 closed on unregistered `ChatOpenAI`, `ChatXAI`, `ChatAnthropic`, or
 `generate_async` call sites.
 

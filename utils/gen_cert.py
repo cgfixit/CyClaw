@@ -36,8 +36,8 @@ EXIT_ENV = 3
 # bounds the pathological case (e.g. an entropy-starved container stalling
 # openssl's RNG read) so the operator gets a diagnostic instead of a silent
 # indefinite hang -- matching the timeout convention every other subprocess
-# call in this codebase already follows (sync/runner.py, agentic/gh_client.py,
-# agentic/writer.py, agentic/netconnect/client.py).
+# call in this codebase already follows (sync/runner.py,
+# agentic/netconnect/client.py).
 _OPENSSL_TIMEOUT_SEC = 30
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent

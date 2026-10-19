@@ -16,13 +16,16 @@ sits in the overall posture and what it does **not** cover.
 
 | Rule | Fires when | Priority |
 |---|---|---|
-| Unexpected process spawned | A binary other than `python`/`rclone`/`gh`/`git`/Git HTTPS helpers/`uvicorn` execs in the app container | WARNING |
+| Unexpected process spawned | A binary other than `python`/`rclone`/`git`/Git HTTPS helpers/`uvicorn` execs in the app container | WARNING |
 | Shell spawned in container | Any shell (`bash`/`sh`/…) starts — CyClaw never uses one | CRITICAL |
 | Write outside allowed roots | A write lands outside `data/index/logs/checkpoints/.emb_cache/tmp` | ERROR |
 | Unexpected outbound connection | Non-tool egress to anything other than loopback / local Ollama | WARNING |
-| Optional tool outbound connection | `git`/Git HTTPS helpers/`gh`/`rclone` external egress that needs audit correlation | NOTICE |
+| Optional tool outbound connection | `rclone`/`git`/Git HTTPS helpers external egress that needs audit correlation | NOTICE |
 
-These map to the out-of-band agentic and sync write paths and the gate's egress.
+These map to the out-of-band fsconnect and sync write paths and the gate's egress.
+No shipped CyClaw path has exec'd `gh` or `git` since the agentic GitHub coding
+layer was removed (2026-10-18): `gh` left the allow-lists then, and `git` stays
+listed only because `tests/test_isolation_deploy.py` pins it.
 
 ## Why it ships disabled
 
@@ -52,7 +55,7 @@ deployment:
 
 Do not suppress all Python HTTPS traffic: explicitly gated cloud-model calls and
 hostile test code use the same interpreter. Keep the alert and correlate it to
-the provider-selection/audit event. The `git`/`git-remote-http[s]`/`gh`/`rclone`
+the provider-selection/audit event. The `rclone`/`git`/`git-remote-http[s]`
 rule is lower severity but deliberately remains visible; do not replace it with
 a broad SaaS IP range.
 
@@ -108,9 +111,9 @@ privileged denial-of-service control plane. If forwarding is needed, send JSON
 alerts to a local operator-owned sink and retain the CyClaw audit-event ID used
 to classify the event.
 
-When gate, agentic, sync, Telegram, and executor become separate containers,
-replace the monolithic process exceptions with role-specific rules. Any
-executor egress should then be CRITICAL. Until that split, actor + action +
+When gate, the agentic connectors, sync, and Telegram become separate
+containers, replace the monolithic process exceptions with role-specific rules.
+Until that split, actor + action +
 destination exceptions are the narrowest safe tuning unit.
 
 ## Requirements & caveats

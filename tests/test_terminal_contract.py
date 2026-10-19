@@ -34,7 +34,7 @@ def _console_source() -> str:
 # Paths the console calls with POST (everything else it calls with GET).
 _POST_PATHS = {
     "/query", "/soul/reload", "/soul/propose", "/soul/apply", "/soul/restore",
-    "/ops/sync", "/ops/agentic", "/ops/fsconnect", "/ops/sqlconnect",
+    "/ops/sync", "/ops/fsconnect",
     "/auth/login", "/auth/logout", "/auth/bootstrap-password",
     # First-run: the console POSTs this when the operator clicks Build, and
     # GETs /index/status to follow it. Gated on the loopback socket peer plus
@@ -407,7 +407,7 @@ def test_hidden_attribute_is_not_overridden_by_display_rules():
 
 
 def test_advanced_mode_hides_every_operator_console():
-    """The five subsystem consoles must sit behind the advanced switch.
+    """The subsystem consoles must sit behind the advanced switch.
 
     They shim out-of-band subsystems behind an API key: operator surfaces, not
     user surfaces. Before this wrapper existed they were unconditionally
@@ -425,8 +425,8 @@ def test_advanced_mode_hides_every_operator_console():
     assert len(wrapper) == 2, "the #advancedTools wrapper is gone"
     body = wrapper[1].split("</span>", 1)[0]
     for btn in (
-        "soulToggleBtn", "syncToggleBtn", "agenticToggleBtn",
-        "fsToggleBtn", "sqlToggleBtn", "usersToggleBtn", "auditToggleBtn",
+        "soulToggleBtn", "syncToggleBtn",
+        "fsToggleBtn", "usersToggleBtn", "auditToggleBtn",
     ):
         assert f'id="{btn}"' in body, f"{btn} escaped the advanced wrapper"
 
@@ -565,7 +565,7 @@ def test_panel_loaders_return_success_and_retry_on_failure():
     return true/false so the toggle can set *Loaded accordingly.
     """
     js = _TERMINAL_JS.read_text(encoding="utf-8")
-    for runner in ("runSync", "runAgentic", "runFs", "runSql"):
+    for runner in ("runSync", "runFs"):
         body = js.split(f"async function {runner}(", 1)
         assert len(body) == 2, f"{runner} moved; update this test"
         block = body[1].split("\n}", 1)[0]
@@ -574,9 +574,7 @@ def test_panel_loaders_return_success_and_retry_on_failure():
 
     for toggle, runner in (
         ("toggleSyncPanel", "runSync"),
-        ("toggleAgenticPanel", "runAgentic"),
         ("toggleFsPanel", "runFs"),
-        ("toggleSqlPanel", "runSql"),
     ):
         body = js.split(f"async function {toggle}(", 1)
         assert len(body) == 2, f"{toggle} moved; update this test"

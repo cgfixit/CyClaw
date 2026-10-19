@@ -62,13 +62,20 @@ def main() -> int:
         "/health", "/query", "/soul", "/soul/propose", "/soul/apply",
         "/soul/reload", "/",
         "/index/build", "/index/status",
-        "/ops/sync", "/ops/agentic", "/ops/fsconnect", "/ops/sqlconnect",
+        "/ops/sync", "/ops/fsconnect",
         "/auth/setup-status", "/auth/login",
         "/memory/status",
     }
     missing = expected - routes
     check("expected endpoints registered", not missing,
           f"{len(routes)} routes, missing={sorted(missing) or 'none'}")
+
+    # 4b. Routes removed with their subsystems stay unregistered: /ops/agentic
+    # (the agentic GitHub layer) and /ops/sqlconnect (the SQL connector), both
+    # retired 2026-10-18.
+    retired = {"/ops/agentic", "/ops/sqlconnect"} & routes
+    check("retired /ops routes not registered", not retired,
+          f"present={sorted(retired) or 'none'}")
 
     # 5. Entry point is callable.
     check("gate.main is callable", callable(getattr(gate, "main", None)))

@@ -7,8 +7,9 @@ run so a missing CLI cannot hide a fixture that would miss the two required
 rule ids.
 
 Clean events are built with ``utils.numbat_emitter.build_event`` (same kwargs
-the executor / fsconnect / real_repo_loop call sites use). AC #2 is the live
-executor-jail test below, not a hand-authored JSON file.
+the fsconnect call site uses, plus the executor / real_repo_loop shapes that
+were committed before those producers were removed in October 2026). AC #2 is
+the live ops-runner test below, not a hand-authored JSON file.
 """
 
 from __future__ import annotations
@@ -156,17 +157,21 @@ def test_clean_fixture_matches_build_event() -> None:
     assert _load_events(CLEAN) == expected
 
 
-def test_executor_jail_live_events_have_zero_rule_hits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC #2: a real executor run under the scrubbed env must not match rules."""
-    from agentic.executor import Check, run_verification
-    from tests.executor_sandbox_double import inject_argv_list_sandbox
+def test_ops_runner_live_events_have_zero_rule_hits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC #2: a real ops-runner child run must not match rules.
 
-    inject_argv_list_sandbox(monkeypatch)
+    Spawns the real ``python -m agentic.fsconnect.cli status`` child through
+    utils/ops_runner.py, so the command.exec/command.result pair is what the
+    action plane actually writes. (This used the agentic verification executor
+    until that was removed in October 2026.)
+    """
+    from utils import ops_runner
 
     reset_config_cache()
     out = tmp_path / "numbat-events.ndjsonl"
     cfg = {
         "logging": {"audit_file": str(tmp_path / "audit.jsonl")},
+        "fsconnect": {"enabled": False},
         "numbat": {
             "enabled": True,
             "output_path": str(out),
@@ -176,17 +181,10 @@ def test_executor_jail_live_events_have_zero_rule_hits(tmp_path: Path, monkeypat
     }
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
-    report = run_verification(
-        tmp_path,
-        [Check("ok", ("python", "-c", "print(1)"))],
-        config_path=str(config_path),
-        cfg=cfg,
-    )
-    assert report.ok
-    # write_ndjson caches its append handle per output path; release it before
-    # tmp_path teardown removes the directory (Windows cannot delete a file
-    # that is still open).
-    close_numbat_handles()
+    monkeypatch.setattr(ops_runner, "_CONFIG_PATH", config_path)
+    monkeypatch.setattr("utils.numbat_emitter._get_config", lambda *_a, **_k: cfg)
+    result = ops_runner.run_fsconnect_op("status")
+    assert result.ok, result.stderr
     blob = out.read_text(encoding="utf-8")
     assert blob
     assert "@/.ssh/id_rsa" not in blob

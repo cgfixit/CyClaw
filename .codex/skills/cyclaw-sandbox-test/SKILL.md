@@ -90,7 +90,7 @@ HOME="$SANDBOX_HOME" bash macos/uninstall-cyclaw.sh < /dev/null
 ## Escalation Coverage
 
 The bundled runner is the required fresh-clone gate. For changes to the
-harness, terminal UI, agentic controls, or platform installers, also run the
+harness, terminal UI, connector (fsconnect/netconnect) controls, or platform installers, also run the
 relevant established verifier after dependencies are installed:
 
 ```bash
@@ -108,7 +108,7 @@ its dependency bootstrap is Linux-oriented.
 - Mock external providers: dummy-key Grok and Claude clients pointed at the loopback mock; in hybrid mode `/health` must report `ollama` and `embeddings_local` healthy, and `grok_api` and `claude_api` unhealthy because the online destination allowlist refuses the loopback mock before the probe sends a key.
 - Runtime prep: `data/personality`, `index`, and `logs` directories; `GROK_API_KEY=dummy`; `ANTHROPIC_API_KEY=dummy`; `CYCLAW_API_KEY` set to a dummy local key.
 - RAG/API smoke: `/health`, `/query` vault-hit, alternate RAG query, offline-declined query, broad miss-style query, and prompt-injection rejection.
-- Terminal console surfaces: `/`, `/static/terminal.html`, `/soul`, `/soul/reload`, unauthenticated fail-closed checks for `/soul/propose`, `/soul/apply`, `/soul/restore`, `/audit/summary`, `/ops/sync`, `/ops/agentic`, `/ops/fsconnect`, and `/ops/sqlconnect`.
+- Terminal console surfaces: `/`, `/static/terminal.html`, `/soul`, `/soul/reload`, `/audit/summary`, unauthenticated fail-closed checks for `/soul/propose`, `/soul/apply`, `/soul/restore` and `/ops/sync`, authenticated `status` for `/ops/sync` and `/ops/fsconnect`, and `404` for `/ops/agentic` and `/ops/sqlconnect` (both removed on 2026-10-18).
 - Runtime contracts: independent `gate.py` FastAPI, telemetry-kill,
   endpoint-registration, and loopback checks.
 - Targeted tests: `tests.ci_rag_smoke`, `tests/test_client.py`, `tests/test_health.py`, `tests/test_graph.py`, `tests/test_rag_integration.py`, `tests/test_terminal_contract.py`, and `tests/test_cyclaw_sandbox_skill.py`.

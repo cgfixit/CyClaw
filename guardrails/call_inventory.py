@@ -24,7 +24,6 @@ _GENERATE_NAMES = frozenset({"ChatOpenAI", "ChatAnthropic", "ChatXAI"})
 # added here explicitly or the build fails.
 _ALLOW_FILES = frozenset(
     {
-        "agentic/deepagent_github/model_adapter.py",
         "guardrails/integration.py",
     }
 )

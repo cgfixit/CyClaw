@@ -66,7 +66,7 @@ Telegram is a **channel adapter**, not a second brain. It never:
 
 - imports or invokes LangGraph directly
 - sets `user_confirmed_online=true` automatically
-- mutates soul / registry / real-repo without the existing human gates
+- mutates soul or memory without the existing human gates
 - binds a public webhook listener next to the CyClaw loopback server (phase-1 uses long-poll)
 
 ---
@@ -455,7 +455,7 @@ scheduler/
 
 1. No import of `graph` / `gate`.
 2. Jobs are argv subprocesses or httpx to loopback.
-3. Never auto-run `real-repo-run-publish` or arm `EXECUTION_ENABLED`.
+3. Never auto-apply a soul or memory change, and never set `user_confirmed_online=true` from a job.
 4. Prefer macOS launchd plists under `macos/LaunchAgents/` over in-process APScheduler for lid-sleep honesty.
 
 Wire each job’s `on_failure_notify: true` to `python -m telegram.cli send` once T1 is live.

@@ -54,8 +54,8 @@ _SECURITY_HEADERS = (
     "permissions-policy", "content-security-policy",
 )
 _CLIS = (
-    "sync.cli", "agentic.cli", "agentic.fsconnect.cli", "agentic.sqlconnect.cli",
-    "agentic.netconnect.cli", "telegram.cli", "opentweet.cli", "guardrails.cli",
+    "sync.cli", "agentic.fsconnect.cli", "agentic.netconnect.cli",
+    "telegram.cli", "opentweet.cli", "guardrails.cli",
     "utils.authn_cli", "utils.gen_cert", "retrieval.indexer", "retrieval.clear_cache",
     "metrics", "utils.telemetry_kill",
 )
@@ -64,8 +64,8 @@ _STATUS_CLIS = ("telegram.cli", "opentweet.cli", "agentic.netconnect.cli", "agen
 # Each subsystem's operator pre-flight (its own `cli test`; memory has no CLI).
 # No network, no mocks: the closest thing to running the subsystem for real.
 _SELFTESTS = (
-    ("sync.cli", "test"), ("agentic.cli", "test"), ("agentic.fsconnect.cli", "test"),
-    ("agentic.sqlconnect.cli", "test"), ("agentic.netconnect.cli", "test"), ("guardrails.cli", "test"),
+    ("sync.cli", "test"), ("agentic.fsconnect.cli", "test"),
+    ("agentic.netconnect.cli", "test"), ("guardrails.cli", "test"),
     ("telegram.cli", "test"), ("opentweet.cli", "test"), ("memory.selftest",),
 )
 # A selftest whose only failures are a missing external binary (rclone) is an
@@ -308,15 +308,18 @@ def contract_probes(g: Gate) -> bool:
     record(stage, "GET /index/status 200 unauthenticated", g.req("GET", "/index/status")[0] == 200)
 
     for method, path in (("GET", "/soul"), ("POST", "/soul/propose"), ("POST", "/soul/apply"),
-                         ("GET", "/audit/summary"), ("POST", "/ops/sync"), ("POST", "/ops/agentic"),
-                         ("POST", "/ops/fsconnect"), ("POST", "/ops/sqlconnect"), ("GET", "/memory/status")):
+                         ("GET", "/audit/summary"), ("POST", "/ops/sync"),
+                         ("POST", "/ops/fsconnect"), ("GET", "/memory/status")):
         got = g.req(method, path, {} if method == "POST" else None)[0]
         record(stage, f"{method} {path} without key -> 401", got == 401, f"got {got}")
     status, soul, _ = g.req("GET", "/soul", key=True)
     record(stage, "GET /soul with key -> 200 + version", status == 200 and bool(soul.get("version")), f"got {status}")
     record(stage, "GET /audit/summary with key -> 200", g.req("GET", "/audit/summary", key=True)[0] == 200)
-    got = g.req("POST", "/ops/agentic", {"action": "not-a-real-action"}, key=True)[0]
+    got = g.req("POST", "/ops/fsconnect", {"action": "not-a-real-action"}, key=True)[0]
     record(stage, "unknown /ops action -> 422 at the schema boundary", got == 422, f"got {got}")
+    # Retired with their subsystems on 2026-10-18; even with the key they must not resolve.
+    gone = [g.req("POST", p, {"action": "status"}, key=True)[0] for p in ("/ops/agentic", "/ops/sqlconnect")]
+    record(stage, "retired /ops/agentic + /ops/sqlconnect -> 404", gone == [404, 404], f"{gone}")
 
     auth = [g.req("GET", "/auth/setup-status")[0], g.req("GET", "/auth/whoami")[0], g.req("GET", "/auth/users")[0],
             g.req("POST", "/auth/login", {"username": "probe", "password": "probe-password"})[0]]
@@ -391,7 +394,7 @@ def live_gate(out: Path, scratch: Path, port: int) -> None:
             index_ready = contract_probes(gate)
             env = child_env(CYCLAW_API_KEY=key, CYCLAW_URL=gate.base)
             rc, tail = run([PY, str(SKILL_DIR / "test_terminal_consoles.py")], env=env, log=out / "consoles.log")
-            record("live", "test_terminal_consoles.py (5 panels, auth gates, 422s)", rc == 0, tail)
+            record("live", "test_terminal_consoles.py (console panels, auth gates, 422s)", rc == 0, tail)
             if index_ready:
                 rc, tail = run([PY, str(SKILL_DIR / "terminal_emulation.py"), gate.base], env=env,
                                timeout=2400, log=out / "terminal-emulation.log")

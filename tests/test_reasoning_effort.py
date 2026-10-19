@@ -11,8 +11,7 @@ Two vocabularies, deliberately not interchangeable:
 
 No live Ollama. Each target is exercised through its own established seam:
 ``LocalLLMClient`` has no injectable transport, so it gets a real loopback
-HTTPServer (wire bytes) or a patched ``_client.post``; the agentic client
-takes ``transport=`` and gets ``httpx.MockTransport``.
+HTTPServer (wire bytes) or a patched ``_client.post``.
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from agentic.harness_optimizer.model_adapter import LocalProposerClient
 from guardrails.integration import _apply_guardrails_config
 from llm.client import LocalLLMClient, reset_local_backend_cache, resolve_local_backend
 from utils.config_validation import (
@@ -466,128 +464,7 @@ class TestCloudPayloadsUnchanged:
 
 
 # =============================================================================
-# 5. Agentic local proposer
-# =============================================================================
-
-def _audit_cfg(tmp_path) -> dict:
-    return {
-        "logging": {"audit_file": str(tmp_path / "audit.jsonl"), "audit_fields": {}},
-        "policy": {"privacy": {}},
-    }
-
-
-def _proposer_transport(captured: list[dict]):
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(json.loads(request.content.decode("utf-8")))
-        return httpx.Response(200, json={"choices": [{"message": {"content": "# Proposal\n\nok"}}]})
-
-    return httpx.MockTransport(handler)
-
-
-class TestAgenticProposerOutboundPayload:
-    def test_payload_carries_the_field_and_parsing_still_succeeds(self, tmp_path):
-        captured: list[dict] = []
-        cfg = _audit_cfg(tmp_path)
-        client = LocalProposerClient(
-            base_url="http://localhost:1234/v1",  # DevSkim: ignore DS162092 - loopback test URL
-            model="local-test-model",
-            reasoning_effort="none",
-            transport=_proposer_transport(captured),
-        )
-        try:
-            response = client.invoke(system_prompt="sys", user_prompt="usr", cfg=cfg)
-        finally:
-            client.close()
-
-        body = captured[0]
-        assert body["reasoning_effort"] == "none"
-        assert "think" not in body
-        # System and user messages intact; budgets untouched.
-        assert body["messages"] == [
-            {"role": "system", "content": "sys"},
-            {"role": "user", "content": "usr"},
-        ]
-        assert body["max_tokens"] == 2048
-        assert body["temperature"] == pytest.approx(0.0)
-        assert response.content.startswith("# Proposal")
-
-    def test_audit_events_are_unchanged(self, tmp_path):
-        cfg = _audit_cfg(tmp_path)
-        client = LocalProposerClient(
-            base_url="http://localhost:1234/v1",  # DevSkim: ignore DS162092 - loopback test URL
-            model="local-test-model",
-            reasoning_effort="none",
-            transport=_proposer_transport([]),
-        )
-        # Distinctive sentinels so a substring match cannot collide with an
-        # ordinary field name (plain "sys" hides inside "system_prompt_hash").
-        try:
-            client.invoke(
-                system_prompt="SYSTEM_SENTINEL_9f3a",
-                user_prompt="USER_SENTINEL_4b7c",
-                cfg=cfg,
-            )
-        finally:
-            client.close()
-
-        events = [
-            json.loads(line)
-            for line in Path(cfg["logging"]["audit_file"]).read_text(encoding="utf-8").splitlines()
-        ]
-        names = [e["event"] for e in events]
-        assert "agentic_harness_proposer_model_invoked" in names
-        assert "agentic_harness_proposer_model_succeeded" in names
-        assert "agentic_harness_proposer_model_failed" not in names
-        # Prompts are still hashed, never logged in the clear.
-        invoked = next(e for e in events if e["event"] == "agentic_harness_proposer_model_invoked")
-        assert invoked["system_prompt_hash"]
-        assert invoked["user_prompt_hash"]
-        serialized = json.dumps(events)
-        assert "SYSTEM_SENTINEL_9f3a" not in serialized
-        assert "USER_SENTINEL_4b7c" not in serialized
-
-    def test_omitted_when_not_configured(self, tmp_path):
-        captured: list[dict] = []
-        client = LocalProposerClient(
-            base_url="http://localhost:1234/v1",  # DevSkim: ignore DS162092 - loopback test URL
-            model="local-test-model",
-            transport=_proposer_transport(captured),
-        )
-        try:
-            client.invoke(system_prompt="sys", user_prompt="usr", cfg=_audit_cfg(tmp_path))
-        finally:
-            client.close()
-
-        assert "reasoning_effort" not in captured[0]
-
-    def test_cli_helper_reads_config_and_gates_on_provider(self):
-        # The real construction sites call this helper, so testing it proves
-        # config propagation rather than a manually supplied constructor arg.
-        from agentic.cli import _local_reasoning_effort
-        from types import SimpleNamespace
-
-        app_cfg = {"models": {"local_llm": {"reasoning_effort": "none"}}}
-        ollama_cfg = SimpleNamespace(deepagent_github=SimpleNamespace(provider="ollama"))
-        other_cfg = SimpleNamespace(deepagent_github=SimpleNamespace(provider="openai_compatible"))
-
-        assert _local_reasoning_effort(ollama_cfg, app_cfg) == "none"
-        # A non-Ollama provider never receives the Ollama-only field.
-        assert _local_reasoning_effort(other_cfg, app_cfg) is None
-        # Absent key stays absent.
-        assert _local_reasoning_effort(ollama_cfg, {"models": {"local_llm": {}}}) is None
-        assert _local_reasoning_effort(ollama_cfg, {}) is None
-
-    def test_cli_helper_raises_on_an_invalid_configured_value(self):
-        from agentic.cli import _local_reasoning_effort
-        from types import SimpleNamespace
-
-        cfg = SimpleNamespace(deepagent_github=SimpleNamespace(provider="ollama"))
-        with pytest.raises(ConfigError):
-            _local_reasoning_effort(cfg, {"models": {"local_llm": {"reasoning_effort": "off"}}})
-
-
-# =============================================================================
-# 6. Native Ollama endpoint -- think:false, never reasoning_effort
+# 5. Native Ollama endpoint -- think:false, never reasoning_effort
 # =============================================================================
 
 @pytest.fixture(scope="module")
@@ -775,7 +652,6 @@ def _code_lines(path: Path) -> str:
 
 _SOURCES = [
     _REPO_ROOT / "llm" / "client.py",
-    _REPO_ROOT / "agentic" / "harness_optimizer" / "model_adapter.py",
     _REPO_ROOT / "guardrails" / "integration.py",
     _REPO_ROOT / "scripts" / "measure_local_llm_throughput.py",
 ]
@@ -804,11 +680,7 @@ class TestNoPromptLevelWorkaround:
         assert shipped["retrieval"]["max_context_tokens"] == 16000
 
     def test_openai_compatible_clients_never_send_think(self):
-        for path in (
-            _REPO_ROOT / "llm" / "client.py",
-            _REPO_ROOT / "agentic" / "harness_optimizer" / "model_adapter.py",
-        ):
-            assert '"think"' not in _code_lines(path)
+        assert '"think"' not in _code_lines(_REPO_ROOT / "llm" / "client.py")
 
     def test_native_script_never_sends_reasoning_effort(self):
         # Comments legitimately NAME the field to explain why it is absent here,

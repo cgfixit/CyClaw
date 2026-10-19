@@ -1,302 +1,197 @@
-# CyClaw Agentic Layer — User Guide (v0.1, experimental)
+# CyClaw Agentic Package — User Guide (v0.2, experimental)
 
-**Status:** Experimental and default-off. Beyond the original
-GitHub-context + skills-registry surface, this layer also owns
-`real_repo_loop`, fsconnect/sqlconnect CLIs, and (retired but retained)
-`deepagent_github` subgraph code. See §9 and
-`docs/agentic/GITHUB_WRITE_ENABLEMENT.md`. Primary invocation remains
-`python -m agentic.cli` (or the authenticated `/ops/*` subprocess shim).
+**Status:** Experimental and default-off. The `agentic/` package now holds two
+out-of-band connectors, each with its own CLI: the scoped filesystem connector
+(`python -m agentic.fsconnect.cli`) and the passive LAN inventory connector
+(`python -m agentic.netconnect.cli`). The package-level CLI (`agentic/cli.py`)
+is gone: the GitHub layer, skills registry, coding loop, verification executor
+and SQL connector that used to live here were removed in October 2026 (§8).
 
-An **opt-in, out-of-band** layer that gives CyClaw read-only GitHub context and a
-governed local skills registry. It runs as `python -m agentic.cli`. The six
-core modules never import it, so it cannot affect retrieval, routing, or the
-MCP surface. **Disabled by default.**
+The six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`,
+`gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`) never import this
+package (invariant I6), so neither connector can affect retrieval, routing, or
+the MCP surface. Both ship **disabled**.
 
-> Security posture in one line: reads are local metadata via the `gh` CLI
-> (argv-list, no shell, audited, no token forwarded by CyClaw); **GitHub writes
-> are implemented (`gh pr create --draft`) and ARMED** (`EXECUTION_ENABLED = True`,
-> `mode: write`, `writes_enabled: true`) but the layer master switch
-> (`agentic.enabled`) still ships false — enable the layer, then supply reason +
-> confirm per call. A separate plan → patch → verify → commit pipeline
-> (`agentic/real_repo_loop.py`) can commit inside a jailed clone when governed —
-> push/PR still need their own gates. See §5 and
-> `docs/agentic/GITHUB_WRITE_ENABLEMENT.md`.
+> Security posture in one line: neither connector calls an LLM, both use
+> argv-list subprocesses or direct file I/O with no shell, every operation is
+> audited, and filesystem writes need their own config gates plus a human
+> `--reason` (and `--confirm` for destructive ops).
+
+Package map for code readers: [`agentic/README.md`](../../agentic/README.md).
 
 ## 1. Prerequisites
-- The GitHub CLI `gh` ≥ the configured floor (default `2.40.0`), authenticated
-  (`gh auth login`). CyClaw never reads or forwards your token — `gh` owns it.
-- Nothing else: the layer adds **no Python runtime dependency**.
 
-## 2. Enable it
-Edit the `agentic:` block in `config.yaml`:
+The connectors are part of the base install and need no extra Python
+dependency. The agentic connectors run as `python -m agentic.<connector>.cli`
+from the repository root, against the same `config.yaml` the gateway reads
+(`--config` overrides the path). Importing the `agentic` package applies the
+shared telemetry kill (`utils/telemetry_kill.py`) before any connector
+submodule loads, the same way `gate.py` does for the gateway.
+
+- **fsconnect** needs nothing beyond the Python standard library for reads and
+  writes. Its optional `index` step copies eligible files into the corpus and
+  then runs `python -m retrieval.indexer` as a subprocess; it never imports the
+  retrieval code.
+- **netconnect** reads the operating system's existing neighbor cache with a
+  fixed absolute command (`ip neigh show` on Linux, `arp` on macOS and
+  Windows); a missing command is an environment error (exit 3), never a
+  fallback to probing.
+
+## 2. Filesystem connector (`agentic.fsconnect`)
+
+The filesystem connector reads files under operator-listed roots and, when
+separately armed, writes under a different list of writable roots. It is
+content-agnostic: it never calls a model, and write content comes only from
+`--body`, `--body-file`, or stdin. Settings live in the `fsconnect:` block of
+`config.yaml`, which is the source of truth for every default.
+
+Enable reads:
+
 ```yaml
-agentic:
-  enabled: true                  # default false — flip this to turn the layer on
-  repo: "cgfixit/CyClaw"         # owner/name
-  mode: "write"                  # ships write; still needs enabled + reason + confirm
-  writes_enabled: true
-  gh_min_version: "2.40.0"
-  registry_path: "data/agentic/skills_registry.json"
-  allowed_read_ops: [pr_view, pr_list, pr_diff, issue_view, issue_list, repo_view]
+fsconnect:
+  enabled: true
+  allowed_roots: ["/path/you/allow/read"]   # required when enabled
 ```
-While `enabled: false`, ordinary operations no-op (exit 0), while `status`
-and `test` still run. Invalid publish/decide escalation arguments can refuse
-with exit 4 before the master-switch check. See
-[`agentic/README.md`](../../agentic/README.md#how-to-enable) for the exact exceptions.
 
-## 3. Commands
+Commands:
+
 ```bash
-python -m agentic.cli status                 # config + gh availability + registry summary
-python -m agentic.cli context --repo         # repo overview + open PRs/issues
-python -m agentic.cli context --pr 123        # PR metadata + diff (JSON)
-python -m agentic.cli context --issue 45      # issue metadata (JSON)
-python -m agentic.cli test                   # pre-flight self-test (tolerates missing gh)
-
-# Governed skills registry (local, human-gated):
-python -m agentic.cli propose-skill --name deploy --desc "..." --body-file s.md --reason "draft"
-python -m agentic.cli apply-skill   --name deploy --desc "..." --body-file s.md --reason "add deploy runbook" --confirm
-
-# Real-repo coding pipeline -- clone, plan/patch/verify, human-gated commit (see §9):
-python -m agentic.cli real-repo-run --repo --instruction "..." --checks-file checks.json \
-    --branch claude/topic --commit-message "..." --reason "..." --confirm
-
-# OPTIONAL: get a plan from a capable model FIRST, review it, then have the
-# LOCAL model implement it across iterations -- see §9's "Two-stage: plan with
-# cloud, implement locally" for why this is a separate step, not a flag on
-# real-repo-run itself:
-python -m agentic.cli real-repo-run-plan --repo --instruction "..." \
-    --provider grok --confirm-online --out plan.md
-# Review/edit plan.md by hand, THEN feed it to a run that omits --provider --
-# see §9 for what happens if you don't omit it:
-python -m agentic.cli real-repo-run --repo --instruction "..." --checks-file checks.json \
-    --branch claude/topic --commit-message "..." --reason "..." --plan-file plan.md --confirm
-
-python -m agentic.cli real-repo-run-status --run-id "<id>"
-python -m agentic.cli real-repo-run-decide --run-id "<id>" --decision approve   # or reject
-# Escalations past the local commit -- each its own decision, both held by default-off master/clone-write gates:
-python -m agentic.cli real-repo-run-push    --run-id "<id>"                       # needs allow_git_write_tools
-python -m agentic.cli real-repo-run-publish --run-id "<id>" --reason "..." --confirm  # needs EXECUTION_ENABLED
-
-# DeepAgents-graph probe -- read-only, never invokes the agent (see §9):
-python -m agentic.cli deepagent-plan --repo --instruction "..."
+python -m agentic.fsconnect.cli status
+python -m agentic.fsconnect.cli list    --root ... --path ...
+python -m agentic.fsconnect.cli read    --root ... --path ...
+python -m agentic.fsconnect.cli stat    --root ... --path ...
+python -m agentic.fsconnect.cli grep    --root ... --path ... --pattern ...
+python -m agentic.fsconnect.cli glob    --root ... --pattern '*.md'
+python -m agentic.fsconnect.cli largest --root ... [--min-bytes N]
+# Writes (gated; see the playbook below):
+python -m agentic.fsconnect.cli write   --path ... --body-file f --reason ... [--confirm]
+python -m agentic.fsconnect.cli append  --path ... --body-file f --reason ...
+python -m agentic.fsconnect.cli mkdir   --path ... --reason ...
+python -m agentic.fsconnect.cli move    --src ... --dst ... --reason ... --confirm
+python -m agentic.fsconnect.cli delete  --path ... --reason ... --confirm   # to trash; --purge needs allow_hard_delete
+python -m agentic.fsconnect.cli trash-empty | trash-restore | quota-status
+python -m agentic.fsconnect.cli index   [--apply] [--reindex]               # stage a writable root into the corpus
+python -m agentic.fsconnect.cli reveal
+python -m agentic.fsconnect.cli trash-empty-plist   # macOS: writes the launchd plist, never loads it
+python -m agentic.fsconnect.cli trash-empty-task    # Windows: writes the scheduled-task XML, never registers it
+python -m agentic.fsconnect.cli test
 ```
+
+**Write gates.** Writes are off by default (`writes_enabled: false` returns a
+dry-run plan instead), are confined to `writable_roots`, and always need a
+non-empty `--reason`; overwrite, move and delete also need `--confirm`. A
+code-level `FS_WRITE_HARD_DISABLE` constant in `agentic/fsconnect/writer.py`
+sits ahead of the config gates. Symlinks under a root are always denied
+(`follow_symlinks` must be `false`). The staged enablement procedure is
+[`FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md`](FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md);
+the sign-off list is
+[`FSCONNECT_SECURITY_REVIEW_CHECKLIST.md`](FSCONNECT_SECURITY_REVIEW_CHECKLIST.md).
+
+**HTTP surface.** The terminal console's Filesystem panel reaches the
+connector only through `POST /ops/fsconnect`, an API-key-gated, rate-limited,
+audited route that runs the CLI as a subprocess via `utils/ops_runner.py`. It
+accepts the read-only actions `status`, `test`, `list`, `read`, `stat`, `grep`
+and `glob` (`OpsFsConnectRequest` in `schemas/api.py`); browser grep is
+literal-only. Writes, trash, index and the scheduler generators stay CLI-only.
+
+## 3. Passive network connector (`agentic.netconnect`)
+
+The passive network connector reports best-effort local host metadata and the
+operating system's existing neighbor (ARP) cache, filtered to operator-listed
+networks. It sends no packets: there is no ping, port probe, subnet sweep,
+scheduler, or HTTP route. Settings live in the `netconnect:` block of
+`config.yaml`.
+
+```yaml
+netconnect:
+  enabled: true
+  allowed_cidrs: ["192.168.1.0/24"]   # required; IPv4 RFC1918 or loopback subnets only
+```
+
+```bash
+python -m agentic.netconnect.cli status
+python -m agentic.netconnect.cli self     # local host inventory, no probing
+python -m agentic.netconnect.cli arp      # scope-filtered neighbor cache
+python -m agentic.netconnect.cli test     # offline pre-flight self-test
+```
+
+Public, link-local, carrier-grade NAT, IPv6 and over-broad networks fail at
+config load. Every returned address is filtered against `allowed_cidrs` again
+at the client boundary. Results are cache-derived hints: stale entries are
+possible and absence proves nothing about reachability.
 
 ## 4. Exit codes
-| Code | Meaning |
-|---|---|
-| 0 | success (also the clean no-op when `agentic.enabled: false`) |
-| 2 | operation failed (gh error, registry error) |
-| 3 | config / environment problem (gh missing or too old, config invalid) |
-| 4 | a write/apply was refused by the gate (e.g. missing `--confirm`) |
 
-This set is closed, and `main()` is what closes it: it catches
-`AgenticWriteRefused` → 4, `AgenticConfigError` → 3, and any other
-`AgenticError` → 2 at the dispatch point, so a subcommand that raises without
-its own handler still exits inside the table. That matters because
-`utils/ops_runner.py`'s `_AGENTIC_LABELS` maps exactly these four codes and
-reports everything else as `"unknown"` to the `/ops/agentic` caller — an
-uncaught error exiting 1 was indistinguishable from a signal or an interpreter
-crash. The handler is deliberately limited to the typed hierarchy: a genuine
-bug still raises a traceback rather than being flattened into a tidy exit 2.
+The connector CLIs share one exit-code API; `utils/ops_runner.py` maps the
+fsconnect codes into the `/ops/fsconnect` JSON envelope, and anything outside
+this table is reported as `"unknown"`.
 
-## 5. The write gate (what still blocks a PR on a shipped checkout)
-`agentic/writer.py` requires **all** of: `agentic.enabled`, `mode == "write"`,
-`writes_enabled: true`, a non-empty human `reason`, and per-call `confirm` --
-five gates, re-checked on every call against the live config. A sixth,
-`EXECUTION_ENABLED` (code, not config), is checked first and ships `True`
-(armed 2026-08-07). The default checkout still cannot publish because
-`agentic.enabled` ships `false` (CLI no-ops) and every mutation still needs a
-fresh reason + confirm.
+| Code | fsconnect | netconnect |
+|---|---|---|
+| 0 | success, including the clean no-op while `enabled: false` | same |
+| 2 | operation failed | same |
+| 3 | config or environment problem | same (also: neighbor-cache command missing) |
+| 4 | a write was refused by a gate (missing `--reason`/`--confirm`, rate limit, quota) | not used |
 
-With any gate closed, `execute_write()` refuses via a typed
-`AgenticWriteRefused`. `pr_create` is a real, tested implementation
-(`gh pr create --repo … --draft`). Only `pr_create` executes;
-`pr_comment`/`issue_comment` remain plan-only. Source of truth for arming:
-`docs/agentic/GITHUB_WRITE_ENABLEMENT.md`.
+## 5. Auditing
 
-## 6. Auditing
-Every read, refusal, and registry change emits a JSONL event via the same
-`utils.logger.audit_log` path as the gateway (secrets/emails/IPs redacted):
-`agentic_read`, `agentic_write_refused`, `agentic_write_dryrun`,
-`agentic_skill_applied`, `agentic_skill_injection_blocked`. Inspect with
+Both connectors write JSONL through the same `utils.logger.audit_log` path as
+the gateway (secrets, emails and IPs redacted). fsconnect emits
+`fsconnect_read`, `fsconnect_write_intent`, `fsconnect_write_dryrun`,
+`fsconnect_write_applied`, `fsconnect_write_refused`, `fsconnect_write_failed`
+and the `fsconnect_index_*` family; each read also emits a Numbat
+`file.read` event. netconnect emits `netconnect_scan` with scope hashes
+and counts, never the returned IP or MAC values. Inspect with
 `python -m metrics` or by reading `logs/audit.jsonl`.
 
-## 7. Troubleshooting
-- **`gh not found`** → install/authenticate `gh`; until then the layer SKIPs gh
-  checks and `context` returns an env error (exit 3).
-- **`apply-skill` refused (exit 4)** → add `--confirm` and a `--reason`.
-- **Injection blocked** → the skill body matched a banned pattern; revise it. This
-  is the same gate that protects the soul.
-- **`registry_path must resolve under data/`** → point it inside the repo `data/` tree.
+## 6. Troubleshooting
 
-## 8. Tests
+- **"Filesystem connector disabled" / "Network connector disabled"** → set
+  `enabled: true` in the matching `config.yaml` block; exit 0 is the intended
+  no-op.
+- **fsconnect write returns a DRY-RUN plan** → `writes_enabled` is `false`, or
+  you are on Windows, where every write op is refused.
+- **fsconnect write refused (exit 4)** → add `--reason` (and `--confirm` for a
+  destructive op), or check `quota-status` and the write rate limit.
+- **netconnect config error at load** → an `allowed_cidrs` entry is not an IPv4
+  RFC1918/loopback subnet, or the list is empty while `enabled: true`.
+
+## 7. Tests
+
+Agents follow the verification policy in `CLAUDE.md` §5 (run the code, lint,
+then let CI run the suites); these commands are for the owner and CI.
+
 ```bash
-GROK_API_KEY=dummy pytest tests/test_agentic_*.py -q
-python -m agentic.cli test
+GROK_API_KEY=dummy pytest tests/test_fsconnect_*.py tests/test_netconnect_*.py -q
+GROK_API_KEY=dummy pytest tests/test_agentic_isolation.py -q   # I6, both directions
+python -m agentic.fsconnect.cli test
+python -m agentic.netconnect.cli test
 ```
 
-## 9. Governed GitHub coding harness
+## 8. Removed in October 2026
 
-Two distinct subsystems share this directory tree; do not conflate them.
+Until October 2026 the agentic package also carried a GitHub-facing coding
+layer and a SQL connector. All of it was deleted, together with its config
+blocks, tests, console panels and routes:
 
-**The real, live pipeline** (`agentic/real_repo_loop.py`): clones a real
-repository (`agentic.deepagent_github.repo_workspace.RepoWorkspaceTools`,
-gated on `deepagent_github.allow_git_write_tools`, ships `false`), asks a
-configured model (local by default, or a gated cloud provider via
-`--provider`/`--confirm-online`) for a patch, writes it into the clone, and
-verifies it with `agentic/executor/`'s real `pytest`/`ruff`/invariant-guard
-subprocesses against that worktree -- an accepted candidate is a real git
-commit, gated behind a separate human decision
-(`real-repo-run-decide`). It never
-pushes or opens a GitHub PR on its own: explicit push uses
-`RepoWorkspaceTools.push_branch`; draft publication uses `agentic/writer.py`
-(§5), whose code gate is armed but whose master switch ships off. The
-`real-repo-run*` subcommands are CLI-only: `POST /ops/agentic` accepts only
-`status`/`test`/`context`/`propose-skill`/`apply-skill`
-(`OpsAgenticRequest.action` in `schemas/api.py` answers 422 for anything
-else), and `utils/ops_runner.py` allowlists the same five.
+- the main CLI (`agentic/cli.py`) and its config loader (`agentic/config.py`);
+- read-only GitHub PR/issue context via `gh`, and the GitHub write gate that
+  could open a draft PR;
+- the governed skills registry (`data/agentic/skills_registry.json`);
+- the plan → patch → verify → human-decides → commit coding loop
+  (`real-repo-run*`), its jailed clone tools, the retired DeepAgents harness
+  and the harness optimizer;
+- the Seatbelt/bubblewrap verification executor and its AppArmor profile;
+- the UNSLOP prose-quality rail;
+- the read-only Postgres/MSSQL connector (`agentic.sqlconnect`);
+- the `POST /ops/agentic` and `POST /ops/sqlconnect` routes with the Agentic
+  and SQL console panels.
 
-Workspace Git calls disable hooks and fsmonitor and reject unexpected local
-Git config entries or values against a post-clone snapshot. A separate signed
-origin record outside the clone is checked on reopen, and the expected URL is
-held in memory during Git calls, so a check that rewrites both the clone
-config and its snapshot cannot redirect a push within that run. The record's
-key lives beside it under `workspace_root`, so it detects clone-local and
-accidental edits, not a same-user writer of `workspace_root`. Timed-out Git
-helpers are reaped with a POSIX process group or Windows Job Object. This does not replace executor confinement
-or human approval. Global/system Git config remains operator-trusted. Checks
-run in a disposable gitless mirror; Windows verification remains disabled. See the
-[workspace controls](../../agentic/README.md#c-real-repo-workspace-tools-repoworkspacetools).
-
-Before #1524 merged, a failure while saving the first run record could leave the
-new clone without a record that `real-repo-run-discard` can find. Merged PR
-[#1524](https://github.com/cgfixit/CyClaw/pull/1524) (shipped 2026-10-03) adds cleanup for that
-specific startup failure. It does not change the lifecycle of recorded
-runs.
-
-**Two-stage: plan with cloud, implement locally.** `real-repo-run-plan`
-(`agentic/real_repo_loop.py`'s `generate_plan`) is a separate, one-shot
-subcommand: it asks a model for a short implementation plan (files to touch,
-one-line rationale each — never code) and prints or writes it, with **no
-clone, no iteration, and no code edits or commits** (`--out` writes the plan
-file). The design rationale, stated in
-`generate_plan`'s own docstring: a capable (typically cloud) model reasons
-about the approach *once*; a human reads and approves the result; a cheaper
-local model then implements it across however many iterations that takes.
-Pass the approved plan to `real-repo-run` via `--plan-file` and it is folded
-into every iteration's prompt ahead of any GitHub context.
-
-**`--provider`/`--confirm-online` mean two different things depending on
-which subcommand carries them** — this is easy to get backwards:
-- On `real-repo-run-plan`, `--provider` drives *only* the one-shot plan call.
-- On `real-repo-run` itself, `--provider` drives *every iteration of the
-  whole loop* — the cloud model proposes every patch attempt, not just the
-  plan. `real-repo-run` and `real-repo-run-plan` each read `--provider`
-  independently; there is no cross-check between them.
-
-For "cloud plans, local Qwen implements": pass `--provider`/`--confirm-online`
-to `real-repo-run-plan` only and **omit `--provider` on the follow-up
-`real-repo-run`**. Passing it to both is allowed and works, but bills the
-cloud model on every `--max-iterations` attempt instead of once, with no CLI
-warning. The whole pipeline is CLI-only, so drive this from a terminal.
-
-**The DeepAgents-graph path, retired (owner decision, 2026-07-31)**
-(`agentic/deepagent_github/builder.py`'s `create_deep_agent` integration plus
-the harness optimizer's fixture-based evaluation loop) was never live-fired
-against a real model — `deepagent-plan` probes the build's gate state without
-ever calling `.invoke()` — and gets no further development; the pipeline above
-is the one live coding path. Its code, tests, and `deepagents-harness` CI lane
-stay in the repository unmodified, disabled by default and out-of-band. It
-uses scoped proposer-workspace tools, a virtual in-state backend, local-only
-memory/skills, fixture-only evaluation, and human-gated local candidate
-artifacts, and does not execute shell commands, write the real repo or GitHub,
-expose unrestricted filesystem tools, or import from the core request path —
-true of this subsystem, not of the layer as a whole. Plan and phase 6–9
-controls: `docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md` and
-`docs/work/DEEP_AGENT_HARNESS_PHASES_6_9.md`.
-
-> **Egress classification** (SECURITY.md): the agentic layer's GitHub reads/writes via `gh` and the gated cloud-planner adapters are class-3 intentional policy-gated traffic. Every `gh` child is spawned with `build_telemetry_safe_env()` so `GH_TELEMETRY=false` and the update-notifier opt-outs always win over ambient values, and the verifier's minimal child env re-applies the full canonical telemetry block (`agentic/executor/runner.py`) — note `NO_PROXY="*"` there means "bypass any proxy", a best-effort control, not fail-closed networking.
-
-See `docs/THREAT_MODEL.md`'s third and fifth amendments for the fuller,
-dated account of what changed and when.
-
-## 10. Local 27B expectations (MacBook Pro M5 Pro, 48 GB)
-
-This section is the coding-loop contract for the operator Mac that actually
-runs CyClaw: **MacBook Pro, Apple M5 Pro, 48 GB unified memory**, Ollama
-`qwen3.8:27b-mlx`, thinking off. Not a base M5 (32 GB ceiling) and not an
-M5 Max (more GPU / 128 GB ceiling). Full doctrine:
-[`docs/m5-48gb-coding-expectations.md`](../m5-48gb-coding-expectations.md).
-
-48 GB can hold more context than the product uses. The operator window the
-repo ships is **32k `num_ctx`**, meaning `OLLAMA_CONTEXT_LENGTH` in
-`macos/ollama-mlx.env`. The registry tag `qwen3.8:27b-mlx` does not bake
-that parameter; see [`OLLAMA_SETUP.md`](../%21%20How-To-Guides/OLLAMA_SETUP.md)
-when the Ollama app is serving without that env. The design point is unchanged: an **~8,000-char**
-local agentic prompt, a **6,000-char** plan file, and **3072**
-`planner_max_tokens`. Local remains a supervised executor. Volume changed,
-not judgment. `max_handoff_chars: 200000` is cloud egress, not local
-context. Raising `num_ctx` is a volume change, not a judgment upgrade.
-Grok/Claude (or a human) stays the architect for invariant-touching work.
-
-**What the cached model can finish in one `real-repo-run`**
-
-- A human-approved `plan.md` with headings Approach / Goal / Do this /
-  Done when / Do not / Files.
-- At most **one implementation file + one test file**. `--read-file` that
-  implementation path. Executor check = that test file.
-- Edits that do not touch `gate.py`, `graph.py`, `mcp_hybrid_server.py`,
-  `soul.md`, `INVARIANTS.md`, or `config.yaml`.
-
-**What to keep off this box as a single local job**
-
-- NeMo / graph rails, Numbat CEL, DFlash or `models.local_llm` runtime swaps,
-  telemetry kill-switch, new subsystems.
-- Letting the 27B write "insights" into `memory/` facts, `soul.md`, or an
-  uncapped diary that then gets stuffed back into the 32k window.
-
-Paging (optional): write a short schema (`goal`, I6 constraints, files,
-`last_error`, `next_edit`) to the run workspace or `docs/work/SESSION_NOTES.md`
-**before** compacting chat. Do not invent a fourth memory store. Do not send
-that file to a cloud planner without `--confirm-online`.
-
-Two-stage reminder: `--provider grok --confirm-online` belongs on
-`real-repo-run-plan` only. Omit `--provider` on `real-repo-run` so Qwen
-implements the approved burst plan on loopback.
-
-**Prompt safety invariants (plan handoff)**
-
-These are the controls that keep a cloud `plan.md` from becoming a jailbreak
-into the 27B coder. They already existed; the burst prompt does not relax them.
-
-1. **Instruction-only.** The planner obeys text under `Instruction:`. GitHub
-   PR/issue/diff text is fenced `<<<UNTRUSTED-GITHUB-CONTEXT` …
-   `UNTRUSTED-GITHUB-CONTEXT>>>` and is background, not a permission.
-2. **Fence defuse.** Quoted context cannot close the untrusted block
-   (`_defuse_fence`). Instruction comes first; untrusted last.
-3. **No coder grammar in the plan.** `=== FILE ===` is the implementing
-   model's output. A plan that emits it would skip human review.
-4. **Scan before trust.** `--instruction` is injection-scanned before any
-   GitHub fetch. `--plan-file` is scanned before `run_real_repo_loop`. Audit
-   stores a hash, never the plan text.
-5. **Cloud is opt-in.** `--provider` on `real-repo-run-plan` still needs
-   `--confirm-online`. Default is loopback Ollama.
-6. **I6 named off-limits** in the plan prompt: `gate.py`, `graph.py`,
-   `mcp_hybrid_server.py`, `soul.md`, `INVARIANTS.md`, `config.yaml`.
-
-**MCP integration strategy (this loop)**
-
-`real-repo-run` / `real-repo-run-plan` are **not** MCP clients. They are
-`python -m agentic.cli` commands. `/ops/agentic` uses the CLI shim for other
-actions, but its request schema excludes both real-repo commands.
-They must not import `mcp_hybrid_server.py`.
-
-| Surface | Role | This PR |
-|---|---|---|
-| `mcp_hybrid_server.py` | Request-path MCP server (I6) | Untouched. Named as a do-not-plan path. |
-| `agentic/harness_optimizer/mcp` | Sidecar tool-boundary package. **Not** an MCP server and does not speak MCP. | Untouched. |
-| `real_repo_loop.generate_plan` | One-shot planner invoke | Prompt only. |
-
-Do not hand the 27B a plan to add MCP tools, bind a VPS as an MCP server, or
-route LangChain DeepAgent through `mcp_hybrid_server.py`. That is architect
-work on Claude/Grok, then a separate I6-touching PR — not a burst job.
+Why: the layer shipped disabled and, after the coding console moved to the
+sibling CG-agent-harness project (`docs/THREAT_MODEL.md`, sixteenth
+amendment), was reachable only from the command line. It was also the only
+part of CyClaw that executed repository code or wrote to GitHub; removing it
+retires that surface. The dated record is the `docs/changelog.txt` entry and
+the threat model's nineteenth amendment. The `agentic-deepagents`,
+`agentic-deepagents-cloud` and `mssql` dependency extras are now unused and are
+removed in a follow-up change.

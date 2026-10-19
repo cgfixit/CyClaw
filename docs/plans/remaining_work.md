@@ -4,6 +4,10 @@
 > Guardrails now ships enabled with deterministic fallback when NeMo is unavailable.
 > Read [the NeMo reference](../NeMo/README.md), current `config.yaml`, and live
 > GitHub issues before using this snapshot to plan work.
+> Since 2026-10-18 the agentic GitHub layer, real-repo coding loop, UNSLOP rail
+> and SQL connector are gone (`docs/changelog.txt`, 2026-10-18 entry); rows below
+> that name `agentic.*`, `unslop.*`, `EXECUTION_ENABLED` or `real-repo-run*`
+> describe removed code.
 
 Live checklist as of **2026-09-02**, verified against `origin/main` `8baea94f`.
 
@@ -20,7 +24,7 @@ and are **not** I1–I6 defects.
 
 Stable facts on this tip (do not "fix" them): graph is **12-node**;
 invariant-guard is **47/47**; write path is armed (`EXECUTION_ENABLED=True`)
-with `agentic.enabled: false`; OOB packages stay six
+with `agentic.enabled: false` (both removed 2026-10-18); OOB packages stay six
 (`agentic` / `sync` / `guardrails` / `harness` / `telegram` / `opentweet`).
 MCP `tools/call` is still unwrapped (I6). Do not wire `safe_generate` into
 the graph. H1/H2/H3 are operating rules, not open tickets.
@@ -34,16 +38,16 @@ the graph. H1/H2/H3 are operating rules, not open tickets.
 | `models.local_llm.model` | `qwen3.8:27b-mlx` |
 | `telegram.enabled` | `false` |
 | `telegram.mode` | `chat` (YAML; channel still off until `enabled: true`) |
-| `agentic.enabled` / `fsconnect.enabled` / `sync.enabled` / `memory.enabled` / `auth.enabled` | `false` |
-| `agentic.mode` / `writes_enabled` | `write` / `true` (held by master switch + reason + confirm) |
-| `unslop.enabled` / `guardrails.enabled` / `numbat.cel.enabled` | `false` |
+| `agentic.enabled` / `fsconnect.enabled` / `sync.enabled` / `memory.enabled` / `auth.enabled` | `false` (the `agentic:` block was removed 2026-10-18) |
+| `agentic.mode` / `writes_enabled` | `write` / `true` (held by master switch + reason + confirm; removed 2026-10-18) |
+| `unslop.enabled` / `guardrails.enabled` / `numbat.cel.enabled` | `false` (the `unslop:` block was removed 2026-10-18; guardrails now ships `true`) |
 | `numbat.enabled` | `true` (forensic projection; not an on-path policy plane) |
 
 ## Still open in the tree (not GitHub issues)
 
 - **httpx2 / TestClient** — `httpx==0.28.1`; owed before a Starlette major. `docs/analysis/TESTCLIENT_HTTPX_DEPRECATION.md`
 - **`websockets` 15 → 16** — still `15.0.1`; blocked on `langgraph-sdk` import of `websockets.asyncio`
-- **Agentic loop is GitHub-clone-only** — no local-directory attach. Capability boundary, not a bug
+- ~~**Agentic loop is GitHub-clone-only**~~ — moot: the loop was removed on 2026-10-18
 
 ## Do not reopen (code is on main)
 
@@ -79,7 +83,7 @@ cleanup that is not part of its closure gate.
 
 | # | Title | What is actually left |
 |---|---|---|
-| [#1013](https://github.com/cgfixit/CyClaw/issues/1013) | Agentic spend ledger | Code ACs on main. Close-out is live-key Leg 1 (`tests/spend_live_probe.py`) + Leg 2 (`real-repo-run-plan --confirm-online`). Do not rebuild the emitter |
+| [#1013](https://github.com/cgfixit/CyClaw/issues/1013) | Agentic spend ledger | Code ACs on main. Close-out was live-key Leg 1 (`tests/spend_live_probe.py`) + Leg 2 (`real-repo-run-plan --confirm-online`). Leg 2 can no longer run: the agentic planner was removed on 2026-10-18, so only Leg 1 remains. Do not rebuild the emitter |
 | [#1128](https://github.com/cgfixit/CyClaw/issues/1128) | Numbat remainder | Slices A+B on main. Left: Slice C parked (on-path sequence policy needs a hashed session/checkpointer; #1071 keeps the offline detector off `/query`) and Slice D tracking (`source_agent` stays `"unknown"` until upstream accepts `cyclaw`) |
 | [#1255](https://github.com/cgfixit/CyClaw/issues/1255) | chromadb CVE / sqlite-vec | PostHog path is dead code at pin 1.5.9. Cheaper half **shipped** in #1268 — `utils/telemetry_kill.py`'s `CONTRACT_DIGEST` + `verify_telemetry_contract()` hash-pins the kill maps and the `vector_store.py` `Settings(anonymized_telemetry=False)` sites, called from `gate.py` at boot (confirmed present on `81ac7c7e44cc`, 2026-09-21 — a stale 2026-09-21 issue comment claimed otherwise; do not trust that comment). Phase C spike **DONE** (2026-09-21, PR #1436): `enable_load_extension`/`sqlite_vec.load()` confirmed working on Linux+Windows, cosine scores byte-identical to Chroma's — but macOS is **CONFIRMED BROKEN**, not merely unverified: GitHub Actions' macOS Python 3.12 build compiles `_sqlite3` without loadable-extension support at all (see `docs/audits/2026-09-21-sqlite-vec-phase-c-spike.md`). Left: Phase D (the real backend) is blocked pending a binding-evaluation decision — accept a macOS regression from Chroma's current 3-OS parity, or spike `pysqlite3-binary`/`apsw` as an alternate sqlite3 driver (its own new-dependency diligence) — see the issue's phased-plan comments |
 

@@ -44,9 +44,10 @@ Stage 3 as merely planned or claim all query requests require a credential.
 The separate API-key surface fails closed unless the configured optional-key
 bypass passes all peer, forwarding-header, and origin checks. RBAC is separate.
 
-Read master switches before describing memory, auth, agentic, or guardrails as
-active. The writer code flag, mode, and writes flag are armed, but the agentic
-master switch defaults off. Keep the full reason/confirm/write chain intact.
+Read master switches before describing memory, auth, connectors, or guardrails
+as active. fsconnect writes need both `fsconnect.enabled` and
+`fsconnect.writes_enabled`, and both ship off. Keep the full
+reason/confirm/write chain intact.
 Audit JSONL is authoritative; Numbat is a derived, fail-soft stream, enabled by
 default. Read `utils/logger.py` and `utils/numbat_emitter.py` for redaction and
 producer deduplication before changing observation behavior.
@@ -54,14 +55,12 @@ producer deduplication before changing observation behavior.
 ## Out-of-band execution
 
 No tool name-gate ships today: `utils/tool_broker.py` was removed on
-2026-10-10 after it lost its last caller (PR #1367). Agentic execution
-travels through `ops_runner`, not direct core imports.
+2026-10-10 after it lost its last caller (PR #1367). Out-of-band execution
+(sync, fsconnect) travels through `ops_runner`, not direct core imports.
 
-Real-repo approval uses acceptance manifests bound to run/base/path hashes and
-a disposable-copy verification before finalize. Read `agentic/executor/` and
-its tests before claiming a platform sandbox guarantee. Windows has no
-backend: `production_sandbox()` refuses it, because Job Objects control
-process trees but confine neither filesystem nor network. See
+The real-repo loop, its acceptance manifests and the `agentic/executor/`
+verification sandbox were removed on 2026-10-18 with the rest of the agentic
+GitHub layer; CyClaw ships no platform sandbox, so do not claim one. See
 [environment notes](CyClaw-environment.md) for the platform source map.
 
 ## Advice and verification

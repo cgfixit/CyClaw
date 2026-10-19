@@ -394,13 +394,12 @@ def _run_http_smoke(results: list[Result]) -> None:
                 timeout=130,
             ),
             _http_probe(
-                "POST /ops/agentic status",
+                "POST /ops/agentic removed (404)",
                 "POST",
                 f"{BASE_URL}/ops/agentic",
-                {200},
+                {404},
                 headers=auth,
                 body={"action": "status"},
-                timeout=130,
             ),
             _http_probe(
                 "POST /ops/fsconnect status",
@@ -412,13 +411,12 @@ def _run_http_smoke(results: list[Result]) -> None:
                 timeout=130,
             ),
             _http_probe(
-                "POST /ops/sqlconnect status",
+                "POST /ops/sqlconnect removed (404)",
                 "POST",
                 f"{BASE_URL}/ops/sqlconnect",
-                {200},
+                {404},
                 headers=auth,
                 body={"action": "status"},
-                timeout=130,
             ),
         ]
     )

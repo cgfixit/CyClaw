@@ -170,7 +170,7 @@ Also run the project's smoke harness or relevant pytest tests (`-k "claude or gr
 **Current state (2026-08-15)**: both flags now ship `true` (see status update above), so there is no longer an operator flip step on a fresh clone — but changing them back off, or toggling per-deployment, still requires a manual `config.yaml` edit + server restart. This remains deliberate for auditability and to keep the single source of truth in version-controlled config. §6 below (web toggle) is still unbuilt — `static/terminal.html` has no such control as of this check — and remains a proposed future enhancement, not shipped work.
 
 **Recommended future change**:
-- Expose `grok.enabled` and `claude.enabled` (plus perhaps per-query model preference) as **runtime toggles in the browser console** (`static/terminal.html` — already has FS/SQL panels and ops surfaces).
+- Expose `grok.enabled` and `claude.enabled` (plus perhaps per-query model preference) as **runtime toggles in the browser console** (`static/terminal.html` — already has FS and Sync panels and ops surfaces).
 - Add a small settings section or modal in the terminal UI.
 - On toggle change:
   - Update the in-memory config (or a lightweight user/session prefs layer).

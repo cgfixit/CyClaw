@@ -1,5 +1,14 @@
 # Mailtag — Provider-Neutral Email Tagging: Implementation Plan
 
+> **Status update — 2026-10-18 (agentic removal):** `agentic/registry.py`,
+> `agentic/real_repo_loop.py` and `agentic/real_repo_run_store.py`, which this
+> plan cites as design precedents, were removed with the agentic coding layer
+> (`docs/changelog.txt`, 2026-10-18 entry). The patterns they illustrated still
+> live in `utils/personality.py` and `memory/` (single-shot propose/apply with a
+> human `reason`) and `agentic/fsconnect/writer.py` (gated writes, two-phase
+> audit); `agentic.fsconnect.cli` carries the same `0`/`2`/`3`/`4` exit-code
+> contract.
+>
 > **Status update — 2026-09-06 (docs review, Claude Code):** NOT_STARTED.
 > Confirmed no `mailtag/` package and no `gate_mailtag.py` exist anywhere in
 > the repo tree — this remains a design-only document exactly as its own
@@ -352,7 +361,7 @@ New `MockGmailClient`/`MockGraphClient`/`MockImapClient`, each with the exact `_
 - **`planner.py`** — `propose_plan(...)`: read-only against every provider method it calls (`search`, `get_metadata`, `list_tags`) — never `ensure_tag`/`apply_tag`. Returns a `TagPlan` row; **never writes to the provider**, matching the internal governance pattern's "propose never writes" rule found in three independent places (`agentic/registry.py`, `real_repo_loop.py`, `fsconnect/writer.py`).
 - **`applier.py`** — `apply_plan(plan_id, reason, confirm)`: (1) load the plan row, refuse if `status != 'approved'` or `now > expires_at`; (2) `verify_still_valid` against live provider state (the pre-apply revalidation analog to `real_repo_loop`'s re-reading `protected_write_paths` from live config rather than trusting the persisted record); (3) `ensure_tag`; (4) `apply_tag` in provider-appropriate batches; (5) write a `mailtag_tag_journal` row **before** the provider call (`tag_intent`) and one **after** (`tag_applied`) — the exact two-phase-audit pattern from `agentic/fsconnect/writer.py`, so a crash mid-batch leaves a detectable orphaned intent rather than a silent unaudited write.
 - **`audit.py`** — every state transition (`plan_created`, `plan_approved`, `plan_rejected`, `tag_intent`, `tag_applied`, `plan_undone`) goes through `utils.logger.audit_log` (SHA-256 hashing of any query-shaped text, no raw message content persisted) and the action-plane `emit_numbat_event`, matching `agentic/`'s existing dual-write.
-- **`cli.py`** — `connect <provider> <label>`, `accounts`, `plan ...`, `apply <plan_id>`, `reject <plan_id>`, `undo <plan_id>`. Exit codes follow the closed `0`/`2`/`3`/`4` contract (`agentic.cli`'s convention): `0` ok, `2` operation failed, `3` env/config error, `4` write refused.
+- **`cli.py`** — `connect <provider> <label>`, `accounts`, `plan ...`, `apply <plan_id>`, `reject <plan_id>`, `undo <plan_id>`. Exit codes follow the closed `0`/`2`/`3`/`4` contract (`agentic.fsconnect.cli`'s convention): `0` ok, `2` operation failed, `3` env/config error, `4` write refused.
 
 ---
 

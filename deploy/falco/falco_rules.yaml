@@ -1,7 +1,7 @@
 # CyClaw Falco rules — DETECTION ONLY (defense-in-depth observability).
 #
 # These rules LOG; they never block. Falco is not a containment boundary — it is
-# an eBPF tripwire over the out-of-band agentic/sync write paths and the gate, so
+# an eBPF tripwire over the out-of-band fsconnect/sync write paths and the gate, so
 # that anything outside CyClaw's known-good behaviour leaves an audit trail.
 #
 # Ships DISABLED. Enable only via the compose `monitoring` profile:
@@ -24,16 +24,19 @@
 
 # Binaries CyClaw is legitimately expected to exec. Core paths exec nothing; the
 # out-of-band layers exec only these (all via argv-list, never a shell):
-#   - python  : ops_runner launches `python -m sync.cli` / `agentic.cli`, reindex
+#   - python  : ops_runner launches `python -m sync.cli` / `agentic.fsconnect.cli`, reindex
 #   - rclone  : sync/runner.py corpus sync
-#   - gh/git  : agentic GitHub context and governed real-repo workflow
+#   - git     : no shipped path execs git since the agentic GitHub coding layer
+#               was removed (2026-10-18). It stays listed because
+#               tests/test_isolation_deploy.py pins it; tighten both together.
+#               `gh` left both lists with that layer, so a gh exec now WARNs.
 - list: cyclaw_expected_exes
-  items: [python, python3, python3.12, uvicorn, rclone, gh, git, git-remote-http, git-remote-https]
+  items: [python, python3, python3.12, uvicorn, rclone, git, git-remote-http, git-remote-https]
 
 # These optional tools legitimately use external TLS. Keep their egress visible
 # at NOTICE rather than hiding it behind a broad SaaS-IP or port allow-list.
 - list: cyclaw_optional_network_exes
-  items: [rclone, gh, git, git-remote-http, git-remote-https]
+  items: [rclone, git, git-remote-http, git-remote-https]
 
 # A real interactive/served shell is never part of CyClaw's runtime.
 - list: cyclaw_shell_binaries
@@ -70,10 +73,10 @@
 # ---------------------------------------------------------------------------
 
 # 1) Any exec inside the CyClaw container that is not on the allow-list. Catches
-#    a shell spawn or an unexpected binary on the agentic/sync subprocess path.
+#    a shell spawn or an unexpected binary on the fsconnect/sync subprocess path.
 - rule: CyClaw unexpected process spawned
   desc: >
-    A process other than CyClaw's known interpreters/tools (python, rclone, gh, git)
+    A process other than CyClaw's known interpreters/tools (python, rclone, git)
     executed inside the app container. The core request path execs nothing; the
     out-of-band layers exec only the allow-listed binaries. Investigate.
   condition: >
@@ -138,12 +141,12 @@
   priority: WARNING
   tags: [cyclaw, network, exfiltration]
 
-# 5) Optional GitHub/rclone egress is expected only when the operator invokes
-#    those out-of-band paths. Log it for audit correlation without treating
+# 5) Optional rclone (and still-listed git) egress is expected only when the
+#    operator invokes those out-of-band paths. Log it for audit correlation without treating
 #    normal operation as the same severity as unexplained Python egress.
 - rule: CyClaw optional tool outbound connection
   desc: >
-    A configured GitHub or rclone tool opened an external connection. This can
+    A configured rclone or git tool opened an external connection. This can
     be expected, but must correspond to an explicit operator action and audit
     event; no broad destination allow-list is implied.
   condition: >

@@ -188,9 +188,11 @@ Do **not** bake Ollama or model weights into the CyClaw image.
 - Prefer keeping the model on the host and treating network egress as an explicit
   operator choice (Falco outbound rules assume loopback/local Ollama by default).
 
-Optional cloud extras (`agentic-deepagents`, etc.) are **not** in the image
-(`requirements.txt` only). Install inside a derived image only if you accept that
-surface — never for the default offline path.
+Optional extras are **not** in the image (`requirements.txt` only). Install
+inside a derived image only if you accept that surface — never for the default
+offline path. The `agentic-deepagents`, `agentic-deepagents-cloud` and `mssql`
+extras are unused since the agentic coding loop and SQL connector were removed
+(October 2026); do not install them.
 
 ## Publishing (maintainers)
 

@@ -350,15 +350,14 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "github cli (gh)", "category": 1,
         "controls": {"GH_TELEMETRY": "false"},
         "url": "https://cli.github.com/manual/gh_help_environment",
-        "versions": "external binary >= 2.40 (agentic floor); telemetry shipped in 2.83",
-        "enforcement": "env forced at all three Python spawn sites (agentic/gh_client.py x2, agentic/writer.py) "
-                       "via build_telemetry_safe_env -- an ambient true/log can never reach a child. The one "
-                       "shell site, macos/setup-from-clone.sh's `gh auth status`/`gh auth login` (step 6), "
+        "versions": "external binary; telemetry shipped in 2.83",
+        "enforcement": "CyClaw's Python gh spawn sites (agentic/gh_client.py, agentic/writer.py) were removed "
+                       "in October 2026. The one remaining site, the shell site macos/setup-from-clone.sh's `gh auth status`/`gh auth login` (step 6), "
                        "evals the canonical `--export shell` block first since PR #1637, the same way "
                        "invoke-cyclaw.sh does, and FAILS CLOSED: when that export cannot be produced the "
                        "script skips step 6 entirely rather than run gh under the ambient environment. "
                        "Both the eval line and the skip guard are FIXED_LAUNCHER_SITES markers",
-        "scope": "agentic read/write ops", "reviewed": "2026-10-13",
+        "scope": "macOS setup step 6 (gh auth)", "reviewed": "2026-10-18",
         "evidence": "gh help environment documents GH_TELEMETRY true/false/log; re-read from cli/cli "
                     "pkg/cmd/root/help_topic.go 2026-10-13: 'false' or '0' disables, 'log' prints to stderr "
                     "instead of sending, and GH_TELEMETRY takes precedence over DO_NOT_TRACK (which the map "
@@ -383,7 +382,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "controls": {"GH_NO_UPDATE_NOTIFIER": "1", "GH_NO_EXTENSION_UPDATE_NOTIFIER": "1"},
         "url": "https://cli.github.com/manual/gh_help_environment",
         "versions": "external binary", "enforcement": "same env delivery as GH_TELEMETRY",
-        "scope": "agentic gh children", "reviewed": "2026-08-27",
+        "scope": "macOS setup gh children", "reviewed": "2026-10-18",
         "evidence": "version-check egress to the release endpoint; reports nothing about usage",
     },
     {
@@ -397,8 +396,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "pip version check", "category": 2,
         "controls": {"PIP_DISABLE_PIP_VERSION_CHECK": "1"},
         "url": "https://pip.pypa.io/en/stable/cli/pip/#cmdoption-disable-pip-version-check",
-        "versions": "any", "enforcement": "canonical env (executor children also set PIP_NO_INDEX)",
-        "scope": "agentic verifier children", "reviewed": "2026-08-27", "evidence": "documented pip option",
+        "versions": "any", "enforcement": "canonical env",
+        "scope": "installer pip calls that export the canonical block first", "reviewed": "2026-10-18",
+        "evidence": "documented pip option",
     },
     {
         "name": "hf cli update check", "category": 2,
@@ -437,10 +437,12 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "langchain-anthropic==1.7.2; agentic-deepagents-cloud extra: langchain-xai==1.3.0; "
                     "deepagents' mandatory transitives pinned in constraints.txt only: "
                     "langchain-google-genai==4.4.0, langsmith==0.13.0 (its own category-1 row), wcmatch==11.0",
-        "enforcement": "out-of-band, --provider/--confirm-online gated; tracing killed by the same env block. "
+        "enforcement": "no first-party importer since agentic/deepagent_github and the real-repo loop were "
+                       "removed in October 2026; the packages ship only in the optional extras until a macOS "
+                       "re-lock drops them. Tracing would be killed by the same env block. "
                        "The provider SDKs these adapters wrap (openai, anthropic, google-genai, xai) carry no "
                        "vendor telemetry env switch of their own: their only egress is the model call itself",
-        "scope": "agentic planner only", "reviewed": "2026-09-28",
+        "scope": "optional extras only (no importer)", "reviewed": "2026-10-18",
         "evidence": "policy-gated feature traffic, not telemetry; versions re-read from pyproject.toml/"
                     "constraints.txt 2026-09-28 (a pin bump changes nothing about the classification)",
     },
@@ -473,8 +475,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "docs/agentic/AGENTIC_README.md",
         "versions": "postgres extra: psycopg==3.3.6 + psycopg-binary==3.3.6; pgvector extra: pgvector==0.5.0; "
                     "mssql extra: pyodbc==5.3.0",
-        "enforcement": "operator-configured database endpoints; SELECT/WITH-only guard on sqlconnect",
-        "scope": "vector-store backend + out-of-band sqlconnect", "reviewed": "2026-09-28",
+        "enforcement": "operator-configured database endpoints (the pgvector store and the Postgres "
+                       "soul/auth/rate-limit backends); pyodbc (mssql extra) has had no importer since "
+                       "agentic/sqlconnect was removed in October 2026",
+        "scope": "vector-store and Postgres backends", "reviewed": "2026-10-18",
         "evidence": "database traffic is the feature; no vendor telemetry mechanism in these drivers",
     },
     {
@@ -556,12 +560,6 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "reviewed": "2026-08-27", "evidence": "no egress mechanism in-repo",
     },
     {
-        "name": "vendored unslop scanners", "category": 5, "controls": {},
-        "url": "agentic/vendor",
-        "versions": "vendored", "enforcement": "offline stdlib by construction", "scope": "agentic checks",
-        "reviewed": "2026-08-27", "evidence": "no network imports (vendored source)",
-    },
-    {
         "name": "fastembed", "category": 5, "controls": {},
         "url": "https://github.com/qdrant/fastembed",
         "versions": "transitive of nemoguardrails (base NeMo dependency) -- UNBOUNDED, see T13 warning",
@@ -573,16 +571,17 @@ INVENTORY: tuple[dict[str, object], ...] = (
     },
     {
         "name": "git", "category": 5, "controls": {},
-        "url": "agentic/deepagent_github/repo_workspace.py",
+        "url": "scripts/cyclaw-eval-dogfood.py",
         "versions": "external binary",
-        "enforcement": "local-only subcommands under _GIT_ENV_ALLOWLIST at the runtime sites (repo_workspace, "
-                       "the executor manifest, the eval dogfood script, the git-hook installers); reads none of "
+        "enforcement": "local-only subcommands at the remaining sites (the eval dogfood script, the git-hook "
+                       "installers); reads none of "
                        "the canonical names, so the overlay is deliberately NOT applied there (documented "
-                       "in-module). The installers' `git clone` / `git pull`, the sandbox audit's clone and "
-                       "the workspace's gated `git push` are network operations and sit on their own "
+                       "in-module). The installers' `git clone` / `git pull` and the sandbox audit's clone "
+                       "are network operations and sit on their own "
                        "category-3 row (git-remote), not here. The cloud venv driver's inventory runs "
                        "rev-parse / rev-list / status against the local clone only",
-        "scope": "repo workspace ops; the cloud sandbox driver's local inventory", "reviewed": "2026-10-13",
+        "scope": "eval dogfood + git-hook installers; the cloud sandbox driver's local inventory",
+        "reviewed": "2026-10-18",
         "evidence": "documented exclusion, not an oversight; driver.sh cmd_inventory sited 2026-10-13 "
                     "(Codex P2 on PR #1637, eleventh round)",
     },
@@ -619,30 +618,27 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "versions": "no fixed binary -- the executable is chosen at run time: (a) the pre-action hook's "
                     "`command` engine (utils/external_pre_hook.py::_run_command) runs "
                     "policy.fallback.pre_action_hook.command verbatim, JSON on stdin, exit 0 allow / 2 deny; "
-                    "(b) agentic/executor/runner.py::run_verification runs each caller-declared Check.argv "
-                    "(the operator's checks manifest; no default check set ships); (c) the secret-injecting "
+                    "(b) the secret-injecting "
                     "exec wrappers macos/cyclaw-keychain-env.sh (`exec \"$@\"`) and "
                     "powershell/CyClaw-CredMan-Env.ps1 (`& $exe @exeArgs`) run whatever command follows "
                     "their `--`: one OS-store secret into one env var, then exec",
-        "enforcement": "(a) and (b) ship off (hook enabled: false with command: []; agentic.enabled false) and "
-                       "can only deny or verify, never widen an external call; both use explicit capability "
-                       "environments through child_environment and build_telemetry_safe_env (T12), and (b) "
-                       "also production_sandbox(), whose Linux bubblewrap backend confines filesystem, PID "
-                       "and network access. (c) adds one variable and execs: the wrapped argv is written by "
+        "enforcement": "(a) ships off (hook enabled: false with command: []) and can only deny, never widen "
+                       "an external call; it uses an explicit capability environment through "
+                       "child_environment and build_telemetry_safe_env (T12). (b) adds one variable and execs: the wrapped argv is written by "
                        "CyClaw's own scheduler registrars (utils/launchd_plist.py, utils/win_schtasks.py, the "
                        "telegram/opentweet/sync job generators put the wrapper in front of the venv python) "
                        "or typed by the operator, so the wrapped command's egress is that caller's own row "
                        "(the scheduled jobs carry the canonical overlay, T12). Whatever the operator's "
-                       "command or the caller's check does on the network is that operator's policy, not "
-                       "CyClaw telemetry: the static sweep cannot name the binary, so T13 checks the four "
+                       "command does on the network is that operator's policy, not "
+                       "CyClaw telemetry: the static sweep cannot name the binary, so T13 checks the three "
                        "spawn sites still exist instead and this row documents the surface. Never a "
                        "kill-map entry",
-        "scope": "confirmed Grok/Claude calls when the hook is on; agentic verification when enabled; "
+        "scope": "confirmed Grok/Claude calls when the hook is on; "
                  "every launchd/Task Scheduler job that needs an OS-store secret",
-        "reviewed": "2026-10-13",
-        "evidence": "_run_command reads block['command'] and passes it to subprocess.run; run_verification "
-                    "passes check.argv to the sandbox backend (Codex P2 on PR #1502: a dynamic launcher "
-                    "no row could name); cyclaw-keychain-env.sh:115 and CyClaw-CredMan-Env.ps1:126 exec "
+        "reviewed": "2026-10-18",
+        "evidence": "_run_command reads block['command'] and passes it to subprocess.run (Codex P2 on PR "
+                    "#1502: a dynamic launcher no row could name; the executor's run_verification, the "
+                    "other site then, was removed in October 2026); cyclaw-keychain-env.sh:115 and CyClaw-CredMan-Env.ps1:126 exec "
                     "the caller's argv after the secret export (Codex P2 on PR #1637, eleventh round)",
     },
     {
@@ -650,8 +646,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "docs/THREAT_MODEL.md",
         "versions": "host binaries, never pinned: launchctl + crontab + schtasks + cmd.exe (sync/scheduler.py, "
                     "utils/launchd_plist.py, utils/win_schtasks.py -- job registration/unregistration and the "
-                    "generated .cmd launchers), bubblewrap + sandbox-exec (agentic/executor/hard_sandbox.py -- "
-                    "the Linux filesystem/PID/network and Darwin Seatbelt wrappers), xdg-open + open + explorer "
+                    "generated .cmd launchers), xdg-open + open + explorer "
                     "(agentic/fsconnect/osutil.py reveal -- launches the desktop file manager on a "
                     "containment-checked local path), security (the macOS Keychain CLI: sync/scheduled.py "
                     "reads the scheduled rclone credential with /usr/bin/security find-generic-password at "
@@ -668,11 +663,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "caller-chosen command), and groupadd + useradd (the Dockerfile's build-stage non-root "
                     "user)",
         "enforcement": "every one is a local OS control-plane or GUI tool with no network sink of its own; "
-                       "the scheduler and sandbox wrappers are exactly the boundaries that deliver the "
-                       "canonical env to the children they start (T11/T12), and hard_sandbox's bubblewrap "
-                       "confines child filesystem/PID/network access on Linux. Nothing here has, or needs, a "
-                       "telemetry switch",
-        "scope": "out-of-band scheduling, agentic verification sandbox, fsconnect reveal, macOS setup and "
+                       "the scheduler wrappers are exactly the boundaries that deliver the canonical env to "
+                       "the children they start (T11/T12). Nothing here has, or needs, a telemetry switch",
+        "scope": "out-of-band scheduling, fsconnect reveal, macOS setup and "
                  "uninstall helpers, the Linux keyring CLI, the container build user, scheduled-sync "
                  "credential read",
         "reviewed": "2026-10-13",
@@ -725,23 +718,21 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "PR #1637, fourth round)",
     },
     {
-        "name": "gh functional calls (setup auth + agentic PR ops)", "category": 3, "controls": {},
-        "url": "docs/agentic/AGENTIC_README.md",
-        "versions": "external binary. (a) macos/setup-from-clone.sh step 6: `gh auth status` tests the stored "
+        "name": "gh functional calls (setup auth)", "category": 3, "controls": {},
+        "url": "setup-guide.md",
+        "versions": "external binary. macos/setup-from-clone.sh step 6: `gh auth status` tests the stored "
                     "account against github.com and `gh auth login --with-token` (token on stdin, never argv) "
-                    "authenticates it, both only after the canonical block was exported and skipped otherwise; "
-                    "(b) agentic/gh_client.py's read operations (`gh pr view` / `gh pr list` argv) and "
-                    "agentic/writer.py's `gh pr create`, reachable only with agentic.enabled true (ships false; "
-                    "the writer also needs its own write gate)",
+                    "authenticates it, both only after the canonical block was exported and skipped otherwise. "
+                    "The agentic GitHub context reads and PR writer that also spawned gh were removed in "
+                    "October 2026",
         "enforcement": "GitHub API traffic that is the point of the call: intentional functional egress, the "
                        "same class as git-remote. gh's own telemetry and update checks are the category-1 "
-                       "GH_TELEMETRY row and the category-2 update-notifier row, both delivered to every one "
-                       "of these spawns (the agentic clients through build_telemetry_safe_env, the setup "
-                       "script through its export eval); this row exists so the auth flow and PR operations "
-                       "are reported as the GitHub calls they are and not solely as suppressed telemetry",
-        "scope": "operator setup step 6; agentic GitHub context and PR writer when enabled",
-        "reviewed": "2026-10-13",
-        "evidence": "setup-from-clone.sh gh auth status / login --with-token, gh_client.py and writer.py argv "
+                       "GH_TELEMETRY row and the category-2 update-notifier row, both delivered through the "
+                       "setup script's export eval; this row exists so the auth flow is reported as the "
+                       "GitHub call it is and not solely as suppressed telemetry",
+        "scope": "operator setup step 6",
+        "reviewed": "2026-10-18",
+        "evidence": "setup-from-clone.sh gh auth status / login --with-token "
                     "(Codex P2 on PR #1637, eleventh round); split from the telemetry row by call kind, the "
                     "git-remote precedent",
     },
@@ -761,26 +752,23 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "Dockerfile's pip was sited, its apt was not)",
     },
     {
-        "name": "git remote operations (installers + gated push)", "category": 3, "controls": {},
+        "name": "git remote operations (installers)", "category": 3, "controls": {},
         "url": "setup-guide.md",
         "versions": "`git clone` / `git pull` of the CyClaw repository in the operator installers "
                     "(macos/setup-cyclaw.sh, macos/install-cyclaw.sh, powershell/Install-CyClaw.ps1) and in "
                     "the sandbox audit's checkout (.claude/skills/CyClaw-Sandbox/run_full_verification.py, "
-                    "a fixed URL and branch), and the one runtime network git call: RepoWorkspaceTools.push_branch's `git push --set-upstream "
-                    "origin` in agentic/deepagent_github/repo_workspace.py, reachable only with "
-                    "deepagent_github.allow_git_write_tools true (ships false) and agentic.enabled true "
-                    "(ships false), against the clone's pinned origin",
-        "enforcement": "repository acquisition from github.com at install time, run by the operator by hand, "
-                       "and a doubly-gated push the operator must switch on: intentional functional egress, "
+                    "a fixed URL and branch). No runtime path runs network git since the agentic workspace "
+                    "push was removed in October 2026",
+        "enforcement": "repository acquisition from github.com at install time, run by the operator by hand: "
+                       "intentional functional egress, "
                        "the same class as the uv/pip index access and the confirmed Ollama pull. git itself "
                        "carries no telemetry mechanism (the category-5 git row); this row exists because "
-                       "clone/pull/push are network operations and the local row's 'local-only subcommands' "
+                       "clone/pull are network operations and the local row's 'local-only subcommands' "
                        "claim must stay true",
-        "scope": "operator install scripts and the sandbox audit; the agentic workspace push when explicitly "
-                 "enabled",
+        "scope": "operator install scripts and the sandbox audit",
         "reviewed": "2026-10-13",
         "evidence": "setup-cyclaw.sh:252, install-cyclaw.sh:113 and the pull beside it, Install-CyClaw.ps1:134/139 "
-                    "(Codex P2 on PR #1637, ninth round); repo_workspace.py push_branch argv (tenth round); "
+                    "(Codex P2 on PR #1637, ninth round); "
                     "run_full_verification.py clone argv (eleventh round); split from the local git row by "
                     "call kind, the ollama-pull precedent",
     },
@@ -790,8 +778,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "versions": "`pip install` of the hashed locks (and the pinned pip itself) in macos/install-cyclaw.sh, "
                     "powershell/Install-CyClaw.ps1, the Dockerfile and the sandbox audit's "
                     ".claude/skills/CyClaw-Sandbox/verify.sh, plus the venv driver's pip fallback when uv is "
-                    "absent and its torch retry. No runtime path runs pip; the agentic verifier's children run "
-                    "with PIP_NO_INDEX set",
+                    "absent and its torch retry. No runtime path runs pip",
         "enforcement": "package-index downloads (PyPI and, for torch, the CPU wheel index) at install time, "
                        "hash-pinned by the locks so the content is fixed even though the transfer is network: "
                        "intentional functional egress, the same class as uv's index access. pip itself has only "
@@ -955,14 +942,12 @@ INVENTORY_ALIASES: dict[str, str] = {
     # show / arp -an / arp.exe -a): the same passive read, no probe
     "ip": "netconnect passive LAN inventory",
     "arp": "netconnect passive LAN inventory",
-    # scheduler registration, sandbox wrappers and the fsconnect reveal
-    # launcher -- local control-plane/GUI binaries, one category-4 row
+    # scheduler registration and the fsconnect reveal launcher -- local
+    # control-plane/GUI binaries, one category-4 row
     "launchctl": "local OS process tooling",
     "crontab": "local OS process tooling",
     "schtasks": "local OS process tooling",
     "cmd.exe": "local OS process tooling",
-    "bwrap": "local OS process tooling",
-    "sandbox-exec": "local OS process tooling",
     "xdg-open": "local OS process tooling",
     "open": "local OS process tooling",
     "explorer": "local OS process tooling",
@@ -981,16 +966,15 @@ INVENTORY_ALIASES: dict[str, str] = {
     "open-url": "browser launch (open URL)",
     # Invoke-RestMethod / Invoke-WebRequest in the Windows sandbox smoke suite
     "pwsh-http": "powershell http probes (sandbox smoke)",
-    # the installers' git clone / pull and the gated runtime push: network git,
-    # split from the local git row
-    "git-remote": "git remote operations (installers + gated push)",
+    # the installers' git clone / pull: network git, split from the local git row
+    "git-remote": "git remote operations (installers)",
     # `pip install` in the installers, the Dockerfile and the venv driver, and
     # `brew install` in the setup script: package-index downloads, category 3
     "pip-install": "pip index access (installers)",
     "brew-install": "homebrew package install (setup)",
     "apt-install": "apt package install (container build)",
     # gh's functional GitHub traffic, split from its telemetry row by call kind
-    "gh-api": "gh functional calls (setup auth + agentic PR ops)",
+    "gh-api": "gh functional calls (setup auth)",
     # macOS setup/uninstall helpers, the Linux keyring CLI, the Docker build user
     "expect": "local OS process tooling", "osascript": "local OS process tooling",
     "pbcopy": "local OS process tooling", "pbpaste": "local OS process tooling",
@@ -1000,7 +984,6 @@ INVENTORY_ALIASES: dict[str, str] = {
     # dynamic-executable surfaces (DYNAMIC_LAUNCHER_SITES): the binary is
     # operator/caller-chosen at run time, so the surface itself is the component
     "pre-action-hook-command": "operator/caller-configured launchers",
-    "executor-check": "operator/caller-configured launchers",
     "secret-env-wrapper": "operator/caller-configured launchers",
     "sqlite-vec": "sqlite-vec",
     # bulk category-5 members
@@ -1036,26 +1019,27 @@ INVENTORY_ALIASES: dict[str, str] = {
 # #1572 (2026-10-07) through scripts/refresh-*-lock.sh and the cloud venv
 # driver, so its row is back too (category 5, no mechanism).
 # The second line (2026-09-28) is every other binary a sweep of the non-test
-# subprocess call sites found: the scheduler registrars, the executor's
-# sandbox wrappers, the fsconnect reveal launcher and netconnect's
-# neighbor-cache readers. None has a network sink; they are listed so a
-# future spawn site that adds a NEW binary still needs a row.
+# subprocess call sites found: the scheduler registrars, the fsconnect reveal
+# launcher and netconnect's neighbor-cache readers (the executor's bwrap /
+# sandbox-exec wrappers were on it too until their October 2026 removal).
+# None has a network sink; they are listed so a future spawn site that adds
+# a NEW binary still needs a row.
 # The third line (2026-10-13 AST re-sweep): the macOS Keychain CLI that
 # sync/scheduled.py started spawning in PR #1632, and uv as above.
 # Every name here must also appear in FIXED_LAUNCHER_SITES, DYNAMIC_LAUNCHER_SITES
 # or FRONTED_SERVICES below, so T13 can tell when its spawn site is gone
 # (Codex P2 on PR #1637: a binary named only here stays "classified" forever).
 KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollama", "openssl", "numbat",
-                             "launchctl", "crontab", "schtasks", "cmd.exe", "bwrap", "sandbox-exec",
+                             "launchctl", "crontab", "schtasks", "cmd.exe",
                              "xdg-open", "open", "explorer", "ip", "arp",
                              "security", "uv", "curl", "ollama-pull", "open-url", "pwsh-http", "git-remote",
                              "pip-install", "brew-install", "apt-install", "gh-api",
                              "expect", "osascript", "pbcopy", "pbpaste", "lsof", "sw_vers", "secret-tool",
                              "groupadd", "useradd",
-                             "pre-action-hook-command", "executor-check", "secret-env-wrapper")
+                             "pre-action-hook-command", "secret-env-wrapper")
 
 # Spawn sites whose executable is NOT fixed in the code -- the operator's
-# configured hook command, the caller's verification checks. No static sweep
+# configured hook command, the exec wrappers' wrapped argv. No static sweep
 # can name the binary, so the surface is the component: each entry must
 # resolve to an INVENTORY row (via KNOWN_EXTERNAL_COMPONENTS above) AND the
 # file must still carry the marker that proves it spawns. A site that stops
@@ -1063,7 +1047,6 @@ KNOWN_EXTERNAL_COMPONENTS = ("gh", "rclone", "powershell", "brew", "git", "ollam
 # prevent, so that is reported too (Codex P2 on PR #1502, 2026-09-28).
 DYNAMIC_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pre-action-hook-command", "utils/external_pre_hook.py", ("def _run_command", "subprocess.run(")),
-    ("executor-check", "agentic/executor/runner.py", ("def run_verification", "check.argv")),
     # the OS-secret-store exec wrappers: the command after `--` is the
     # caller's (a generated launchd/Task Scheduler job or the operator), so
     # the wrapper is the surface (Codex P2 on PR #1637, eleventh round)
@@ -1096,17 +1079,13 @@ FRONTED_SERVICES: dict[str, str] = {
 # call that spawns (Codex P2s on PR #1637, rounds two and three).
 # One row per line so verify.sh can delete a row with a line mutation.
 FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("gh", "agentic/gh_client.py", ('gh_bin: str = "gh"', '[gh_bin, "pr", "view"')),
-    ("gh", "agentic/writer.py", ('gh_bin: str = "gh"', '[gh_bin, "pr", "create"')),
     # the operator setup script's own gh calls carry the canonical block via the
     # same --export eval the launcher uses; the third marker pins that eval
     ("gh", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token",
                                          "-m utils.telemetry_kill --export shell",
                                          '[ "$_TELEMETRY_EXPORTED" -eq 1 ]')),
-    # gh's functional GitHub calls (category 3), same files, split by call kind
+    # gh's functional GitHub calls (category 3), same file, split by call kind
     ("gh-api", "macos/setup-from-clone.sh", ("gh auth status >/dev/null", "gh auth login --with-token")),
-    ("gh-api", "agentic/gh_client.py", ('[gh_bin, "pr", "view"',)),
-    ("gh-api", "agentic/writer.py", ('[gh_bin, "pr", "create"',)),
     # macOS setup/uninstall helpers (own token-level sweep on PR #1637, eleventh
     # round, after Codex named expect/osascript/pbcopy/pbpaste/secret-tool)
     ("expect", "macos/setup-cyclaw-keys.sh", ("/usr/bin/expect <<EXPECT_EOF",
@@ -1135,14 +1114,9 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # the export is the pre-execution protection the Homebrew row claims; it
     # matters when `brew analytics off` fails before the later `brew install`
     ("brew", "macos/setup-from-clone.sh", ("export HOMEBREW_NO_ANALYTICS=1", "brew analytics off >/dev/null")),
-    ("git", "agentic/deepagent_github/repo_workspace.py", ('shutil.which("git")', '[binary, "config"',
-                                                           "[binary, *argv]")),
-    ("git", "agentic/executor/manifest.py", ('git_bin = shutil.which("git")', '[git_bin, "rev-parse", "HEAD"]')),
     ("git", "scripts/cyclaw-eval-dogfood.py", ('[git, "rev-parse", "HEAD"]',)),
     ("git", "scripts/ensure-githooks.sh", ("git rev-parse --show-toplevel", "git config --local core.hooksPath")),
     ("git", "scripts/install-githooks.sh", ("git config core.hooksPath .githooks",)),
-    # the gated runtime push (allow_git_write_tools, ships false): network git
-    ("git-remote", "agentic/deepagent_github/repo_workspace.py", ('["push", "--set-upstream", "origin", "--", name]',)),
     ("git-remote", ".claude/skills/CyClaw-Sandbox/run_full_verification.py",
      ('[git, "clone", "--depth", "1", "--branch", BRANCH, REPO_URL, "."]',)),
     ("git", ".claude/skills/cyclaw-gotchas/driver.sh", ("git rev-parse --verify -q origin/main",
@@ -1198,8 +1172,6 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
                                              '"-File",\n            wrapper_path,')),
     ("powershell", "powershell/Install-CyClaw.ps1", ('powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%',
                                                      '& powershell -NoProfile -ExecutionPolicy Bypass -File')),
-    ("bwrap", "agentic/executor/hard_sandbox.py", ('shutil.which("bwrap")', '[self._bwrap, "--die-with-parent"')),
-    ("sandbox-exec", "agentic/executor/hard_sandbox.py", ('shutil.which("sandbox-exec")', "self._sandbox_exec,")),
     ("xdg-open", "agentic/fsconnect/osutil.py", ('["xdg-open", path]',)),
     ("open", "agentic/fsconnect/osutil.py", ('["open", path]',)),
     ("explorer", "agentic/fsconnect/osutil.py", ('["explorer", path]',)),
@@ -1688,9 +1660,6 @@ _BYPASS_SKIP_PARTS = ("tests", ".claude", ".codex", "docs", "vendor", "__pycache
 # so it cannot false-positive on unrelated env= usage.
 _MUST_REFERENCE = (
     ("utils/child_environment.py", "build_telemetry_safe_env"),
-    ("agentic/executor/runner.py", "child_environment"),
-    ("agentic/gh_client.py", "build_telemetry_safe_env"),
-    ("agentic/writer.py", "build_telemetry_safe_env"),
     ("sync/cli.py", "child_environment"),
     ("sync/scheduler.py", "scheduler_env_overlay"),
     ("telegram/cli.py", "scheduler_env_overlay"),

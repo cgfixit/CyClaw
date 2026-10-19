@@ -17,11 +17,8 @@ _BASE = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "SystemRoot", "SYSTEMROOT", "WIND
 _DISCOVERY = ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME")
 _CAPABILITIES = {
     "helper": (),
-    "verification": (),
     "sync": (*_DISCOVERY, "RCLONE_CONFIG", "RCLONE_CONFIG_PASS"),
-    "github": (*_DISCOVERY, "GH_CONFIG_DIR", "GH_HOST", "GH_TOKEN", "GITHUB_TOKEN"),
     "filesystem": _DISCOVERY,
-    "sql": _DISCOVERY,
 }
 
 

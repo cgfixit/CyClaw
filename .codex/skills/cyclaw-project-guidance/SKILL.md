@@ -14,7 +14,7 @@ and inspect the live diff before carrying those observations forward.
 |---|---|
 | Routing, local/container models | `graph.py`, `utils/endpoint_trust.py`, `llm/client.py`, `config.yaml`, `tests/test_endpoint_trust.py`, `tests/test_graph.py` |
 | Auth or public HTTP surface | `gate.py`, `gate_auth.py`, `utils/authn_manager.py`, `INVARIANTS.md`, `docs/THREAT_MODEL.md` |
-| Agent runs | `utils/ops_runner.py`, `agentic/executor/`, `docs/agentic/` |
+| Out-of-band ops | `utils/ops_runner.py`, `agentic/fsconnect/`, `agentic/netconnect/`, `docs/agentic/` |
 | Install, launch, or dependencies | `setup-guide.md`, `macos/`, `powershell/`, manifests, Docker, active workflows |
 | Skills/docs | `.codex/README.md`, relevant skill plus UI metadata, `.claude/skills/doc-sync/` |
 
@@ -25,7 +25,7 @@ Current contracts that old guidance often misses:
   host receives local context/soul; cloud-provider confirmation is separate.
 - Auth Stage 3 is wired to `/query` only when auth is enabled; same-origin is
   always enforced. API-key optional bypass has peer/proxy/origin conditions.
-- Hybrid, both providers, and guardrails ship enabled. Auth, memory, and agentic
+- Hybrid, both providers, and guardrails ship enabled. Auth, memory, and connector
   master switches ship off. NeMo is a required base dependency with deterministic
   fallback. Read actual config before changing or reporting these switches.
 - Darwin dotenv loaders pin `/usr/bin/stat`, enforce 600/400, preserve source

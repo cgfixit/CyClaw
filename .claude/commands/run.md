@@ -22,11 +22,11 @@ selftest, the swarm, the full route contract, in scratch copies), use
    `SMOKE_SKIP_PYTEST=1` skips section F (the full suite), which GitHub
    Actions runs on every PR (CLAUDE.md §5). Leave it unset only when the
    user asks for the suite.
-3. Report results for sections A-G (core API, `agentic/fsconnect`,
-   `agentic/sqlconnect`, NeMo guardrails, opt-in PostgreSQL backends, pytest,
-   summary). The script prints its own totals and writes them to
-   `.claude/sandbox-test.txt`; see SKILL.md's **Quick Mode** section for what
-   it does and does not cover.
+3. Report results for sections A-G (core API, `agentic/fsconnect`, NeMo
+   guardrails, opt-in PostgreSQL backends, pytest, summary; there is no C
+   since `agentic/sqlconnect` was removed on 2026-10-18). The script prints
+   its own totals and writes them to `.claude/sandbox-test.txt`; see
+   SKILL.md's **Quick Mode** section for what it does and does not cover.
 4. Exit summary:
    - ✅ All checks passed: server is healthy
    - ❌ N checks failed: list each failure with the actual vs expected response

@@ -62,7 +62,7 @@ def test_reverse_guard_flags_planted_request_path_import(tmp_path):
 def test_agentic_does_not_import_request_path():
     # Symmetric guard: agentic must not pull in gate/gate_ops/gate_auth/graph/mcp
     # either. rglob so the out-of-band sub-packages (agentic/fsconnect,
-    # agentic/sqlconnect) are covered too. This set has drifted behind
+    # agentic/netconnect) are covered too. This set has drifted behind
     # REQUEST_PATH_MODULES before: gate_ops was missing here even though the
     # forward direction (above) already covered it, and gate_auth repeated the
     # exact same gap when it was added (both directions of
@@ -83,7 +83,7 @@ def test_agentic_does_not_import_request_path():
 
 def test_subpackages_are_covered_by_isolation_scan():
     # Explicitly assert the new connectors exist and would be scanned above.
-    for sub in ("fsconnect", "sqlconnect", "netconnect"):
+    for sub in ("fsconnect", "netconnect"):
         pkg = REPO_ROOT / "agentic" / sub
         assert pkg.is_dir(), f"expected out-of-band sub-package agentic/{sub}"
         assert list(pkg.rglob("*.py")), f"agentic/{sub} has no modules"

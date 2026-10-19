@@ -157,13 +157,13 @@ def scan_injection(text: str) -> list[str]:
 
 
 # --- Shared full-strength scanner (out-of-band callers) ---------------------
-# Single home for the OWASP-union scan that agentic/registry.py,
-# agentic/fsconnect/client.py, and agentic/harness_optimizer/governance.py each
+# Single home for the OWASP-union scan that agentic/fsconnect/client.py (and,
+# before their October 2026 removal, the skills registry and harness optimizer)
 # used to rebuild independently. Consolidated here so the pattern set, the
 # dedup order, the IGNORECASE flag, and the drop-on-uncompilable behaviour
-# cannot drift between the three call sites. Callers keep their OWN policy on
-# top of it (fsconnect stays advisory, the skills registry stays fail-closed) --
-# only the pattern construction is shared, never the enforcement decision.
+# cannot drift between call sites. Callers keep their OWN policy on top of it
+# (fsconnect stays advisory) -- only the pattern construction is shared, never
+# the enforcement decision.
 
 
 def build_injection_pattern_sources(cfg: dict[str, Any]) -> list[str]:
@@ -190,14 +190,13 @@ def build_injection_pattern_sources(cfg: dict[str, Any]) -> list[str]:
 def compile_injection_patterns(sources: tuple[str, ...]) -> tuple[tuple[str, re.Pattern[str]], ...]:
     """Compile (and memoize) a pattern-source tuple. Pure: same sources -> same result.
 
-    Memoized because the agentic CLI builds short-lived objects per op and each
+    Memoized because the fsconnect CLI builds short-lived objects per op and each
     construction otherwise recompiles the whole set. Keyed on the source tuple,
     so a config change with different patterns yields a fresh entry.
 
     An uncompilable pattern is skipped rather than raised. Callers that treat the
-    scan as an enforced gate must check for a shrunken/empty result themselves --
-    ``agentic/registry.py`` does exactly that and refuses to construct rather than
-    operate with a defeated gate.
+    scan as an enforced gate must check for a shrunken/empty result themselves
+    and refuse to operate with a defeated gate.
     """
     compiled: list[tuple[str, re.Pattern[str]]] = []
     for pattern in sources:

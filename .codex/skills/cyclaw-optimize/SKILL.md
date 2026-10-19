@@ -34,13 +34,13 @@ remote write access nor permission to expand scope.
   need explicit `trusted_hosts`. Keep malformed URLs on the typed error path.
 - Mac dotenv security includes source return status, preserved shell export
   state, and absolute BSD stat selection, not just file permission checks.
-- Invalid UTF-8 cache/run-record recovery is already implemented in fsconnect
-  and the run store. Reproduce any remaining issue before proposing it again.
+- Invalid UTF-8 cache recovery is already implemented in fsconnect. Reproduce
+  any remaining issue before proposing it again.
 - CI lints every workflow, including the environment.yml no-op; the actual
   Conda profile is the root `environment.yml`. Defender Bandit includes MCP.
 - Embeddings deliberately use CPU for consistent retrieval. Shipped hybrid and
-  enabled providers still require consent; armed writer flags do not bypass the
-  default-off agentic master switch.
+  enabled providers still require consent; fsconnect writes stay off unless both
+  `fsconnect.enabled` and `fsconnect.writes_enabled` are set.
 
 These are source-backed starting points, not a substitute for checking the
 current head. Use config, code, and active workflows for all counts and pins.
