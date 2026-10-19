@@ -342,8 +342,11 @@ def test_invoke_cyclaw_exports_dotenv_key_to_child_without_printing_it(tmp_path:
         assert value not in output
     assert "Typing the key in the browser cannot configure the server" not in result.stderr
     assert "http://127.0.0.1:8999" in result.stdout
+    # CYCLAW_SQL_DSN left secret-policy.tsv with the SQL connector: the Keychain
+    # item (still answered by the stub as a trap) is no longer loaded, and the
+    # dotenv copy stays out because the DSN suffix rule still classifies it.
     assert status_file.read_text(encoding="utf-8") == (
-        "keychain\ndsn:keychain\ndb:keychain\nport:8999\nmarker:from-dotenv\n"
+        "keychain\ndsn:other\ndb:keychain\nport:8999\nmarker:from-dotenv\n"
     )
 
 
