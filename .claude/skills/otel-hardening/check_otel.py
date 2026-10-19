@@ -858,7 +858,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "core web/runtime libs", "category": 5, "controls": {},
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
-                    "pyyaml/rank-bm25/pygments/websockets/tzdata/wcmatch and the dev/test/build tools "
+                    "pyyaml/rank-bm25/pygments/websockets/tzdata and the dev/test/build tools "
                     "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.0.0; hatchling==1.32.0 is the "
                     "[build-system] backend, swept from build-system.requires, never installed at "
                     "runtime). psycopg-binary and cel-python have their own rows above",
