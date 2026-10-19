@@ -691,6 +691,10 @@ before you consider the session done.
 
 ## Reference
 
+- Agent fan-out is capped (owner decision, 2026-10-19): `.claude/settings.json`
+  denies the `Workflow` tool and puts every `Agent` spawn behind an approval
+  prompt. Ask before using more than 2 subagents on one task; never work around
+  the cap with a different orchestration tool.
 - Multi-agent work: the coordinator owns synthesis and final correctness;
   workers gather evidence and produce artifacts, never architectural decisions.
   Dispatch read-only research in parallel, serialize write-heavy work per file
