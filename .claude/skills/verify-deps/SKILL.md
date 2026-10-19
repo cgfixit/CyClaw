@@ -55,9 +55,8 @@ Two consequences that drive every judgement in this skill:
 
 **`constraints.txt` is not an install surface.** It is a version ceiling applied
 *to* the other three. It legitimately pins packages that **no** surface installs
-by default — every extras-only package (`deepagents`,
-`psycopg`, `pgvector`, `langchain-openai`, `langchain-anthropic`,
-`langchain-xai`) plus pinned transitives. A package present in `constraints.txt`
+by default — every extras-only package (`psycopg`, `pgvector`) plus
+pinned transitives. A package present in `constraints.txt`
 and absent from `requirements.txt` is the **designed** state, not drift. The
 drift-shaped question is the reverse: a package installed by a surface but
 *unpinned* in `constraints.txt`.
@@ -434,8 +433,7 @@ delegates Step 1 to it rather than duplicating it).
   D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
   `tests/nemo_runtime/`, `"0.24.0"` in `guardrails/verify_install.py` and
   `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS`, and `pendulum==3.2.0` /
-  `pgvector==0.5.0` / `wcmatch==11.0`, the cloud-adapter row's
-  `deepagents`/`langchain-*` versions, the `langgraph-cli analytics` row's
+  `pgvector==0.5.0`, the `langgraph-cli analytics` row's
   `langgraph==1.2.11 family`, and the core-libs row's `hatchling==1.32.0`
   in `check_otel.py`'s *prose* inventory, which `--strict` never reads —
   then `dep-guard` and
