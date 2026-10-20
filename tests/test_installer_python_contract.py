@@ -68,9 +68,9 @@ def _run_installer(command: list[str], env: dict[str, str]) -> subprocess.Comple
     except subprocess.TimeoutExpired as exc:
         out = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout or ""
         err = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr or ""
-        pytest.fail(
+        raise AssertionError(
             f"installer exceeded {_INSTALLER_TIMEOUT_SEC}s\n--- stdout ---\n{out[-4000:]}\n--- stderr ---\n{err[-4000:]}"
-        )
+        ) from exc
 
 
 def _write_fake_posix_python(path: Path) -> None:
