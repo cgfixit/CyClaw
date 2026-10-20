@@ -27,7 +27,7 @@ dependencies = [
     # excluded from that resolution only because its CPU wheel index was
     # unreachable in the verifying sandbox -- torch shares no dependency with
     # either package, so the resolution is unaffected).
-    "huggingface-hub==1.32.0",
+    "huggingface-hub==2.2.0",
     # onnxruntime arrives unconditionally via chromadb (which asks only for
     # >=1.14.1, with no extra marker), so this narrows a dependency that is
     # already always installed rather than adding an optional one. It is
@@ -52,7 +52,7 @@ dependencies = [
     "langchain-core==1.6.3",
     # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
     # so legacy/no-deps paths cannot strand the app on websockets 12.x.
-    "websockets==15.0.1",
+    "websockets==17.2",
 ]
 
 [project.optional-dependencies]
