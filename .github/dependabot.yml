@@ -29,7 +29,8 @@
 #     .claude/skills/dep-guard/check_deps.py (D5/D6, and D9 for
 #     environment.yml) still fails CI on pyproject/constraints drift.
 #   - locks/ is excluded below (exclude-paths). Those PRs also rewrote every
-#     hashed lock (RIP <3) but never the locks/*-inputs.json records, so
+#     hashed lock (#PR's right around that same timeframe - RIP .. 10.2.17 .. <3)
+#     but never the locks/*-inputs.json records, so
 #     scripts/check_lock_contract.py failed them by construction, and every
 #     one conflicted with any other lock change. Dependabot cannot run
 #     scripts/refresh-runtime-lock.sh (arm64 macOS only), so it should not
