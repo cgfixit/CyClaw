@@ -7,6 +7,9 @@
 
 [![CyClaw console answering from the local library](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/2026-10-05-console-answered-query-1440.png)](https://github.com/cgfixit/CyClaw/tree/main/docs/screenshots)
 
+[Watch the 60-second demo (MP4)](docs/screenshots/demo/cyclaw-60-second-demo.mp4)
+— silent, with real local retrieval and inference using synthetic documents.
+
 CyClaw answers questions from **your documents on your hardware**. Its
 12-node LangGraph starts with retrieval, ends every path in the audit log,
 and requires per-question consent for paid Grok or Claude fallback. The
