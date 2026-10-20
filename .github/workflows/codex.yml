@@ -9,7 +9,7 @@ name: Codex Agent (PR Comments)
 permissions: {}
 
 on:
-  issue_comment: # zizmor: ignore[dangerous-triggers] owner-only (author, actor, triggering_actor); PR head is never checked out, review data comes from API text files in a read-only Codex sandbox
+  issue_comment: # zizmor: ignore[dangerous-triggers] owner-only (author, actor, triggering_actor), open same-repo PRs only (fork lookup step); PR head is never checked out, review data comes from API text files in a read-only Codex sandbox
     types: [created]
 
 # Manual, advisory PR assistance only. Automatic reviews live in pr-review.yml.
@@ -42,7 +42,12 @@ jobs:
       final_message: ${{ steps.run_codex.outputs.final-message }}
 
     steps:
-      - name: Resolve PR commits
+      # Same-repo gate, matching claude.yml's fork-refusal step. An issue_comment
+      # payload carries no head repo, so the job `if:` cannot check it. Without
+      # this, an owner @codex on an outside contributor's fork PR hands that
+      # attacker-written diff to the job holding secrets.CODEX (#1709 item 2).
+      # It fails before any checkout or secret-bearing step runs.
+      - name: Resolve PR commits (same-repo only)
         id: pr
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         with:
@@ -53,6 +58,15 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.payload.issue.number,
             });
+            if (pr.state !== "open") {
+              core.setFailed("PR is not open.");
+              return;
+            }
+            const full = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+            if ((pr.head.repo?.full_name || "").toLowerCase() !== full) {
+              core.setFailed("Refusing @codex on fork PRs.");
+              return;
+            }
             core.setOutput("base-sha", pr.base.sha);
             core.setOutput("head-sha", pr.head.sha);
 
