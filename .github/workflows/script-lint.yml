@@ -108,7 +108,21 @@ jobs:
           $ErrorActionPreference = "Stop"
           # Pin stays in lockstep with the Invoke step below.
           $Version = "1.23.0"
-          Install-Module -Name PSScriptAnalyzer -RequiredVersion $Version -Force -Scope CurrentUser -SkipPublisherCheck
+          # PowerShell Gallery lookups fail transiently ("No match was found" on
+          # #1710, green on re-run), so retry the install only: 3 attempts,
+          # 10s/20s back-off. The version check below still fails closed.
+          $attempts = 3
+          for ($i = 1; $i -le $attempts; $i++) {
+            try {
+              Install-Module -Name PSScriptAnalyzer -RequiredVersion $Version -Force -Scope CurrentUser -SkipPublisherCheck -ErrorAction Stop
+              break
+            } catch {
+              if ($i -eq $attempts) { throw }
+              $delay = 10 * $i
+              Write-Warning "Install-Module attempt $i/$attempts failed: $($_.Exception.Message); retrying in $delay s"
+              Start-Sleep -Seconds $delay
+            }
+          }
           Import-Module PSScriptAnalyzer -RequiredVersion $Version -Force
           $mod = Get-Module PSScriptAnalyzer
           if ($mod.Version.ToString() -ne $Version) {
