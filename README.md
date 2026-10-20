@@ -355,7 +355,8 @@ request is not cross-site (inert under Docker NAT). Full boundary:
 Separate from the operator API key. `gate_auth.py`: scrypt passwords, a
 session cookie plus CSRF for browsers, named device tokens for scripts, roles
 `admin`, `operator`, and `audit`. Ships `auth.enabled: false`; while off,
-every `/auth/*` route returns 503. Design, TLS, and the non-loopback bind
+every `/auth/*` route returns 503. Assigned roles survive restarts, including
+demotions of the bootstrap account. Design, TLS, and the non-loopback bind
 rule: [`docs/AUTHENTICATION_DESIGN.md`](docs/AUTHENTICATION_DESIGN.md);
 first-boot `curl` and `cyclaw-user`:
 [`setup-guide.md`](setup-guide.md#authentication-routes-auth-off-by-default).

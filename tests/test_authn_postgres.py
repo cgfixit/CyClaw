@@ -143,7 +143,7 @@ def test_pg_users_column_names_and_role_alter(clean_auth_db, tmp_path):
         assert "username" in names
         assert "role" not in names
 
-        ensure_users_role_column(conn, backend)
+        assert ensure_users_role_column(conn, backend) is True
         conn.commit()
         names = {n.lower() for n in users_column_names(conn, backend)}
         assert "role" in names
@@ -152,7 +152,7 @@ def test_pg_users_column_names_and_role_alter(clean_auth_db, tmp_path):
         ).fetchone()
         assert row["role"] == "operator"
 
-        ensure_users_role_column(conn, backend)
+        assert ensure_users_role_column(conn, backend) is False
         conn.commit()
     finally:
         conn.close()
@@ -235,6 +235,25 @@ def test_pg_auth_manager_lifecycle(clean_auth_db, tmp_path):
         assert manager.verify_device_token(token) is None
     finally:
         manager.close()
+
+
+@pytest.mark.parametrize("role", ["operator", "audit"])
+def test_pg_reopening_preserves_bootstrap_username_role(clean_auth_db, tmp_path, role):
+    cfg = _auth_cfg(tmp_path)
+    manager = AuthManager(cfg)
+    try:
+        manager.bootstrap_if_empty()
+        manager.create_user("other", _GOOD, role="admin")
+        manager.set_role(BOOTSTRAP_USERNAME, role)
+    finally:
+        manager.close()
+
+    reopened = AuthManager(cfg)
+    try:
+        assert reopened.get_user(BOOTSTRAP_USERNAME).role == role
+        assert reopened.get_user("other").role == "admin"
+    finally:
+        reopened.close()
 
 
 def test_pg_last_admin_guard_holds_under_concurrent_demotes(clean_auth_db, tmp_path):
