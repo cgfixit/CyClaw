@@ -43,6 +43,22 @@ The refresh scripts seed their staging directory with the tracked locks, so
 existing transitive pins are kept as preferences. Only the pins you changed
 (and what they force) should move.
 
+`constraints.txt`, `requirements*.txt` and the `scripts/ci-lock-inputs/`
+files are hashed byte-for-byte into the input records, so even a comment
+edit in one of them fails the contract check until the owning script has
+re-locked. Only `pyproject.toml`'s dependency tables are hashed, so a
+coverage, ruff or version edit there is free.
+
+## Dependabot
+
+`.github/dependabot.yml` lets Dependabot edit only the manifests (monthly for
+pip, with `locks/**` excluded) and never a hashed lock, because it cannot run
+the refresh scripts. A Dependabot pip PR is therefore a shopping list, not a
+merge candidate: it stays red on the lock contract until the operator checks
+it out on the Mac, runs the owning refresh script, and pushes the regenerated
+locks onto the same branch. Majors arrive in their own PR so a major is read
+before it is taken.
+
 ## Checks
 
 ```bash

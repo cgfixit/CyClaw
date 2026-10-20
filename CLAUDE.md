@@ -543,7 +543,7 @@ pip install --require-hashes -r locks/requirements-test-lock-macos.txt
 conda env create -f environment.yml
 
 # Console scripts (cyclaw-*) need the project itself installed
-pip install -e . -c constraints.txt
+pip install -e . -c constraints.txt       # macOS: pip install -e . --no-deps (the constraint pins +cpu torch)
 
 # Once per clone: point git at the tracked hooks (the cloud SessionStart hook runs it)
 bash scripts/ensure-githooks.sh
