@@ -47,7 +47,7 @@ jobs:
       # Run DevSkim
       - name: Run DevSkim scanner
         id: devskim
-        uses: microsoft/DevSkim-Action@4b5047945a44163b94642a1cecc0d93a3f428cc6  # v1
+        uses: microsoft/DevSkim-Action@4b5047945a44163b94642a1cecc0d93a3f428cc6  # v1.0.16
         with:
           # Scan all supported source formats; same-line DevSkim comments carry
           # site-specific exceptions. The action defaults to GITHUB_WORKSPACE.
