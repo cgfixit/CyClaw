@@ -133,7 +133,11 @@ class AuthManager:
         self._lock = threading.Lock()
         self.conn, self._ph, self.backend = authn_store.connect(self.db_path, auth_cfg)
         self._prepare_sql()
-        self._ensure_schema()
+        try:
+            self._ensure_schema()
+        except Exception:
+            self.conn.close()
+            raise
         # Warm the timing-equalization dummy before any request can reach
         # login(): a lazily-computed first miss would make the first
         # unknown-username attempt pay hash+verify (2x scrypt) -- a one-shot
@@ -270,17 +274,22 @@ class AuthManager:
         )
 
     def _ensure_schema(self) -> None:
+        if self.backend == "sqlite":
+            # SQLite DDL must commit atomically with the legacy role promotion.
+            self.conn.execute("BEGIN IMMEDIATE")
         self.conn.execute(authn_store.ddl_users())
         self.conn.execute(authn_store.ddl_sessions())
         self.conn.execute(authn_store.ddl_device_tokens())
         for index_ddl in authn_store.ddl_indexes():
             self.conn.execute(index_ddl)
-        authn_store.ensure_users_role_column(self.conn, self.backend)
+        role_added = authn_store.ensure_users_role_column(self.conn, self.backend)
         authn_store.ensure_credential_revision_column(self.conn, self.backend)
-        self.conn.execute(
-            f"UPDATE users SET role = {self._ph} WHERE username = {self._ph} AND role = {self._ph}",
-            (authn.validate_role("admin"), BOOTSTRAP_USERNAME, authn.DEFAULT_ROLE),
-        )
+        # Only the legacy migration may infer authority from the bootstrap name.
+        if role_added:
+            self.conn.execute(
+                f"UPDATE users SET role = {self._ph} WHERE username = {self._ph} AND role = {self._ph}",
+                (authn.validate_role("admin"), BOOTSTRAP_USERNAME, authn.DEFAULT_ROLE),
+            )
         self.conn.commit()
 
     def _now(self) -> float:

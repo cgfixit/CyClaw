@@ -162,14 +162,15 @@ def users_column_names(conn: object, backend: str) -> set[str]:
     return {str(r["name"]) for r in rows}
 
 
-def ensure_users_role_column(conn: object, backend: str) -> None:
-    """Add ``role`` if this is a pre-Stage-6 database. Idempotent."""
+def ensure_users_role_column(conn: object, backend: str) -> bool:
+    """Add ``role`` for a pre-Stage-6 database; return whether it was added."""
     names = {n.lower() for n in users_column_names(conn, backend)}
     if "role" in names:
-        return
+        return False
     conn.execute(  # type: ignore[union-attr]
         "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'"
     )
+    return True
 
 
 def ensure_credential_revision_column(conn: object, backend: str) -> None:

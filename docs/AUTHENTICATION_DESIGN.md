@@ -192,9 +192,11 @@ device_tokens(token_hash TEXT PRIMARY KEY, username TEXT NOT NULL,
               revoked INTEGER DEFAULT 0)
 ```
 
-(`role` arrived with Stage 6; `ensure_users_role_column` migrates pre-Stage-6
-databases in place, promoting `BOOTSTRAP_USERNAME` to `admin` and defaulting
-every other existing row to `operator`. The `sessions` block above is the
+(`role` arrived with Stage 6; `ensure_users_role_column` adds the missing column
+to pre-Stage-6 databases. Only when adding that column does `AuthManager` promote
+`BOOTSTRAP_USERNAME` to `admin`; every other existing row defaults to `operator`.
+Later opens preserve assigned roles, including bootstrap-account demotions.
+The `sessions` block above is the
 proposal-time sketch — the shipped table also carries `csrf_token` and
 `last_seen_ts`, and no `label`; see `utils/authn_store.py` for the DDL of
 record.)

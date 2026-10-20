@@ -60,6 +60,27 @@ def test_second_admin_allows_demoting_the_first(manager):
     assert manager.get_user(BOOTSTRAP_USERNAME).role == "operator"
 
 
+@pytest.mark.parametrize("role", ["operator", "audit"])
+@pytest.mark.parametrize("recreate", [False, True], ids=["demoted", "recreated"])
+def test_reopening_preserves_bootstrap_username_role(manager, role, recreate):
+    manager.bootstrap_if_empty()
+    manager.create_user("other", _GOOD, role="admin")
+    if recreate:
+        manager.delete_user(BOOTSTRAP_USERNAME)
+        manager.create_user(BOOTSTRAP_USERNAME, _GOOD, role=role)
+    else:
+        manager.set_role(BOOTSTRAP_USERNAME, role)
+
+    reopened = AuthManager(manager.cfg)
+    try:
+        assert reopened.get_user(BOOTSTRAP_USERNAME).role == role
+        assert manager.get_user(BOOTSTRAP_USERNAME).role == role
+        with pytest.raises(AuthLastAdmin):
+            reopened.set_role("other", "operator")
+    finally:
+        reopened.close()
+
+
 def test_last_admin_guard_lives_in_the_sql(manager):
     """PR #940 review (check-then-act race): the guard must hold even when the
     Python pre-check is bypassed entirely -- raw SQL through the manager's own
@@ -106,7 +127,8 @@ def test_delete_user_removes_row(manager):
     assert manager.get_user("alice") is None
 
 
-def test_migration_adds_role_and_promotes_bootstrap(tmp_path):
+@pytest.mark.parametrize("interrupt", [False, True], ids=["normal", "interrupted"])
+def test_migration_adds_role_and_promotes_bootstrap(tmp_path, monkeypatch, interrupt):
     db = tmp_path / "old.db"
     conn = sqlite3.connect(str(db))
     conn.execute(
@@ -133,11 +155,32 @@ def test_migration_adds_role_and_promotes_bootstrap(tmp_path):
     conn.commit()
     conn.close()
 
+    if interrupt:
+        migrate_revision = authn_store.ensure_credential_revision_column
+
+        def fail_after_migrations(conn, backend):
+            migrate_revision(conn, backend)
+            raise RuntimeError("interrupted before bootstrap promotion")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(authn_store, "ensure_credential_revision_column", fail_after_migrations)
+            with pytest.raises(RuntimeError, match="interrupted"):
+                AuthManager({"auth": {"enabled": True, "db_path": str(db)}})
+
     manager = AuthManager({"auth": {"enabled": True, "db_path": str(db)}})
     try:
         assert manager.get_user("admin").role == "admin"
         assert manager.get_user("alice").role == "operator"
         names = authn_store.users_column_names(manager.conn, manager.backend)
         assert "role" in {n.lower() for n in names}
+        manager.set_role("alice", "admin")
+        manager.set_role("admin", "operator")
     finally:
         manager.close()
+
+    reopened = AuthManager({"auth": {"enabled": True, "db_path": str(db)}})
+    try:
+        assert reopened.get_user("admin").role == "operator"
+        assert reopened.get_user("alice").role == "admin"
+    finally:
+        reopened.close()
