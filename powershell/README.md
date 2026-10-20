@@ -73,5 +73,5 @@ their own rules ([operator access](../README.md#api-key-setup-soul-mutations)).
 
 - Dropbox sync scheduling: [`docs/SYNC_README.md`](../docs/SYNC_README.md)
 - Telegram channel: [`docs/channels/TELEGRAM_DESIGN.md`](../docs/channels/TELEGRAM_DESIGN.md)
-- Agentic / registry: [`agentic/README.md`](../agentic/README.md)
+- Connectors (fsconnect, netconnect): [`agentic/README.md`](../agentic/README.md)
 - macOS twin: [`macos/README.md`](../macos/README.md)

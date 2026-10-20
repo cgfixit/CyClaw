@@ -20,8 +20,8 @@ server binds to `127.0.0.1:8787`.
 - Audit records hash questions by default; the spend ledger records billed
   tokens; `cyclaw-metrics` reads both offline.
 - Guardrails (NeMo in every base install), the Numbat stream, and the spend
-  ledger ship on. Auth, memory, connectors, the agentic loop, and Telegram/X
-  channels ship off.
+  ledger ship on. Auth, memory, connectors, and the Telegram/X channels ship
+  off.
 
 CyClaw serves one trusted operator, or a mutually trusted group with auth
 enabled; it provides neither tenant isolation nor a microVM
@@ -409,9 +409,11 @@ no judge result is published yet.
 
 ## Current development
 
-Recent work: the tracked git-hook secrets gate ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)),
-sandboxed agentic verification, hashed installs, credential and request-body
-hardening, and console first-run fixes. The
+Recent work: removal of the agentic coding loop, SQL connector, and the
+extras they orphaned (October 2026), hashed installs with a CI lock contract
+([`locks/README.md`](locks/README.md)), the tracked git-hook secrets gate
+([`docs/GITHOOKS.md`](docs/GITHOOKS.md)), auth roles that survive restarts,
+credential and request-body hardening, and console first-run fixes. The
 [merged PRs](https://github.com/cgfixit/CyClaw/pulls?q=is%3Apr+is%3Amerged)
 and [`docs/changelog.txt`](docs/changelog.txt) are the record.
 
@@ -529,7 +531,7 @@ Telegram [design](docs/channels/TELEGRAM_DESIGN.md) and
 | Soul writes | Human `reason` + enforced scan + atomic replace on `POST /soul/apply` only ([What It Does](#what-it-does) item 4 lists the exceptions) |
 | API key | Fail closed: Bearer key, CSRF-guarded console cookie, or an admin login; the opt-in loopback bypass is peer-bound ([API Key Setup](#api-key-setup-soul-mutations)) |
 | Guardrails | On by default, deny-only, deterministic on NeMo failure ([NeMo Guardrails](#nemo-guardrails)) |
-| Optional surfaces | Agentic writes, connectors, channels, and `/memory/*` ship off; `/ops/*` needs operator access and runs subprocess argv lists; no tokens in plist or task XML |
+| Optional surfaces | Connectors, channels, and `/memory/*` ship off; `/ops/*` needs operator access and runs subprocess argv lists; no tokens in plist or task XML |
 | `/auth/*` | Present either way; 503 while auth is off. When on, `/query` needs a session or device token and refuses `audit` accounts; the last `admin` cannot be removed |
 | Container | Non-root, `no-new-privileges`, dropped caps, read-only rootfs; optional Falco (`deploy/falco/`) ships off |
 | Dependency risk | `chromadb==1.5.9` carries CVE-2026-45829, accepted only for embedded `PersistentClient`. [`SECURITY.md`](SECURITY.md) |
@@ -570,7 +572,8 @@ Docs each section above links are not repeated here.
 
 | Read this | When you want |
 |---|---|
-| [`setup-guide.md`](setup-guide.md) | Install paths, Docker, conda, and every REST call |
+| [`setup-guide.md`](setup-guide.md) | Install paths, lock refresh, NeMo verification, and every REST call |
+| [`locks/README.md`](locks/README.md) | The hashed lock families, who regenerates them, and the contract check |
 | [`INVARIANTS.md`](INVARIANTS.md) | Rules 1–9, code vs convention, and the test that pins each |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) / [`docs/GITHOOKS.md`](docs/GITHOOKS.md) | Request-path map, agent rules, and the commit/push security gate |
 | [`.codex/README.md`](.codex/README.md) | Codex skill inventory, explicit-only tools, verification and trusted PR prompts |

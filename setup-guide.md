@@ -2,7 +2,7 @@
 
 **v1.9.0 | Offline-First | Ollama | ~15 min**
 Install execution verified 2026-07-29 against `main` (macOS path 2026-08-02);
-documentation reconciled with code 2026-09-21.
+documentation reconciled with code 2026-10-20.
 
 This is the canonical setup guide (`docs/work/SETUP.md` and `docs/! How-To-Guides/setup-guide.md` redirect here). For the
 full architecture tour — filesystem and network connectors, NeMo
@@ -97,7 +97,7 @@ in Credential Manager and are not written into that file unless
 `-WriteEnvFile` is passed. `Invoke-CyClaw.ps1` loads the non-secret lines,
 then fetches secrets into that process only. Do not use `setx` or a
 User-scope environment variable for provider keys. Set the key for a
-one-off `python gate.py` launch in that session (step 4b above), then
+one-off `python gate.py` launch in that session (step 4 above), then
 build the index.
 Flags (`-RepoPath`, `-ReplaceRepo`, `-SkipPythonDeps`, `-NoProfileEdit`,
 `-NoPathEdit`, `-WriteEnvFile`) and the secret classification:
@@ -144,7 +144,7 @@ python gate.py
 ### Linux smoke test
 
 Against an already-running gateway (the same 7-check contract as the Windows
-script). POSIX/bash 3.2; curl + python3 only. Reuse the key from step 4b
+script). POSIX/bash 3.2; curl + python3 only. Reuse the key from step 4
 (the server must have inherited it at launch):
 
 ```bash
@@ -201,7 +201,9 @@ It will:
 5. Run `macos/setup-cyclaw-keys.sh` — autogenerates `CYCLAW_API_KEY`
    (`openssl rand -hex 20`), then prompts (skip allowed) for Telegram,
    Claude (`ANTHROPIC_API_KEY` — that is the only name `llm/client.py`
-   reads), Grok, and GitHub. Secrets go to the Keychain.
+   reads), Grok, and GitHub (optional: nothing in the runtime reads
+   `GH_TOKEN` since the agentic coding loop was removed; it only lets
+   step 6 log `gh` in). Secrets go to the Keychain.
    `~/.CyClaw/.env` (`chmod 600`) holds ordinary non-secret settings
    (ports, paths, mode flags, model names, feature toggles).
    Secret-classified names are not written there unless `--write-env-file`
@@ -381,14 +383,16 @@ if you are wiring Claude Desktop or Copilot Studio — see
 `cyclaw-index`, `cyclaw-mcp`, `cyclaw-metrics`, `cyclaw-clear-cache`,
 `cyclaw-user`, and `cyclaw-gen-cert` are `[project.scripts]` console scripts,
 and pip writes those shims into the venv only when the CyClaw *project itself*
-is installed (`pip install -e .`). The install above installs
-`requirements.txt`, a third-party pin list with no self-install line, so after
+is installed (`pip install -e .`). The install above installs the hashed
+platform locks, third-party pin lists with no self-install line, so after
 following this guide exactly they are `command not found`. Every `python -m …`
-form in this guide is chosen because it needs no self-install; add
-`pip install -e . -c constraints.txt` after step 3 if you want the short names
-(use `-c /tmp/constraints-macos.txt` on macOS). Package metadata pins Torch's
-public release to `2.13.0`; it cannot select the CPU wheel index. Keep the
-platform's Torch pre-install and constraints steps for editable and wheel installs.
+form in this guide is chosen because it needs no self-install. If you want the
+short names, add one line after step 3: `pip install -e . -c constraints.txt`
+on Linux and Windows, or `pip install -e . --no-deps` on macOS (the lock has
+already installed every dependency, and `constraints.txt` pins the
+`torch==2.13.0+cpu` build that macOS cannot satisfy). Package metadata pins
+Torch's public release to `2.13.0`; it cannot select the CPU wheel index. Keep
+the platform's Torch pre-install and lock steps for editable and wheel installs.
 
 The `all` aggregate adds the CEL backend to `full`. The `agentic-deepagents`,
 `agentic-deepagents-cloud` and `mssql` extras were dropped with the agentic
@@ -571,8 +575,9 @@ nothing is ever printed, logged, or stored in plaintext. Set the first real
 password on the server machine itself (prompts via `getpass`, no echo):
 
 ```bash
-# Short name needs `pip install -e . -c constraints.txt` first (see
-# "The cyclaw-* short names need a self-install" above). Without it:
+# Short name needs the self-install first (`pip install -e . -c constraints.txt`;
+# `--no-deps` instead of `-c` on macOS -- see "The cyclaw-* short names need a
+# self-install" above). Without it:
 #   python -m utils.authn_cli passwd admin
 cyclaw-user passwd admin
 ```
@@ -943,6 +948,10 @@ the supported arm64 macOS host, then review the changed versions and hashes.
 
 `constraints.txt` remains the shared ceiling for editable installs, test tools,
 and optional dependency profiles. It is also an input to lock generation.
+[`locks/README.md`](locks/README.md) names every lock family, the script that
+owns it, and the offline contract check; the
+[lock freshness](#lock-freshness-and-refresh-failures) section below covers
+what that check does and does not prove.
 
 ---
 
@@ -1117,18 +1126,11 @@ results are hints, not a complete or live reachability map.
 | Soul endpoints return 404 | Set `personality.enabled: true` in `config.yaml` |
 | `uvloop` install fails on Windows | Expected — uvloop publishes no Windows wheel, so `uvicorn[standard]` simply omits it there and uvicorn falls back to asyncio. Nothing to fix. (uvloop *is* used on Linux and macOS — it is not Linux-only.) |
 
----
-
-*Built by [Chris Grady](https://cgfixit.com) · Repo: [github.com/CGFixIT/CyClaw](https://github.com/CGFixIT/CyClaw)*
-*v1.9.0 package train, Python 3.12 — documentation reconciled with code,
-config, manifests, and workflows on 2026-09-21; install execution last verified
-2026-07-29 / macOS 2026-08-02.*
-
 ## Lock freshness and refresh failures
 
 Checksums use canonical LF text so Windows Git line-ending conversion is not drift.
 
-`python scripts/check_lock_contract.py` checks all 25 runtime, Torch, test,
+`python scripts/check_lock_contract.py` checks all 19 runtime, Torch, test,
 CI-tool and extra locks against their direct inputs and every applicable exact
 constraint. Committed input/output SHA-256 records fail CI when an input
 (`pyproject.toml` dependency tables, `constraints.txt`, a requirements input or
@@ -1148,3 +1150,10 @@ and is detected by the freshness check. Re-run refresh after such an interruptio
 The wheel CI job separately compares every base `Requires-Dist` entry, including
 extras and platform markers, with `pyproject.toml`; preinstalling locks and using
 `--no-deps` cannot hide a missing wheel dependency.
+
+---
+
+*Built by [Chris Grady](https://cgfixit.com) · Repo: [github.com/CGFixIT/CyClaw](https://github.com/CGFixIT/CyClaw)*
+*v1.9.0 package train, Python 3.12 — documentation reconciled with code,
+config, manifests, and workflows on 2026-10-20; install execution last verified
+2026-07-29 / macOS 2026-08-02.*

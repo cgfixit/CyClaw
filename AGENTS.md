@@ -48,7 +48,7 @@ From the repository root, with the selected interpreter:
 
 Set `GROK_API_KEY=dummy` for isolated verification; never spend real provider tokens routinely. Use disposable personality, index, and log paths when execution needs them, preserving the committed soul. Directly exercise changed behavior and inspect output and side effects first. Then use relevant lint/static checks (`actionlint` for changed workflows); let draft-PR Actions run broad suites and the 80% coverage gate. Run one focused test file when direct execution and static/CI evidence cannot exercise a concrete risk or an applicable gate requires it. Do not run full local suites, CI-style coverage, or LoRA tests routinely. Four Python 3.12 platform test legs gate shared routing, retrieval, auth, and security changes on the exact PR head. Ruff F/B/S blocks; broader Ruff/WPS is advisory; mypy needs `--explicit-package-bases` and is best-effort. Distinguish local, mock, native, live-provider, and hosted-CI evidence.
 
-Before drafting a moderate or larger PR, update the README, the `docs/*.md` pages, and the dependency/install files the change touches, and delete stale or duplicated statements while there (`doc-sync`, `dep-guard`, `verify-dep`).
+Before drafting a moderate or larger PR, update the README, the `docs/*.md` pages, and the dependency/install files the change touches, and delete stale or duplicated statements while there (`doc-sync`, `dep-guard`, `verify-deps`).
 
 Use four-space indentation, typed Python, snake_case, the existing 120-column style, named logging, and config-owned tunables. Docstrings begin modules/functions; use `#` for class or inline commentary.
 

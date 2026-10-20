@@ -32,7 +32,7 @@ dedicated `linux/arm64` image is verified against the torch pin.
 ## What is *not* in the image (by design)
 
 `.dockerignore` + the multi-stage `Dockerfile` keep private and regenerable
-state out of layers: `data/` (corpus, soul.md, agentic registry), `index/`,
+state out of layers: `data/` (corpus, soul.md, model caches), `index/`,
 `logs/`, `checkpoints/`, `.env`/keys/`*.pem`, tests, docs, `.git`, `.github`.
 The image is the gate + graph + retrieval runtime only; compose bind-mounts
 `./data` at runtime, and production `soul.md` is operator-owned. The
@@ -234,5 +234,5 @@ First-time package settings (org/user admin):
 - Do not relax host publish to `0.0.0.0`
 - Do not enable Falco monitoring by default
 - Do not bake secrets, corpus vectors, or production config into image layers
-- Do not treat GHCR as a substitute for the six invariants or human-gated agentic writes
+- Do not treat GHCR as a substitute for the six invariants or human-gated fsconnect writes
 - Do not claim multi-tenant / microVM isolation for this image
