@@ -122,6 +122,21 @@ def test_positive_int_keys_reject_bad_values(key, bad):
         validate_retrieval_config(cfg)
 
 
+@pytest.mark.parametrize("bad", [0, -1, 1.5, "16000", None, True])
+def test_max_context_tokens_rejects_bad_values(bad):
+    cfg = _valid_retrieval()
+    cfg["retrieval"]["max_context_tokens"] = bad
+    with pytest.raises(ConfigError):
+        validate_retrieval_config(cfg)
+
+
+def test_max_context_tokens_absent_or_positive_int_is_allowed():
+    cfg = _valid_retrieval()
+    validate_retrieval_config(cfg)  # absent: graph.py uses its default
+    cfg["retrieval"]["max_context_tokens"] = 16000
+    validate_retrieval_config(cfg)
+
+
 def test_missing_retrieval_block_rejected():
     with pytest.raises(ConfigError):
         validate_retrieval_config({})

@@ -76,6 +76,7 @@ def validate_retrieval_config(cfg: dict[str, Any]) -> None:
         audited, nothing is vetoed) or a finite number. It is a cross-encoder
         logit, so a negative value is legitimate;
       * ``top_k_semantic`` / ``top_k_keyword`` / ``rrf_k`` are positive integers;
+      * ``max_context_tokens``, when the key is present, is a positive integer;
       * ``models.reranker``, when present, has a boolean ``enabled``, a
         non-empty ``model`` string when enabled, and a ``revision`` that is
         null or a non-empty string. It is checked here because its only job
@@ -125,6 +126,17 @@ def validate_retrieval_config(cfg: dict[str, Any]) -> None:
             raise ConfigError(
                 f"retrieval.{key} must be a positive integer, got: {val!r}",
                 details={"received": val, "key": key},
+            )
+
+    # Optional (graph.py falls back to its default), but a present value must be
+    # a positive int: a quoted "16000" turns graph.py's budget into a str and
+    # every query raises TypeError; 0 or a negative silently starves the context.
+    if "max_context_tokens" in retrieval:
+        budget = retrieval["max_context_tokens"]
+        if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
+            raise ConfigError(
+                f"retrieval.max_context_tokens must be a positive integer, got: {budget!r}",
+                details={"received": budget, "key": "max_context_tokens"},
             )
 
     models = cfg.get("models")
