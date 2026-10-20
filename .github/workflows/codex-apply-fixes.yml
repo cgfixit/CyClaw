@@ -457,12 +457,27 @@ jobs:
           git_safe ls-files --stage -z > "$RUNNER_TEMP/index-modes"
           python3 -I - "$RUNNER_TEMP/changed-paths" "$RUNNER_TEMP/index-modes" <<'PYCODE'
           import pathlib, sys
+          # Paths a bot-generated patch may never touch (#1709 item 6A): CI,
+          # hooks and agent configuration that run with privileges later, the
+          # trusted prompts, the hashed locks (only the macOS refresh scripts
+          # may write them), and the .githooks/security.conf protected files.
+          # Change these by hand in a normal PR.
+          DENY_PREFIXES = ('.github/', '.githooks/', '.codex/', '.claude/hooks/', 'locks/')
+          DENY_EXACT = {
+              '.claude/settings.json', '.claude/settings.local.json', '.mcp.json',
+              'data/personality/soul.md', 'utils/sanitizer.py', 'gate_auth.py',
+              '.gitleaksignore', '.trivyignore.yaml', '.osv-scanner.toml',
+              '.claude/skills/dotenv-guard/baseline.txt',
+          }
           paths = set(pathlib.Path(sys.argv[1]).read_bytes().split(b'\0')) - {b''}
           for raw in paths:
-              parts = pathlib.PurePosixPath(raw.decode('utf-8')).parts
+              name = raw.decode('utf-8')
+              parts = pathlib.PurePosixPath(name).parts
               if any(p == '.git' or p == '.env' or p.startswith('.env.') or
                      p == 'id_rsa' or p.startswith('id_rsa.') for p in parts) or raw.endswith((b'.pem', b'.key')):
                   raise SystemExit('Refusing secret-like or Git metadata patch path')
+              if name in DENY_EXACT or name.startswith(DENY_PREFIXES):
+                  raise SystemExit(f'Refusing protected patch path: {name}')
           for entry in pathlib.Path(sys.argv[2]).read_bytes().split(b'\0'):
               if not entry:
                   continue
