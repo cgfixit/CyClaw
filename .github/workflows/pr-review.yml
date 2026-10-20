@@ -5,7 +5,7 @@ name: PR Review Assistant
 # comments lives in codex-apply-fixes.yml.
 
 on:
-  pull_request_target: # zizmor: ignore[dangerous-triggers] trusted base; owner-only same-repo PRs; candidate code is never executed
+  pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - '**/*.py'
