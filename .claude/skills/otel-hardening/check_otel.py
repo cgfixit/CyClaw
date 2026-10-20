@@ -965,6 +965,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     # bulk category-5 members
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
     "uvicorn": "core web/runtime libs", "httpx": "core web/runtime libs",
+    "aiohttp": "core web/runtime libs",  # transitive HTTP client (nemoguardrails, chromadb)
     "pydantic": "core web/runtime libs", "numpy": "core web/runtime libs",
     "nltk": "core web/runtime libs", "pyyaml": "core web/runtime libs",
     "rank-bm25": "core web/runtime libs", "pygments": "core web/runtime libs",
