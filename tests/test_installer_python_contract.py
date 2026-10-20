@@ -45,6 +45,33 @@ def _find_working_bash() -> str | None:
 _BASH = _find_working_bash()
 _POWERSHELL = shutil.which("powershell") if os.name == "nt" else None
 
+# 60s timed out once on a windows-latest leg whose PR did not touch the
+# installers (#1722; its re-run passed). Every fake command here answers at
+# once, so a slow pass is Windows PowerShell 5.1 start-up and module autoload on
+# a loaded hosted runner; 180s leaves headroom and a real hang still fails.
+_INSTALLER_TIMEOUT_SEC = 180
+
+
+def _run_installer(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    # stdin is closed so a prompt fails fast instead of waiting out the timeout;
+    # on a timeout, show what the installer had printed so the stall is visible.
+    try:
+        return subprocess.run(  # noqa: S603 -- repository-owned installer and controlled fake PATH
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            timeout=_INSTALLER_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as exc:
+        out = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout or ""
+        err = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr or ""
+        raise AssertionError(
+            f"installer exceeded {_INSTALLER_TIMEOUT_SEC}s\n--- stdout ---\n{out[-4000:]}\n--- stderr ---\n{err[-4000:]}"
+        ) from exc
+
 
 def _write_fake_posix_python(path: Path) -> None:
     path.write_text(
@@ -144,14 +171,7 @@ exec bash "$installer" --repo-path "$repo" --no-fsconnect --no-profile-edit --no
         env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
         command = [_BASH, str(_MACOS_INSTALLER), *flags]
 
-    return subprocess.run(  # noqa: S603 -- repository-owned installer and controlled fake PATH
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=60,
-    )
+    return _run_installer(command, env)
 
 
 @pytest.mark.skipif(_BASH is None, reason="requires a working POSIX bash")
@@ -282,6 +302,7 @@ def _run_powershell_installer(
     command = [
         _POWERSHELL,
         "-NoProfile",
+        "-NonInteractive",
         "-ExecutionPolicy",
         "Bypass",
         "-File",
@@ -293,14 +314,7 @@ def _run_powershell_installer(
     ]
     if skip_python_deps:
         command.append("-SkipPythonDeps")
-    return subprocess.run(  # noqa: S603 -- repository-owned installer and controlled fake PATH
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=60,
-    )
+    return _run_installer(command, env)
 
 
 @pytest.mark.skipif(_POWERSHELL is None, reason="requires Windows PowerShell")
