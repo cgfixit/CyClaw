@@ -392,7 +392,11 @@ def _ping(
         try:
             payload = resp.json()
             data = payload.get("data") if isinstance(payload, dict) else None
-            listed = {m.get("id") for m in data if isinstance(m, dict)} if isinstance(data, list) else None
+            listed = None
+            if isinstance(data, list) and all(
+                isinstance(model, dict) and isinstance(model.get("id"), str) for model in data
+            ):
+                listed = {model["id"] for model in data}
             # A partial page (Anthropic's has_more) cannot prove the model is
             # absent, so it is not treated as authoritative.
             if isinstance(payload, dict) and payload.get("has_more") is True:

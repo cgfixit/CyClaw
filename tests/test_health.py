@@ -200,6 +200,28 @@ class TestPing:
         assert status.healthy is False
         assert status.latency_ms is None
 
+    @pytest.mark.parametrize("malformed_entry", [
+        {},
+        {"id": {}},
+        {"id": []},
+        {"id": 1},
+        {"id": None},
+        "fixture-model",
+        [],
+    ])
+    def test_ping_malformed_model_entry_stays_healthy(self, monkeypatch, malformed_entry):
+        response = httpx.Response(
+            200,
+            json={"object": "list", "data": [malformed_entry]},
+            request=httpx.Request("GET", _HOST_MODELS),
+        )
+        monkeypatch.setattr(health, "_http_get", lambda url, **kw: response)
+
+        status = health._ping(_HOST_MODELS, "ollama", expect_model="fixture-model")
+
+        assert status.healthy is True
+        assert status.error is None
+
     @pytest.mark.parametrize(("code", "expected"), [
         (100, "HTTP 100"),
         (599, "HTTP 599"),
