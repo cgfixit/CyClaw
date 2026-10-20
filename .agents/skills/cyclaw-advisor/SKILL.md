@@ -1,6 +1,6 @@
 ---
 name: cyclaw-advisor
-description: "Read-only CyClaw architecture and operations advisor for origin/main 6c1b3b16 (2026-10-20). High-signal since 2026-10-18 — aiohttp 3.14.4 pin for three CVEs (#1715, transitive, no direct import), literal true required before sending vault context to Grok/Claude (#1712), /index/build credential check off event loop (#1713), drop orphaned deepagents/mssql extras (#1700), refuse @codex on fork PRs (#1723). Graph still 12 nodes, I1–I6 intact. Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
+description: "Read-only CyClaw architecture and operations advisor for origin/main a0a16aaf (2026-10-20). High-signal since 2026-10-18 — validate retrieval.max_context_tokens at boot (#1719, reject non-positive-int to prevent TypeError/starvation), aiohttp 3.14.4 pin for three CVEs (#1715, transitive, no direct import), literal true required before sending vault context to Grok/Claude (#1712), /index/build credential check off event loop (#1713), drop orphaned deepagents/mssql extras (#1700), refuse @codex on fork PRs (#1723). Graph still 12 nodes, I1–I6 intact. Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
 ---
 
 
@@ -24,13 +24,14 @@ then trace actual callers. Do not infer behavior from old audits or feature name
 
 ## Latest merges into origin/main (high-signal only)
 
+- **a0a16aaf / #1719** (2026-10-20): Validate retrieval.max_context_tokens at boot via validate_retrieval_config; reject a present non-positive-int (or non-int) so a quoted string cannot TypeError the context budget and 0/negative cannot starve it. Absent key stays valid. Same rule as top_k_*/rrf_k.
 - **6c1b3b16 / #1723** (2026-10-20): Refuse `@codex` on fork PRs before the CODEX-secret job runs; same-repo/open gate is first step, ahead of checkout and secret-bearing action.
 - **27f9cdec / #1715** (2026-10-20): Pin aiohttp to 3.14.4 for CVE-2026-111063, CVE-2026-111064 and GHSA-2g87-pp6c-29x5. Transitive of nemoguardrails and chromadb; CyClaw imports none. Constraints + hashed locks regenerated on arm64-macOS.
 - **7976efe9 / #1712** (2026-10-19): Require a literal `true` before sending vault context to Grok or Claude (matches the enabled-check style already used in gate.py).
 - **adbe9e79 / #1713** (2026-10-19): Run the /index/build credential check off the event loop via `asyncio.to_thread`.
 - **f6d467f4 / #1700** (2026-10-19): Drop the orphaned deepagents and mssql extras.
 
-**Recent activity summary:** Origin/main at 6c1b3b16 (2026-10-20) carries only security/infra hygiene since mid-October: transitive aiohttp CVE pin, stricter vault-context boolean, event-loop isolation for the index credential check, removal of unused extras, and a CI gate that refuses `@codex` on fork PRs before any secret job. No graph topology, invariant count, I6 import-isolation, or out-of-band subprocess-shim contract changes. Agentic/executor and real_repo_loop remain removed; fsconnect/netconnect stay the governed surfaces.
+**Recent activity summary:** Origin/main at a0a16aaf (2026-10-20) adds boot-time validation for retrieval.max_context_tokens (prevents TypeError on quoted values or silent starvation) atop the mid-October security/infra hygiene: transitive aiohttp CVE pin, stricter vault-context boolean, event-loop isolation for the index credential check, removal of unused extras, and a CI gate that refuses `@codex` on fork PRs before any secret job. No graph topology, invariant count, I6 import-isolation, or out-of-band subprocess-shim contract changes. Agentic/executor and real_repo_loop remain removed; fsconnect/netconnect stay the governed surfaces.
 
 Revalidate consequential details: cosine, RRF and reranker logits have different
 gates; shipped reranker threshold is shadow mode. Both local answer nodes check
