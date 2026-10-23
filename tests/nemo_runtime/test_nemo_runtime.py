@@ -28,7 +28,7 @@ NEMO_CONFIG = REPO_ROOT / "guardrails" / "config"
 def test_installed_version_is_0240() -> None:
     import nemoguardrails
 
-    assert nemoguardrails.__version__ == "0.24.0"
+    assert nemoguardrails.__version__ == "0.24.1"
 
 
 def test_rails_config_loads_and_compiles() -> None:

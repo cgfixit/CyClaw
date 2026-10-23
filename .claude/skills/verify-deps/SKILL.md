@@ -430,8 +430,8 @@ delegates Step 1 to it rather than duplicating it).
   never rewrite a historical audit; because the string appears in
   forms a `<package>==` grep misses — `torch-cpu-2.13.0-` cache keys in
   `ci.yml`/`pip-audit.yml`/`nemo-guardrails.yml` (the reason `dep-guard`
-  D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
-  `tests/nemo_runtime/`, `"0.24.0"` in `guardrails/verify_install.py` and
+  D8 matches both forms), `nemoguardrails.__version__ == "0.24.1"` in
+  `tests/nemo_runtime/`, `"0.24.1"` in `guardrails/verify_install.py` and
   `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS`, and `pendulum==3.3.0` /
   `pgvector==0.5.1`, the `langgraph-cli analytics` row's
   `langgraph==1.2.15 family`, and the core-libs row's `hatchling==1.32.4`
