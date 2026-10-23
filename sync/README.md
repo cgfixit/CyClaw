@@ -1,7 +1,8 @@
 # `sync/` — out-of-band Dropbox corpus sync
 
 Optional rclone wrapper that keeps `data/corpus/` in step with a Dropbox
-folder. Ships one-way (`direction: pull` → `rclone copy`, never deletes);
+folder. Ships disabled (`sync.enabled: false`) and one-way
+(`direction: pull` → `rclone copy`, never deletes);
 `direction: bisync` is opt-in and discouraged. Runs **strictly out-of-band** (`python -m sync.cli`);
 the six core modules never import it, and it never imports them (invariant
 I6). The core server reaches it only through the `/ops/sync` subprocess shim
@@ -36,6 +37,11 @@ The `10` contract holds for the shipped posture, where `sync.auto_reindex` is
 itself instead of handing the caller a `10` to act on — so a scheduler wired to
 treat `10` as "now reindex" has nothing to do, and a caller that treats any
 nonzero exit as failure needs to know `10` is no longer expected.
+The indexer subprocess does not reload an already-running gateway; restart
+it to adopt that newly built index. A dry run never returns `10` or triggers
+automatic reindexing. The overall `sync_timeout_sec` bounds rclone attempts,
+retry backoff, and the post-sync check together; `0` explicitly removes that
+deadline.
 
 ## Related
 

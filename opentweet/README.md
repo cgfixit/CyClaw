@@ -23,9 +23,15 @@ Architecture and threat notes: [`docs/channels/OPENTWEET_DESIGN.md`](../docs/cha
 ## Consent boundaries
 
 - Topic comes from `--topic`, `--topic-file`, or `opentweet.topic_file`.
-- Fail-closed on empty retrieval, `needs_confirm`, online `model_used`, oversize answer, missing key. The size limits are `opentweet.max_post_chars` (ships `280`) and `opentweet.max_topic_chars` (ships `500`).
-- Logs/audit carry `hash_query(text)` + length + OpenTweet id — never the post body or Bearer token.
+- Fail-closed on query errors, empty retrieval, `needs_confirm`, online `model_used`, empty or rail-prefixed answers, oversize answers, and missing credentials. The size limits are `opentweet.max_post_chars` and `opentweet.max_topic_chars` in `config.yaml`.
+- Automatic scheduling requires the injection filter and screens both topic and answer. Answers containing URL/domain/email shapes, mentions, or hashtags are refused because this path cannot establish their provenance. Draft creation remains the review path.
+- Logs/audit carry keyed `query_fingerprint(text)` + length + OpenTweet id — never the post body or Bearer token. `post --dry-run` still calls the local `/query` endpoint and validates the answer, but does not call OpenTweet to create a post.
 - Exit codes: `0` ok · `2` refused/HTTP · `3` env/config.
+
+When `auth.enabled` protects `/query`, supply a named CyClaw device token
+through the environment variable selected by `opentweet.query.api_key_env`.
+The ops `CYCLAW_API_KEY` does not satisfy `/query`'s session/device-token
+authentication. OpenTweet's own `api_key_env` is a separate credential.
 
 ## Related
 

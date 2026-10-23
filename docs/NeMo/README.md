@@ -36,6 +36,12 @@ The loader's absent-key default remains disabled for compatibility.
 `test_shipped_config_yaml_guardrails_enabled_is_literal_true` pins the
 tracked configuration to enabled.
 
+The root configuration's rail lists select offline checks and the broker's
+deterministic fallback. The active live flows come from
+[`guardrails/config/config.yml`](../../guardrails/config/config.yml) and
+[`rails.co`](../../guardrails/config/rails.co). Changing the root lists alone
+does not change the live flow set.
+
 ## Request paths
 
 With the layer enabled, the broker checks input before the existing
@@ -103,7 +109,9 @@ claim-level fact verification.
 ## Grounding
 
 `guardrails/rails.py::grounding_score` computes token overlap as
-`len(answer ∩ context) / len(answer)`. `hallucination_threshold` is `0.18`.
+`len(answer_tokens ∩ context_tokens) / len(answer_tokens)` over sets of
+lowercased word tokens. Answers with no word tokens score 1.0; an answer with
+tokens and no context tokens scores 0.0. The shipped `hallucination_threshold` is `0.18`.
 The local answer's `answer_sources` supply the evidence. The broker passes
 an explicit scope flag so external and best-effort answers skip grounding
 while retaining soul-leak checks.
@@ -167,7 +175,9 @@ recorded in audit. Engine construction also enforces these constraints:
 - The cache key is `(policy_fingerprint, provider, model, endpoint, hallucination_threshold)`.
 - `nemo_config_dir` cannot escape through parent paths or symlinks, select
   `agentic/` roots, or include unexpected executable files.
-- An init lock, bounded semaphore, and per-key circuit breaker bound builds.
+- A lock protects cache/breaker state; a semaphore admits at most four
+  simultaneous builds and times out admission after 30 seconds. A per-key
+  circuit breaker limits repeated failures.
   Three failed builds delay the next attempt for 60 seconds. Existing engines
   remain available. Telemetry suppression runs before NeMo imports.
 

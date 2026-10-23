@@ -8,7 +8,8 @@ governance (non-empty human `reason` + injection scan on apply). Soul
 This package is the optional facts/episodes store on the RAG path.
 
 Every `memory:` switch in `config.yaml` ships `false`. With defaults, `/query`
-behavior matches pre-memory CyClaw. Failures in this layer never fail `/query`.
+behavior matches pre-memory CyClaw. Optional hooks catch memory failures so
+they do not fail `/query`; operator routes can still report store errors.
 
 ## Isolation
 
@@ -20,13 +21,19 @@ Routes live in `gate_memory.py` and lazy-import this package.
 
 | Module | Role |
 |---|---|
-| `store.py` | SQLite + FTS5, WAL, 0600, parameterized SQL |
+| `store.py` | SQLite + FTS5, WAL, private file permissions, parameterized SQL; schema versioning, active-fact limits, transactional proposal application, and episode retention |
 | `models.py` | `Fact`, `Episode`, `MemoryProposal` |
 | `policy.py` | Reason required, size/tag limits, normalized injection scan; malformed regexes warn and are skipped |
 | `retrieval_adapter.py` | Optional FTS fusion into hybrid search |
 | `mirror.py` | `/memory/status` dict + `GET /query/export/html` builder |
 | `flags.py` | Resolves `memory.facts.retrieval_enabled`; honors the legacy `facts.enabled` name with a one-time warning |
 | `selftest.py` | `python -m memory.selftest` |
+
+Episodes keep keyed query fingerprints by default, but also keep redacted
+answer summaries. `episodes.store_raw_query` separately enables redacted raw
+query storage. Fact retrieval needs all three switches: the memory master,
+`facts.retrieval_enabled`, and `retrieval_fusion.enabled`. Disabling retrieval
+does not erase stored facts or prevent governed proposal application.
 
 ## Operator contract
 

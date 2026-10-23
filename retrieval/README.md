@@ -18,11 +18,13 @@ precedes it.
 | `stemmer.py` | Porter-based stemmer with custom AI/DevOps/CyClaw vocabulary; avoids NLTK punkt (CVE surface). Pins `nltk==3.10.3` (closes a `PorterStemmer` DoS cluster) and caps every token at 256 chars before stemming as defense in depth (CVE-2026-81722). |
 | `clear_cache.py` | Dry-run-by-default embedding-cache cleaner (`--apply` to delete). The cache is a regenerable artifact; index/audit/soul are untouched. |
 
-Before #1522 merged, a corpus made only of empty or whitespace-only files
-produced zero chunks after `load_corpus` succeeded. `build_index` then reset
-the vector store and replaced BM25 with an empty index. Merged PR
-[#1522](https://github.com/cgfixit/CyClaw/pull/1522) (shipped 2026-10-03) adds a zero-chunk check
-before the writer is created.
+Corpus reads accept regular UTF-8 files within the corpus root and enforce
+`corpus.max_file_bytes` before and during each read. Escaping links,
+unreadable/undecodable files, and oversized files are skipped with warnings.
+A corpus that produces no chunks raises `CorpusEmptyError` before creating
+the vector writer, preserving the existing index. Non-ASCII chunks can still
+be indexed semantically even when the ASCII BM25 tokenizer finds no tokens;
+the build warns that those chunks have no keyword-search signal.
 
 ## Numbers that trip people
 

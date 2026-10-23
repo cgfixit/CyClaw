@@ -8,14 +8,12 @@ Optional, **default-off** facts + episodes store with propose/apply governance a
 
 Every switch in `config.yaml` → `memory:` is **false**. With defaults, behavior is identical to pre-memory CyClaw.
 
-`memory.facts.max_active` limits new active facts. Before #1523 merged,
-updating an inactive fact reactivated it without checking that limit. Merged PR
-[#1523](https://github.com/cgfixit/CyClaw/pull/1523) (shipped 2026-10-03) closes that gap for direct
-updates and proposal application.
+`memory.facts.max_active` limits active facts, including reactivation of an
+inactive fact by an update or proposal application.
 
 ## Enable progressively
 
-1. `memory.enabled: true` + `episodes.enabled: true` — stage query episodes (hashed query by default).
+1. `memory.enabled: true` + `episodes.enabled: true` — stage query episodes (keyed HMAC-SHA256 query fingerprints by default, plus redacted answer summaries and retrieval/model metadata).
 2. `propose_apply.enabled: true` + establish [operator access](../../README.md#api-key-setup-soul-mutations) — use `/memory/propose` then `/memory/apply`.
 3. `facts.retrieval_enabled: true` + `retrieval_fusion.enabled: true` — FTS fact hits fuse into `hybrid_search` as `retrieval_mode="memory"`.
 4. `export_html.enabled: true` — `GET /query/export/html` (auth-gated).
@@ -29,6 +27,12 @@ that has been applied stays stored and readable via `GET /memory/facts`
 regardless. (This is why the flag was renamed from `facts.enabled`, which read
 as a master switch that never existed. The old name still works and logs a
 one-time warning — see `memory/flags.py`.)
+
+`episodes.store_raw_query` is a separate opt-in to store redacted query text.
+Answer summaries are stored whenever episodes are enabled, even when raw
+queries are off; the memory database and HTML export therefore remain
+potentially sensitive. Episode retention uses `episodes.ttl_days`, pruned
+every `episodes.prune_every` staged episodes, rather than a background timer.
 
 ## Invariants
 
@@ -49,13 +53,13 @@ one-time warning — see `memory/flags.py`.)
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/memory/status` | Always 200 + flags with operator access |
-| GET | `/memory/facts` | 404 if master off |
-| GET | `/memory/episodes` | 404 if master off |
+| GET | `/memory/facts` | Active facts; 404 if master off; `limit`/`offset` pagination |
+| GET | `/memory/episodes` | Recent episodes; 404 if master off; `limit`/`offset` pagination |
 | GET | `/memory/proposals` | propose_apply gate |
 | POST | `/memory/propose` | body: action, content/fact_id, reason |
 | POST | `/memory/apply` | body: proposal_id, reason |
 | POST | `/memory/reject` | body: proposal_id, reason |
-| GET | `/query/export/html` | export_html gate |
+| GET | `/query/export/html` | Master + export_html gates; escaped HTML of recent episodes and active facts, not a complete database backup |
 
 ## Selftest
 
@@ -63,6 +67,8 @@ one-time warning — see `memory/flags.py`.)
 python -m memory.selftest
 ```
 
-## Design authority
+## Implementation and design
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md).
+Current behavior is implemented in [`gate_memory.py`](../../gate_memory.py)
+and [`memory/`](../../memory/README.md). See
+[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the design history.
