@@ -1,8 +1,8 @@
 # Tech Note — `StarletteDeprecationWarning` in the test suite (httpx / TestClient)
 
 **Status:** warning **filtered** (restored 2026-07-27, re-verified 2026-08-29, see below) · no runtime impact · `httpx2` migration still owed before a future Starlette major
-**Filed:** 2026-06-19 · **Updated:** 2026-09-28
-**Applies to:** `starlette==1.6.0`, `httpx==0.28.1`, `fastapi==0.141.1` (current pins; starlette and httpx are both **direct** pins in `pyproject.toml`, `requirements.txt`, and `constraints.txt` — starlette serves `gate.py`'s five middleware/request/response imports, httpx serves `llm/client.py`). The 2026-08-29 wheel inspection below was against `starlette==1.3.1`; that section already recorded the same TestClient shim in `1.6.0`.
+**Filed:** 2026-06-19 · **Updated:** 2026-10-23
+**Applies to:** `starlette==1.8.0`, `httpx==0.28.1`, `fastapi==0.143.3` (current pins since #1744; starlette and httpx are both **direct** pins in `pyproject.toml`, `requirements.txt`, and `constraints.txt` — starlette serves `gate.py`'s five middleware/request/response imports, httpx serves `llm/client.py`). The 2026-08-29 wheel inspection below was against `starlette==1.3.1`; on 2026-10-23 the `testclient.py` shim and its warning message were re-read unchanged in the `1.8.0` (pinned) and `1.9.0` (latest) wheels.
 
 **2026-07-27 regression + fix:** the `filterwarnings` entry described below as "Done
 2026-07-19" was silently dropped as collateral damage by an unrelated commit
@@ -32,14 +32,16 @@ published wheels on that date — none of it is recalled from the earlier entrie
   `warnings.warn("Using \`httpx\` with \`starlette.testclient\` is deprecated; install
   \`httpx2\` instead.", StarletteDeprecationWarning)`. With neither installed it raises
   `RuntimeError` demanding `httpx2` — that is the shape the eventual hard cutover takes.
-- **The migration trigger has not fired.** starlette's latest release is `1.6.0` — still
+- **The migration trigger has not fired.** starlette's latest release is `1.9.0` (2026-10-23) — still
   the 1.x line — and its `testclient.py` carries the *identical* shim and message, so any
   in-1.x starlette bump keeps the filter valid as-is.
-- **The message-only filter scoping is still load-bearing.** The conda lane's
-  `fastapi=0.115.9` resolves `starlette<0.46.0,>=0.40.0` (checked against fastapi 0.115.9's
-  published metadata), and the `starlette==0.45.3` wheel has no
-  `StarletteDeprecationWarning` class and no `httpx2` reference at all — a class-qualified
-  filter would still fail that lane at pytest startup.
+- **The message-only filter's original reason has lapsed (2026-10-23).** It was scoped that way
+  because the conda lane then installed `fastapi=0.115.9` from conda-forge, which resolves
+  `starlette<0.46.0`, and starlette 0.4x has no `StarletteDeprecationWarning` class. The conda
+  lane now installs `fastapi==0.143.3` and `starlette==1.8.0` from `environment.yml`'s `pip:`
+  tail, the same pins as the pip lane, so both lanes carry the class and both fire the warning.
+  The message-only filter still works in both lanes and is left as is; a class-qualified filter
+  would now parse too, but nothing requires the change.
 - **Classic `httpx` latest is still `0.28.1`** (only `1.0.dev*` pre-releases beyond it), so
   the runtime pin is current and the "do not fix this by bumping `httpx`" rule below stands.
 - **`httpx2` has matured**: latest is `2.12.0`, twelve stable minor releases past the
@@ -100,7 +102,7 @@ We currently pin:
 
 ```
 httpx==0.28.1        # classic httpx, 0.x line; direct pin (serves llm/client.py)
-starlette==1.6.0     # direct pin; fastapi==0.141.1 on the same pip path
+starlette==1.8.0     # direct pin; fastapi==0.143.3 on the same pip path
 ```
 
 `httpx==0.28.1` is the classic line, so the warning fires. `httpx2` exists on PyPI
@@ -138,11 +140,12 @@ warning is not silently ignored until it becomes a hard break.
    Pros: zero dependency churn. Cons: hides the signal; the underlying break still lands later.
    The filter is deliberately scoped by full message text (unique to this warning) rather than the
    broad `:DeprecationWarning` category originally sketched here. It is **not** class-qualified
-   (`:starlette.exceptions.StarletteDeprecationWarning`) on purpose: the conda lane
-   (`python-package-conda.yml`) installs `fastapi=0.115.9` → starlette 0.4x, where that class does
-   not exist, and pytest resolves filter categories at startup — a class-qualified filter fails the
-   whole lane with `AttributeError` before any test runs (observed 2026-07-19). Message-only parses
-   in both the pip lane (starlette 1.6.0) and the conda lane.
+   (`:starlette.exceptions.StarletteDeprecationWarning`) on purpose: when this was written the conda
+   lane installed `fastapi=0.115.9` → starlette 0.4x, where that class does not exist, and pytest
+   resolves filter categories at startup — a class-qualified filter failed the whole lane with
+   `AttributeError` before any test ran (observed 2026-07-19). Since then the conda lane
+   (`conda-ci.yml`) pip-installs `starlette==1.8.0` like the pip lane (`environment.yml`'s `pip:` tail);
+   message-only parses in both.
 
 3. **Migrate the test client to `httpx2`.** Add `httpx2` to the test/dev requirements so
    `starlette.testclient` picks it up. This is the direction Starlette is steering toward.
@@ -180,7 +183,7 @@ Before the next Starlette **major** bump: **Option 3** — add `httpx2` for the 
 re-validate the 12 files that import `TestClient` (see "Where the TestClient is used"). Two
 things about spotting that trigger, verified 2026-08-29:
 
-- `starlette==1.6.0` is a direct pin dependabot tracks (no `ignore` entry for it — only numpy
+- `starlette==1.8.0` is a direct pin dependabot tracks (no `ignore` entry for it — only numpy
   is ignored), so a 2.x bump **will** get a PR. But `.github/dependabot.yml` groups the whole
   pip ecosystem (`pip-all`, `patterns: ["*"]`, `open-pull-requests-limit: 4`), so the bump
   arrives **buried inside a grouped multi-dependency PR**, not as a standalone
@@ -188,7 +191,7 @@ things about spotting that trigger, verified 2026-08-29:
   wait for a PR named after it.
 - Do not migrate speculatively. The original reason ("httpx2 is still beta") no longer holds
   — `httpx2` is stable at 2.12.0 — but the calculus is unchanged: the shim still works, the
-  1.x line still ships it (confirmed through 1.6.0), and the migration's real cost is
+  1.x line still ships it (confirmed through 1.9.0, 2026-10-23), and the migration's real cost is
   re-validating 12 test files with no forcing event yet.
 
 Do **not** "fix" this by bumping the runtime `httpx==0.28.1` pin — that pin serves `llm/client.py`,
@@ -203,8 +206,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt -c constraints.txt
 # The pyproject.toml filter suppresses the warning by default; override it to reproduce
-# (pip path only — the class-qualified -W below needs starlette 1.x; the conda lane's
-# starlette 0.4x has no such class, and the warning does not fire there anyway):
+# (the class-qualified -W below needs starlette 1.x, which both lanes now install):
 GROK_API_KEY=dummy pytest tests/test_gate.py -q -W "always::starlette.exceptions.StarletteDeprecationWarning" 2>&1 | grep -i deprecat
 # -> StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
 ```
