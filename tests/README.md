@@ -64,7 +64,7 @@ trend, so it is non-blocking by construction.
 Bare `pytest` runs **no** coverage — the 80% gate (`fail_under` in
 `pyproject.toml` `[tool.coverage.report]`) applies only when CI's explicit
 `--cov=` flags are passed. Both `.github/workflows/ci.yml` and
-`.github/workflows/python-package-conda.yml` use one flag per entry in
+`.github/workflows/conda-ci.yml` use one flag per entry in
 `[tool.coverage.run] source`. Package flags such as `--cov=utils`,
 `--cov=retrieval`, and `--cov=sync` cover new nested modules automatically.
 A new top-level coverage source needs an entry in all three places;

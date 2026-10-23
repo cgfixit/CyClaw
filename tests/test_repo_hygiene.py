@@ -433,7 +433,7 @@ _PIP_WORKFLOWS = (
     "semgrep.yml",
     "nemo-guardrails.yml",
     "lora-finetune.yml",
-    "python-package-conda.yml",
+    "conda-ci.yml",
     "numbat-rules.yml",
     "python-publish.yml",
     "defender-for-devops.yml",
@@ -668,7 +668,7 @@ def test_python_publish_does_not_cache_pip() -> None:
 
 
 def test_conda_workflow_does_not_call_a_missing_root_verify_script() -> None:
-    text = (_WORKFLOWS / "python-package-conda.yml").read_text(encoding="utf-8")
+    text = (_WORKFLOWS / "conda-ci.yml").read_text(encoding="utf-8")
     code = "\n".join(_code_lines(text))
     if not (REPO_ROOT / "verify.sh").is_file():
         assert "./verify.sh" not in code

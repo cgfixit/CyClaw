@@ -362,7 +362,7 @@ def run_ci_pin_checks(root: Path, torch_pin: str | None) -> None:
                        "but misleads anyone auditing the ignore list)")
 
 
-# The conda CI lane (python-package-conda.yml) installs from this file, whose
+# The conda CI lane (conda-ci.yml) installs from this file, whose
 # own header says its pins must stay in sync with pyproject.toml and
 # constraints.txt. dependabot only touches the pip manifests, so these
 # hand-duplicated conda pins silently go stale otherwise -- which is exactly
@@ -430,7 +430,7 @@ def run_environment_pin_check(root: Path, py_reqs: list[Req], con_reqs: list[Req
 # property (set equality, both directions). The two run on different surfaces:
 # D10 is stdlib-only and runs in a fresh clone before any pip install, the
 # pytest contract runs in the test lane. Overlap is cheap; a gap is not.
-_CI_COV_FILES = (".github/workflows/ci.yml", ".github/workflows/python-package-conda.yml")
+_CI_COV_FILES = (".github/workflows/ci.yml", ".github/workflows/conda-ci.yml")
 _COV_FLAG_RE = re.compile(r"--cov=([A-Za-z0-9_.-]+)")
 
 

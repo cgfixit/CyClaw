@@ -31,7 +31,7 @@
 #
 # Rule scope and UP backlog notes preserved from prior ruff-up-alignment work.
 
-name: Lint
+name: Python lint (Ruff + advisory style)
 
 on:
   push:

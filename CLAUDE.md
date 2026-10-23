@@ -235,7 +235,7 @@ the test that pins each (`tests/test_due_diligence_invariants.py`).
   macOS block and its hashed lock.
 - **Trap:** moving the torch pin and touching only `requirements.txt`/
   `constraints.txt`. **Rule:** `environment.yml` (conda, `pytorch=2.13.0=cpu*`)
-  is a fourth surface, CI-gated by `python-package-conda.yml` and dep-guard D9;
+  is a fourth surface, CI-gated by `conda-ci.yml` and dep-guard D9;
   bump it in the same commit.
 - **Trap:** running `cyclaw-*` shims after only `pip install -r requirements.txt`.
   **Rule:** they exist only after `pip install -e .`; `python -m …` always works.

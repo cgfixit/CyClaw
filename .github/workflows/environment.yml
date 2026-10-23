@@ -5,7 +5,7 @@
 #
 # This no-op file reclaims the path with a real workflow that never auto-runs
 # (workflow_dispatch only). Conda CI remains:
-#   .github/workflows/python-package-conda.yml  → uses root environment.yml
+#   .github/workflows/conda-ci.yml  → uses root environment.yml
 name: "environment.yml (relocated — no-op)"
 
 on:
@@ -22,5 +22,5 @@ jobs:
       - name: Document relocation
         run: |
           echo "Conda env file: environment.yml (repo root)"
-          echo "Conda CI workflow: .github/workflows/python-package-conda.yml"
+          echo "Conda CI workflow: .github/workflows/conda-ci.yml"
           echo "This workflow is a no-op placeholder for the pre-c708148 path."

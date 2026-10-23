@@ -1,4 +1,6 @@
 # Pinned Bandit SAST + SARIF.
+# The legacy filename is part of GitHub's Bandit analysis key; retain it to
+# preserve the existing code-scanning configuration. This does not run Defender.
 #
 # Replaces microsoft/security-devops-action: that CLI installs Guardian
 # "Latest" and then pulls policy NuGet packages from
