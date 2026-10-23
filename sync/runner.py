@@ -1073,7 +1073,7 @@ def _run_sync_locked(
         # Clipped to whatever's left of the same wall-clock budget the retry loop
         # above already spent from -- see run_post_sync_check's remaining_budget_sec
         # docstring for why the check phase must not get its own fresh full budget.
-        if result.success and not dry_run and getattr(cfg, "post_sync_check", False):
+        if result.success and not dry_run and cfg.post_sync_check:
             remaining_for_check = (deadline - time.monotonic()) if (has_budget and deadline is not None) else None
             if remaining_for_check is not None:
                 # IEEE-754: (t+3600)-t can be 3600.0000000000005 on Windows.

@@ -242,22 +242,22 @@ def _write_windows_launcher(cfg: RcloneConfig) -> str:
 
 def _cron_expression(cfg: RcloneConfig) -> str:
     """Map the shared daily/weekly/monthly config onto five cron fields."""
-    frequency = getattr(cfg, "schedule_frequency", "daily")
+    frequency = cfg.schedule_frequency
     if frequency == "weekly":
-        return f"{cfg.schedule_min} {cfg.schedule_hour} * * {getattr(cfg, 'schedule_weekday', 0)}"
+        return f"{cfg.schedule_min} {cfg.schedule_hour} * * {cfg.schedule_weekday}"
     if frequency == "monthly":
-        return f"{cfg.schedule_min} {cfg.schedule_hour} {getattr(cfg, 'schedule_day', 1)} * *"
+        return f"{cfg.schedule_min} {cfg.schedule_hour} {cfg.schedule_day} * *"
     return f"{cfg.schedule_min} {cfg.schedule_hour} * * *"
 
 
 def _windows_schedule_args(cfg: RcloneConfig) -> list[str]:
     """Map the shared frequency config onto schtasks /SC and /D arguments."""
-    frequency = getattr(cfg, "schedule_frequency", "daily")
+    frequency = cfg.schedule_frequency
     if frequency == "weekly":
-        weekday = _WINDOWS_WEEKDAYS[getattr(cfg, "schedule_weekday", 0) % 7]
+        weekday = _WINDOWS_WEEKDAYS[cfg.schedule_weekday % 7]
         return ["/SC", "WEEKLY", "/D", weekday]
     if frequency == "monthly":
-        return ["/SC", "MONTHLY", "/D", str(getattr(cfg, "schedule_day", 1))]
+        return ["/SC", "MONTHLY", "/D", str(cfg.schedule_day)]
     return ["/SC", "DAILY"]
 
 
@@ -282,7 +282,7 @@ def _windows_cadence_drift_note(cfg: RcloneConfig, raw: str) -> str:
     live = _parse_schtasks_schedule_type(raw)
     if live is None:
         return ""
-    expected = getattr(cfg, "schedule_frequency", "daily")
+    expected = cfg.schedule_frequency
     if live == expected:
         return ""
     return (
@@ -763,7 +763,7 @@ def get_scheduler(cfg: RcloneConfig) -> CronScheduler | WindowsTaskScheduler | L
     raises SchedulerError.
     """
     sys_name = platform.system().lower()
-    backend = getattr(cfg, "scheduler_backend", "cron")
+    backend = cfg.scheduler_backend
     if backend == "launchd":
         if sys_name != "darwin":
             raise SchedulerError(
