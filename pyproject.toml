@@ -160,8 +160,8 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gate", "gate_ops", "gate_auth", "gate_memory", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils", "sync", "agentic", "guardrails", "telegram", "opentweet", "memory", "schemas"]
-omit = ["tests/*", "*/test_*", "*/__pycache__/*", "agentic/fsconnect/*", "agentic/netconnect/*"]
+source = ["gate", "gate_ops", "gate_auth", "gate_memory", "graph", "mcp_hybrid_server", "metrics", "llm", "retrieval", "utils", "sync", "guardrails", "telegram", "opentweet", "memory", "schemas"]
+omit = ["tests/*", "*/test_*", "*/__pycache__/*"]
 
 [tool.coverage.report]
 fail_under = 80
