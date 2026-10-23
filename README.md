@@ -103,7 +103,7 @@ Linux Quick Start, [Docker](docs/DOCKER.md) (`linux/amd64`, published on
 `127.0.0.1` only), or conda (`environment.yml`). The constrained editable
 install in the [setup guide](setup-guide.md) adds the `cyclaw-*` commands;
 `python -m …` always works. The hashed install locks and how they are
-regenerated are described in [locks/README.md](locks/README.md).
+regenerated, including targeted transitive upgrades, are described in [locks/README.md](locks/README.md).
 
 **Secrets.** `gate.py` reads environment variables, never dotenv files
 (`Invoke-CyClaw.ps1` reads only non-secret settings from an owner-only

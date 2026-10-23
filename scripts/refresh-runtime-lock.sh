@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+upgrade_args=()
+while [ "$#" -gt 0 ]; do
+  if [ "$1" != "--upgrade-package" ] || [ "$#" -lt 2 ] ||
+      ! [[ "$2" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "usage: $0 [--upgrade-package NAME]... (versions belong in constraints.txt)" >&2
+    exit 2
+  fi
+  upgrade_args+=(--upgrade-package "$2")
+  shift 2
+done
+
 repo_root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 uv_bin="${UV_BIN:-uv}"
 python_bin="${PYTHON_BIN:-python3.12}"
@@ -70,6 +81,7 @@ compile_lock() {
     --cache-dir "$cache_dir" \
     --custom-compile-command "scripts/refresh-runtime-lock.sh" \
     --output-file "$lock_dir/$output" \
+    ${upgrade_args[@]+"${upgrade_args[@]}"} \
     "$@"
   normalize_lock_comments "$lock_dir/$output"
 }
