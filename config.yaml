@@ -2,8 +2,6 @@
 # policy.prompt_filter patterns are compiled by utils/sanitizer.py with IGNORECASE | DOTALL.
 
 app:
-  name: "cyclaw"
-  env: "local"
   mode: "hybrid"  # "offline" | "hybrid"
 
 models:
@@ -49,7 +47,6 @@ models:
       model: "qwen3.8-27b-instruct"              # EXAMPLE ONLY — set to your LM Studio loaded model id when enabling
       probe_timeout_sec: 1.5                     # discovery only; generate still uses timeout_sec
   embeddings:
-    provider: "sentence-transformers"
     model: "all-MiniLM-L6-v2"
     dim: 384
     cache_dir: ".emb_cache"
@@ -221,9 +218,6 @@ memory:
 
 policy:
   fallback:
-    # Read by no code. External calls are governed by the I3 triple gate
-    # (app.mode, models.<provider>.enabled, per-request user confirmation).
-    enabled: true
     # Not wired: confirm-then-route is hardcoded in graph.py's user_gate_router.
     # Boot rejects any value but true, so false cannot pose as a live switch.
     require_user_confirm: true
