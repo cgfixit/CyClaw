@@ -148,6 +148,8 @@ CASES: dict[str, tuple[dict, set[str]]] = {
     "title-without-space-dash": (_case(title="[fix]- Fix"), {"title"}),
     "exempt-title-and-bot-branch": (_case(title='Revert "[fix] - Fix the thing"', branch="dependabot/pip/x"), set()),
     "deps-title": (_case(title="chore(deps): bump x", branch="renovate/x"), set()),
+    "amend-title": (_case(title="amend! [fix] - Fix the thing"), set()),
+    "legacy-amend-title": (_case(title="Amend! [fix] - Fix the thing"), set()),
     "tiny": (
         _case(body="tiny"),
         {
