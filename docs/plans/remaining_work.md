@@ -1,90 +1,72 @@
-# Remaining work
+# Remaining work and proposal dispositions
 
-> Historical snapshot, 2026-09-02. The statuses below are not a current checklist.
-> Guardrails now ships enabled with deterministic fallback when NeMo is unavailable.
-> Read [the NeMo reference](../NeMo/README.md), current `config.yaml`, and live
-> GitHub issues before using this snapshot to plan work.
-> Since 2026-10-18 the agentic GitHub layer, real-repo coding loop, UNSLOP rail
-> and SQL connector are gone (`docs/changelog.txt`, 2026-10-18 entry); rows below
-> that name `agentic.*`, `unslop.*`, `EXECUTION_ENABLED` or `real-repo-run*`
-> describe removed code.
+Reviewed 2026-10-23 against main at 246e406. This is a documentation status
+index for [#1745](https://github.com/cgfixit/CyClaw/issues/1745), not approval
+to implement new features. Code and configuration determine shipped behavior.
+The cleanup changes no runtime code, defaults, credentials, or provider policy.
 
-Live checklist as of **2026-09-02**, verified against `origin/main` `8baea94f`.
+## Existing work
 
-Code and `config.yaml` win. Re-list GitHub issues before acting.
-History of closed 2026-08-02 items lives in
-[`docs/zWork/remaining_work_STALE.md`](../zWork/remaining_work_STALE.md)
-(do not treat that file's old statuses or suggested order as current). It is
-retained because its contemporaneous refutation and containment rationale is
-not duplicated in full elsewhere. Design history:
-[`docs/ARCHIVE_AND_ROADMAP.md`](../ARCHIVE_AND_ROADMAP.md).
-NeMo current-state matrix: [`docs/NeMo/README.md`](../NeMo/README.md).
-Operator parking-lot / product ideas live in [`deploy/planning/todo.txt`](../../deploy/planning/todo.txt)
-and are **not** I1–I6 defects.
-
-Stable facts on this tip (do not "fix" them): graph is **12-node**;
-invariant-guard is **47/47**; write path is armed (`EXECUTION_ENABLED=True`)
-with `agentic.enabled: false` (both removed 2026-10-18); OOB packages stay six
-(`agentic` / `sync` / `guardrails` / `harness` / `telegram` / `opentweet`).
-MCP `tools/call` is still unwrapped (I6). Do not wire `safe_generate` into
-the graph. H1/H2/H3 are operating rules, not open tickets.
-
-## Shipped posture (re-read `config.yaml` before citing)
-
-| Surface | Ships as |
-|---|---|
-| `app.mode` | `hybrid` |
-| `models.grok` / `claude` | `enabled: true` (still triple-gated per query) |
-| `models.local_llm.model` | `qwen3.8:27b-mlx` |
-| `telegram.enabled` | `false` |
-| `telegram.mode` | `chat` (YAML; channel still off until `enabled: true`) |
-| `agentic.enabled` / `fsconnect.enabled` / `sync.enabled` / `memory.enabled` / `auth.enabled` | `false` (the `agentic:` block was removed 2026-10-18) |
-| `agentic.mode` / `writes_enabled` | `write` / `true` (held by master switch + reason + confirm; removed 2026-10-18) |
-| `unslop.enabled` / `guardrails.enabled` / `numbat.cel.enabled` | `false` (the `unslop:` block was removed 2026-10-18; guardrails now ships `true`) |
-| `numbat.enabled` | `true` (forensic projection; not an on-path policy plane) |
-
-## Still open in the tree (not GitHub issues)
-
-- **httpx2 / TestClient** — `httpx==0.28.1`; owed before a Starlette major. `docs/analysis/TESTCLIENT_HTTPX_DEPRECATION.md`
-- **`websockets` 15 → 16** — still `15.0.1`; blocked on `langgraph-sdk` import of `websockets.asyncio`
-- ~~**Agentic loop is GitHub-clone-only**~~ — moot: the loop was removed on 2026-10-18
-
-## Do not reopen (code is on main)
-
-- Spend ledger — [#975](https://github.com/cgfixit/CyClaw/pull/975); issue [#958](https://github.com/cgfixit/CyClaw/issues/958) **closed**
-- Numbat emitter + audit projection + hook runner + offline sequences — [#973](https://github.com/cgfixit/CyClaw/pull/973) / [#1033](https://github.com/cgfixit/CyClaw/pull/1033) / [#986](https://github.com/cgfixit/CyClaw/pull/986) / [#1037](https://github.com/cgfixit/CyClaw/pull/1037). Issues [#959](https://github.com/cgfixit/CyClaw/issues/959), [#963](https://github.com/cgfixit/CyClaw/issues/963), [#966](https://github.com/cgfixit/CyClaw/issues/966) **closed**
-- Numbat Slice A hook-verdict emit — [#1138](https://github.com/cgfixit/CyClaw/pull/1138). Ships `emit_verdict: false`
-- Numbat Slice B CEL monitor — [#1143](https://github.com/cgfixit/CyClaw/pull/1143). Ships `numbat.cel.enabled: false`. Do not import `cel-python` on `/query` while that flag is false
-- Numbat rules-test fixture job — [#981](https://github.com/cgfixit/CyClaw/pull/981); issue [#961](https://github.com/cgfixit/CyClaw/issues/961) **closed**. The `numbat-rules-fixture` job is now blocking ([#1500](https://github.com/cgfixit/CyClaw/pull/1500)): it succeeded on the last 30 main runs through `3552d790` (workflow run 36416247349 and the 29 before it). A pinned numbat 0.2.0 release-tarball outage would now fail the workflow
-- Graph outcome battery — [#969](https://github.com/cgfixit/CyClaw/pull/969) / [#971](https://github.com/cgfixit/CyClaw/pull/971) / [#976](https://github.com/cgfixit/CyClaw/pull/976); issue [#960](https://github.com/cgfixit/CyClaw/issues/960) **closed**
-- Groundedness evaluator — [#1048](https://github.com/cgfixit/CyClaw/pull/1048) (`tests/judge_eval.py`, opt-in `CYCLAW_EVAL_LIVE=1`). Issue [#962](https://github.com/cgfixit/CyClaw/issues/962) is **closed** (`not_planned`). A live judge run is operator eval, not a re-implement
-- Memory arena — issue [#964](https://github.com/cgfixit/CyClaw/issues/964) is **closed**. Do not reopen until a live groundedness report shows a retrieval miss
-- Agentic spend `source:"agentic"` + metrics split — [#1045](https://github.com/cgfixit/CyClaw/pull/1045) / [#1046](https://github.com/cgfixit/CyClaw/pull/1046). Ledger code is done
-- Unslop v1 — [#1029](https://github.com/cgfixit/CyClaw/pull/1029). Do not re-vendor `agentic/vendor/unslop/`
-- Auth unique-violation classification — [#1044](https://github.com/cgfixit/CyClaw/pull/1044) / [#1216](https://github.com/cgfixit/CyClaw/pull/1216) / [#1219](https://github.com/cgfixit/CyClaw/pull/1219) / [#1230](https://github.com/cgfixit/CyClaw/pull/1230). Integrity already held. Do not demand `INSERT … ON CONFLICT`
-- NeMo 4b `check_soul_leak` — [#1155](https://github.com/cgfixit/CyClaw/pull/1155). Enforced on offline `check_output`, in `DEFAULT_OUTPUT_RAILS`, and the Colang flow. [`docs/NeMo/phase4b_soul_leak.md`](../NeMo/phase4b_soul_leak.md) + [`docs/NeMo/README.md`](../NeMo/README.md). (The stale “NOT YET FULLY IMPLEMENTED” comment this line once pointed at is gone from `config.yaml`.)
-- **#1134 NeMo program** — [#1134](https://github.com/cgfixit/CyClaw/issues/1134) **closed** (2026-08-27); `nemoguardrails==0.24.0`. Still do not wire `safe_generate` into the graph
-- Unslop v1.1 leftover (doc-sync + measurement plan) — issue [#1129](https://github.com/cgfixit/CyClaw/issues/1129) **closed** via [#1270](https://github.com/cgfixit/CyClaw/pull/1270) (plan header corrected). Measurement itself is still unrun; do not re-vendor or re-wire
-- Authn process-local lock / unique-violation classification — issue [#1252](https://github.com/cgfixit/CyClaw/issues/1252) **closed** via [#1273](https://github.com/cgfixit/CyClaw/pull/1273). Window is documented-open-by-design (constraint stays the arbiter); do not demand `INSERT … ON CONFLICT`
-- Eval planes (added 2026-09-16) — deterministic retrieval gate [#1399](https://github.com/cgfixit/CyClaw/pull/1399) and the local dogfood recipe [#1400](https://github.com/cgfixit/CyClaw/pull/1400) are on main; the live M5 Pro matrix + recovery walk for [#1395](https://github.com/cgfixit/CyClaw/issues/1395) is recorded in [`docs/audits/2026-09-12_Local_Qwen_Dogfood_Matrix.md`](../audits/2026-09-12_Local_Qwen_Dogfood_Matrix.md). [#1398](https://github.com/cgfixit/CyClaw/issues/1398) slices C (52-case fixture with `injected_content`, [#1410](https://github.com/cgfixit/CyClaw/pull/1410)) and D (local judge + calibration + trend, [#1411](https://github.com/cgfixit/CyClaw/pull/1411)) are drafts. Do not scaffold `evals/`, add RAGAS/DeepEval, or put an LLM judge on required CI. Map: [`docs/EVALS.md`](../EVALS.md)
-
-Closed since the 2026-08-16 snapshot and not in the open table: [#958](https://github.com/cgfixit/CyClaw/issues/958), [#961](https://github.com/cgfixit/CyClaw/issues/961), [#962](https://github.com/cgfixit/CyClaw/issues/962), [#963](https://github.com/cgfixit/CyClaw/issues/963), [#964](https://github.com/cgfixit/CyClaw/issues/964), [#965](https://github.com/cgfixit/CyClaw/issues/965), [#966](https://github.com/cgfixit/CyClaw/issues/966), [#974](https://github.com/cgfixit/CyClaw/issues/974), [#1134](https://github.com/cgfixit/CyClaw/issues/1134), [#1129](https://github.com/cgfixit/CyClaw/issues/1129), [#1252](https://github.com/cgfixit/CyClaw/issues/1252).
-
-## Open GitHub issues (re-list before acting)
-
-Of the five OPEN issues this file originally tracked as of the 2026-09-02
-verification, two ([#1129](https://github.com/cgfixit/CyClaw/issues/1129),
-[#1252](https://github.com/cgfixit/CyClaw/issues/1252)) have since closed —
-moved to "Do not reopen" above. The table below covers the three that remain
-open of that original set; re-list the full open-issue set on GitHub before
-acting, since new issues may have opened since this snapshot that this file
-does not yet track. Consult each issue body for optional, non-blocking
-cleanup that is not part of its closure gate.
-
-| # | Title | What is actually left |
+| Area | Current state | Disposition and evidence |
 |---|---|---|
-| [#1013](https://github.com/cgfixit/CyClaw/issues/1013) | Agentic spend ledger | Code ACs on main. Close-out was live-key Leg 1 (`tests/spend_live_probe.py`) + Leg 2 (`real-repo-run-plan --confirm-online`). Leg 2 can no longer run: the agentic planner was removed on 2026-10-18, so only Leg 1 remains. Do not rebuild the emitter |
-| [#1128](https://github.com/cgfixit/CyClaw/issues/1128) | Numbat remainder | Slices A+B on main. Left: Slice C parked (on-path sequence policy needs a hashed session/checkpointer; #1071 keeps the offline detector off `/query`) and Slice D tracking (`source_agent` stays `"unknown"` until upstream accepts `cyclaw`) |
-| [#1255](https://github.com/cgfixit/CyClaw/issues/1255) | chromadb CVE / sqlite-vec | PostHog path is dead code at pin 1.5.9. Cheaper half **shipped** in #1268 — `utils/telemetry_kill.py`'s `CONTRACT_DIGEST` + `verify_telemetry_contract()` hash-pins the kill maps and the `vector_store.py` `Settings(anonymized_telemetry=False)` sites, called from `gate.py` at boot (confirmed present on `81ac7c7e44cc`, 2026-09-21 — a stale 2026-09-21 issue comment claimed otherwise; do not trust that comment). Phase C spike **DONE** (2026-09-21, PR #1436): `enable_load_extension`/`sqlite_vec.load()` confirmed working on Linux+Windows, cosine scores byte-identical to Chroma's — but macOS is **CONFIRMED BROKEN**, not merely unverified: GitHub Actions' macOS Python 3.12 build compiles `_sqlite3` without loadable-extension support at all (see `docs/audits/2026-09-21-sqlite-vec-phase-c-spike.md`). Left: Phase D (the real backend) is blocked pending a binding-evaluation decision — accept a macOS regression from Chroma's current 3-OS parity, or spike `pysqlite3-binary`/`apsw` as an alternate sqlite3 driver (its own new-dependency diligence) — see the issue's phased-plan comments |
+| Retrieval quality and backend | Chroma and pgvector ship. sqlite-vec remains a spike, not a production adapter. pgvector fingerprint handling, indexing metadata and backend-selected evaluation remain incomplete. | Continue [#1657](https://github.com/cgfixit/CyClaw/issues/1657): retrieval acceptance before an opt-in backend. Keep [SQLite platform evidence](../audits/2026-09-21-sqlite-vec-phase-c-spike.md) and [reranker measurements](../audits/2026-09-26-reranker-bakeoff.md). No threshold/default-backend change is approved here. |
+| Published answer quality | Evaluators exist, but the judge/calibration and full-fixture live-model evidence listed in [EVALS](../EVALS.md#what-has-not-been-measured) is not published. | Acceptance remains unverified; defer live runs to separately authorized work. Do not build another evaluator. |
+| Local-model comparison | The [October 10 report](../bakeoff/local-model-bakeoff-2026-10-10.md) has no committed runner, temporary result references, conflated injection/completion scores, and nominal long prompts measured at 88 tokens in one lane. | Retain as preliminary, no winner. A future run needs reproducible code, safe raw artifacts, separate safety/completion scoring and actual prompt lengths. |
+| Audit reconciliation | No maintained audit-verify command or live log hash-chain/external anchor. The docs export prototype did not establish its advertised integrity guarantees. | Prototype retired; [observations preserved](../audits/2026-10-23-docs-reconciliation.md#audit-export-prototype). Reconciliation and tamper-evident logging are separate deferred designs; no implementation in this cleanup. |
+| Telegram | T0–T3 and partial T4 ship; T4 needs a platform refusal before download and a durable receipt/re-ack recovery policy. | Keep default-off media and [T4 limitations](../channels/TELEGRAM_DESIGN.md#t4--media--fsconnect-optional-high-risk--partial). Live operator acceptance remains unverified. |
+| OpenTweet | Implementation exists; live posting acceptance is not recorded as complete. | Preserve [design and limits](../channels/OPENTWEET_DESIGN.md); do not send posts to complete documentation. |
+| Filesystem connector | Incremental staging, guarded writes, native Windows reads and CLI reveal ship. Watch-triggered indexing, OCR, real quarantine, Windows writes, ACL reporting and terminal reveal remain proposals. | Deferred; see [fsconnect roadmap](../work/FSCONNECT_SQL_ROADMAP.md). Keep Windows writes refused. |
+| Credential lifecycle | Key-store setup/loading and explicit uninstall deletion ship on both platforms. | [macOS scheduled rotation](MACOS_BASH_SETUP_AND_KEY_LIFECYCLE.md#remaining-work) and [legacy Windows error classification](WINDOWS_POWERSHELL_SETUP_AND_KEY_LIFECYCLE.md#remaining-work) remain deferred. |
+| Numbat | Projection ships on; hook/CEL code exists and ships off. Rolling-stream scoring is not built. | Keep the [layer matrix and evidence](NUMBAT_AND_ALWAYS_ON_ROADMAP.md). Defer stream observation/alerts; on-path sequence enforcement still needs session/checkpointer design. |
+| Dependencies and CI | Historical version lists are not current upgrade instructions. | Use maintained locks, [#1702](https://github.com/cgfixit/CyClaw/issues/1702) and [#1709](https://github.com/cgfixit/CyClaw/issues/1709); refresh their state before acting. |
 
-Ignore PR #415 if it reappears (it is **closed**; still skip it during agentic coding if reopened).
+## Optional proposals: retained, not approved
+
+All rows below are deferred. Retention preserves an idea, not a promise to build
+it. Recheck the implementation and user need before opening focused work.
+
+| Proposal | Preserved rationale / constraint |
+|---|---|
+| [Mailtag](../mailtag/IMPLEMENTATION_PLAN.md) | No package, gateway module, config or adapters exist. Provider authentication and explicit propose/review/apply mutation semantics need a fresh design review. |
+| [Guided Markdown corpus authoring](../zIdeas/Features_and_Security_notes.md) | A small operator-facing authoring flow may help; no new UI is approved. |
+| Read-only corpus layout report | Independent surviving idea from the [retired Waku plan](../ARCHIVE_AND_ROADMAP.md#retired-plans). Compare with existing index diagnostics before adding a module. |
+| [CVE-triage / release-cut skills](../work/PROPOSED_SKILLS.md) | Check overlap with maintained dependency and verification skills first. |
+| [Audited runtime provider controls](../work/online-llm-grok-claude.md) | Configuration authority differs from per-request online consent; preserve I3. |
+| [OpenAI cloud fallback](../analysis/2026-08-02_cyclaw-current-codebase-openai-integration-deep-dive.md) | Core fallback is Local/Grok/Claude. Old harness-specific proposals are retired; a new cloud provider needs separate approval. |
+| Corpus-source allowlist for cloud context | Pattern redaction cannot certify absence of confidential meaning. Source eligibility is a separate possible control if context forwarding is enabled. Current provider context-forwarding defaults remain false. |
+| Cross-file content deduplication | Incremental staging hashes changed files; eliminating duplicate content across different source paths is a separate proposal. |
+| Read-only OS inventory / governed OS actions | Distinct from passive netconnect. New authority and platform behavior require a concrete need; no osconnect package is promised. |
+| IMAP/EWS, SIEM and direct-SMB connectors | Research only; not obligations to expand the connector set. |
+| Shared connector abstraction | No automatic extraction threshold. Reuse existing boundaries until a real caller demonstrates the need. |
+| [Portable audit evidence, retention and matter/client tags](../work/PSYCLAW_FEATURE_IDEAS.md) | Product hypotheses, not supported compliance guarantees. Existing memory/personality retention does not implement audit-log erasure. |
+| Published-image/license scanning or a second scanner | Salvaged from the retired CVE runbook. Reassess current CI and overlap before adding tools. |
+| Full cross-browser console acceptance | Preserve [completed UX evidence](../console-ux.md); no complete Edge/Firefox/Brave matrix is claimed. |
+| MFA, automatic memory consolidation and microVM isolation | Intentional optional designs, not missing mandatory capabilities. Preserve human governance and the trusted-operator deployment scope. |
+
+## Completed or retired: do not reopen from old checkboxes
+
+- [#1013](https://github.com/cgfixit/CyClaw/issues/1013) is closed completed.
+  Its removed agentic acceptance leg is not a reason to rebuild that subsystem.
+- [#1128](https://github.com/cgfixit/CyClaw/issues/1128) is closed not planned.
+  Hook and CEL implementation status is in the Numbat matrix above.
+- [#1255](https://github.com/cgfixit/CyClaw/issues/1255) is superseded by #1657.
+- SQL-specific live-DB CI, NL-to-SQL, dialect/EXPLAIN expansion, cost limits and
+  redaction tasks retired with sqlconnect on 2026-10-18.
+- Harness executor, approval decorators, proposal fingerprints, live Deep Agents
+  smoke tests, persistent harness checkpointers, registry skill surfacing,
+  cloud harness provider parity and its memory-size tunable retired with their
+  execution paths. They are not current CyClaw fixes.
+- The old harness instruction-scanner proposal retired with its API. The
+  offline-best-effort guardrail routing gap was already closed.
+- Changing fsconnect advisory scanning into enforcement is an explicit operator
+  policy decision, not a documentation fix.
+- Session-start sync checking is already wired; do not rebuild it.
+- Console first-run, health disclosure, elapsed indexing time, route/model copy
+  and error vocabulary are implemented; see [current UX notes](../console-ux.md).
+
+## Cleanup boundary
+
+Use [the archive index](../ARCHIVE_AND_ROADMAP.md) for exact historical versions
+and [the reconciliation record](../audits/2026-10-23-docs-reconciliation.md) for
+preservation and verification scope. Issue #1745 remains the follow-up ledger;
+this documentation cleanup does not claim the deferred runtime work is done.

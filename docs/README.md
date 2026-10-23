@@ -1,7 +1,7 @@
 # `docs/` — documentation map
 
-Pointers only — each linked document is the authority for its area
-(`config.yaml` owns every number; when docs and code disagree, code wins).
+Current guides, dated evidence and proposals are distinguished below.
+`config.yaml` owns every number; when docs and code disagree, code wins.
 This index exists so agents and humans can find the right document without
 grepping.
 
@@ -30,7 +30,7 @@ grepping.
 | `EVALS.md` | Benchmarks and evals: the four planes (PR retrieval gate, operator dogfood, Anthropic judge, local judge + calibration), what has been measured with dates and commits, and what has not. Dated run records go to `audits/`. |
 | `DOCKER.md`, `SECCOMP_EBPF_HARDENING.md`, `POSTGRES_BACKEND.md` | Deployment: containers, hardening (see also `../deploy/README.md`), Postgres backends. |
 | `m5-48gb-coding-expectations.md` | Local-model doctrine for the shipped Ollama tag: context budget, timeouts, and the no-stall arithmetic. The only doc `doc-sync`'s D7 check cross-references against `config.yaml` + `macos/ollama-mlx.env`. |
-| `ARCHIVE_AND_ROADMAP.md` | Where moved documents went, and the forward-looking roadmap. |
+| `ARCHIVE_AND_ROADMAP.md` | Retirement decisions and exact historical versions; [remaining work](plans/remaining_work.md) separates active tracking from deferred proposals. |
 | [`online-llm/readme.md`](online-llm/readme.md) | Provider contracts, consent, and billing. |
 | [`NeMo/README.md`](NeMo/README.md), [`../guardrails/README.md`](../guardrails/README.md) | Default-enabled guardrails, required NeMo installation, deterministic fallback, route scope, and inactive model-assisted rails. The dated [Track B record](audits/2026-10-03-nemo-track-b.md) separates runtime, Computer Use, and CI evidence. |
 | [`security-philosophy/numbat_pre_action_gate.md`](security-philosophy/numbat_pre_action_gate.md), [`security-philosophy/numbat_secondary_evaluator.md`](security-philosophy/numbat_secondary_evaluator.md) | The default-off deny-only external-call hook and the separate default-on observation stream. |
@@ -40,12 +40,14 @@ grepping.
 
 | Tree | Convention |
 |---|---|
-| `audits/` | Dated audit and report documents land here. |
-| `memories/` | Live agent memory (the only sanctioned location — `.claude/memory/` is legacy). |
-| `work/` | Active planning docs (e.g. `work/MACOS_LAUNCHD_INTEGRATION_PLAN.md`, session notes). |
-| `plans/` | Living forward-looking roadmaps (e.g. `plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md`). Plans, not authorities — the code and `config.yaml` still win. |
+| `audits/` | Historical evidence, scoped to each recorded revision and environment; not current acceptance. The [2026-10-23 reconciliation](audits/2026-10-23-docs-reconciliation.md) records cleanup provenance. |
+| `memories/` | Ignored local agent memory plus a retained tracked June 30 audit. Ignore rules do not untrack historical content; obsolete zOld copies were removed. |
+| `work/` | Planning and session records, including historical plans for removed agentic features. Check each record against current code before treating it as active work. |
+| `plans/` | [Current tracking and proposal dispositions](plans/remaining_work.md), platform status notes, and historical design material. No plan grants implementation approval. |
 | `mailtag/IMPLEMENTATION_PLAN.md` | **DRAFT** mailtag (provider-neutral email tagging) plan. Not shipped, not a graph node, not approved. Do not implement from this file without an explicit owner sign-off. |
-| `analysis/`, `zIdeas/`, `zWork/`, `! How-To-Guides/`, `screenshots/` | Working material and archives; not authorities. |
+| `analysis/`, `zIdeas/`, `zWork/`, `! How-To-Guides/` | Research, historical decisions and operator guides; check each document's status and source revision. |
+| [`screenshots/`](screenshots/README.md) | Preserved media with current references distinguished from retired-harness captures. |
+| [`console-ux.md`](console-ux.md) | Completed UX behavior and acceptance rationale, replacing the retired implementation plan. |
 | [`bakeoff/local-model-bakeoff-2026-10-10.md`](bakeoff/local-model-bakeoff-2026-10-10.md) | Latest of two ordered local-tag passes on 2026-10-10. The earlier pass is a comparison line. Picks no winner. Not a shipped-tag change. The measurement script is not stored in this repo. |
 
 Keep each `##` section understandable on its own. The indexer uses overlapping

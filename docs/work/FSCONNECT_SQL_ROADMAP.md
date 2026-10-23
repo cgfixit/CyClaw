@@ -1,152 +1,54 @@
-# CyClaw Connectors — Staged Roadmap (`fsconnect` / `sqlconnect` and beyond)
+# Filesystem connector: shipped behavior and deferred proposals
 
-> **Status update — 2026-10-18 (agentic removal):** `agentic/sqlconnect/` was removed from the repository (`docs/changelog.txt`, 2026-10-18 entry), so the SQL phases below are closed, not open. The fsconnect, audit-hardening and other-connector items are unaffected. `agentic/netconnect/` is the other connector that remains.
->
-> **Status update — 2026-09-06 (docs review, Claude Code):** PARTIAL. FS Phase 2 (write-enablement) is fully shipped as the doc's own 2026-08-02 correction says. Verified still-open items: no hash-chain audit anywhere in `utils/logger.py` (grep clean), no `tesseract`/`pytesseract` OCR integration, quarantine is still advisory-only (`agentic/fsconnect/indexer.py:14` says "roadmap: quarantine"), Windows writes remain hard-refused (`agentic/fsconnect/pathsafe.py` — `_windows_writes_refused`), SQL NL→SQL/more-dialects are unbuilt (`agentic/sqlconnect/` has no such code), and MSSQL EXPLAIN is still explicitly refused (`agentic/sqlconnect/client.py:654-656`). `agentic/netconnect/` now exists (passive LAN inventory, disabled by default) as a different connector than the "OS-level inventory"/`osconnect` item sketched here — no `agentic/osconnect/` package exists.
->
-> **What's left:**
-> - Hash-chain/tamper-evident audit (still the RFP-disqualifier gap named in this doc)
-> - FS Phase 3 (OCR, real quarantine, incremental reindex) and FS Phase 4 Windows write authority
-> - The terminal.html "Open file share" endpoint (still unbuilt). SQL Phase 2 is closed: the SQL connector was removed on 2026-10-18.
+Reviewed 2026-10-23 against main at 246e406 for [#1745](https://github.com/cgfixit/CyClaw/issues/1745).
+The filename is retained for existing references. SQL connector planning is
+retired: sqlconnect was removed on 2026-10-18. The
+[previous roadmap](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/work/FSCONNECT_SQL_ROADMAP.md)
+preserves the old SQL and connector research.
 
-> Status: **v0.1 shipped** — `agentic/fsconnect/` (scoped reads + gated, confined
-> writes + toggleable corpus indexing) and `agentic/sqlconnect/` (read-only SQL
-> scaffold, disabled). Both are out-of-band, opt-in, and disabled by default. This
-> document is the forward plan for deferred and additional capabilities. Every item
-> below stays **governed, gated, audited, and out-of-band** (never imported by
-> `gate.py` / `graph.py` / `mcp_hybrid_server.py`).
+## Shipped behavior
 
-## Design invariants every phase must hold
+- [fsconnect](../../agentic/README.md) provides scoped reads and gated
+  POSIX writes, trash/quota controls, rate limits and audited operations.
+- [Incremental staging](../../agentic/fsconnect/indexer.py) compares file metadata,
+  hashes changed content and prunes its own stale staged copies. It is not an
+  OS watch service or cross-source content-deduplication system.
+- Windows read/list/stat use native handle-based containment. Native adversarial
+  coverage lives in tests/test_fsconnect_pathsafe_windows.py. Windows writes
+  remain hard-refused.
+- The CLI reveal operation opens an approved root in the OS file manager.
+- [netconnect](../../agentic/README.md) is the other remaining
+  connector; it supplies passive network inventory, not general OS inventory.
 
-- **Out-of-band isolation.** New code lives under `agentic/<connector>/` and is run
-  only via `python -m agentic.<connector>.cli`. The both-direction AST guard in
-  `tests/test_agentic_isolation.py` (recursive) must keep passing.
-- **Topology = policy.** No connector becomes a LangGraph node or LLM caller.
-- **pathsafe is the only filesystem authority.** Reads and writes both validate
-  through `agentic/fsconnect/pathsafe.py`; never reintroduce string-based path checks.
-- **Gated mutation.** Any new write/mutating capability reuses the four-gate pattern
-  (`enabled` + explicit flag + human `reason` + `confirm`) and audits every action.
-- **Compliance-as-features.** Each capability maps to a control (NIST 800-171 / CMMC /
-  HIPAA / SOC 2) that becomes a selling point.
+The [write playbook](../agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md) and
+[security checklist](../agentic/FSCONNECT_SECURITY_REVIEW_CHECKLIST.md) remain
+the maintained write-enablement documentation.
 
----
+## Deferred proposals
 
-## Filesystem connector — next phases
+None is implemented by the documentation cleanup.
 
-### FS Phase 2 — production write-enablement
+| Proposal | Current limit and requirement before implementation |
+|---|---|
+| Watch-triggered reindex | No FSEvents/inotify/ReadDirectoryChangesW service. Events must be advisory triggers; every read re-enters scoped authority. Overflow, coalescing and root changes require rescan. |
+| Cross-source content deduplication | Hashing changed files does not eliminate identical content at different paths. Preserve provenance if deduplication is pursued. |
+| Offline OCR | No local OCR integration. Needs a real corpus need and dependency review. |
+| Quarantine and human release | Indexing flags suspicious content advisory-only; flagged content is not routed to a maintained release queue. |
+| Windows write authority | Keep writes refused until equivalent handle-relative mutation containment is implemented and verified natively. |
+| NTFS ACL advisory output | Not part of the current fs_stat result. Optional least-privilege reporting, not a replacement for containment. |
+| Terminal file-share reveal | CLI reveal exists; a browser-triggered action needs a separately reviewed request/authorization boundary. |
+| Audit reconciliation | No audit-verify command. A small intent/applied/failed checker would be separate from cryptographic integrity. |
+| Tamper-evident audit | No live record hash chain with a trusted external anchor. Export-time hashes do not establish original-log history. |
+| Read-only OS inventory, governed OS actions, IMAP/EWS, SIEM or direct SMB | New connector proposals only; no automatic commitment or shared-base extraction. |
 
-**[Status correction 2026-08-02]: this phase has shipped, verified against
-current code — treat the bullets below as a historical description of the
-plan, not open forward work.** `FsWriter.fs_delete` (`agentic/fsconnect/writer.py:550`)
-implements the trash-vs-purge distinction behind the destructive gate;
-`agentic/fsconnect/trash.py` and `agentic/fsconnect/quota.py` both exist; write
-rate-limiting reuses `utils.ratelimit.RateLimiter` per-root and globally
-(`writer.py:373-388`). Both docs this phase called for also exist:
-`docs/agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md` and
-`docs/agentic/FSCONNECT_SECURITY_REVIEW_CHECKLIST.md`.
+## Boundaries to preserve
 
-- Operator playbook + security review checklist for flipping `writes_enabled: true`.
-- `fs_delete` behind the destructive gate (`--confirm` + `--reason`), with a
-  trash/soft-delete option instead of unlink.
-- Quotas per writable root; write rate-limiting reusing `utils/ratelimit.py`.
+I6 keeps connectors out of the core graph. A connector must not become an LLM
+caller or graph node. Filesystem access uses the maintained pathsafe authority,
+not string-prefix checks. Mutations retain enablement, explicit confirmation,
+human reason and audit controls. Advisory scan enforcement remains an explicit
+operator policy decision; this roadmap changes no defaults.
 
-### FS Phase 3 — incremental indexing & richer corpus
-- Watch-based incremental reindex (`inotify` on Linux / `ReadDirectoryChangesW` on
-  Windows / FSEvents on macOS) instead of full restage; content de-duplication
-  by sha256. FSEvents paths are advisory triggers, never access authority:
-  every read must re-enter `ScopedRoots` held-fd descent. Coalesced, dropped,
-  root-change, or overflow events force a full rescan, which remains the source
-  of truth. No FSEvents dependency, daemon, state database, or enabled indexing
-  is part of the current macOS work.
-- Local OCR for scanned PDFs/images (Tesseract, fully offline) before ingestion.
-- **Quarantine of injection-flagged content**: today the indexer flags
-  OWASP∪banned-pattern hits advisorily; Phase 3 routes flagged files to a quarantine
-  area and requires human release before they enter the corpus.
-
-### FS Phase 4 — Windows hardening (read authority and native CI shipped)
-- Read/list/stat now open once with `CreateFileW`, reject reparse traversal,
-  verify the opened handle with `GetFinalPathNameByHandleW`, and consume that
-  same handle. The canonical root and every ancestor are held without delete
-  sharing, and root identity is checked before and after target open.
-  Windows writes remain hard-refused pending equivalent handle-relative
-  mutation authority (`tests/test_fsconnect_pathsafe_windows.py`).
-- The blocking Windows CI leg runs a native adversarial fixture module covering
-  junction swaps, root replacement, held-handle read/list behavior, hostile
-  UNC/device/ADS/trailing-dot targets, and the Windows write refusal. The broad
-  POSIX module remains skipped on Windows because it tests `openat` semantics.
-- Per-root NTFS ACL inspection surfaced in `fs_stat` (advisory least-privilege check).
-
-### Audit hardening (connector-wide, high buyer value)
-- **Hash-chain / append-only tamper-evident audit** — the regulated-buyer RFP
-  disqualifier. Chain each `audit.jsonl` record to the prior record's hash and store
-  the head where deployer access cannot rewrite history. Still open — no
-  chain/tamper/prev-hash construct exists anywhere in `utils/logger.py` or
-  `agentic/fsconnect/` as of 2026-08-02.
-- ~~Add a plain-language **"rule applied"** field to each audited action (the
-  human-readable reason an op was allowed/denied) for auditor
-  reconstructability.~~ **[Status correction 2026-08-02]: shipped, ahead of
-  this doc.** Every audited fsconnect event already carries a `rule_applied`
-  field (`agentic/fsconnect/writer.py:28` states it as a design invariant;
-  concrete emission sites throughout `writer.py`, e.g. lines 139, 403, 478).
-
----
-
-## SQL connector — next phases
-
-> **Closed 2026-10-18:** the SQL connector (`agentic/sqlconnect/`) was removed
-> from the repository, so nothing in this section will be built on it. Kept as
-> the design record if a SQL connector is ever proposed again.
-
-### SQL Phase 2 — usability behind the read-only guard
-- Live-DB integration tests (Postgres + MSSQL) in a dedicated CI service container so
-  the `# pragma: no cover` connect/execute paths are exercised.
-- Schema-aware **NL→SQL** helper (operator-driven, content-agnostic): a generated
-  query still passes `assert_read_only_sql` before execution — generation never
-  bypasses the guard.
-- More dialects (MySQL/MariaDB, Oracle, SQLite); per-query cost caps; row-level
-  PII redaction reusing `policy.privacy`.
-- EXPLAIN pre-checks — **[Status correction 2026-08-02]: partially shipped.**
-  `SqlConnectClient.explain` (`agentic/sqlconnect/client.py:521`) already runs a
-  plain (non-`ANALYZE`) `EXPLAIN` before execution for Postgres, but explicitly
-  refuses the `mssql` driver (`client.py:531-533`). MSSQL EXPLAIN support
-  remains open.
-
----
-
-## OS-level agentic integration (Windows & Linux) — deferred, low-risk first
-
-> Staged from lowest to highest risk. All read-first, allow-listed, dry-run-default,
-> with any mutation behind the four-gate pattern and a hard **no-egress** rule.
-
-1. **(seeded in v0.1)** `agentic.fsconnect.cli reveal` — open a writable root in the
-   OS file manager (`explorer` / `open` / `xdg-open`; argv-list, out-of-band,
-   operator-run). Already shipped as `agentic/fsconnect/osutil.py`.
-2. **terminal.html "Open file share" button** — *deferred.* Requires a request-path
-   endpoint in `gate.py`, which touches the loopback API surface and therefore gets
-   its own isolation + security review before implementation. Sketched here, not built.
-3. **Read-only system inventory** — process/service listing (`tasklist` / `ps`,
-   `Get-Service` / `systemctl`), scheduled-task inventory (`schtasks` / cron /
-   systemd timers), Windows registry **read**, event-log / journald tailing. Each is
-   a new allow-listed, argv-list, audited op in an `agentic/osconnect/` package
-   mirroring the connector recipe; read-only first.
-4. **Governed OS actions** (later, high-risk) — start/stop a service, run an
-   allow-listed maintenance script: only behind the four-gate pattern, confined to an
-   operator-curated allow-list, dry-run by default, fully audited, never via the shell.
-
----
-
-## Other connectors worth building for this ICP
-
-- **On-prem IMAP / Exchange (EWS), retrieval-only** — surfaces mailbox content
-  without a cloud Graph proxy; "send" stays out of scope / behind a future gate.
-- **On-prem SIEM (Splunk / Elastic), read-only** — defense/CMMC log retrieval.
-- **Direct SMB/CIFS share** — when the share is not mountable locally, a read-only
-  SMB client mirroring the fsconnect op-allow-list shape.
-
-## When to extract a shared base
-
-Once `fsconnect` + `netconnect` are joined by a third connector (likely IMAP or a
-direct-SMB client), extract a `connectors/base.py` ABC capturing the shared shape
-(disabled-default config, op allow-list, audit, four-gate mutation, selftest, CLI
-exit-code contract). Do **not** refactor the existing `agentic/`/`sync/` modules into
-it; the base is for *new* connectors.
+Track dispositions in [remaining work](../plans/remaining_work.md). SQL-specific
+live-DB tests, NL-to-SQL, new dialects, MSSQL EXPLAIN, cost limits and row redaction
+are retired with the removed connector, not remaining fsconnect work.
