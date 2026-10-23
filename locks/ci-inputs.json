@@ -1,7 +1,7 @@
 {
   "version": 1,
   "inputs": {
-    "constraints.txt": "sha256:0d46e9f5f1dbfc343e21bf1c651b79030430ec13d737d8288ef4cbd8b9dd99b7",
+    "constraints.txt": "sha256:4058522528151c95654c1345e05dc253e75ece85cbbad08b139799c5bf7a14e2",
     "pyproject.toml": "sha256:028b067167fb44143692dc6195eae0fdbbd09becdae1919a2ad0c121a39bd4dc",
     "requirements-test.txt": "sha256:0c8b235387496a438c915fdaff047ac04e1a51fa6bf664ed41fc33d138bbe97a",
     "scripts/check_lock_contract.py": "sha256:7bd914413d1d618ed60abab30981d937e3113e4d124d4b67f3e2aeeb047ad776",
@@ -15,7 +15,7 @@
     "scripts/ci-lock-inputs/ruff.txt": "sha256:11458bb4ccb7d73617a8f33cdc66d63ac79815e69a12e4425d7c651a862ce01f",
     "scripts/ci-lock-inputs/smoke.txt": "sha256:2f6174684d4fb05a12c041d1d8d03815f9e1ddc303e0aa8e6ad3404f22871132",
     "scripts/ci-lock-inputs/yaml.txt": "sha256:34c916bd80d8af9f8e9eb0aa8dd0a47c76cff5d16a9dc613214acac00eb6f1d1",
-    "scripts/refresh-ci-locks.sh": "sha256:cde3b3e6226084f944442d408b7f08d7bc74e13fd2777b9cd2535e336ef03063"
+    "scripts/refresh-ci-locks.sh": "sha256:04f6b56e2d932f06d7bbf54ac2d361a5b7a67cb3d2aef04e30182f42f984c22c"
   },
   "outputs": {
     "requirements-ci-bandit-lock-linux.txt": "sha256:20909e3355f0e426d53a2e04910417526d82a073c24e35b5168deac901e9a312",
@@ -23,7 +23,7 @@
     "requirements-ci-numbat-lock-linux.txt": "sha256:b5a1a74007676aa0afd52dcd2b5af8477623d14fc9807c779dffa74eb28ec96d",
     "requirements-ci-postgres-lock-linux.txt": "sha256:8d36d9e35564a2e321425f753f428354559f4349f037d50875f987f7194280c1",
     "requirements-ci-ruff-lock-linux.txt": "sha256:2ff31a8986b27543f4cbe049e265e4fcabc59334b8f0929ca76602c540f371ff",
-    "requirements-ci-smoke-lock-linux.txt": "sha256:c3c8d00e81ca2a77b56ecdce99973b710ad4be48d2630fb89d60ea145583040f",
+    "requirements-ci-smoke-lock-linux.txt": "sha256:6ed233816b56e53eb6203e8cf65cd70343f2b1698e142d30959327d9007bc75d",
     "requirements-ci-yaml-lock-linux.txt": "sha256:bfac7e28a3f51e2d40b34f481355c66d5aea1a44de6c882b78779d29c3bc3f57",
     "requirements-extra-lock-dev-linux.txt": "sha256:6edfb7109a545cf0b361c7a0b8c35c5076c5ee67219bf6dc44cbe8fd54f08ce2",
     "requirements-extra-lock-pgvector-linux.txt": "sha256:670ba75fd38a02c0425c85fea47963be8ea2a3002c512cbb18b0954fae2a2faa",

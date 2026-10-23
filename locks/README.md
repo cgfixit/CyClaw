@@ -43,6 +43,22 @@ The refresh scripts seed their staging directory with the tracked locks, so
 existing transitive pins are kept as preferences. Only the pins you changed
 (and what they force) should move.
 
+To deliberately refresh selected transitives, pass a repeated
+`--upgrade-package NAME` to either script; put exact version bounds in
+`constraints.txt`. For example:
+
+```bash
+scripts/refresh-runtime-lock.sh --upgrade-package certifi --upgrade-package opentelemetry-api --upgrade-package aiohttp
+scripts/refresh-ci-locks.sh --upgrade-package certifi --upgrade-package opentelemetry-api --upgrade-package aiohttp
+```
+
+Targets reach each non-Torch compile; dedicated Torch locks keep their existing
+pins and install contract. Companion packages move only when resolution requires
+it or they are explicitly targeted. Without arguments, existing pins remain
+preferred. Global upgrades and arbitrary compiler options are not accepted.
+Both groups fingerprint `constraints.txt`, so a constraint edit requires both
+refresh scripts even when the CI package versions remain unchanged.
+
 `constraints.txt`, `requirements*.txt` and the `scripts/ci-lock-inputs/`
 files are hashed byte-for-byte into the input records, so even a comment
 edit in one of them fails the contract check until the owning script has

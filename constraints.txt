@@ -40,11 +40,14 @@ fastapi==0.141.1
 uvicorn==0.53.0
 pyyaml==6.0.3
 httpx==0.28.1
+# Patched transitives for PYSEC-2026-4320 and CVE-2026-114603.
+certifi==2026.10.19
+opentelemetry-api==1.45.1
 # Security floor for a transitive (nemoguardrails directly and via aiohttp-retry;
 # chromadb via kubernetes). 3.14.3 carries CVE-2026-111063, CVE-2026-111064 and
 # GHSA-2g87-pp6c-29x5, fixed in 3.14.4 (pip-audit, 2026-10-19). CyClaw imports
 # no aiohttp itself.
-aiohttp==3.14.4
+aiohttp==3.14.5
 # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
 # so legacy/no-deps paths cannot strand the app on websockets 12.x.
 websockets==15.0.1
