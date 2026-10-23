@@ -1480,7 +1480,7 @@ jobs:
         # which fetches models.embeddings.model (~90MB) from HuggingFace on a cold
         # cache (and, through its graph checks, models.reranker.model). Without
         # this step every matrix leg running that skill re-downloads them fresh,
-        # unlike the `test` job and python-package-conda.yml, which both already
+        # unlike the `test` job and conda-ci.yml, which both already
         # cache them under the identical key.
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
