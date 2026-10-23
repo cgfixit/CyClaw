@@ -86,6 +86,55 @@ def test_installer_update_checks_git_exit() -> None:
     )
 
 
+@pytest.mark.skipif(os.name != "nt", reason="requires native CMD percent and delayed expansion")
+def test_generated_cmd_shim_preserves_literal_repo_path(tmp_path: Path) -> None:
+    """Execute the real shim assignments, then run their batch file with /v:on."""
+    shell = shutil.which("powershell")
+    cmd = shutil.which("cmd.exe")
+    assert shell is not None and cmd is not None
+    home = tmp_path / "operator"
+    bin_dir = home / ".CyClaw" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "Invoke-CyClaw.ps1").write_text(
+        "[IO.File]::WriteAllText($env:CYCLAW_TEST_RESULT, $env:CYCLAW_REPO)", encoding="ascii",
+    )
+    result_path = tmp_path / "result.txt"
+    injected = tmp_path / "injected.txt"
+    repo_path = r"C:\Repo %CYCLAW_TEST_PATH% !CYCLAW_TEST_PATH! %1 space & (one)"
+    env = os.environ.copy()
+    env.update({
+        "USERPROFILE": str(home), "CYCLAW_TEST_REPO": repo_path,
+        "CYCLAW_TEST_SHIM": str(bin_dir / "cyclaw.cmd"),
+        "CYCLAW_TEST_RESULT": str(result_path),
+        "CYCLAW_TEST_INSTALLER": str(_PS / "Install-CyClaw.ps1"),
+        "CYCLAW_TEST_PATH": f'unsafe" & echo injected > "{injected}" & rem "',
+    })
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:CYCLAW_TEST_INSTALLER, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'installer does not parse' }
+$Repo = $env:CYCLAW_TEST_REPO
+foreach ($name in @('$CmdRepo', '$ShimBody')) {
+    $assignment = $ast.Find({ param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left.Extent.Text -eq $name
+    }, $true)
+    if ($assignment) { . ([scriptblock]::Create($assignment.Extent.Text)) }
+}
+[IO.File]::WriteAllText($env:CYCLAW_TEST_SHIM, $ShimBody)
+"""
+    generated = subprocess.run([shell, "-NoProfile", "-Command", script], env=env,
+                               capture_output=True, text=True, timeout=30, check=False)
+    assert generated.returncode == 0, generated.stderr
+    executed = subprocess.run([cmd, "/d", "/v:on", "/c", str(bin_dir / "cyclaw.cmd")],
+                              env=env, capture_output=True, text=True, timeout=30, check=False)
+    assert executed.returncode == 0, executed.stderr
+    assert not injected.exists(), executed.stdout
+    assert result_path.read_text(encoding="utf-8") == repo_path
+
+
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell 5.1")
 def test_installer_git_failure_stops_before_launcher(tmp_path: Path) -> None:
     home = tmp_path / "operator"

@@ -234,8 +234,11 @@ Copy-Item $LauncherSrc $LauncherDst -Force
 Copy-Item (Join-Path $Repo "powershell\CyClaw-SecretStore.ps1") (Join-Path $Bin "CyClaw-SecretStore.ps1") -Force
 
 $Shim = Join-Path $Bin "cyclaw.cmd"
+# CMD expands percent references even inside quotes; keep the resolved path literal.
+$CmdRepo = $Repo.Replace('%', '%%')
 $ShimBody = @"
 @echo off
+setlocal DisableDelayedExpansion
 rem CyClaw launcher (installed shim). PowerShell 5.1+ required.
 rem The two telemetry/update-check lines below must run BEFORE powershell
 rem starts: pwsh reads POWERSHELL_TELEMETRY_OPTOUT once, at its own process
@@ -244,7 +247,7 @@ rem that host. This cmd layer is the parent-process fix.
 set "POWERSHELL_TELEMETRY_OPTOUT=1"
 set "POWERSHELL_UPDATECHECK=Off"
 set "CYCLAW_HOME=%USERPROFILE%\.CyClaw"
-set "CYCLAW_REPO=$Repo"
+set "CYCLAW_REPO=$CmdRepo"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.CyClaw\bin\Invoke-CyClaw.ps1" %*
 "@
 Set-Content -Path $Shim -Value $ShimBody -Encoding ASCII
