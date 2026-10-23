@@ -28,5 +28,5 @@ for the task instead of running this directory as a blanket check.
 
 ## Related
 
-- Branch-prefix allowlist source of truth: `utils/agent_identity.py`
+- Branch-prefix allowlist source of truth: the `case` list in `.githooks/pre-commit` (mirrored by `pre-push`)
 - Branch and PR conventions: `CLAUDE.md` §5, `.github/PULL_REQUEST_TEMPLATE.md`
