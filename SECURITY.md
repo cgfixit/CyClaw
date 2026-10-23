@@ -82,6 +82,14 @@ Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
 - **Guardrails:** any future change introducing `chromadb.HttpClient` or a standalone Chroma server MUST be treated as a security regression and re-open this assessment.
 - **Review date:** next chromadb release or 2026-11-01 (when the OSV-Scanner and Trivy suppressions expire), whichever comes first.
 
+### nltk 3.10.4 — pin bump (retires the PYSEC-2026-3740 acceptance)
+
+- **Pin:** `nltk==3.10.4` in `pyproject.toml`, `requirements.txt`, `constraints.txt`, and `environment.yml` (2026-10-23).
+- **Why bumped:** the 3.10.3 acceptance below said to drop its ignores when a patched nltk ships. nltk 3.10.4 (2026-10-21) is the first release after it. PyPI's per-release record for 3.10.4 lists no advisory; its record for 3.10.3 lists GHSA-8mgp-746c-j5xp with no `fixed_in`. In the 3.10.4 wheel, `nltk/parse/transitionparser.py` moves model I/O onto `nltk.pathsec.open`, which matches the advisory's "raw file APIs" description. That link is read from source; no advisory record names 3.10.4 as the fix.
+- **Stemming unchanged:** between 3.10.3 and 3.10.4, `nltk/stem/porter.py` differs only in its `demo()` print helper. Checked 2026-10-23: `retrieval.stemmer.tokenize_and_stem` over the 255 tracked Markdown files yields the same 328,382 tokens, byte for byte, under both versions, so BM25 tokens and the index do not change. CVE-2026-81722 stays fixed (3.10.3+).
+- **Ignores:** `pip-audit.yml` no longer ignores PYSEC-2026-3740. The OSV-Scanner suppression of `GHSA-8mgp-746c-j5xp` in `.osv-scanner.toml` (a protected file) expires 2026-11-01 and is the operator's to drop.
+- **Guardrails:** the 3.10.3 guardrails below still apply.
+
 ### nltk 3.10.3 — pin bump (closes the 3.10.2 CVE cluster)
 
 - **Pin:** `nltk==3.10.3` in `pyproject.toml`, `requirements.txt`, `constraints.txt`, and `environment.yml`. Dockerfile installs from those manifests.

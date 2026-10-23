@@ -46,7 +46,7 @@ dependencies = [
     "httpx==0.28.1",
     "pyyaml==6.0.3",
     "numpy==1.26.4",
-    "nltk==3.10.3",
+    "nltk==3.10.4",
     "nemoguardrails==0.24.1",
     "langgraph==1.2.15",
     "langchain-core==1.6.12",
