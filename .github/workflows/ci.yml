@@ -24,7 +24,7 @@
 #   - Coverage scoped to exercised modules only
 #   - workflow-lint (actionlint + zizmor) and dependency-review added as
 #     fast, no-heavy-deps first gates — this file's own YAML and any new
-#     PR-introduced dependency get checked before the expensive matrix runs
+#     PR-introduced dependency get checked alongside the expensive matrix
 #   - ollama-mock-smoke: a real-socket HTTP-server test of LocalLLMClient
 #     against the OpenAI-compatible endpoint, complementing (not replacing)
 #     tests/test_client.py's monkeypatched error-mapping/retry coverage
@@ -159,7 +159,7 @@ jobs:
           docker run --rm --network none cyclaw:ci python -m pip check
           docker run --rm --network none cyclaw:ci python -m guardrails.verify_install
 
-  # Fast, no-heavy-deps gates that run before the expensive matrix below.
+  # Fast, no-heavy-deps gates that run alongside the expensive matrix below.
   # Neither needs torch/chromadb/sentence-transformers, so both finish in
   # well under a minute on a cache hit.
   workflow-lint:
