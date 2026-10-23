@@ -228,6 +228,7 @@ def test_sync_cron_line_uses_short_telemetry_safe_launcher(monkeypatch, tmp_path
         local_path = long_root
         schedule_min = 30
         schedule_hour = 3
+        schedule_frequency = "daily"
 
     line = scheduler.CronScheduler(_Cfg())._our_line()
     launcher = tmp_path / "cyclaw_sync.sh"
