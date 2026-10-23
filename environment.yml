@@ -31,6 +31,14 @@ dependencies:
   - langchain-core=1.6.12
   # Keep generated OTLP protos compatible with the native protobuf runtime.
   - opentelemetry-exporter-otlp-proto-grpc>=1.42
+  # Security floors that constraints.txt pins exactly (PYSEC-2026-4320,
+  # CVE-2026-114603). Both are conda-owned on this lane (httpx pulls certifi;
+  # the exporter's opentelemetry-sdk pins its opentelemetry-api exactly), so a
+  # pip: override would fight the conda solve. Floors, not exact pins: the
+  # conda-forge build set was not checkable from the editing sandbox, and the
+  # conda CI lane is what proves the solve.
+  - certifi>=2026.10.19
+  - opentelemetry-api>=1.45.1
   - sentence-transformers=6.1.0
   # pytorch is sentence-transformers' hard transitive and is pinned explicitly
   # here for the same reason constraints.txt pins torch==2.13.0+cpu: post-
@@ -89,6 +97,10 @@ dependencies:
       - websockets==15.0.1
       # Telemetry-control floor from the pip path (pyproject.toml/constraints.txt).
       - onnxruntime==1.31.0
+      # Security floor from constraints.txt (CVE-2026-111063/-111064,
+      # GHSA-2g87-pp6c-29x5). Only pip packages (nemoguardrails) pull aiohttp
+      # here, so the exact pin rides this sublist and dep-guard D9 checks it.
+      - aiohttp==3.14.5
       # sqlite-vec (#1255 Phase C spike, test-only): no conda-forge package
       # exists (checked 2026-09-21 -- zero matches on noarch/linux-64
       # repodata), so it can only ride the pip: sublist here, same as the

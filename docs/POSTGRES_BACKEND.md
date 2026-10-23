@@ -22,10 +22,18 @@ Three independent surfaces can use Postgres; each is off unless you configure a 
 
 Postgres support is an optional extra — the default install stays SQLite-only:
 
+From a checkout, after the base install in `setup-guide.md`. On Linux, use the
+hashed extra locks:
+
 ```bash
-pip install 'cyclaw[postgres]'   # soul DB + rate limiter over Postgres
-pip install 'cyclaw[pgvector]'   # also the pgvector vector backend
+pip install --require-hashes -r locks/requirements-extra-lock-postgres-linux.txt   # soul DB + rate limiter over Postgres
+pip install --require-hashes -r locks/requirements-extra-lock-pgvector-linux.txt   # also the pgvector vector backend
 ```
+
+Elsewhere, install the extras' exact pins (`psycopg==3.3.6 psycopg-binary==3.3.6`,
+then `pgvector==0.5.1`). Do not add `-c constraints.txt` on macOS: its
+`torch==2.13.0+cpu` pin cannot match the plain macOS torch. From the published
+wheel, use `pip install 'cyclaw[postgres]'` or `pip install 'cyclaw[pgvector]'`.
 
 `psycopg` / `pgvector` are lazy-imported, so a default install never loads them.
 
