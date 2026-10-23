@@ -18,7 +18,7 @@ subject="$(head -n1 "$msg_file" | tr -d '\r')"
 
 # Allow standard git-generated subjects
 case "$subject" in
-  Merge\ *|Revert\ *|fixup!\ *|squash!\ *|Amend!\ *)
+  Merge\ *|Revert\ *|fixup!\ *|squash!\ *|amend!\ *|Amend!\ *)
     exit 0
     ;;
 esac
@@ -43,6 +43,6 @@ printf '%s\n' \
   "                    [harness] [security] [docs] [infra] [fix] [feat]" \
   "  Example: [docs] - document commit-msg PR title gate" \
   "  Source:  .github/PULL_REQUEST_TEMPLATE.md (Title section)" \
-  "  Bypass (emergency only): git commit --no-verify" \
+  "  Edit the subject to match the format, then retry the commit." \
   >&2
 exit 1
