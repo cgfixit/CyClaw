@@ -1,177 +1,110 @@
-# `/babysit-github-pr` — PR Lifecycle Automation
+# `/babysit-github-pr` — PR lifecycle guidance
 
-The skill guides an agent through rebasing, CI triage, review comments, and
-merge-readiness checks. Its shell helper runs a bounded polling loop. The
-helper classifies failures, retries checks classified as flaky, and reports
-comments; code fixes and review responses require the agent or operator.
+The explicitly invoked skill guides an agent through CI triage, review findings,
+base updates, and merge-readiness checks. Read [SKILL.md](SKILL.md) for the loop
+and repository authorization rules. CyClaw PRs remain draft for human review;
+invoking the skill does not authorize a merge or history rewrite.
+
+The shell helpers are **legacy scaffolding**, not a reliable unattended PR
+watcher. Their known limitations are listed below. Follow the skill procedure
+with working GitHub tools and inspect the exact head's checks and reviews.
 
 ## Installation
 
-Already installed in CyClaw (`.claude/skills/babysit-github-pr/`). For another
-repo, copy the folder into its `.claude/skills/` (project scope) or into
-`~/.claude/skills/` (user scope, once per machine), then invoke
-`/babysit-github-pr <pr-number>` from Claude Code.
+The skill already lives in `.claude/skills/babysit-github-pr/`, with its command
+wrapper in `.claude/commands/`. Invoke these in a Claude Code session, not a shell:
 
-## Prerequisites
-
-1. **`gh` CLI** authenticated with `repo` scope (`gh auth login`; `gh auth
-   status` should show `✓ Scopes: repo, gist`).
-2. **`jq`** (`brew install jq` / `sudo apt-get install jq` / `choco install jq`).
-3. **`python3`** (3.8+) for failure classification and command detection, and `git`.
-4. **Project's test/lint commands discoverable** from one of:
-   - `Makefile` (targets: `test`, `lint`)
-   - `package.json` (scripts: `test`, `lint`)
-   - `pyproject.toml` (pytest/tox config)
-   - `tox.ini` (envs)
-   - `.github/workflows/*.yml` (run: steps)
-
-   If detection finds no command, the helper defaults to `pytest tests/ -q`
-   and `ruff check --select F,B,S .`. Verify the reported commands against
-   the repository before using them.
-
-## Knobs & Configuration
-
-All knobs are environment variables. Set them before invoking the skill:
-
-```bash
-TIMEOUT_MINUTES=60 AUTO_MERGE=true /babysit-github-pr 123
-```
-
-| Knob | Default | Type | Purpose |
-|------|---------|------|---------|
-| `DRAFT_BY_DEFAULT` | `true` | bool | Create new PRs as draft (not auto-reviewed) |
-| `POLL_SECONDS` | `90` | int | Seconds between check status polls |
-| `FLAKY_RETRIES` | `2` | int | Max reruns per flaky check |
-| `MAX_FIX_ATTEMPTS` | `3` | int | Max fix attempts per check failure |
-| `MAX_ITERATIONS` | `8` | int | Bounded loop; stop after N full iterations |
-| `BLAST_RADIUS_FILES` | `5` | int | Max additional files to modify (beyond original PR diff) |
-| `AUTO_MERGE` | `false` | bool | Merge automatically when green + approved |
-| `ALLOW_FORCE_WITH_LEASE` | `false` | bool | Permit a behind-branch rebase and force-with-lease push after explicit user authorization |
-| `TIMEOUT_MINUTES` | `45` | int | Max time waiting for checks to settle |
-
-### State File (`.git/babysit-state.json`)
-
-The skill persists state per-repo in `.git/babysit-state.json` (not committed). It tracks:
-
-```json
-{
-  "last_comment_id": 1234567890,
-  "retry_counts": { "pytest": 1, "ruff": 0 },
-  "iteration": 2,
-  "detected_test_command": "pytest tests/ -q --cov",
-  "detected_lint_command": "ruff check --select F,B,S ."
-}
-```
-
-The helper stores a comment cursor, but its piped comment loop does not
-retain cursor updates in the parent shell. Comments can be reported again;
-it does not apply fixes, reply, or resolve threads automatically.
-
-**Resetting:** Delete `.git/babysit-state.json` to start fresh (re-detect test command, re-process all comments).
-
----
-
-## What It Will NEVER Do
-
-1. **Force-push without authorization** — rebasing stops unless `ALLOW_FORCE_WITH_LEASE=true`; the push always uses `--force-with-lease`, never plain `--force`
-2. **Rewrite history with co-authors** — stops if commits are from another author
-3. **Edit tests to make them pass** — tests are oracles; failures are real
-4. **Suppress lint or add `# noqa`** — ignores the linter instead of fixing
-
----
-
-## Quick Start
-
-```bash
-# Babysit a PR by number
+```text
 /babysit-github-pr 42
-
-# Babysit by branch name (infers PR from branch)
-/babysit-github-pr feature/my-feature
-
-# Babysit by PR URL (extracts number)
-/babysit-github-pr https://github.com/cgfixit/cyclaw/pull/42
-
-# Set custom knobs
-TIMEOUT_MINUTES=120 AUTO_MERGE=true /babysit-github-pr 42
+/babysit-github-pr codex/my-fix
+/babysit-github-pr https://github.com/cgfixit/CyClaw/pull/42
 ```
 
-## Test in a disposable repository
+For another repository, copy the skill folder into its `.claude/skills/` or
+into the operator's `~/.claude/skills/`, and reconcile its procedures with that
+repository's branch, PR, verification, and authorization rules.
 
-This procedure creates and pushes a real branch and PR in a throwaway
-repository. It is not a dry run. Agent or operator action is required to fix
-the deliberate failure.
+## Helper prerequisites and limits
 
-1. Create a throwaway GitHub repo (e.g., `test-babysit`)
-2. Clone it locally
-3. Create a branch with a deliberate lint failure:
-   ```bash
-   git checkout -b feature/test-lint-fail
-   echo "import unused" >> test.py
-   git add test.py && git commit -m "wip: add lint error"
-   git push -u origin feature/test-lint-fail
-   ```
-4. Invoke the skill:
-   ```bash
-   /babysit-github-pr feature/test-lint-fail
-   ```
-5. Inspect the reported failure, fix the error, run the relevant local checks,
-   and commit and push the correction. The shell helper does not edit code.
-   Confirm fresh CI results and review status before deciding whether to merge.
-6. Close the PR and clean up:
-   ```bash
-   git push origin --delete feature/test-lint-fail
-   ```
+The shell scripts require Bash, Git, an authenticated `gh` with access to the
+repository, `jq`, and Python. Use CyClaw's Python 3.12 environment here. Cloud
+sessions without these tools can follow the procedure through the runtime's
+GitHub tools; helper availability is not a reason to reset authentication.
 
-## Troubleshooting
+The tracked implementation currently has these limits:
 
-### `gh` not found
-Install GitHub CLI: https://cli.github.com/
+- `run-babysit.sh`, `pr-state.sh`, and `wait-for-checks.sh` pass `--repo .`;
+  GitHub CLI expects `OWNER/REPO` or repository inference from the checkout.
+  The check readers also request the unsupported JSON field `status` instead
+  of `state`. Their swallowed command errors can look like absent checks.
+- The exit condition checks only for failures. It does not independently prove
+  that all expected jobs registered and reached successful terminal states.
+  Do not treat its ready message as CI or merge-readiness evidence.
+- Comment helpers use review/comment records rather than authoritative review
+  thread resolution. The orchestrator only prints comments; it neither fixes,
+  replies, nor resolves them. Cursor updates happen in a piped subshell and
+  are lost, so comments can repeat.
+- Code failures are reported and counted, not repaired. `BLAST_RADIUS_FILES`
+  is declared but not enforced. Command detection uses Makefile, package.json,
+  pyproject.toml, tox.ini, then workflow text; missing commands fall back to
+  `pytest tests/ -q` and `ruff check --select F,B,S .` without prompting.
+  In CyClaw, reproduce with the affected command or one relevant test file
+  instead of accepting that full-suite fallback.
+- The helper's new-PR path uses `gh pr create --fill`, which does not satisfy
+  CyClaw's required PR body template. Create authorized drafts with
+  [the repository template](../../../.github/PULL_REQUEST_TEMPLATE.md) and
+  validate the body with `scripts/check-pr-template.sh` from the repo root.
 
-### `gh auth status` reports an authentication failure
-Check the active host, account, and execution context first. A restricted
-shell or network failure does not establish that the saved credential is
-invalid. If credentials need renewal, have the operator sign in through
-`gh auth login`; do not automatically log out or reset credentials.
+These are source limitations, not a claim that a live GitHub watch was tested.
+Fix and exercise the helpers before relying on them for unattended operation.
 
-### Skill can't detect test command
-The helper falls back to `pytest tests/ -q` and `ruff check --select F,B,S .`
-without prompting. Inspect its reported commands and use the repository's
-actual validation commands if those defaults do not apply.
+## Helper configuration
 
-### Merge conflict detected
-The skill aborts on every conflict rather than choosing a side. Resolve it manually:
+Environment variables configure the shell implementation; they are not shell
+prefixes for a Claude slash command. The current defaults are:
+
+| Variable | Default | Implemented use |
+| --- | --- | --- |
+| `DRAFT_BY_DEFAULT` | `true` | Adds `--draft` to the helper's incomplete PR-creation path. |
+| `POLL_SECONDS` | `90` | Delay between check reads. |
+| `FLAKY_RETRIES` | `2` | Retry cap for failures classified as flaky from log text; confirm run history yourself. |
+| `MAX_FIX_ATTEMPTS` | `3` | Counter for reported code failures; the helper does not fix code. |
+| `MAX_ITERATIONS` | `8` | Loop iteration limit, including the persisted count. |
+| `BLAST_RADIUS_FILES` | `5` | Declared only; the agent must enforce the scope limit. |
+| `AUTO_MERGE` | `false` | Enables a merge request in the helper; keep false in CyClaw, where a human merges. |
+| `ALLOW_FORCE_WITH_LEASE` | `false` | Operator-owned gate before rebase/push; agents must not set the override themselves. |
+| `TIMEOUT_MINUTES` | `45` | Timeout for each wait-for-checks call, not a whole-session deadline. |
+
+State is written to `.git/babysit-state.json`: the comment cursor, retry counts,
+iteration, and detected command strings. The loader restores the first three;
+commands are re-detected on each invocation. It assumes `.git` is a directory,
+so it does not support a linked worktree's `.git` file. This state is local and
+must not be committed. Reset it only when deliberately starting a fresh watch.
+
+## Verification
+
+From the repository root:
+
 ```bash
-git rebase origin/main  # or your base branch
-# Fix conflicts in your editor
-git add .
-git rebase --continue
-git push --force-with-lease
+bash .claude/skills/babysit-github-pr/verify.sh
 ```
-Then re-invoke `/babysit-github-pr`.
 
-### PR stuck on "awaiting human review"
-If the skill stops with "awaiting human review," check:
-1. Are all checks passing? (`gh pr checks`)
-2. Is the PR approved? (`gh pr view --json reviewDecision`)
-3. Are there unresolved comments? (`gh pr view --json comments`)
+This checks shell/Python syntax, the two Python helper self-checks, usage output,
+and documentation presence. The advisory `verify-skills` matrix in `ci.yml`
+runs it too. It does not exercise a live PR, check API compatibility, repair
+comments, or prove that the watcher reaches a correct terminal state.
 
-Address the blocker, then re-invoke.
+## Troubleshooting and handoff
 
----
+Check the active GitHub host, account, and execution context when `gh` fails.
+A network or restricted-shell failure does not prove that credentials are
+invalid; do not automatically log out or reset them.
 
-## For Repository Owners
+Stop on a rebase conflict and preserve the conflicting paths for review.
+Rewriting a published branch requires explicit authorization, inspection of
+concurrent changes, and an exact-head lease; do not copy an unqualified
+force-push command from a generic example.
 
-Works on any GitHub repository whose checks report on the PR (automated
-retries use GitHub Actions runs) and whose test/lint command is detectable
-(Makefile, package.json, pyproject.toml, or workflows); branch protection is
-optional but recommended. No in-repo configuration is needed.
-
----
-
-## See Also
-
-- `SKILL.md` — Full loop description, Never list, exit conditions
-- `.github/PULL_REQUEST_TEMPLATE.md` — PR body template (if present)
-- `verify.sh` — stdlib self-check; run in CI by the per-skill verify matrix in `.github/workflows/ci.yml`
-- `scripts/` — `classify-failure.py`, `detect-test-command.py`, and the shell helpers the loop shells out to (`scripts/tests/` covers the two Python ones)
+Report the exact head SHA, individual check states, review decision, unresolved
+threads, draft state, and mergeability separately. Pending, missing, skipped,
+or advisory checks are not substitutes for required successful checks.

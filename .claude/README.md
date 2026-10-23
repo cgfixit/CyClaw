@@ -38,15 +38,21 @@ pins, and `/dotenv-guard` for secret-at-rest policy. Each ships a checker and a
 
 ## Refactor Loop Pattern
 
-All `*-refactor` skills follow the same seven-step cycle:
+The `*-refactor` skills share this broad cycle; each skill defines its own
+measurement and stopping criteria:
 
 1. **Measure** — baseline the current state (tests, latency, log coverage)
 2. **Assess** — identify the highest-leverage gap
 3. **Execute** — make one focused change
-4. **Test** — verify correctness via smoke test or pytest
+4. **Verify** — exercise the changed behavior and run relevant static checks;
+   use a focused test when needed, following `CLAUDE.md` §5
 5. **Commit** — commit with a clear message
 6. **Track** — record progress in `/tmp/refactor-CyClaw.md`
 7. **Loop** — repeat until all stopping criteria are met
+
+These loops are explicit-invocation workflows. The full-suite measurements in
+`tests-refactor` and `logging-refactor` belong to those requested workflows,
+not routine verification for unrelated changes.
 
 ## Folder Structure
 
@@ -146,6 +152,11 @@ order; every path resolves and is repo-relative so it survives any checkout
 location. The file holds no personal data (no usernames, machine paths, or
 emails) — keep it that way, it is shared with every collaborator.
 
+Its permission configuration uses `defaultMode: default`, denies `Workflow`,
+and asks before `Agent` calls. The repository's agent fan-out guidance lives in
+`CLAUDE.md`'s Reference section; listing a skill here does not authorize its
+side effects.
+
 1. **`session-start-sync-check.sh`** (2026-09-04) — git identity and
    local↔remote divergence report; never resets, rebases, or pushes.
 2. **`fable-protocol-loader.sh`** (2026-09-06, re-gated 2026-09-16) — injects
@@ -174,44 +185,16 @@ exits 0 on its own so nothing hides a failure. The same rule removed the
 `PreCompact`/`SessionEnd` hooks orphaned by `memory-orchestrator`'s deletion
 and the `python-coding-agent` persona loader (issue #1351).
 
-**Remote-environment env-var misconfiguration (root cause of the stray
-`C:\Users\...` directory).** The Claude Code remote execution environment for
-this repo injects Windows-local values into Linux containers:
-
-- `CLAUDE_CONFIG_DIR=C:\Users\<user>\.claude\` — on Linux this is a
-  *relative* path, so Claude Code materializes a literal `C:\Users\...`
-  directory at the repo root and uses it as live config storage. Observed
-  breakage in-session: session-start hook output, task tracking (lock file
-  `ENOENT`), and skill sync all landed in the stray directory.
-- `CLAUDE_CODE_DEBUG_LOGS_DIR=C:\Users\<you>\.claude\debug` — an
-  unsubstituted template; invalid on every OS (`<`/`>` are illegal in
-  Windows paths too).
-
-Repo-side mitigation (this commit): a root `.gitignore` guard (`/C:*`) so the
-stray directory — which contains live session state — can never be staged by
-a broad `git add`. Operator-side fix (cannot be done from the repo): edit the
-environment's variables at claude.ai → Code → environment settings and
-remove both entries. Neither belongs in a shared remote environment —
-`C:\Users\<user>\.claude\` is already Claude Code's *default* config
-location on Windows, so the variable adds nothing there either; per-machine
-overrides belong in that machine's own shell profile. `settings.json` cannot
-fix this: `CLAUDE_CONFIG_DIR` is read at CLI startup before project settings
-load, and pinning it in the repo would break every other machine.
-
-**Verification follow-up (2026-08-11, fresh remote session).** The operator-side
-fix above landed half-way, verified live from a new cloud container for this
-repo:
-
-- `CLAUDE_CONFIG_DIR` — **removed**. Session state (hook output, task
-  tracking, skill sync) lands in the default config location again, no stray
-  `C:\...` directory materializes anywhere on the container filesystem, and
-  `git status` stays clean. The `/C:*` guard stays as defense-in-depth.
-- `CLAUDE_CODE_DEBUG_LOGS_DIR` — **still injected**. The variable was edited
-  (the `<you>` template now carries a real Windows username) instead of
-  removed, so every Linux container still receives a Windows-local path — and
-  a personal username — in its environment. No stray directory is currently
-  produced by this one, but the removal instruction above still applies:
-  claude.ai → Code → environment settings, delete the entry.
+**Historical remote-environment pitfall.** Earlier cloud sessions received
+Windows-local `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_DEBUG_LOGS_DIR` values on
+Linux. A Windows drive path is relative there and can create a literal `C:...`
+directory containing session state. The tracked root `.gitignore` keeps its
+`/C:*` guard, and the git security gate checks for session residue separately.
+Those old observations do not establish the current remote environment.
+If this recurs, inspect the active environment's variables and have the
+operator remove platform-specific overrides from the shared environment;
+do not commit personal paths or try to repair hosted settings through this
+repository's `settings.json`.
 
 ## Key Conventions
 
@@ -222,6 +205,8 @@ repo:
 - All SKILL.md files use YAML frontmatter: `name:`, `description:`
 - Refactor progress is tracked in `/tmp/refactor-CyClaw.md`
 - Claude Code commits as the session runtime's identity (cloud:
-  `Claude <noreply@anthropic.com>`, signed so GitHub shows it Verified; local:
-  the operator's own git identity), never as `CyClaw Agent`, which belongs to
-  CyClaw's own agentic loop (`utils/agent_identity.py`). See `CLAUDE.md` §10.
+  `Claude <noreply@anthropic.com>`; local: the operator's own git identity),
+  never as `CyClaw Agent`, the former agentic loop's identity. The loop was
+  removed on 2026-10-18; its identity constants remain in
+  `utils/agent_identity.py`. The sync hook does not sign commits or guarantee
+  GitHub's Verified status. See `CLAUDE.md` §10.

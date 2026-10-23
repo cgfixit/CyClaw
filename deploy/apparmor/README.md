@@ -4,7 +4,7 @@
 is a Linux-host control. It is not available as a native macOS policy, and this
 profile has not been runtime-validated inside Docker Desktop's managed Linux VM.
 
-The profile permits persistent filesystem writes only under the same six paths
+The profile permits filesystem writes only under the same six paths
 already writable under the read-only Compose root filesystem (plus required
 `/dev/null`, `/dev/zero`, and `/dev/full` device I/O):
 
@@ -24,7 +24,9 @@ discovery; Linux capabilities are still fully dropped.
 
 ## Fail-closed enablement
 
-Run on the target Linux host; do not skip complain-mode workload replay:
+Run from the repository root on the target Linux host, after preparing the
+base Compose mounts in [`docs/DOCKER.md`](../../docs/DOCKER.md). Do not skip
+complain-mode workload replay:
 
 ```bash
 sudo apparmor_parser -Q -W deploy/apparmor/cyclaw-gate
@@ -41,6 +43,12 @@ docker compose \
   -f deploy/apparmor/docker-compose.apparmor.yml \
   up --build
 ```
+
+Inspect the rendered configuration before starting: the app service must keep
+the base `no-new-privileges:true` and `seccomp:builtin` entries alongside
+`apparmor:cyclaw-gate`. The overlay only chooses the AppArmor profile; it does
+not load that profile into the host kernel. Complain mode is for collecting
+evidence before enforcement, not proof that all of these restrictions block.
 
 Exercise the full gate workload in
 [`docs/SECCOMP_EBPF_HARDENING.md`](../../docs/SECCOMP_EBPF_HARDENING.md), then
