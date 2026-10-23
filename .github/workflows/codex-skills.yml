@@ -1,4 +1,4 @@
-name: Codex Skills
+name: Codex skill validation
 
 on:
   push:
