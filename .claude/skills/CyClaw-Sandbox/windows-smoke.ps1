@@ -1,4 +1,4 @@
-# CyClaw Windows API smoke "bomb" — fires every major endpoint in rapid
+﻿# CyClaw Windows API smoke "bomb" — fires every major endpoint in rapid
 # succession against a running server (localhost is intentional for dev).
 # Mirrors tests/apipsTest.ps1 but covers all endpoints and exits non-zero on
 # any failed check so it slots into Windows CI.
@@ -26,10 +26,10 @@ $ErrorActionPreference = "Stop"
 $Base = "http://127.0.0.1:$Port"  # DevSkim: ignore DS162092,DS137138 — loopback-only by design (api.host in config.yaml)
 $Failures = 0
 
-function Pass([string]$msg) { Write-Host "  PASS  $msg" -ForegroundColor Green }
-function Fail([string]$msg) { Write-Host "  FAIL  $msg" -ForegroundColor Red; $script:Failures++ }
+function Pass([string]$msg) { Write-Output "  PASS  $msg" }
+function Fail([string]$msg) { Write-Output "  FAIL  $msg"; $script:Failures++ }
 
-Write-Host "=== CyClaw Windows API smoke bomb ($Base) ==="
+Write-Output "=== CyClaw Windows API smoke bomb ($Base) ==="
 
 # 1. GET /health — index_ready + graph_ready true
 try {
@@ -109,11 +109,11 @@ try {
     else { Fail "POST /ops/fsconnect status unexpected: $($r | ConvertTo-Json -Compress)" }
 } catch { Fail "POST /ops/fsconnect status threw: $_" }
 
-Write-Host ""
+Write-Output ""
 if ($Failures -eq 0) {
-    Write-Host "[smoke] All Windows API checks passed." -ForegroundColor Green
+    Write-Output "[smoke] All Windows API checks passed."
     exit 0
 } else {
-    Write-Host "[smoke] $Failures Windows API check(s) FAILED." -ForegroundColor Red
+    Write-Output "[smoke] $Failures Windows API check(s) FAILED."
     exit 1
 }
