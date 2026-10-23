@@ -187,7 +187,7 @@ def get_cyclaw_guardrails(cfg: GuardrailsConfig | None = None) -> Any:
     if not NEMO_AVAILABLE:
         raise GuardrailsDependencyError(
             "nemoguardrails is not installed; rerun the platform base dependency installation "
-            "to restore nemoguardrails==0.24.0. Deterministic checks remain available without it.",
+            "to restore nemoguardrails==0.24.1. Deterministic checks remain available without it.",
             details={"degraded": True},
         )
     _refuse_iorails()

@@ -1011,7 +1011,7 @@ sampling capability by design.
 
 ### Verify the installed NeMo runtime
 
-`nemoguardrails==0.24.0` is a required base dependency for pip, editable and
+`nemoguardrails==0.24.1` is a required base dependency for pip, editable and
 wheel installations, the requirements recipe, Conda, and Docker. The empty
 `guardrails` extra keeps existing `.[guardrails]` commands valid. `full` and
 `all` include NeMo through the base dependency.

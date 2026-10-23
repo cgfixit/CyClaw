@@ -18,8 +18,8 @@ def main() -> None:
     from guardrails.integration import get_cyclaw_guardrails
 
     installed = version("nemoguardrails")
-    if installed != "0.24.0":
-        raise RuntimeError(f"expected nemoguardrails 0.24.0, found {installed}")
+    if installed != "0.24.1":
+        raise RuntimeError(f"expected nemoguardrails 0.24.1, found {installed}")
     cfg = load_guardrails_config(str(Path(__file__).resolve().parent.parent / "config.yaml"))
     if not cfg.enabled:
         raise RuntimeError("shipped guardrails configuration must be enabled")
