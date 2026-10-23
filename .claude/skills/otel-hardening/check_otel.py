@@ -276,7 +276,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "enforcement": "env before import (get_env_var lru_cache latches); 5 credential/destination "
                        "names popped; upload attempted even with no API key, so the pop alone is not enough",
         "scope": "every graph invocation",
-        "reviewed": "2026-10-13",
+        "reviewed": "2026-10-23",
         "evidence": "precedence LANGSMITH_TRACING_V2 > LANGCHAIN_TRACING_V2 > LANGSMITH_TRACING > "
                     "LANGCHAIN_TRACING re-confirmed in installed langsmith 0.13.0 (tracing_is_enabled() "
                     "-> get_env_var(\"TRACING_V2\", default=get_env_var(\"TRACING\")) in utils.py, refactored "
@@ -287,7 +287,10 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "for runs that tracing_is_enabled() already admits (run_helpers.py and "
                     "langchain_core/tracers/context.py gate on it first), so no new kill pair is owed; "
                     "LANGSMITH_RUNS_ENDPOINTS is now parsed as write replicas in run_trees.py -- still a "
-                    "fan-out destination, still scrubbed",
+                    "fan-out destination, still scrubbed. 2026-10-23 re-read of the pinned langsmith "
+                    "0.14.11 and langchain-core 1.6.12 wheels after #1744: the same precedence and "
+                    "lru_cache latch, the same _resolve_tracing_mode names, both tracing_is_enabled() "
+                    "gates, and the RUNS_ENDPOINTS write-replica parse, all unchanged",
     },
     {
         "name": "langgraph-cli analytics", "category": 1,
