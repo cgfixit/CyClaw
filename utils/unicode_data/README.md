@@ -21,12 +21,16 @@ normalization and character categories; the confusables data version is pinned
 independently.
 
 The sanitizer decodes ASCII Tag characters, removes format characters, Tags and
-variation selectors, applies NFKD, removes nonspacing marks, applies NFKC and case-folding, folds
-confusables, and turns runs of `_`, `-`, `.`, and `·` into spaces. Only an
-inspection copy is folded. Queries that pass remain unchanged. Corpus matches
+variation selectors, applies NFKD, removes nonspacing marks, applies NFKC and
+case-folding, then folds confusables. It checks both that normalized copy with
+punctuation retained and a second probe that turns runs of `_`, `-`, `.`, and
+`·` into spaces, alongside the original text. Only inspection copies are
+folded. Queries that pass remain unchanged. Corpus matches
 in the raw text are replaced locally; if an obfuscated match remains after that
 pass, the entire chunk becomes `[FILTERED]`. Benign chunks remain unchanged.
-Soul and memory scanning import this same normalizer.
+Soul and memory scanning import this same normalizer. Scheduled OpenTweet
+screening also uses it with separator folding disabled so URL punctuation
+remains visible.
 
 Accent removal and homoglyph folding can make distinct natural-language text
 coincide. They do not detect every possible prompt injection. Operator regexes

@@ -40,8 +40,16 @@ package, and it never imports them (I6, pinned by
 - **fsconnect:** the CLI, plus the read-only `POST /ops/fsconnect` route
   (API key, rate limit, audit) behind the console's Filesystem panel. The route
   runs the CLI as a subprocess through `utils/ops_runner.py`; it never imports
-  this package. Writes are CLI-only.
+  this package. Writes are CLI-only. Browser/API grep is literal-only; the
+  CLI also exposes regex grep, `largest`, indexing, and trash maintenance.
 - **netconnect:** the CLI only. No HTTP route, scheduler or request-path import.
+
+The fsconnect writer refuses all writes on Windows until handle-based
+containment is implemented. On supported platforms, `writes_enabled: false`
+produces dry-run plans; actual writes still require the configured root,
+reason/confirmation, hard-disable, quota, and rate-limit gates. Trash-job
+generators emit launchd or Task Scheduler artifacts but never activate them;
+their later execution does not bypass the write gates.
 
 Write enablement for fsconnect follows
 [`FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md`](../docs/agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md)

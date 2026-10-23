@@ -2,9 +2,9 @@
 
 Hashed, closed dependency locks. The Docker build, the setup guide and CI's
 locked jobs install with `pip install --require-hashes -r locks/<file>`, so a
-replaced wheel fails the install instead of being accepted. Nothing in this directory is
-edited by hand: the files are compiler output, and a hand edit is caught by the
-contract check below.
+replaced wheel fails the install instead of being accepted. The generated
+requirements files and input/output fingerprint records are not edited by hand;
+the contract check below detects edits that disagree with those records.
 
 ## What each family is for
 
@@ -33,7 +33,9 @@ macOS and do not "fix" the pin. The exact commands are in `CLAUDE.md` §8 and
 1. Edit the input (`constraints.txt`, `pyproject.toml`, `requirements*.txt`,
    or a file under `scripts/ci-lock-inputs/`). The torch pin also lives in
    `environment.yml`; change it in the same commit.
-2. Run the owning refresh script. Both refuse to run anywhere except an arm64
+2. Run every affected refresh script. A `constraints.txt` change affects both
+   groups, even if one group's resolved versions stay the same. Both refuse
+   to run anywhere except an arm64
    macOS host (`lock generation requires the supported arm64 macOS host`), so
    lock regeneration cannot be done from a Linux container. Regenerate; never
    hand-merge a lock.
@@ -60,10 +62,23 @@ Both groups fingerprint `constraints.txt`, so a constraint edit requires both
 refresh scripts even when the CI package versions remain unchanged.
 
 `constraints.txt`, `requirements*.txt` and the `scripts/ci-lock-inputs/`
-files are hashed byte-for-byte into the input records, so even a comment
-edit in one of them fails the contract check until the owning script has
-re-locked. Only `pyproject.toml`'s dependency tables are hashed, so a
-coverage, ruff or version edit there is free.
+files are hashed after CRLF-to-LF normalization into the input records, so
+even a comment edit in one of them requires a refresh. The recorded refresh
+script and contract-checker source are fingerprinted too. For `pyproject.toml`,
+only `requires-python` and the dependency tables are hashed, so a coverage,
+ruff or project-version edit there does not invalidate the locks.
+
+Run from the repository root with Python 3.12 and `uv` available:
+
+```bash
+bash scripts/refresh-runtime-lock.sh
+bash scripts/refresh-ci-locks.sh
+```
+
+`PYTHON_BIN`, `UV_BIN`, and `UV_CACHE_DIR` select the interpreter, compiler,
+and cache. Linux/Windows locks target x86_64; macOS locks target the native
+arm64 host. Successful cross-platform resolution is not proof of installation
+on every platform; the hosted install matrix supplies that separate evidence.
 
 ## Dependabot
 
@@ -72,8 +87,10 @@ pip, with `locks/**` excluded) and never a hashed lock, because it cannot run
 the refresh scripts. A Dependabot pip PR is therefore a shopping list, not a
 merge candidate: it stays red on the lock contract until the operator checks
 it out on the Mac, runs the owning refresh script, and pushes the regenerated
-locks onto the same branch. Majors arrive in their own PR so a major is read
-before it is taken.
+locks onto the same branch. Major updates form a separate group from
+minor/patch updates. Torch and the Pydantic pair are excluded from automatic
+updates; inspect the current Dependabot configuration for the remaining
+compatibility limits.
 
 ## Checks
 
