@@ -51,6 +51,17 @@ def test_build_backend_hatchling_is_exact_pinned() -> None:
     )
 
 
+def test_distributions_exclude_operator_data() -> None:
+    """Never sweep the live corpus, soul, databases, or keys into a package."""
+    build = _load_pyproject()["tool"]["hatch"]["build"]
+    assert "/data" in build["exclude"]
+    targets = build["targets"]
+    wheel = targets["wheel"]
+    sources = [*wheel.get("packages", []), *wheel.get("force-include", {}),
+               *targets["sdist"]["include"]]
+    assert all(Path(source).parts[0] != "data" for source in sources)
+
+
 def test_wheel_force_includes_every_top_level_module() -> None:
     cfg = _load_pyproject()
     wheel_cfg = cfg["tool"]["hatch"]["build"]["targets"]["wheel"]

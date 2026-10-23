@@ -4,6 +4,11 @@ Operator data and server state. Nothing here is code; several files are
 **governed artifacts** with write rules — read this before editing anything
 by hand.
 
+Python wheels and source distributions exclude this entire directory, including
+the example corpus and any operator-edited soul. A package install needs an
+operator-supplied corpus before indexing; the gateway creates its default soul
+when none exists. A Git checkout retains the committed examples.
+
 | Path | What it is | Write rules |
 |---|---|---|
 | `corpus/` | The RAG knowledge base: Markdown/text documents ingested by `python -m retrieval.indexer`. Add/edit files here, then reindex — the server never picks up corpus changes on its own. | Operator-managed content; never add credentials or unrelated private files. Chunks are sanitized at ingestion. The indexer uses overlapping embedder-token windows with the shipped config, not Markdown section boundaries. |

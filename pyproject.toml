@@ -121,6 +121,10 @@ cyclaw-clear-cache = "retrieval.clear_cache:main"
 cyclaw-user = "utils.authn_cli:main"
 cyclaw-gen-cert = "utils.gen_cert:main"
 
+[tool.hatch.build]
+# Runtime files must stay out even when a nested name matches an include glob.
+exclude = ["/data"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrails", "telegram", "opentweet", "memory"]
 
@@ -137,14 +141,13 @@ packages = ["utils", "retrieval", "llm", "schemas", "sync", "agentic", "guardrai
 "config.yaml" = "config.yaml"
 "config/numbat" = "config/numbat"
 "static" = "static"
-"data" = "data"
 
 [tool.hatch.build.targets.sdist]
 include = [
     "gate.py", "gate_ops.py", "gate_auth.py", "gate_memory.py", "graph.py", "mcp_hybrid_server.py", "metrics.py",
     "mcp_manifest.json",
     "config.yaml", "config/numbat", "constraints.txt", "environment.yml", "utils", "retrieval", "memory",
-    "llm", "schemas", "static", "data", "sync", "agentic", "guardrails", "telegram", "opentweet", "powershell", "macos", "windows",
+    "llm", "schemas", "static", "sync", "agentic", "guardrails", "telegram", "opentweet", "powershell", "macos", "windows",
 ]
 
 [tool.pytest.ini_options]
