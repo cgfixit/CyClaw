@@ -10,7 +10,7 @@ Canonical list (must stay aligned with `utils.agent_identity.ALLOWED_BRANCH_PREF
 | Prefix | Driver |
 |--------|--------|
 | `grok/<feature>` | Grok Build |
-| `claude/<feature>` | Claude Code / agentic harness |
+| `claude/<feature>` | Claude Code |
 | `codex/<feature>` | Codex |
 | `kimi/<feature>` | Kimi / Kimi Code |
 | `agent/<feature>` | Generic / default agent identity |
@@ -18,25 +18,30 @@ Canonical list (must stay aligned with `utils.agent_identity.ALLOWED_BRANCH_PREF
 
 Also allowed: `main`, `master`, `develop`, `dependabot/*`, `renovate/*`, `release/*`, `hotfix/*`.
 
-| Hook | When | Behavior |
-|------|------|----------|
-| `pre-commit` | every commit | refuses commit if current branch is off-convention |
-| `commit-msg` | every commit | refuses subjects that are not `[prefix] - description` per the PR template Title section |
-| `pre-push` | every push | fetches `origin/main`, refuses off-convention head refs, and refuses non-default branches that do not contain current `origin/main` |
+## Files and benefits
+
+| File | Responsibility | Benefit |
+|------|----------------|---------|
+| `pre-commit` | Checks the current branch name, then runs the staged security gate and repository checks. Detached HEAD skips only branch naming. | Catches naming, content and policy mistakes before they enter a commit. |
+| `commit-msg` | Checks the first subject line against the title allowlist below, with Git-generated and dependency-bot exceptions. | Keeps commit subjects consistent with the PR title convention. |
+| `pre-push` | Refreshes `origin/main`, checks destination branch names and ancestry, then scans every supplied ref through the security gate. Branches other than `main`, `master` and `develop` must contain fresh `origin/main`. | Refuses stale feature branches and checks the actual objects being published. |
+| `_security.sh` | Shared Bash 3.2-compatible implementation for content, filename, privacy, protected-path and ref-rewrite checks; loads configuration and invokes repository callbacks. | Keeps commit and push checks in one place, including commits created without local hooks. |
+| `security.conf` | CyClaw blocked paths, protected controls, fixture exceptions, staged Python Ruff check and pushed-tip invariant check. | Applies repository policy without mixing it into the reusable scanner. |
+| `README.md` | Hook entry-point guide, file inventory, title/branch conventions and installation. | Gives contributors one starting point; detailed security behavior lives in [`docs/GITHOOKS.md`](../docs/GITHOOKS.md). |
 
 The `commit-msg` hook's allowlist is a closed set — `invariant`, `governance`,
 `fsconnect`, `agentic`, `rag`, `harness`, `security`, `docs`, `infra`, `fix`,
 `feat`. It also lets through Dependabot/Renovate subjects beginning `chore(deps)`, `build(deps)`, or `ci(deps)` — the `(deps)` scope is required, so a bare `chore:` or `build:` subject is still rejected — and
 skips the check entirely for merge/revert/fixup commits (`Merge`, `Revert`,
-`fixup!`, `squash!`, `Amend!`). Anything else is rejected, so reach for the
+`fixup!`, `squash!`, `amend!`; legacy `Amend!` is also accepted). Anything else is rejected, so reach for the
 closest listed prefix rather than inventing one.
 
 ## Security gate (`_security.sh` + `security.conf`)
 
 Full explainer, install line for every agent, and reuse steps: [`docs/GITHOOKS.md`](../docs/GITHOOKS.md).
 
-`pre-commit` and `pre-push` both source `_security.sh` (generic, shared with
-cg-agent-harness) and `security.conf` (CyClaw values). It covers only what CI
+`pre-commit` and `pre-push` both source `_security.sh` (the reusable scanner),
+which loads `security.conf` (CyClaw values). It covers only what CI
 sees too late or cannot see:
 
 | Check | pre-commit | pre-push | Override |
@@ -49,18 +54,18 @@ sees too late or cannot see:
 | `.gitignore` rule removed (also checked on pushed commits); agent tool wiring (`.mcp.json`, `.claude/settings.json`, `.codex/config.toml`) changed or deleted | staged | rule removal: blocks; wiring: reminder | `HOOK_OPERATOR_ACK=1` (operator only) |
 | Secure-by-design questions when a diff adds a route, outbound call, exec/deserialization, persisted model, file write, config input, telemetry or HTML sink; reminders for dependency manifests and agent instruction files | printed, not blocking | — | answer in the PR body |
 | `ruff --select F,B,S` on staged Python (if `ruff` is installed) | yes | — | fix the finding |
-| Direct push to, or deletion of, `main` | — | yes | `ALLOW_MAIN_PUSH=1` (operator only; delete has none) |
-| Non-fast-forward push | — | yes | `ALLOW_FORCE_WITH_LEASE=true` (operator only) |
-| `invariant-guard` (run on an export of each pushed commit) when any file it reads is in the push: the core six, `config.yaml`, `utils/personality*.py`, the out-of-band packages | — | yes | fix the finding |
+| Direct push to, or deletion of, `main` / `master` | — | yes | `ALLOW_MAIN_PUSH=1` (operator only; delete has none) |
+| Non-fast-forward branch push or existing tag replacement | — | yes | `ALLOW_FORCE_WITH_LEASE=true` (operator only) |
+| `invariant-guard` on an export of each pushed commit tip when a path in `SEC_INVARIANT_TRIGGER` changed in the published range | — | yes | fix the finding |
 
 Operator-private patterns (`SEC_PII_REGEX`, `SEC_AUTHOR_EMAIL_DENY`) live in
 `~/.config/githooks/private.conf` or the untracked `.githooks/security.local.conf`,
 never in `security.conf`: a tracked list of your identifiers is the leak.
 
-It is a speed bump, not a boundary: `--no-verify`, a clone that never ran the
-install step, and the agentic pipeline (which pins `core.hooksPath` to an empty
-directory for its workspace clones) all bypass it. The `gitleaks.yml` workflow
-and the `main` ruleset remain the controls.
+It is a speed bump, not a boundary: bypass flags, a clone that never ran the
+install step, or a different effective `core.hooksPath` can prevent it from
+running. CyClaw's former agentic coding loop was removed in October 2026.
+Hosted checks and branch rules remain separate controls.
 
 ## PR body template (not a git hook)
 
@@ -74,13 +79,16 @@ fully, run `scripts/check-pr-template.sh path/to/body.md` before creating, and
 
 ```bash
 bash scripts/ensure-githooks.sh        # idempotent; what every agent setup runs
-git config core.hooksPath              # → .githooks
+git config --show-origin --get core.hooksPath
 ```
 
-`scripts/install-githooks.sh` (or `git config core.hooksPath .githooks`) sets
-it unconditionally. The pre-push gate never rebases or force-pushes for you:
+`ensure-githooks.sh` leaves an existing hook manager alone; confirm the
+effective path is `.githooks` to use these hooks. `scripts/install-githooks.sh`
+sets it unconditionally and restores executable bits on the three entry
+points. The pre-push gate never rebases or force-pushes for you:
 rebase, inspect conflicts, rerun the checks, and use force-with-lease only with
 explicit approval. It cannot infer multi-PR semantics either; map shared files
 and trial the merge order as `.codex/Codex_instructions.md` requires.
-`--no-verify` is an emergency bypass, never routine (`pre-push` still scans
-commits made that way; CI is the backstop).
+Repository agents must fix hook findings rather than bypass hooks or grant
+themselves operator overrides. Pre-push still scans commits created without
+pre-commit; hosted checks are a separate backstop.

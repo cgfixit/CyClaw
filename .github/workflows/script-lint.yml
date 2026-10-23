@@ -1,5 +1,5 @@
 # ==============================================================================
-# CyClaw script lint — shellcheck (macos/) + PSScriptAnalyzer (powershell/)
+# CyClaw script lint — shellcheck (macOS scripts) + PSScriptAnalyzer (PowerShell scripts)
 #
 # Fail-closed gates for native installer/helper scripts (#1558). No rule
 # exclusions, no severity downgrades, no continue-on-error. The script owner
@@ -75,7 +75,7 @@ jobs:
             exit 1
           fi
 
-      - name: shellcheck macos/*.sh (fail-closed, no rule exclusions)
+      - name: shellcheck macOS scripts (fail-closed, no rule exclusions)
         run: |
           set -euo pipefail
           # --norc: ignore any .shellcheckrc so CI cannot silently relax rules.
@@ -86,12 +86,15 @@ jobs:
             echo "::error::no macos/*.sh scripts found"
             exit 1
           fi
+          scripts+=(.claude/skills/CyClaw-Sandbox/macos-smoke.sh .agents/skills/cyclaw-sandbox/macos-smoke.sh)
           printf 'Linting %s script(s):\n' "${#scripts[@]}"
           printf '  %s\n' "${scripts[@]}"
           shellcheck --norc -S warning -- "${scripts[@]}"
 
   psscriptanalyzer-powershell:
     name: PSScriptAnalyzer (powershell scripts)
+    # windows-latest is Windows Server, not Windows 10. This checks PowerShell
+    # syntax/rules; Windows 10 runtime behavior needs a Windows 10 machine.
     runs-on: windows-latest
     timeout-minutes: 10
     permissions:
@@ -130,15 +133,14 @@ jobs:
           }
           Write-Host "PSScriptAnalyzer $($mod.Version)"
 
-      - name: Invoke-ScriptAnalyzer powershell/*.ps1 (fail-closed, no rule exclusions)
+      - name: Invoke-ScriptAnalyzer tracked PowerShell scripts (fail-closed, no rule exclusions)
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Force
-          $scripts = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "powershell") -Filter *.ps1 -File |
-            Sort-Object FullName
+          $scripts = @(git ls-files -- '*.ps1' | ForEach-Object { Get-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE $_) })
           if ($scripts.Count -eq 0) {
-            throw "no powershell/*.ps1 scripts found"
+            throw "no tracked PowerShell scripts found"
           }
           Write-Host "Linting $($scripts.Count) script(s):"
           $scripts | ForEach-Object { Write-Host "  $($_.FullName)" }

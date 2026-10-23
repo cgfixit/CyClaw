@@ -14,26 +14,33 @@ do next.
 
 ```sh
 bash scripts/ensure-githooks.sh         # idempotent; the one setup line every agent runs
-git config core.hooksPath               # -> .githooks
+git config --show-origin --get core.hooksPath
 ```
 
 Put that line in every agent's setup step; the Claude Code SessionStart hook
-(`.claude/hooks/session-start-sync-check.sh`), `copilot-setup-steps.yml`, and
-`.codex/Codex_instructions.md` already call it. A fresh cloud clone has no
-hooks until it runs. `ensure-githooks.sh` is never fatal and sets
+(`.claude/hooks/session-start-sync-check.sh`) and `copilot-setup-steps.yml`
+already call it; `.codex/Codex_instructions.md` instructs Codex to run it.
+A fresh cloud clone has no tracked hooks until it runs.
+`ensure-githooks.sh` is never fatal and sets
 `core.hooksPath` only when no scope has set it, so an operator's own hook
 manager is left alone; `bash scripts/install-githooks.sh` sets it
-unconditionally. Optional tools used when present: `gitleaks` (entropy-based
-detection of unprefixed secrets) and `exiftool` (image and document metadata);
-without them the gate says what it skipped.
+unconditionally and restores executable bits on the three hook entry points.
+Confirm the effective path is `.githooks`; a preserved alternative hook
+manager does not automatically run this gate. Optional tools used when
+present: `gitleaks` (entropy-based detection of unprefixed secrets) and
+`exiftool` (image and document metadata).
+Missing `gitleaks` produces a skip notice; without `exiftool`, added media
+still gets a visual-review reminder but no metadata inspection.
 
 ## Files
 
 | File | Tracked | Role |
 |---|---|---|
-| `.githooks/pre-commit`, `.githooks/pre-push` | yes | Entry points. They source the gate and call it. |
-| `.githooks/_security.sh` | yes | The gate. Identical in every repo that uses this template; Bash 3.2 compatible (stock macOS). |
+| `.githooks/pre-commit`, `.githooks/pre-push` | yes | Entry points. They enforce branch conventions, then source and call the gate; push also refreshes and checks `origin/main` ancestry. |
+| `.githooks/commit-msg` | yes | Commit subject convention; does not invoke the security gate. |
+| `.githooks/_security.sh` | yes | Reusable security checks; Bash 3.2 compatible (stock macOS). |
 | `.githooks/security.conf` | yes | This repo's values: extra blocked files, protected paths, fixture allowlist, repo checks. |
+| `.githooks/README.md` | yes | File responsibilities, benefits, branch/title conventions and installation. |
 | `~/.config/githooks/private.conf` | **never** | Your own identifiers (PII patterns, personal email). Applies to every repo on the machine. |
 | `.githooks/security.local.conf` | **never** (gitignored) | Same, for one clone only. |
 
@@ -87,10 +94,11 @@ What the scans are careful about:
   exist in the merge and in neither parent, which is where an "evil merge" or a
   conflict resolution hides content. The side branch's own commits are scanned
   as ordinary commits.
-- **Which commits are "new".** For a configured remote, commits not already on
-  that remote's tracking refs. For a push to a URL (or a remote name this clone
-  does not have) the whole ancestry of the pushed commit, since no local ref
-  describes the destination.
+- **Which commits are "new".** If the destination ref already exists and its
+  old commit is available locally, scan `remote_sha..local_sha`. Otherwise,
+  for a configured remote, exclude commits already on that remote's tracking
+  refs. For a URL or unknown remote with no locally available destination
+  commit, scan the pushed commit's whole ancestry.
 - **Tags.** An annotated tag's message is scanned, and a tag that points at a
   blob or a tree (not a commit) has the blob's bytes, or every blob under the
   tree, scanned and its file names checked.
@@ -108,16 +116,17 @@ What the scans are careful about:
 | Exposure-prone line | TLS verification off, `0.0.0.0`, wildcard CORS, pipe-to-shell, `--no-verify`, `chmod 777`, a secret-named value in a log call |
 | `.gitignore` no longer covers a probe path | `SEC_IGNORE_PROBES` |
 
-Reminder scans skip tests, docs, examples and Markdown. Push repeats only the
-blocking checks; the reminders were already shown at commit time.
+Design-question and exposure-line scans skip tests, docs, examples and
+Markdown. Other file-based reminders still apply. Push repeats protected-path
+reminders as well as its blocking checks; other reminders run at commit time.
 
 ## Overrides: operator only
 
 | Variable | Allows |
 |---|---|
-| `HOOK_OPERATOR_ACK=1` | a change to or deletion of a protected path, or a removed `.gitignore` rule (at commit time and again at push time) |
+| `HOOK_OPERATOR_ACK=1` | protected-path changes at commit time; removed `.gitignore` rules at commit and push time. Protected paths are reminder-only at push. |
 | `ALLOW_MAIN_PUSH=1` | a direct push to a protected branch |
-| `ALLOW_FORCE_WITH_LEASE=true` | a non-fast-forward push |
+| `ALLOW_FORCE_WITH_LEASE=true` | a non-fast-forward branch push or replacement of an existing tag |
 
 An agent never sets these on its own: when the gate refuses, it stops, shows
 the operator the message and the diff, and waits for the operator to rerun
@@ -160,9 +169,9 @@ The gate sees text, not intent. These rules stay in `AGENTS.md` and review:
 
 ## Known limits
 
-- `git commit --no-verify` skips pre-commit (pre-push still scans those commits); `git push --no-verify` skips both, and a clone that never set `core.hooksPath` has no gate. CI is the backstop.
+- `git commit --no-verify` skips pre-commit and commit-msg (pre-push still scans those commits); `git push --no-verify` skips pre-push. A clone without the tracked hook path has no local gate. CI is a separate backstop.
 - An agent can set an override variable itself; the gate makes that a visible rule violation, not an impossible one.
-- Regex detection misses unprefixed low-entropy secrets and flags look-alike fixtures; archives, images, and binaries are not scanned inside (large new files are refused, media gets a reminder).
+- Regex detection misses unprefixed low-entropy secrets and flags look-alike fixtures. Raw blob content is scanned as text, but archives are not unpacked and images receive no OCR. New oversized files are refused at commit time; media gets a reminder and optional metadata inspection.
 
 ## Reuse in another repository
 
@@ -188,9 +197,14 @@ The security gate runs after the hooks CyClaw already had, in the same files:
 
 - **Blocked files:** `.githooks/security.local.conf` (the untracked file of the operator's own identifiers, which must never be committed), `docs/memories/CONSOLIDATED.md`, `data/memory/*`, `data/auth/*`, `data/personality/soul.md.bak`, `logs/*`, `.rclone-state/*`, and `*.rootowned-bak` copies of ignored runtime directories. `cyclaw_telemetry_kill.env` and `macos/ollama-mlx.env` are tracked on purpose (flags, no credentials) and excepted.
 - **Protected (ask first, CLAUDE.md §7 Tier High):** `data/personality/soul.md`, `utils/sanitizer.py`, `gate_auth.py`, `.gitleaksignore`, `.trivyignore.yaml`, `.osv-scanner.toml`, `.claude/skills/dotenv-guard/baseline.txt`, plus the template's `.githooks/*`, `mcp_manifest.json` and agent tool settings. Graph-edge changes in `graph.py` are covered by invariant-guard, not by path.
-- **Repo checks:** `ruff check --select F,B,S` on staged Python (the blocking rule set in `lint.yml`; skipped with a one-line notice when `ruff` is not installed), and `invariant-guard` on push when any file it reads is in the pushed commits: the core six, `metrics.py`, `config.yaml`, `utils/personality*.py`, the telemetry-kill appliers (`utils/gen_cert.py`, `utils/authn_cli.py`, `retrieval/{vector_store,indexer,clear_cache}.py`), any `.py` under `agentic/`, `sync/`, `guardrails/`, `telegram/` or `opentweet/`, and the checker itself (`SEC_INVARIANT_TRIGGER` in `security.conf`). It runs against a `git archive` export of each pushed commit, not the working tree, so uncommitted or stale local files cannot make a bad push look good. Without `python3` it prints a notice and skips.
+- **Repo checks:** `ruff check --select F,B,S` on staged Python bytes (the blocking rule set in `lint.yml`; skipped with a one-line notice when `ruff` is not installed), and `invariant-guard` on push when a path matching `SEC_INVARIANT_TRIGGER` changed in the published range, including deletions and rename sources. The trigger covers the core six, `metrics.py`, `config.yaml`, `utils/personality*.py`, the telemetry-kill appliers (`utils/gen_cert.py`, `utils/authn_cli.py`, `retrieval/{vector_store,indexer,clear_cache}.py`), any `.py` under `agentic/`, `sync/`, `guardrails/`, `telegram/` or `opentweet/`, and the checker itself. It runs against a `git archive` export of each distinct pushed commit tip, not every intermediate commit or the working tree. This verifies the published tip independently of uncommitted local edits; per-commit secret scans remain separate. Without `python3` it prints a notice and skips.
 - **Fixture allowlist:** the synthetic AWS/Anthropic/xAI values in `tests/test_audit.py`, `tests/test_gate.py`, `tests/test_health.py` and the sandbox skill, and the `/home/cyclaw` and `alice-shield` fixture home directories.
 
 Add the file name of the LOCAL ONLY global memory pack to `SEC_BLOCKED_GLOBS` in your `private.conf`, so the name itself is not published.
 
-No CyClaw component makes commits of its own any more: the agentic coding loop, whose workspace proofs and clones pinned `core.hooksPath` to an empty directory and so bypassed this gate, was removed in October 2026. Every commit in this repository now passes through these hooks or through CI (`gitleaks.yml`, `dotenv-guard`, `invariant-guard`).
+CyClaw's agentic coding loop, whose workspace proofs and clones pinned
+`core.hooksPath` to an empty directory, was removed in October 2026. Hook
+installation and invocation still depend on the committing environment;
+hosted automation can select its own hook path. CI (`gitleaks.yml`,
+`dotenv-guard`, `invariant-guard`) provides separate checks on the events and
+revisions each workflow covers.

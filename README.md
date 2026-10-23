@@ -33,6 +33,10 @@ enabled; it provides neither tenant isolation nor a microVM
 Step-by-step installs and every REST call: [Full Setup Guide](setup-guide.md).
 Contributor rules for people and agents: [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md),
 and the tracked git-hook gate in [`docs/GITHOOKS.md`](docs/GITHOOKS.md).
+Run `bash scripts/ensure-githooks.sh` once per clone and confirm
+`git config --show-origin --get core.hooksPath` points to `.githooks`;
+an existing hook manager is preserved. The [hook file guide](.githooks/README.md)
+explains each file, its benefit, and the branch and commit-title conventions.
 Codex skill discovery, invocation policies and review workflows:
 [Codex guidance](.codex/README.md) (repository skills in `.agents/skills/`).
 For workflow purposes, triggers, blocking versus advisory checks, and publishing:
@@ -540,7 +544,7 @@ Telegram [design](docs/channels/TELEGRAM_DESIGN.md) and
 | `/auth/*` | Present either way; 503 while auth is off. When on, `/query` needs a session or device token and refuses `audit` accounts; the last `admin` cannot be removed |
 | Container | Non-root, `no-new-privileges`, dropped caps, read-only rootfs; optional Falco (`deploy/falco/`) ships off |
 | Dependency risk | `chromadb==1.5.9` carries CVE-2026-45829, accepted only for embedded `PersistentClient`. [`SECURITY.md`](SECURITY.md) |
-| Commit-time gate | Tracked `.githooks/` refuse secrets and private data at commit and push, protected-path edits at commit (reminder only at push), and main/force pushes without an operator override ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)) |
+| Commit/push gate | When installed, tracked `.githooks/` check secrets and private data at commit and push, protected-path edits at commit (reminder only at push), and protected-branch/ref rewrites ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)) |
 
 Full threat model: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Design
 notes: [`docs/security-philosophy/`](docs/security-philosophy/).
