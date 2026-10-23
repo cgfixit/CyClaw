@@ -15,7 +15,7 @@
 # Operator docs: docs/DOCKER.md
 # Hardening refs: docker-compose.yml, deploy/seccomp/, deploy/falco/ (opt-in)
 
-name: Publish GHCR
+name: Publish container image to GHCR
 
 on:
   push:
@@ -82,7 +82,7 @@ jobs:
             org.opencontainers.image.title=CyClaw
             org.opencontainers.image.description=Offline-first RAG soul agent (loopback-bound runtime)
             org.opencontainers.image.source=https://github.com/CGFixIT/CyClaw
-            org.opencontainers.image.licenses=SEE-LICENSE-IN-REPO
+            org.opencontainers.image.licenses=MIT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
