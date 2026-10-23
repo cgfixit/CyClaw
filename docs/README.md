@@ -35,6 +35,9 @@ grepping.
 | [`NeMo/README.md`](NeMo/README.md), [`../guardrails/README.md`](../guardrails/README.md) | Default-enabled guardrails, required NeMo installation, deterministic fallback, route scope, and inactive model-assisted rails. The dated [Track B record](audits/2026-10-03-nemo-track-b.md) separates runtime, Computer Use, and CI evidence. |
 | [`security-philosophy/numbat_pre_action_gate.md`](security-philosophy/numbat_pre_action_gate.md), [`security-philosophy/numbat_secondary_evaluator.md`](security-philosophy/numbat_secondary_evaluator.md) | The default-off deny-only external-call hook and the separate default-on observation stream. |
 | [`../retrieval/README.md`](../retrieval/README.md), [`audits/2026-09-26-reranker-bakeoff.md`](audits/2026-09-26-reranker-bakeoff.md) | Token chunking, paired index generations, context-window gating, and the evidence for leaving reranker scores in shadow mode. |
+| [`input-boundaries.md`](input-boundaries.md), [`../utils/unicode_data/README.md`](../utils/unicode_data/README.md) | Corpus file-size, symlink and decode limits, plus the normalization probes used to detect concealed instructions without rewriting accepted text. |
+| [`../macos/README.md`](../macos/README.md), [`../powershell/README.md`](../powershell/README.md) | Native installer, launcher, credential-store and scheduler entry points; check the platform-specific guide before changing an installed service. |
+| [`../tests/README.md`](../tests/README.md), [`../scripts/README.md`](../scripts/README.md), [`../.codex/README.md`](../.codex/README.md) | Verification lanes, contributor tooling, and the maintained Codex skill inventory. |
 
 ## Working / historical trees
 
@@ -42,7 +45,7 @@ grepping.
 |---|---|
 | `audits/` | Dated audit and report documents land here. |
 | `memories/` | Live agent memory (the only sanctioned location — `.claude/memory/` is legacy). |
-| `work/` | Active planning docs (e.g. `work/MACOS_LAUNCHD_INTEGRATION_PLAN.md`, session notes). |
+| `work/` | Planning and session records, including historical plans for removed agentic features. Check each record against current code before treating it as active work. |
 | `plans/` | Living forward-looking roadmaps (e.g. `plans/NUMBAT_AND_ALWAYS_ON_ROADMAP.md`). Plans, not authorities — the code and `config.yaml` still win. |
 | `mailtag/IMPLEMENTATION_PLAN.md` | **DRAFT** mailtag (provider-neutral email tagging) plan. Not shipped, not a graph node, not approved. Do not implement from this file without an explicit owner sign-off. |
 | `analysis/`, `zIdeas/`, `zWork/`, `! How-To-Guides/`, `screenshots/` | Working material and archives; not authorities. |

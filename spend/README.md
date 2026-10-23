@@ -3,16 +3,17 @@
 CyClaw answers from the local vault by default. When a human explicitly confirms
 an online send, the call reaches Grok (xAI) or Claude (Anthropic) and costs real
 money. `utils/spend.py` records what each of those calls consumed, so an
-operator can answer "what did this month cost?" and check that figure against
-the vendor console.
+operator can inspect usage and compare matching time windows with the vendor
+console. The built-in metrics report covers today and the last seven UTC
+calendar days; it does not expose a monthly report option.
 
 The ledger's core rule: **tokens are the ground truth; dollars are derived at
 read time.** The file on disk never stores a price. `metrics.py` applies a dated
 rate table when it prints, which means correcting a stale rate re-prices the
 entire history rather than leaving wrong numbers baked into old lines.
 
-Grok and Claude are not priced the same way. xAI returns `cost_in_usd_ticks` on
-the usage object; that integer is stored and converted as
+Grok and Claude are not priced the same way. When xAI returns `cost_in_usd_ticks` on
+the usage object, that integer is stored and converted as
 `ticks / 10_000_000_000`. Anthropic does not return a dollar field; Claude rows
 are priced from billed `input_tokens` / `output_tokens` (and cache fields)
 times the `claude-sonnet-5` row in `_RATES`. Do not estimate Claude cost with
@@ -25,12 +26,17 @@ a request; `logs/spend.jsonl` is a separate append-only file for what it cost,
 written outside `utils/logger.py`'s `audit_log` so history can be repriced
 without touching the audit trail. Not a policy point either: nothing on the
 `/query` path reads it; it is written after a billed call completes and
-consumed only by `cyclaw-metrics`, and the core modules never import the
-metrics or sequence-detection code.
+consumed by the CLI's spend/sequence reports. `gate.py` does import
+`metrics.summarize_audit` for `/audit/summary`; that helper reads only the audit
+file. Sequence detection is imported lazily inside the CLI report path and
+does not participate in request authorization.
 
 ## What is recorded
 
-Each billed external call appends exactly one JSON line. The writer is
+Each successful HTTP response that reaches the external client's extraction
+step attempts one JSON-line append, even if answer extraction then fails.
+Transport failures without a response cannot establish or record vendor usage,
+and a failed best-effort write can leave no row. The writer is
 `record_external_usage()` in `utils/spend.py`, serialized by a module-level
 threading lock so concurrent calls cannot interleave a partial line.
 
@@ -170,13 +176,18 @@ The Spend section is part of the standard metrics output:
 python -m metrics
 ```
 
-(`cyclaw-metrics` is the same report once the project is installed with
-`pip install -e .`.) The Spend section prints `today` and `last_7d` windows:
+(`cyclaw-metrics` is the same report once the project is installed following
+the editable-install instructions in [`setup-guide.md`](../setup-guide.md).)
+The Spend section prints `today` and `last_7d` windows, using UTC dates
+(`today - 6` through `today`, inclusive):
 input/output tokens, derived USD, and per-provider and per-source row counts.
 When any row carried vendor ticks it also shows `table_usd`,
 `ticked_table_usd`, `vendor_usd`, and `delta_usd` side by side so rate-table
 drift is visible. Two data-quality counters: `usage_missing` (billed calls with
 unparseable usage) and `rate_unknown` (models absent from the rate table).
+Those two top-level counters cover all parsed ledger rows, not just the two
+displayed date windows. Pricing uses the configured `model` field; the optional
+`served_model` remains provenance and does not select a separate rate row.
 
 ### Verifying the rate table against the vendor
 
@@ -196,7 +207,8 @@ total for the same window, not a tick delta.
 check. Compare the same window:
 
 1. Sum CyClaw dollars for that provider (`python -m metrics`, Spend section).
-2. Open the xAI console (Grok) or Anthropic "Spend this month" (Claude).
+2. Open the vendor console and select the same UTC dates. A month-to-date
+   console total is not comparable to the CLI's `today` or `last_7d` total.
 3. Ignore Grok Build / Claude Code / this coding-agent session's own token
    counter — those are different bills.
 4. Cent rounding on the vendor UI is expected. A two-cent gap on a five-dollar
@@ -204,10 +216,10 @@ check. Compare the same window:
    A mid-run screenshot that is missing the last rows is not a rate-table bug;
    refresh after the process exits.
 
-Grok long-context: once the prompt crosses 200k tokens, xAI bills the **whole
-request** on the long band (`$4` / `$12` for `grok-4.5`, not `$2` / `$6`). The
-rate table implements that switch. A request past that threshold therefore
-costs about twice the short-band estimate.
+The checked-in `grok-4.5` rate row switches the **whole request** at
+`input_tokens >= 200000` to its long-context rates. These are dated local
+estimates, not a live price lookup; use vendor ticks when present and verify
+the current vendor rate before treating a table-only estimate as a bill.
 
 ### Live probes (they spend real money)
 

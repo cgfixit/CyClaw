@@ -1,7 +1,10 @@
 """Lock freshness must detect input and transitive-output drift offline."""
 
 import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -67,3 +70,64 @@ def test_windows_checkout_line_endings_are_not_dependency_drift(lock_tree):
         path = lock_tree / relative
         path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
     check(lock_tree)
+
+
+@pytest.fixture
+def refresh_env(lock_tree):
+    if os.name == "nt":
+        pytest.skip("refresh scripts run on a POSIX host")
+    tools = lock_tree / "tools"
+    tools.mkdir()
+    uname = tools / "uname"
+    uname.write_text('#!/bin/sh\ncase "$1" in -s) echo Darwin;; -m) echo arm64;; esac\n')
+    uname.chmod(0o755)
+    uv = tools / "uv"
+    uv.write_text('#!/bin/sh\nexec "$PYTHON_BIN" "$FAKE_UV" "$@"\n')
+    uv.chmod(0o755)
+    fake_uv = tools / "uv.py"
+    fake_uv.write_text(
+        "import json, os, sys\nfrom pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "output = Path(args[args.index('--output-file') + 1])\n"
+        "with open(os.environ['UV_CALLS'], 'a') as log:\n"
+        "    log.write(json.dumps({'args': args, 'seeded': output.is_file()}) + '\\n')\n"
+    )
+    return {
+        **os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+        "UV_BIN": str(uv), "PYTHON_BIN": sys.executable, "FAKE_UV": str(fake_uv),
+        "UV_CALLS": str(lock_tree / "uv-calls.jsonl"),
+    }
+
+
+@pytest.mark.parametrize("script", ["refresh-runtime-lock.sh", "refresh-ci-locks.sh"])
+@pytest.mark.parametrize("targets", [[], ["certifi", "opentelemetry-api"]])
+def test_refresh_forwards_only_targeted_upgrades_to_seeded_non_torch_locks(lock_tree, refresh_env, script, targets):
+    args = [value for target in targets for value in ("--upgrade-package", target)]
+    result = subprocess.run(
+        ["/bin/bash", str(lock_tree / "scripts" / script), *args], env=refresh_env,
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = [json.loads(line) for line in Path(refresh_env["UV_CALLS"]).read_text().splitlines()]
+    assert len(calls) == len(catalog("runtime" if "runtime" in script else "ci"))
+    for call in calls:
+        assert call["seeded"]
+        argv = call["args"]
+        output = argv[argv.index("--output-file") + 1]
+        upgrades = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--upgrade-package"]
+        assert upgrades == ([] if "requirements-torch-lock-" in output else targets)
+        assert "--upgrade" not in argv
+
+
+@pytest.mark.parametrize("script", ["refresh-runtime-lock.sh", "refresh-ci-locks.sh"])
+@pytest.mark.parametrize("args", [["--upgrade"], ["--upgrade-package"], ["--upgrade-package", "--index-url"]])
+def test_refresh_rejects_invalid_targets_before_compiling(lock_tree, refresh_env, script, args):
+    before = {p.name: p.read_bytes() for p in (lock_tree / "locks").iterdir() if p.is_file()}
+    result = subprocess.run(
+        ["/bin/bash", str(lock_tree / "scripts" / script), *args], env=refresh_env,
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 2
+    assert "usage:" in result.stderr
+    assert not Path(refresh_env["UV_CALLS"]).exists()
+    assert before == {p.name: p.read_bytes() for p in (lock_tree / "locks").iterdir() if p.is_file()}

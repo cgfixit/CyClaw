@@ -1,8 +1,8 @@
 # CyClaw
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-blue.svg)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.11-blue.svg)](https://github.com/langchain-ai/langgraph)
+[![FastAPI](https://img.shields.io/badge/FastAPI-pinned-blue.svg)](requirements.txt)
+[![LangGraph](https://img.shields.io/badge/LangGraph-pinned-blue.svg)](requirements.txt)
 [![CyClaw CI/CD testing](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml)
 
 [![CyClaw console answering from the local library](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/2026-10-05-console-answered-query-1440.png)](https://github.com/cgfixit/CyClaw/tree/main/docs/screenshots)
@@ -46,7 +46,13 @@ Security review #1526's [residual decision register](SECURITY.md#issue-1526-resi
 separates implemented controls, accepted limits (native Windows verification
 stays disabled; supported confinement still permits host reads), and optional research.
 
-# CyClaw gives operators governed answers from private local documents without cloud exfiltration. Retrieval-first hybrid RAG, topology-enforced gates, and full audit trails ensure fail-closed behavior plus human consent on any external call—suited to regulated or air-gapped environments. On a single workstation it turns an existing library into a measurable, auditable Q&A system with explicit retrieval floors and spend controls.
+Confirmed cloud fallback sends the question to the selected provider. Retrieved
+context stays local unless `policy.fallback.send_local_context_to_grok` or
+`send_local_context_to_claude` is explicitly enabled; the soul is never added
+to a cloud prompt. These gates govern answer generation, not every network
+operation: model downloads and enabled sync/channels have separate connections.
+For no-egress operation, pre-cache models, disable those optional connections,
+and enforce the network boundary outside the application.
 
 ## Quick Start
 
@@ -57,7 +63,11 @@ git clone https://github.com/cgfixit/CyClaw && cd CyClaw
 bash macos/setup-cyclaw.sh
 ```
 
-**Linux** — Ollama already running on `127.0.0.1:11434`:
+**Linux** — Ollama already running on `127.0.0.1:11434`. The shipped MLX
+model tag targets Apple Silicon. Before starting the gateway, set both
+`models.local_llm.model` and `guardrails.model` in `config.yaml` to the
+Linux-compatible tag you pull below (or another installed model that fits
+your hardware):
 
 ```bash
 git clone https://github.com/cgfixit/CyClaw && cd CyClaw
@@ -65,7 +75,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
 pip install --require-hashes -r locks/requirements-lock-linux.txt
 pip install --require-hashes -r locks/requirements-test-lock-linux.txt
-ollama pull qwen3.8:27b-mlx
+ollama pull qwen3.8:27b
 export CYCLAW_API_KEY="$(openssl rand -hex 20)"  # operator routes; /query uses sessions/tokens when auth is on
 python -m retrieval.indexer                      # once; without this, /query is 503
 python gate.py                                   # http://127.0.0.1:8787
@@ -76,6 +86,7 @@ CI checks every lock group against recorded inputs and hashes, and checks wheel 
 **Windows** uses the same pins with the `-windows` lock files
 (`py -3.12 -m venv .venv`, `.\.venv\Scripts\Activate.ps1`):
 [Windows](setup-guide.md#windows-powershell), [Linux](setup-guide.md#linux-bash).
+Choose a non-MLX local model and update both model keys there as well.
 
 Confirm: `curl http://127.0.0.1:8787/health`, then open
 `http://127.0.0.1:8787/`. A manual macOS install uses plain `torch==2.13.0`
@@ -94,7 +105,7 @@ Linux Quick Start, [Docker](docs/DOCKER.md) (`linux/amd64`, published on
 `127.0.0.1` only), or conda (`environment.yml`). The constrained editable
 install in the [setup guide](setup-guide.md) adds the `cyclaw-*` commands;
 `python -m …` always works. The hashed install locks and how they are
-regenerated are described in [locks/README.md](locks/README.md).
+regenerated, including targeted transitive upgrades, are described in [locks/README.md](locks/README.md).
 
 **Secrets.** `gate.py` reads environment variables, never dotenv files
 (`Invoke-CyClaw.ps1` reads only non-secret settings from an owner-only
@@ -137,6 +148,9 @@ is now the separate [CG-agent-harness](https://github.com/cgfixit/CG-agent-harne
   first" or "Offline only") and **Library**/**Engine** health chips. `/health`
   reporting `degraded` usually means Ollama is down; `TELEMETRY KILL` at
   startup is expected.
+- `/health` does not probe cloud providers unless
+  `api.health_probe_external_providers` is enabled (ships false). Local model
+  readiness and provider key presence are separate from a successful answer.
 - The 60/min per-IP rate limit resets on restart unless
   `api.rate_limit.persist_path` or a Postgres DSN is set. `/health` and
   `/index/status` are public and not rate-limited. Request bodies above
@@ -145,8 +159,12 @@ is now the separate [CG-agent-harness](https://github.com/cgfixit/CG-agent-harne
   `/query` always rejects cross-site requests.
 - Restart the gateway after editing sanitizer config (it is cached).
   `CYCLAW_EMBED_CACHE_SIZE` (default 2048) is an env var, not a YAML key.
-- Offline checks: `python .claude/skills/invariant-guard/check_invariants.py`
-  and `GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short` (no live provider).
+- Local static checks: `python .claude/skills/invariant-guard/check_invariants.py`
+  and `python .claude/skills/doc-sync/doc_sync.py`. Exercise the affected behavior
+  for a change; hosted CI runs the broad suites ([test guide](tests/README.md)).
+- At `api.max_concurrent_queries` capacity (4 shipped), `/query` returns
+  `503 GRAPH_BUSY`; a request exceeding `api.graph_timeout_sec` (780 seconds)
+  returns `504 GRAPH_TIMEOUT`. These differ from a missing index or model.
 
 **Local records.** Paths are relative to the repository.
 
@@ -198,13 +216,14 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
    `models.local_llm.api_key_env` (default `CYCLAW_LOCAL_LLM_API_KEY`), and the
    fallback backend from `models.local_llm.fallback.api_key_env` (default
    `CYCLAW_LOCAL_LLM_FALLBACK_API_KEY`). Unset means no `Authorization` header.
-   An inline `api_key` in `config.yaml` is refused for the primary, and for the
-   fallback only while `fallback.enabled` is true, so keep keys out of the file.
+   Gateway startup refuses a nonempty inline `api_key` in either local model
+   block, even when the fallback is disabled, so keep keys out of the file.
 4. **Governed soul.** `data/personality/soul.md` has SHA-256 drift detection
    and atomic writes; `POST /soul/apply` requires a human `reason` and an
-   enforced injection scan. Restore, `/soul/reload`, and startup drift
-   recovery are the documented unscanned or advisory exceptions, and a missing
-   soul self-initializes ([Soul invariants](INVARIANTS.md), Rules 4–5).
+   enforced injection scan. Restore audits an advisory scan of the vetted
+   backup without enforcing it; `/soul/reload` and startup drift recovery adopt
+   on-disk content unscanned. A missing soul self-initializes
+   ([Soul invariants](INVARIANTS.md), Rules 4–5).
 5. **Confirmed external fallback.** Grok (`grok-4.5`, `api.x.ai`) or Claude
    (`claude-sonnet-5`, `api.anthropic.com`) needs hybrid mode, that provider
    enabled and selected, `user_confirmed_online: true` on the request, and a
@@ -330,8 +349,8 @@ or device token when `auth.enabled` is true. Operator credentials are:
 Cookie writes need CSRF tokens, cookies reject cross-site requests, console
 tokens bind the request origin, and TLS uses `__Host-` cookies. Cookies are not
 port-scoped, so give CyClaw its own hostname plus TLS when other services on
-the host are untrusted. Without `CYCLAW_API_KEY`, Bearer and cookie access fail
-closed.
+the host are untrusted. Without `CYCLAW_API_KEY`, Bearer-key and console-cookie
+access fail closed; an enabled admin session still works.
 
 `macos/invoke-cyclaw.sh` and `powershell\Invoke-CyClaw.ps1` generate a
 missing key into the OS keystore and open a single-use `#pair=...` unlock
@@ -355,7 +374,8 @@ Rotation, the macOS bootstrap, and 401 recovery:
 
 `security.api_key_optional` ships `false`; when set, a request skips the key
 only if the socket peer is loopback, no forwarding header is present, and the
-request is not cross-site (inert under Docker NAT). Full boundary:
+request is not cross-site (inert under Docker NAT). It does not disable
+per-user authentication or RBAC. Full boundary:
 [`INVARIANTS.md`](INVARIANTS.md) Rule 6 and the
 [threat model](docs/THREAT_MODEL.md) (fourteenth amendment).
 
@@ -406,7 +426,7 @@ node or a security control. [Thresholds and limits](docs/EVALS.md).
 | Retrieval gate | `python -m tests.ci_rag_smoke` | Every PR, no LLM. Corpus probes through `route_by_score_node`, then hit@5, Recall@5, and MRR on the 52-case fixture (44 scored, 8 out-of-corpus skipped). Metric floors and `[FILTERED]` injection-chunk assertions block CI |
 | Local dogfood | `CYCLAW_EVAL_DOGFOOD=1 python scripts/cyclaw-eval-dogfood.py` | Opt-in real loopback model, one case per category ([recipe](tests/fixtures/groundedness/DOGFOOD.md)) |
 | Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` | Paid opt-in Claude grades groundedness, completeness, abstention |
-| Local judge | Same command with `evals.local_judge.enabled: true` | Same rubric on a second loopback model from another family |
+| Local judge | Same command with `evals.local_judge.enabled: true` | Same rubric on a second loopback model with a different configured tag; choose a separate family and calibrate it |
 
 Fixture retrieval scores 1.0 on all three metrics (no claim about arbitrary
 corpora). The [reranker bake-off](docs/audits/2026-09-26-reranker-bakeoff.md)

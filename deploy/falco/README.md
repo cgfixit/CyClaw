@@ -18,8 +18,8 @@ sits in the overall posture and what it does **not** cover.
 |---|---|---|
 | Unexpected process spawned | A binary other than `python`/`rclone`/`git`/Git HTTPS helpers/`uvicorn` execs in the app container | WARNING |
 | Shell spawned in container | Any shell (`bash`/`sh`/…) starts — CyClaw never uses one | CRITICAL |
-| Write outside allowed roots | A write lands outside `data/index/logs/checkpoints/.emb_cache/tmp` | ERROR |
-| Unexpected outbound connection | Non-tool egress to anything other than loopback / local Ollama | WARNING |
+| Write outside allowed roots | A write-open event targets a path outside `/app/data/`, `/app/index/`, `/app/logs/`, `/app/checkpoints/`, `/app/.emb_cache/`, `/tmp/`, `/proc/`, or `/dev/` | ERROR |
+| Unexpected outbound connection | Non-tool egress to anything other than `127.0.0.1:11434` or `[::1]:11434` | WARNING |
 | Optional tool outbound connection | `rclone`/`git`/Git HTTPS helpers external egress that needs audit correlation | NOTICE |
 
 These map to the out-of-band fsconnect and sync write paths and the gate's egress.
@@ -53,6 +53,12 @@ deployment:
    port joined with `and`; a port-only alternative permits that port on every
    external host.
 
+The shipped allowance is only those loopback addresses **on port 11434**;
+another loopback port still alerts. In bridge networking, a host's Ollama is
+not at the container's `127.0.0.1`. Align this rule with the actual destination
+and the explicit model-host trust in `config.yaml`; the Falco macro does not
+configure or authorize CyClaw's model client.
+
 Do not suppress all Python HTTPS traffic: explicitly gated cloud-model calls and
 hostile test code use the same interpreter. Keep the alert and correlate it to
 the provider-selection/audit event. The `rclone`/`git`/`git-remote-http[s]`
@@ -74,7 +80,8 @@ the rules and `tests/test_falco_detection.py`.
 
 ## Validate before trust (Linux + Docker; not a Windows CI gate)
 
-Static tests in-repo only check YAML shape. Before you treat Falco alerts as
+In-repo static tests check rule structure, conditions, and Compose wiring;
+they do not load the eBPF probe or observe live syscalls. Before you treat Falco alerts as
 signal on a real host:
 
 ```bash
@@ -126,6 +133,9 @@ destination exceptions are the narrowest safe tuning unit.
 - The monitoring profile is **privileged**, and the read-only Docker socket
   mount still exposes a powerful host API (`:ro` protects the inode, not the
   API methods).
+- Falco outputs process command lines and file paths for several rules. These
+  alerts do not pass through CyClaw's audit redactor; handle the monitor's
+  logs separately from the redacted application audit trail.
 - `falcosecurity/falco:0.39.2` is digest-pinned in `docker-compose.yml`
   (multi-arch manifest-list digest, resolved 2026-08-12) beside the tag.
   Re-pin on any bump; Falco 0.44 removed the gVisor engine, so host eBPF

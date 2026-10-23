@@ -89,6 +89,23 @@ jobs:
             constraints.txt
             pyproject.toml
 
+      - name: Create isolated install-verification environment
+        id: install-env
+        shell: bash
+        # Hosted Python can include tools with conflicting requirements (pipx
+        # required filelock>=4.2 on Windows). Verify only the project install.
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import venv
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "verify-install"
+          venv.create(root, with_pip=True, symlinks=os.name != "nt")
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as github_path:
+              github_path.write(str(root / ("Scripts" if os.name == "nt" else "bin")) + "\n")
+          PY
+
       - name: Upgrade pip (CVE mitigation)
         shell: bash
         # Exact pin per ci.yml header policy (==26.2.1, not floating >=) — keeps
@@ -221,10 +238,22 @@ jobs:
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r locks/requirements-lock-linux.txt
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r locks/requirements-test-lock-linux.txt
 
-      - name: Run pip-audit (ignore only mitigated chromadb + nltk CVEs)
+      - name: Run pip-audit (ignore only mitigated chromadb + nltk + pillow advisories)
         run: |
           AUDIT_PATH="$("$RUNNER_TEMP/audit-venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-3740
+          # pillow 12.3.0: 35 image-codec advisories, accepted in SECURITY.md
+          # ("pillow 12.3.0"). Drop this list when fastembed allows pillow>=13.
+          PILLOW_IGNORES=(
+            CVE-2026-96636 CVE-2026-96637 CVE-2026-96638 CVE-2026-96639 CVE-2026-96640
+            CVE-2026-96641 CVE-2026-96642 CVE-2026-96643 CVE-2026-96644 CVE-2026-96778
+            CVE-2026-112390 CVE-2026-112391 CVE-2026-112392 CVE-2026-112393 CVE-2026-112395
+            CVE-2026-112396 CVE-2026-112397 CVE-2026-112399 CVE-2026-112400 CVE-2026-112401
+            CVE-2026-112402 CVE-2026-112404 CVE-2026-112405 CVE-2026-112406 CVE-2026-112891
+            CVE-2026-112892 CVE-2026-112893 CVE-2026-112894 CVE-2026-112895 CVE-2026-112896
+            CVE-2026-112897 CVE-2026-112899 CVE-2026-112900 CVE-2026-112901 GHSA-78g4-xqwv-q3g8
+          )
+          pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln PYSEC-2026-3740 \
+            "${PILLOW_IGNORES[@]/#/--ignore-vuln=}"
         # CVE-2026-45829 (Critical pre-auth RCE) — risk accepted under v1.4.0 invariants.
         # Actual controls:
         #   - chromadb.PersistentClient (local embedded mode, path from config.yaml["indexing"]["chroma_path"])
@@ -274,6 +303,18 @@ jobs:
         # AveragedPerceptron.save/load, PerceptronTagger.save_to_json,
         # save_maxent_params). CyClaw still only imports PorterStemmer.
         # Drop this ignore on the next nltk release that patches it.
+        #
+        # pillow 12.3.0 (35 advisories, PILLOW_IGNORES above) -- accepted
+        # 2026-10-23. Every fix is pillow 13.0.0, which no install can take:
+        # fastembed (via nemoguardrails) requires pillow<13 in 0.8.1 and in its
+        # latest 0.9.0; #1742's pillow==13.0.0 lock failed every install leg
+        # with ResolutionImpossible. All 35 fire only when pillow opens or
+        # saves a crafted image. The only known attack vector is an image
+        # attachment, and no CyClaw path decodes one: the indexer UTF-8-decodes
+        # configured extensions (.md/.txt by default), no module imports PIL,
+        # and Telegram media staging (shipped off) stores attachment bytes
+        # without decoding or indexing them.
+        # Full record and guardrails: SECURITY.md "pillow 12.3.0".
         #
         # (This step audits requirements.txt + requirements-test.txt against
         # constraints.txt, which together cover base runtime + test tools and

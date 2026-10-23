@@ -4,8 +4,11 @@ Installer / launcher / launchd **glue** for macOS (Apple Silicon) and Linux.
 Not request-path code: `gate.py`, `graph.py`, and `mcp_hybrid_server.py` never
 import anything here (I6). The Windows sibling is `powershell/`.
 
-After install, `cyclaw` starts the RAG gateway (`127.0.0.1:8787`). Mutable
-state lives under `~/.CyClaw`.
+After install, `cyclaw` starts the RAG gateway (default `127.0.0.1:8787`).
+The installer puts its venv and launcher under `~/.CyClaw`; `--repo-path`
+keeps an existing checkout in place. Corpus, index, personality, and application
+log paths follow that checkout's `config.yaml`, so they need not live under
+`~/.CyClaw`. The separate fsconnect jail defaults to `~/CyClaw-FS`.
 
 
 ## Scripts
@@ -16,7 +19,7 @@ state lives under `~/.CyClaw`.
 | `setup-from-clone.sh` | **One-shot after `git clone`** (Apple Silicon). Chains `install-cyclaw.sh` + `setup-cyclaw-keys.sh` (prompts for Telegram / Claude / Grok / GitHub), checks Ollama, builds the index, then starts the gateway. Common flags: `--dry-run`, `--skip-prompts` (implies no start; add `--start`), `--no-start`, `--small-model`, `--ollama-model TAG`; also `--skip-install`, `--skip-python-deps`, `--skip-keys`, `--skip-ollama`, `--skip-index`, `--skip-privacy`, `--no-browser`, `--no-fsconnect`, `--no-profile-edit`, `--no-path-edit`, `--grok-dummy`, `--rotate-key`, `--ollama-install-script`, `--yes`. Use it directly for scripted runs. |
 | `install-cyclaw.sh` | Home layout, venv, `cyclaw` shim, optional PATH / rc function. `--repo-path`, `--replace-repo`, `--skip-python-deps`, `--no-profile-edit`, `--no-path-edit`, `--no-fsconnect`. `--replace-repo` is destructive only for an unusable directory at the default `~/.CyClaw/repo` target; it does not apply with `--repo-path`. |
 | `uninstall-cyclaw.sh` | Removes the rc function, PATH entry, and the `cyclaw keys` source block; strips a secret-classified line from `~/.CyClaw/.env` or `~/.CyClaw/repo/.env` only when the Keychain value reads back byte-equal (skipped with `--remove-keychain`, so the purge never deletes the only copy). Does not follow `CYCLAW_REPO`. Keeps `~/.CyClaw` unless `--remove-home`; `--remove-fsconnect` optional. `--remove-keychain` (prompted y/N; `--yes`/`--assume-yes` confirms already-requested destructive flags only) removes the Linux libsecret item and key file, or on macOS every exact `com.cgfixit.cyclaw.*` service named in `utils/secret-policy.tsv` for `id -un` — never a wildcard or a secret value. Best-effort unschedules Dropbox sync, `launchctl bootout`s CyClaw LaunchAgent labels (telegram-poll/health, fsconnect-trash, gate, keys-rotate, opentweet, sync, the retired `harness`), then frees a leftover listener on `CYCLAW_GATE_PORT` (default 8787). |
-| `invoke-cyclaw.sh` | Starts `python gate.py` from `~/.CyClaw/venv`, preserving the bind guard, `api.tls`, and `proxy_headers=False`. Loads non-secret settings from `~/.CyClaw/.env`, then secrets from the keystore into that process only. `--gate-port` / `CYCLAW_GATE_PORT` override `api.port` (default 8787); the console URL follows `api.host`, `api.tls.enabled`, and that port via `utils/gateway_url.py`. `--no-browser` / `--repo`. `--print-pairing-url` prints the one-time link for headless use (warns on redirected stdout). With no stored `CYCLAW_API_KEY` it runs `setup-cyclaw-keys.sh --skip-prompts` (no profile edit, no dotenv write) to generate one, then opens the console at a single-use `#pair=` link (`CYCLAW_CONSOLE_PAIRING_CODE`, `security.console_pairing_ttl_sec`) so operator tools arrive unlocked without the key reaching the page. |
+| `invoke-cyclaw.sh` | Starts `python gate.py` from `~/.CyClaw/venv`, preserving the bind guard, `api.tls`, and `proxy_headers=False`. Loads non-secret settings from the home `.env` or, if that fails, the repo `.env`, then secrets from the keystore into that process only. Port precedence is `--gate-port`, inherited `CYCLAW_GATE_PORT`, then **8787**; it exports that choice even when `api.port` differs. The console URL follows `api.host`, `api.tls.enabled`, and that port via `utils/gateway_url.py`. `--no-browser` / `--repo`. `--print-pairing-url` prints the one-time link for headless use (warns on redirected stdout). On macOS, with no inherited or stored `CYCLAW_API_KEY`, it runs `setup-cyclaw-keys.sh --skip-prompts` (no profile edit, no dotenv write) to generate one, then opens the console at a single-use `#pair=` link (`CYCLAW_CONSOLE_PAIRING_CODE`, `security.console_pairing_ttl_sec`) so operator tools arrive unlocked without the key reaching the page. |
 | `cyclaw-linux-key.sh` | Sourced by `invoke-cyclaw.sh` on Linux: libsecret (`secret-tool`, service `com.cgfixit.cyclaw.api-key`) first, then `$XDG_CONFIG_HOME/cyclaw/api-key` (0700/0600; symlinked, foreign-owned, group-readable, or malformed files are refused). The key never becomes an argv token. Details: [Linux launcher credentials](#linux-launcher-credentials-and-headless-pairing). |
 | `setup-cyclaw-keys.sh` | Apple Silicon key bootstrap. Autogenerates `CYCLAW_API_KEY`; prompts for Telegram / Claude (`ANTHROPIC_API_KEY`) / Grok / GitHub (skip allowed). Secrets go to the Keychain; `~/.CyClaw/.env` (chmod 600) keeps ordinary settings and receives secret-classified names only with `--write-env-file`. Re-running moves plaintext secret lines into the Keychain and removes them (no backup). `--rotate`, `--no-env-file`, `--fill-browser` (loopback `#apiKeyInput` only; the console trades the key for its signed HttpOnly cookie and clears the field), `--schedule-rotate monthly\|weekly\|never` (writes, never loads, a LaunchAgent), `--unschedule-rotate`, `--restart-servers` (frees the gate port after a write; does not start the server). Also `--no-keychain`, `--no-repo-env`, `--print-key`/`--no-print-key`, `--copy-key`/`--no-copy-key`, `--clipboard-ttl N`, `--open-consoles`, `--gate-port`, `--repo-path`, `--skip-prompts`, `--grok-dummy`. |
 | `cyclaw-keychain-load.sh` | Shared sourced helper for onboarding and launchers. Filters dotenv settings, scrubs secret-classified dotenv values, and loads allowed Keychain items into the process. |
@@ -26,11 +29,14 @@ state lives under `~/.CyClaw`.
 | `cyclaw-keychain-set.sh` | Interactive Keychain store. Bare `-w` (secret never in argv); `-T /usr/bin/security`. Requires a TTY. |
 | `cyclaw-keychain-env.sh` | Fetch one Keychain item, export it, `exec` the wrapped command. Fail-closed if missing/empty. |
 | `generate_service_plist.py` | Supervised LaunchAgent for `gate.py` (`--service gate`). Highest-risk generator: refuses to write without `--confirm` **and** a non-empty `--reason`. `KeepAlive: {SuccessfulExit: false}` (crash-only restart, never after a clean stop), `ThrottleInterval` 30s default, optional `--api-key-service` chains the Keychain wrapper. Never loads the agent itself. |
-| `ollama-mlx.env` | KEY=value tunings sourced before `ollama serve` (context 32768, keep-alive 30m, one model, no parallel slots, flash-attn + KV q8_0). No secrets. `setup-from-clone.sh` sources it when *it* launches Ollama; an already-running .app ignores it until quit. |
+| `ollama-mlx.env` | KEY=value tunings sourced before `ollama serve` (context 32768, keep-alive 30m, one loaded model, one parallel slot, flash-attn + KV q8_0). No secrets. `setup-from-clone.sh` sources it when *it* launches Ollama; an already-running .app ignores it until quit. Flash-attention and KV-cache settings may be ignored by an MLX-native backend. |
 | `Modelfile.cg` | Optional one-time derived tag `qwen3.8:27b-mlx-cg` (`PARAMETER num_ctx 32768`). Not created by any script. The shipped default stays `qwen3.8:27b-mlx`. See `docs/! How-To-Guides/OLLAMA_SETUP.md`. |
 
-Target shells: bash (including macOS 3.2) and zsh. BSD userland on macOS —
-no Homebrew required.
+Run the executable `.sh` entry points with bash (including macOS 3.2);
+the installed shell integration supports bash and zsh. The scripts use BSD
+userland on macOS and do not require Homebrew, but Python 3.12 and the
+platform-specific runtime dependencies are still required. The installers
+consume the hashed `locks/` files documented in [`setup-guide.md`](../setup-guide.md).
 
 ## One command (Apple Silicon)
 
@@ -104,6 +110,11 @@ not read `.env`, and this script never writes a token into a plist or the
 `cyclaw` shim.
 
 The terminal console never stores the operator key in `localStorage`.
+Onboarding autofill passes the key through a temporary mode-0600 file in a
+mode-0700 directory for AppleScript, then removes it. If autofill fails, its
+clipboard fallback clears the copied key after the configured TTL when the
+clipboard still contains that value. Disable autofill with
+`--no-autofill-api-key` when that extra handling is unwanted.
 `--fill-browser` puts the key into `#apiKeyInput` on a matching-port HTTP tab
 at literal `127.0.0.1` or `[::1]`. The page exchanges it once through
 `POST /console/session`, receives a signed HttpOnly `cyclaw_console` cookie,
@@ -224,6 +235,16 @@ otherwise restart a broken agent forever.
 Hand-editing a template: replace every `REPLACE_*` value, create
 `~/Library/Logs/CyClaw`, test `ProgramArguments` by hand, then copy to
 `~/Library/LaunchAgents/` and load **explicitly**.
+
+The separate gate generator writes
+`~/Library/LaunchAgents/com.cgfixit.cyclaw.gate.plist` with output in
+`~/Library/Logs/CyClaw/gate.log`. It runs `gate.py` directly, so it does not
+perform the interactive launcher's secret bootstrap, dotenv loading, or
+browser pairing. Pass `--api-key-service com.cgfixit.cyclaw.api-key` to load
+that key at process start. Its `--config` option only changes the port reported
+during generation; the generated process still reads the checkout's
+`config.yaml`. LaunchAgents run in the user's login session; this is not a
+system LaunchDaemon.
 
 ## Related
 

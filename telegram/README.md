@@ -30,7 +30,15 @@ that document is the authority; this file is the in-tree map.
 - T3 hybrid-confirm (`allow_hybrid_confirm`, default off) is the **only** way
   chat text can set `user_confirmed_online`, and only via the exact
   `/online on <grok|claude>` command — the core triple gate (I3) remains the
-  final authority.
+  final authority. This command works only in private chat and grants one
+  next query message a provider-specific confirmation, expiring after
+  `hybrid_confirm_ttl_sec`; it does not enable persistent online mode.
+- T4 attachment staging requires a private-chat `/save --confirm <reason>`
+  caption and the configured media/fsconnect gates. It uses fsconnect's
+  writer, including that writer's refusal of Windows writes.
+- With `auth.enabled`, `telegram.query.api_key_env` must name an environment
+  variable containing a CyClaw device token authorized for `/query`.
+  `CYCLAW_API_KEY` authorizes ops routes and does not replace that token.
 - Exit codes match `sync`/`agentic`: `0` ok · `2` failed · `3` env/config.
 
 ## Related

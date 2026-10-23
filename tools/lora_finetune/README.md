@@ -51,8 +51,10 @@ python dryrun_finetune.py
 
 The offline flags stop an installed Transformers from fetching tokenizer assets
 during tests. The repo-root `python -m pytest tests/` does not collect this
-kit's tests; the dedicated LoRA workflow runs the commands above with only
-pytest installed and never installs the blocked training profile.
+kit's tests; the dedicated LoRA workflow installs the hashed Linux test lock
+(`locks/requirements-test-lock-linux.txt`), which includes pytest and its test
+tooling, and never installs the blocked training profile. These mocked checks
+do not verify a CUDA installation, real model loading, or training quality.
 
 To regenerate the canonical dataset and JSONL preview:
 
@@ -103,6 +105,11 @@ The script loads the configured 4-bit base through Unsloth `FastModel`, applies
 language, attention, and MLP adapters, trains with TRL, saves the adapter, and
 exports a merged Q4_K_M GGUF unless `--no-export-gguf` is set. It writes the
 Ollama `Modelfile.cyclaw` beside the GGUF so its relative `FROM` path resolves.
+It also writes `cyclaw_training.rendered.jsonl` in the working directory and
+saves the adapter/tokenizer under `<output-dir>/lora`. The optional 16-bit
+merged-checkpoint export is commented out in the script; a normal run does
+not produce that artifact. If GGUF export produces no `.gguf` file, the script
+warns and writes no Modelfile, so inspect the outputs before the import below.
 
 Load the exported artifact only after training and held-out evaluation pass:
 

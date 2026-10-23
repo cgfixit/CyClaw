@@ -60,6 +60,11 @@ check. The CLI `check` diagnostic can call NeMo `generate_async` and invoke
 a model when the engine is available. The gateway instead uses non-generating
 `check()` flows around its existing call.
 
+The root `config.yaml` rail lists select the offline graph checks and broker
+fallback checks. Live NeMo flows are selected separately by
+`guardrails/config/config.yml` and implemented in `guardrails/config/rails.co`;
+editing an offline rail list does not remove the corresponding live flow.
+
 ## Package map
 
 | Path | Role |
@@ -96,8 +101,9 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 
 Without `nemoguardrails` the enabled floor still enforces `check_injection`,
 `check_soul_mutation`, `check_grounding`, and `check_soul_leak` in their route
-scopes; `check_jailbreak` and the topical rails skip either way. A configured
-name alone is not evidence that a rail runs. Model-assisted `self_check_*`
+scopes. The live `check_jailbreak` flow repeats injection detection, while
+topical rails have no active enforcement. A configured name alone is not
+evidence that a distinct classifier runs. Model-assisted `self_check_*`
 rails are declined (issue #1486 Track B) and inert; active `/query` flows add
 no model calls. Phase acceptance and remaining limits:
 [Track B record](../docs/audits/2026-10-03-nemo-track-b.md).

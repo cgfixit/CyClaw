@@ -1,9 +1,10 @@
 # `llm/` — model clients
 
 One module, `client.py`, holding the three HTTP clients the graph's answer
-nodes use. No routing or policy lives here — which client gets called is
-decided entirely by `graph.py`'s edges and `gate.py`'s construction gates
-(invariants I2/I3); these classes only speak the wire protocols.
+nodes use. `graph.py`'s edges and `gate.py`'s construction gates decide which
+client gets called (invariants I2/I3). These clients implement the wire
+protocols, bounded retries, local-backend recovery, and persistent external
+attempt limits.
 
 ## Clients
 
@@ -18,9 +19,11 @@ the provider's `enabled` flag is true, and **called** only after per-request
 user confirmation — the triple gate (I3) lives in `gate.py` + `graph.py`, not
 here. Read that against the shipped config: `app.mode` is `"hybrid"` and both
 `models.grok.enabled` and `models.claude.enabled` are `true`, so on a fresh
-clone both clients are constructed at boot and the only closed gate is the
-per-request `user_confirmed_online`, which no config key can pre-set. Billed
-calls land in `logs/spend.jsonl` ([`spend/README.md`](../spend/README.md)).
+clone both clients are constructed at boot. Per-request
+`user_confirmed_online` cannot be pre-set by config; a missing key also leaves
+that client unavailable. Destination checks, the optional pre-action hook,
+and external attempt budgets can still refuse a confirmed call. Reported
+usage lands in `logs/spend.jsonl` ([`spend/README.md`](../spend/README.md)).
 
 ## Guarded generation
 
@@ -48,14 +51,30 @@ HTTP retry policy below is separate. Rail scope and limits:
   set via `set_graph_deadline`): when the remaining budget cannot cover the
   pending backoff plus another POST, the retry is abandoned and the client
   raises its timeout error immediately instead of outliving the 504 (#1359).
-- **Local failover** (`models.local_llm.fallback`): optional boot-time probe
-  that prefers the primary backend (Ollama) and falls back to the secondary
-  (LM Studio) if unreachable; selection cached per process. Ships disabled so
-  single-backend installs stay fail-closed.
+- **Local failover** (`models.local_llm.fallback`): optional short probes
+  prefer the primary backend (Ollama), then the loopback secondary (LM
+  Studio). Successful selection is cached while it works. If neither backend
+  answers at startup, later generation re-probes; after a selected backend
+  fails, the next generation re-probes rather than replaying that failed
+  request on another backend. Ships disabled. Configure the secondary's
+  actual loaded model id before enabling it; the shipped id is an example.
+- **Credentials and reasoning:** primary and fallback local credentials use
+  separate `api_key_env` names; gateway boot validation refuses non-empty
+  literal `api_key` values in either block, even with fallback disabled.
+  The resolved local backend receives `reasoning_effort` only when its
+  provider is `ollama`. Grok resolves its own reasoning effort and sends it
+  with `max_completion_tokens`; Claude uses the Messages API's `max_tokens`.
+- **External attempt budgets:** `utils/external_budget.py` reserves a slot
+  before every Grok/Claude POST, retries included, using the shared
+  `policy.external_call_limits` ledger. UTC daily/monthly ceilings persist
+  across restarts; exhausted budgets or unavailable storage refuse the POST.
+  Failed attempts are not refunded, and these attempt counts are separate
+  from the provider-reported token usage in the spend log.
 - Timeouts and model names come from `config.yaml` (`models.local_llm.*`,
   `models.grok.*`, `models.claude.*`) — see `CLAUDE.md` §2 "Load-bearing
-  numbers" for the ones that interact (e.g. `api.graph_timeout_sec` (780) must
-  exceed `models.local_llm.timeout_sec` (720)).
+  numbers" for the ones that interact. Boot requires
+  `api.graph_timeout_sec >= models.local_llm.timeout_sec + 30`; increasing
+  the model timeout alone can therefore prevent startup.
 
 ## Related
 

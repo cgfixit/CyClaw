@@ -897,6 +897,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "nemoguardrails": "nemoguardrails usage stats",
     "onnxruntime": "onnxruntime",
     "opentelemetry-exporter-otlp-proto-grpc": "opentelemetry sdk",
+    "opentelemetry-api": "opentelemetry sdk",
     "pgvector": "postgres drivers (pgvector/psycopg)",
     "psycopg": "postgres drivers (pgvector/psycopg)",
     "psycopg-binary": "postgres drivers (pgvector/psycopg)",
@@ -975,6 +976,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
     "uvicorn": "core web/runtime libs", "httpx": "core web/runtime libs",
     "aiohttp": "core web/runtime libs",  # transitive HTTP client (nemoguardrails, chromadb)
+    "certifi": "core web/runtime libs",  # local CA bundle (httpx/requests), no telemetry
     "pydantic": "core web/runtime libs", "numpy": "core web/runtime libs",
     "nltk": "core web/runtime libs", "pyyaml": "core web/runtime libs",
     "rank-bm25": "core web/runtime libs", "pygments": "core web/runtime libs",

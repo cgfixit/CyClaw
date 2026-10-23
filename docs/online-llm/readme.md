@@ -4,15 +4,15 @@ CyClaw is designed to answer from the local vault first. Grok and Claude are
 optional online fallbacks for the rare case where the vault does not have enough
 information and a human chooses to send the question outside the machine.
 
-## What Changed
+## Provider gates
 
-CyClaw now has two optional online choices after a vault miss:
+CyClaw has two optional online choices after a vault miss:
 
 - **Send to Grok** uses the xAI Grok API.
 - **Send to Claude** uses the Anthropic Claude API.
 
 Both providers ship **enabled** in `config.yaml`, and `app.mode` ships
-`"hybrid"` (armed since 2026-08-07). The triple gate is still three
+`"hybrid"`. The triple gate is three
 conditions: `app.mode` is `hybrid`, that provider's `enabled` flag is true,
 and the request carries `user_confirmed_online: true`. A missing API key is
 a separate check — the client can be constructed and still report
@@ -63,7 +63,7 @@ models:
   grok:
     enabled: true    # shipped default; set false to disable Grok regardless of mode
     base_url: "https://api.x.ai/v1"
-    model: "grok-4.5"   # shipped default; pin grok-4.3 only if you prefer cost/window
+    model: "grok-4.5"
 ```
 
 Claude has its own provider switch:
@@ -90,7 +90,19 @@ policy:
 ```
 
 That means CyClaw asks first, and by default it does not send local vault
-context to either online provider.
+context to either online provider. The soul/personality preamble is never
+forwarded by the external fallback nodes. Enabling a context-forwarding flag
+sends a bounded selection of retrieved text and reports those sources; treat
+that flag as a separate privacy decision.
+
+Confirmation is necessary but does not guarantee a provider call. The graph
+pins online destinations to the provider's API host, and the optional
+[`pre-action hook`](../security-philosophy/numbat_pre_action_gate.md) can deny
+a confirmed call. `policy.external_call_limits` also caps the combined
+Grok/Claude POST attempts in durable UTC daily/monthly windows. Retries
+consume attempts; exhausted limits or an unavailable ledger refuse egress.
+The attempt ledger is separate from provider-reported token usage in
+[`spend/README.md`](../../spend/README.md).
 
 ## When to Use Online Fallback
 
@@ -113,8 +125,12 @@ When CyClaw cannot confidently answer from the vault, the terminal offers:
 - **No — Stay Offline** (labelled just **Stay Offline** when no online
   provider button is available): keep everything local and answer as well as
   possible.
-- **Send to Grok**: send the question to Grok if hybrid mode and Grok are enabled.
-- **Send to Claude**: send the question to Claude if hybrid mode and Claude are enabled.
+- **Send to Grok**: confirm this question for Grok.
+- **Send to Claude**: confirm this question for Claude.
+
+Provider buttons come from the gateway's `available_providers` response, so
+disabled providers and providers without a key are not offered. The remaining
+destination, hook, budget, and transport checks still apply after a click.
 
 Choosing an online provider is a one-query decision. It does not permanently
 turn on online mode.
