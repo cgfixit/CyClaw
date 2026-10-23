@@ -98,7 +98,7 @@ So the real work is a new **sync, non-generating** output check, a
 `build_output_guard` bridge function, a node, a router, and edges preserving I4
 — not an edge.
 
-**It is also not an approved design.** `docs/NeMo/phase3_implementation_plan.md`
+**It is also not an approved design.** [docs/NeMo/phase3_implementation_plan.md](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/NeMo/phase3_implementation_plan.md)
 carries it as an *open question*, not a plan: *"Do the query-path output rails
 ever get built? Deferred by this redirect, not cancelled. Revisit once 3A has
 landed... **(Priority: low)**."* 3A has since landed
@@ -202,7 +202,7 @@ drift class `.claude/skills/verify-deps/` exists to catch.
 > instead of delete. 16 of the 17 were `git mv`'d into a new `docs/work/`
 > folder (history preserved), each got a surgical staleness pass, and every
 > citing file was repointed — see PR #753. The 17th,
-> `docs/NeMo/phase3_implementation_plan.md`, was deliberately left in place
+> [docs/NeMo/phase3_implementation_plan.md](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/NeMo/phase3_implementation_plan.md), was deliberately left in place
 > because `docs/NeMo/phase4_implementation_plan.md` (PR #750, now merged and
 > permanent on `main`) cites it by exact file:line — moving it would break
 > that reference. This is no longer a temporary in-flight concern; revisit

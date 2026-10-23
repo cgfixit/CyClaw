@@ -38,7 +38,10 @@ the local trial and Computer Use checks. Both optional evaluators remain off
 in shipped config because their dependencies are not installed by default.
 The NDJSON file is the selected alert destination; Phase 5 remains separate.
 
-Status: living plan
+Status: shipped-layer record plus deferred proposals. The 2026-10-23 docs cleanup
+changes no switches. Rolling-stream observation remains deferred under
+[#1745](https://github.com/cgfixit/CyClaw/issues/1745); request-path sequence
+enforcement is not approved.
 Related PR: feat/numbat-audit-ndjson-v1 (mainline audit-trail projection)
 
 > **Superseded, kept as history.** The status table at the top is current:
@@ -47,7 +50,8 @@ Related PR: feat/numbat-audit-ndjson-v1 (mainline audit-trail projection)
 > Reality check (2026-08-27, baseline `main` `8a2bda97`): Step 1 action-plane
 > and mainline audit projection, the rules-test fixture CI job (#961/#981), and
 > the pre-external hook runner (`utils/external_pre_hook.py`) are all shipped.
-> The remaining Numbat work is tracked by [#1128](https://github.com/cgfixit/CyClaw/issues/1128):
+> At that historical baseline, work was tracked by [#1128](https://github.com/cgfixit/CyClaw/issues/1128)
+> (now closed, not planned):
 > hook-verdict first-party emission (Slice A) and a monitor-only CEL sanitizer
 > backend (Slice B). On-path sequence policy (Slice C) is parked pending
 > checkpointer / hashed `session_id` plumbing.
@@ -224,7 +228,7 @@ Track an issue/PR to `perplexityai/numbat` adding `cyclaw` to the
 `source_agent` enums in the event/finding/enforcement/indicator schemas.
 Until merged, records stay `source_agent: "unknown"` and identify CyClaw
 via `entrypoint: "cyclaw"`, the `cyclaw` tag, and
-`evidence.artifact_type`. Related: open issue #965 (upstream Numbat
+`evidence.artifact_type`. Related: historical issue #965 (upstream Numbat
 artifact parser for CyClaw audit logs) is deferred in favor of this
 first-party NDJSON projection.
 
