@@ -201,7 +201,7 @@ def _run_auto_reindex(cfg: Any) -> int:
     cfg_path = getattr(cfg, "_config_path", None)
     if cfg_path:
         argv += ["--config", cfg_path]
-    timeout_sec = getattr(cfg, "sync_timeout_sec", 0) or 0
+    timeout_sec = cfg.sync_timeout_sec
     timeout = timeout_sec if timeout_sec > 0 else None
     try:
         completed = subprocess.run(  # noqa: S603 -- fixed argv, no shell
@@ -257,11 +257,11 @@ def cmd_sync(args: argparse.Namespace) -> int:
         # Partial copy then raise (e.g. rclone wall-clock timeout): prefer reindex
         # over silent stale index when the runner attached corpus_changed=True.
         if (
-            getattr(cfg, "reindex_on_change", False)
+            cfg.reindex_on_change
             and bool((exc.details or {}).get("corpus_changed"))
             and not args.dry_run
         ):
-            if getattr(cfg, "auto_reindex", False):
+            if cfg.auto_reindex:
                 # The sync itself already failed -- _run_auto_reindex only
                 # discharges the reindex obligation, it cannot turn a failed
                 # sync into a success. EXIT_OK from the indexer child means
@@ -303,7 +303,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
     # in-CLI rebuild, so a scheduled sync keeps the index fresh with no second
     # cron entry. Only fires on the corpus-changed path; every other exit code
     # (no change, safety abort, failure) passes straight through unchanged.
-    if code == EXIT_REINDEX and getattr(cfg, "auto_reindex", False):
+    if code == EXIT_REINDEX and cfg.auto_reindex:
         return _run_auto_reindex(cfg)
     return code
 
