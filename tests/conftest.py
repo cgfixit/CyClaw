@@ -168,11 +168,11 @@ def _repo_logs_untouched():
 
 # DevSkim: ignore DS162092,DS137138 - test fixtures; loopback addresses are intentional
 TEST_CONFIG = {
-    "app": {"name": "cyclaw-test", "env": "test", "mode": "offline"},
+    "app": {"mode": "offline"},
     "models": {
         "local_llm": {"provider": "ollama", "base_url": "http://127.0.0.1:11434/v1",
                       "model": "test-model", "max_tokens": 256, "temperature": 0.1, "timeout_sec": 10},
-        "embeddings": {"provider": "sentence-transformers", "model": "all-MiniLM-L6-v2",
+        "embeddings": {"model": "all-MiniLM-L6-v2",
                        "dim": 384, "cache_dir": None},
         "grok": {"enabled": False, "base_url": "https://api.x.ai/v1", "model": "grok-4.5",
                  "timeout_sec": 10, "max_tokens": 256, "temperature": 0.2},
@@ -186,7 +186,7 @@ TEST_CONFIG = {
     "retrieval": {"top_k_semantic": 3, "top_k_keyword": 3, "rrf_k": 60,
                    "max_context_tokens": 1000, "min_score": 0.75},
     "policy": {
-        "fallback": {"enabled": True, "require_user_confirm": True,
+        "fallback": {"require_user_confirm": True,
                      "send_local_context_to_grok": False,
                      "send_local_context_to_claude": False},
         "prompt_filter": {"enabled": True,
