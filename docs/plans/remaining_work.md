@@ -18,7 +18,7 @@ The cleanup changes no runtime code, defaults, credentials, or provider policy.
 | Filesystem connector | Incremental staging, guarded writes, native Windows reads and CLI reveal ship. Watch-triggered indexing, OCR, real quarantine, Windows writes, ACL reporting and terminal reveal remain proposals. | Deferred; see [fsconnect roadmap](../work/FSCONNECT_SQL_ROADMAP.md). Keep Windows writes refused. |
 | Credential lifecycle | Key-store setup/loading and explicit uninstall deletion ship on both platforms. | [macOS scheduled rotation](MACOS_BASH_SETUP_AND_KEY_LIFECYCLE.md#remaining-work) and [legacy Windows error classification](WINDOWS_POWERSHELL_SETUP_AND_KEY_LIFECYCLE.md#remaining-work) remain deferred. |
 | Numbat | Projection ships on; hook/CEL code exists and ships off. Rolling-stream scoring is not built. | Keep the [layer matrix and evidence](NUMBAT_AND_ALWAYS_ON_ROADMAP.md). Defer stream observation/alerts; on-path sequence enforcement still needs session/checkpointer design. |
-| Dependencies and CI | Historical version lists are not current upgrade instructions. | Use maintained locks, [#1702](https://github.com/cgfixit/CyClaw/issues/1702) and [#1709](https://github.com/cgfixit/CyClaw/issues/1709); refresh their state before acting. |
+| Dependencies and CI | Historical version lists are not current upgrade instructions. | Use maintained locks, [#1757](https://github.com/cgfixit/CyClaw/issues/1757), [#1748](https://github.com/cgfixit/CyClaw/issues/1748), [#1760](https://github.com/cgfixit/CyClaw/issues/1760) and [#1709](https://github.com/cgfixit/CyClaw/issues/1709); refresh their state before acting. |
 
 ## Optional proposals: retained, not approved
 
