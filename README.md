@@ -234,6 +234,11 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
 7. **Audit convergence.** Every path converges at `audit_logger` before END;
    `cyclaw-metrics` reads the audit offline.
 
+Operators can add a local [exact-consumed-text gate](docs/CONTENT_GATE.md) to
+hold corpus ingestion and returned search/MCP content using yara-gate. It is
+off unless configured; when enabled, rejected or incomplete scans stop delivery
+before indexing or model use, including hits from existing indexes and memory.
+
 [The six invariants](CLAUDE.md#3-the-six-invariants) pin these guarantees plus
 import isolation of the core modules; [`INVARIANTS.md`](INVARIANTS.md) states
 Rules 1–9 and the test behind each.

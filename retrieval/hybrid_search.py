@@ -20,6 +20,7 @@ from rank_bm25 import BM25Okapi
 from utils.errors import EmbeddingServiceError, IndexNotFoundError
 from utils.logger import audit_log
 
+from .content_gate import gate_results
 from .embeddings import embedding_fingerprint, get_embedding
 from .indexer import _anchor_index_paths, _resolve_config_path
 from .rerank import rerank_scores
@@ -254,7 +255,7 @@ class HybridRetriever:
                 source_sha256=r.get("source_sha256", ""),
                 retrieval_mode="semantic", semantic_score=score, semantic_rank=i,
             ))
-        return hits
+        return gate_results(hits, self.cfg)
 
     def keyword_search(self, query: str, k: int | None = None) -> list[SearchResult]:
         """BM25 keyword leg. Returns UP TO ``k`` hits, but only those with a
@@ -266,7 +267,7 @@ class HybridRetriever:
         sizes by design.
         """
         if self._bm25_scores is None:
-            return []
+            return gate_results([], self.cfg)
         if k is None:
             k = self.top_k_keyword
         query_tokens = tokenize_and_stem(query)
@@ -297,7 +298,7 @@ class HybridRetriever:
                     source_sha256=meta.get("source_sha256", ""),
                     keyword_score=scores[idx], keyword_rank=len(hits),
                 ))
-        return hits
+        return gate_results(hits, self.cfg)
 
     def _normalize_single_path(self, hits: list[SearchResult]) -> list[SearchResult]:
         """Re-score a BM25-only fallback result list into the RRF range.
@@ -360,6 +361,10 @@ class HybridRetriever:
             return hits
 
     def hybrid_search(self, query: str) -> list[SearchResult]:
+        """Gate the final batch after fusion, including optional memory results."""
+        return gate_results(self._hybrid_search(query), self.cfg)
+
+    def _hybrid_search(self, query: str) -> list[SearchResult]:
 
         semantic_hits: list[SearchResult] = []
         keyword_hits: list[SearchResult] = []

@@ -18,6 +18,7 @@ from utils.telemetry_kill import apply_telemetry_kill
 
 apply_telemetry_kill()
 
+from retrieval.content_gate import gate_results, gate_texts  # noqa: E402 - after telemetry kill
 from retrieval.hybrid_search import HybridRetriever  # noqa: E402 - must follow the telemetry kill above
 from utils.errors import PromptInjectionError, RAGError  # noqa: E402 - must follow the telemetry kill above
 from utils.logger import audit_log, redact_sensitive  # noqa: E402 - must follow the telemetry kill above
@@ -148,17 +149,6 @@ def _handle_search(msg_id, args: dict, retriever: HybridRetriever) -> dict:
             results = retriever.keyword_search(query, k=top_k)
         else:
             results = retriever.hybrid_search(query)[:top_k]
-        # Audit privacy parity with the HTTP path: pass the FULL query to
-        # audit_log, which SHA-256-hashes the "query" field (and redacts PII)
-        # before persisting. The stored event therefore holds only query_hash —
-        # never raw text — and the hash matches what the HTTP/graph audit path
-        # writes for the same query. (Previously this passed query[:100], which
-        # both implied cleartext and produced a hash that diverged from HTTP for
-        # queries longer than 100 chars.)
-        # The mode key is "retrieval_mode" — the same key the graph audit node
-        # uses — so metrics.py needs no MCP-specific dual-key special case.
-        audit_log({"event": "mcp_rag_query", "query": query, "retrieval_mode": mode,
-                   "hit_count": len(results), "top_score": results[0].score if results else 0.0})
         payload = {
             "chunks": [{"text": r.text, "score": r.score, "source": r.source,
                         "chunk_id": r.chunk_id, "source_sha256": r.source_sha256,
@@ -173,6 +163,19 @@ def _handle_search(msg_id, args: dict, retriever: HybridRetriever) -> dict:
                          "total_results": len(results),
                          "score_scale": _score_scale(mode, results)}
         }
+        gate_results(results, retriever.cfg)
+        gate_texts([json.dumps(payload["chunks"])], retriever.cfg)
+        # Audit privacy parity with the HTTP path: pass the FULL query to
+        # audit_log, which SHA-256-hashes the "query" field (and redacts PII)
+        # before persisting. The stored event therefore holds only query_hash —
+        # never raw text — and the hash matches what the HTTP/graph audit path
+        # writes for the same query. (Previously this passed query[:100], which
+        # both implied cleartext and produced a hash that diverged from HTTP for
+        # queries longer than 100 chars.)
+        # The mode key is "retrieval_mode" — the same key the graph audit node
+        # uses — so metrics.py needs no MCP-specific dual-key special case.
+        audit_log({"event": "mcp_rag_query", "query": query, "retrieval_mode": mode,
+                   "hit_count": len(results), "top_score": results[0].score if results else 0.0})
         return {"jsonrpc": "2.0", "id": msg_id, "result": payload}
     except RAGError as e:
         # Audit parity with the HTTP path (gate.py graph_error). The error body

@@ -31,6 +31,7 @@ import yaml  # noqa: E402
 from utils.errors import CorpusEmptyError  # noqa: E402
 from utils.sanitizer import sanitize_chunk  # noqa: E402
 
+from .content_gate import gate_texts  # noqa: E402
 from .embeddings import embedding_fingerprint, get_embeddings_batch, get_token_counter  # noqa: E402
 from .stemmer import tokenize_and_stem  # noqa: E402
 from .vector_store import get_vector_writer, vector_backend  # noqa: E402
@@ -278,6 +279,7 @@ def build_index(config_path: str = "config.yaml") -> None:
     logger.info("Loading corpus from %s", corpus_path)
     docs = load_corpus(corpus_path, extensions, cfg["corpus"].get("max_file_bytes", 10 * 1024 * 1024))
     logger.info("Loaded %d documents", len(docs))
+    gate_texts((field for source, content in docs for field in (source, content)), cfg)
     split_document = make_chunker(cfg, config_path_str)
 
     all_chunks = []
@@ -324,6 +326,8 @@ def build_index(config_path: str = "config.yaml") -> None:
     logger.info("Total chunks: %d", len(all_chunks))
     if not all_chunks:
         raise CorpusEmptyError("Corpus produced no chunks; existing index was left unchanged")
+
+    gate_texts([*all_chunks, *(token for tokens in tokenized_corpus for token in tokens[:20])], cfg)
 
     # Semantic (vector) index. The backend is pluggable — ChromaDB by default
     # (embedded, offline-first), or pgvector when indexing.vector_backend=pgvector.

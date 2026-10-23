@@ -68,6 +68,7 @@ def _make_search_result(
 def retriever():
     """A MagicMock retriever — no live index, all three search methods stubbed."""
     r = MagicMock()
+    r.cfg = {}
     results = [
         _make_search_result(text="first chunk", score=0.92, chunk_id=0),
         _make_search_result(text="second chunk", score=0.81, chunk_id=1),

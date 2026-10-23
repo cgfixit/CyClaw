@@ -26,6 +26,7 @@ from typing import Any, Literal, NotRequired, Protocol, TypedDict
 from langgraph.graph import END, StateGraph
 
 from llm.client import ClaudeClient, GrokClient, LocalLLMClient
+from retrieval.content_gate import ContentGateError, gate_results, gate_texts
 from retrieval.hybrid_search import HybridRetriever
 from utils.endpoint_trust import EndpointTrustError, assert_local_destination, assert_online_destination
 from utils.errors import RAGError
@@ -103,6 +104,7 @@ class GraphState(TypedDict, total=False):
     retrieval_mode: str  # "semantic" | "keyword" | "hybrid" | "none"
 
     # Control flags
+    content_gate_error: bool
     needs_user_confirm: bool
     user_confirmed_online: bool | None
     online_provider: str | None
@@ -367,7 +369,9 @@ def retrieve_node(state: GraphState, retriever: HybridRetriever, cfg: dict) -> d
     query = state["query"]
 
     try:
-        results = retriever.hybrid_search(query)
+        results = gate_results(retriever.hybrid_search(query), cfg)
+    except ContentGateError as exc:
+        return {**_content_refusal(exc), "retrieved_docs": [], "top_score": 0.0, "retrieval_mode": "none"}
     except RAGError as e:
         return {
             "retrieved_docs": [],
@@ -447,6 +451,8 @@ def route_by_score_node(state: GraphState, cfg: dict) -> dict:
     # the user gate. Only the LOCAL_CONTEXT_CHUNKS the answer node will show
     # the model count: with top_k_* above that window, a strong chunk ranked
     # past it must not vouch for context the model never sees.
+    if state.get("content_gate_error"):
+        return {"needs_user_confirm": False}
     retrieval = cfg.get("retrieval", {})
     sem_floor = retrieval.get("min_semantic_score")
     if isinstance(sem_floor, (int, float)) and not isinstance(sem_floor, bool):
@@ -497,6 +503,8 @@ def guardrail_input_node(
     never take down /query. See docs/NeMo/phase2_implementation_plan.md
     Decision 3.
     """
+    if state.get("content_gate_error"):
+        return {}
     if input_guard is None:
         return {}
 
@@ -558,6 +566,22 @@ def guardrail_output_node(
         "guardrail_rails": result.get("rails", []),
     }
 
+def _content_refusal(exc: ContentGateError) -> dict[str, Any]:
+    """Preserve audit convergence without treating refused data as a vault miss."""
+    return {"answer": "", "answer_model": "content-gate", "answer_sources": [],
+            "error": f"{exc.code}: {exc.message}", "content_gate_error": True,
+            "guardrail_blocked": True, "guardrail_rails": [exc.code]}
+
+
+def _check_consumed_context(context: str, docs: list[RetrievedDoc], cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """Check clipped body fields and the exact rendered external-data block."""
+    try:
+        gate_texts([context, *(d.get("text", "") for d in docs), *(d.get("source", "") for d in docs)], cfg)
+    except ContentGateError as exc:
+        return _content_refusal(exc)
+    return None
+
+
 def local_llm_node(
     state: GraphState,
     llm: LocalLLMClient,
@@ -589,6 +613,9 @@ def local_llm_node(
         cfg, soul_preamble=soul_preamble, query=query, framing_chars=_LOCAL_FRAMING_CHARS
     )
     context_chunks, included_docs = _format_context_chunks(docs, limit=LOCAL_CONTEXT_CHUNKS, total_char_budget=context_budget_chars)
+
+    if refusal := _check_consumed_context(context_chunks, included_docs, cfg):
+        return refusal
 
     prompt = f"""{soul_preamble}USER QUERY: {query}
 
@@ -776,6 +803,7 @@ def _external_fallback_node(
                 # that still preserves the USER QUERY label.
                 prompt = f"USER QUERY: {query}"
                 included_docs = []
+                context = ""
             if len(prompt) > max_chars:
                 # Defensive tail slice for the residual no-context (or
                 # query-too-long) case; matches legacy behaviour for the no-ctx
@@ -795,6 +823,9 @@ def _external_fallback_node(
         })
 
     spend_context = _fallback_spend_context(state, cfg, provider)
+    if refusal := _check_consumed_context(context, included_docs, cfg):
+        return refusal
+
     answer, error, block = _generate_or_error(
         client,
         prompt,
@@ -883,6 +914,7 @@ def offline_best_effort_node(
     # Soul owns identity when present; neutral fallback only when it is absent.
     identity = "" if personality else "You are a helpful assistant. "
 
+    context = ""
     included_docs: list[RetrievedDoc] = []
     if docs:
         # Per-request nonce (see the UNTRUSTED_NOTE comment above).
@@ -910,6 +942,9 @@ Provide the best answer you can. Clearly note where you lack sufficient context.
 No local knowledge base context was available for this query.
 
 Provide the best general answer you can. Clearly note that your local knowledge base did not have relevant information for this query."""
+
+    if refusal := _check_consumed_context(context, included_docs, cfg):
+        return refusal
 
     local_url = str((cfg.get("models") or {}).get("local_llm", {}).get("base_url") or "")
     if local_url:
