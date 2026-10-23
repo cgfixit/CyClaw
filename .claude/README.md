@@ -207,6 +207,6 @@ repository's `settings.json`.
 - Claude Code commits as the session runtime's identity (cloud:
   `Claude <noreply@anthropic.com>`; local: the operator's own git identity),
   never as `CyClaw Agent`, the former agentic loop's identity. The loop was
-  removed on 2026-10-18; its identity constants remain in
-  `utils/agent_identity.py`. The sync hook does not sign commits or guarantee
+  removed on 2026-10-18, and its leftover identity module
+  (`utils/agent_identity.py`) on 2026-10-23. The sync hook does not sign commits or guarantee
   GitHub's Verified status. See `CLAUDE.md` §10.

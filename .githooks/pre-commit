@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Block commits on branches outside the documented multi-vendor allowlist.
-# Canonical feature prefixes: utils.agent_identity.ALLOWED_BRANCH_PREFIXES
-# (+ PR template / CLAUDE.md §5 / Kimi section).
+# This case list is the canonical feature-prefix allowlist; .githooks/pre-push
+# mirrors it (+ PR template / CLAUDE.md §10 / Kimi section document it).
 
 ## Note: Critical pr description requirement:
 # -Always fill out and utilize this template: .github/PULL_REQUEST_TEMPLATE.md fully when opening a PR
@@ -12,7 +12,7 @@ branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 if [[ -n "$branch" ]]; then
   case "$branch" in
     main|master|develop) ;;
-    # Vendor / agent feature prefixes (see utils/agent_identity.py)
+    # Vendor / agent feature prefixes (keep in step with pre-push allowed_branch)
     grok/*|claude/*|codex/*|kimi/*|agent/*|CyClaw/*|cyclaw/*) ;;
     dependabot/*|renovate/*) ;;
     release/*|hotfix/*) ;;

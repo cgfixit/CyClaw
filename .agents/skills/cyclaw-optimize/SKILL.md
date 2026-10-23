@@ -24,6 +24,6 @@ description: "Audit or implement explicitly requested CyClaw improvements from c
 
 Use `$refactor` for behavior-preserving structure, `$dep-guard` for static
 dependency contracts and `$verify-dep` for selected install-profile acceptance.
-Use `utils/agent_identity.py` as a contract reference, not as a reason to
-impersonate CyClaw's own runtime identity. Do not merge or rewrite history
+Never impersonate the former `CyClaw Agent` identity of CyClaw's removed agentic
+loop; commit as your own runtime identity. Do not merge or rewrite history
 without the applicable authorization.

@@ -4,7 +4,7 @@ Enforces **documented multi-vendor feature-branch prefixes** on commit and push,
 **PR-template commit title prefixes** on every commit subject, plus
 fresh-`origin/main` ancestry for feature-branch pushes.
 
-Canonical list (must stay aligned with `utils.agent_identity.ALLOWED_BRANCH_PREFIXES`,
+Canonical list: the `case` patterns in `pre-commit` (mirrored by `pre-push`), kept aligned with
 `CLAUDE.md` §10 "Branch namespaces", and `.github/PULL_REQUEST_TEMPLATE.md`):
 
 | Prefix | Driver |

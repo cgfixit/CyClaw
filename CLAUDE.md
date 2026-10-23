@@ -660,11 +660,11 @@ security gate: secrets, private data, protected paths, and main/force pushes
 in the cloud, the operator's own identity locally. `git var GIT_COMMITTER_IDENT`
 should show it before committing; clear a stale pin with
 `git config --local --unset user.email` (and `user.name`). `CyClaw Agent` was
-the identity of CyClaw's own agentic loop (removed 2026-10-18); its defaults and
-the branch-prefix allowlist still live in `utils/agent_identity.py`.
+the identity of CyClaw's own agentic loop (removed 2026-10-18); its leftover
+`utils/agent_identity.py`, which nothing imported, was deleted 2026-10-23.
 
-**Branch namespaces** (`.github/PULL_REQUEST_TEMPLATE.md`; hooks and
-`utils/agent_identity.py` accept every row):
+**Branch namespaces** (`.github/PULL_REQUEST_TEMPLATE.md`; the `.githooks/pre-commit`
+case list, mirrored by `pre-push`, accepts every row and is the enforcer):
 
 | Driver | Branch form |
 |--------|-------------|
@@ -675,7 +675,6 @@ the branch-prefix allowlist still live in `utils/agent_identity.py`.
 | CyClaw direct / MCP | `CyClaw/{feature}-{date}` (also `cyclaw/`) |
 | Unknown / generic | `agent/{feature}` |
 
-`CYCLAW_AGENT_BRANCH_PREFIX` (default `agent`) sets only the *preferred* prefix.
 
 The cloud **session runtime** applies a stop hook (not wired in repo
 `settings.json`) that flags commits whose committer email is not
