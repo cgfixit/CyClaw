@@ -64,6 +64,20 @@ dependencies:
   # in this CI lane when 84.0.0 was tried here). Pinning >=83 on this lane is
   # unsatisfiable without moving the pytorch pin, which is out of scope; left
   # to float here, same as before this file started tracking the pip-path gap.
+  #
+  # Closing this gap is deferred to the next deliberate torch bump, not done
+  # here. conda-forge repodata (checked 2026-10-23, linux-64 + osx-arm64, py312)
+  # shows every pytorch 2.13.0 build requires setuptools <82, while every
+  # pytorch 2.14.1 build requires only setuptools >=77.0.3. Moving this pin alone
+  # would make the conda lane test a torch the pip path does not ship, so the
+  # fix is a project-wide 2.13.0 -> 2.14.1 move in one PR: pyproject.toml,
+  # requirements-torch.txt, constraints.txt (+cpu), the three torch locks
+  # (regenerated on the arm64 macOS host), the CI hardcodes dep-guard D8 lists,
+  # this pin, and a setuptools pin here matching constraints.txt. Confirm
+  # 2.14.1+cpu exists on download.pytorch.org/whl/cpu first, and rebuild the
+  # index after, since a torch change can shift embedding output.
+  # The drift stops being acceptable once conda is a supported user install
+  # rather than a dev/CI lane.
   - huggingface_hub=1.32.0
   - numpy=1.26.4
   - nltk=3.10.3
