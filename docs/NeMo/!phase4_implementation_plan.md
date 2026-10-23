@@ -38,7 +38,7 @@ Residual relative to this design doc (not #1134 reopen):
 - `check_soul_leak` is shipped on the offline `check_output` floor (#1155).
 
 This document originally answered the open question
-`docs/NeMo/phase3_implementation_plan.md` left standing ("Do the query-path
+[docs/NeMo/phase3_implementation_plan.md](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/NeMo/phase3_implementation_plan.md) left standing ("Do the query-path
 output rails ever get built?") so an owner could approve a concrete design.
 Phase 4a was that approval path; residual work is 4b / false-positive sweeps,
 not a blank-slate redesign.

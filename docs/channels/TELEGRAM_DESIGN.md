@@ -19,7 +19,8 @@
 
 > python -m telegram.cli send --chat-id YOUR_CHAT_ID --text "CyClaw notify OK" --prompt-token
 
-> .. then enter token - it stores in .env which is gitignored here
+> Enter the token at the no-echo prompt. It is used for this invocation and is
+> not persisted; unattended jobs read the configured environment variable.
 <hr>
 **Status:** T0–T3 **code** is shipped and unit-tested (mocked Bot API / loopback
 assumptions), including fail-closed T2 offset persistence and T3 one-shot state

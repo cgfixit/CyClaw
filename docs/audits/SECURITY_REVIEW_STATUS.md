@@ -1,19 +1,16 @@
 # CyClaw — Consolidated Security Review Status
 
-**Last updated:** 2026-09-01 (S5/S7/S9/follow-ups reconciled against current `main`; see
-below. Original table: 2026-06-20.)
-**Scope:** Single source of truth for the status of every security finding raised across the
-historical reviews. Supersedes the per-run status notes in
-[`CODE_SECURITY_REVIEW_2026-06-20.md`](./CODE_SECURITY_REVIEW_2026-06-20.md) (the doc
-formerly linked here, `CODE_SECURITY_REVIEW_2026-06-16.md`, no longer exists — this is its
-successor in the same series) and the remediation notes in
-[`../../tests/TEST_SUITE_AUDIT.md`](../../tests/TEST_SUITE_AUDIT.md), which remain as dated
-historical records. **Where they disagree with this table, this table wins.**
+**Historical record:** findings were last reconciled on 2026-09-01 from a
+2026-06-20 baseline. The tables below preserve that dated assessment; they are
+not a current security certification or the authority over later audits/code.
 
-Status reflects `main` plus the `cleanup/assurance-pass` hardening pass, S5/S7 status and the
-"Recommended follow-ups" reconciled again on 2026-07-27 against current `main`. A more recent,
-broader pass lives in [`2026-07-26-security-scan.md`](./2026-07-26-security-scan.md) — check
-there too for anything found after this table's S1–S10 baseline.
+**2026-10-23 documentation correction:** hash-locked installation now exists;
+use [the maintained lock guide](../../locks/README.md) and
+[setup instructions](../../setup-guide.md). Current deployment boundaries are
+in [the threat model](../THREAT_MODEL.md) and [security policy](../../SECURITY.md).
+The [June review](CODE_SECURITY_REVIEW_2026-06-20.md),
+[July scan](2026-07-26-security-scan.md) and
+[test-suite audit](../../tests/TEST_SUITE_AUDIT.md) remain dated evidence.
 
 ---
 
@@ -36,7 +33,7 @@ No **Critical** issues. No secrets committed.
 
 ---
 
-## Architecture-invariant compliance (current)
+## Architecture-invariant assessment at the historical baseline
 
 | # | Invariant | Status | Evidence |
 |---|-----------|--------|----------|
@@ -56,12 +53,11 @@ No **Critical** issues. No secrets committed.
    the LAN origin behind an env-specific override remains open but is a
    deployment-policy choice, not a defect — the operator may prefer it stay a
    checked-in default for this single-home-lab tool.
-3. **Supply chain** — `pip-audit` now runs in CI (`.github/workflows/pip-audit.yml`).
-   Hash-locked installs (`pip install --require-hashes`) remain **not done**:
-   every dependency would need per-platform hashes across the ubuntu+windows CI
-   matrix, which is a large enough change (and a real CI-breakage risk if a
-   transitive dependency's hash is missing for either platform) to warrant its
-   own dedicated, iterated PR rather than a drive-by fix.
+3. **Supply chain (2026-10-23 correction)** — the old statement that
+   hash-locked installs were not done is superseded. Platform-specific locks and
+   require-hashes installation instructions now live in the maintained guides
+   linked above. Current dependency findings belong in the security register and
+   [#1702](https://github.com/cgfixit/CyClaw/issues/1702), not this historical table.
 4. ~~De-duplicate the two injection pattern lists.~~ **Done, architecturally** —
    `utils/personality.py`'s `_build_patterns` unions `config.yaml`'s
    `banned_patterns` with the OWASP/core set at runtime (see the module

@@ -1,5 +1,10 @@
 # Mailtag — Provider-Neutral Email Tagging: Implementation Plan
 
+> **Disposition — 2026-10-23:** Retained as an unapproved proposal; no feature
+> implementation is included in [#1745](https://github.com/cgfixit/CyClaw/issues/1745).
+> Provider APIs and the historical design references below need revalidation
+> before separately authorized implementation.
+
 > **Status update — 2026-10-18 (agentic removal):** `agentic/registry.py`,
 > `agentic/real_repo_loop.py` and `agentic/real_repo_run_store.py`, which this
 > plan cites as design precedents, were removed with the agentic coding layer

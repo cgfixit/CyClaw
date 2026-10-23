@@ -230,7 +230,7 @@ are separate from issue #1486 Track B.
 |---|---|
 | [Later development guideline](./later_development_guideline.md) | Original roadmap and decisions |
 | [Phase 2](./phase2_implementation_plan.md) | Input-rail node contract |
-| [Phase 3](./phase3_implementation_plan.md) | Shared scanners and the retired harness redirect |
+| [Phase 3](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/NeMo/phase3_implementation_plan.md) | Shared scanners and the retired harness redirect |
 | [Phase 4](./!phase4_implementation_plan.md) | Local output grounding design |
 | [Phase 4b](./phase4b_soul_leak.md) | Soul-leak heuristic and offline output check |
-| [Phase 5](./phase5_agent_run_broker.md) | ToolBroker use in the retired harness |
+| [Phase 5](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/NeMo/phase5_agent_run_broker.md) | ToolBroker use in the retired harness |

@@ -1,9 +1,13 @@
 # CyClaw Memory Foundation — Implementation Plan
 
-> **Status update — 2026-09-06 (docs review, Claude Code):** COMPLETE. The `memory/` package (`models.py`, `store.py`, `policy.py`, `retrieval_adapter.py`, `mirror.py`, `consolidation.py` stub, `selftest.py`, plus a `flags.py` not in the original plan) exists, `gate_memory.py` is registered in `gate.py`, `config.yaml`'s `memory:` block (`:260-286`) matches this plan's schema field-for-field (all switches default `false`), and seven `tests/test_memory_*.py` files exist. Every switch still ships off, so behavior is unchanged when disabled, exactly as designed.
->
-> **What's left:**
-> - Nothing outstanding — fully implemented; see `memory/`, `gate_memory.py`, `config.yaml`'s `memory:` block, and `docs/memory/README.md` (the operator-facing doc this plan called for). **KEEP; not a deletion candidate** (re-verified 2026-09-06): `config.yaml:259` designates it the subsystem's *Design* doc (distinct from the *Operator* doc, `docs/memory/README.md`), and it is cited from `CLAUDE.md:178`, `memory/README.md:43`, `docs/mailtag/IMPLEMENTATION_PLAN.md:35` (as the precedent that plan mirrors), and `docs/audits/2026-08-27-auth-memory-console-harness-review.md` by exact line (`:364`, `:301-307`, §11).
+> **Status reconciled 2026-10-23:** The facts/episodes, governed proposal/apply,
+> retrieval fusion and HTML export implementation exists and remains default-off.
+> Current behavior is owned by [the memory guide](README.md), gate_memory.py and
+> the memory package. This document preserves the original design, not a
+> field-for-field snapshot of current config. The unused consolidation stub was
+> removed in #1595; automatic extraction/consolidation remains deferred and is
+> not implemented by the documentation cleanup.
+
 
 | Field | Value |
 |---|---|
@@ -246,7 +250,6 @@ memory/
   policy.py            # injection scan, reason gate, size caps, trust tiers
   retrieval_adapter.py # FTS query → list[SearchResult]-compatible hits
   mirror.py            # optional read-only projection helpers (status/export)
-  consolidation.py     # STUB only (no-op + log); never auto-runs
   selftest.py          # runnable: python -m memory.selftest
 gate_memory.py         # register_memory_routes(...) — HTTP surface
 docs/memory/
@@ -356,8 +359,6 @@ memory:
     enabled: false                  # admin propose/apply routes useful only if true
   export_html:
     enabled: false
-  consolidation:
-    enabled: false                  # stub; must stay false
 ```
 
 Boot validation (optional small `validate_memory_config` in `utils/config_validation.py`): types/ranges only; missing block = all off.
@@ -603,15 +604,12 @@ Dataclasses only:
 - Status dict builder for `/memory/status`
 - HTML export builder
 
-### 5.6 `memory/consolidation.py`
+### 5.6 Consolidation (retired stub)
 
-```python
-def run_consolidation(cfg: dict) -> dict:
-    """Stub. Returns {'status': 'disabled'} unless explicitly extended later."""
-    return {"status": "disabled", "reason": "consolidation not implemented"}
-```
-
-Never called from graph/gate unless config true **and** we still no-op in v1.
+The original no-op consolidation module was removed in #1595. It is not part
+of the current package and must not be recreated to satisfy this old plan.
+Automatic extraction/consolidation is a separate, deferred design requiring
+explicit human governance; no consolidation runner is shipped.
 
 ### 5.7 `memory/selftest.py`
 
@@ -660,12 +658,12 @@ Memory is **not** OOB like telegram. It is an optional core feature. Isolation m
 
 ---
 
-## 8. Dependency-ordered implementation tasks
+## 8. Historical implementation sequence (not current tasks)
 
 1. **Branch** `feature/memory-foundation` from verified HEAD `010e9b4`.
 2. **Config** — add `memory:` block (all false) to `config.yaml`; optional `validate_memory_config`.
 3. **Schemas** — `MemoryProposeRequest`, `MemoryApplyRequest`, `MemoryRejectRequest` in `schemas/api.py`.
-4. **Package** — `memory/models.py`, `policy.py`, `store.py` (schema+CRUD+FTS+WAL), `mirror.py`, `consolidation.py` stub.
+4. **Package** — `memory/models.py`, `policy.py`, `store.py` (schema+CRUD+FTS+WAL), `mirror.py`.
 5. **Selftest** — `memory/selftest.py` green on temp DB.
 6. **retrieval_adapter** — pure fusion helper + unit tests with synthetic `SearchResult` lists.
 7. **Hook hybrid_search** — lazy fusion tail; tests in `tests/test_hybrid_search.py` or new `tests/test_memory_fusion.py` (enabled vs disabled).

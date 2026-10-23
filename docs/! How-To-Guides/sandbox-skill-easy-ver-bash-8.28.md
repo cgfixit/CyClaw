@@ -1,5 +1,10 @@
 # CyClaw-Sandbox Skill Consolidation
 
+> Historical verification record, 2026-08-28. Commands and results below refer
+> to that checkout, including the since-retired harness and audit-export prototype.
+> Use the maintained sandbox skill for current verification.
+
+
 Date: 2026-08-28
 Baseline: `origin/main` at `a4ca399c2d0727ba93922ce3113b6438d5dcf7d1`
 Version: `1.9.0`
@@ -116,7 +121,7 @@ stopped after the probes; no real provider credentials were used.
 
 ## Unrelated finding noted, not fixed
 
-`docs/CyClaw Audit Bundle Export Script.py` (added by a commit already on
+[docs/CyClaw Audit Bundle Export Script.py](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/CyClaw%20Audit%20Bundle%20Export%20Script.py) (added by a commit already on
 `main` before this branch was cut, unrelated to this PR) fails to parse:
 `ruff` reports `invalid-syntax: Expected a statement` at line 248 (a
 malformed ternary spanning lines 246-248). This will make a bare

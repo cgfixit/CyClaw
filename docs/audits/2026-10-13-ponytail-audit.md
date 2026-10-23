@@ -164,9 +164,9 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
 
 ### Tier 3 — owner decision or retained on purpose
 
-- `docs/memories/zOld/run_full_verification.py` (1,173 lines),
-  `docs/memories/zOld/_test_terminal_consoles.py` (222) and
-  `docs/CyClaw Audit Bundle Export Script.py` (356) are referenced by nothing.
+- [docs/memories/zOld/run_full_verification.py](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/memories/zOld/run_full_verification.py) (1,173 lines),
+  [docs/memories/zOld/_test_terminal_consoles.py](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/memories/zOld/_test_terminal_consoles.py) (222) and
+  [docs/CyClaw Audit Bundle Export Script.py](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/CyClaw%20Audit%20Bundle%20Export%20Script.py) (356) are referenced by nothing.
   The zOld pair is covered by the "dated docs stay dated" archive policy
   (`fable-protocol/references/knowledge-base.md:225`); the export script is
   UNSURE and may be run by hand. **~1,750 lines**, outside the source tree.
@@ -213,7 +213,7 @@ follow `CLAUDE.md` §7: Tier 1 is Low (local, reversible), Tier 2 is Medium
 - Lint posture: the repo-wide walk CI runs, `ruff check --select
   F401,F811,F841,B007 .`, is clean under the project config, but that walk
   never visits `docs/memories/zOld/`; naming
-  `docs/memories/zOld/run_full_verification.py` explicitly reports 7 hits
+  [docs/memories/zOld/run_full_verification.py](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/memories/zOld/run_full_verification.py) explicitly reports 7 hits
   (4 F401, 1 B007, 2 F841). That file is already a whole-file Tier 3
   candidate above, so the hits add no new symbol. The five F401 hits visible
   only with `--isolated` are in the vendored `agentic/vendor/unslop/`
