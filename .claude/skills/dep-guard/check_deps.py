@@ -483,7 +483,7 @@ def run_coverage_source_check(root: Path, pyproject: dict) -> None:
 def run_nemo_base_check(root: Path, pyproject: dict) -> None:
     """D11: normal installations carry the pinned engine, including Conda's pip tail."""
     print("D11 NeMo is a required base dependency")
-    expected = "nemoguardrails==0.24.0"
+    expected = "nemoguardrails==0.24.1"
     project = pyproject.get("project", {})
     surfaces = {"pyproject.toml base": project.get("dependencies", [])}
     for filename in ("requirements.txt", "requirements-test.txt"):
@@ -510,7 +510,7 @@ def run_nemo_base_check(root: Path, pyproject: dict) -> None:
             if nemo:
                 fail("D11", "nemoguardrails belongs in base requirements, not requirements-test.txt")
         elif (
-            len(nemo) != 1 or nemo[0].spec != "==0.24.0" or nemo[0].extras
+            len(nemo) != 1 or nemo[0].spec != "==0.24.1" or nemo[0].extras
             or ";" in nemo_lines[0].split("#", 1)[0]
         ):
             fail("D11", f"{label} must install {expected} exactly once")

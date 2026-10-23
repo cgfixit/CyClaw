@@ -31,11 +31,11 @@ dependencies:
   # unpinned resolve here can silently drift from the pip path (e.g. numpy
   # floating to 2.x, which breaks chromadb/onnxruntime per CLAUDE.md).
   #
-  - uvicorn=0.53.0
+  - uvicorn=0.54.0
   - pydantic=2.13.5
   - pyyaml=6.0.3
   - httpx=0.28.1
-  - langchain-core=1.6.3
+  - langchain-core=1.6.12
   # Keep generated OTLP protos compatible with the native protobuf runtime.
   - opentelemetry-exporter-otlp-proto-grpc>=1.42
   - sentence-transformers=6.1.0
@@ -66,7 +66,7 @@ dependencies:
   - huggingface_hub=1.32.0
   - numpy=1.26.4
   - nltk=3.10.3
-  # PyPI package name is tzdata==2026.2 (requirements.txt / pyproject / constraints).
+  # PyPI package name is tzdata==2026.5 (requirements.txt / pyproject / constraints).
   # conda-forge splits this: `tzdata` is the OS IANA database (2025b / 2026c),
   # `python-tzdata` is the PEP 615 fallback wheel used by zoneinfo on hosts
   # without a system tzdb (Windows). Do not pin tzdata=2026.2 here — that
@@ -80,22 +80,22 @@ dependencies:
   # 2.9.0 (PYSEC-2023-117 / PYSEC-2026-2987). This conda lane pulled pytest
   # with no matching pygments pin of its own until now.
   - pygments=2.21.0
-  - ruff=0.16.8
-  - mypy=2.3.0
+  - ruff=0.17.1
+  - mypy=2.4.0
   - bandit=1.9.4
   - pytest-cov=7.1.0
   - pip:
       # conda-forge Chroma pins an older FastAPI. Install this trio from PyPI
       # so normal CyClaw package metadata and pip check agree on all platforms.
       - chromadb==1.5.9
-      - fastapi==0.141.1
-      - starlette==1.6.0
-      - nemoguardrails==0.24.0
-      - langgraph==1.2.11
+      - fastapi==0.143.3
+      - starlette==1.8.0
+      - nemoguardrails==0.24.1
+      - langgraph==1.2.15
       - rank-bm25==0.2.2
       - websockets==15.0.1
       # Telemetry-control floor from the pip path (pyproject.toml/constraints.txt).
-      - onnxruntime==1.30.0
+      - onnxruntime==1.31.0
       # sqlite-vec (#1255 Phase C spike, test-only): no conda-forge package
       # exists (checked 2026-09-21 -- zero matches on noarch/linux-64
       # repodata), so it can only ride the pip: sublist here, same as the

@@ -432,9 +432,9 @@ delegates Step 1 to it rather than duplicating it).
   `ci.yml`/`pip-audit.yml`/`nemo-guardrails.yml` (the reason `dep-guard`
   D8 matches both forms), `nemoguardrails.__version__ == "0.24.0"` in
   `tests/nemo_runtime/`, `"0.24.0"` in `guardrails/verify_install.py` and
-  `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS`, and `pendulum==3.2.0` /
-  `pgvector==0.5.0`, the `langgraph-cli analytics` row's
-  `langgraph==1.2.11 family`, and the core-libs row's `hatchling==1.32.0`
+  `otel-hardening`'s `LAST_VERIFIED_VENDOR_PINS`, and `pendulum==3.3.0` /
+  `pgvector==0.5.1`, the `langgraph-cli analytics` row's
+  `langgraph==1.2.15 family`, and the core-libs row's `hatchling==1.32.4`
   in `check_otel.py`'s *prose* inventory, which `--strict` never reads —
   then `dep-guard` and
   `check_otel.py --strict` as the authoritative re-check, knowing the
@@ -447,7 +447,7 @@ delegates Step 1 to it rather than duplicating it).
   the `nemo_runtime` test, the three live `1.30.0` literals in
   `otel-hardening/verify.sh` (an exact assertion and two mutation targets
   that make that verifier fail after an `onnxruntime` bump until edited),
-  the `ruff==0.16.8` *comment* in `lint.yml`
+  the `ruff==0.17.1` *comment* in `lint.yml`
   (E1 compares workflow pins only with each other, so it never flags that
   comment against the manifests), and five
   docs that `doc_sync.py` does **not** check (it has no dependency-version

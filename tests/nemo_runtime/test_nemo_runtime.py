@@ -1,4 +1,4 @@
-"""Real nemoguardrails==0.24.0 runtime proof. Gated on CYCLAW_NEMO_RUNTIME=1."""
+"""Real nemoguardrails==0.24.1 runtime proof. Gated on CYCLAW_NEMO_RUNTIME=1."""
 
 from __future__ import annotations
 

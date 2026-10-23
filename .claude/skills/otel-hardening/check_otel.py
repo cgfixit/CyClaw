@@ -126,6 +126,15 @@ SHELL_ONLY_ENV_KEYS: frozenset[str] = frozenset({"HOMEBREW_NO_ANALYTICS", "HF_HU
 # verified against that vendor's actual source (not just docs). A drifted pin
 # WARNs: not a proven leak, but the prompt to re-run the live-search half.
 LAST_VERIFIED_VENDOR_PINS = {
+    # 2026-10-23 bump (redo of #1717) re-verified against the downloaded
+    # wheels, diffed old -> new: langchain-core 1.6.3 -> 1.6.12 and langgraph
+    # 1.2.11 -> 1.2.15 still have zero telemetry|analytics|usage_stat|posthog|
+    # segment.io|mixpanel hits; nemoguardrails 0.24.1 telemetry.py:372-374
+    # still honors NEMO_GUARDRAILS_NO_USAGE_STATS and DO_NOT_TRACK; langsmith
+    # 0.14.11 tracing_is_enabled() keeps the TRACING_V2 > TRACING precedence
+    # (utils.py:139) and OTEL_ENABLED (client.py:300), with only new opt-in
+    # sandbox/agent env names; onnxruntime 1.31.0 still exports
+    # disable_telemetry_events (__init__.py:54) and ORT_DISABLE_TELEMETRY.
     "chromadb": "1.5.9",
     # 1.3.14 -> 1.4.2 / langchain-core 1.5.0 -> 1.6.3 / langgraph 1.2.9 -> 1.2.11
     # re-verified 2026-09-21 against the installed sources, not just docs: a
@@ -138,13 +147,13 @@ LAST_VERIFIED_VENDOR_PINS = {
     # "langgraph-cli analytics" inventory row's own note.
     # langchain itself left the manifests with the agentic-deepagents extra
     # (October 2026); langchain-core, a base dependency, is what stays.
-    "langchain-core": "1.6.3",
-    "langgraph": "1.2.11",
+    "langchain-core": "1.6.12",
+    "langgraph": "1.2.15",
     # 0.23.0 -> 0.24.0 re-verified 2026-08-27 against the installed 0.24.0
     # source: nemoguardrails/telemetry.py:372-374 still honors
     # NEMO_GUARDRAILS_NO_USAGE_STATS and DO_NOT_TRACK (1/true); the usage
     # stats sink is https://events.telemetry.data.nvidia.com/v1.1/events/json.
-    "nemoguardrails": "0.24.0",
+    "nemoguardrails": "0.24.1",
     # 6.0.1 -> 6.1.0 re-verified 2026-09-21 against the installed 6.1.0
     # source, not just the docs: zero matches for telemetry/analytics/
     # usage_stats/posthog/segment/mixpanel, and every hardcoded non-hub URL
@@ -179,7 +188,7 @@ LAST_VERIFIED_VENDOR_PINS = {
     # through to the legacy LANGSMITH_OTEL_ENABLED check (still honored via
     # the same get_env_var helper), and moot either way since tracing itself
     # stays off. All 5 scrubbed credential/destination names are untouched.
-    "langsmith": "0.13.0",
+    "langsmith": "0.14.11",
     # Direct pyproject pin since 2026-08-02 (retrieval/embeddings.py imports
     # it). 1.26.0 -> 1.32.0 re-verified 2026-09-28 against the v1.32.0 tag's
     # src/huggingface_hub/constants.py (the GitHub source, not an installed
@@ -195,7 +204,7 @@ LAST_VERIFIED_VENDOR_PINS = {
     # see the pyproject comment). 1.30.0 verified 2026-09-11 on the bump from
     # 1.29.0: disable_telemetry_events() still callable. Listed here so the
     # next bump WARNs instead of silently trusting a getattr-guarded API.
-    "onnxruntime": "1.30.0",
+    "onnxruntime": "1.31.0",
 }
 
 # Vendors whose INSTALLED version is worth printing for the live-search step.
@@ -263,7 +272,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
                      "LANGSMITH_TRACING": "false", "LANGCHAIN_TRACING": "false",
                      "LANGSMITH_OTEL_ENABLED": "false"},
         "url": "https://docs.smith.langchain.com/observability/how_to_guides/trace_with_langchain",
-        "versions": "langchain-core==1.6.3, langgraph==1.2.11, langsmith==0.13.0",
+        "versions": "langchain-core==1.6.12, langgraph==1.2.15, langsmith==0.14.11",
         "enforcement": "env before import (get_env_var lru_cache latches); 5 credential/destination "
                        "names popped; upload attempted even with no API key, so the pop alone is not enough",
         "scope": "every graph invocation",
@@ -284,7 +293,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "langgraph-cli analytics", "category": 1,
         "controls": {"LANGGRAPH_CLI_NO_ANALYTICS": "1"},
         "url": "https://github.com/langchain-ai/langgraph/tree/main/libs/cli",
-        "versions": "langgraph==1.2.11 family", "enforcement": "env before any CLI use",
+        "versions": "langgraph==1.2.15 family", "enforcement": "env before any CLI use",
         "scope": "dev tooling only (no runtime path invokes the CLI)",
         "reviewed": "2026-08-15", "evidence": "belt-and-suspenders; runtime langgraph carries no own telemetry",
     },
@@ -457,7 +466,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "postgres drivers (pgvector/psycopg)", "category": 3, "controls": {},
         "url": "docs/POSTGRES_BACKEND.md",
-        "versions": "postgres extra: psycopg==3.3.6 + psycopg-binary==3.3.6; pgvector extra: pgvector==0.5.0",
+        "versions": "postgres extra: psycopg==3.3.6 + psycopg-binary==3.3.6; pgvector extra: pgvector==0.5.1",
         "enforcement": "operator-configured database endpoints (the pgvector store and the Postgres "
                        "soul/auth/rate-limit backends); the mssql extra (pyodbc) was dropped with "
                        "agentic/sqlconnect in October 2026",
@@ -513,7 +522,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "no outbound request unless one of those is configured); cel-python==0.5.0 optional "
                     "extra, default-off, with its "
                     "exclusive transitives google-re2==1.1.20251105 / jmespath==1.1.0 / lark==1.3.1 / "
-                    "pendulum==3.2.0 pinned in constraints.txt (issue #1458) -- a regex engine binding, a JSON "
+                    "pendulum==3.3.0 pinned in constraints.txt (issue #1458) -- a regex engine binding, a JSON "
                     "query library, a parser, and a datetime library: none imports socket/urllib/http "
                     "(checked 2026-09-26), so they add no egress to the default-off CEL monitor",
         "enforcement": "local NDJSON file only (logs/numbat-events.ndjsonl); numbat.enabled: false disables. "
@@ -859,7 +868,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
                     "pyyaml/rank-bm25/pygments/websockets/tzdata and the dev/test/build tools "
-                    "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.0.0; hatchling==1.32.0 is the "
+                    "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.0.0; hatchling==1.32.4 is the "
                     "[build-system] backend, swept from build-system.requires, never installed at "
                     "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "

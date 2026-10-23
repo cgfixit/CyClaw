@@ -358,7 +358,7 @@ jobs:
               metadata_path = next(name for name in names if name.endswith(".dist-info/METADATA"))
               metadata = BytesParser().parsebytes(wheel.read(metadata_path))
           requirements = metadata.get_all("Requires-Dist", [])
-          assert "nemoguardrails==0.24.0" in requirements, requirements
+          assert "nemoguardrails==0.24.1" in requirements, requirements
           assert "guardrails" in metadata.get_all("Provides-Extra", [])
           for required in ("guardrails/verify_install.py", "guardrails/config/config.yml", "guardrails/config/rails.co", "config.yaml"):
               assert required in names, required
