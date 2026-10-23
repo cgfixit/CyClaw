@@ -111,7 +111,7 @@ jobs:
       # tool names come from claude-code-action v1.0.252 src/modes/tag/index.ts;
       # a deny rule outranks the action's own --allowedTools.
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967  # v1.0.252
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6  # v1.0.253
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -144,7 +144,7 @@ jobs:
       # .github/workflows/ at all, and web tools stay denied so the job token
       # has no outbound channel besides GitHub itself.
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967  # v1.0.252
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6  # v1.0.253
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
