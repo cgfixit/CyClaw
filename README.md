@@ -424,7 +424,7 @@ node or a security control. [Thresholds and limits](docs/EVALS.md).
 | Retrieval gate | `python -m tests.ci_rag_smoke` | Every PR, no LLM. Corpus probes through `route_by_score_node`, then hit@5, Recall@5, and MRR on the 52-case fixture (44 scored, 8 out-of-corpus skipped). Metric floors and `[FILTERED]` injection-chunk assertions block CI |
 | Local dogfood | `CYCLAW_EVAL_DOGFOOD=1 python scripts/cyclaw-eval-dogfood.py` | Opt-in real loopback model, one case per category ([recipe](tests/fixtures/groundedness/DOGFOOD.md)) |
 | Anthropic judge | `CYCLAW_EVAL_LIVE=1 python tests/judge_eval.py` | Paid opt-in Claude grades groundedness, completeness, abstention |
-| Local judge | Same command with `evals.local_judge.enabled: true` | Same rubric on a second loopback model from another family |
+| Local judge | Same command with `evals.local_judge.enabled: true` | Same rubric on a second loopback model with a different configured tag; choose a separate family and calibrate it |
 
 Fixture retrieval scores 1.0 on all three metrics (no claim about arbitrary
 corpora). The [reranker bake-off](docs/audits/2026-09-26-reranker-bakeoff.md)
