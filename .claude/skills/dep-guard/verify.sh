@@ -184,7 +184,7 @@ for stale_pin in sentence-transformers=6.0.1 ruff=0.16.7; do
 done
 for surface in pyproject.toml requirements.txt environment.yml; do
   d="$(_mktree)"
-  sed -i.bak '/nemoguardrails==0.24.0/d' "$d/$surface"
+  sed -i.bak '/nemoguardrails==0.24.1/d' "$d/$surface"
   out="$(python3 "$checker" --repo-root "$d" 2>&1)"; rc=$?
   rm -rf "$d"
   if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q 'FAIL  \[D11\]'; then
@@ -194,7 +194,7 @@ for surface in pyproject.toml requirements.txt environment.yml; do
 done
 
 d="$(_mktree)"
-printf '\nnemoguardrails==0.24.0\n' >> "$d/requirements-test.txt"
+printf '\nnemoguardrails==0.24.1\n' >> "$d/requirements-test.txt"
 out="$(python3 "$checker" --repo-root "$d" 2>&1)"; rc=$?
 rm -rf "$d"
 if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q 'FAIL  \[D11\]'; then
@@ -203,7 +203,7 @@ fi
 echo 'NeMo in test-only requirements: PASS (D11 rejects runtime dependency)'
 
 d="$(_mktree)"
-sed -i.bak "s/^nemoguardrails==0.24.0$/nemoguardrails==0.24.0; sys_platform == 'linux'/" "$d/requirements.txt"
+sed -i.bak "s/^nemoguardrails==0.24.1$/nemoguardrails==0.24.1; sys_platform == 'linux'/" "$d/requirements.txt"
 out="$(python3 "$checker" --repo-root "$d" 2>&1)"; rc=$?
 rm -rf "$d"
 if [ "$rc" -ne 2 ] || ! echo "$out" | grep -q 'FAIL  \[D11\]'; then

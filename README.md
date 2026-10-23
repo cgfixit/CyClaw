@@ -495,7 +495,7 @@ to `guardrails/`.
 |---|---|
 | Offline graph input | Local and best-effort paths; returns `block_message` through `audit_logger` without a model call |
 | Offline graph output | `local_llm` only; replaces answers below `hallucination_threshold` (0.18) or matching soul-leak markers |
-| NeMo `check()` | Wraps all four answer nodes (`nemoguardrails==0.24.0`); input refusal skips generation, output refusal replaces the answer |
+| NeMo `check()` | Wraps all four answer nodes (`nemoguardrails==0.24.1`); input refusal skips generation, output refusal replaces the answer |
 | Broker fallback | Missing, failed, or unsupported live verdicts run deterministic input and soul-leak checks on every answer route; grounding stays `local_llm` only |
 
 Active rails are Python checks and add no model calls; NVIDIA's

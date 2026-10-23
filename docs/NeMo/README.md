@@ -155,7 +155,7 @@ NeMo event stream through the root logger.
 
 ## Required installation and engine construction
 
-Every base installation includes `nemoguardrails==0.24.0`, including `full`
+Every base installation includes `nemoguardrails==0.24.1`, including `full`
 and `all`. The empty `guardrails` extra remains a compatibility alias.
 Imports stay soft so engine failure retains deterministic protection and
 records degradation. Required installation does not make engine availability
