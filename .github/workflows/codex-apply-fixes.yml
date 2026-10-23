@@ -136,69 +136,36 @@ jobs:
             } else {
               // issue_comment on a PR
               prNumber = context.payload.issue.number;
-              // Prefer GraphQL replyTo when the UI reply attached a parent.
-              const nodeId = context.payload.comment.node_id;
-              const gql = await github.graphql(
-                `query($id:ID!) {
-                  node(id: $id) {
-                    ... on IssueComment {
-                      id
-                      replyTo {
-                        id
-                        databaseId
-                        author { login __typename }
-                        body
-                        url
-                      }
-                    }
-                  }
-                }`,
-                { id: nodeId },
+              // Issue comments are flat; use the most recent prior known-bot comment.
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  per_page: 100,
+                },
               );
-              const replyTo = gql?.node?.replyTo;
-              if (replyTo) {
-                parent = {
-                  id: replyTo.databaseId,
-                  author: replyTo.author?.login || "",
-                  author_type: replyTo.author?.__typename === "Bot" ? "Bot" : "User",
-                  body: replyTo.body || "",
-                  path: "",
-                  line: null,
-                  html_url: replyTo.url || "",
-                  kind: "issue_comment",
-                };
-              } else {
-                // Fallback: most recent prior bot issue comment on this PR.
-                const comments = await github.paginate(
-                  github.rest.issues.listComments,
-                  {
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: prNumber,
-                    per_page: 100,
-                  },
+              const prior = [...comments]
+                .filter((c) => c.id < context.payload.comment.id)
+                .reverse()
+                .find((c) => isBotAuthor(c.user));
+              if (!prior) {
+                core.setFailed(
+                  "Apply-fixes requires a prior bot comment on this PR.",
                 );
-                const prior = [...comments]
-                  .filter((c) => c.id < context.payload.comment.id)
-                  .reverse()
-                  .find((c) => isBotAuthor(c.user));
-                if (!prior) {
-                  core.setFailed(
-                    "Apply-fixes requires a reply to (or prior) bot comment on this PR.",
-                  );
-                  return;
-                }
-                parent = {
-                  id: prior.id,
-                  author: prior.user?.login || "",
-                  author_type: prior.user?.type || "",
-                  body: prior.body || "",
-                  path: "",
-                  line: null,
-                  html_url: prior.html_url || "",
-                  kind: "issue_comment_fallback",
-                };
+                return;
               }
+              parent = {
+                id: prior.id,
+                author: prior.user?.login || "",
+                author_type: prior.user?.type || "",
+                body: prior.body || "",
+                path: "",
+                line: null,
+                html_url: prior.html_url || "",
+                kind: "issue_comment_fallback",
+              };
             }
 
             if (!isBotAuthor({ login: parent.author, type: parent.author_type })) {

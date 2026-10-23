@@ -39,6 +39,8 @@ an existing hook manager is preserved. The [hook file guide](.githooks/README.md
 explains each file, its benefit, and the branch and commit-title conventions.
 Codex skill discovery, invocation policies and review workflows:
 [Codex guidance](.codex/README.md) (repository skills in `.agents/skills/`).
+For workflow purposes, triggers, blocking versus advisory checks, and publishing:
+[GitHub Actions guide](.github/workflows/README.md).
 
 Security review #1526's [residual decision register](SECURITY.md#issue-1526-residual-decisions-2026-10-12)
 separates implemented controls, accepted limits (native Windows verification

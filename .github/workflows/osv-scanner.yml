@@ -7,7 +7,7 @@
 name: OSV-Scanner
 
 on:
-  # Weekly full scan — Mondays 06:00 UTC (staggered one hour before pip-audit).
+  # Weekly full scan — Mondays 06:00 UTC (same hour as the daily pip-audit).
   # NOTE: scheduled triggers only fire from the repository's default branch.
   schedule:
     - cron: "0 6 * * 1"

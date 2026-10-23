@@ -1,4 +1,4 @@
-name: PR Review Assistant
+name: Codex PR review (advisory)
 
 # Advisory review only (read-only). Owner-gated write path for
 # "@codex apply fixes" / "@openai-code-agent apply fixes" replies to bot
