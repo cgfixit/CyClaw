@@ -31,6 +31,14 @@ dependencies:
   - langchain-core=1.6.12
   # Keep generated OTLP protos compatible with the native protobuf runtime.
   - opentelemetry-exporter-otlp-proto-grpc>=1.42
+  # Security floors that constraints.txt pins exactly (PYSEC-2026-4320,
+  # CVE-2026-114603). Both are conda-owned on this lane (httpx pulls certifi;
+  # the exporter's opentelemetry-sdk pins its opentelemetry-api exactly), so a
+  # pip: override would fight the conda solve. Floors, not exact pins: the
+  # conda-forge build set was not checkable from the editing sandbox, and the
+  # conda CI lane is what proves the solve.
+  - certifi>=2026.10.19
+  - opentelemetry-api>=1.45.1
   - sentence-transformers=6.1.0
   # pytorch is sentence-transformers' hard transitive and is pinned explicitly
   # here for the same reason constraints.txt pins torch==2.13.0+cpu: post-
@@ -56,6 +64,20 @@ dependencies:
   # in this CI lane when 84.0.0 was tried here). Pinning >=83 on this lane is
   # unsatisfiable without moving the pytorch pin, which is out of scope; left
   # to float here, same as before this file started tracking the pip-path gap.
+  #
+  # Closing this gap is deferred to the next deliberate torch bump, not done
+  # here. conda-forge repodata (checked 2026-10-23, linux-64 + osx-arm64, py312)
+  # shows every pytorch 2.13.0 build requires setuptools <82, while every
+  # pytorch 2.14.1 build requires only setuptools >=77.0.3. Moving this pin alone
+  # would make the conda lane test a torch the pip path does not ship, so the
+  # fix is a project-wide 2.13.0 -> 2.14.1 move in one PR: pyproject.toml,
+  # requirements-torch.txt, constraints.txt (+cpu), the three torch locks
+  # (regenerated on the arm64 macOS host), the CI hardcodes dep-guard D8 lists,
+  # this pin, and a setuptools pin here matching constraints.txt. Confirm
+  # 2.14.1+cpu exists on download.pytorch.org/whl/cpu first, and rebuild the
+  # index after, since a torch change can shift embedding output.
+  # The drift stops being acceptable once conda is a supported user install
+  # rather than a dev/CI lane.
   - huggingface_hub=1.32.0
   - numpy=1.26.4
   - nltk=3.10.3
@@ -89,6 +111,10 @@ dependencies:
       - websockets==15.0.1
       # Telemetry-control floor from the pip path (pyproject.toml/constraints.txt).
       - onnxruntime==1.31.0
+      # Security floor from constraints.txt (CVE-2026-111063/-111064,
+      # GHSA-2g87-pp6c-29x5). Only pip packages (nemoguardrails) pull aiohttp
+      # here, so the exact pin rides this sublist and dep-guard D9 checks it.
+      - aiohttp==3.14.5
       # sqlite-vec (#1255 Phase C spike, test-only): no conda-forge package
       # exists (checked 2026-09-21 -- zero matches on noarch/linux-64
       # repodata), so it can only ride the pip: sublist here, same as the

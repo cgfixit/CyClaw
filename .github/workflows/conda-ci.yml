@@ -23,11 +23,19 @@ env:
 
 jobs:
   ci:
-    runs-on: ubuntu-22.04
+    # The Linux leg keeps its pre-matrix check name "ci (3.12)" so a required
+    # status check on it is not orphaned by the new os axis.
+    name: ${{ matrix.os == 'ubuntu-22.04' && format('ci ({0})', matrix.python-version) || format('ci ({0}, {1})', matrix.os, matrix.python-version) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        # macos-latest is GitHub's Apple Silicon (arm64) runner, the same one
+        # ci.yml's pip matrix uses. environment.yml's pytorch=2.13.0=cpu* glob
+        # matches conda-forge's osx-arm64 cpu_generic builds (no CUDA variants
+        # exist there), so one env file serves both legs.
+        os: [ubuntu-22.04, macos-latest]
         python-version: ["3.12"]  # match sandbox 3.12 + modern invariants
 
     steps:

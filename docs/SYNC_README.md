@@ -301,7 +301,7 @@ spaces and `$()`, backticks, or `%VAR%` pass through literally everywhere.
 | `*.gguf`, `*.bin`, `*.safetensors`, `*.onnx`, `*.pt`, `*.pth` | AI model weights — managed locally |
 | `index/**`, `.chroma/**` | ChromaDB + BM25 — rebuildable via `python -m retrieval.indexer` |
 | `.emb_cache/**` | embeddings cache — auto-downloads |
-| `venv/**`, `.venv/**`, `env/**` | virtualenvs — rebuild via `pip install -r requirements.txt` |
+| `venv/**`, `.venv/**`, `env/**` | virtualenvs — rebuild with the hashed-lock install in `setup-guide.md` (torch first) |
 | `__pycache__/**`, `*.pyc`, `*.pyo` | bytecode |
 | `logs/**`, `*.log`, `*.jsonl` | local forensic data incl. `audit.jsonl` — never share across machines |
 | `.env`, `*.pem`, `*.key`, `*_secret*`, `credentials*` | secrets |
