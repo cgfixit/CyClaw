@@ -1,7 +1,7 @@
 ## Branch naming (required for agent-opened PRs)
 
 Before opening a PR, create the head branch with the **driver-matched** prefix.
-Hooks and `utils/agent_identity.py` enforce this allowlist; casual / generic names are not a substitute.
+The tracked `.githooks/` (`pre-commit`, `pre-push`) enforce this allowlist; casual / generic names are not a substitute.
 
 | Driver | Branch pattern | Example |
 |--------|----------------|---------|

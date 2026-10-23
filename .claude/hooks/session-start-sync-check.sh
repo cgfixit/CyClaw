@@ -9,8 +9,9 @@
 #      which overrode that identity and left every cloud commit Unverified; it
 #      now removes that old pin (only while it still holds the old default,
 #      never an identity someone set on purpose) and pins nothing.
-#      CYCLAW_AGENT_COMMIT_EMAIL / CYCLAW_AGENT_COMMIT_NAME set the identity of
-#      CyClaw's own agentic loop (utils/agent_identity.py), not this one.
+#      CYCLAW_AGENT_COMMIT_EMAIL / CYCLAW_AGENT_COMMIT_NAME were read only by the
+#      removed agentic loop's utils/agent_identity.py (deleted 2026-10-23); this
+#      hook never pins them.
 #   1b. Point core.hooksPath at the tracked .githooks/ via
 #      scripts/ensure-githooks.sh (idempotent; leaves a deliberate value alone).
 #   2. Fetch the default branch and REPORT divergence between local and remote.

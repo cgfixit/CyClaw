@@ -286,8 +286,8 @@ def test_session_hook_removes_only_the_old_default_name(tmp_path: Path) -> None:
 def test_session_hook_does_not_pin_the_agentic_loop_overrides(tmp_path: Path, overrides: dict[str, str]) -> None:
     # Pinned into repo-local config, an override reached every session and
     # worktree sharing the repository, outlived its own session, and still
-    # lost to a GIT_COMMITTER_* the runtime exported. They set CyClaw's own
-    # agentic-loop identity (utils/agent_identity.py) and nothing else.
+    # lost to a GIT_COMMITTER_* the runtime exported. They set only the removed
+    # agentic loop's identity (utils/agent_identity.py, deleted 2026-10-23).
     repo = _hook_repo(tmp_path)
     assert _run_sync_hook(repo, tmp_path, **overrides).returncode == 0
     assert _local_git_config(repo, tmp_path, "user.email") is None

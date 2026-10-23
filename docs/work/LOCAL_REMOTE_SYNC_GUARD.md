@@ -36,9 +36,9 @@ on every session start:
    `Claude <noreply@anthropic.com>`, and its stop hook flags any other
    committer as Unverified, so the pin itself produced them. The hook now
    removes that old pin, pins nothing, and prints the identity commits will
-   carry. `utils/agent_identity.py` still sets CyClaw's own agentic-loop
-   identity, including from `CYCLAW_AGENT_COMMIT_EMAIL` /
-   `CYCLAW_AGENT_COMMIT_NAME`.
+   carry. `CYCLAW_AGENT_COMMIT_EMAIL` / `CYCLAW_AGENT_COMMIT_NAME` set the
+   identity of CyClaw's removed agentic loop; nothing has read them since
+   `utils/agent_identity.py` was deleted (2026-10-23), and the hook never pins them.
 2. **Fetches** the default branch (read-only) and **reports** ahead/behind
    counts for the current branch vs `origin/<default>`.
 3. If local `main` has diverged, **prints guidance** (ff-only when safe; review

@@ -56,7 +56,6 @@ modules"; this file groups them by concern.
 | `ops_runner.py` | `subprocess.run([...])` shim behind the two `/ops/*` endpoints (`/ops/sync`, `/ops/fsconnect`) — core never imports `sync`/`agentic` (I6). |
 | `launchd_plist.py` | Plist helpers shared by every launchd generator: `macos/`, `telegram`, `opentweet`, `fsconnect`, and `sync/scheduler.py`'s `LaunchdScheduler`. `write_job()` builds the standard CyClaw LaunchAgent (env overlay, `RunAtLoad: false`, shared log file) and writes it atomically. Imports only the stdlib and `utils.telemetry_kill`. |
 | `win_schtasks.py` | Stdlib-only Windows Task Scheduler XML helper shared by `agentic.fsconnect`/`telegram`/`opentweet`/`windows/generate_service_task.py`; never calls `schtasks /Create` itself — returns the command an operator runs by hand. (`sync/scheduler.py`'s `WindowsTaskScheduler` is separate and drives `schtasks.exe` directly, but borrows `bat_quote()` and `python_executable()` from here.) |
-| `agent_identity.py` | Driver-agnostic committer identity + branch-prefix allowlist for all agent write surfaces. |
 | `selftest.py` | Shared self-test plumbing used by the out-of-band subsystems' `test` subcommands. |
 | `mcp_manifest.py` | Pure compare/verify layer for the committed MCP tools manifest pin: fingerprints the registered `TOOLS` list so drift against `mcp_manifest.json` fails closed in `mcp_hybrid_server.py`. |
 
