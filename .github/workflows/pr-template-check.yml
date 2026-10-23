@@ -145,7 +145,7 @@ jobs:
             // Same prefixes and exemptions as .githooks/commit-msg, since the
             // squash-merge commit subject is this title.
             const prefixes = "invariant|governance|fsconnect|agentic|rag|harness|security|docs|infra|fix|feat";
-            const titleExempt = /^(Merge |Revert |fixup! |squash! |Amend! )/.test(title) || /^(chore|build|ci)\(deps\)/.test(title);
+            const titleExempt = /^(Merge |Revert |fixup! |squash! |amend! |Amend! )/.test(title) || /^(chore|build|ci)\(deps\)/.test(title);
             if (!titleExempt && !new RegExp(`^\\[(${prefixes})\\] - \\S`).test(title)) {
               fail("title", `Title must read \`[prefix] - Short sentence\` with prefix one of ${prefixes}`);
             }

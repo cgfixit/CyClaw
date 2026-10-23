@@ -163,7 +163,7 @@ SEC__PATTERNS+='|AIza[0-9A-Za-z_-]{35}'
 SEC__PATTERNS+='|sl\.[A-Za-z0-9_-]{100,}'
 
 SEC_FILES=''
-SEC_PUSH_SHAS=''   # commits a push publishes (tags peeled), set by sec_pre_push_finish
+SEC_PUSH_SHAS=''   # pushed commit tips (tags peeled), set by sec_pre_push_finish
 SEC__PUSH_FILES=''
 SEC__PUSH_SHAS=''
 sec__quiet=0   # 1 during pre-push: advisory text was already shown at commit time
@@ -756,7 +756,8 @@ sec_pre_push_ref() {
   bfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --diff-filter=ACMRT "${range[@]}" | sed '/^$/d' | sort -u)"
   pfiles="$(git -c core.quotePath=false log --no-color --format= --name-only --cc --no-renames --diff-filter=ACMRTD "${range[@]}" | sed '/^$/d' | sort -u)"
   if [[ -n "$pfiles" ]]; then
-    SEC__PUSH_FILES+="$files"$'\n'
+    # Repo checks must also see deletions and the source of a rename.
+    SEC__PUSH_FILES+="$pfiles"$'\n'
     sec__check_files "$files" "$where" "$bfiles" "$pfiles" || rc=1
     git log "${SEC__DIFF_OPTS[@]}" --cc -U0 --format='commit %H' "${range[@]}" |
       sec__scan_diff "$where" || rc=1

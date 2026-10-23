@@ -212,7 +212,7 @@ if ($ENV{CHECK_CORE} eq "1") {
 }
 
 if (length $title) {
-  my $exempt = $title =~ /^(Merge |Revert |fixup! |squash! |Amend! )/ || $title =~ /^(chore|build|ci)\(deps\)/;
+  my $exempt = $title =~ /^(Merge |Revert |fixup! |squash! |amend! |Amend! )/ || $title =~ /^(chore|build|ci)\(deps\)/;
   my $prefixes = "invariant|governance|fsconnect|agentic|rag|harness|security|docs|infra|fix|feat";
   fail("title", "Title must read `[prefix] - Short sentence` with prefix one of $prefixes")
     unless $exempt || $title =~ /^\[($prefixes)\] - \S/;
