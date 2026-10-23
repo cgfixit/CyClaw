@@ -135,26 +135,10 @@ Coverage `fail_under = 80` is configured in `pyproject.toml` and enforced by CI 
 
 ## CI / Workflow Map
 
-| Workflow | Role |
-|---|---|
-| `ci.yml` | **Main blocking matrix** (Ubuntu + Windows + macOS): install gate, wheel packaging, RAG smoke, pytest coverage, invariant guard, optional Postgres/smoke steps |
-| `lint.yml` | Ruff repo-wide + changed-file flake8/WPS |
-| `pr-template-check.yml` | Enforces PR body structure + the core-path invariant-mention rule |
-| `pr-review.yml` | Automated PR review assistant (secret-gated; see the workflow's own header) |
-| `python-package-conda.yml` | Conda environment CI (a genuinely different fourth install surface, not a duplicate of `ci.yml`) |
-| `codeql.yml` | GitHub CodeQL security scanning |
-| `gitleaks.yml` | Secret scanning |
-| `osv-scanner.yml` | OSV dependency vulnerability scan |
-| `pip-audit.yml` | pip-audit dependency audit + install-verification gate |
-| `trivy.yml` | Trivy filesystem + container image scan |
-| `semgrep.yml` | Semgrep SAST |
-| `devskim.yml` | DevSkim security linting |
-| `defender-for-devops.yml` | Microsoft Defender for DevOps |
-| `numbat-rules.yml` | Numbat NDJSON rule-fixture contract check |
-| `copilot-setup-steps.yml` | Copilot environment bootstrap |
-| `claude.yml` `codex.yml` `codex-apply-fixes.yml` `codex-skills.yml` | Owner-triggered @-mention coding-assistant workflows (each secret-gated; see individual headers) |
-| `publish-ghcr.yml` `python-publish.yml` | Release-triggered image/package publishing |
-| `environment.yml` | Conda spec consumed by `python-package-conda.yml` — not itself a workflow |
+Use the [GitHub Actions guide](workflows/README.md) for every workflow's purpose,
+triggers, blocking/advisory behavior, and filename-sensitive integrations.
+Read the workflow itself before changing a gate; required checks and deployment
+approvals are controlled separately by GitHub rulesets/environment settings.
 
 Workflow files are actionlint/zizmor checked; third-party actions are SHA-pinned.
 

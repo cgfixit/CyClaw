@@ -6,7 +6,7 @@ retrieval/embeddings.py fetches the sentence-transformers embedding model
 CyClaw-Sandbox skill's verify.sh -- pays that fetch unless the job also caches
 `.emb_cache` under the shared `emb-model-<model>-v<n>` key.
 
-ci.yml's `test` job and python-package-conda.yml's `ci` job have always had
+ci.yml's `test` job and conda-ci.yml's `ci` job have always had
 this cache step. ci.yml's `verify-skills` matrix job runs the CyClaw-Sandbox
 leg's verify.sh (which calls `python -m retrieval.indexer`) but did not cache
 `.emb_cache` -- only the unrelated torch-wheel cache -- so every matrix
@@ -33,7 +33,7 @@ _EMB_CACHE_KEY = "emb-model-all-MiniLM-L6-v2+ms-marco-MiniLM-L6-v2-v1"
 _JOBS_THAT_CAN_TRIGGER_THE_FETCH = {
     ("ci.yml", "test"): ".github/workflows/ci.yml",
     ("ci.yml", "verify-skills"): ".github/workflows/ci.yml",
-    ("python-package-conda.yml", "ci"): ".github/workflows/python-package-conda.yml",
+    ("conda-ci.yml", "ci"): ".github/workflows/conda-ci.yml",
 }
 
 

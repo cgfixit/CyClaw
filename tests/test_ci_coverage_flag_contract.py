@@ -2,7 +2,7 @@
 
 pyproject.toml's ``[tool.coverage.run] source`` is the authoritative list of
 what the ``fail_under = 80`` gate measures. Both lanes that run pytest with
-coverage -- ci.yml's ``test`` job and python-package-conda.yml's ``ci`` job --
+coverage -- ci.yml's ``test`` job and conda-ci.yml's ``ci`` job --
 have to pass that same set, or a lane silently measures a different denominator
 than the one the gate is calibrated against.
 
@@ -33,7 +33,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 # dep-guard's _CI_COV_FILES.
 _COV_LANES = (
     ".github/workflows/ci.yml",
-    ".github/workflows/python-package-conda.yml",
+    ".github/workflows/conda-ci.yml",
 )
 
 # Requires at least one name character, so a bare flag with an empty value in
