@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Enforce documented multi-vendor branch naming and fresh-main ancestry on push.
-# Canonical feature prefixes: utils.agent_identity.ALLOWED_BRANCH_PREFIXES
-# (CLAUDE.md §5, Kimi section, .github/PULL_REQUEST_TEMPLATE.md).
+# Feature prefixes mirror the canonical case list in .githooks/pre-commit
+# (documented in CLAUDE.md §10, Kimi section, .github/PULL_REQUEST_TEMPLATE.md).
 
 ## Note: Critical pr description requirement:
 # -Always fill out and utilize this template: .github/PULL_REQUEST_TEMPLATE.md fully when opening a PR
