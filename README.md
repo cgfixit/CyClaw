@@ -1,8 +1,8 @@
 # CyClaw
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-blue.svg)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.11-blue.svg)](https://github.com/langchain-ai/langgraph)
+[![FastAPI](https://img.shields.io/badge/FastAPI-pinned-blue.svg)](requirements.txt)
+[![LangGraph](https://img.shields.io/badge/LangGraph-pinned-blue.svg)](requirements.txt)
 [![CyClaw CI/CD testing](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/cgfixit/CyClaw/actions/workflows/ci.yml)
 
 [![CyClaw console answering from the local library](https://github.com/cgfixit/CyClaw/blob/main/docs/screenshots/2026-10-05-console-answered-query-1440.png)](https://github.com/cgfixit/CyClaw/tree/main/docs/screenshots)
