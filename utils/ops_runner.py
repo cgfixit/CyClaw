@@ -38,11 +38,14 @@ from typing import Any
 from utils.child_environment import child_environment, configured_path_names
 from utils.logger import _get_config, redact_sensitive
 from utils.numbat_emitter import emit_numbat_command, redact_argv_for_numbat
+from utils.numbat_gate import _CliOutputTooLarge, _run_cli_isolated
 
 # Repo root = parent of utils/. The CLIs run as ``python -m sync.cli`` /
 # ``agentic.fsconnect.cli``; running with cwd=repo-root puts the ``sync`` / ``agentic``
 # packages on the import path without mutating PYTHONPATH for the gateway process.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+# A default 5 MiB text read can expand six-fold when encoded as JSON.
+_MAX_OPS_OUTPUT_BYTES = 32 * 1024 * 1024
 _CONFIG_PATH = _REPO_ROOT / "config.yaml"
 # Default wall-clock for short ops (status/test/fsconnect).
 # The full Dropbox sync path uses config sync.sync_timeout_sec instead — see
@@ -74,6 +77,10 @@ _FSCONNECT_LABELS: dict[int, tuple[bool, str]] = {
 
 class OpsError(ValueError):
     """A disallowed action or malformed request. The route maps this to HTTP 400."""
+
+
+class OpsOutputLimitError(OpsError):
+    """The child exceeded the bounded output allowance."""
 
 
 @dataclass
@@ -160,15 +167,21 @@ def _ops_environment(argv: list[str]) -> dict[str, str]:
 
 def _run(argv: list[str], *, timeout_sec: int | None = None) -> subprocess.CompletedProcess[str]:
     """Run a fully-formed, whitelisted argv list. No shell, fixed interpreter."""
-    return subprocess.run(  # noqa: S603  # nosec B603 - list-form, no shell, fixed interpreter + whitelisted argv
-        argv,
-        cwd=str(_REPO_ROOT),
-        env=_ops_environment(argv),
-        capture_output=True,
-        text=True,
-        timeout=_TIMEOUT_SEC if timeout_sec is None else timeout_sec,
-        check=False,
-    )
+    env = _ops_environment(argv)
+    # Owned Python CLIs must match the bounded reader's UTF-8 decoder on Windows too.
+    env["PYTHONIOENCODING"] = "utf-8"
+    try:
+        result = _run_cli_isolated(
+            argv, cwd=str(_REPO_ROOT), env=env,
+            timeout=_TIMEOUT_SEC if timeout_sec is None else timeout_sec,
+            max_output_bytes=_MAX_OPS_OUTPUT_BYTES,
+        )
+        # Preserve subprocess.run(text=True)'s universal-newline response contract.
+        result.stdout = result.stdout.replace("\r\n", "\n").replace("\r", "\n")
+        result.stderr = result.stderr.replace("\r\n", "\n").replace("\r", "\n")
+        return result
+    except _CliOutputTooLarge as exc:
+        raise OpsOutputLimitError("CLI output exceeded its byte budget and was stopped") from exc
 
 
 def _maybe_json(text: str) -> Any:

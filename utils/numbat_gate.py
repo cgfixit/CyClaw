@@ -526,11 +526,14 @@ def _run_cli(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[
         return _run_cli_isolated(argv, timeout=timeout, env=env)
 
 
-def _run_cli_isolated(argv: list[str], *, timeout: float, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _run_cli_isolated(
+    argv: list[str], *, timeout: float, env: dict[str, str],
+    cwd: str | None = None, max_output_bytes: int = _MAX_CLI_OUTPUT,
+) -> subprocess.CompletedProcess[str]:
     """``subprocess.run(argv, capture_output=True, text=True, timeout=...)``, bounded.
 
     Everything, reading the output included, happens within ``timeout``:
-    past it, or once either stream passes _MAX_CLI_OUTPUT, the binary and
+    past it, or once either stream passes max_output_bytes, the binary and
     anything left in its process group are killed, and
     subprocess.TimeoutExpired or _CliOutputTooLarge is raised. A child that
     keeps the pipes open after the binary exits counts as not finished. A
@@ -547,6 +550,7 @@ def _run_cli_isolated(argv: list[str], *, timeout: float, env: dict[str, str]) -
         proc = subprocess.Popen(  # noqa: S603  # nosec B603 - list-form, no shell
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=env,
+            cwd=cwd,
             start_new_session=True,  # its own process group, so a kill reaches its children (POSIX)
         )
     except BaseException:
@@ -560,7 +564,7 @@ def _run_cli_isolated(argv: list[str], *, timeout: float, env: dict[str, str]) -
         try:
             with stream:
                 while chunk := os.read(stream.fileno(), _CLI_READ_CHUNK):
-                    if len(sink) + len(chunk) > _MAX_CLI_OUTPUT:
+                    if len(sink) + len(chunk) > max_output_bytes:
                         overflow.set()
                         _kill_tree(proc)
                         return

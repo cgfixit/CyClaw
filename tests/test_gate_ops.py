@@ -26,7 +26,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from gate_ops import register_ops_routes
-from utils.ops_runner import OpsError, OpsResult
+from utils.ops_runner import OpsError, OpsOutputLimitError, OpsResult
 
 _TEST_CFG: dict[str, Any] = {
     "sync": {"enabled": True, "direction": "pull", "max_delete": 25,
@@ -321,6 +321,17 @@ class TestOpsRateLimit:
         assert resp.json()["detail"]["code"] == "RATE_LIMIT"
         for runner in (sync_runner, fs_runner):
             runner.assert_not_called()
+
+
+def test_output_limit_is_a_distinct_resource_error(monkeypatch):
+    monkeypatch.setenv("CYCLAW_API_KEY", "test-key-123")
+    client, events = _build_app()
+    with patch("gate_ops.run_fsconnect_op", side_effect=OpsOutputLimitError("output limit")):
+        response = client.post("/ops/fsconnect", json={"action": "list"},
+                               headers={"Authorization": "Bearer test-key-123"})
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "OPS_OUTPUT_LIMIT"
+    assert events[-1]["event"] == "ops_fsconnect_output_limit"
 
 
 class TestRemovedOpsRoutes:

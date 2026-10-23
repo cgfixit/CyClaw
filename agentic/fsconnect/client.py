@@ -19,7 +19,7 @@ import heapq
 import re
 
 from agentic.fsconnect.config import FsConnectConfig
-from agentic.fsconnect.pathsafe import ScopedRoots
+from agentic.fsconnect.pathsafe import EntryBudget, ScopedRoots
 from guardrails.rails import (
     build_injection_patterns as _shared_build_injection_patterns,
 )
@@ -37,6 +37,7 @@ _MAX_GREP_MATCHES = 200
 # text is clipped, with a marker naming the original length.
 _MAX_GREP_LINE_CHARS = 4096
 _MAX_GLOB_MATCHES = 1000
+_MAX_ENUMERATED_ENTRIES = 10_000
 # Ceiling on how many directory levels fs_glob will descend. _MAX_GLOB_MATCHES
 # caps RESULTS, not TRAVERSAL, so it never bounded the recursion: _walk recursed
 # once per level, and a tree deeper than the interpreter's frame limit raised
@@ -144,7 +145,9 @@ class FsClient:
 
     def fs_list(self, target: str = "", *, root: str | None = None) -> dict:
         self._guard_op("fs_list")
-        entries = self._roots.list_dir(target, root=root, skip_macos_metadata=True)
+        entries = self._roots.list_dir(
+            target, root=root, skip_macos_metadata=True, budget=EntryBudget(_MAX_ENUMERATED_ENTRIES)
+        )
         self._audit({"event": "fsconnect_read", "op": "fs_list", "path": target or ".",
                      "count": len(entries)})
         return {"op": "fs_list", "path": target or ".", "count": len(entries), "entries": entries}
@@ -242,11 +245,12 @@ class FsClient:
         matches: list[dict] = []
         prefix = f"{target}/" if target else ""
         depth_capped = False
+        budget = EntryBudget(_MAX_ENUMERATED_ENTRIES)
 
         def _walk(rel: str, depth: int) -> bool:
             """Enumerate *rel*; return False once the match cap is hit (stop)."""
             nonlocal depth_capped
-            for entry in self._roots.list_dir(rel, root=root, skip_macos_metadata=True):
+            for entry in self._roots.list_dir(rel, root=root, skip_macos_metadata=True, budget=budget):
                 name = entry["name"]
                 child = f"{rel}/{name}" if rel else name
                 relpath = child[len(prefix):] if prefix and child.startswith(prefix) else child

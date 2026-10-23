@@ -45,7 +45,7 @@ from schemas.api import OpsFsConnectRequest, OpsSyncRequest
 # Subprocess shim for the out-of-band sync/ + agentic/ control surface. This is a
 # subprocess wrapper ONLY — it never imports sync/ or agentic/, so the gateway's
 # out-of-band isolation invariant is preserved (see utils/ops_runner.py).
-from utils.ops_runner import OpsError, run_fsconnect_op, run_sync_op
+from utils.ops_runner import OpsError, OpsOutputLimitError, run_fsconnect_op, run_sync_op
 
 logger = logging.getLogger("cyclaw.gate_ops")
 
@@ -109,6 +109,9 @@ def register_ops_routes(
         """
         try:
             result = await asyncio.to_thread(op_fn, action, **op_kwargs)
+        except OpsOutputLimitError as e:
+            await audit({"event": f"ops_{route}_output_limit", "action": action})
+            raise HTTPException(status_code=413, detail={"error": str(e), "code": "OPS_OUTPUT_LIMIT"}) from e
         except OpsError as e:
             await audit({"event": f"ops_{route}_rejected", "action": action, "error": str(e)})
             raise HTTPException(status_code=400, detail={"error": str(e), "code": "OPS_BAD_ACTION"}) from e

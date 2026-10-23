@@ -56,7 +56,7 @@ from pathlib import Path
 from typing import Any
 
 from agentic.fsconnect.protected_paths import protected_component, validate_root
-from utils.errors import FsConnectRuntimeError, FsMacOSPermissionError, FsPathError
+from utils.errors import FsConnectError, FsConnectRuntimeError, FsMacOSPermissionError, FsPathError
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,18 @@ logger = logging.getLogger(__name__)
 # failing volume can error on every entry, so the per-directory summary is one
 # log line regardless of directory size.
 _SKIP_LOG_SAMPLE = 5
+
+
+@dataclass
+class EntryBudget:
+    """One operation's raw enumeration budget, before any visibility filtering."""
+
+    remaining: int
+
+    def consume(self) -> None:
+        if self.remaining <= 0:
+            raise FsConnectError("filesystem enumeration entry budget exceeded", code="FSCONNECT_LIMIT")
+        self.remaining -= 1
 
 _POSIX = os.name != "nt"
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -381,7 +393,7 @@ def _win_directory_entry(name: str, info: _WinFileFullDirectoryInfo) -> dict[str
     }
 
 
-def _win_list_handle(handle: int) -> list[dict[str, object]]:  # pragma: no cover - Windows only
+def _win_list_handle(handle: int, *, budget: EntryBudget | None = None) -> list[dict[str, object]]:  # pragma: no cover - Windows only
     entries: list[dict[str, object]] = []
     info_class = _WIN_FILE_FULL_DIRECTORY_RESTART_INFO_CLASS
     while True:
@@ -412,6 +424,8 @@ def _win_list_handle(handle: int) -> list[dict[str, object]]:  # pragma: no cove
                 name_length // ctypes.sizeof(ctypes.c_wchar),
             )
             if name not in {".", ".."}:
+                if budget is not None:
+                    budget.consume()
                 entries.append(_win_directory_entry(name, info))
             next_offset = int(info.next_entry_offset)
             if next_offset == 0:
@@ -994,12 +1008,13 @@ class ScopedRoots:
         *,
         root: str | None = None,
         skip_macos_metadata: bool = False,
+        budget: EntryBudget | None = None,
     ) -> list[dict]:
         comps = split_components(target)
         sr = self.pick_root(root)
         if _POSIX:
             if not comps:
-                return self._listdir_fd(sr.dir_fd, skip_macos_metadata=skip_macos_metadata)
+                return self._listdir_fd(sr.dir_fd, skip_macos_metadata=skip_macos_metadata, budget=budget)
             with self._descend_posix(sr, comps) as (pfd, leaf):
                 try:
                     lfd = os.open(leaf, os.O_RDONLY | _O_NOFOLLOW | _O_DIRECTORY, dir_fd=pfd)
@@ -1010,16 +1025,27 @@ class ScopedRoots:
                         details={"errno": exc.errno, "strerror": exc.strerror},
                     ) from exc
                 try:
-                    return self._listdir_fd(lfd, skip_macos_metadata=skip_macos_metadata)
+                    return self._listdir_fd(lfd, skip_macos_metadata=skip_macos_metadata, budget=budget)
                 finally:
                     with suppress(OSError):
                         os.close(lfd)
-        return self._list_win(sr, comps)  # pragma: no cover - Windows only
+        return self._list_win(sr, comps, budget=budget)  # pragma: no cover - Windows only
 
-    def _listdir_fd(self, dir_fd: int, *, skip_macos_metadata: bool = False) -> list[dict]:
+    def _listdir_fd(
+        self, dir_fd: int, *, skip_macos_metadata: bool = False, budget: EntryBudget | None = None
+    ) -> list[dict]:
         entries: list[dict] = []
         try:
-            names = sorted(name for name in os.listdir(dir_fd) if not protected_component(name))
+            if budget is None:
+                names = sorted(name for name in os.listdir(dir_fd) if not protected_component(name))
+            else:
+                names = []
+                with os.scandir(dir_fd) as stream:
+                    for entry in stream:
+                        budget.consume()
+                        if not protected_component(entry.name):
+                            names.append(entry.name)
+                names.sort()
         except OSError as exc:
             _raise_macos_permission("listing a configured directory", exc)
             raise FsPathError(
@@ -1465,7 +1491,9 @@ class ScopedRoots:
                 os.close(fd)
         return self._stat_to_dict(comps[-1] if comps else ".", st)
 
-    def _list_win(self, sr: SafeRoot, comps: list[str]) -> list[dict]:  # pragma: no cover
+    def _list_win(
+        self, sr: SafeRoot, comps: list[str], *, budget: EntryBudget | None = None
+    ) -> list[dict]:  # pragma: no cover
         handle, attrs = self._win_open_checked(
             sr,
             comps,
@@ -1474,7 +1502,8 @@ class ScopedRoots:
         try:
             if not attrs & _FILE_ATTRIBUTE_DIRECTORY:
                 raise FsPathError("target is not a directory")
-            return [entry for entry in _win_list_handle(handle) if not protected_component(str(entry["name"]))]
+            return [entry for entry in _win_list_handle(handle, budget=budget)
+                    if not protected_component(str(entry["name"]))]
         finally:
             _win_close_handle(handle)
 
