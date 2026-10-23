@@ -45,7 +45,7 @@ else
   cat "$strict_out" >&2
   exit 1
 fi
-if grep -q 'conda (environment.yml): onnxruntime pinned 1.30.0' "$strict_out"; then
+if grep -q 'conda (environment.yml): onnxruntime pinned 1.31.0' "$strict_out"; then
   echo "T13 conda pip-subsection pin: PASS"
 else
   echo "T13 conda pip-subsection pin: FAIL — environment.yml pin was not recognized" >&2
@@ -358,13 +358,13 @@ rm -rf "$a"
 # and wheel surfaces.
 a="$(_mktree)"
 _mutate "$a/environment.yml" '
-text = text.replace("      - onnxruntime==1.30.0\n", "", 1)'
+text = text.replace("      - onnxruntime==1.31.0\n", "", 1)'
 _expect "T13 conda pip-subsection pin deleted mutation" 0 "info  \[T13\] conda (environment.yml): no onnxruntime floor"
 
 # 26. A marker-scoped pip entry does not bind every Conda install platform.
 a="$(_mktree)"
 _mutate "$a/environment.yml" '
-text = text.replace("      - onnxruntime==1.30.0\n", "      - onnxruntime==1.30.0; sys_platform == '\''darwin'\''\n", 1)'
+text = text.replace("      - onnxruntime==1.31.0\n", "      - onnxruntime==1.31.0; sys_platform == '\''darwin'\''\n", 1)'
 _expect "T13 conda marker-scoped pin mutation" 0 "info  \[T13\] conda (environment.yml): no onnxruntime floor"
 
 # 27. T9: the parent-process path stops routing through the shared _enforce

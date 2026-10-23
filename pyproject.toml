@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.32.0"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -8,8 +8,8 @@ version = "1.9.0"
 description = "Offline-first RAG server with graph-enforced security routing"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastapi==0.141.1",
-    "uvicorn[standard]==0.53.0",
+    "fastapi==0.143.3",
+    "uvicorn[standard]==0.54.0",
     "pydantic==2.13.5",
     # pydantic-core is intentionally not pinned here: pydantic==2.13.5 hard-pins its
     # exact pydantic-core (2.46.5), and constraints.txt locks that same version. The
@@ -40,16 +40,16 @@ dependencies = [
     # of the ONNX control is inert on macOS and Linux. The pin may sit ABOVE
     # that floor -- it does today -- only a resolve below 1.29.0 is unsafe, so
     # do not "correct" it back down on the assumption pin and floor must match.
-    "onnxruntime==1.30.0",
-    "starlette==1.6.0",
+    "onnxruntime==1.31.0",
+    "starlette==1.8.0",
     "rank-bm25==0.2.2",
     "httpx==0.28.1",
     "pyyaml==6.0.3",
     "numpy==1.26.4",
     "nltk==3.10.3",
-    "nemoguardrails==0.24.0",
-    "langgraph==1.2.11",
-    "langchain-core==1.6.3",
+    "nemoguardrails==0.24.1",
+    "langgraph==1.2.15",
+    "langchain-core==1.6.12",
     # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
     # so legacy/no-deps paths cannot strand the app on websockets 12.x.
     "websockets==15.0.1",
@@ -63,7 +63,7 @@ postgres = [
     "psycopg-binary==3.3.6",
 ]
 pgvector = [
-    "pgvector==0.5.0",
+    "pgvector==0.5.1",
 ]
 # Optional CEL sanitizer backend for Numbat monitor-only rules (issue #1128
 # Slice B). Not in `full` because it is default-off and a local-only install
@@ -84,7 +84,7 @@ test = [
     # no production module imports zoneinfo -- opentweet/runner.py uses
     # datetime.astimezone(), which reads the host's local offset and needs no
     # IANA tzdb. Must match the requirements-test.txt / constraints.txt pin.
-    "tzdata==2026.2",
+    "tzdata==2026.5",
     # sqlite-vec (#1255 Phase C spike): test-only, not wired into
     # retrieval/vector_store.py yet. Must match the requirements-test.txt /
     # constraints.txt pin. See tests/test_sqlite_vec_extension_loading.py.
@@ -94,8 +94,8 @@ test = [
     "packaging==26.3",
 ]
 dev = [
-    "ruff==0.16.8",
-    "mypy==2.3.0",
+    "ruff==0.17.1",
+    "mypy==2.4.0",
     "bandit==1.9.4",
     "pytest-cov==7.1.0",
 ]

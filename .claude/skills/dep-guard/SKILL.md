@@ -51,7 +51,7 @@ It checks (severity in brackets):
 | D8 | FAIL/WARN | every listed CI workflow (`_CI_TORCH_FILES`: ci, pip-audit, devskim, copilot-setup-steps, nemo-guardrails) and install script that hardcodes a torch version agrees with the manifest pin (FAIL); stale doc / `.osv-scanner.toml` references are WARN. A new workflow that pins torch must be added to that list |
 | D9 | FAIL | `environment.yml` (conda CI lane) pins agree with the pip manifests |
 | D10 | FAIL | every workflow `--cov=` flag set covers every `[tool.coverage.run] source` entry — the check that catches a coverage source added to pyproject but not to `ci.yml`/the conda lane (or a stale doc count of the sources) |
-| D11 | FAIL | NeMo 0.24.0 is unconditional in all three base manifests, absent from test-only requirements, and `guardrails` remains an empty compatibility extra |
+| D11 | FAIL | NeMo 0.24.1 is unconditional in all three base manifests, absent from test-only requirements, and `guardrails` remains an empty compatibility extra |
 
 ### Step 2 — Interpret failures
 

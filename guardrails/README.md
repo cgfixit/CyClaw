@@ -40,7 +40,7 @@ are suppressed before import; CyClaw's bounded diagnostics remain visible.
 
 ## Install and CLI
 
-Base requirements install `nemoguardrails==0.24.0` on pip, Conda, and Docker.
+Base requirements install `nemoguardrails==0.24.1` on pip, Conda, and Docker.
 The empty `guardrails` extra keeps old install commands valid. Existing
 environments must rerun their dependency installation. Follow the platform
 constraints and [offline startup instructions](../setup-guide.md#verify-the-installed-nemo-runtime).

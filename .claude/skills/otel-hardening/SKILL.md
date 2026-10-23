@@ -85,7 +85,7 @@ these values silence vendor telemetry readers; they do not close sockets.
    | langsmith/langchain | 4-name precedence (`get_env_var` lru_cache latch) unchanged? Upload-without-API-key still only warns? `LANGSMITH_RUNS_ENDPOINTS` still a fan-out destination? |
    | onnxruntime | `ORT_DISABLE_TELEMETRY` still the documented pre-init env control (Privacy.md)? `disable_telemetry_events()` still the API? Any new event class before init that the env var misses? |
    | huggingface_hub (**pinned 1.32.0**, direct) | `HF_HUB_DISABLE_TELEMETRY` OR `DISABLE_TELEMETRY` OR `DO_NOT_TRACK` still computed in `constants.py`? (Re-read at the v1.32.0 tag 2026-09-28: yes, unchanged.) |
-   | nemoguardrails | `NEMO_GUARDRAILS_NO_USAGE_STATS` / `DO_NOT_TRACK` still honored (0.24.0: `telemetry.py`)? Sink still `events.telemetry.data.nvidia.com`? |
+   | nemoguardrails | `NEMO_GUARDRAILS_NO_USAGE_STATS` / `DO_NOT_TRACK` still honored (0.24.1: `telemetry.py`)? Sink still `events.telemetry.data.nvidia.com`? |
    | gh / PowerShell | `GH_TELEMETRY` value set unchanged? `POWERSHELL_TELEMETRY_OPTOUT` still read once at startup? |
 
 4. **Close a real gap** (additive, low-risk only): update BOTH copies of the
