@@ -131,7 +131,6 @@ jobs:
           --cov=retrieval \
           --cov=utils \
           --cov=sync \
-          --cov=agentic \
           --cov=guardrails \
           --cov=telegram \
           --cov=opentweet \
