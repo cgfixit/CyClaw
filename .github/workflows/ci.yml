@@ -1,7 +1,7 @@
 # ==============================================================================
 # CyClaw CI — Tests + Coverage + Reproducible Install Gate
 # v2 hardening (June 2026):
-#   - Exact pip pin ==26.2.1, not floating >=, across every job that upgrades it
+#   - Exact pip pin ==26.2.2, not floating >=, across every job that upgrades it
 #     (eliminates 4 pip CVEs in CI env per #71 analysis; exact pin keeps CI
 #     reproducible rather than silently picking up whatever pip ships next)
 #   - PIP_DEFAULT_TIMEOUT=60 and PIP_RETRIES=10 at workflow env (the same pair
@@ -158,6 +158,28 @@ jobs:
         run: |
           docker run --rm --network none cyclaw:ci python -m pip check
           docker run --rm --network none cyclaw:ci python -m guardrails.verify_install
+          docker image inspect cyclaw:ci --format '{{.Id}}'
+          docker run --rm -i --network none cyclaw:ci python - <<'PY'
+          import hashlib
+          import ssl
+          import subprocess
+          from pathlib import Path
+          import certifi
+          import pip
+          from pip._vendor import certifi as pip_certifi
+          # GHSA-6q48-6c7w-9gw2 / DLA-4845-1: emSign ECC Root CA - G3.
+          removed = '86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b'
+          debian = subprocess.check_output(['dpkg-query', '-W', '-f=${Version}', 'ca-certificates'], text=True)
+          assert debian == '20250419~deb12u2', debian
+          assert pip.__version__ == '26.2.2', pip.__version__
+          assert certifi.__version__ == pip_certifi.__version__ == '2026.10.19'
+          for name, bundle in [('application', certifi.where()), ('pip', pip_certifi.where()),
+                               ('system', '/etc/ssl/certs/ca-certificates.crt')]:
+              roots = ssl.create_default_context(cafile=bundle).get_ca_certs(binary_form=True)
+              assert roots and removed not in {hashlib.sha256(root).hexdigest() for root in roots}, name
+              print(name, bundle, 'sha256', hashlib.sha256(Path(bundle).read_bytes()).hexdigest(), 'roots', len(roots))
+          print('CA trust verified:', debian, 'pip', pip.__version__, 'certifi', certifi.__version__)
+          PY
 
   # Fast, no-heavy-deps gates that run alongside the expensive matrix below.
   # Neither needs torch/chromadb/sentence-transformers, so both finish in
@@ -329,7 +351,7 @@ jobs:
 
       - name: Build the wheel
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           # Same two tools python-publish.yml uses to build the released
           # artifact; keep them in step if that workflow's build stack changes.
           python -m pip install "build==1.6.0"
@@ -390,7 +412,7 @@ jobs:
       - name: Install and verify the wheel outside the source checkout
         run: |
           python -m venv "$RUNNER_TEMP/wheel-install"
-          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --upgrade "pip==26.2.1"
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --upgrade "pip==26.2.2"
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --require-hashes --no-deps \
             -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --require-hashes \
@@ -767,7 +789,7 @@ jobs:
       - name: Upgrade pip (CVE mitigation for CI env only)
         shell: bash
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
 
       - name: Cache torch CPU wheel
         if: runner.os != 'macOS'
@@ -1240,7 +1262,7 @@ jobs:
         # this specific test file never touches retrieval. Same minimal set
         # postgres-backend already installs for the identical reason.
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           pip install --require-hashes -r locks/requirements-ci-smoke-lock-linux.txt
 
       - name: Run LocalLLMClient real-socket tests
@@ -1305,7 +1327,7 @@ jobs:
             pyproject.toml
 
       - name: Upgrade pip (CVE mitigation for CI env only)
-        run: python -m pip install --upgrade "pip==26.2.1"
+        run: python -m pip install --upgrade "pip==26.2.2"
 
       - name: Install Postgres-backend deps
         run: |
@@ -1458,7 +1480,7 @@ jobs:
         if: matrix.profile == 'heavy'
         shell: bash
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels \
             -r locks/requirements-torch-lock-linux.txt
           pip install --require-hashes -r locks/requirements-lock-linux.txt
@@ -1469,7 +1491,7 @@ jobs:
         if: matrix.profile == 'yaml'
         shell: bash
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           pip install --require-hashes -r locks/requirements-ci-yaml-lock-linux.txt
 
       - name: Cache embeddings model (sentence-transformers)

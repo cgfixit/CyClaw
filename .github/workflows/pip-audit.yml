@@ -108,9 +108,9 @@ jobs:
 
       - name: Upgrade pip (CVE mitigation)
         shell: bash
-        # Exact pin per ci.yml header policy (==26.2.1, not floating >=) — keeps
+        # Exact pin per ci.yml header policy (==26.2.2, not floating >=) — keeps
         # CI reproducible instead of silently picking up whatever pip ships next.
-        run: python -m pip install --upgrade "pip==26.2.1"
+        run: python -m pip install --upgrade "pip==26.2.2"
 
       - name: Cache torch CPU wheel
         if: runner.os != 'macOS'
@@ -222,17 +222,17 @@ jobs:
         # (rich, cyclonedx, pip-requirements-parser, ...) never enter the
         # audited set below.
         #
-        # pip itself is pinned to 26.2.1 -- same exact version as every other
+        # pip itself is pinned to 26.2.2 -- same exact version as every other
         # workflow in this repo (dep-guard/verify-deps E1 requires one
         # consistent pip pin across all workflows; a divergent pin here would
         # break that check). pip ends up IN the audited site-packages below
         # (it's just another installed package once real `pip install` is
-        # used instead of pip-audit's own internal resolution); 26.2.1 carries
+        # used instead of pip-audit's own internal resolution); 26.2.2 carries
         # the fix for PYSEC-2026-3721, so no ignore is needed for it below
         # (was ignored at 26.1.2 -- see the repo-wide pin bump that closed it).
         run: |
           python -m venv "$RUNNER_TEMP/audit-venv"
-          "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.2.1
+          "$RUNNER_TEMP/audit-venv/bin/python" -m pip install --upgrade pip==26.2.2
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes --no-deps \
             -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/audit-venv/bin/pip" install --require-hashes -r locks/requirements-lock-linux.txt
@@ -328,12 +328,9 @@ jobs:
         #
         # PYSEC-2026-3721 (pip) — was ignored here from 2026-09-07 while pip
         # was pinned to 26.1.2 repo-wide. Closed by the repository-wide pip
-        # pin bump to 26.2.1 (ci.yml, copilot-setup-steps.yml,
-        # nemo-guardrails.yml, python-package-conda.yml, python-publish.yml,
-        # environment.yml) rather than a standing ignore -- pip is a
-        # CI/build-time tool here, never a shipped runtime dependency of
-        # CyClaw, but the fixed version was already available and the
-        # coordinated bump was small.
+        # pin bump to 26.2.1 rather than a standing ignore. The later
+        # 26.2.2 bump also refreshes pip's private CA bundle. Docker copies
+        # this install tool into runtime alongside the application packages.
 
   scan-optional:
     # Why this job exists: requirements.txt + requirements-test.txt (what the
@@ -455,7 +452,7 @@ jobs:
         # PYSEC-2026-3447 floor 83.0.0). pip-audit -r has no -c/--constraint
         # flag, so the lock is installed into a throwaway venv and audited
         # with --path. pip is
-        # pinned to 26.2.1 (matching every other workflow -- dep-guard's E1
+        # pinned to 26.2.2 (matching every other workflow -- dep-guard's E1
         # cross-workflow pin-consistency check), which carries the fix for
         # PYSEC-2026-3721, so no ignore is needed for it below (was ignored
         # at 26.1.2 -- see the base `scan` job's comment for the pin-bump
@@ -468,7 +465,7 @@ jobs:
             for attempt in 1 2 3; do
               rm -rf "$RUNNER_TEMP/audit-venv-extra"
               python -m venv "$RUNNER_TEMP/audit-venv-extra"
-              "$RUNNER_TEMP/audit-venv-extra/bin/python" -m pip install --upgrade pip==26.2.1
+              "$RUNNER_TEMP/audit-venv-extra/bin/python" -m pip install --upgrade pip==26.2.2
               if "$RUNNER_TEMP/audit-venv-extra/bin/pip" install --require-hashes -r "$lock"; then
                 AUDIT_PATH="$("$RUNNER_TEMP/audit-venv-extra/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
                 if pip-audit --path "$AUDIT_PATH"; then

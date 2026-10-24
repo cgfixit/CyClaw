@@ -13,11 +13,9 @@ dependencies:
   - python=3.12
   # Match ci.yml and conda-ci.yml's exact pip pin. The Conda workflow builds
   # a fresh environment; it no longer overlays a cached environment tree.
-  # pip 26.2.1 confirmed on conda-forge (noarch) -- carries the fix for
-  # PYSEC-2026-3721 (pip), matching the repo-wide pip-pin bump on the pip
-  # install surfaces (ci.yml, pip-audit.yml, copilot-setup-steps.yml,
-  # nemo-guardrails.yml, conda-ci.yml, python-publish.yml).
-  - pip=26.2.1
+  # pip 26.2.2 vendors certifi 2026.10.19 (GHSA-6q48-6c7w-9gw2);
+  # available from conda-forge noarch for Python 3.12.
+  - pip=26.2.2
   # Core runtime — pinned to match pyproject.toml / constraints.txt exactly
   # (each version verified present on conda-forge, 2026-07). Keep these pins in
   # sync with pyproject.toml [project.dependencies] and constraints.txt; a bare

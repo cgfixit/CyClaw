@@ -11,6 +11,12 @@ FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf2583
 
 WORKDIR /app
 
+# DLA-4845-1: remove the compromised emSign root before dependency downloads.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      'ca-certificates=20250419~deb12u2' \
+ && rm -rf /var/lib/apt/lists/*
+
 # Dependency files first for layer caching
 COPY pyproject.toml constraints.txt requirements.txt ./
 COPY locks/requirements-lock-linux.txt locks/requirements-torch-lock-linux.txt locks/
@@ -60,7 +66,9 @@ ARG PIP_DEFAULT_TIMEOUT=60
 ARG PIP_RETRIES=10
 ENV PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
     PIP_RETRIES=${PIP_RETRIES}
-RUN pip install --no-cache-dir --upgrade "pip==26.2.1" && \
+# Bootstrap with the refreshed system bundle only; base pip still vendors stale roots.
+RUN pip install --no-cache-dir --upgrade "pip==26.2.2" \
+      --use-deprecated=legacy-certs --cert=/etc/ssl/certs/ca-certificates.crt && \
     pip install --no-cache-dir --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt
 
@@ -78,12 +86,12 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # App code
 COPY . .
 
-# DLA-4726-1: Mozilla CA bundle 2.74. Root only; must run before USER cyclaw.
-# bookworm-security still ships 20250419~deb12u1 (checked 2026-08-21).
+# DLA-4845-1: refresh runtime trust too; the builder system bundle is not copied.
+# Root only; must run before USER cyclaw.
 # Quoted so /bin/sh does not treat ~ as home-dir expansion. Do not apt-get upgrade.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      'ca-certificates=20250419~deb12u1' \
+      'ca-certificates=20250419~deb12u2' \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user (Veeam-style least privilege)

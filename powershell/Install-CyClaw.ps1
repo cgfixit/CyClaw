@@ -215,7 +215,7 @@ if (-not $SkipPythonDeps) {
     }
     Write-Step "installing dependencies (CPU torch first, then requirements; this can take a few minutes)"
     # Match ci.yml's exact pip pin (CVE/repro); never float to latest on installers.
-    & $VenvPy -m pip install --upgrade "pip==26.2.1" | Out-Null
+    & $VenvPy -m pip install --upgrade "pip==26.2.2" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "pip pin failed." }
     & $VenvPy -m pip install --require-hashes --no-deps -r (Join-Path $Repo "locks/requirements-torch-lock-windows.txt") --index-url https://download.pytorch.org/whl/cpu
     if ($LASTEXITCODE -ne 0) { throw "torch install failed." }
