@@ -241,7 +241,7 @@ jobs:
       - name: Run pip-audit (ignore only mitigated chromadb + pillow advisories)
         run: |
           AUDIT_PATH="$("$RUNNER_TEMP/audit-venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-          # pillow 12.3.0: 35 image-codec advisories, accepted in SECURITY.md
+          # pillow 12.3.0: 37 image/Arrow advisories, accepted in SECURITY.md
           # ("pillow 12.3.0"). Drop this list when fastembed allows pillow>=13.
           PILLOW_IGNORES=(
             CVE-2026-96636 CVE-2026-96637 CVE-2026-96638 CVE-2026-96639 CVE-2026-96640
@@ -251,6 +251,7 @@ jobs:
             CVE-2026-112402 CVE-2026-112404 CVE-2026-112405 CVE-2026-112406 CVE-2026-112891
             CVE-2026-112892 CVE-2026-112893 CVE-2026-112894 CVE-2026-112895 CVE-2026-112896
             CVE-2026-112897 CVE-2026-112899 CVE-2026-112900 CVE-2026-112901 GHSA-78g4-xqwv-q3g8
+            CVE-2026-114501 CVE-2026-112398
           )
           pip-audit --path "$AUDIT_PATH" --ignore-vuln CVE-2026-45829 --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 \
             "${PILLOW_IGNORES[@]/#/--ignore-vuln=}"
@@ -298,7 +299,7 @@ jobs:
         # ignored 2026-09-04 against nltk 3.10.3; ignore dropped 2026-10-23 with
         # the nltk 3.10.4 bump (PyPI lists no advisory for 3.10.4; see SECURITY.md).
         #
-        # pillow 12.3.0 (35 advisories, PILLOW_IGNORES above) -- accepted
+        # pillow 12.3.0 (37 advisories, PILLOW_IGNORES above) -- accepted
         # 2026-10-23. Every fix is pillow 13.0.0, which no install can take:
         # fastembed (via nemoguardrails) requires pillow<13 in 0.8.1 and in its
         # latest 0.9.0; #1742's pillow==13.0.0 lock failed every install leg
