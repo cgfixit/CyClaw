@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,47 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / ".agents" / "skills" / "cyclaw-sandbox-test" / "scripts"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell sandbox helpers")
+@pytest.mark.parametrize("script", [
+    ".claude/skills/CyClaw-Sandbox/verify.sh",
+    ".agents/skills/cyclaw-sandbox/verify.sh",
+])
+@pytest.mark.parametrize("system, platform, index", [
+    ("Darwin", "macos", "https://pypi.org/simple"),
+    ("Linux", "linux", "https://download.pytorch.org/whl/cpu"),
+])
+def test_sandbox_install_selects_platform_locks(tmp_path, script, system, platform, index):
+    text = (ROOT / script).read_text(encoding="utf-8")
+    start = 'if [ -z "${SKIP_INSTALL:-}" ]; then'
+    install = start + text.split(start, 1)[1].split("\nfi\n", 1)[0] + "\nfi\n"
+    calls = tmp_path / "pip-calls.jsonl"
+    python = tmp_path / "python"
+    python.write_text(
+        f"#!{sys.executable}\nimport json, os, sys\n"
+        "with open(os.environ['TEST_PIP_CALLS'], 'a') as out:\n"
+        "    out.write(json.dumps(sys.argv[1:]) + '\\n')\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o700)
+    result = subprocess.run(
+        ["/bin/bash", "-c", 'uname() { echo "$TEST_UNAME"; }; note() { :; }; '
+         'pass() { :; }; fail() { exit 1; }; ' + install],
+        cwd=ROOT, capture_output=True, text=True, timeout=10, check=False,
+        env={**os.environ, "VPY": str(python), "SKIP_INSTALL": "",
+             "TEST_PIP_CALLS": str(calls), "TEST_UNAME": system},
+    )
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line) for line in calls.read_text().splitlines()]
+    assert len(commands) == 4
+    for command, stem in zip(commands[1:], ("torch-lock", "lock", "test-lock"), strict=True):
+        lock = f"locks/requirements-{stem}-{platform}.txt"
+        assert command[command.index("-r") + 1] == lock
+        assert "--require-hashes" in command and (ROOT / lock).is_file()
+    assert "--no-deps" in commands[1]
+    assert commands[1][commands[1].index("--index-url") + 1] == index
+    assert all("--index-url" not in command for command in commands[2:])
 
 
 def _load_script(filename: str):

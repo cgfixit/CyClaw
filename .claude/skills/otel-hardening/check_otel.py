@@ -1125,7 +1125,7 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pip-install", ".claude/skills/cyclaw-gotchas/driver.sh", ('"$pip" install -q "$@"',
                                                                 '"$pip" install -q --retries 1 --timeout 15 "torch==2.14.1+cpu"')),
     ("pip-install", ".claude/skills/CyClaw-Sandbox/verify.sh", ('"$VPY" -m pip install --quiet --upgrade "pip==26.2.2"',
-                                                                '"$VPY" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt')),
+                                                                '"$VPY" -m pip install --quiet --require-hashes -r "locks/requirements-lock-${LOCK_PLATFORM}.txt"')),
     ("brew-install", "macos/setup-from-clone.sh", ("brew install python@3.12",)),
     # the installers' repository acquisition: network git, its own component
     ("git-remote", "macos/setup-cyclaw.sh", ("git clone --branch main --single-branch https://github.com/CGFixIT/CyClaw.git",)),
