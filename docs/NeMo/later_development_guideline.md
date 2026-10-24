@@ -18,7 +18,8 @@ related:
 > **Status update — 2026-09-06 (docs review, Claude Code):** SUPERSEDED by
 > `docs/NeMo/README.md`. Verified: phases 1-5 as sliced in issue #1134 are
 > shipped on `main` (`guardrails/broker.py`, `guardrails/tool_broker.py`,
-> `guardrails/call_inventory.py` all present); `guardrails.enabled: false`
+> `guardrails/call_inventory.py` all present; the tool broker was later removed on
+> 2026-10-10, see `guardrails/broker.py`'s docstring); `guardrails.enabled: false`
 > remains shipped (`config.yaml:1043`). This document's LM Studio references
 > are stale — shipped CyClaw uses Ollama, as its own banner already notes.
 >

@@ -42,8 +42,8 @@ final `N passed` line (cyclaw-gotchas). Bare `--cov` (no argument) picks up
 same source list CI measures through its explicit `--cov=<pkg>` flags (one per
 entry; `tests/test_ci_coverage_flag_contract.py` keeps them in step). **Do not
 create a `.coveragerc`** and do not use `--cov=.`: a blanket `--cov=.` would
-include the `agentic/{fsconnect,netconnect}/*` paths that
-`omit=` deliberately excludes, so the loop would chase a coverage % that
+measure `agentic/`, `scripts/`, `tools/` and every other path outside the 16
+`[tool.coverage.run] source` entries, so the loop would chase a coverage % that
 doesn't match the real gate.
 
 ### Extract key metrics after each run

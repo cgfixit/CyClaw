@@ -57,7 +57,7 @@ constants):
   query (key from `CYCLAW_QUERY_FINGERPRINT_KEY` or the file
   `data/privacy/query-hmac.key`, itself a data element to inventory), so the
   audit stream (`logs/audit.jsonl`) cannot be reversed into a query by
-  dictionary attack. This holds while `logging.audit.include_query_hash` is
+  dictionary attack. This holds while `logging.audit_fields.include_query_hash` is
   `true` (shipped); `false` stores the PII-redacted raw query in the audit
   file and in Numbat's `content_preview` — a privacy regression to flag in
   any review that touches it. A change that adds a new audited field carrying
@@ -79,7 +79,7 @@ constants):
   (no query text, but `logging.third_party_level` below `INFO` writes live
   API keys from httpcore DEBUG output — treat such a file as secret) and the
   eval ledger `logs/evals/eval_runs.jsonl` when `judge_eval` has run.
-- **Per-user auth (Stage 1+2, `docs/AUTHENTICATION_DESIGN.md`) is a new
+- **Per-user auth (`docs/AUTHENTICATION_DESIGN.md`, all six stages landed, RBAC roles `admin`/`operator`/`audit`) is a
   personal-data surface.** `utils/authn_store.py`'s `users`/`sessions`/
   `device_tokens` tables (default `data/auth/cyclaw_auth.db`, or
   `CYCLAW_AUTH_DB_URL`) store a `username`, a salted `hashlib.scrypt` password
@@ -87,7 +87,7 @@ constants):
   email or IP address is collected in this schema. A data-mapping exercise now
   needs this store alongside the personality DB and the two log streams above.
   Ships `auth.enabled: false`; nothing is collected until an operator turns it
-  on. Stage 3 (a credential on `/query`) HAS landed: `require_session_or_token`
+  on. `require_session_or_token`
   attaches to `POST /query` when `auth.enabled` is the literal `true` (session
   cookie or device token, no CSRF on `/query`), so enabling accounts now also
   gates query access. The shipped default still leaves `/query` credential-free

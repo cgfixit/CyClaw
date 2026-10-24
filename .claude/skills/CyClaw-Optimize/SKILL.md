@@ -75,7 +75,7 @@ structure):
 > helpers) — Windows read/list/stat authority is covered natively
 > (`tests/test_fsconnect_pathsafe_windows.py`, a blocking CI step); only
 > Windows *writes* remain a tracked deferral
-> (`docs/work/FSCONNECT_SQL_ROADMAP.md`, "FS Phase 4");
+> (`docs/work/FSCONNECT_SQL_ROADMAP.md`, "Windows write authority" under "Deferred proposals");
 > `llm/client.py` + `graph.py` (outdated Grok/xAI model names &
 > endpoints, retry/timeout, performance); `config.yaml` (risky defaults);
 > `pyproject.toml` / `constraints.txt` / `locks/*.txt` (loose/outdated
@@ -324,7 +324,7 @@ any), never for chunk changes.
 - **Windows `pathsafe` write support is a known, tracked deferral, not a fresh
   finding.** Read/list/stat authority already runs natively on the Windows CI
   leg (`tests/test_fsconnect_pathsafe_windows.py`); only writes remain
-  deferred ("FS Phase 4" in `docs/work/FSCONNECT_SQL_ROADMAP.md`).
+  deferred ("Windows write authority" under "Deferred proposals" in `docs/work/FSCONNECT_SQL_ROADMAP.md`).
 
 ---
 

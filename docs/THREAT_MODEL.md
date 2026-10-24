@@ -173,10 +173,10 @@ module isolation — I6 is the import-isolation invariant). See
 A 2026 review may call for gVisor/Firecracker around "agentic code that can
 touch fs/sql." Since 2026-10-18 the agentic layer neither executes repository
 code nor touches SQL (nineteenth amendment, below); what remains of it is
-listed here. The dated amendments that follow record the earlier, larger
-surface and why that did not need a microVM either, given a trusted,
-single-tenant operator, host, target repository, and explicitly enabled
-workload:
+listed here. The condensed amendments that follow point into git history for
+the earlier, larger surface and why that did not need a microVM either, given
+a trusted, single-tenant operator, host, target repository, and explicitly
+enabled workload:
 
 - **GitHub writes no longer exist.** The `gh`-backed draft-PR write gate
   (`agentic/writer.py`), its push path and the read-only GitHub context were
@@ -208,320 +208,31 @@ workload:
 - **Core paths exec nothing.** `gate.py`/`graph.py`/`mcp_hybrid_server.py` spawn
   no subprocesses and never import the agentic/sync layers.
 
-> **Historical record, superseded 2026-10-18.** From here through the fourth
-> amendment, and in the agentic bullets of the fifth, sixth and eighth
-> amendments, this section records the agentic coding layer (verification
-> executor, harness optimizer, real-repo loop, GitHub write path, skills
-> registry, SQL connector) as it stood on each date. All of that code was
-> removed on 2026-10-18 (nineteenth amendment). These paragraphs are the dated
-> reasoning record, not a description of the current tree.
-
-The residual blast radius, as originally written here, was a governed,
-injection-scanned JSON registry write and read-only GitHub/SQL access — **not**
-untrusted code execution.
-
-**[Amendment, added alongside `agentic/executor/`.]** That last clause needs a
-correction, stated as plainly as the rest of this section: **code execution now
-exists.** `agentic/executor/runner.py::run_verification` runs `pytest`, `ruff`,
-and the invariant guard as real subprocesses over a worktree. This section's
-own conclusion — that microVM containment isn't needed — still holds, but for a
-narrower and more precise reason than "nothing executes":
-
-- **The shipped contract does not accept anonymous third-party workloads.** It is either nothing yet (as
-  of this amendment, no live caller produces a worktree with a model-authored
-  diff in it — see the module's own docstring for exactly what's wired and what
-  isn't; **superseded by the third amendment below, where that caller now
-  exists**), or, once a future phase wires a real planner and git-write flow, a
-  patch the operator's own configured model proposed against the operator's own
-  repository, already passed through the injection scan (§2), running through
-  the operator's own pinned dev toolchain (`pytest`/`ruff`/the invariant guard —
-  not an arbitrary command the patch gets to choose). This is a materially
-  different threat than "run whatever an anonymous multi-tenant user uploads,"
-  which is the threat gVisor/Firecracker primarily target. The later amendments
-  supersede the "nothing yet" state: the real-repo path now exists, remains
-  default-off and human-gated, and uses the required process confinement in §4. If the
-  target repository or its tests are untrusted, Stage 5 becomes mandatory.
-
-  **[Second amendment, added alongside the loop driver and git-write surface.]**
-  Two of the three pieces that sentence called "future phase" now exist, each
-  independently, and neither changes the conclusion above:
-
-  - **A model-driven planner loop** (`agentic/harness_optimizer/loop_driver.py`)
-    runs a plan → patch → verify → review cycle, but "verify" there means the
-    existing deterministic train/holdout case checks and governance inspection
-    `GitHubCodingRunner.evaluate()` already performed pre-amendment — it never
-    calls `run_verification`, and it only ever overlays a candidate onto the
-    committed 4-file fixture repository copied into a tempdir, never a real
-    clone. It cannot produce a worktree for the executor to run against.
-  - **A local git-write surface** (`agentic.deepagent_github.repo_workspace.
-    RepoWorkspaceTools.checkout_branch`/`add`/`commit`/`diff`) can now commit
-    inside the path-scoped clone `RepoWorkspaceTools.clone()` populates — still
-    local only (no `push`, no GitHub API call), gated on its own
-    default-`False` `deepagent_github.allow_git_write_tools` flag, and with
-    the committer identity always forced to this project's own convention
-    (never the operator's).
-
-  Neither module calls the other, and neither calls `run_verification`. The
-  loop driver never sees a real repository; the git-write surface never runs a
-  test or a linter. So the residual risk section above still describes the
-  honest state precisely: a real "planner proposes a diff against a real clone,
-  it gets committed, and the executor verifies that commit" pipeline does not
-  exist yet — three independently-shipped, independently-tested, independently
-  gated pieces do, each smaller than the pipeline the first amendment
-  described, and none of them wired to either of the others.
-  **Superseded by the third amendment below: that pipeline now exists, and
-  the loop driver referenced here is a distinct, still-unwired module — see
-  its own entry for what remains unconnected.**
-
-  **[Third amendment: that pipeline now exists.]** `agentic/real_repo_loop.py::
-  run_real_repo_loop` is the fusion the second amendment said didn't exist yet,
-  and the first live caller of `run_verification` in this codebase. What it
-  actually does, precisely: clone a real repository (`RepoWorkspaceTools`),
-  ask the configured local model for a patch, write each proposed file through
-  `RepoWorkspaceTools.write_file` (new in this change — the write-side
-  counterpart to its existing reads, same path-safety validation as the git
-  ops), and run the CALLER'S declared verification checks against the real
-  worktree. It stops there — accepting a candidate does NOT commit it.
-  Committing is a deliberate, separate later call, `finalize_real_repo_change`,
-  driven by an explicit human `approve`/`reject` decision (a `reject` never
-  touches git at all). Still local only: no `push`, no PR, no GitHub API call,
-  regardless of the decision. `RepoWorkspaceTools.attach` exists so that
-  decision can come from a LATER, separate process re-opening the same clone
-  by path — the CLI-subprocess-per-call model I6 requires (see
-  `utils/ops_runner.py`) can't hold a live Python object across two HTTP
-  requests, so the clone's path on disk, not an in-memory handle, is what
-  survives between "this passed its checks" and "a human said yes."
-
-  What is gated, and how, stated exactly rather than "it's gated":
-
-  - Three conditions checked once at the top of the run, mirroring
-    `agentic/writer.py`'s own "no anonymous mutations" shape:
-    `deepagent_github.allow_git_write_tools` is `True`, a non-empty human
-    `reason` string, and explicit `confirm=True`. Each of `write_file`/`add`/
-    `commit` ALSO re-checks `allow_git_write_tools` independently — the
-    upfront check exists to fail fast (before spending a model call and a
-    verification run), not to replace the low-level ones.
-  - Every proposed file's content is injection-scanned
-    (`inspect_candidate_text`) before verification runs; a critical finding
-    skips verification entirely (no point running tests against known-bad
-    content) and forces rejection.
-  - Verification `checks` are a REQUIRED caller argument, never defaulted —
-    the executor ships no default check set, since this repository's own
-    toolchain (a CyClaw-specific invariant-guard path) would be a wrong,
-    invented assumption for an arbitrary configured target. An empty check
-    list is rejected outright rather than silently accepting everything.
-  - The git commit message is always a caller-supplied fixed string, never
-    raw model output — the one place in this pipeline that deliberately does
-    NOT trust the planner's own words.
-
-  **Current residual risk.** Checks execute repository code inside the required
-  filesystem/network boundary in §4, with a disposable HOME and a gitless mirror.
-  They cannot write the authoritative checkout or use ordinary network sockets.
-  Host-readable files remain visible, and detached macOS descendants may outlive
-  process-group cleanup while retaining Seatbelt restrictions. Passing a check
-  is evidence about that check, not proof that a patch is safe.
-
-  Verification uses a disposable HOME and a gitless mirror under the filesystem
-  and network boundary described above. Its output is evidence only. Publication
-  reads the authoritative candidate; checks cannot mutate its Git configuration or
-  post-clone baseline. POSIX process groups are reaped on completion and timeout.
-
-  **[Fifth amendment, issue #1134 Phase 4 approval-manifest slice.]**
-  `finalize_real_repo_change` now rebuilds an acceptance digest
-  (`run_id + base HEAD + path→sha256`) and refuses approve on drift.
-  Digest only in audit. This is not a cryptographic signature and not
-  a fresh-clone apply (full issue §10 remaining). Reject remains a git
-  no-op.
-
-  **What still does not exist, as of this amendment:** no CLI subcommand, HTTP
-  route, or background caller invokes `run_real_repo_loop` — it ships fully
-  tested and standalone, the same deferred-wiring call made for every prior
-  capability in this effort. No cloud-provider planner is wired here either
-  (still local-only, `LocalProposerClient`). Those remain explicit future
-  work, not silently implied to already exist.
-  **Superseded by the fifth amendment below: both now exist.**
-
-  **Two correctness gaps an external review caught, both fixed.** First: the
-  planner received only the operator's free-text instruction and prior
-  rejection feedback — never the repository content or task context. A
-  `--pr`/`--issue` run's already-fetched, already-injection-scanned title,
-  body, and diff were discarded before the model call, so the planner had to
-  guess complete replacement files blind. `run_real_repo_loop` now accepts an
-  optional, bounded `context` string folded into every iteration's prompt;
-  `agentic/cli.py::cmd_real_repo_run` supplies it from the fetched bundle when
-  one exists. This is plumbing, not a new read surface: the planner still
-  cannot browse the clone or request specific files mid-loop. Second: because
-  `write_file` mutates the same persistent clone across iterations (there is
-  no reset between attempts — `feedback` is meant to build ON the prior
-  attempt, not replace it), a rejected early iteration's file could remain on
-  disk and be required for a LATER, accepted iteration's checks to pass, while
-  only that later iteration's own file list was staged for commit. A `checks`
-  configuration that depended on an earlier file could pass verification
-  while the approved commit silently omitted it.
-  `RealRepoLoopResult.changed_files` now unions every iteration's writes, and
-  `cmd_real_repo_run`/`finalize_real_repo_change` use that union rather than
-  the last iteration's own list. That union is then re-checked against
-  `protected_write_paths` inside `finalize_real_repo_change` before anything is
-  staged, because the list it receives comes back off a persisted JSON record
-  rather than from the in-memory result the diff-scope gate cleared. The gap
-  they can drift through is ordinary rather than adversarial: the decide command
-  is a separate process invocation, so an operator who tightens
-  `protected_write_paths` between the run and the decision would otherwise have
-  the commit scoped by the policy that applied when the model proposed. The
-  parameter is required, not defaulted, so no caller can skip it silently.
-  Containment is a separate and already-closed concern — `tools.add` routes each
-  path through `_validate_write_path`, so nothing can be staged outside the
-  clone regardless.
-- **Current execution boundary.** A hostile test file executes inside a
-  disposable gitless mirror under required Seatbelt or bubblewrap confinement
-  (§4). Writes are limited to the mirror and scratch; network access is denied.
-  Windows verification refuses. Host reads and detached macOS descendants remain
-  documented limitations. The caller selects checks; repository code can execute
-  during collection, so named checks are not a code-safety guarantee.
-- **Publication stays separate.** GitHub publication requires the configured
-  gates and human approval. SQL remains read-only-guarded and filesystem writes
-  remain separately governed.
-
+> **Historical record, condensed 2026-10-24.** Three amendments here (added
+> alongside the verification executor, the loop driver and git-write surface,
+> and the real-repo pipeline) recorded why the since-removed agentic coding
+> layer did not need a microVM either: what executed was the operator's own
+> pinned toolchain against the operator's own repository under required
+> Seatbelt/bubblewrap confinement, never an anonymous third-party workload.
+> That code was removed on 2026-10-18 (nineteenth amendment). The full dated
+> text is in git history: `git show ae767ed:docs/THREAT_MODEL.md`, §5.
 
 ### Fourth amendment — the GitHub write path is implemented (P10)
 
 > **Superseded 2026-10-18:** the GitHub write path, the executor and the
 > real-repo loop this amendment describes were removed (nineteenth amendment).
-> Kept as the dated record.
-
-- **What changed.** `execute_write()` was a stub that raised
-  `NotImplementedError`. It now performs `gh pr create --draft` for real, and
-  `RepoWorkspaceTools.push_branch()` can push one `claude/` branch to origin.
-  The sentence "GitHub writes are hard-killed" was true of the code and is no
-  longer; the §5 bullet above has been rewritten rather than left standing.
-- **What did NOT change at P10 time: the shipped posture.** `EXECUTION_ENABLED`
-  was still `False`, and `agentic.enabled` / `agentic.mode` /
-  `agentic.writes_enabled` still shipped closed. Six independent gates, any one
-  of which refuses (see the gate-chain table in
-  `docs/agentic/GITHUB_WRITE_ENABLEMENT.md`, deleted 2026-10-18 and kept in git
-  history). P10 deliberately did not flip the flag — arming it is a
-  filed-checklist operator procedure, matching how the analogous fsconnect write
-  enablement was handled.
-  **Superseded 2026-08-07:** the checklist was signed and the flag and config
-  gates were opened. See the eighth amendment. This bullet is retained as the
-  P10-era record, not as a description of the current tree.
-- **What is gated, exactly.** `execute_write()` checks `agentic.enabled` first
-  -- an external review caught that this master switch was, until then,
-  enforced only by the CLI's own disabled-no-op, not by `_require_gates()`
-  itself, so a direct programmatic call could bypass it. `execute_write()` then
-  requires a FRESH `confirm=True` from its own caller: an earlier version
-  manufactured `confirm=True` internally when re-running the gate, which made
-  that gate unconditionally satisfied rather than a real per-call check -- the
-  same review caught this too. With both fixed, `execute_write()` re-runs the
-  master switch plus all four numbered gates against the live config on every
-  call, so possessing a plan dict is not authority to write. It rebuilds the
-  argv from the plan's own params and refuses on mismatch, so a tampered
-  `would_run` is inert. It refuses a plan naming a repo other than the
-  configured one. It refuses any op outside `{pr_create}` even though three
-  are describable. It never retries: both of `run_read`'s retry branches fire
-  after the request has left the machine, so a retry could duplicate an
-  accepted mutation; a timeout is reported as INDETERMINATE.
-- **The residual risk, named.** With the flag armed and the config gates opened,
-  this code can push a `claude/*` branch and open a draft PR against the
-  configured repo as the authenticated `gh` identity. It cannot push to `main`,
-  force-push, or delete. The publisher trusts the operator's global/system Git
-  configuration and credential helper. Verification has a disposable HOME,
-  no Git metadata and denied network access; the former inherited-HOME/network
-  bypass described here is superseded by §4's confinement boundary. A malicious
-  operator-supplied command remains outside the trusted-operator threat model.
-- **What still does not exist:** `pr_comment` and `issue_comment` execution,
-  and any `/ops/*` route reaching a write. **Superseded in part by the sixth
-  amendment below:** the other three items this bullet used to claim — a
-  harness route reaching a write, a CLI write subcommand, and wiring into the
-  real-repo loop's approve step — all now exist, and a GitHub mutation is
-  network-triggerable once the flag is flipped. Only the `pr_comment`/
-  `issue_comment` and `/ops/*` clauses still hold.
-
-MicroVM containment would still add operational weight and privileged host
-requirements most single-operator deployments of CyClaw cannot assume. It
-remains the honest next step (§6, stage 5) if the threat model ever widens
-beyond "verify a change to my own configured repo" — e.g., if this executor
-were ever pointed at a repo, or dev-toolchain command, the operator did not
-themselves configure. Until that widening happens, stage 5 stays conditional,
-not because nothing executes, but because what executes is scoped, known, and
-not attacker-chosen at the command level.
+> Body condensed 2026-10-24; full text: `git show ae767ed:docs/THREAT_MODEL.md`.
 
 ### Fifth amendment — `run_real_repo_loop` now has real callers, including one with a cloud-provider planner
 
 > **Superseded 2026-10-18:** `run_real_repo_loop`, its CLI and its cloud
-> planner were removed (nineteenth amendment). Kept as the dated record.
-
-- **What changed.** The third amendment's "what still does not exist" bullet
-  is stale: `agentic/cli.py`'s `real-repo-run` subcommand calls
-  `run_real_repo_loop` directly, and `harness/server.py`'s `POST
-  /api/agent/run` reaches the same loop through the `utils.ops_runner`
-  subprocess shim — a real CLI subcommand and a real HTTP route both exist
-  now, not merely a tested-but-standalone module.
-- **The HTTP route is not a new unauthenticated surface.** It is one of the
-  harness's P9 routes: `require_api_key` (fail-closed on an unset
-  `CYCLAW_API_KEY`; see the ninth amendment for the one operator opt-out, which
-  is denied to non-loopback peers) plus an `Origin`/`Sec-Fetch-Site` check guard
-  it, alongside the paired `GET /api/agent/runs/{id}` status read and `POST
-  /api/agent/runs/{id}/decision` human approve/reject endpoint — the same
-  decision point `real-repo-run-decide` already required at the CLI layer.
-- **A cloud-provider planner is wired, and unlike the DeepAgents-graph path
-  the egress table row above describes, this one records egress.**
-  `agentic/cli.py`'s `--provider {grok,claude}` flag (paired with
-  `--confirm-online`) constructs `agentic.deepagent_github.chat_client.
-  ChatModelProposerClient` behind the same six-condition chain named in the
-  egress table row (`allow_cloud_providers`, `providers.<name>.enabled`, the
-  provider's API key, `--confirm-online`), gates checked eagerly before any
-  network I/O. `ChatModelProposerClient.invoke` calls `sanitize_handoff` on
-  every real invocation before the model call — the egress table row's
-  caveat ("not recorded as egress") describes ONLY the separate, still-unwired
-  `builder.py`/`create_deep_agent` path; it was never true of this path and
-  should not be read as a blanket statement about all cloud egress in the
-  agentic layer.
-- **What still does not exist.** The `builder.py`/DeepAgents-graph path
-  (`create_deep_agent`) remains probe-only — `agentic/cli.py`'s
-  `deepagent-plan` subcommand deliberately never calls `.invoke()` on it, by
-  its own docstring. **Retired (owner decision, 2026-07-31): no further
-  development is planned on this path** — `run_real_repo_loop` is the one
-  live real-repo coding pipeline going forward; see
-  [docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md](https://github.com/cgfixit/CyClaw/blob/246e406d27beb097c3ecab3ba188a11c109b86db/docs/work/GITHUB_DEEP_AGENT_HARNESS_OPTIMIZER_PLAN.md)'s own
-  retirement note.
+> planner were removed (nineteenth amendment). Body condensed 2026-10-24; full text: `git show ae767ed:docs/THREAT_MODEL.md`.
 
 ### Sixth amendment — the write path is now network-reachable (still disarmed)
 
 > **Superseded 2026-10-18:** the write path was removed (nineteenth
 > amendment); its harness routes had already gone on 2026-09-11 (sixteenth
-> amendment). Kept as the dated record.
-
-- **What changed.** The fifth amendment above said `push_branch`/`execute_write`
-  were "still not forwarded through any harness HTTP route, which only passes
-  `decision` today." That was true when written and is no longer. Both are now
-  reachable three ways: `agentic.cli`'s `real-repo-run-decide --push/--publish`
-  (one-shot), the standalone `real-repo-run-push`/`real-repo-run-publish`
-  subcommands, and — the material change — `POST /api/agent/runs/{id}/push`
-  and `POST /api/agent/runs/{id}/publish` on the harness. A third route,
-  `POST .../discard`, reclaims a clone and reaches no write.
-- **So "GitHub writes are un-triggerable over the network" is retired as a
-  claim.** Once `EXECUTION_ENABLED` is flipped, an authenticated, same-origin
-  caller on loopback can open a draft PR against an approved-and-pushed run.
-  What still bounds it: `CYCLAW_API_KEY` (fail-closed, opt-out denied to
-  non-loopback peers -- ninth amendment) plus an
-  `Origin`/`Sec-Fetch-Site` check on every one of those routes, the run-state
-  guards (`require_approved_for_push`, `require_pushed_for_publish`), and the
-  six write gates themselves. The per-invocation blast radius is unchanged —
-  one `claude/*` branch, one draft PR, no force-push, no delete.
-- **What did NOT change at the time of this amendment: the shipped posture.**
-  `EXECUTION_ENABLED` was still a hardcoded `False` that no config file could
-  flip, and `allow_git_write_tools`/`agentic.enabled`/`mode`/`writes_enabled`
-  all still shipped closed. Nothing in *that* amendment armed anything.
-  **Superseded 2026-08-07** — the flag, `mode`, and `writes_enabled` are now
-  open; `allow_git_write_tools` and `agentic.enabled` still ship `false`. See
-  the eighth amendment.
-- **This is the checklist's own trigger, and it fired.**
-  `docs/agentic/GITHUB_WRITE_ENABLEMENT.md` (deleted 2026-10-18; in git
-  history) item A said that if reachability
-  ever changed the checklist was void and had to be re-run. It was re-run on
-  2026-07-31; that document, not this one, is authoritative on the gate chain
-  and carries the open operator decisions.
+> amendment). Body condensed 2026-10-24; full text: `git show ae767ed:docs/THREAT_MODEL.md`.
 
 ### Seventh amendment — Telegram channel (out-of-band, default-off)
 
@@ -577,9 +288,9 @@ not attacker-chosen at the command level.
 ### Eighth amendment — the operator armed the write path and hybrid mode (2026-08-07)
 
 > **Superseded in part 2026-10-18:** the agentic-plane, gate-depth, rollback,
-> check-file-boundary and inverted-rollback bullets describe code removed in
-> the nineteenth amendment. The core-plane, what-is-NOT-sent, `/health` and
-> posture-regression bullets still hold.
+> check-file-boundary and inverted-rollback bullets described code removed in
+> the nineteenth amendment; they were dropped 2026-10-24 (full text:
+> `git show ae767ed:docs/THREAT_MODEL.md`). The bullets below still hold.
 
 **This amendment supersedes every "ships disarmed / off by default" statement
 about the GitHub write path and the external providers elsewhere in this
@@ -604,31 +315,13 @@ describing its own point in time and is retained as a historical record.
   and `send_local_context_to_claude` both ship `false`, so retrieved local
   context is excluded; the soul/identity block is never forwarded; the outbound
   payload is the query text only, capped at 8000 chars per provider.
-- **Agentic plane.** `EXECUTION_ENABLED` ships `True`; `agentic.mode: "write"`
-  and `agentic.writes_enabled: true` ship open; `allow_cloud_providers` and both
-  `providers.<name>.enabled` ship `true`. Still closed: `agentic.enabled`,
-  `deepagent_github.enabled`, `allow_git_write_tools`, `allow_github_writes`,
-  `allow_filesystem_write_tools`, `allow_shell_execution`.
-- **Gate depth on a GitHub mutation collapsed from six to three.**
-  `agentic.enabled`, plus the per-call `reason` and `confirm` — and the latter
-  two are supplied by the same request that asks for the write. **`agentic.enabled`
-  is now the only standing barrier not self-attested by the caller.** Treat
-  flipping `config.yaml`'s `agentic.enabled` as a High-tier change: it is no
-  longer "turn on the read-only agentic CLI."
-- **Rollback.** `CYCLAW_AGENTIC_WRITE_DISABLE=1` closes the code-level gate with
-  no source edit. Disable-only by construction (AND-ed with `EXECUTION_ENABLED`,
-  never OR-ed), so it cannot arm a build that ships disarmed.
-- **Current check-file boundary.** The historical inherited-HOME/network gap is
-  superseded by required confinement (§4). A `--checks-file` still selects
-  executable argv and must be operator-authored; never accept it from a model,
-  PR diff, issue body or corpus. Confinement limits effects, not trust in code.
 - **`/health` egress.** `/health` carries neither auth nor a rate limit, and
   under `mode: hybrid` its provider-liveness probes were authenticated outbound
   calls any local process — or any page in the operator's browser, `GET` being
   CORS-simple — could trigger. Those probes are now opt-in via
   `api.health_probe_external_providers`, which ships `false`.
 - **A posture regression cannot fail a build, though a config *error* can turn
-  a leg red.** `invariant-guard` passes 47/47 because I1–I6 and G1–G5 are
+  a leg red.** `invariant-guard` passes (46/46 on 2026-10-24) because I1–I6 and G1–G5 are
   structural and none encodes a shipped-default posture — and invariant-guard
   is the ONLY skill checker CI runs blocking (`ci.yml`'s dedicated step).
   `config-guard` is **not** build-blocking, despite what this section used to
@@ -656,10 +349,6 @@ describing its own point in time and is retained as a historical record.
   `config-guard` finds nothing and the literal search misleads. The conclusion
   it drew about posture regressions happened to be right for a different
   reason.)*
-- **The rollback story is inverted.** Armed is now the shipped default, so
-  disarming is the deviation: three tests pin the armed state, and a plain
-  `git revert` of the flag fails CI. The `CYCLAW_AGENTIC_WRITE_DISABLE` switch
-  exists precisely so a safety action does not have to fight the test suite.
 
 ---
 
@@ -796,13 +485,10 @@ CyClaw internet-safe.
 
 ### Tenth amendment — harness `/web` DNS TOCTOU residual (2026-08-15)
 
-The harness console `/web` fetch (`harness/web_search.py`) refuses non-global
-resolved addresses in `assert_public_host` before the GET. That is a
-pre-connect snapshot only: httpx re-resolves on connect, so a DNS-rebinding
-window remains between the check and the socket. The residual is accepted for
-this loopback, operator-allowlisted, default-off surface; a pinned-connect
-transport is the future fix and is **not** in this tree. Do not treat the
-pre-check as a connect-time pin.
+> **Superseded 2026-09-11:** the harness console and its `/web` fetch
+> (`harness/web_search.py`) were removed (sixteenth amendment), so this
+> DNS-rebinding residual no longer has a surface. Body condensed 2026-10-24;
+> full text: `git show ae767ed:docs/THREAT_MODEL.md`.
 
 ### Eleventh amendment — per-user RBAC lands on Stage 3's auth surface (Stage 6, PR #940, merged 2026-08-15)
 
@@ -1330,7 +1016,8 @@ What did not change: the filesystem connector's write gates and the passive
 network connector's scope rules (§5 bullets), the core-plane posture (eighth
 amendment), and every core-path control. Earlier amendments that describe the
 removed code (the first through sixth, the eighth's agentic bullets, and the
-sixteenth's pipeline bullet) are kept as the dated record and marked
-superseded where they start. The `agentic-deepagents`,
+sixteenth's pipeline bullet) are marked superseded where they start;
+on 2026-10-24 their bodies were condensed to pointers into git history
+(`git show ae767ed:docs/THREAT_MODEL.md`). The `agentic-deepagents`,
 `agentic-deepagents-cloud` and `mssql` dependency extras went with them, in a
 follow-up change that re-locked on the macOS host.

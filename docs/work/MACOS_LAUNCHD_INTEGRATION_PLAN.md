@@ -1,5 +1,10 @@
 # macOS Integration Gaps — Verification + LaunchdScheduler Plan
 
+> **Status update — 2026-10-24:** `docs/HARNESS_MACOS.md` and `agentic/deepagent_github/`, which the
+> verification below cites as evidence, no longer exist (the GitHub layer went with the 2026-10-18 agentic
+> removal, `docs/agentic/AGENTIC_README.md` §8). Their line citations describe the tree at `8e7b540`, not
+> current `main`; the shipped scheduler pieces listed in the next note are unaffected.
+>
 > **Status update — 2026-09-06 (docs review, Claude Code):** COMPLETE. All five "Next integrations" items this doc lists as shipped in PRs #909-#912 are confirmed present on current `main`: `sync/scheduler.py` has a real `LaunchdScheduler` class (line 510) gated on `sync.scheduler_backend`/`schedule_frequency`; `utils/launchd_plist.py`, `macos/cyclaw-keychain-env.sh`, `macos/cyclaw-keychain-set.sh`, and `macos/generate_service_plist.py` (gate.py/harness supervised LaunchAgent, KeepAlive on crash only) all exist. Nothing here is auto-loaded — every artifact still only *generates* a plist and requires an explicit operator `launchctl bootstrap`, matching the doc's own non-goal.
 >
 > **What's left:**

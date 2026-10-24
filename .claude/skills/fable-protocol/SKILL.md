@@ -313,7 +313,7 @@ GitHub-public: keep any PII, legal name, or DOB out of it — the user-level cop
 at `~/.claude/skills/fable-protocol/SKILL.md` may carry them (a remote Claude
 Code container does not persist `~/.claude`; reinstall by copying this file
 there at session start if you need it as a user skill). Live session memory
-belongs in `docs/memories/` via the memory skills, not here — this file is the
+belongs in `docs/memories/`, written by hand, not here — this file is the
 stable distillation, not the journal.
 
 Retrieval anchors for BM25/semantic search: fable, fable protocol, Fable 5.1,

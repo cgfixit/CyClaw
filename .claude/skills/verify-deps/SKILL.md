@@ -55,7 +55,7 @@ Two consequences that drive every judgement in this skill:
 
 **`constraints.txt` is not an install surface.** It is a version ceiling applied
 *to* the other three. It legitimately pins packages that **no** surface installs
-by default — every extras-only package (`psycopg`, `pgvector`) plus
+by default — every extras-only package (`psycopg`, `pgvector`, `cel-python`) plus
 pinned transitives. A package present in `constraints.txt`
 and absent from `requirements.txt` is the **designed** state, not drift. The
 drift-shaped question is the reverse: a package installed by a surface but
