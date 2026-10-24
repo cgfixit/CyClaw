@@ -46,7 +46,7 @@ dependencies:
   - setuptools=84.1.0
   - huggingface_hub=1.32.0
   - numpy=1.26.4
-  - nltk=3.10.3
+  - nltk=3.10.4
   # PyPI package name is tzdata==2026.5 (requirements.txt / pyproject / constraints).
   # conda-forge splits this: `tzdata` is the OS IANA database (2025b / 2026c),
   # `python-tzdata` is the PEP 615 fallback wheel used by zoneinfo on hosts

@@ -88,7 +88,7 @@ huggingface-hub==1.32.0
 starlette==1.8.0
 rank-bm25==0.2.2
 numpy==1.26.4
-nltk==3.10.3
+nltk==3.10.4
 # tzdata gives zoneinfo a PEP 615 fallback on hosts without a system IANA database
 # (Windows), which the OpenTweet scheduling tests rely on. Installed from
 # requirements-test.txt / the pyproject `test` extra, not from requirements.txt --

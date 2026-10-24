@@ -37,7 +37,7 @@ starlette==1.8.0
 onnxruntime==1.31.0
 rank-bm25==0.2.2
 numpy==1.26.4
-nltk==3.10.3
+nltk==3.10.4
 nemoguardrails==0.24.1
 # Optional Postgres / pgvector backends (NOT installed by default — the base
 # install stays SQLite + ChromaDB, offline-first). Enable via the pyproject extras instead:
