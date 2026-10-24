@@ -98,7 +98,7 @@ tzdata==2026.5
 # embedding backend (minimum safe post CVE-2025-32434); CPU wheel via
 # --extra-index-url (see this file's header -- no pyproject.toml extra or
 # [tool.uv.sources] table currently routes this).
-torch==2.13.0+cpu
+torch==2.14.1+cpu
 # Transitive of torch (requires_dist setuptools>=77.0.3). Unpinned, pip-audit
 # resolved a pre-83 build and needed PYSEC-2026-3447 ignored. 83.0.0 is the
 # advisory floor; 84.1.0 also fixes GHSA-xmj3-9gf7-h52w in Windows legacy

@@ -1,25 +1,27 @@
 {
   "version": 1,
   "inputs": {
-    "constraints.txt": "sha256:f00cbe8d7624fa74f722da420a86fdfdf6e4a72f5410a4f21c7a24cf4f699d9b",
-    "pyproject.toml": "sha256:78a1d7e1baed4c774e9935be62a98b25915dcdd7dd31ef5abd7f26ecda333808",
+    "constraints.txt": "sha256:e676feeb7f0df8de231a6215edebfab10dc3fc32a7795d856e174914c700ce10",
+    "pyproject.toml": "sha256:26e5cb0f278863fe980d720b586bf7ee87699e08a4ecf770adfb57f0d78d8cf6",
     "requirements-test.txt": "sha256:74b55668f8522690424b78f1a1c2e13d64bac94c25207feb5e4155d8a91cf285",
-    "scripts/check_lock_contract.py": "sha256:7bd914413d1d618ed60abab30981d937e3113e4d124d4b67f3e2aeeb047ad776",
+    "scripts/check_lock_contract.py": "sha256:f52e76f7840ca78f4d98f84fcb7870ac025a29e71ad2fc4bf7563d8ce4676175",
     "scripts/ci-lock-inputs/bandit.txt": "sha256:77949e1d765740ff3826bbe7dae91a23c9466b6690365dcbdcd3148943b42da8",
     "scripts/ci-lock-inputs/cel.txt": "sha256:e8970a6909fad27e7c81a2c580a46daa47adfa066bbf726e2c4ed10065d8677b",
     "scripts/ci-lock-inputs/extra-dev.txt": "sha256:8fd2a766b1461f4d4abe80e619ab5d253decce0e5b27efa3f1a36c230d1eb838",
     "scripts/ci-lock-inputs/extra-pgvector.txt": "sha256:c4619a5c545c4911c4867d074b514dfd48c25abd46f9648f831c786b43497343",
     "scripts/ci-lock-inputs/extra-postgres.txt": "sha256:f6b41424b3602be26b900b1789dc4e413dbdccf80bcea07af5b432643c1e48a6",
+    "scripts/ci-lock-inputs/numbat-contract.txt": "sha256:d9409aa52c9899222dd317f37de55a76e86ab89f9f29fde872977b541fc5746b",
     "scripts/ci-lock-inputs/numbat.txt": "sha256:d40b4fdb717945db22454164eab35c0f4689ea3e701a1fcc7077fc2e9184d1ad",
     "scripts/ci-lock-inputs/postgres-job.txt": "sha256:1ebaeea6cf7ac323008b246edadf0b3da26e36752ad558fe42065c9d2ff4a3a7",
     "scripts/ci-lock-inputs/ruff.txt": "sha256:11458bb4ccb7d73617a8f33cdc66d63ac79815e69a12e4425d7c651a862ce01f",
     "scripts/ci-lock-inputs/smoke.txt": "sha256:2f6174684d4fb05a12c041d1d8d03815f9e1ddc303e0aa8e6ad3404f22871132",
     "scripts/ci-lock-inputs/yaml.txt": "sha256:34c916bd80d8af9f8e9eb0aa8dd0a47c76cff5d16a9dc613214acac00eb6f1d1",
-    "scripts/refresh-ci-locks.sh": "sha256:04f6b56e2d932f06d7bbf54ac2d361a5b7a67cb3d2aef04e30182f42f984c22c"
+    "scripts/refresh-ci-locks.sh": "sha256:cf30610e5062ca20f8303c220e3a88d24eb5971b181cd07f6b0afc0dc3619e30"
   },
   "outputs": {
     "requirements-ci-bandit-lock-linux.txt": "sha256:ccd5f3699ec4cd7962440b2079e37fd477ed3b0ef2899df5526442770ad10b2b",
     "requirements-ci-cel-lock-linux.txt": "sha256:e33614d198728a9f18364fb4a4ef75dbbd7880ae74b174837a998783c74e48fd",
+    "requirements-ci-numbat-contract-lock-linux.txt": "sha256:be91801dfc65c943b6cf269e924081fa3bb114e33ba88d5383a4f5ea1f42b0f9",
     "requirements-ci-numbat-lock-linux.txt": "sha256:7d9c89e5cdeb2cb547da2e6c0bbde310a8092024dfe1793eea8a844bed09ba3f",
     "requirements-ci-postgres-lock-linux.txt": "sha256:c5ad0c8f41155e307d76c423651089070cb8b23ba7331c482e63b114a37935cb",
     "requirements-ci-ruff-lock-linux.txt": "sha256:b7498c579fdc177cdf1f1f3aaa66e3607ac6fd49f54dc2f1afbd47a5b18fa276",

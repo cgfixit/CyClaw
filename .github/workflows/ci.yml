@@ -1,7 +1,7 @@
 # ==============================================================================
 # CyClaw CI — Tests + Coverage + Reproducible Install Gate
 # v2 hardening (June 2026):
-#   - Exact pip pin ==26.2.1, not floating >=, across every job that upgrades it
+#   - Exact pip pin ==26.2.2, not floating >=, across every job that upgrades it
 #     (eliminates 4 pip CVEs in CI env per #71 analysis; exact pin keeps CI
 #     reproducible rather than silently picking up whatever pip ships next)
 #   - PIP_DEFAULT_TIMEOUT=60 and PIP_RETRIES=10 at workflow env (the same pair
@@ -158,6 +158,28 @@ jobs:
         run: |
           docker run --rm --network none cyclaw:ci python -m pip check
           docker run --rm --network none cyclaw:ci python -m guardrails.verify_install
+          docker image inspect cyclaw:ci --format '{{.Id}}'
+          docker run --rm -i --network none cyclaw:ci python - <<'PY'
+          import hashlib
+          import ssl
+          import subprocess
+          from pathlib import Path
+          import certifi
+          import pip
+          from pip._vendor import certifi as pip_certifi
+          # GHSA-6q48-6c7w-9gw2 / DLA-4845-1: emSign ECC Root CA - G3.
+          removed = '86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b'  # DevSkim: ignore DS173237 - public compromised CA fingerprint, not a secret
+          debian = subprocess.check_output(['dpkg-query', '-W', '-f=${Version}', 'ca-certificates'], text=True)
+          assert debian == '20250419~deb12u2', debian
+          assert pip.__version__ == '26.2.2', pip.__version__
+          assert certifi.__version__ == pip_certifi.__version__ == '2026.10.19'
+          for name, bundle in [('application', certifi.where()), ('pip', pip_certifi.where()),
+                               ('system', '/etc/ssl/certs/ca-certificates.crt')]:
+              roots = ssl.create_default_context(cafile=bundle).get_ca_certs(binary_form=True)
+              assert roots and removed not in {hashlib.sha256(root).hexdigest() for root in roots}, name
+              print(name, bundle, 'sha256', hashlib.sha256(Path(bundle).read_bytes()).hexdigest(), 'roots', len(roots))
+          print('CA trust verified:', debian, 'pip', pip.__version__, 'certifi', certifi.__version__)
+          PY
 
   # Fast, no-heavy-deps gates that run alongside the expensive matrix below.
   # Neither needs torch/chromadb/sentence-transformers, so both finish in
@@ -329,7 +351,7 @@ jobs:
 
       - name: Build the wheel
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           # Same two tools python-publish.yml uses to build the released
           # artifact; keep them in step if that workflow's build stack changes.
           python -m pip install "build==1.6.0"
@@ -390,7 +412,7 @@ jobs:
       - name: Install and verify the wheel outside the source checkout
         run: |
           python -m venv "$RUNNER_TEMP/wheel-install"
-          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --upgrade "pip==26.2.1"
+          "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --upgrade "pip==26.2.2"
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --require-hashes --no-deps \
             -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/wheel-install/bin/python" -m pip install --require-hashes \
@@ -526,8 +548,8 @@ jobs:
         # macos-latest is GitHub's Apple Silicon (arm64) runner. Every step
         # except torch installation uses `shell: bash` uniformly across all
         # three OSes; torch gets its own macOS-specific install step (below)
-        # because torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu
-        # for macOS -- confirmed on this matrix leg's first run, and documented
+        # because torch==2.14.1+cpu 404s on https://download.pytorch.org/whl/cpu
+        # for macOS; Apple Silicon uses the plain wheel documented
         # in setup-guide.md.
         # Both Linux legs stay release gates (check names ubuntu-latest and
         # ubuntu-22.04) after the bubblewrap proof they used to carry was
@@ -763,7 +785,7 @@ jobs:
       - name: Upgrade pip (CVE mitigation for CI env only)
         shell: bash
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
 
       - name: Cache torch CPU wheel
         if: runner.os != 'macOS'
@@ -773,25 +795,25 @@ jobs:
         # The wheel is downloaded once per (os, pin) pair and reused on every
         # subsequent run until the pin changes in pyproject.toml. macOS skips
         # this cache entirely -- see the macOS-specific install step below.
-        # The torch==2.13.0+cpu pin (and this cache key) is repeated in other
+        # The torch==2.14.1+cpu pin (and this cache key) is repeated in other
         # workflows -- grep for the version string under .github/workflows/
         # before bumping it here.
         id: torch-wheel-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .torch-wheels
-          key: torch-cpu-2.13.0-${{ runner.os }}-py312
+          key: torch-cpu-2.14.1-${{ runner.os }}-py312
           restore-keys: |
-            torch-cpu-2.13.0-${{ runner.os }}-
+            torch-cpu-2.14.1-${{ runner.os }}-
 
       - name: Download torch wheel (cache miss only)
         if: runner.os != 'macOS' && steps.torch-wheel-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           # CVE-2025-32434 (weights_only=True RCE bypass) was fixed in torch 2.6.0.
-          # 2.13.0 is within the patched range. --no-deps avoids pulling the default
+          # 2.14.1 is within the patched range. --no-deps avoids pulling the default
           # CUDA build; only the CPU wheel is fetched and cached.
-          pip download "torch==2.13.0+cpu" \
+          pip download "torch==2.14.1+cpu" \
             --index-url https://download.pytorch.org/whl/cpu \
             --no-deps -d .torch-wheels
 
@@ -834,8 +856,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          # Confirmed via this matrix leg's first run: torch==2.13.0+cpu 404s on
-          # https://download.pytorch.org/whl/cpu for macOS -- that index lists
+          # The CPU index has only a plain macOS wheel for this pin:
+          # https://download.pytorch.org/whl/cpu lists
           # plain (non "+cpu"-suffixed) versions there instead, because Apple
           # Silicon has no separate CPU/CUDA build to disambiguate (this was
           # flagged as an unverified gap in the macOS launcher docs; this is the
@@ -1236,7 +1258,7 @@ jobs:
         # this specific test file never touches retrieval. Same minimal set
         # postgres-backend already installs for the identical reason.
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           pip install --require-hashes -r locks/requirements-ci-smoke-lock-linux.txt
 
       - name: Run LocalLLMClient real-socket tests
@@ -1301,7 +1323,7 @@ jobs:
             pyproject.toml
 
       - name: Upgrade pip (CVE mitigation for CI env only)
-        run: python -m pip install --upgrade "pip==26.2.1"
+        run: python -m pip install --upgrade "pip==26.2.2"
 
       - name: Install Postgres-backend deps
         run: |
@@ -1438,15 +1460,15 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .torch-wheels
-          key: torch-cpu-2.13.0-${{ runner.os }}-py312
+          key: torch-cpu-2.14.1-${{ runner.os }}-py312
           restore-keys: |
-            torch-cpu-2.13.0-${{ runner.os }}-
+            torch-cpu-2.14.1-${{ runner.os }}-
 
       - name: Download torch wheel (cache miss only)
         if: matrix.profile == 'heavy' && steps.torch-wheel-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          pip download "torch==2.13.0+cpu" \
+          pip download "torch==2.14.1+cpu" \
             --index-url https://download.pytorch.org/whl/cpu \
             --no-deps -d .torch-wheels
 
@@ -1454,7 +1476,7 @@ jobs:
         if: matrix.profile == 'heavy'
         shell: bash
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           pip install --no-index --no-deps --require-hashes --find-links .torch-wheels \
             -r locks/requirements-torch-lock-linux.txt
           pip install --require-hashes -r locks/requirements-lock-linux.txt
@@ -1465,7 +1487,7 @@ jobs:
         if: matrix.profile == 'yaml'
         shell: bash
         run: |
-          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install --upgrade "pip==26.2.2"
           pip install --require-hashes -r locks/requirements-ci-yaml-lock-linux.txt
 
       - name: Cache embeddings model (sentence-transformers)

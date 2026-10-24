@@ -6,16 +6,16 @@ description: "Use the explicitly requested legacy CyClaw socket-mock smoke runne
 
 # Legacy Socket-Mock Smoke
 
-Keep this entry point explicit-only while its runner has legacy bootstrap and
-fixed-port assumptions. It is not a required fresh-clone gate. Prefer current
+Keep this entry point explicit-only while its runner has fixed-port and process
+ownership assumptions. It is not a required fresh-clone gate. Prefer current
 native/Actions smoke lanes or `$cyclaw-command-run` for an existing environment.
 
 Read `scripts/run_sandbox_test.py` before use. `--ref` pins a cloned candidate;
 `--branch` can move. `--in-place` ignores `--ref` and uses the selected checkout,
 rewrites config and builds state, so use only an owned disposable copy.
-Its legacy requirements and `+cpu` Torch on every OS do not implement native
-macOS or the current hashed lock procedure. Prepare via `setup-guide.md`/`locks/` first
-and use `--skip-install` with that environment's Python; the runner reuses
+Bootstrap uses the platform-specific Torch, runtime and test hash locks. For an
+environment already prepared via `setup-guide.md`/`locks/`, use `--skip-install`
+with that environment's Python; the runner reuses
 `sys.executable`, not a discovered `.venv`. Mocks do not prove platform parity.
 
 For a prepared disposable checkout with synthetic data:

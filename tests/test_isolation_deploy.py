@@ -90,8 +90,8 @@ def test_dockerfile_builder_declares_pip_socket_budget() -> None:
     timeout_at = builder.index("ARG PIP_DEFAULT_TIMEOUT=60\n")
     retries_at = builder.index("ARG PIP_RETRIES=10\n")
     env_at = builder.index("ENV PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT}")
-    assert "PIP_RETRIES=${PIP_RETRIES}" in builder[env_at:builder.index("\nRUN ")]
     run_at = builder.index("\nRUN pip install ")
+    assert "PIP_RETRIES=${PIP_RETRIES}" in builder[env_at:run_at]
     assert max(timeout_at, retries_at, env_at) < run_at
 
     ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
@@ -133,17 +133,16 @@ def test_dockerfile_torch_preinstall_matches_constraints_pin() -> None:
 
 
 def test_dockerfile_refreshes_ca_certificates_before_nonroot_user() -> None:
-    """DLA-4726-1 / issue #1024: digest-pinned slim-bookworm ships a stale
-    Mozilla CA bundle. The one-package refresh must run as root (before
-    USER cyclaw), must not apt-get upgrade, and must not float the FROM digest.
-    """
+    """Both stages must remove the compromised root before using TLS or dropping root."""
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    pin = "ca-certificates=20250419~deb12u1"
-    assert pin in dockerfile
-    assert f"'{pin}'" in dockerfile
-    ca_at = dockerfile.index(pin)
-    user_at = dockerfile.index("\nUSER cyclaw")
-    assert ca_at < user_at, "ca-certificates refresh must run as root before USER cyclaw"
+    _, builder, runtime = re.split(r"(?m)^FROM ", dockerfile)
+    pin = "'ca-certificates=20250419~deb12u2'"
+    assert builder.index(pin) < builder.index("\nRUN pip install ")
+    assert runtime.index(pin) < runtime.index("\nUSER cyclaw")
+    # --cert alone would still add base pip's stale vendored roots to truststore.
+    bootstrap = builder[builder.index("\nRUN pip install "):].split("&&", 1)[0]
+    assert "--use-deprecated=legacy-certs" in bootstrap
+    assert "--cert=/etc/ssl/certs/ca-certificates.crt" in bootstrap
     for line in dockerfile.splitlines():
         if line.lstrip().startswith("#"):
             continue

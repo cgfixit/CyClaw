@@ -228,13 +228,13 @@ the test that pins each (`tests/test_due_diligence_invariants.py`).
 
 ### Environment & install
 - **Trap:** installing Torch from the general dependency input pulls a CUDA build.
-  **Rule:** install `torch==2.13.0+cpu` from the PyTorch CPU index **first**,
+  **Rule:** install `torch==2.14.1+cpu` from the PyTorch CPU index **first**,
   then the hashed runtime lock and constrained test tools (§8).
 - **Trap:** running that torch line on macOS, or "fixing" the `+cpu` pin when
-  it 404s there. **Rule:** macOS needs **plain** `torch==2.13.0`; use the §8
+  it 404s there. **Rule:** macOS needs **plain** `torch==2.14.1`; use the §8
   macOS block and its hashed lock.
 - **Trap:** moving the torch pin and touching only `requirements.txt`/
-  `constraints.txt`. **Rule:** `environment.yml` (conda, `pytorch=2.13.0=cpu*`)
+  `constraints.txt`. **Rule:** `environment.yml` (conda, `pytorch=2.14.1=cpu*`)
   is a fourth surface, CI-gated by `conda-ci.yml` and dep-guard D9;
   bump it in the same commit.
 - **Trap:** running `cyclaw-*` shims after only `pip install -r requirements.txt`.

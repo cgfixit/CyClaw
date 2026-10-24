@@ -100,10 +100,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          # pytest/pyyaml have no manifest pin (installed ad hoc below), so
-          # key the cache on the workflow file itself -- same pattern
-          # ci.yml and semgrep.yml already use for the identical situation.
-          cache-dependency-path: .github/workflows/numbat-rules.yml
+          cache-dependency-path: |
+            .github/workflows/numbat-rules.yml
+            locks/requirements-ci-numbat-contract-lock-linux.txt
 
       - name: Live ops-runner events must produce zero hits
         env:
@@ -112,8 +111,9 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           # --noconftest: tests/conftest.py imports retrieval.hybrid_search
-          # (rank_bm25 / torch). This job only installs pytest+pyyaml.
-          python -m pip install --disable-pip-version-check pytest==9.1.1 pyyaml==6.0.3
+          # (rank_bm25 / torch). This job uses the small pytest/pyyaml/jsonschema contract lock.
+          python -m pip install --disable-pip-version-check --require-hashes \
+            -r locks/requirements-ci-numbat-contract-lock-linux.txt
           python -m pytest --noconftest \
             tests/test_numbat_rules_fixtures.py::test_ops_runner_live_events_have_zero_rule_hits \
             -q --tb=short
@@ -162,8 +162,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          # Same ad hoc tool pins as the job above, so the same cache key.
-          cache-dependency-path: .github/workflows/numbat-rules.yml
+          cache-dependency-path: |
+            .github/workflows/numbat-rules.yml
+            locks/requirements-ci-numbat-contract-lock-linux.txt
 
       - name: Live producers and the pre-action gate vs the pinned CLI and schema
         env:
@@ -177,7 +178,8 @@ jobs:
           # also covers what `rules test` accepts without checking (unknown
           # top-level keys, missing required fields, the endpoint object).
           # --noconftest for the same reason as the job above.
-          python -m pip install --disable-pip-version-check pytest==9.1.1 pyyaml==6.0.3 jsonschema==4.26.0
+          python -m pip install --disable-pip-version-check --require-hashes \
+            -r locks/requirements-ci-numbat-contract-lock-linux.txt
           python -m pytest --noconftest tests/test_numbat_cyclaw_shaped.py tests/test_numbat_gate.py \
             -q --tb=short -o addopts=""
 
