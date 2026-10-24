@@ -6,7 +6,7 @@
 # both servers. This orchestrator does. It does NOT reimplement the existing
 # macos/ scripts — it chains them, then fills the four holes they leave:
 #
-#   install-cyclaw.sh      home layout, venv, torch (plain 2.13.0), shim
+#   install-cyclaw.sh      home layout, venv, torch (plain 2.14.1), shim
 #   setup-cyclaw-keys.sh   CYCLAW_API_KEY + Telegram / Claude / Grok / GitHub
 #   (this script)          Python 3.12 offer, brew analytics off, Ollama,
 #                          retrieval index, gh login hint, start the server
@@ -387,7 +387,7 @@ if [ "$SKIP_INSTALL" -eq 0 ]; then
   [ "$NO_FSCONNECT" -eq 1 ] && INSTALL_ARGS+=(--no-fsconnect)
   [ "$NO_PROFILE" -eq 1 ] && INSTALL_ARGS+=(--no-profile-edit)
   [ "$NO_PATH" -eq 1 ] && INSTALL_ARGS+=(--no-path-edit)
-  step "running macos/install-cyclaw.sh (venv + torch==2.13.0 + requirements)"
+  step "running macos/install-cyclaw.sh (venv + torch==2.14.1 + requirements)"
   bash "$REPO_DIR/macos/install-cyclaw.sh" "${INSTALL_ARGS[@]}"
 else
   step "skipping installer (--skip-install)"

@@ -32,7 +32,7 @@ jobs:
       fail-fast: false
       matrix:
         # macos-latest is GitHub's Apple Silicon (arm64) runner, the same one
-        # ci.yml's pip matrix uses. environment.yml's pytorch=2.13.0=cpu* glob
+        # ci.yml's pip matrix uses. environment.yml's pytorch=2.14.1=cpu* glob
         # matches conda-forge's osx-arm64 cpu_generic builds (no CUDA variants
         # exist there), so one env file serves both legs.
         os: [ubuntu-22.04, macos-latest]

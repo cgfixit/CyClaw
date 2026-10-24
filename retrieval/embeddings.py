@@ -10,7 +10,7 @@ Security note (2026-06):
 - We delegate model loading to sentence-transformers.
 - Prefer safetensors format for any custom or local models.
 - Historical: CVE-2025-32434 showed that torch.load(..., weights_only=True) was bypassable for RCE on torch<2.6.0. DevSkim: ignore DS425050 - historical advisory text, not a loader call
-- We now pin torch==2.13.0+cpu (see pyproject.toml) and treat untrusted .pth/.bin files as high risk.
+- We now pin torch==2.14.1+cpu (see pyproject.toml) and treat untrusted .pth/.bin files as high risk.
 - Model weights should come from verified/trusted sources only (HF official or local hashed files).
 """
 

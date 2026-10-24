@@ -1,19 +1,19 @@
 {
   "version": 1,
   "inputs": {
-    "constraints.txt": "sha256:5f7f1d253bf4195b8915471ccd5bf990184c0d66b948d8c5d5a95136460c11b1",
-    "pyproject.toml": "sha256:7d12bdcc63ebe06ead3681cb358731dbf81d3a61dfff2c2324040f910c58cb9e",
-    "requirements-torch.txt": "sha256:6746f14d1205a0c5d8b3f8763a9c8cb2ac2e94b0c6003b864f50f9d3043b4092",
-    "requirements.txt": "sha256:332c6e8368ea1bf04a9d58ff5021f59aa835cd49442fe189ac69a64734959913",
-    "scripts/check_lock_contract.py": "sha256:7bd914413d1d618ed60abab30981d937e3113e4d124d4b67f3e2aeeb047ad776",
+    "constraints.txt": "sha256:225edcc5a5c90cd23e4d5d2a5cd526998e77fbfdc262c7ca8e3eb59a53b9e676",
+    "pyproject.toml": "sha256:66d00fd2cc31797ffb572a455227b851dcdae2a3dd478e8417e83361176f6f24",
+    "requirements-torch.txt": "sha256:87a2b9620b83d20099c7226b30cb286fa4ce8574f9f2515c72716248bf4903a0",
+    "requirements.txt": "sha256:f3020bf4e75e398a8f6e9465d4a0e3a1bb51c2cee38e29471376a954ea8a6495",
+    "scripts/check_lock_contract.py": "sha256:f52e76f7840ca78f4d98f84fcb7870ac025a29e71ad2fc4bf7563d8ce4676175",
     "scripts/refresh-runtime-lock.sh": "sha256:d13427d2ca065ca12f24457b1f9aa6c369e298f165904185e7a81260d82182db"
   },
   "outputs": {
     "requirements-lock-linux.txt": "sha256:864dfb7fdc2d2f021c3a8793ece22a5504380f8e39fabe5118725c122a628d6a",
     "requirements-lock-macos.txt": "sha256:864dfb7fdc2d2f021c3a8793ece22a5504380f8e39fabe5118725c122a628d6a",
     "requirements-lock-windows.txt": "sha256:ca50b561d66d99a2312c76b9ab55694c97bcf911b6ef9e5c73e024e3ae642a71",
-    "requirements-torch-lock-linux.txt": "sha256:0ea2b053e441e42fa03815efc60c7a9dcccdd925802dfadd69ff50d41c00189e",
-    "requirements-torch-lock-macos.txt": "sha256:e17755fb894512b0fcd2eb775575178d1397be104c48281816241be5661a8b53",
-    "requirements-torch-lock-windows.txt": "sha256:0ea2b053e441e42fa03815efc60c7a9dcccdd925802dfadd69ff50d41c00189e"
+    "requirements-torch-lock-linux.txt": "sha256:334327ada38d02602f0d8b82007c1500d6311874bd6e7dd58f9cf047216111bd",
+    "requirements-torch-lock-macos.txt": "sha256:36b27e981af4219a31f2f81a0de0508808d995dd1071f827fc3714354aff46df",
+    "requirements-torch-lock-windows.txt": "sha256:334327ada38d02602f0d8b82007c1500d6311874bd6e7dd58f9cf047216111bd"
   }
 }

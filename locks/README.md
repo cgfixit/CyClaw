@@ -13,7 +13,7 @@ the contract check below detects edits that disagree with those records.
 | `requirements-lock-{linux,macos,windows}.txt` | the runtime closure (`requirements.txt` under `constraints.txt`) | `scripts/refresh-runtime-lock.sh` |
 | `requirements-torch-lock-{linux,macos,windows}.txt` | torch alone, installed first | `scripts/refresh-runtime-lock.sh` |
 | `requirements-test-lock-{linux,macos,windows}.txt` | the test tools (`requirements-test.txt`) | `scripts/refresh-ci-locks.sh` |
-| `requirements-ci-*-lock-*.txt` | one lock per CI job's tool set (smoke, yaml, ruff, cel, numbat, postgres, bandit) | `scripts/refresh-ci-locks.sh` |
+| `requirements-ci-*-lock-*.txt` | one lock per CI job's tool set (smoke, yaml, ruff, cel, numbat, numbat-contract, postgres, bandit) | `scripts/refresh-ci-locks.sh` |
 | `requirements-extra-lock-*.txt` | optional extras (postgres, pgvector, dev) | `scripts/refresh-ci-locks.sh` |
 | `runtime-inputs.json`, `ci-inputs.json` | SHA-256 of every input and output of the two refresh scripts | written by the refresh scripts |
 

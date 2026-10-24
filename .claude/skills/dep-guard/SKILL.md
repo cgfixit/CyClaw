@@ -145,8 +145,8 @@ lock-step with `constraints.txt`.
   exact pin is skipped, not judged — dep-guard checks exact-vs-exact agreement,
   which is CyClaw's actual convention (both files pin `==`).
 - **Torch is a base dependency, split across two files.** `pyproject.toml`
-  pins the public release (`torch==2.13.0`, no local tag) and
-  `constraints.txt` pins `torch==2.13.0+cpu`; D3 fails if the metadata pin
+  pins the public release (`torch==2.14.1`, no local tag) and
+  `constraints.txt` pins `torch==2.14.1+cpu`; D3 fails if the metadata pin
   moves into an optional extra, loses the release, or if the constraint
   carries any tag but `+cpu`. The checker still scans every
   `[project.optional-dependencies]` group for the other pins.

@@ -99,16 +99,16 @@ cmd_venv() {
          # confusion (DevSkim ADM.10205). torch's own deps (sympy, networkx,
          # ...) come from PyPI in the requirements step below.
          UV_HTTP_RETRIES=1 UV_HTTP_TIMEOUT=15 uv pip install -q --python "$PY" --no-deps \
-           "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
+           "torch==2.14.1+cpu" --index-url https://download.pytorch.org/whl/cpu
        else
-         "$pip" install -q --retries 1 --timeout 15 "torch==2.13.0+cpu" --index-url https://download.pytorch.org/whl/cpu
+         "$pip" install -q --retries 1 --timeout 15 "torch==2.14.1+cpu" --index-url https://download.pytorch.org/whl/cpu
        fi; then
     echo "torch: installed from the CPU index"
   else
     echo "torch: CPU index unreachable (proxy policy denies download.pytorch.org)."
-    echo "       Falling back to plain torch==2.13.0 from PyPI. --no-deps does NOT work"
+    echo "       Falling back to plain torch==2.14.1 from PyPI. --no-deps does NOT work"
     echo "       (import fails on libcudart.so.13); the CUDA deps come along, ~2 GB."
-    inst "torch==2.13.0" || return 2
+    inst "torch==2.14.1" || return 2
   fi
   # Runtime and test locks omit torch. Hash-check them after the torch step
   # above. The CPU-index fallback stays: this sandbox often cannot fetch the

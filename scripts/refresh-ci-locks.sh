@@ -140,6 +140,7 @@ compile_lock "$linux" requirements-ci-yaml-lock-linux.txt "$inputs/yaml.txt"
 compile_lock "$linux" requirements-ci-ruff-lock-linux.txt "$inputs/ruff.txt"
 compile_lock "$linux" requirements-ci-cel-lock-linux.txt "$inputs/cel.txt"
 compile_lock "$linux" requirements-ci-numbat-lock-linux.txt "$inputs/numbat.txt"
+compile_lock "$linux" requirements-ci-numbat-contract-lock-linux.txt "$inputs/numbat-contract.txt"
 compile_lock "$linux" requirements-ci-postgres-lock-linux.txt "$inputs/postgres-job.txt"
 compile_lock "$linux" requirements-ci-bandit-lock-linux.txt "$inputs/bandit.txt"
 

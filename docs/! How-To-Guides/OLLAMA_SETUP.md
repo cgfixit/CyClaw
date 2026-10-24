@@ -110,11 +110,10 @@ cd CyClaw
 python3.12 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Install the pinned PyTorch CPU wheel first (Windows/Linux)
-pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
-
-# Install all other dependencies (PyYAML flag matches the canonical guide)
-pip install -r requirements.txt -c constraints.txt --ignore-installed PyYAML
+# Linux: install Torch first, then the hashed runtime lock.
+# Windows uses the same commands with -windows.txt in both lock filenames.
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+pip install --require-hashes -r locks/requirements-lock-linux.txt
 ```
 
 Do not download NLTK `punkt` data. CyClaw deliberately uses
@@ -124,8 +123,8 @@ punkt would add an unused data surface that the accepted-risk guardrails in
 
 On macOS, do not use the `+cpu` command above. Follow the canonical
 [`setup-guide.md` macOS section](../../setup-guide.md#macos-apple-silicon),
-which installs plain `torch==2.13.0` and strips the Linux/Windows Torch lines
-from the manifests for that install.
+which installs plain `torch==2.14.1` from the macOS Torch lock, followed by
+the macOS runtime lock.
 
 ---
 

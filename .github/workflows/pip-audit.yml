@@ -119,16 +119,16 @@ jobs:
         # requirements.txt/constraints.txt triggers don't force a re-download of
         # the heaviest dependency on every run. macOS skips this cache entirely
         # -- see the macOS-specific install step below (same split ci.yml uses).
-        # The torch==2.13.0+cpu pin (and this cache key) is repeated in other
+        # The torch==2.14.1+cpu pin (and this cache key) is repeated in other
         # workflows -- grep for the version string under .github/workflows/
         # before bumping it here.
         id: torch-wheel-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .torch-wheels
-          key: torch-cpu-2.13.0-${{ runner.os }}-py312
+          key: torch-cpu-2.14.1-${{ runner.os }}-py312
           restore-keys: |
-            torch-cpu-2.13.0-${{ runner.os }}-
+            torch-cpu-2.14.1-${{ runner.os }}-
 
       - name: Download torch wheel (cache miss only)
         if: runner.os != 'macOS' && steps.torch-wheel-cache.outputs.cache-hit != 'true'
@@ -137,7 +137,7 @@ jobs:
         # wheel from the PyTorch index (matching ci.yml and the documented
         # CVE-2025-32434 >=2.6.0 floor); --no-deps avoids pulling the default CUDA build.
         run: |
-          pip download "torch==2.13.0+cpu" \
+          pip download "torch==2.14.1+cpu" \
             --index-url https://download.pytorch.org/whl/cpu \
             --no-deps -d .torch-wheels
 
@@ -162,7 +162,7 @@ jobs:
           INSTALL_PROFILE: ${{ matrix.profile }}
         if: runner.os == 'macOS'
         shell: bash
-        # torch==2.13.0+cpu 404s on https://download.pytorch.org/whl/cpu for
+        # torch==2.14.1+cpu 404s on https://download.pytorch.org/whl/cpu for
         # macOS -- that index lists plain (non "+cpu"-suffixed) versions there
         # instead, because Apple Silicon has no separate CPU/CUDA build to
         # disambiguate. The macOS locks already omit the +cpu suffix.
