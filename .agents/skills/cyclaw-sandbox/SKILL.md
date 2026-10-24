@@ -69,7 +69,7 @@ Browser failures are FAIL; missing browser packages are SKIP. No stub/native
 substitute should receive a higher fidelity label.
 
 The removed Python coding console and extractor are not audit prerequisites;
-inspect retained agentic/optimizer code rather than resurrecting their routes.
+inspect the retained `agentic/fsconnect` and `agentic/netconnect` code rather than resurrecting removed routes.
 Historical reports remain in `docs/audits/` and are not current PASS evidence.
 
 ## Report

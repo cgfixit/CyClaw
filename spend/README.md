@@ -223,8 +223,6 @@ the current vendor rate before treating a table-only estimate as a bill.
 
 ### Live probes (they spend real money)
 
-One stack remains since the agentic planner's removal (October 2026).
-
 **`/query` plane** (`llm/client.py`, `source: "query"`). Opt-in, not collected
 by pytest, fails closed unless the live flag is set:
 

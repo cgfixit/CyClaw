@@ -49,7 +49,7 @@ the audit log, or any argv.
 | **`direction: pull`** | `rclone copy` never deletes at the destination. One-way pull is the safest default for an RAG corpus. Bidirectional `bisync` is a silent-rewrite path into governed state. |
 | **`include_soul` deprecated** | `data/personality/` is governed via `POST /soul/apply` with a human reason string and an injection scan. Sync can never touch it: `local_path` must resolve inside `data/corpus`, and the soul filter rule is unconditional. The `include_soul` key remains only so old configs load; it has no effect. |
 | **Hardened exclude list** | Model weights, indices, caches, venvs, logs, secrets, `.git`, and the soul DB (`*.db*`) are all excluded by default. See `sync/filters.py`. |
-| **`max_delete: 20`** | rclone aborts the run if more than 20 deletions would occur. Tune up only when you understand exactly why. |
+| **`max_delete: 20`** | rclone aborts the run if more than 20 deletions would occur (bisync only; pull never deletes). Tune up only when you understand exactly why. |
 | **Per-file SHA-256 audit** | Added/modified file events include a SHA-256 hash when the local file resolves inside the corpus and can be read. Otherwise the audit row has an empty `sha256`. |
 | **No in-process gateway import** | No graph node or edge. The six core modules never import `sync/`. Optional `POST /ops/sync` reaches it through the `require_api_key`-guarded subprocess shim in `utils/ops_runner.py`. The only outbound call is still `rclone` to Dropbox. |
 | **Zero new deps** | stdlib + existing `pyyaml`/`utils.*` only. `rclone` is an external binary, installed out-of-band like Ollama. |
@@ -144,8 +144,8 @@ sync:
   include_soul: false            # deprecated no-op — soul is never mirrored (sync root confined to data/corpus)
   reindex_on_change: true        # exit 10 when data/corpus/** changed
   checksum: true                 # rclone --checksum (hash compare, not mtime)
-  max_delete: 20                 # safety fuse: abort if > N deletions
-  max_transfer: "1G"             # safety fuse: abort if run would move > this
+  max_delete: 20                 # bisync fuse: abort if > N deletions (pull never deletes)
+  max_transfer: "1G"             # fuse: rclone stops once this much has transferred
   schedule_hour: 2               # 24h local time (cron / Task Scheduler)
   schedule_min: 0
   conflict_resolve: "newer"      # bisync-only: newer modtime wins

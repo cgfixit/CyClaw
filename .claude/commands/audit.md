@@ -42,12 +42,12 @@ Run the CyClaw audit log analyzer. $ARGUMENTS
    - Any anomalies or error entries
 
 5. Flag if:
-   - Any raw query text appears in the log (PII/privacy violation — should be SHA-256 hashed)
+   - Any raw query text appears in the log (PII/privacy violation — should be a keyed HMAC-SHA256 `query_hash`)
    - Error rate exceeds 10%
    - Any entries with a `grok_fallback` or `claude_fallback` node were triggered (means an online fallback was confirmed)
 
 ## Notes
 
 - Audit log is append-only JSONL at `logs/audit.jsonl`
-- Query text is SHA-256 hashed — raw queries are never stored by design
+- Query text is stored as a keyed HMAC-SHA256 fingerprint while `logging.audit_fields.include_query_hash` is true (shipped); `false` stores PII-redacted raw text
 - `GROK_API_KEY` is not read by `metrics.py`; the `GROK_API_KEY=dummy` prefix above only mirrors the pytest convention and is harmless to omit
