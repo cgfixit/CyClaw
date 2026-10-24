@@ -1,7 +1,7 @@
 {
   "version": 1,
   "inputs": {
-    "constraints.txt": "sha256:225edcc5a5c90cd23e4d5d2a5cd526998e77fbfdc262c7ca8e3eb59a53b9e676",
+    "constraints.txt": "sha256:ac9dea965991bdd9288028ff993c30fbffd4992c7baa9acea49133b276e5ffd0",
     "pyproject.toml": "sha256:66d00fd2cc31797ffb572a455227b851dcdae2a3dd478e8417e83361176f6f24",
     "requirements-test.txt": "sha256:74b55668f8522690424b78f1a1c2e13d64bac94c25207feb5e4155d8a91cf285",
     "scripts/check_lock_contract.py": "sha256:7bd914413d1d618ed60abab30981d937e3113e4d124d4b67f3e2aeeb047ad776",
@@ -18,7 +18,7 @@
     "scripts/refresh-ci-locks.sh": "sha256:04f6b56e2d932f06d7bbf54ac2d361a5b7a67cb3d2aef04e30182f42f984c22c"
   },
   "outputs": {
-    "requirements-ci-bandit-lock-linux.txt": "sha256:51e59af6ba7396bd353be4edde969b7b9847bf10036d99ab6ae560a2106bf21c",
+    "requirements-ci-bandit-lock-linux.txt": "sha256:ccd5f3699ec4cd7962440b2079e37fd477ed3b0ef2899df5526442770ad10b2b",
     "requirements-ci-cel-lock-linux.txt": "sha256:e33614d198728a9f18364fb4a4ef75dbbd7880ae74b174837a998783c74e48fd",
     "requirements-ci-numbat-lock-linux.txt": "sha256:7d9c89e5cdeb2cb547da2e6c0bbde310a8092024dfe1793eea8a844bed09ba3f",
     "requirements-ci-postgres-lock-linux.txt": "sha256:3d5643e8f7f1aad8e79be6b00ced66ae1acc17092769fed09418d2fe5aee4da1",

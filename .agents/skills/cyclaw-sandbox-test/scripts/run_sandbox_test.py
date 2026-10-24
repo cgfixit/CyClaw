@@ -254,6 +254,8 @@ def _prepare_repo(repo: Path, args: argparse.Namespace, results: list[Result], e
         results.append(Result("soul scaffold", "WARN", "created missing data/personality/soul.md in sandbox"))
     py = Path(sys.executable)
     if not args.skip_install:
+        lock_platform = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
+        torch_index = "https://pypi.org/simple" if lock_platform == "macos" else "https://download.pytorch.org/whl/cpu"
         if shutil.which("py"):
             venv_cmd = ["py", "-3.12", "-m", "venv", str(repo / ".venv")]
         else:
@@ -272,15 +274,18 @@ def _prepare_repo(repo: Path, args: argparse.Namespace, results: list[Result], e
         )
         _require(
             _run(
-                "install torch cpu",
+                "install torch",
                 [
                     str(py),
                     "-m",
                     "pip",
                     "install",
-                    "torch==2.14.1+cpu",
+                    "--require-hashes",
+                    "--no-deps",
+                    "-r",
+                    f"locks/requirements-torch-lock-{lock_platform}.txt",
                     "--index-url",
-                    "https://download.pytorch.org/whl/cpu",
+                    torch_index,
                 ],
                 repo,
                 env,
@@ -296,12 +301,11 @@ def _prepare_repo(repo: Path, args: argparse.Namespace, results: list[Result], e
                     "-m",
                     "pip",
                     "install",
+                    "--require-hashes",
                     "-r",
-                    "requirements.txt",
-                    "-c",
-                    "constraints.txt",
-                    "--ignore-installed",
-                    "PyYAML",
+                    f"locks/requirements-lock-{lock_platform}.txt",
+                    "-r",
+                    f"locks/requirements-test-lock-{lock_platform}.txt",
                 ],
                 repo,
                 env,

@@ -27,7 +27,8 @@ SCRIPTS = ROOT / ".agents" / "skills" / "cyclaw-sandbox-test" / "scripts"
     ("Darwin", "macos", "https://pypi.org/simple"),
     ("Linux", "linux", "https://download.pytorch.org/whl/cpu"),
 ])
-def test_sandbox_install_selects_platform_locks(tmp_path, script, system, platform, index):
+@pytest.mark.parametrize("broken", [False, True])
+def test_sandbox_install_selects_platform_locks(tmp_path, script, system, platform, index, broken):
     text = (ROOT / script).read_text(encoding="utf-8")
     start = 'if [ -z "${SKIP_INSTALL:-}" ]; then'
     install = start + text.split(start, 1)[1].split("\nfi\n", 1)[0] + "\nfi\n"
@@ -39,18 +40,20 @@ def test_sandbox_install_selects_platform_locks(tmp_path, script, system, platfo
         "    out.write(json.dumps(sys.argv[1:]) + '\\n')\n",
         encoding="utf-8",
     )
+    with python.open("a", encoding="utf-8") as out:
+        out.write("if os.environ['TEST_FAIL_TORCH'] == '1' and any('requirements-torch-lock-' in arg for arg in sys.argv): sys.exit(9)\n")
     python.chmod(0o700)
     result = subprocess.run(
         ["/bin/bash", "-c", 'uname() { echo "$TEST_UNAME"; }; note() { :; }; '
          'pass() { :; }; fail() { exit 1; }; ' + install],
         cwd=ROOT, capture_output=True, text=True, timeout=10, check=False,
         env={**os.environ, "VPY": str(python), "SKIP_INSTALL": "",
-             "TEST_PIP_CALLS": str(calls), "TEST_UNAME": system},
+             "TEST_PIP_CALLS": str(calls), "TEST_UNAME": system, "TEST_FAIL_TORCH": str(int(broken))},
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == (1 if broken else 0), result.stderr
     commands = [json.loads(line) for line in calls.read_text().splitlines()]
-    assert len(commands) == 4
-    for command, stem in zip(commands[1:], ("torch-lock", "lock", "test-lock"), strict=True):
+    assert len(commands) == (2 if broken else 4)
+    for command, stem in zip(commands[1:], ("torch-lock", "lock", "test-lock")[:len(commands) - 1], strict=True):
         lock = f"locks/requirements-{stem}-{platform}.txt"
         assert command[command.index("-r") + 1] == lock
         assert "--require-hashes" in command and (ROOT / lock).is_file()
@@ -156,6 +159,36 @@ def test_prepare_repo_stops_after_required_setup_failure(tmp_path: Path, monkeyp
         runner._prepare_repo(tmp_path, args, results, {})
 
     assert [result.name for result in results] == ["soul scaffold", "create venv"]
+
+
+@pytest.mark.parametrize("platform, lock", [("darwin", "macos"), ("linux", "linux"), ("win32", "windows")])
+@pytest.mark.parametrize("broken", [False, True])
+def test_prepare_repo_selects_platform_locks(tmp_path, monkeypatch, platform, lock, broken):
+    runner = _load_script("run_sandbox_test.py")
+    calls = []
+
+    def record(name, cmd, *_):
+        calls.append(cmd)
+        return runner.Result(name, "FAIL" if broken and name == "install torch" else "PASS", "probe")
+
+    monkeypatch.setattr(runner, "_run", record)
+    monkeypatch.setattr(runner.shutil, "which", lambda *_: None)
+    monkeypatch.setattr(sys, "platform", platform)
+    args = SimpleNamespace(skip_install=False, skip_index=True)
+    if broken:
+        with pytest.raises(RuntimeError, match="install torch failed"):
+            runner._prepare_repo(tmp_path, args, [], {})
+        assert len(calls) == 3
+    else:
+        runner._prepare_repo(tmp_path, args, [], {})
+        assert len(calls) == 4
+        assert f"locks/requirements-lock-{lock}.txt" in calls[3]
+        assert f"locks/requirements-test-lock-{lock}.txt" in calls[3]
+    assert f"locks/requirements-torch-lock-{lock}.txt" in calls[2]
+    index = "https://pypi.org/simple" if lock == "macos" else "https://download.pytorch.org/whl/cpu"
+    assert calls[2][-2:] == ["--index-url", index]
+    assert "--no-deps" in calls[2]
+    assert all("--require-hashes" in cmd for cmd in calls[2:])
 
 
 def test_runner_ref_detaches_at_exact_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
