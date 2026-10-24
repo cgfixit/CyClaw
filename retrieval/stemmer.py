@@ -36,7 +36,7 @@ def _porter() -> "PorterStemmer":
 #
 # 256 is defense in depth for CVE-2026-81722 (PorterStemmer O(n²) on a long
 # run of 'y'): far below the ~20–50 KB payload, far above any _CUSTOM_STEMS
-# key or sane BM25 token. The nltk 3.10.3 pin is the real fix; this cap
+# key or sane BM25 token. The nltk pin (fixed in 3.10.3, now 3.10.4) is the real fix; this cap
 # still bounds cache keys and Porter if that pin regresses. A 50 KB 'y'-run
 # splits into ~200 tokens of 256 chars (non-overlapping), not one huge token.
 #
