@@ -47,11 +47,11 @@ import tomllib
 from pathlib import Path
 from typing import NamedTuple
 
-# The pydantic family bumps in lock-step: pydantic 2.13.5 hard-pins
-# pydantic-core==2.46.5 (exact ==). Bumping one alone makes
+# The pydantic family bumps in lock-step: pydantic 2.14.1 hard-pins
+# pydantic-core==2.50.1 (exact ==). Bumping one alone makes
 # `pip install -c constraints.txt` unresolvable (CLAUDE.md §4). Drift from this
 # documented pair is a conscious update, not a silent one -> WARN, not FAIL.
-_PYDANTIC_LOCKSTEP = {"pydantic": "2.13.5", "pydantic-core": "2.46.5"}
+_PYDANTIC_LOCKSTEP = {"pydantic": "2.14.1", "pydantic-core": "2.50.1"}
 
 _fails: list[dict[str, str]] = []
 _warns: list[dict[str, str]] = []

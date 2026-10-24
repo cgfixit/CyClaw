@@ -357,7 +357,7 @@ the test that pins each (`tests/test_due_diligence_invariants.py`).
 ### Dependencies
 - **Trap:** bumping `pydantic-core` alone, or adding `[standard]` to the uvicorn
   constraint. **Rule:** `pydantic` and `pydantic-core` are lock-step
-  (2.13.5 ↔ 2.46.5); the `uvicorn` constraint carries no extras.
+  (2.14.1 ↔ 2.50.1); the `uvicorn` constraint carries no extras.
 - **Trap:** letting numpy float to 2.x. **Rule:** numpy is pinned `<2`
   (numpy 2 breaks chromadb/onnxruntime).
 - **Trap:** "fixing" the chromadb CVE. **Rule:** it is risk-accepted,
