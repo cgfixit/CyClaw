@@ -89,10 +89,16 @@ source "$VENV_DIR/bin/activate"
 
 if [ -z "${SKIP_INSTALL:-}" ]; then
   note "Installing torch (CPU) + pinned requirements into clean venv"
+  LOCK_PLATFORM=linux
+  TORCH_INDEX=https://download.pytorch.org/whl/cpu
+  if [ "$(uname -s)" = "Darwin" ]; then
+    LOCK_PLATFORM=macos
+    TORCH_INDEX=https://pypi.org/simple
+  fi
   if "$VPY" -m pip install --quiet --upgrade "pip==26.2.2" \
-     && "$VPY" -m pip install --quiet --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu \
-     && "$VPY" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt \
-     && "$VPY" -m pip install --quiet --require-hashes -r locks/requirements-test-lock-linux.txt; then
+     && "$VPY" -m pip install --quiet --require-hashes --no-deps -r "locks/requirements-torch-lock-${LOCK_PLATFORM}.txt" --index-url "$TORCH_INDEX" \
+     && "$VPY" -m pip install --quiet --require-hashes -r "locks/requirements-lock-${LOCK_PLATFORM}.txt" \
+     && "$VPY" -m pip install --quiet --require-hashes -r "locks/requirements-test-lock-${LOCK_PLATFORM}.txt"; then
     pass "3.12 dependency install" "clean install, no version conflicts"
   else
     fail "3.12 dependency install" "pip install failed — see output above"

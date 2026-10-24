@@ -321,10 +321,10 @@ jobs:
         # carry ZERO extras. Every optional dependency is audited by the
         # scan-optional job below.)
         #
-        # setuptools is pinned at 84.0.0 in constraints.txt (PYSEC-2026-3447
+        # setuptools is pinned at 84.1.0 in constraints.txt (PYSEC-2026-3447
         # floor is 83.0.0). The previous --ignore-vuln is gone: the audited
         # venv installs locks/requirements-lock-linux.txt with --require-hashes, and
-        # that lock carries setuptools==84.0.0.
+        # that lock carries setuptools==84.1.0.
         #
         # PYSEC-2026-3721 (pip) — was ignored here from 2026-09-07 while pip
         # was pinned to 26.1.2 repo-wide. Closed by the repository-wide pip
@@ -448,7 +448,7 @@ jobs:
         # Every CVE is a real finding here -- the base scan's chromadb/nltk
         # ignores are deliberately NOT carried over, since neither package is
         # an extra. Each extra installs from a hashed lock compiled against
-        # constraints.txt (setuptools stays 84.0.0 when a package pulls it,
+        # constraints.txt (setuptools stays 84.1.0 when a package pulls it,
         # PYSEC-2026-3447 floor 83.0.0). pip-audit -r has no -c/--constraint
         # flag, so the lock is installed into a throwaway venv and audited
         # with --path. pip is

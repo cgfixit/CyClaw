@@ -43,7 +43,7 @@ dependencies:
   # platforms (release metadata checked 2026-10-23), closing the old <82 cap.
   - pytorch=2.14.1=cpu*
   # Match constraints.txt; PYSEC-2026-3447 is fixed from 83.0.0.
-  - setuptools=84.0.0
+  - setuptools=84.1.0
   - huggingface_hub=1.32.0
   - numpy=1.26.4
   - nltk=3.10.3

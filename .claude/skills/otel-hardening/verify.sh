@@ -702,7 +702,7 @@ rm -rf "$a"
 #     each must now trip the fixed-launcher WARN on its own.
 a="$(_mktree)"
 _mutate "$a/.claude/skills/CyClaw-Sandbox/verify.sh" '
-text = text.replace("\"$VPY\" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt", "true", 1)'
+text = text.replace("\"$VPY\" -m pip install --quiet --require-hashes -r \"locks/requirements-lock-${LOCK_PLATFORM}.txt\"", "true", 1)'
 _expect "T13 sandbox pip install gone mutation" 0 "WARN  \[T13\] fixed launcher .pip-install.: .claude/skills/CyClaw-Sandbox/verify.sh no longer carries"
 rm -rf "$a"
 
