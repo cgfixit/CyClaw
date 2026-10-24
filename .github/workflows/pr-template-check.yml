@@ -17,7 +17,9 @@
 #
 # Posts a sticky comment AND fails the job when rules fail so every vendor
 # (Kimi, Codex, Grok, GitHub UI) is gated the same way. Git hooks cannot see
-# gh pr create / GitHub API bodies.
+# gh pr create / GitHub API bodies. One trailing Cursor agent footer div
+# (cursor.com/agents + cursor_ref=pr_footer) is ignored, same as one Claude
+# Code footer: both are appended after the stamp and cannot be omitted.
 #
 # No checkout, no execution of anything from the PR: this only reads the PR
 # body, title, head ref and changed-file list from the event payload and API.
@@ -111,6 +113,14 @@ jobs:
             }
 
             const nonBlank = prose.split("\n").map((l) => l.trimEnd()).filter((l) => l.trim() !== "");
+            // Cursor's PR tool appends one footer div after the body (its
+            // marker comments are already stripped). Skip exactly one.
+            if (
+              nonBlank.length >= 1 &&
+              /^<div><a href="https:\/\/cursor\.com\/agents\/[^"]*cursor_ref=pr_footer.*<\/div>$/.test(nonBlank[nonBlank.length - 1])
+            ) {
+              nonBlank.splice(-1);
+            }
             // Claude Code's GitHub integration appends this two-line footer after
             // the body on every write; skip exactly one such footer.
             if (

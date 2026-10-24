@@ -89,7 +89,7 @@ CI checks every lock group against recorded inputs and hashes, and checks wheel 
 Choose a non-MLX local model and update both model keys there as well.
 
 Confirm: `curl http://127.0.0.1:8787/health`, then open
-`http://127.0.0.1:8787/`. A manual macOS install uses plain `torch==2.13.0`
+`http://127.0.0.1:8787/`. A manual macOS install uses plain `torch==2.14.1`
 (no `+cpu` wheel) then the hashed macOS lock
 ([macOS (Apple Silicon)](setup-guide.md#macos-apple-silicon)); updating an
 existing environment ends with the [NeMo verification](setup-guide.md#verify-the-installed-nemo-runtime).

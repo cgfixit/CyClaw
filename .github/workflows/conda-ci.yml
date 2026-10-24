@@ -32,7 +32,7 @@ jobs:
       fail-fast: false
       matrix:
         # macos-latest is GitHub's Apple Silicon (arm64) runner, the same one
-        # ci.yml's pip matrix uses. environment.yml's pytorch=2.13.0=cpu* glob
+        # ci.yml's pip matrix uses. environment.yml's pytorch=2.14.1=cpu* glob
         # matches conda-forge's osx-arm64 cpu_generic builds (no CUDA variants
         # exist there), so one env file serves both legs.
         os: [ubuntu-22.04, macos-latest]
@@ -50,7 +50,7 @@ jobs:
       uses: conda-incubator/setup-miniconda@be893c923ea9cf1cf7cd510fbdde27c7e18cbdcb  # v4.1.0
       with:
         # Pin the installer base (not "latest") so Miniforge itself is reproducible.
-        # Matches the install-surface pin policy in ci.yml (pip==26.2.1).
+        # Matches the install-surface pin policy in ci.yml (pip==26.2.2).
         miniforge-version: "25.3.0-3"
         python-version: ${{ matrix.python-version }}
         channels: conda-forge
@@ -79,7 +79,7 @@ jobs:
         # always the coherent one mamba just installed, so the former
         # wipe-site-packages + ensurepip bootstrap -- which existed solely to
         # heal a cache-restored, half-upgraded pip -- has nothing left to heal.
-        python -m pip install --upgrade "pip==26.2.1"
+        python -m pip install --upgrade "pip==26.2.2"
         python -m pip --version
 
     - name: Install CyClaw in editable mode + test extras

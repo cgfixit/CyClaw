@@ -93,7 +93,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          # Single-arch first: torch==2.13.0+cpu path is verified on amd64 in CI.
+          # Single-arch first: CI exercises the amd64 CPU wheel from its hashed lock.
           # Multi-arch (linux/arm64) is intentionally deferred — QEMU+torch is fragile
           # and macOS Apple Silicon operators should prefer native install scripts
           # (macos/install-cyclaw.sh) or Docker Desktop until a dedicated arm64 image lands.

@@ -189,6 +189,11 @@ if ($prose =~ $sections[7][2] && @headings && $headings[-1] !~ /^#{1,6}\s*eli5\b
 }
 
 my @nonblank = grep { /\S/ } map { (my $l = $_) =~ s/\s+$//; $l } split /\n/, $prose;
+# The Cursor PR tool appends one footer div after the body. Its marker
+# comments are already stripped from $prose. Skip exactly one such line.
+if (@nonblank && $nonblank[-1] =~ /^<div><a href="https:\/\/cursor\.com\/agents\/[^"]*cursor_ref=pr_footer.*<\/div>$/) {
+  pop @nonblank;
+}
 # The Claude Code GitHub integration appends this two-line footer after the body
 # on every write and cannot be told not to; skip exactly one such footer.
 if (@nonblank >= 2 && $nonblank[-2] eq "---"

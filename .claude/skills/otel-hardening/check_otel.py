@@ -583,7 +583,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "sentence-transformers/transformers/torch stack", "category": 5, "controls": {},
         "url": "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
-        "versions": "sentence-transformers==6.1.0; torch==2.13.0+cpu; transformers unbounded transitive on "
+        "versions": "sentence-transformers==6.1.0; torch==2.14.1+cpu; transformers unbounded transitive on "
                     "the wheel surface (locks/requirements-lock-*.txt hash-pin it at 5.18.0 for the "
                     "documented install path, which is why T13 still reports it as a standing finding)",
         "enforcement": "no own telemetry mechanism; all hub traffic flows through huggingface-hub (its "
@@ -1115,17 +1115,17 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # the installers' export-then-install markers pin the claim that the
     # canonical block reaches pip there (Codex P2 on PR #1637, eleventh round)
     ("pip-install", "macos/install-cyclaw.sh", ('"$VENV_PY" -S -E -m utils.telemetry_kill --export shell',
-                                                '"$VENV_PY" -m pip install --upgrade "pip==26.2.1"',
+                                                '"$VENV_PY" -m pip install --upgrade "pip==26.2.2"',
                                                 '"$VENV_PY" -m pip install --require-hashes -r')),
     ("pip-install", "powershell/Install-CyClaw.ps1", ('& $VenvPy -S -E -m utils.telemetry_kill --export powershell',
-                                                      '& $VenvPy -m pip install --upgrade "pip==26.2.1"',
+                                                      '& $VenvPy -m pip install --upgrade "pip==26.2.2"',
                                                       '& $VenvPy -m pip install --require-hashes -r')),
-    ("pip-install", "Dockerfile", ('pip install --no-cache-dir --upgrade "pip==26.2.1"',
+    ("pip-install", "Dockerfile", ('pip install --no-cache-dir --upgrade "pip==26.2.2"',
                                    'pip install --no-cache-dir --require-hashes -r locks/requirements-lock-linux.txt')),
     ("pip-install", ".claude/skills/cyclaw-gotchas/driver.sh", ('"$pip" install -q "$@"',
-                                                                '"$pip" install -q --retries 1 --timeout 15 "torch==2.13.0+cpu"')),
-    ("pip-install", ".claude/skills/CyClaw-Sandbox/verify.sh", ('"$VPY" -m pip install --quiet --upgrade "pip==26.2.1"',
-                                                                '"$VPY" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt')),
+                                                                '"$pip" install -q --retries 1 --timeout 15 "torch==2.14.1+cpu"')),
+    ("pip-install", ".claude/skills/CyClaw-Sandbox/verify.sh", ('"$VPY" -m pip install --quiet --upgrade "pip==26.2.2"',
+                                                                '"$VPY" -m pip install --quiet --require-hashes -r "locks/requirements-lock-${LOCK_PLATFORM}.txt"')),
     ("brew-install", "macos/setup-from-clone.sh", ("brew install python@3.12",)),
     # the installers' repository acquisition: network git, its own component
     ("git-remote", "macos/setup-cyclaw.sh", ("git clone --branch main --single-branch https://github.com/CGFixIT/CyClaw.git",)),

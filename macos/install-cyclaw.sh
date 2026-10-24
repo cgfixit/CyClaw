@@ -183,7 +183,7 @@ if [ "$SKIP_PYTHON_DEPS" -eq 0 ]; then
   fi
   step "installing dependencies (torch first, then requirements; this can take a few minutes)"
   # Match ci.yml's exact pip pin (CVE/repro); never float to latest on installers.
-  "$VENV_PY" -m pip install --upgrade "pip==26.2.1" >/dev/null
+  "$VENV_PY" -m pip install --upgrade "pip==26.2.2" >/dev/null
   if [ "$(uname -s)" = "Darwin" ]; then
     # Apple Silicon has no separate CPU/CUDA torch build to disambiguate, so
     # macOS uses the plain arm64 Torch wheel from PyPI. The separate hashed
