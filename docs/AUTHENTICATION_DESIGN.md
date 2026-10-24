@@ -24,7 +24,7 @@ without real cert files fails closed at boot instead of marking cookies
 Secure on plaintext.
 
 This document exists because the operator wrote the requirement down first, in
-`docs/zIdeas/note.txt`:
+`docs/zIdeas/note.txt` (since removed from the tree):
 
 > "Dont forget that curl requests or powershell api commands can still query
 > cyclaw if on same lan - need to add authentication before truly considering
