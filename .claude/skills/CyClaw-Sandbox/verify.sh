@@ -89,7 +89,7 @@ source "$VENV_DIR/bin/activate"
 
 if [ -z "${SKIP_INSTALL:-}" ]; then
   note "Installing torch (CPU) + pinned requirements into clean venv"
-  if "$VPY" -m pip install --quiet --upgrade "pip==26.2.1" \
+  if "$VPY" -m pip install --quiet --upgrade "pip==26.2.2" \
      && "$VPY" -m pip install --quiet --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu \
      && "$VPY" -m pip install --quiet --require-hashes -r locks/requirements-lock-linux.txt \
      && "$VPY" -m pip install --quiet --require-hashes -r locks/requirements-test-lock-linux.txt; then
