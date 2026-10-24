@@ -168,7 +168,7 @@ jobs:
           import pip
           from pip._vendor import certifi as pip_certifi
           # GHSA-6q48-6c7w-9gw2 / DLA-4845-1: emSign ECC Root CA - G3.
-          removed = '86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b'
+          removed = '86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b'  # DevSkim: ignore DS173237 - public certificate SHA-256, not a credential
           debian = subprocess.check_output(['dpkg-query', '-W', '-f=${Version}', 'ca-certificates'], text=True)
           assert debian == '20250419~deb12u2', debian
           assert pip.__version__ == '26.2.2', pip.__version__
