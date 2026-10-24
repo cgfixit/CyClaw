@@ -14,8 +14,8 @@
 # Docker support added in feature/CyClaw-Agent for production reproducibility.
 # constraints.txt now expanded with all direct pins + pydantic family + torch for hermetic gate.
 #
-# Torch is deliberately absent. Linux and Windows install torch==2.13.0+cpu
-# from the exclusive PyTorch CPU index; macOS installs plain torch==2.13.0
+# Torch is deliberately absent. Linux and Windows install torch==2.14.1+cpu
+# from the exclusive PyTorch CPU index; macOS installs plain torch==2.14.1
 # from PyPI. Keeping the alternate index out of this file prevents every other
 # dependency from being resolved against it.
 

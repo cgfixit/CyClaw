@@ -79,7 +79,7 @@ jobs:
           test "$(numbat version)" = "numbat 0.2.0 (schema 0.3.0)"
 
       - name: Cache torch CPU wheel
-        # Same pin/index as ci.yml. constraints.txt names torch==2.13.0+cpu,
+        # Same pin/index as ci.yml. constraints.txt names torch==2.14.1+cpu,
         # which is not on PyPI — pip install -e ".[numbat-cel,test]" -c
         # constraints.txt fails ResolutionImpossible without this wheel first
         # (run 33070991796).
@@ -87,15 +87,15 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .torch-wheels
-          key: torch-cpu-2.13.0-${{ runner.os }}-py312
+          key: torch-cpu-2.14.1-${{ runner.os }}-py312
           restore-keys: |
-            torch-cpu-2.13.0-${{ runner.os }}-
+            torch-cpu-2.14.1-${{ runner.os }}-
 
       - name: Download torch wheel (cache miss only)
         if: steps.torch-wheel-cache.outputs.cache-hit != 'true'
         run: |
           python -m pip install --upgrade "pip==26.2.2"
-          pip download "torch==2.13.0+cpu" \
+          pip download "torch==2.14.1+cpu" \
             --index-url https://download.pytorch.org/whl/cpu \
             --no-deps -d .torch-wheels
 

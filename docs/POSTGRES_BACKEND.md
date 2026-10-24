@@ -32,7 +32,7 @@ pip install --require-hashes -r locks/requirements-extra-lock-pgvector-linux.txt
 
 Elsewhere, install the extras' exact pins (`psycopg==3.3.6 psycopg-binary==3.3.6`,
 then `pgvector==0.5.1`). Do not add `-c constraints.txt` on macOS: its
-`torch==2.13.0+cpu` pin cannot match the plain macOS torch. From the published
+`torch==2.14.1+cpu` pin cannot match the plain macOS torch. From the published
 wheel, use `pip install 'cyclaw[postgres]'` or `pip install 'cyclaw[pgvector]'`.
 
 `psycopg` / `pgvector` are lazy-imported, so a default install never loads them.

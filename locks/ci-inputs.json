@@ -1,8 +1,8 @@
 {
   "version": 1,
   "inputs": {
-    "constraints.txt": "sha256:5f7f1d253bf4195b8915471ccd5bf990184c0d66b948d8c5d5a95136460c11b1",
-    "pyproject.toml": "sha256:7d12bdcc63ebe06ead3681cb358731dbf81d3a61dfff2c2324040f910c58cb9e",
+    "constraints.txt": "sha256:225edcc5a5c90cd23e4d5d2a5cd526998e77fbfdc262c7ca8e3eb59a53b9e676",
+    "pyproject.toml": "sha256:66d00fd2cc31797ffb572a455227b851dcdae2a3dd478e8417e83361176f6f24",
     "requirements-test.txt": "sha256:74b55668f8522690424b78f1a1c2e13d64bac94c25207feb5e4155d8a91cf285",
     "scripts/check_lock_contract.py": "sha256:7bd914413d1d618ed60abab30981d937e3113e4d124d4b67f3e2aeeb047ad776",
     "scripts/ci-lock-inputs/bandit.txt": "sha256:77949e1d765740ff3826bbe7dae91a23c9466b6690365dcbdcd3148943b42da8",

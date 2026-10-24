@@ -390,8 +390,8 @@ form in this guide is chosen because it needs no self-install. If you want the
 short names, add one line after step 3: `pip install -e . -c constraints.txt`
 on Linux and Windows, or `pip install -e . --no-deps` on macOS (the lock has
 already installed every dependency, and `constraints.txt` pins the
-`torch==2.13.0+cpu` build that macOS cannot satisfy). Package metadata pins
-Torch's public release to `2.13.0`; it cannot select the CPU wheel index. Keep
+`torch==2.14.1+cpu` build that macOS cannot satisfy). Package metadata pins
+Torch's public release to `2.14.1`; it cannot select the CPU wheel index. Keep
 the platform's Torch pre-install and lock steps for editable and wheel installs.
 
 The `all` aggregate adds the CEL backend to `full`. The `agentic-deepagents`,
@@ -750,7 +750,7 @@ cookie-authenticated `GET /auth/whoami` rotates the CSRF token.
 The single most common way a macOS install fails here, and the reason macOS
 gets its own section above rather than sharing Linux's.
 
-`constraints.txt` pins `torch==2.13.0+cpu` for Linux and Windows. The generated
+`constraints.txt` pins `torch==2.14.1+cpu` for Linux and Windows. The generated
 platform locks omit Torch entirely. That `+cpu` local-version
 suffix exists on Linux and Windows specifically to avoid pip resolving the
 default CUDA-bundled wheel. **Apple Silicon has no CUDA build to disambiguate
@@ -759,15 +759,15 @@ from, so no `+cpu`-suffixed macOS wheel is published at all** — that index
 (`.github/workflows/ci.yml` step
 `Install deps (macOS -- plain torch, no +cpu suffix)`).
 
-Verified against PyPI, 2026-08-02: `torch==2.13.0` publishes exactly six macOS
+Verified against PyPI, 2026-10-23: `torch==2.14.1` publishes macOS
 wheels, and every one of them is `macosx_14_0_arm64`
-(`torch-2.13.0-cp312-cp312-macosx_14_0_arm64.whl` is the Python 3.12 one).
+(`torch-2.14.1-cp312-cp312-macosx_14_0_arm64.whl` is the Python 3.12 one).
 Two consequences worth stating plainly:
 
 - **macOS 14 (Sonoma) is the floor.** The `macosx_14_0` platform tag is a
   minimum, not a preference — macOS 13 and earlier cannot install this wheel.
 - **Intel Macs are not supported at this pin.** There is no `x86_64` macOS
-  wheel for torch 2.13.0 on PyPI, so an Intel Mac cannot satisfy the pinned
+  wheel for torch 2.14.1 on PyPI, so an Intel Mac cannot satisfy the pinned
   build. Running CyClaw's core RAG gateway there needs a different torch pin
   than the one this repo ships, which is outside what this guide covers.
 
@@ -1119,9 +1119,9 @@ results are hints, not a complete or live reachability map.
 | `400` on every request, working server otherwise | Your `Host` header isn't in `config.yaml`'s `allowed_hosts` allow-list — add the hostname/IP you're reaching CyClaw by |
 | `ModuleNotFoundError: nltk` (or any other pinned package) | The dependency install (step 3) didn't finish — re-run it; this is not fixed by `nltk.download()` |
 | `FileNotFoundError: constraints.txt` | `git pull` — it's a normal tracked file, not a one-time recovery |
-| **macOS:** `ERROR: No matching distribution found for torch==2.13.0+cpu` | You followed the Linux/Windows torch lock. macOS has no `+cpu` wheel — use `pip install --require-hashes --no-deps -r locks/requirements-torch-lock-macos.txt` ([macOS](#macos-apple-silicon)) |
+| **macOS:** `ERROR: No matching distribution found for torch==2.14.1+cpu` | You followed the Linux/Windows torch lock. macOS has no `+cpu` wheel — use `pip install --require-hashes --no-deps -r locks/requirements-torch-lock-macos.txt` ([macOS](#macos-apple-silicon)) |
 | **macOS:** torch installs, then dependency installation reports a torch conflict | Use the platform-specific hashed runtime and torch locks from the macOS steps; do not mix the Linux/Windows locks into a macOS environment ([macOS](#macos-apple-silicon)) |
-| **macOS:** `No matching distribution found for torch==2.13.0` (no `+cpu`) | Either an Intel Mac (no `x86_64` wheel exists at this pin) or macOS < 14 (the wheel is `macosx_14_0_arm64`) — see [torch on macOS](#torch-on-macos-plain-build-no-cpu-suffix) |
+| **macOS:** `No matching distribution found for torch==2.14.1` (no `+cpu`) | Either an Intel Mac (no `x86_64` wheel exists at this pin) or macOS < 14 (the wheel is `macosx_14_0_arm64`) — see [torch on macOS](#torch-on-macos-plain-build-no-cpu-suffix) |
 | **macOS:** `ollama serve` fails with address already in use | The Ollama `.app` is already serving `:11434` — nothing to fix |
 | Soul endpoints return 404 | Set `personality.enabled: true` in `config.yaml` |
 | `uvloop` install fails on Windows | Expected — uvloop publishes no Windows wheel, so `uvicorn[standard]` simply omits it there and uvicorn falls back to asyncio. Nothing to fix. (uvloop *is* used on Linux and macOS — it is not Linux-only.) |

@@ -106,8 +106,9 @@ can't judge, e.g. a new key's default.
 ### 2. Environment
 
 - **Your machine:** install per CLAUDE.md §8 (hashed `locks/`, torch first;
-  macOS uses plain `torch==2.13.0` and the macOS locks). Then
-  `pip install -e . -c constraints.txt` if you want the `cyclaw-*` shims.
+  macOS uses plain `torch==2.14.1` and the macOS locks). For the `cyclaw-*`
+  shims, use `pip install -e . -c constraints.txt` on Linux/Windows or
+  `pip install -e . --no-deps` on macOS after the locked install.
 - **Claude Code cloud sandbox:** bare `python3`/`pytest` are not 3.12 and
   carry no deps. `bash .claude/skills/cyclaw-gotchas/driver.sh venv` builds
   `/root/.venv-cyclaw-312` (the SessionStart hook starts it in the
