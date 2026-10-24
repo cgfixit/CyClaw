@@ -203,7 +203,6 @@ repository's `settings.json`.
   issue #1351). Most are `kebab-case`; two ship mixed-case by convention
   (`CyClaw-Optimize`, `CyClaw-Sandbox`).
 - All SKILL.md files use YAML frontmatter: `name:`, `description:`
-- Refactor progress is tracked in `/tmp/refactor-CyClaw.md`
 - Claude Code commits as the session runtime's identity (cloud:
   `Claude <noreply@anthropic.com>`; local: the operator's own git identity),
   never as `CyClaw Agent`, the former agentic loop's identity. The loop was

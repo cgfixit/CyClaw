@@ -64,7 +64,7 @@ never in `security.conf`: a tracked list of your identifiers is the leak.
 
 It is a speed bump, not a boundary: bypass flags, a clone that never ran the
 install step, or a different effective `core.hooksPath` can prevent it from
-running. CyClaw's former agentic coding loop was removed in October 2026.
+running.
 Hosted checks and branch rules remain separate controls.
 
 ## PR body template (not a git hook)

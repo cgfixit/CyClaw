@@ -129,7 +129,7 @@ Integrity note above for two of these): 3-layer semantic drift detection for
 | Autonomous skill-write loops | rejected | `SKILL.md` §8.3 |
 | DeepAgents subgraph | retired 2026-07-31; code removed 2026-10-18 | `git log` |
 | Agentic GitHub layer, real-repo loop, `sqlconnect` | removed 2026-10-18 (with `/ops/agentic`, `/ops/sqlconnect`) | `git log` |
-| chromadb CVE-2026-45829 | risk-accepted, embedded only | SECURITY.md (PROJECT_RULES.md restates it) |
+| chromadb CVE-2026-45829 (+ siblings 45830/45831/45833) | risk-accepted, embedded only | SECURITY.md (CLAUDE.md §4 restates it) |
 | `min_score` 0.028 | intentional RRF scale | CLAUDE.md §2, §4 |
 | `HF_HUB_OFFLINE` out of kill map | intentional | CLAUDE.md §4 |
 | `/index/build` not API-key gated while `CYCLAW_API_KEY` is unset | intentional (first-run bricking); key-gated once the key is set | CLAUDE.md §2 route table |

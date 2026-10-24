@@ -26,7 +26,7 @@ Revalidate consequential details: cosine, RRF and reranker logits have different
 gates; shipped reranker threshold is shadow mode. Both local answer nodes check
 destinations; operator host trust is separate from cloud consent. Shipped hybrid
 and enabled providers do not authorize an external answer. Auth, memory and
-agentic masters remain distinct from armed writer flags.
+fsconnect/netconnect masters remain distinct from armed writer flags.
 
 I6 is direct import isolation, not process isolation: guardrail and memory bridges
 can run in process; ops uses subprocesses. Audit JSONL is authoritative and

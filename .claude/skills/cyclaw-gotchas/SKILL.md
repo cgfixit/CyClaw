@@ -229,7 +229,7 @@ expire it.
 - **Trim `list_pull_requests` with `fields`** (`number,title,head`); the full
   payload is large and mostly body text.
 - **Codex P2s are bug reports; verify against the code, then fix.** On #1318
-  the bot was right that the caller (`repo_workspace._clone`) does not retry,
+  (in the since-removed agentic `repo_workspace`) the bot was right that the caller (`repo_workspace._clone`) does not retry,
   so "skip the timeout retry for `repo_clone`" had silently discarded the
   operator's `gh_retries`. The fix was to make the retry able to succeed
   (clear the partial `dest` first), not to remove it. General rule: before
