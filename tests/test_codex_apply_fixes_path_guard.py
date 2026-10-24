@@ -49,7 +49,8 @@ def _run_guard(tmp_path: Path, paths: list[str], mode: str = "100644") -> subpro
         "utils/health.py",
         "tests/test_health.py",
         "docs/README.md",
-        ".claude/skills/doc-sync/SKILL.md",
+        "docs/AGENTS.md.txt",
+        ".claude-notes/README.md",
         "github/notes.md",
         "constraints.txt",
     ],
@@ -78,6 +79,32 @@ def test_ordinary_paths_pass(tmp_path: Path, path: str) -> None:
         ".trivyignore.yaml",
         ".osv-scanner.toml",
         ".claude/skills/dotenv-guard/baseline.txt",
+        "CLAUDE.md",
+        "AGENTS.md",
+        "nested/AGENTS.md",
+        "AGENTS.override.md",
+        "nested/AGENTS.override.md",
+        "AGENTS.local.md",
+        "CLAUDE.local.md",
+        "nested/GEMINI.md",
+        ".cursorrules",
+        ".github/copilot-instructions.md",
+        "nested/copilot-instructions.md",
+        ".claude/skills/doc-sync/SKILL.md",
+        ".claude/rules/trust.md",
+        ".claude/commands/review.md",
+        ".agents/skills/x/agents/openai.yaml",
+        ".agents/skills/x/references/guide.md",
+        "nested/.agents/skills/x/agents/openai.yaml",
+        "nested/.claude/rules/trust.md",
+        ".cursor/rules/persistence.mdc",
+        "nested/.cursor/rules/persistence.mdc",
+        ".agent/rules/trust.md",
+        "nested/.codex/config.toml",
+        "docs/x/SKILL.md",
+        "nested/agents.MD",
+        ".CLAUDE/settings.json",
+        ".GITHUB/workflows/ci.yml",
     ],
 )
 def test_protected_paths_are_refused(tmp_path: Path, path: str) -> None:
@@ -97,3 +124,27 @@ def test_symlink_mode_is_still_refused(tmp_path: Path) -> None:
     result = _run_guard(tmp_path, ["docs/link.md"], mode="120000")
     assert result.returncode != 0
     assert "Refusing symlink/submodule patch" in result.stderr
+
+
+def test_protected_rename_source_is_refused(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)  # noqa: S603, S607
+    original = tmp_path / "AGENTS.md"
+    original.write_text("Synthetic agent instructions\n")
+    subprocess.run(["git", "add", "AGENTS.md"], cwd=tmp_path, check=True, capture_output=True)  # noqa: S603, S607
+    subprocess.run(  # noqa: S603, S607 -- disposable repository with synthetic content
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture"],  # noqa: S607
+        cwd=tmp_path, check=True, capture_output=True,
+    )
+    original.rename(tmp_path / "ordinary.md")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True)  # noqa: S603, S607
+    steps = yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]["steps"]
+    run = next(step for step in steps if step.get("id") == "prepare")["run"]
+    command = next(line.strip() for line in run.splitlines() if '> "$RUNNER_TEMP/changed-paths"' in line)
+    args = command.split(" > ", 1)[0].split()[1:]
+    changed = subprocess.run(  # noqa: S603, S607 -- actual workflow enumeration, no shell
+        ["git", *args], cwd=tmp_path, check=True, capture_output=True,  # noqa: S607
+    ).stdout
+    paths = [path.decode() for path in changed.split(b"\0") if path]
+    result = _run_guard(tmp_path, paths)
+    assert result.returncode != 0
+    assert "Refusing protected patch path: AGENTS.md" in result.stderr

@@ -72,6 +72,11 @@ If no code change is warranted, say so and leave the tree clean.
 ## Hard limits
 
 - Scope = parent bot comment + owner's apply request only.
+- The publish guard refuses agent instruction files (including nested instruction
+  filenames, every `SKILL.md`, `.claude/`, `.agents/`, `.agent/`, `.cursor/` and
+  `.codex/`), workflows, hooks, locks
+  and protected controls. If a fix needs one of these paths, report it for a
+  normal human-reviewed PR instead of generating an unpublishable patch.
 - No autonomous soul/registry/agentic write-path arming.
 - No `shell=True`, no secret material in logs or commits.
 - If the request would require a contract/topology change, stop and explain

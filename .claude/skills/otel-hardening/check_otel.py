@@ -871,7 +871,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
                     "pyyaml/rank-bm25/pygments/websockets/tzdata and the dev/test/build tools "
-                    "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.0.0; hatchling==1.32.4 is the "
+                    "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.1.0; hatchling==1.32.4 is the "
                     "[build-system] backend, swept from build-system.requires, never installed at "
                     "runtime). psycopg-binary and cel-python have their own rows above",
         "enforcement": "no telemetry/analytics mechanism in any of them; httpx is a transport whose egress "
@@ -995,7 +995,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     # [build-system].requires -- swept since 2026-09-28
     "hatchling": "core web/runtime libs",
     # constraints.txt-only pin (torch's transitive setuptools>=77.0.3 floor,
-    # hardened to 84.0.0 for PYSEC-2026-3447): a build backend, no own
+    # hardened to 84.1.0 for PYSEC-2026-3447): a build backend, no own
     # telemetry mechanism, same bucket as pip/wheel/python above.
     "setuptools": "core web/runtime libs",
 }
