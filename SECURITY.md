@@ -107,6 +107,10 @@ Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
 - **Guardrails:** any change that decodes an attachment (for example a thumbnail, OCR, or EXIF strip in Telegram media staging or fsconnect), adds an image or PDF corpus extension, selects an image-capable model/processor, feeds images to a model, or imports `PIL` MUST re-open this assessment.
 - **Review date:** next fastembed release (drop the ignores and take pillow 13 once its cap allows) or 2026-11-23, whichever comes first.
 
+The [text/RAG decision memo](docs/security-philosophy/pillow-risk-acceptance.md)
+records the deployment boundary, API families beyond image decoding, runtime
+evidence and reassessment triggers. It adds no advisory exception.
+
 ## Accepted Workflow Risks
 
 These are deliberate GitHub Actions exceptions — documented so a dismissed code-scanning alert is not the only record.
