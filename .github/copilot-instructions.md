@@ -63,11 +63,11 @@ Six invariants are design constraints enforced by graph wiring, not runtime flag
 
 ## Setup and Build Commands
 
-**Python 3.12 required.** No Makefile, no `package.json`, no Node tooling.
+**Python 3.12 required.**
 
 ```bash
-# 1. Pin pip
-python -m pip install --upgrade "pip>=26.1.2"
+# 1. Upgrade pip (26.2.1 carries the PYSEC-2026-3721 fix; CI pins an exact pip==)
+python -m pip install --upgrade "pip>=26.2.1"
 
 # 2. Linux: CPU torch FIRST (order is mandatory)
 pip install --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
@@ -88,7 +88,7 @@ mkdir -p data/personality index logs
 export GROK_API_KEY=dummy   # any non-empty value; server boots without a real key
 
 # 4. Install package (needed for console scripts: cyclaw-server, cyclaw-index, etc.)
-pip install -e .
+pip install -e . -c constraints.txt   # macOS: pip install -e . --no-deps (the constraint pins +cpu torch)
 
 # 5. Build retrieval index (required before /query returns hits; missing index = 503, not a crash)
 python -m retrieval.indexer   # or: cyclaw-index
@@ -150,9 +150,9 @@ Workflow files are actionlint/zizmor checked; third-party actions are SHA-pinned
 - **Torch must be installed first** (Linux/Windows). Installing `requirements.txt` before `torch+cpu` pulls the wrong wheel.
 - **Ollama is never assumed to be running.** `status: degraded` in `/health` is normal when Ollama is absent; tests mock it.
 - **Missing index is fail-soft** (503 `INDEX_NOT_FOUND`), not a crash. Build it explicitly with `python -m retrieval.indexer`.
-- **Console scripts** (`cyclaw-server`, `cyclaw-index`, `cyclaw-metrics`, `cyclaw-mcp`, `cyclaw-clear-cache`) only work after `pip install -e .`.
+- **Console scripts** (`cyclaw-server`, `cyclaw-index`, `cyclaw-metrics`, `cyclaw-mcp`, `cyclaw-clear-cache`, `cyclaw-user`, `cyclaw-gen-cert`) only work after `pip install -e .`; `python -m ...` always works.
 - **`ci_rag_smoke.py` must not be renamed** to `test_ci_rag_smoke.py`. It is deliberately excluded from pytest auto-discovery and runs as its own CI step.
-- **Do not edit `constraints.txt` manually.** Regenerate from `pyproject.toml` if dependency work is needed. `pydantic` and `pydantic-core` are lock-step; `numpy` is pinned `<2`; `uvicorn` constraint carries no extras.
+- **Never hand-edit `locks/`.** Move a pin in `pyproject.toml` and `constraints.txt` together (dep-guard D6), then regenerate the locks with `scripts/refresh-runtime-lock.sh` / `scripts/refresh-ci-locks.sh` (`locks/README.md`); the lock contract hashes `constraints.txt` byte-for-byte, so even a comment edit needs a relock. `pydantic` and `pydantic-core` are lock-step; `numpy` is pinned `<2`; `uvicorn` constraint carries no extras.
 - **Do not use bare `mypy .`** — it fails immediately due to `utils/` having no `__init__.py`. Scope to touched files with `--explicit-package-bases`.
 - **Do not bind services to `0.0.0.0`.** Loopback only (`127.0.0.1:8787`).
 - **No `TODO`/`FIXME` comments.** Encode intent in explanatory comments matching surrounding style.
