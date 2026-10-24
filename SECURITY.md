@@ -26,12 +26,16 @@ These are tracked, deliberate exceptions — re-reviewed at every release.
 Python exceptions are encoded in the relevant pip-audit/OSV/Trivy configuration;
 Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
 
-### Debian 12 container libraries — issue #1629, expires 2026-11-01
+### Debian 12 container libraries — issues #1629 / #1757, expires 2026-12-01
 
-- **Reviewed 2026-10-13:** the pinned `python:3.12-slim-bookworm` manifest
+- **Reviewed 2026-10-23:** the pinned `python:3.12-slim-bookworm` manifest
   `sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3`
-  (linux/amd64) reproduces all 11 package findings with Trivy 0.72.0.
-  Its installed dpkg metadata establishes the dependency chains below.
+  (linux/amd64) was re-fetched from Docker Hub and its manifest/layer SHA-256 digests
+  verified without starting Docker. The linux/amd64 child manifest is
+  `sha256:9901e0a8d75037d8242ed43155cbcb2d1f61be1356383d8054afb59fd50e39c4`.
+  Its dpkg metadata and packaged `nis` extension confirm the versions and
+  dependency chains below. This is image metadata inspection, not a fresh
+  application-image build or Trivy scan (the 2026-10-13 scan used Trivy 0.72.0).
   These are temporary risk acceptances, not patched packages or proof that
   every possible use of these libraries is safe.
 
@@ -39,8 +43,9 @@ Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
 | --- | --- | --- | --- |
 | CVE-2026-88647, CVE-2026-88648, CVE-2026-67693 | `libgnutls30 3.7.9-2+deb12u7` | `apt` directly depends on GnuTLS | No bookworm or trixie fix; retain the base and time-limit the exception |
 | CVE-2026-107708, CVE-2026-107778 (four packages each) | `libgssapi-krb5-2`, `libk5crypto3`, `libkrb5-3`, `libkrb5support0`, all `1.20.1-2+deb12u5` | `libnsl2` → `libtirpc3` → `libgssapi-krb5-2` → krb5 libraries | No bookworm or trixie fix; retain Python's native dependency chain and time-limit the exception |
+| [CVE-2026-85977](https://security-tracker.debian.org/tracker/CVE-2026-85977) | `libtirpc3 1.3.3+ds-1` | `libnsl2` → `libtirpc3`; Python ships its native `nis` extension | No bookworm or trixie fix; accept the exact package until 2026-12-01 |
 
-- **Upstream status:** Debian lists all five as unfixed in both releases.
+- **Upstream status (2026-10-23):** Debian lists all six as unfixed in both releases.
   For the GnuTLS [hostname](https://security-tracker.debian.org/tracker/CVE-2026-88647),
   [certificate constraints](https://security-tracker.debian.org/tracker/CVE-2026-88648),
   and [key usage](https://security-tracker.debian.org/tracker/CVE-2026-67693)
@@ -50,6 +55,11 @@ Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
   and [GSS-API acceptor crash](https://security-tracker.debian.org/tracker/CVE-2026-107778)
   are postponed in bookworm. CyClaw neither runs a Kerberos KDC nor accepts
   Kerberos/GSS-API credentials.
+- **libtirpc reachability:** CVE-2026-85977 requires a client calling
+  `pmap_getmaps()` against an attacker-controlled RPC/portmapper host. A source
+  review found no CyClaw RPC, portmapper or `nis` caller; the passive network
+  connector does not invoke this API. Low practical reachability is an inference,
+  not proof about every transitive native-library path. Re-open on any RPC/NIS use.
 - **Why retain the packages:** the base contains neither curl nor libldap;
   removing those would not remove these findings. APT needs GnuTLS, and the
   Python base ships the `nis` extension alongside libnsl/libtirpc. Purging the
@@ -58,13 +68,12 @@ Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
   not supply fixes for these advisories. Keep the matching builder/runtime
   digests, pinned CA bundle, and no-blanket-`apt-get upgrade` contract.
 - **Scope and review:** `.trivyignore.yaml` limits each exception to the exact
-  Debian package name and installed version, with expiry **2026-11-01**, aligned
-  with the existing dependency review window. Review earlier on any base,
+  Debian package name and installed version, with expiry **2026-12-01**, approved for issue #1757. Review earlier on any base,
   authentication, native-library, or upstream-fix change. Remove an exception
   when its finding disappears; do not renew it without fresh image evidence.
   Trivy's `--show-suppressed --format json` exposes ignored findings for review;
   a green SARIF upload alone proves neither their absence nor remediation.
-- **Tracking:** [#1629](https://github.com/cgfixit/CyClaw/issues/1629). Its GitHub
+- **Tracking:** [#1757](https://github.com/cgfixit/CyClaw/issues/1757), following [#1629](https://github.com/cgfixit/CyClaw/issues/1629). Its GitHub
   alerts were already dismissed as false positives before this change; that
   state is not the evidence for this acceptance. Closing the sweep issue after
   merge records completed triage and an expiring exception, not an upstream fix.
@@ -77,28 +86,25 @@ Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
   - CVE-2026-45831: SimpleRBACAuthorizationProvider evaluates permissions without verifying tenant/database/collection scope.
   - CVE-2026-45833: authenticated code injection via embedding-function config for a caller with `UPDATE_COLLECTION` (post-auth sibling of 45829).
 - **Why accepted:** CyClaw never runs the Chroma server. It uses the **embedded `PersistentClient`** exclusively (path from `config.yaml`), in-process, with `anonymized_telemetry=False` and no `trust_remote_code`. There is no Chroma network listener, no SimpleRBAC, and no `/api/v2` to attack; the vulnerable code paths are unreachable in this deployment. pip-audit on main first reported 45830/45831/45833 on 2026-08-25; they share the already-accepted 45829 HTTP-server surface.
-- **Last reviewed:** 2026-10-04 against the OSV API for `chromadb==1.5.9`. All four advisories remain active with no fixed version. OSV-Scanner and Trivy suppressions expire on 2026-11-01.
+- **Last reviewed:** 2026-10-23 against the OSV API for `chromadb==1.5.9`; PyPI still publishes 1.5.9 as latest. All four advisories remain active with no fixed version, and the two `PersistentClient` sites in `retrieval/vector_store.py` remain embedded-only. OSV-Scanner and Trivy suppressions expire on 2027-02-01 under the standing acceptance. This also covers #1657 T1.
 - **Telemetry at this pin:** chromadb 1.5.9's PostHog product-telemetry path is **dead code** (the `posthog` extra is no longer a dependency; `Settings(anonymized_telemetry=False)` is belt-and-suspenders). The live kill for Chroma's *separate* OTel exporter path is `CHROMA_OTEL_GRANULARITY=none` in `utils/telemetry_kill.py`. A chromadb bump that reintroduces a live PostHog SDK is an explicit re-review trigger, not "the flag is still false so we are fine."
 - **Guardrails:** any future change introducing `chromadb.HttpClient` or a standalone Chroma server MUST be treated as a security regression and re-open this assessment.
-- **Review date:** next chromadb release or 2026-11-01 (when the OSV-Scanner and Trivy suppressions expire), whichever comes first.
+- **Review date:** next chromadb release or 2027-02-01 (when the OSV-Scanner and Trivy suppressions expire), whichever comes first.
 
-### nltk 3.10.3 — pin bump (closes the 3.10.2 CVE cluster)
+### nltk 3.10.4 — retires the PYSEC-2026-3740 acceptance
 
-- **Pin:** `nltk==3.10.3` in `pyproject.toml`, `requirements.txt`, `constraints.txt`, and `environment.yml`. Dockerfile installs from those manifests.
-- **Why bumped:** [#1256](https://github.com/cgfixit/CyClaw/issues/1256). CyClaw-reachable finding is [CVE-2026-81722](https://osv.dev/vulnerability/CVE-2026-81722) (PorterStemmer O(n²) DoS on a long run of `y` plus a matching suffix). `retrieval/stemmer.py` calls `PorterStemmer.stem()` on every keyword query and at index time. The rest of the 3.10.2 cluster (CVE-2026-79675 / 78680 / 79657 / 79676 / 79674 / 78682 / 81726) is the same unpatched pin; those APIs (Stanford JVM wrappers, Graphviz `dot`, pickle loaders, corpus readers, `nltk.data.load` / downloader) are not imported here.
-- **Still true:** CyClaw never calls `nltk.data.load()` and never loads punkt. Tokenization stays on `_WORD_RE`. The old punkt path-traversal (CVE-2026-12243 / PYSEC-2026-597) remains unreachable; `.trivyignore.yaml` / `pip-audit` entries for it stay until a post-bump scan proves they are dead.
-- **Defense in depth:** `retrieval/stemmer.py` caps tokens at 256 chars (`_MAX_TOKEN_CHARS` + bounded `_WORD_RE`) before `PorterStemmer.stem()`. That is not a substitute for the 3.10.3 pin.
-- **Guardrails:** any future change introducing `nltk.data.load()`, `nltk.download()`, `punkt`/`word_tokenize`, or the model-artifact APIs below MUST be treated as a security regression and re-open this assessment.
-- **Accepted 2026-09-04; reviewed 2026-10-04:** [PYSEC-2026-3740](https://osv.dev/vulnerability/PYSEC-2026-3740) (alias [CVE-2026-81726](https://nvd.nist.gov/vuln/detail/CVE-2026-81726) / [GHSA-8mgp-746c-j5xp](https://github.com/advisories/GHSA-8mgp-746c-j5xp)). The OSV API still reports this as the sole finding for `nltk==3.10.3`, with no fixed version. Surface is unused model-artifact I/O (`TransitionParser.train`/`parse`, `AveragedPerceptron.save`/`load`, `PerceptronTagger.save_to_json`, `save_maxent_params`), not `PorterStemmer`. `pip-audit.yml` ignores the PYSEC id only (the id that scanner prints). OSV-Scanner suppresses `GHSA-8mgp-746c-j5xp` until 2026-11-01 (`.osv-scanner.toml`); Trivy does not suppress it. Drop the pip-audit ignore and the OSV ignore when a patched nltk ships.
-- **Review date:** next nltk release or 2026-11-01 (when the OSV-Scanner suppression expires), whichever comes first.
+- **Pin:** `nltk==3.10.4` in the pip and conda manifests, with regenerated runtime and CI locks.
+- **Evidence (2026-10-23):** the [OSV advisory](https://osv.dev/vulnerability/GHSA-8mgp-746c-j5xp) lists 3.10.3 as `last_affected`. Fresh OSV queries report the model-artifact finding for 3.10.3 and no advisories for 3.10.4. Both the pip-audit `PYSEC-2026-3740` ignore and OSV `GHSA-8mgp-746c-j5xp` ignore are removed; this is a version upgrade, not a renewed exception.
+- **Reachable behavior:** `retrieval/stemmer.py` still uses only `PorterStemmer`, with regex tokenization and a 256-character token cap. The PorterStemmer DoS fix remains in the 3.10.3+ range. Never introduce `nltk.data.load()`, downloader/punkt or model-artifact APIs without a fresh assessment.
 
-### pillow 12.3.0 — 35 image-codec advisories (fix blocked by fastembed)
+### pillow 12.3.0 — 37 image/Arrow advisories (fix blocked by fastembed)
 
-- **What they are:** decoder and encoder bugs that fire only when pillow opens or saves a crafted image: OOB reads/writes and a double free in TIFF/libImaging, GIF/APNG/PDF/XBM DoS and ReDoS, EPS Ghostscript command construction, BMP/MSP/Spider decompression-bomb bypasses, a quadratic PNG eXIf parse, Windows EMF/WMF sizing, `TarIO` negative size, and a heap overflow in the bundled libopenjp2 ([GHSA-78g4-xqwv-q3g8](https://github.com/advisories/GHSA-78g4-xqwv-q3g8)). All are fixed in pillow 13.0.0.
+- **Original 35 advisories:** decoder and encoder bugs that fire only when pillow opens or saves a crafted image: OOB reads/writes and a double free in TIFF/libImaging, GIF/APNG/PDF/XBM DoS and ReDoS, EPS Ghostscript command construction, BMP/MSP/Spider decompression-bomb bypasses, a quadratic PNG eXIf parse, Windows EMF/WMF sizing, `TarIO` negative size, and a heap overflow in the bundled libopenjp2 ([GHSA-78g4-xqwv-q3g8](https://github.com/advisories/GHSA-78g4-xqwv-q3g8)). All are fixed in pillow 13.0.0.
 - **Why not bumped:** `fastembed` (via `nemoguardrails`) requires `pillow<13.0` in 0.8.1 and in 0.9.0, its latest release as of 2026-10-23. #1742 tried `pillow==13.0.0`; every install leg failed with `ResolutionImpossible`.
-- **Only known attack vector: an image attachment.** CyClaw has no path that decodes one. The indexer UTF-8-decodes files allowed by `corpus.extensions` (`.md` and `.txt` by default), no CyClaw module imports `PIL`, and pillow is present only as an import-time transitive of fastembed and sentence-transformers, which CyClaw runs on text models. The one way an image can enter, Telegram media staging (`telegram.media`, shipped off), writes the attachment's bytes through the fsconnect CLI without decoding or indexing them.
-- **Encoded in:** `pip-audit.yml` `PILLOW_IGNORES` (the 35 ids pip-audit printed on #1739, matching PyPI's advisory list for 12.3.0). OSV-Scanner and Trivy did not report them on #1739, so no suppression is added there.
-- **Guardrails:** any change that decodes an attachment (for example a thumbnail, OCR, or EXIF strip in Telegram media staging or fsconnect), adds an image or PDF corpus extension, feeds images to a model, or imports `PIL` MUST re-open this assessment.
+- **Supported deployment boundary:** the shipped MiniLM embedding/reranker models process text. The indexer UTF-8-decodes files allowed by `corpus.extensions` (`.md` and `.txt` by default); no first-party module imports `PIL`. Telegram media staging (`telegram.media`, shipped off) stores attachment bytes through fsconnect without decoding or indexing them. Pillow remains affected: these observations do not prove image decoding is unreachable for every operator-selected model. `retrieval/embeddings.py` passes strings to the configured SentenceTransformer; an image-capable model/processor can interpret image-looking URLs, paths or data URIs and reach Pillow through `transformers.image_utils.load_image`. Model selection is trusted configuration, not an enforced text-only contract. Reassess that configuration before relying on this acceptance.
+- **Additional scoped acceptance, 2026-10-23:** CVE-2026-114501 / [GHSA-654x-cwwv-5j9c](https://github.com/advisories/GHSA-654x-cwwv-5j9c) discloses heap contents through Arrow export when `PILLOW_ALIGNMENT > 1`; CyClaw has no Arrow image-export caller and does not set that variable. CVE-2026-112398 / [GHSA-5x8w-8jj5-q52h](https://github.com/advisories/GHSA-5x8w-8jj5-q52h) is an FPX JPEG heap overflow requiring Pillow image decoding with optional `olefile`, which is absent from the locked runtime. These are deployment-scope mitigations, not patched Pillow. This acceptance applies only with the shipped text models and the boundary above; adding `olefile`, Arrow image export or `PILLOW_ALIGNMENT > 1` also reopens it. Review by 2026-11-23 or the next FastEmbed release, whichever is first.
+- **Encoded in:** `pip-audit.yml` `PILLOW_IGNORES` (35 existing ids from #1739 plus the two exact CVE ids above). OSV-Scanner and Trivy did not report the original 35 on #1739; no suppression is added there.
+- **Guardrails:** any change that decodes an attachment (for example a thumbnail, OCR, or EXIF strip in Telegram media staging or fsconnect), adds an image or PDF corpus extension, selects an image-capable model/processor, feeds images to a model, or imports `PIL` MUST re-open this assessment.
 - **Review date:** next fastembed release (drop the ignores and take pillow 13 once its cap allows) or 2026-11-23, whichever comes first.
 
 ## Accepted Workflow Risks
@@ -116,8 +122,8 @@ These are deliberate GitHub Actions exceptions — documented so a dismissed cod
   - Publication runs on a **separate** job/runner and consumes only a data patch — never candidate `.git` state, hooks, or local action definitions (see workflow header).
 - **Residual:** A future workflow edit that re-introduces credentialed checkout of untrusted code, drops the owner/same-repo gate, or executes PR-supplied actions/scripts under a write token voids this acceptance. Re-open alert 1726 (or a successor) rather than dismissing again without updating this section.
 - **Related standing control:** `pr-review.yml` documents its `pull_request_target` trigger with an inline `zizmor: ignore[dangerous-triggers]` rationale (trusted base; owner-only same-repo; candidate code never executed).
-- **Last reviewed:** 2026-10-05 against alert [1726](https://github.com/cgfixit/CyClaw/security/code-scanning/1726) on main `b6ecf6ae`.
-- **Review date:** next change to `codex-apply-fixes.yml` gate/candidate/publish jobs, or 2026-11-01, whichever comes first.
+- **Last reviewed:** 2026-10-23 against `codex-apply-fixes.yml` on main `ae767ed9`: owner/SHA gating, isolated candidate execution and the data-only publish step remain in place. Alert state is not used as evidence of safety.
+- **Review date:** next change to `codex-apply-fixes.yml` gate/candidate/publish jobs, or 2026-12-01, whichever comes first.
 
 
 ## Verification
