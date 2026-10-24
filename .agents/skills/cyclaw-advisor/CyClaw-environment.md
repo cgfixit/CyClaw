@@ -5,7 +5,7 @@ instead of copying dependency pins or hardware assumptions into new guidance.
 
 | Surface | Source and limits |
 |---|---|
-| Python and install profiles | `pyproject.toml`, `constraints.txt`, `requirements*.txt`, `locks/README.md`, `environment.yml`, `setup-guide.md`. Python 3.12; platform-correct Torch first. |
+| Python and install profiles | `pyproject.toml`, `constraints.txt`, `requirements*.txt`, `locks/README.md`, `environment.yml`, `setup-guide.md`. Python 3.12; platform-correct Torch first. Conda lane now carries the constraints.txt security floors (certifi/opentelemetry-api floors, aiohttp exact) and has a macos-latest Apple Silicon CI leg (#1759); torch 2.13.0 cpu_generic solves on osx-arm64, setuptools gap closes with 2.14.1 bump. |
 | Apple Silicon model sizing | `docs/m5-48gb-coding-expectations.md`, `macos/ollama-mlx.env`, `config.yaml`. Do not infer the active user's hardware from these reference profiles. |
 | Container host model | `docs/DOCKER.md`, `models.local_llm.trusted_hosts`, and `assert_local_destination`. Trust is exact by hostname/IP, not DNS pinning. |
 | macOS dotenv | `macos/invoke-cyclaw.sh`, `macos/setup-from-clone.sh`, `macos/setup-cyclaw.sh`: BSD `/usr/bin/stat`, mode 600/400, source-status fallback, restore allexport. |

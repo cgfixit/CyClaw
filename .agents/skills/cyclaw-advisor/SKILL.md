@@ -1,6 +1,6 @@
 ---
 name: cyclaw-advisor
-description: "Give read-only CyClaw architecture, operations or design advice from the inspected checkout and current configuration. Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
+description: "Give read-only CyClaw architecture, operations or design advice from the inspected checkout and current configuration. Current main HEAD ae767ed9c6ecd64112993462370433c81e03707c (2026-10-23): agent identity module deleted (#1755, hooks now enforce multi-vendor branch prefixes), security floors carried into conda lane + Apple Silicon leg (#1759), scoped Pillow acceptance (#1743), githooks aligned (#1741), bot patch refuse for CI/hooks/agent (#1734). Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
 ---
 
 
@@ -37,3 +37,14 @@ For PR advice inspect the actual diff, current head/base, relevant open overlaps
 and CI/skips. Separate implemented behavior, shipped defaults, operator opt-ins,
 static evidence, mocks and native/live evidence. Recommend a smallest next check
 when evidence is missing; do not implement or publish from an advice request.
+
+## Latest merges into origin/main (high-signal since last skill refresh ~2026-10-19)
+
+- 2026-10-23 #1759: Carry constraints.txt security floors into the conda lane (certifi/opentelemetry-api floors, aiohttp exact pin), add Apple Silicon conda leg, fix stale install docs (SYNC_README Torch omission, POSTGRES_BACKEND extras).
+- 2026-10-23 #1755: Delete utils/agent_identity.py (obsolete after agentic loop removal); tracked .githooks/pre-commit and pre-push now enforce the canonical multi-vendor branch-prefix case list (grok/*, claude/*, CyClaw/*, etc.).
+- 2026-10-23 #1743: Refresh audited dependencies; scoped acceptance of Pillow 12.3.0 image-codec advisories (fixed in 13, blocked by fastembed/nemoguardrails) until allowed — no CyClaw path decodes images.
+- 2026-10-23 #1741: Align Git hooks with staged and published changes.
+- 2026-10-20 #1734: Refuse bot patches that touch CI, hooks, agent config, locks or protected files (expanded path deny list).
+- 2026-10-20 #1735: Gate zizmor at medium severity (prior medium/low findings cleared).
+
+Recent activity summary: Dependency pins refreshed and security floors extended into the conda lane (with Apple Silicon coverage); agentic-system remnants cleaned (identity module deleted, hooks own branch-prefix and identity enforcement); CI surface hardened against automated patches on sensitive paths; install documentation corrected for platform Torch and constraints. Graph topology, 6 invariants / I6 import isolation, and out-of-band subprocess-shim contract remain unchanged. Never weaken the 6 invariants or I6.
