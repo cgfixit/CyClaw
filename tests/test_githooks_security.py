@@ -37,6 +37,24 @@ def _run(shell: str, tmp_path: Path, script: str, data: bytes, *args: str) -> su
     )
 
 
+@pytest.mark.parametrize("path,reminder", [
+    (".agents/skills/x/agents/openai.yaml", True),
+    (".agents/skills/x/references/guide.md", True),
+    (".agent/skills/x/agents/openai.yaml", True),
+    ("docs/guide.md", False),
+])
+def test_staged_agent_metadata_gets_instruction_reminder(
+    shell: str, tmp_path: Path, path: str, reminder: bool,
+) -> None:
+    result = _run(
+        shell, tmp_path,
+        'sec__quiet=0; mkdir -p "$(dirname "$2")"; cat > "$2"; git add "$2"; sec_pre_commit',
+        b"Synthetic fixture\n", path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (b"agent instruction surface changed" in result.stderr) is reminder
+
+
 @pytest.mark.parametrize("mark", MARKS, ids=["bidi", "tag"])
 @pytest.mark.parametrize("extension", MEDIA + NON_MEDIA)
 def test_invalid_utf8_skip_is_media_only(shell: str, tmp_path: Path, extension: str, mark: bytes) -> None:

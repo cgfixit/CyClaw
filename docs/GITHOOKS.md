@@ -110,7 +110,7 @@ What the scans are careful about:
 
 | Reminder | Trigger |
 |---|---|
-| Agent instruction surface changed | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `SKILL.md`, `.cursorrules`, `.claude/`, `.codex/`, `.cursor/`, `.github/skills/` |
+| Agent instruction surface changed | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `SKILL.md`, `.cursorrules`, `.claude/`, `.codex/`, `.cursor/`, `.github/skills/`, `.agent/`, `.agents/` |
 | Dependency or build surface changed | requirements, constraints, `pyproject.toml`, `Cargo.toml`, `package.json`, Dockerfile, compose, workflows |
 | Secure-by-design questions | the diff adds a route, outbound call, exec or deserialization path, persisted model, file write or delete, config input, telemetry, or HTML sink |
 | Exposure-prone line | TLS verification off, `0.0.0.0`, wildcard CORS, pipe-to-shell, `--no-verify`, `chmod 777`, a secret-named value in a log call |

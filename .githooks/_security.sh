@@ -71,7 +71,7 @@ SEC_BLOCKED_KEY_EXCEPT=( '*.pub' )
 # injection), so it is always called out. Tool wiring needs the operator.
 SEC_AGENT_SURFACE_GLOBS=(
   'AGENTS.md' 'CLAUDE.md' 'GEMINI.md' '.cursorrules' 'copilot-instructions.md'
-  'SKILL.md' '.claude/*' '.codex/*' '.cursor/*' '.github/skills/*' '.agent/*'
+  'SKILL.md' '.claude/*' '.codex/*' '.cursor/*' '.github/skills/*' '.agent/*' '.agents/*'
 )
 SEC_PROTECTED_AGENT_GLOBS=( '.mcp.json' 'mcp.json' 'mcp_manifest.json' '.claude/settings.json' '.codex/config.toml' )
 
