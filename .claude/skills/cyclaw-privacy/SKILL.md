@@ -57,7 +57,7 @@ constants):
   query (key from `CYCLAW_QUERY_FINGERPRINT_KEY` or the file
   `data/privacy/query-hmac.key`, itself a data element to inventory), so the
   audit stream (`logs/audit.jsonl`) cannot be reversed into a query by
-  dictionary attack. This holds while `logging.audit.include_query_hash` is
+  dictionary attack. This holds while `logging.audit_fields.include_query_hash` is
   `true` (shipped); `false` stores the PII-redacted raw query in the audit
   file and in Numbat's `content_preview` — a privacy regression to flag in
   any review that touches it. A change that adds a new audited field carrying

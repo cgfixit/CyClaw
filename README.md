@@ -563,7 +563,7 @@ Telegram [design](docs/channels/TELEGRAM_DESIGN.md) and
 | Optional surfaces | Connectors, channels, and `/memory/*` ship off; `/ops/*` needs operator access and runs subprocess argv lists; no tokens in plist or task XML |
 | `/auth/*` | Present either way; 503 while auth is off. When on, `/query` needs a session or device token and refuses `audit` accounts; the last `admin` cannot be removed |
 | Container | Non-root, `no-new-privileges`, dropped caps, read-only rootfs; optional Falco (`deploy/falco/`) ships off |
-| Dependency risk | `chromadb==1.5.9` carries CVE-2026-45829, accepted only for embedded `PersistentClient`. [`SECURITY.md`](SECURITY.md) |
+| Dependency risk | `chromadb==1.5.9` carries CVE-2026-45829 and its HTTP-server siblings CVE-2026-45830/45831/45833, all accepted only for embedded `PersistentClient`. [`SECURITY.md`](SECURITY.md) |
 | Commit/push gate | When installed, tracked `.githooks/` check secrets and private data at commit and push, protected-path edits at commit (reminder only at push), and protected-branch/ref rewrites ([`docs/GITHOOKS.md`](docs/GITHOOKS.md)) |
 
 Full threat model: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Design

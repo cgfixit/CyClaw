@@ -256,7 +256,7 @@ errors, startup).
 ## Notes
 
 - No `print()` in library code — use `logging.getLogger("cyclaw.<module>")` with lazy `%s` formatting.
-- The audit JSONL stream (`logs/audit.jsonl`) is separate from application logging and stores keyed HMAC-SHA256 query fingerprints while `logging.audit.include_query_hash` is true (the shipped default) — never add raw query text to either stream.
+- The audit JSONL stream (`logs/audit.jsonl`) is separate from application logging and stores keyed HMAC-SHA256 query fingerprints while `logging.audit_fields.include_query_hash` is true (the shipped default) — never add raw query text to either stream.
 - **caplog scope** — use `caplog.at_level(logging.DEBUG)` if unsure of the level; narrow it once you know
 - **Never assert exact log strings** — assert substrings (`"vault miss" in record.message`) so log wording can evolve without breaking tests
 - **Structured fields** — `extra={...}` keys land as attributes on the `LogRecord` (`record.score`), not under a `.extra` dict; prefer asserting on the formatted message
