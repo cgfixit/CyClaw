@@ -1242,3 +1242,35 @@ class TestProposeEvolutionReflectsDisk:
         # The truncated soul_core cannot contain the tail, so seeing it in the
         # diff proves the diff was taken against the real file.
         assert tail_marker in result["diff"]
+
+
+class TestSoulWriteDurability:
+    """Rename-over-temp is only atomic for the *name*. If the data is still in
+    the page cache when the rename commits and power is lost, the new soul.md
+    is zero-length or torn, the SHA-256 drift check fails closed, and the
+    server will not boot. The writer must fsync the temp file before
+    os.replace, as telegram/state.py's writer already does."""
+
+    def test_atomic_write_fsyncs_full_content_before_replace(self, tmp_path):
+        from utils.personality import _atomic_write_owner_only
+
+        target = tmp_path / "soul.md"
+        content = "# soul\nwritten durably\n"
+        order: list[tuple[str, int]] = []
+        real_fsync, real_replace = os.fsync, os.replace
+
+        def spy_fsync(fd):
+            order.append(("fsync", os.fstat(fd).st_size))
+            return real_fsync(fd)
+
+        def spy_replace(src, dst):
+            order.append(("replace", Path(src).stat().st_size))
+            return real_replace(src, dst)
+
+        with patch("utils.personality.os.fsync", side_effect=spy_fsync), \
+             patch("utils.personality.os.replace", side_effect=spy_replace):
+            _atomic_write_owner_only(target, content)
+
+        expected_size = len(content.encode("utf-8"))
+        assert order == [("fsync", expected_size), ("replace", expected_size)]
+        assert target.read_text(encoding="utf-8") == content
