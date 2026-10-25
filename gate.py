@@ -1921,7 +1921,7 @@ def _require_loopback_bind(host: str) -> bool:
             print(
                 "\nRefusing to bind beyond loopback: auth is enabled but the "
                 "admin password is not set yet. Set it from this machine "
-                f"(terminal, harness, or `cyclaw-user passwd {BOOTSTRAP_USERNAME}`) "
+                f"(terminal or `cyclaw-user passwd {BOOTSTRAP_USERNAME}`) "
                 "before a LAN bind.\n"
             )
             return False
