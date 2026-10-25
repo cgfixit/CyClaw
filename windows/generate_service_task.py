@@ -97,26 +97,33 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _read_gate_port(config_path: Path) -> int:
+    """Return the port gate.py will bind for ``config_path``, or exit 3.
+
+    Mirrors gate.py's own rule (``_listen_port``): a missing ``api`` or
+    ``api.port`` means 8787, and only an unquoted YAML integer counts. gate.py
+    silently falls back to 8787 for anything else (a quoted ``"9000"``, a bool,
+    a float), so baking that value into the service health target would point
+    the supervisor at a port the gate never listens on. Refusing here, with the
+    offending value named, is the only way the operator finds out.
+    """
     try:
         with open(config_path, encoding="utf-8") as config_file:
             doc = yaml.safe_load(config_file) or {}
-    except OSError as exc:
+    except (OSError, yaml.YAMLError) as exc:
         print(f"error: could not read {config_path}: {exc}", file=sys.stderr)
         sys.exit(3)
     api_cfg = doc.get("api") if isinstance(doc, dict) else None
-    if not isinstance(api_cfg, dict):
-        return 8787
-    if "port" not in api_cfg:
+    if not isinstance(api_cfg, dict) or "port" not in api_cfg:
         return 8787
     raw = api_cfg["port"]
-    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
-        print(f"error: api.port must be an integer, got {raw!r}", file=sys.stderr)
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        print(
+            f"error: api.port must be an unquoted integer (gate.py would ignore {raw!r} "
+            "and bind 8787)",
+            file=sys.stderr,
+        )
         sys.exit(3)
-    try:
-        return int(str(raw).strip())
-    except (TypeError, ValueError):
-        print(f"error: api.port must be an integer, got {raw!r}", file=sys.stderr)
-        sys.exit(3)
+    return raw
 
 
 def main(argv: list[str] | None = None) -> int:

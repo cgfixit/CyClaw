@@ -236,3 +236,35 @@ def test_idempotent_overwrite(tmp_path: Path) -> None:
     assert len(matches) == 1
     document = plistlib.loads(matches[0].read_bytes())
     assert document["ThrottleInterval"] == 45
+
+
+# ---------------------------------------------------------------------------
+# api.port must be the value gate.py will actually bind (mirrors _listen_port)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw_port", ["9000", True, "abc", 90.5])
+def test_gate_plist_non_integer_api_port_exits_3(tmp_path: Path, capsys, raw_port) -> None:
+    # gate.py's _listen_port() ignores anything but an unquoted YAML int and
+    # binds 8787, so a quoted "9000" or a bool must not be baked into the
+    # health target as if the gate would honour it. Refuse with exit 3 and name
+    # the value, exactly like the Windows generator.
+    config = tmp_path / "config.yaml"
+    config.write_text(yaml.safe_dump({"api": {"port": raw_port}}), encoding="utf-8")
+    home = tmp_path / "home"
+    with pytest.raises(SystemExit) as exc_info:
+        _run(home, "--service", "gate", "--config", str(config), "--confirm", "--reason", "x")
+    assert exc_info.value.code == 3
+    err = capsys.readouterr().err
+    assert "api.port" in err
+    assert repr(raw_port) in err
+    assert not (home / "Library" / "LaunchAgents").exists()
+
+
+def test_gate_plist_malformed_yaml_exits_3(tmp_path: Path, capsys) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text("api: [unclosed\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc_info:
+        _run(tmp_path / "home", "--service", "gate", "--config", str(config), "--confirm", "--reason", "x")
+    assert exc_info.value.code == 3
+    assert "could not read" in capsys.readouterr().err

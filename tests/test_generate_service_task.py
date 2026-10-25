@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -189,3 +190,38 @@ def test_scalar_api_section_falls_back_to_8787(tmp_path: Path, capsys) -> None:
     assert rc == 0
     out = capsys.readouterr().out
     assert "service:        gate (port 8787)" in out
+
+
+@pytest.mark.parametrize("raw_port", ["9000", True, 90.5])
+def test_quoted_or_non_int_api_port_exits_3(tmp_path: Path, capsys, raw_port) -> None:
+    # A quoted "9000" used to be accepted here while gate.py's _listen_port()
+    # ignores it and binds 8787; the two readers now share one rule.
+    home = tmp_path / "home"
+    home.mkdir()
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(yaml.safe_dump({"api": {"port": raw_port}}), encoding="utf-8")
+    with (
+        patch("generate_service_task.platform.system", return_value="Windows"),
+        patch("generate_service_task.Path.home", return_value=home),
+        patch("utils.win_schtasks.Path.home", return_value=home),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        gst.main(["--service", "gate", "--confirm", "--reason", "x", "--config", str(cfg)])
+    assert exc_info.value.code == 3
+    assert repr(raw_port) in capsys.readouterr().err
+    assert not (home / ".CyClaw" / "tasks" / "CyClaw-gate.xml").exists()
+
+
+def test_malformed_yaml_exits_3(tmp_path: Path, capsys) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("api: [unclosed\n", encoding="utf-8")
+    with (
+        patch("generate_service_task.platform.system", return_value="Windows"),
+        patch("generate_service_task.Path.home", return_value=home),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        gst.main(["--service", "gate", "--confirm", "--reason", "x", "--config", str(cfg)])
+    assert exc_info.value.code == 3
+    assert "could not read" in capsys.readouterr().err
