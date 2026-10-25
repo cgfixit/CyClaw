@@ -1271,6 +1271,10 @@ class TestSoulWriteDurability:
              patch("utils.personality.os.replace", side_effect=spy_replace):
             _atomic_write_owner_only(target, content)
 
-        expected_size = len(content.encode("utf-8"))
-        assert order == [("fsync", expected_size), ("replace", expected_size)]
+        # Compare against the bytes that actually landed, not len(content):
+        # text mode writes "\r\n" on Windows, so the on-disk size differs
+        # from the UTF-8 length of the string there.
+        on_disk = target.stat().st_size
+        assert on_disk > 0
+        assert order == [("fsync", on_disk), ("replace", on_disk)]
         assert target.read_text(encoding="utf-8") == content
