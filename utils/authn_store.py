@@ -19,16 +19,15 @@ Each subsystem's Postgres backend is opted into independently.
 from __future__ import annotations
 
 import os
-import stat
 from pathlib import Path
 from typing import Any
 
-# _harden_pg_conninfo is intentionally reused rather than re-implemented: the
+# The opener is intentionally reused rather than re-implemented: the Postgres
 # hardening rules (TLS default, connect_timeout, statement_timeout,
-# application_name, never-log-the-DSN) apply identically to every Postgres
-# connection this codebase opens, and duplicating them would let the two
-# copies drift.
-from utils.personality_db import _harden_pg_conninfo
+# application_name, never-log-the-DSN) and the owner-only SQLite file mode
+# apply identically to every store this codebase opens, and a second copy
+# would let the two drift (they already had, in comments only).
+from utils.personality_db import open_db
 
 _AUTH_DB_ENV = "CYCLAW_AUTH_DB_URL"
 
@@ -39,51 +38,16 @@ def connect(db_path: Path, auth_cfg: dict) -> tuple[Any, str, str]:
     Postgres: set ``auth.database_url`` in config.yaml or the
     ``CYCLAW_AUTH_DB_URL`` env var to a ``postgresql://`` DSN.
     SQLite: default, uses ``db_path``.
+
+    The opener itself (psycopg hardening, owner-only 0600 SQLite file,
+    chmod-failure-is-a-warning) is ``utils.personality_db.open_db`` so the
+    auth store and the soul store can never drift apart on it; only the DSN
+    precedence (config first, then the env var) is this module's own.
     """
     from utils.config_validation import validate_database_url_no_password
     validate_database_url_no_password(auth_cfg.get("database_url"), "auth.database_url")
     dsn = auth_cfg.get("database_url") or os.environ.get(_AUTH_DB_ENV) or ""
-    if dsn.startswith("postgresql") or dsn.startswith("postgres"):
-        try:
-            import psycopg  # type: ignore[import]
-            from psycopg.rows import dict_row  # type: ignore[import]
-        except ImportError as exc:
-            # NB: never include the DSN in this message -- it may carry credentials.
-            raise ImportError(
-                "psycopg is required for PostgreSQL support. "
-                "Install it with: pip install 'cyclaw[postgres]'  (or pip install 'psycopg[binary]')"
-            ) from exc
-        conn = psycopg.connect(_harden_pg_conninfo(dsn), row_factory=dict_row, autocommit=False)
-        return conn, "%s", "postgres"
-    # Default: SQLite (offline-first, zero-config)
-    import sqlite3
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    # Pre-create the file owner-only via os.open()'s mode, same reasoning as
-    # personality_db.connect: sqlite3.connect() alone would create it at the
-    # process umask (commonly 0644), exposing password hashes and session ids
-    # to every local account on a shared machine.
-    db_existed = db_path.exists()
-    fd = os.open(db_path, os.O_RDWR | os.O_CREAT, 0o600)
-    os.close(fd)
-    if db_existed:
-        try:
-            if stat.S_IMODE(db_path.stat().st_mode) != 0o600:
-                os.chmod(db_path, 0o600)
-        except OSError:
-            # Never let a permission failure here crash startup -- a
-            # root-installed service running as a lower-privileged user, or an
-            # ops team that deliberately shipped it read-only, would otherwise
-            # turn every connect() into a boot crash instead of a read. The
-            # logger import is local: this module must stay importable before
-            # logging is configured (auth_manager.py calls connect() during
-            # its own __init__, which can run before setup_logging()).
-            import logging
-            logging.getLogger("cyclaw.authn_store").warning(
-                "Could not harden auth DB permissions to 0600: %s", db_path
-            )
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn, "?", "sqlite"
+    return open_db(db_path, dsn, "auth")
 
 
 def ddl_users() -> str:

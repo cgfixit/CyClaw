@@ -59,24 +59,26 @@ def _harden_pg_conninfo(dsn: str) -> str:
     return make_conninfo(**parts)
 
 
-def connect(db_path: Path, pers_cfg: dict) -> tuple[Any, str, str]:
-    """Open a DB connection and return ``(conn, placeholder_char, backend_name)``.
+def open_db(db_path: Path, dsn: str, label: str) -> tuple[Any, str, str]:
+    """Open the store behind ``dsn`` (Postgres) or ``db_path`` (SQLite).
 
-    Postgres: set CYCLAW_DB_URL=postgresql://user:pass@host/dbname
-    SQLite:   default, uses db_path resolved from config.
+    Returns ``(conn, placeholder_char, backend_name)``. Shared by this module's
+    ``connect()`` and ``utils.authn_store.connect()``: the two bodies had
+    drifted apart only in comments, and the Postgres hardening plus the
+    owner-only SQLite file mode must stay identical for every store. Callers
+    resolve ``dsn`` themselves because their precedence differs (auth reads
+    config before ``CYCLAW_AUTH_DB_URL``; personality reads ``CYCLAW_DB_URL``
+    before config). ``label`` names the store in the one warning this emits.
 
     ``conn`` is a ``sqlite3.Connection`` or a ``psycopg.Connection`` (typed
     ``Any`` so importing psycopg stays optional for SQLite-only installs).
     """
-    from utils.config_validation import validate_database_url_no_password
-    validate_database_url_no_password(pers_cfg.get("database_url"), "personality.database_url")
-    dsn = os.environ.get("CYCLAW_DB_URL") or pers_cfg.get("database_url") or ""
-    if dsn.startswith("postgresql") or dsn.startswith("postgres"):
+    if dsn.startswith("postgres"):
         try:
             import psycopg  # type: ignore[import]
             from psycopg.rows import dict_row  # type: ignore[import]
         except ImportError as exc:
-            # NB: never include the DSN in this message — it may carry credentials.
+            # NB: never include the DSN in this message -- it may carry credentials.
             raise ImportError(
                 "psycopg is required for PostgreSQL support. "
                 "Install it with: pip install 'cyclaw[postgres]'  (or pip install 'psycopg[binary]')"
@@ -87,13 +89,14 @@ def connect(db_path: Path, pers_cfg: dict) -> tuple[Any, str, str]:
     import sqlite3
     db_path.parent.mkdir(parents=True, exist_ok=True)
     # sqlite3.connect() creates the database with the process umask, which
-    # commonly leaves the full soul/version history at 0644. Pre-create it
-    # owner-only via os.open()'s mode (umask only ever narrows 0600, never
-    # widens it, so a freshly created file needs no further chmod).
+    # commonly leaves the soul history or the password hashes and session ids
+    # at 0644 for every local account. Pre-create it owner-only via
+    # os.open()'s mode (umask only ever narrows 0600, never widens it, so a
+    # freshly created file needs no further chmod).
     db_existed = db_path.exists()
     fd = os.open(db_path, os.O_RDWR | os.O_CREAT, 0o600)
     os.close(fd)
-    # Repair permissions on a pre-existing database from an older install —
+    # Repair permissions on a pre-existing database from an older install --
     # but only when the mode actually needs tightening, and never let a
     # permission failure here crash startup: an unconditional chmod() raises
     # PermissionError when the database is owned by another account (a
@@ -105,10 +108,22 @@ def connect(db_path: Path, pers_cfg: dict) -> tuple[Any, str, str]:
             if stat.S_IMODE(db_path.stat().st_mode) != 0o600:
                 os.chmod(db_path, 0o600)
         except OSError:
-            logger.warning("Could not harden personality DB permissions to 0600: %s", db_path)
+            logger.warning("Could not harden %s DB permissions to 0600: %s", label, db_path)
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn, "?", "sqlite"
+
+
+def connect(db_path: Path, pers_cfg: dict) -> tuple[Any, str, str]:
+    """Open a DB connection and return ``(conn, placeholder_char, backend_name)``.
+
+    Postgres: set CYCLAW_DB_URL=postgresql://user:pass@host/dbname
+    SQLite:   default, uses db_path resolved from config.
+    """
+    from utils.config_validation import validate_database_url_no_password
+    validate_database_url_no_password(pers_cfg.get("database_url"), "personality.database_url")
+    dsn = os.environ.get("CYCLAW_DB_URL") or pers_cfg.get("database_url") or ""
+    return open_db(db_path, dsn, "personality")
 
 
 def ddl_soul_versions(backend: str) -> str:
