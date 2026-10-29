@@ -115,3 +115,24 @@ other paths in the table.
 No malicious payloads, alternate models, live providers, full suites, production
 service, or native Linux/Windows artifacts were exercised. This is bounded
 evidence for the confirmed text/RAG use, not exhaustive security clearance.
+
+## Addendum, 2026-10-29
+
+Scheduled pip-audit on main `a27406f6` failed on 2026-10-28 (run
+[40642008696](https://github.com/cgfixit/CyClaw/actions/runs/40642008696)) and
+2026-10-29 (run
+[40827375171](https://github.com/cgfixit/CyClaw/actions/runs/40827375171)) with
+PYSEC-2026-4327 and PYSEC-2026-4332 against pillow 12.3.0. The pin is unchanged.
+FastEmbed still requires `pillow<13`, so the fix in pillow 13.0.0 stays
+unreachable. [SECURITY.md](../../SECURITY.md#accepted-dependency-risks) owns the
+acceptance; `PILLOW_IGNORES` in `.github/workflows/pip-audit.yml` now lists 41
+ids, including these four:
+
+- GHSA-8g5g-8vmr-9782 = CVE-2026-112403 / PYSEC-2026-4332
+- GHSA-4558-3h8r-v8xp = CVE-2026-112394 / PYSEC-2026-4327
+- GHSA-xvh5-g6gv-559v = CVE-2026-112902
+- GHSA-rfgq-q3w2-pmv2 = CVE-2026-112898
+
+Each still requires Pillow to decode or encode an image. No first-party module
+imports `PIL`. This addendum does not move the review date above and does not
+add a suppression outside that pip-audit list.
