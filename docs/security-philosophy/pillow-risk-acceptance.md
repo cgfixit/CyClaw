@@ -1,5 +1,12 @@
 # Why CyClaw temporarily accepts Pillow exposure
 
+**Retired 2026-10-29.** `pillow==13.0.0` and `fastembed==0.9.1` replace this
+acceptance. FastEmbed 0.9.1 allows `pillow<14` on Python 3.12, and OSV marks
+PYSEC-2026-4327 and PYSEC-2026-4332 fixed in Pillow 13.0.0. The pip-audit
+ignore list is gone. The notes below are the 2026-10-23 record of why the
+12.3.0 pin was kept, not a current exception. [SECURITY.md](../../SECURITY.md)
+owns the register.
+
 Decision reviewed **2026-10-23**, against main
 `ae767ed9c6ecd64112993462370433c81e03707c`. The operator confirmed the intended
 use: **text/RAG with the shipped embedding and reranker models**.

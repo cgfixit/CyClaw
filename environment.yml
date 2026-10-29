@@ -38,6 +38,9 @@ dependencies:
   - certifi>=2026.10.19
   - opentelemetry-api>=1.45.1
   - sentence-transformers=6.1.0
+  # sentence-transformers depends on pillow with no cap. 13.0.0 is the
+  # PYSEC-2026-4327 / PYSEC-2026-4332 fix; match constraints.txt.
+  - pillow=13.0.0
   # Match pip's public torch release; CPU-only on Linux and Apple Silicon.
   # conda-forge's 2.14.1 py312 CPU builds allow setuptools >=77.0.3 on both
   # platforms (release metadata checked 2026-10-23), closing the old <82 cap.
@@ -72,6 +75,9 @@ dependencies:
       - fastapi==0.143.3
       - starlette==1.8.0
       - nemoguardrails==0.24.1
+      # conda-forge fastembed stops at 0.7.4 (checked 2026-10-29). 0.9.1 is
+      # the release that allows pillow 13. Match constraints.txt.
+      - fastembed==0.9.1
       - langgraph==1.2.15
       - rank-bm25==0.2.2
       - websockets==15.0.1
