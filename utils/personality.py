@@ -65,6 +65,13 @@ def _atomic_write_owner_only(path: Path, content: str) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
             fd = -1
             tmp_file.write(content)
+            # Push the bytes to disk before the rename. Without this a power
+            # loss can commit the rename first and leave a zero-length or torn
+            # soul.md (and .bak); the SHA-256 drift check then fails closed and
+            # the server will not boot. telegram/state.py's writer already
+            # does the same.
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
         os.replace(tmp_path, path)
     finally:
         if fd >= 0:
