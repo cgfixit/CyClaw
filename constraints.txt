@@ -128,6 +128,11 @@ sqlite-vec==0.1.9
 # NeMo brings fastembed and onnxruntime. Supported offline loader flags and the
 # no-network installation smoke are documented in docs/NeMo/README.md.
 nemoguardrails==0.24.1
+# NeMo's fastembed 0.9.0 cap was pillow<13, so the runtime stayed on 12.3.0.
+# 0.9.1 allows pillow<14 on Python 3.12. pillow 13.0.0 is the OSV fixed
+# version for PYSEC-2026-4327 and PYSEC-2026-4332. Both are transitives.
+fastembed==0.9.1
+pillow==13.0.0
 
 # Optional CEL sanitizer backend for Numbat monitor-only rules (pyproject extra:
 # numbat-cel). Default-off; only installed when the operator opts into CEL rules.

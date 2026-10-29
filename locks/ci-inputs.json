@@ -1,7 +1,7 @@
 {
   "version": 1,
   "inputs": {
-    "constraints.txt": "sha256:e676feeb7f0df8de231a6215edebfab10dc3fc32a7795d856e174914c700ce10",
+    "constraints.txt": "sha256:9c45bed58297436bb7d9038f20b050bd86cf9c6e3dc5419282be5661285396d0",
     "pyproject.toml": "sha256:26e5cb0f278863fe980d720b586bf7ee87699e08a4ecf770adfb57f0d78d8cf6",
     "requirements-test.txt": "sha256:74b55668f8522690424b78f1a1c2e13d64bac94c25207feb5e4155d8a91cf285",
     "scripts/check_lock_contract.py": "sha256:f52e76f7840ca78f4d98f84fcb7870ac025a29e71ad2fc4bf7563d8ce4676175",
