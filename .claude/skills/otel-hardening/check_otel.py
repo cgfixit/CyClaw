@@ -557,11 +557,13 @@ INVENTORY: tuple[dict[str, object], ...] = (
     {
         "name": "fastembed", "category": 5, "controls": {},
         "url": "https://github.com/qdrant/fastembed",
-        "versions": "transitive of nemoguardrails (base NeMo dependency) -- UNBOUNDED, see T13 warning",
+        "versions": "transitive of nemoguardrails; pinned fastembed==0.9.1 in constraints.txt and "
+                    "environment.yml. The wheel metadata (pyproject.toml) still leaves it unbounded, "
+                    "which is the T13 info, not a missing classification",
         "enforcement": "no telemetry mechanism found; its documented first-use remote-CDN model fetch is "
                        "functional egress under the base guardrails dependency, not telemetry. "
                        "Do not invent a control",
-        "scope": "live NeMo only", "reviewed": "2026-08-27",
+        "scope": "live NeMo only", "reviewed": "2026-10-29",
         "evidence": "negative finding; ONNX sessions it builds are covered by the onnxruntime row",
     },
     {
@@ -870,7 +872,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "core web/runtime libs", "category": 5, "controls": {},
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
-                    "pyyaml/rank-bm25/pygments/websockets/tzdata and the dev/test/build tools "
+                    "pyyaml/rank-bm25/pygments/websockets/tzdata/pillow==13.0.0 and the dev/test/build tools "
                     "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.1.0; hatchling==1.32.4 is the "
                     "[build-system] backend, swept from build-system.requires, never installed at "
                     "runtime). psycopg-binary and cel-python have their own rows above",
@@ -879,12 +881,14 @@ INVENTORY: tuple[dict[str, object], ...] = (
                        "avoided by design (local Porter stemmer, no punkt; the sandbox audit's leftover "
                        "punkt download step was removed 2026-10-13, Codex P2 on PR #1637). pip's index access at install time "
                        "is the category-3 pip-install row, not this one",
-        "scope": "runtime + dev", "reviewed": "2026-09-28",
+        "scope": "runtime + dev", "reviewed": "2026-10-29",
         "evidence": "bulk negative classification -- a NEW dependency outside every row here trips T13. "
                     "Membership re-read against pyproject.toml/constraints.txt/requirements*.txt/"
                     "environment.yml 2026-09-28: no pinned name is unaccounted for and no aliased name has "
                     "left the manifests. packaging==26.3 added 2026-10-12: local requirement/version/marker "
-                    "parsing for the wheel metadata checker; no network or analytics API is invoked",
+                    "parsing for the wheel metadata checker; no network or analytics API is invoked. "
+                    "pillow==13.0.0 added 2026-10-29: local image codec pulled by fastembed and "
+                    "sentence-transformers; no telemetry or update-check client of its own",
     },
 )
 
@@ -979,6 +983,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "fastapi": "core web/runtime libs", "starlette": "core web/runtime libs",
     "uvicorn": "core web/runtime libs", "httpx": "core web/runtime libs",
     "aiohttp": "core web/runtime libs",  # transitive HTTP client (nemoguardrails, chromadb)
+    "pillow": "core web/runtime libs",  # local image codec (fastembed, sentence-transformers); no telemetry
     "certifi": "core web/runtime libs",  # local CA bundle (httpx/requests), no telemetry
     "pydantic": "core web/runtime libs", "numpy": "core web/runtime libs",
     "nltk": "core web/runtime libs", "pyyaml": "core web/runtime libs",
