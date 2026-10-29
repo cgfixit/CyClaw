@@ -148,8 +148,8 @@ def scan_injection(text: str) -> list[str]:
         pattern is a category error; scanning untrusted third-party content with
         it is exactly what it is for.
 
-    Out-of-band callers scanning content the operator did not author (skill
-    definitions from GitHub, files from shares, harness-optimizer candidates)
+    Out-of-band callers scanning content the operator did not author (e.g.
+    files from SMB or local shares)
     want :func:`build_injection_patterns` / :func:`scan_injection_patterns`.
     """
     low = text.lower()

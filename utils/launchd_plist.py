@@ -1,5 +1,5 @@
 """Stdlib-only macOS launchd plist helpers, shared by every out-of-band
-package (``sync``, ``agentic.fsconnect``, ``telegram``, ``harness``) that
+package (``sync``, ``agentic.fsconnect``, ``telegram``, ``opentweet``) that
 generates a LaunchAgent plist from real, resolved install paths instead of a
 hand-edited ``REPLACE_*`` template.
 
