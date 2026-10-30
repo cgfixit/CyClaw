@@ -50,7 +50,7 @@ opentelemetry-api==1.45.1
 aiohttp==3.14.5
 # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
 # so legacy/no-deps paths cannot strand the app on websockets 12.x.
-websockets==15.0.1
+websockets==17.3
 langgraph==1.2.15
 langchain-core==1.6.12
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; risk accepted ONLY for local/offline air-gapped PersistentClient embedded mode). See SECURITY.md + pip-audit.
@@ -84,7 +84,7 @@ onnxruntime==1.31.0
 # Direct imports (retrieval/embeddings.py; gate.py), promoted
 # from implicit sentence-transformers/fastapi transitives to explicit pins --
 # see pyproject.toml [project.dependencies] for why.
-huggingface-hub==1.32.0
+huggingface-hub==2.3.0
 starlette==1.8.0
 rank-bm25==0.2.2
 numpy==1.26.4
