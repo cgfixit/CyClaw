@@ -1,11 +1,8 @@
 # `telegram/` — out-of-band notify/chat channel
 
-Optional Telegram Bot API adapter, shipped `enabled: false`. Runs strictly as
-a separate process (`python -m telegram.cli`). The six core modules never
-import it (invariant I6). Inbound chat text only
-ever becomes an answer through HTTP `POST /query` on loopback — never a
-direct call into `graph.py` — so every core gate (sanitizer, rate limit,
-graph topology, audit) applies to Telegram traffic unchanged.
+Default-off Telegram Bot API adapter, running as `python -m telegram.cli`
+outside core imports (I6). Chat reaches answers only via loopback
+`POST /query`, retaining sanitizer, rate limits, routing, and audit.
 
 Architecture, phase gates (T1–T4), and threat-model obligations live in
 [`docs/channels/TELEGRAM_DESIGN.md`](../docs/channels/TELEGRAM_DESIGN.md) —
@@ -15,7 +12,7 @@ that document is the authority; this file is the in-tree map.
 
 | Module | Role |
 |---|---|
-| `cli.py` | Entry point: `status` / `test` / `send` (T1) / `poll` (T2) plus the scheduled-job generators `poll-plist` / `health-plist` (Darwin launchd) and `poll-task` / `health-task` (Windows Task Scheduler) — all generate-only, never load or register, and chain the OS credential-store wrapper so tokens never land in the artifact. |
+| `cli.py` | `status` / `test` / `send` (T1) / `poll` (T2); `poll-plist` / `health-plist` (Darwin), `poll-task` / `health-task` (Windows). Generators never register/load jobs; keystore wrappers keep tokens out of artifacts. |
 | `config.py` | Loads the `telegram:` block; `bot_token_env` names the env var holding the token — the token itself never appears in config. |
 | `client.py` | Bot API HTTP client (outbound `sendMessage`, long-poll `getUpdates`); ignores ambient `HTTP(S)_PROXY`. |
 | `runner.py` | `send_notify` (T1) and `poll_forever` (T2) orchestration, allowlist enforcement. |

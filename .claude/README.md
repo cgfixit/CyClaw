@@ -4,15 +4,9 @@ Quick reference for Claude Code assistance patterns in CyClaw.
 
 ## Skills
 
-The skills directory holds many more skills than the handful below (operational,
-refactor-loop, and agent skills). For the **authoritative, complete list**, see the
-**§9 "Skills"** section of the root [`CLAUDE.md`](../CLAUDE.md) — kept in
-sync there so a second list does not drift. The current tree has **23 project
-skills and 28 slash commands**, including five standalone commands. A few common entry points:
-
-These are Claude Code slash commands typed into the session, not shell
-commands — the fence below is `text` on purpose, because pasting these into a
-terminal only produces "No such file or directory".
+[`CLAUDE.md` §9](../CLAUDE.md) owns the complete inventory: **23 project
+skills and 28 slash commands**, including five standalone commands. Common
+entry points below are Claude Code session commands, not shell commands.
 
 ```text
 /invariant-guard         # Static-assert the six security invariants (stdlib)
@@ -85,25 +79,11 @@ version-controlled, shared with every collaborator on this repo), **user**
 **plugin/built-in** (document/artifact tooling, review helpers, and config
 utilities shipped by Claude Code itself or by installed marketplaces).
 
-This directory intentionally vendors only the **project** scope — every skill
-in `CLAUDE.md` §9's tables lives under `.claude/skills/` here, one folder per
-skill, named for the `name:` in its `SKILL.md` frontmatter. User-scope and
-built-in skills are **not** copied in, for three concrete reasons:
-
-1. **YAGNI / no current caller.** No CyClaw code path or documented workflow
-   invokes them — they serve the operator across unrelated repos, not this
-   project.
-2. **Drift risk.** Built-in skills are maintained upstream by Claude Code
-   itself; a vendored copy would silently diverge from the version other
-   sessions actually run, defeating the point of "official" tooling.
-3. **Scope leakage.** User-scope skills are tied to an operator's own identity
-   and working style, not to CyClaw. Checking them into a shared repo would
-   expose that context to everyone who clones it — out of scope for a project
-   `.claude/` tree.
-
-If a personal or built-in skill genuinely becomes load-bearing for CyClaw
-(a documented workflow starts depending on it), add it to `.claude/skills/`
-at that point and update `CLAUDE.md` §9 — not before.
+Only **project** skills are vendored: one folder per `SKILL.md` name under
+`.claude/skills/`, indexed in `CLAUDE.md` §9. Copying user/built-in skills
+adds unused material, drifts from upstream, and can expose personal context.
+Vendor one only when a documented CyClaw workflow needs it, then update the
+inventory.
 
 ### Slash-command wrappers (`.claude/commands/`)
 

@@ -8,13 +8,9 @@ policy engine. Instructions and skills cannot enforce CyClaw's security topology
 
 ## Discovery and folder roles
 
-Current Codex repository skills live in [`.agents/skills/`](../.agents/skills/).
-The earlier Codex-specific skill tree was moved rather than copied, avoiding
-duplicate names. There is one manifest per skill; the full sandbox folder now
-matches its invocation name `cyclaw-sandbox`. Codex detects skill changes
-automatically; inspect the skill list and restart if an update is missing.
-This repository does not install
-personal/global skills or guarantee identical discovery in every hosted surface.
+Repository skills live in [`.agents/skills/`](../.agents/skills/), one manifest
+each. Restart if updates are missing. Personal/global skills are not installed
+here; discovery varies by hosted surface.
 
 | Material | How it is used |
 | --- | --- |
@@ -64,20 +60,15 @@ merge or spend tokens. Root instructions may explicitly direct a skill read.
 | `fable-protocol` | Optional consequential-decision evidence pass | Explicit |
 | `chris-codex` | Public-safe continuity; no personal-copy synchronization | Explicit |
 
-`architecture-refactor` was consolidated into `refactor`.
-`cyclaw-project-guidance` was consolidated into `AGENTS.md` and the advisor's
-source map. Unused generic issue-triage/plan/review-diff/release-note prompt copies
-and duplicate pre-commit/risk checklists were removed; the task routines and one
-handoff checklist retain the useful workflow distinctions.
+`refactor` absorbs `architecture-refactor`; `AGENTS.md` and the advisor's
+source map absorb `cyclaw-project-guidance`. Generic prompt copies and
+duplicate checklists were removed; task routines and one handoff checklist remain.
 
-Consider retiring `cyclaw-sandbox-test` after replacing its legacy install,
-fixed-port/readiness and inherited-environment assumptions and updating caller
-tests. It remains explicit-only so existing contracts are not silently lost.
-The larger sandbox's lifecycle scripts are also explicit legacy tools, not a
-routine acceptance gate. Historical run reports live under `docs/audits/`.
-Its socket mock and terminal probe use thin entry points to the maintained
-Claude scripts, as doc-sync already does; driver-specific verifier behavior
-remains local.
+`cyclaw-sandbox-test` remains explicit-only until its legacy install, ports,
+readiness, inherited environment, and caller tests are replaced. The larger
+sandbox's lifecycle scripts are also explicit legacy tools. Reports live in
+`docs/audits/`; socket-mock/terminal probes forward to maintained Claude
+scripts, while driver-specific verification remains local.
 
 ## Routines, prompts and validation
 

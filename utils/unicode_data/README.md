@@ -5,20 +5,16 @@
 SHA-256: `091c7f82fc39ef208faf8f94d29c244de99254675e09de163160c810d13ef22a`.
 Unicode License v3 is included in `LICENSE.txt`.
 
-Run `python utils/unicode_data/generate.py` from the repository to reproduce
-`utils/_unicode_confusables.py`. The generator checks the source digest. The
-runtime imports the generated Python mapping, so installed packages require no
-network fetch or external Unicode data file. Updates must deliberately change
-the source version and digest, regenerate, and evaluate benign multilingual text.
+Regenerate with `python utils/unicode_data/generate.py`; it verifies the
+source digest and writes `utils/_unicode_confusables.py`. Runtime uses that
+mapping without network/data-file access. Updates require explicit version
+and digest changes, regeneration, and benign multilingual evaluation.
 
-This is a TR39-data-derived ASCII-preserving fold, **not** the full TR39 skeleton
-algorithm. Full skeletons change ASCII `m` to `rn`, which would change the
-meaning of existing operator regexes. ASCII input remains unchanged by this
-mapping; non-ASCII characters map through the official table, restoring an
-ASCII letter when its skeleton has exactly one ASCII-letter origin. Ambiguous
-skeletons retain their official value. Python's Unicode database supplies
-normalization and character categories; the confusables data version is pinned
-independently.
+This ASCII-preserving fold uses TR39 data, not the full skeleton algorithm
+(which changes ASCII `m` to `rn`). Non-ASCII skeletons with exactly one
+ASCII-letter origin restore that letter; ambiguous skeletons retain their
+official value. Python supplies normalization/categories independently of
+the pinned confusables version.
 
 The sanitizer decodes ASCII Tag characters, removes format characters, Tags and
 variation selectors, applies NFKD, removes nonspacing marks, applies NFKC and

@@ -1,14 +1,13 @@
 # `windows/` — generate-only Task Scheduler supervisors
 
-Windows twin of `macos/generate_service_plist.py`. Not request-path code
-(`gate.py` / `graph.py` / `mcp_hybrid_server.py` never import this; I6).
+Windows twin of `macos/generate_service_plist.py`, outside the core request
+path (I6).
 
 | Script | What it does |
 |---|---|
 | `generate_service_task.py` | Write XML + `.cmd` for `gate.py`. Refuses without `--confirm` and a non-empty `--reason`. Never calls `schtasks /Create`. |
 
-Run from the repository root on Windows with the runtime's Python 3.12
-environment (including PyYAML):
+From the repo root, using Windows Python 3.12 with PyYAML:
 
 ```powershell
 python windows/generate_service_task.py --service gate `
@@ -16,9 +15,8 @@ python windows/generate_service_task.py --service gate `
   --confirm --reason "Start the gateway when I log in"
 ```
 
-This writes `%USERPROFILE%\.CyClaw\tasks\CyClaw-gate.xml` and its `.cmd`
-launcher, then prints the registration command for separate review and use.
-Re-running generation replaces those files. The generated task uses:
+Writes `%USERPROFILE%\.CyClaw\tasks\CyClaw-gate.xml` and its `.cmd`, replacing
+previous output. Review the printed registration command separately. Task settings:
 
 - a logon trigger and an `InteractiveToken` / `LeastPrivilege` principal;
 - crash-only `RestartOnFailure`, at most five restarts, with a 30-second
@@ -32,11 +30,9 @@ dotenv loading, first-run key generation, or browser pairing. The optional
 value is read at runtime and is not embedded in either generated file. Other
 provider credentials are not automatically loaded by this generator.
 
-`--config` changes only the configuration inspected for the printed port.
-`gate.py` still reads the checkout's `config.yaml`. This is a user logon task,
-not a Windows service or an unattended boot task; registration does not prove
-it will run while the user is logged out. To end a running task and remove its
-registration, use `schtasks /End /TN "CyClaw gate"` and
+`--config` selects only the printed port; `gate.py` reads the checkout's
+`config.yaml`. This logon task requires a logged-in user. End it and remove
+registration with `schtasks /End /TN "CyClaw gate"` and
 `schtasks /Delete /TN "CyClaw gate" /F` respectively.
 
 Installer / CredMan / fsconnect jail live in [`powershell/`](../powershell/README.md).

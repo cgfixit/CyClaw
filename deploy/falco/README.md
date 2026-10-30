@@ -2,13 +2,10 @@
 
 **Status: detection-only · disabled by default · opt-in.**
 
-This is an eBPF tripwire, **not** a containment boundary. [Falco](https://falco.org)
-watches kernel syscalls and **logs** when the CyClaw container does something
-outside its known-good behaviour. It never blocks a call. It is defense-in-depth
-*observability* layered on top of the real controls (loopback-only binding,
-read-only rootfs, dropped capabilities, Docker's builtin seccomp, and CyClaw's topology/injection
-gates). See [`docs/THREAT_MODEL.md`](../../docs/THREAT_MODEL.md) for where this
-sits in the overall posture and what it does **not** cover.
+[Falco](https://falco.org) logs anomalous container syscalls; it never blocks
+them. Containment still depends on binding, read-only rootfs, dropped
+capabilities, seccomp, and application gates. Scope:
+[`docs/THREAT_MODEL.md`](../../docs/THREAT_MODEL.md).
 
 ## What it watches
 
@@ -22,17 +19,14 @@ sits in the overall posture and what it does **not** cover.
 | Unexpected outbound connection | Non-tool egress to anything other than `127.0.0.1:11434` or `[::1]:11434` | WARNING |
 | Optional tool outbound connection | `rclone`/`git`/Git HTTPS helpers external egress that needs audit correlation | NOTICE |
 
-These map to the out-of-band fsconnect and sync write paths and the gate's egress.
-No shipped CyClaw path has exec'd `gh` or `git` since the agentic GitHub coding
-layer was removed (2026-10-18): `gh` left the allow-lists then, and `git` stays
-listed only because `tests/test_isolation_deploy.py` pins it.
+No shipped path executes `gh` or `git` after the October 2026 coding-layer
+removal. `git` remains allowed because `tests/test_isolation_deploy.py` pins it.
 
 ## Why it ships disabled
 
-Falco needs a **privileged** sidecar with host kernel access (`/proc`,
-`/sys/kernel/debug`, the modern eBPF probe). That privilege is itself attack
-surface, so it sits behind a Compose profile; a plain `docker compose up`
-never starts it.
+The **privileged** sidecar needs host `/proc`, `/sys/kernel/debug`, and an
+eBPF probe. Its added attack surface requires opt-in; plain Compose never
+starts it.
 
 ## Enable it
 
@@ -133,9 +127,8 @@ destination exceptions are the narrowest safe tuning unit.
 - The monitoring profile is **privileged**, and the read-only Docker socket
   mount still exposes a powerful host API (`:ro` protects the inode, not the
   API methods).
-- Falco outputs process command lines and file paths for several rules. These
-  alerts do not pass through CyClaw's audit redactor; handle the monitor's
-  logs separately from the redacted application audit trail.
+- Alerts include command lines and paths without CyClaw redaction. Handle
+  monitor logs separately from application audit.
 - `falcosecurity/falco:0.39.2` is digest-pinned in `docker-compose.yml`
   (multi-arch manifest-list digest, resolved 2026-08-12) beside the tag.
   Re-pin on any bump; Falco 0.44 removed the gVisor engine, so host eBPF

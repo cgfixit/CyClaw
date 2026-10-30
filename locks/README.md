@@ -1,10 +1,8 @@
 # locks/
 
-Hashed, closed dependency locks. The Docker build, the setup guide and CI's
-locked jobs install with `pip install --require-hashes -r locks/<file>`, so a
-replaced wheel fails the install instead of being accepted. The generated
-requirements files and input/output fingerprint records are not edited by hand;
-the contract check below detects edits that disagree with those records.
+Hashed dependency closures for Docker, setup, and CI. `pip install
+--require-hashes -r locks/<file>` rejects changed artifacts. Regenerate locks
+and fingerprint records; never edit them manually.
 
 ## What each family is for
 
@@ -54,19 +52,14 @@ scripts/refresh-runtime-lock.sh --upgrade-package certifi --upgrade-package open
 scripts/refresh-ci-locks.sh --upgrade-package certifi --upgrade-package opentelemetry-api --upgrade-package aiohttp
 ```
 
-Targets reach each non-Torch compile; dedicated Torch locks keep their existing
-pins and install contract. Companion packages move only when resolution requires
-it or they are explicitly targeted. Without arguments, existing pins remain
-preferred. Global upgrades and arbitrary compiler options are not accepted.
-Both groups fingerprint `constraints.txt`, so a constraint edit requires both
-refresh scripts even when the CI package versions remain unchanged.
+Targets affect non-Torch compiles; Torch retains its separate contract.
+Untargeted pins remain preferred unless resolution requires changes. Global
+upgrades and arbitrary compiler options are rejected.
 
-`constraints.txt`, `requirements*.txt` and the `scripts/ci-lock-inputs/`
-files are hashed after CRLF-to-LF normalization into the input records, so
-even a comment edit in one of them requires a refresh. The recorded refresh
-script and contract-checker source are fingerprinted too. For `pyproject.toml`,
-only `requires-python` and the dependency tables are hashed, so a coverage,
-ruff or project-version edit there does not invalidate the locks.
+Both groups fingerprint `constraints.txt`; refresh both after any edit.
+Requirements/input files normalize CRLF before hashing, but even comments
+change their fingerprints. Refresh scripts and the checker are also hashed.
+For `pyproject.toml`, only Python/dependency metadata participates.
 
 Run from the repository root with Python 3.12 and `uv` available:
 

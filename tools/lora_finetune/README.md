@@ -1,19 +1,13 @@
 # CyClaw Qwen3.8-27B LoRA fine-tune kit
 
-This directory is an optional operator toolkit for training a CyClaw-specific
-QLoRA adapter with Unsloth on NVIDIA CUDA. CyClaw does not import it, and the
-runtime, Docker, Conda, and `full` install profiles do not install its
-dependencies.
+Optional Unsloth/NVIDIA CUDA QLoRA toolkit, excluded from CyClaw runtime,
+Docker, Conda, and `full` installs.
 
-**The CUDA training profile is blocked.** The direct pins in
-`requirements.txt` do not resolve together. Unsloth `2026.9.4` constrains
-Transformers, TRL, and Datasets below the patched versions that this kit pins.
-Do not bypass the resolver with `--no-deps` or an Unsloth-only install. Keep the
-patched pins until a compatible CUDA profile has been verified.
-
-Dataset generation, the mocked test suite, and the end-to-end dry run remain
-usable without Unsloth, CUDA, or a GPU. CI runs those checks in
-`.github/workflows/lora-finetune.yml`.
+**CUDA training is blocked:** Unsloth `2026.9.4` constrains Transformers,
+TRL, and Datasets below this kit's patched pins. Never bypass resolution
+with `--no-deps`/Unsloth-only installs or lower those security floors.
+Dataset generation, mocked tests, and dry runs need no CUDA/Unsloth/GPU;
+`.github/workflows/lora-finetune.yml` checks these only.
 
 ## What the kit contains
 
@@ -30,14 +24,10 @@ usable without Unsloth, CUDA, or a GPU. CI runs those checks in
 | `tests/` | Dataset, integration, hardening, and command-line regression tests. |
 | `audit-report.md` | Historical findings that led to the revision pins and regression tests. |
 
-The dataset has ten categories. It is a small behavioral seed for CyClaw's
-answer shape, invariant discipline, and debugging cues. It is not a substitute
-for retrieval over the repository, and it does not teach the full codebase.
-
-`build_cyclaw_corpus.py` uses the Qwen tokenizer when Transformers and the
-pinned tokenizer assets are available. Otherwise it writes a clearly labeled
-ChatML fallback. The training script always renders the canonical messages with
-the base model's real tokenizer before training.
+The ten-category dataset seeds answer shape, invariant discipline, and
+debugging; it does not replace repository retrieval. Corpus generation uses
+the pinned Qwen tokenizer when available, otherwise a labeled ChatML preview.
+Training always renders canonical messages through the real base tokenizer.
 
 ## Verify the offline parts
 
@@ -49,12 +39,10 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m pytest tests/ -q --tb=short
 python dryrun_finetune.py
 ```
 
-The offline flags stop an installed Transformers from fetching tokenizer assets
-during tests. The repo-root `python -m pytest tests/` does not collect this
-kit's tests; the dedicated LoRA workflow installs the hashed Linux test lock
-(`locks/requirements-test-lock-linux.txt`), which includes pytest and its test
-tooling, and never installs the blocked training profile. These mocked checks
-do not verify a CUDA installation, real model loading, or training quality.
+Offline flags prevent tokenizer fetches. Root pytest excludes this kit;
+its workflow installs the hashed Linux test lock, never the blocked CUDA
+profile. Mocked checks establish neither CUDA installation, real model
+loading, nor training quality.
 
 To regenerate the canonical dataset and JSONL preview:
 

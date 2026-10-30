@@ -1,8 +1,7 @@
 # Screenshots and videos
 
-These are dated product and acceptance artifacts, not an inventory of current
-features. Keep source revision/date and recorded behavior separate from claims
-about current main.
+Dated product/acceptance artifacts. Their revisions and recorded behavior
+do not establish current-main features.
 
 ## Referenced artifacts
 
@@ -14,11 +13,9 @@ about current main.
 
 ## Historical captures
 
-Earlier harness empty-state/session-result captures, July agentic-console
-images and August harness images show components subsequently removed. They
-are retained as historical evidence, not current instructions. October console
-and accessibility captures also remain available even where no text link was
-found.
+Harness and July/August agentic captures show removed components and remain
+historical evidence. October console/accessibility captures are retained even
+without text references.
 
 The 2026-10-23 cleanup preserves all 35 images and both videos byte-for-byte.
 Thirty-four lacked in-repository textual references at the review baseline;
