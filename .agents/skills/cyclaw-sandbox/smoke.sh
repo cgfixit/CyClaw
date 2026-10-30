@@ -82,7 +82,7 @@ GROK_API_KEY="$GROK_API_KEY" CYCLAW_API_KEY="$CYCLAW_API_KEY" \
   "$PYTHON" -m uvicorn gate:app --host 127.0.0.1 --port "$PORT" --no-proxy-headers > "$LOG" 2>&1 &  # DevSkim: ignore DS162092
 SERVER_PID=$!
 
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   curl -sf "$BASE/health" > /dev/null 2>&1 && break
   # Fail fast if OUR server died during startup instead of probing whatever
   # else might answer on the port.
