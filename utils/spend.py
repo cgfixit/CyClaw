@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import stat
 import threading
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
@@ -197,7 +199,22 @@ def _resolve_spend_path(spend_file: Path | None) -> Path:
 
 def _append_line(path: Path, line: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
+    # Same file posture as utils/logger.py's _private_open (0600, no symlink
+    # follow, regular files only). The parent directory is left alone:
+    # logging.spend_file is operator-configurable, so chmod-ing its parent
+    # could tighten an unrelated directory.
+    flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("refusing non-regular spend ledger")
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        handle = os.fdopen(fd, "a", encoding="utf-8")
+    except BaseException:
+        os.close(fd)
+        raise
+    with handle:
         handle.write(line)
 
 
