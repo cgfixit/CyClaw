@@ -307,7 +307,7 @@ jobs:
         # PYSEC-2026-4327/-4332. Every fix is pillow 13.0.0, which no install can take:
         # fastembed (via nemoguardrails) requires pillow<13 in 0.8.1 and in its
         # latest 0.9.0; #1742's pillow==13.0.0 lock failed every install leg
-        # with ResolutionImpossible. All 35 fire only when pillow opens or
+        # with ResolutionImpossible. All 45 fire only when pillow opens or
         # saves a crafted image. The only known attack vector is an image
         # attachment, and no CyClaw path decodes one: the indexer UTF-8-decodes
         # configured extensions (.md/.txt by default), no module imports PIL,
