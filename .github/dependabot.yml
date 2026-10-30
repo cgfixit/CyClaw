@@ -1,16 +1,17 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
 # .github/dependabot.yml
 # Dependabot configuration for CyClaw
 #
 # Ecosystems:
-#   1. pip  – updates requirements*.txt / pyproject.toml in repo root
-#   2. Docker – bumps the digest-pinned Dockerfile base
-#   3. GitHub Actions – bumps versions in .github/workflows/*
+#   1. pip            – requirements*.txt / constraints.txt / pyproject.toml in repo root
+#   2. docker         – the digest-pinned Dockerfile base image
+#   3. docker-compose – the digest-pinned Falco image in docker-compose.yml
+#   4. github-actions – SHA-pinned actions in .github/workflows/*
 # (npm ecosystem removed with the unused root package.json scaffolding.)
+#
+# DELIBERATELY NOT COVERED: tools/lora_finetune/requirements.txt. `directory: "/"`
+# is non-recursive so the kit is outside the pip entry, and that is intended: its
+# pins are held back by a documented Unsloth/transformers/datasets CVE conflict
+# (see the file's own header) and are audited on the CUDA box, not bumped here.
 #
 # WHAT THE pip ECOSYSTEM BELOW ACTUALLY COVERS (verified 2026-08-02 against
 # dependabot-core's own source, not inference):
@@ -28,11 +29,10 @@
 #     is fetched now is unverified. Either way
 #     .claude/skills/dep-guard/check_deps.py (D5/D6, and D9 for
 #     environment.yml) still fails CI on pyproject/constraints drift.
-#   - locks/ is excluded below (exclude-paths). Those PRs also rewrote every
-#     hashed lock (#PR's right around that same timeframe - RIP .. 10.2.17 .. <3)
-#     but never the locks/*-inputs.json records, so
-#     scripts/check_lock_contract.py failed them by construction, and every
-#     one conflicted with any other lock change. Dependabot cannot run
+#   - locks/ is excluded below (exclude-paths). The October pip-all PRs (#1717,
+#     #1724) also rewrote every hashed lock but never the locks/*-inputs.json
+#     records, so scripts/check_lock_contract.py failed them by construction,
+#     and each one conflicted with any other lock change. Dependabot cannot run
 #     scripts/refresh-runtime-lock.sh (arm64 macOS only), so it should not
 #     write its output at all.
 #
@@ -49,7 +49,12 @@
 # audits requirements.txt, which carries zero extras by scope contract.
 #
 # Schedule: pip monthly (each PR costs a Mac re-lock, so weekly 50-package
-# batches only went stale); docker and github-actions weekly on Wednesday.
+# batches only went stale); docker, docker-compose and github-actions weekly on
+# Wednesday.
+# Cooldown: every ecosystem waits 7 days after a release before proposing it,
+# the same "prefer releases older than a week" rule the .githooks security gate
+# tells agents to apply by hand. Security updates ignore the cooldown, so a CVE
+# fix is never delayed by it.
 # pip splits into two groups: minor+patch in one PR, majors in their own, so
 # a major (huggingface-hub 1->2 rode inside #1724) is read before it is taken.
 # Majors are grouped, not ignored: ignore rules also suppress security updates.
@@ -67,6 +72,8 @@ updates:
       - "locks/**"
     schedule:
       interval: "monthly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 4
     labels:
       - dependencies
@@ -97,6 +104,9 @@ updates:
       # surfaces and dep-guard's _PYDANTIC_LOCKSTEP; bump them by hand together.
       - dependency-name: "pydantic"
       - dependency-name: "pydantic-core"
+      # marshmallow and uuid-utils below appear only in the hashed locks (which
+      # this entry excludes), so these two rules are dormant guard rails: they
+      # take effect if either is ever pinned in constraints.txt/pyproject.toml.
       # dataclasses-json (via nemoguardrails) requires marshmallow<4 (PR #1661).
       - dependency-name: "marshmallow"
         versions: [">=4.0.0"]
@@ -110,17 +120,42 @@ updates:
     schedule:
       interval: "weekly"
       day: "wednesday"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 2
     labels:
       - dependencies
       - docker
 
-  # 3) GitHub Actions
+  # 3) Docker Compose. The `docker` ecosystem reads Dockerfiles only, so the
+  # Falco image (the most privileged container in the stack: privileged, host
+  # /proc, docker socket) was never offered an update. A bump must re-pin the
+  # tag AND the digest together (see the comment on the falco service) and
+  # re-check deploy/falco's rules against the new version before merge.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+      - docker
+    ignore:
+      # CyClaw's own image, tagged by the operator via ${CYCLAW_IMAGE_TAG}
+      # and published by publish-ghcr.yml; never a Dependabot candidate.
+      - dependency-name: "ghcr.io/cgfixit/cyclaw"
+
+  # 4) GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"                 # Dependabot scans .github/workflows/**
     schedule:
       interval: "weekly"
       day: "wednesday"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels:
       - dependencies
