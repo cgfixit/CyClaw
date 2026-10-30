@@ -34,8 +34,8 @@ Uninstall deletes only known tasks: Dropbox Sync, fsconnect-trash,
 telegram-poll/health, gate, opentweet, and retired harness. Query-before-delete
 tolerates missing tasks on PowerShell 5.1; no wildcard names are used.
 Credentials require `-RemoveCredentials` and y/N confirmation (`-Yes` skips
-the prompt); plaintext copies remain. Default uninstall never writes
-credentials. Generated jobs load tokens through `CyClaw-CredMan-Env.ps1`,
+the prompt); plaintext copies remain. Default uninstall never writes a credential.
+Generated jobs load tokens through `CyClaw-CredMan-Env.ps1`,
 keeping them out of task XML.
 
 ## Secret classification

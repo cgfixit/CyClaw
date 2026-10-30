@@ -1,7 +1,8 @@
 # `tests/` — the CyClaw test suite
 
-Pytest collects this directory's `test_*.py` through `pyproject.toml`.
-The separate LoRA tests belong to `.github/workflows/lora-finetune.yml`.
+`test_*.py` files, auto-collected through
+`testpaths = ["tests"]` in `pyproject.toml`.
+LoRA tests use `.github/workflows/lora-finetune.yml`.
 Ordinary tests avoid live LLM/cloud calls; some use real loopback sockets,
 subprocesses, databases, and native behavior. Optional services may skip.
 Install Python 3.12 and test dependencies first (`CLAUDE.md` §4).
