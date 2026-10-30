@@ -1,5 +1,5 @@
 # ==============================================================================
-# CyClaw script lint — shellcheck (macOS scripts) + PSScriptAnalyzer (PowerShell scripts)
+# CyClaw script lint — shellcheck (all tracked shell scripts) + PSScriptAnalyzer (PowerShell scripts)
 #
 # Fail-closed gates for native installer/helper scripts (#1558). No rule
 # exclusions, no severity downgrades, no continue-on-error. The script owner
@@ -36,10 +36,10 @@ concurrency:
 permissions: {}
 
 jobs:
-  shellcheck-macos:
+  shellcheck-scripts:
     # Check context name must not collide with required contexts
     # ubuntu-latest / windows-latest / macos-latest / invariant-guard / dotenv-guard.
-    name: shellcheck (macos scripts)
+    name: shellcheck (tracked shell scripts)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -75,18 +75,23 @@ jobs:
             exit 1
           fi
 
-      - name: shellcheck macOS scripts (fail-closed, no rule exclusions)
+      - name: shellcheck every tracked shell script (fail-closed, no rule exclusions)
         run: |
           set -euo pipefail
           # --norc: ignore any .shellcheckrc so CI cannot silently relax rules.
           # -S warning: warnings and errors fail the job; style/info notes do not
           # (still no -e/--exclude). Severity floor is not a rule disable.
-          mapfile -t scripts < <(find macos -maxdepth 1 -type f -name '*.sh' | sort)
+          # Scope is every tracked *.sh (macos/, skills, scripts/, .githooks/)
+          # plus the extensionless git hooks, so a new script is linted without
+          # editing this list; it was macos/*.sh only until the skill and hook
+          # scripts were found carrying SC2155/SC2034 warnings.
+          mapfile -t scripts < <(
+            git ls-files -- '*.sh' .githooks/commit-msg .githooks/pre-commit .githooks/pre-push | sort -u
+          )
           if (( ${#scripts[@]} == 0 )); then
-            echo "::error::no macos/*.sh scripts found"
+            echo "::error::no tracked shell scripts found"
             exit 1
           fi
-          scripts+=(.claude/skills/CyClaw-Sandbox/macos-smoke.sh .agents/skills/cyclaw-sandbox/macos-smoke.sh)
           printf 'Linting %s script(s):\n' "${#scripts[@]}"
           printf '  %s\n' "${scripts[@]}"
           shellcheck --norc -S warning -- "${scripts[@]}"
