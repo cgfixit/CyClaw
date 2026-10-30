@@ -186,6 +186,16 @@ expire it.
 ### Tests and checks
 
 - **A green run can print no summary** (see Test above). Read the exit code.
+- **`workflow-lint` can go red with no workflow change, and offline zizmor will
+  not reproduce it.** On 2026-10-30 `ci.yml` run 41128159124 (main, #1789)
+  failed the zizmor step with exit 14: the online `known-vulnerable-actions`
+  audit (CI passes `--gh-token`) flagged `pypa/gh-action-pypi-publish` for
+  GHSA-5xjx-3w67-w9x9, an advisory published after the previous green run. The
+  fix is a pin bump, not a code change. In this sandbox `zizmor --offline`
+  reports nothing before or after, and the online mode panics (proxy denies the
+  advisory API), so read the failing job's log for the advisory id and let CI
+  confirm. Do not add a `zizmor: ignore` for a high finding without the
+  owner's say-so.
 - **A lone `subprocess.TimeoutExpired` on the Windows leg is a runner stall
   until proven otherwise.** On 2026-10-30, `ci.yml` run 41065100100 on main
   (#1787, an installer/docs change) failed one test,
