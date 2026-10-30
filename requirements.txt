@@ -19,18 +19,18 @@
 # from PyPI. Keeping the alternate index out of this file prevents every other
 # dependency from being resolved against it.
 
-fastapi==0.143.3
+fastapi==0.162.0
 uvicorn[standard]==0.54.0
 pydantic==2.13.5
 pyyaml==6.0.3
 httpx==0.28.1
 websockets==15.0.1
-langgraph==1.2.15
-langchain-core==1.6.12
+langgraph==1.2.16
+langchain-core==1.7.0
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
-sentence-transformers==6.1.0
+sentence-transformers==6.2.0
 huggingface-hub==1.32.0
-starlette==1.8.0
+starlette==1.9.0
 # Transitive of chromadb, pinned explicitly so this surface carries the same
 # onnxruntime floor pyproject.toml/constraints.txt do (ORT_DISABLE_TELEMETRY
 # governs the non-Windows 1DS path only from v1.29.0 -- see constraints.txt).

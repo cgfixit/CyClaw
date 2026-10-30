@@ -30,10 +30,10 @@ pydantic-core==2.46.5
 # loose >=2.0 floor, which is exactly the reproducibility gap constraints.txt exists
 # to close. Kept lock-step-compatible with the pydantic pair above (requires
 # pydantic>=2.7.0; pinned pydantic==2.13.5 satisfies that).
-pydantic-settings==2.16.0
+pydantic-settings==2.16.1
 
 # Direct dependencies from pyproject.toml -- versions MUST match; Torch adds the +cpu build tag.
-fastapi==0.143.3
+fastapi==0.162.0
 # Constraints pin versions only; the `[standard]` extra stays in requirements.txt.
 # pip >= 26.1.2 rejects extras in a -c constraints file ("Constraints cannot have
 # extras"), which broke the verify-install gate. See pypa/pip#8210.
@@ -41,7 +41,7 @@ uvicorn==0.54.0
 pyyaml==6.0.3
 httpx==0.28.1
 # Patched transitives for PYSEC-2026-4320 and CVE-2026-114603.
-certifi==2026.10.19
+certifi==2026.10.23
 opentelemetry-api==1.45.1
 # Security floor for a transitive (nemoguardrails directly and via aiohttp-retry;
 # chromadb via kubernetes). 3.14.3 carries CVE-2026-111063, CVE-2026-111064 and
@@ -51,10 +51,10 @@ aiohttp==3.14.5
 # langgraph-sdk imports websockets.asyncio at graph import time; keep this direct
 # so legacy/no-deps paths cannot strand the app on websockets 12.x.
 websockets==15.0.1
-langgraph==1.2.15
-langchain-core==1.6.12
+langgraph==1.2.16
+langchain-core==1.7.0
 chromadb==1.5.9  # CVE-2026-45829 (Critical pre-auth RCE; risk accepted ONLY for local/offline air-gapped PersistentClient embedded mode). See SECURITY.md + pip-audit.
-sentence-transformers==6.1.0
+sentence-transformers==6.2.0
 # Transitive of chromadb (which asks only for onnxruntime>=1.14.1) and of
 # fastembed in the base NeMo dependency. Bounded here rather than left to the
 # resolver because CyClaw's ONNX telemetry control is version-gated:
@@ -85,7 +85,7 @@ onnxruntime==1.31.0
 # from implicit sentence-transformers/fastapi transitives to explicit pins --
 # see pyproject.toml [project.dependencies] for why.
 huggingface-hub==1.32.0
-starlette==1.8.0
+starlette==1.9.0
 rank-bm25==0.2.2
 numpy==1.26.4
 nltk==3.10.4
@@ -104,7 +104,7 @@ torch==2.14.1+cpu
 # advisory floor; 84.1.0 also fixes GHSA-xmj3-9gf7-h52w in Windows legacy
 # wheel metadata handling. Constraints-only: not a
 # first-party import, same pattern as pydantic-settings.
-setuptools==84.1.0
+setuptools==84.2.1
 
 # Optional Postgres / pgvector backends (pyproject extras: postgres, pgvector).
 # These are NOT installed by the default path; constraints only cap a version
@@ -150,7 +150,7 @@ pendulum==3.3.0
 # langsmith is a runtime transitive of langchain-core (a base dependency), so
 # it stays pinned even though the agentic-deepagents extra that first pinned it
 # here was removed in October 2026. Pinned so the resolve stays reproducible.
-langsmith==0.14.11
+langsmith==0.14.12
 
 # Test optional-dependencies (for CI / dev)
 pytest==9.1.1
@@ -175,7 +175,7 @@ pygments==2.21.0
 # carries no gate risk. Both versions verified present on conda-forge too, since
 # environment.yml carries the same pins and a conda-only version would break that
 # lane's solve. bandit is already at its latest release (1.9.4) — left alone.
-ruff==0.17.1
+ruff==0.17.2
 mypy==2.4.0
 bandit==1.9.4
 
