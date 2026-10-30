@@ -24,7 +24,6 @@ RETRY_COUNTS='{}'
 ITERATION=0
 LAST_COMMENT_ID=0
 STOP_REASON=""
-FINAL_REPORT=""
 
 
 # ============================================================================
@@ -86,7 +85,8 @@ parse_pr_input() {
         echo "${BASH_REMATCH[1]}"
     else
         # Assume it's a branch name; try to find PR
-        local pr_num=$(gh pr list --head "$input" --json number --jq '.[0].number' 2>/dev/null || echo "")
+        local pr_num
+        pr_num=$(gh pr list --head "$input" --json number --jq '.[0].number' 2>/dev/null || echo "")
         if [[ -z "$pr_num" ]]; then
             log_error "Could not find PR for branch: $input"
             exit 1
@@ -98,7 +98,8 @@ parse_pr_input() {
 # Ensure PR exists; create if needed
 ensure_pr_exists() {
     local pr_number="$1"
-    local current_branch=$(git rev-parse --abbrev-ref HEAD)
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD) || true
 
     if gh pr view "$pr_number" --repo . >/dev/null 2>&1; then
         log_info "PR #$pr_number already exists"
@@ -168,8 +169,10 @@ rebase_if_behind() {
         git fetch origin
 
         # Check for mixed authorship before rebasing
-        local current_branch=$(git rev-parse --abbrev-ref HEAD)
-        local current_author=$(git config user.email)
+        local current_branch
+        current_branch=$(git rev-parse --abbrev-ref HEAD) || true
+        local current_author
+        current_author=$(git config user.email) || true
 
         if git log origin/$BASE_REF.."$current_branch" --format=%aE | grep -v "^${current_author}$" >/dev/null 2>&1; then
             STOP_REASON="Rebase would touch commits from another author"
@@ -230,7 +233,8 @@ wait_for_checks() {
 triage_failures() {
     log_info "Step 4: Triaging failures..."
 
-    local failures=$(echo "$STATE_JSON" | jq -r '.checks[] | select(.status == "failure") | .name' 2>/dev/null || echo "")
+    local failures
+    failures=$(echo "$STATE_JSON" | jq -r '.checks[] | select(.status == "failure") | .name' 2>/dev/null || echo "")
 
     if [[ -z "$failures" ]]; then
         log_info "  No failures to triage."
@@ -241,7 +245,8 @@ triage_failures() {
         log_info "  Checking: $check_name"
 
         # Get run ID for this check
-        local run_id=$(gh run list --repo . --json name,databaseId --jq ".[] | select(.name == \"$check_name\") | .databaseId" 2>/dev/null | head -1 || echo "")
+        local run_id
+        run_id=$(gh run list --repo . --json name,databaseId --jq ".[] | select(.name == \"$check_name\") | .databaseId" 2>/dev/null | head -1 || echo "")
 
         if [[ -z "$run_id" ]]; then
             log_info "    Could not find run ID; skipping."
@@ -253,11 +258,14 @@ triage_failures() {
         current_retries=$(printf '%s' "$RETRY_COUNTS" | jq -r --arg key "$check_name" '.[$key] // 0')
 
         # Fetch logs and classify
-        local classification=$(gh run view "$run_id" --log-failed 2>/dev/null | \
+        local classification
+        classification=$(gh run view "$run_id" --log-failed 2>/dev/null | \
             python3 "$SCRIPT_DIR/classify-failure.py" "$check_name" || echo '{"class": "unknown"}')
 
-        local failure_class=$(echo "$classification" | jq -r '.class')
-        local signal=$(echo "$classification" | jq -r '.signal')
+        local failure_class
+        failure_class=$(echo "$classification" | jq -r '.class') || true
+        local signal
+        signal=$(echo "$classification" | jq -r '.signal') || true
 
         log_info "    Classification: $failure_class (signal: $signal)"
 
@@ -290,8 +298,10 @@ triage_failures() {
 address_comments() {
     log_info "Step 5: Processing review comments..."
 
-    local comments=$(bash "$SCRIPT_DIR/fetch-comments.sh" "$PR_NUMBER" "$LAST_COMMENT_ID" 2>/dev/null || echo "[]")
-    local comment_count=$(echo "$comments" | jq 'length')
+    local comments
+    comments=$(bash "$SCRIPT_DIR/fetch-comments.sh" "$PR_NUMBER" "$LAST_COMMENT_ID" 2>/dev/null || echo "[]")
+    local comment_count
+    comment_count=$(echo "$comments" | jq 'length') || true
 
     if [[ "$comment_count" -eq 0 ]]; then
         log_info "  No new unresolved comments."
@@ -302,9 +312,12 @@ address_comments() {
 
     # Process each comment
     echo "$comments" | jq -c '.[]' | while read -r comment; do
-        local comment_id=$(echo "$comment" | jq -r '.id')
-        local comment_author=$(echo "$comment" | jq -r '.author')
-        local comment_body=$(echo "$comment" | jq -r '.body')
+        local comment_id
+        comment_id=$(echo "$comment" | jq -r '.id') || true
+        local comment_author
+        comment_author=$(echo "$comment" | jq -r '.author') || true
+        local comment_body
+        comment_body=$(echo "$comment" | jq -r '.body') || true
 
         log_info "    Comment from $comment_author (ID: $comment_id): ${comment_body:0:50}..."
 
@@ -325,8 +338,10 @@ check_exit_conditions() {
     sync_state || return 1
 
     # All checks passing?
-    local failures=$(echo "$STATE_JSON" | jq -r '.checks[] | select(.status == "failure") | .name' 2>/dev/null || echo "")
-    local unresolved_count=$(echo "$STATE_JSON" | jq -r '.unresolved_comment_count')
+    local failures
+    failures=$(echo "$STATE_JSON" | jq -r '.checks[] | select(.status == "failure") | .name' 2>/dev/null || echo "")
+    local unresolved_count
+    unresolved_count=$(echo "$STATE_JSON" | jq -r '.unresolved_comment_count') || true
 
     if [[ -z "$failures" ]] && [[ $unresolved_count -eq 0 ]]; then
         log_info "  ✓ All checks passing and no unresolved comments."
@@ -398,7 +413,8 @@ EOF
 
     # Detect test command if not cached
     if [[ -z "${DETECTED_TEST_CMD:-}" ]]; then
-        local detect_output=$(python3 "$SCRIPT_DIR/detect-test-command.py")
+        local detect_output
+        detect_output=$(python3 "$SCRIPT_DIR/detect-test-command.py") || true
         DETECTED_TEST_CMD=$(echo "$detect_output" | jq -r '.test_command')
         DETECTED_LINT_CMD=$(echo "$detect_output" | jq -r '.lint_command')
         log_info "Detected test command: $DETECTED_TEST_CMD"

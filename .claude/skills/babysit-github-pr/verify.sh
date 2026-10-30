@@ -91,7 +91,8 @@ smoke_test() {
     fi
 
     # Test help output (note: output goes to stderr)
-    local babysit_output=$(bash scripts/run-babysit.sh 2>&1 || true)
+    local babysit_output
+    babysit_output=$(bash scripts/run-babysit.sh 2>&1 || true)
     if ! echo "$babysit_output" | grep -q "Usage:"; then
         echo "ERROR: run-babysit.sh help output failed" >&2
         echo "Output was: $babysit_output" >&2
