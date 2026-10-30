@@ -146,8 +146,6 @@ became [CG-agent-harness](https://github.com/cgfixit/CG-agent-harness).
 - At `api.max_concurrent_queries` (4), `/query` returns `503 GRAPH_BUSY`;
   exceeding `api.graph_timeout_sec` (780 s) returns `504 GRAPH_TIMEOUT`.
 
-
-
 **Local records.** Paths are relative to the repository.
 
 | Path | Git status | Contents and behavior |

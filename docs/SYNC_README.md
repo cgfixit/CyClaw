@@ -150,8 +150,6 @@ Unreadable/malformed config exits **3** (`SYNC_CONFIG_INVALID`).
 
 ---
 
-
-
 ## Daily usage
 
 ```bash
@@ -169,8 +167,6 @@ gateway or the graph.
 
 A `--dry-run` leaves corpus/remote content unchanged but writes its filter,
 log, and overlap-lock support files. It emits no audit rows.
-
-
 
 ### Exit codes
 

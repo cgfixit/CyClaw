@@ -10,7 +10,6 @@ keeps an existing checkout in place. Corpus, index, personality, and application
 log paths follow that checkout's `config.yaml`, so they need not live under
 `~/.CyClaw`. The separate fsconnect jail defaults to `~/CyClaw-FS`.
 
-
 ## Scripts
 
 | Script | What it does |
@@ -23,7 +22,60 @@ log paths follow that checkout's `config.yaml`, so they need not live under
 | `cyclaw-linux-key.sh` | Sourced by `invoke-cyclaw.sh` on Linux: libsecret (`secret-tool`, service `com.cgfixit.cyclaw.api-key`) first, then `$XDG_CONFIG_HOME/cyclaw/api-key` (0700/0600; symlinked, foreign-owned, group-readable, or malformed files are refused). The key never becomes an argv token. Details: [Linux launcher credentials](#linux-launcher-credentials-and-headless-pairing). |
 | `setup-cyclaw-keys.sh` | Apple Silicon key bootstrap; generates gateway key and optionally prompts for provider/channel keys. Keychain is default; `--write-env-file` opts into plaintext. Migration verifies equality before removal. Supports rotation, clipboard TTL, browser fill, and generate-only rotation schedules. `--restart-servers` frees the port but does not start the server. See Key bootstrap below and `--help`. |
 | `cyclaw-keychain-load.sh` | Shared sourced helper for onboarding and launchers. Filters dotenv settings, scrubs secret-classified dotenv values, and loads allowed Keychain items into the process. |
-| `cyclaw-public-env.sh` | Sourced by the rc block. Exports non-secret dotenv settings. Reads the secret classification from The shared `utils/secret-policy.tsv` maps exact secret names to Keychain
+| `cyclaw-public-env.sh` | Sourced by the rc block. Exports non-secret dotenv settings. Reads the secret classification from `utils/secret-policy.tsv` (shared with Python and PowerShell) and refuses to run without it. |
+| `setup-fsconnect.sh` | Creates confined `~/CyClaw-FS` (`chmod 700`). Unless `--prepare-only`, enables list/stat/read via `_enable_fsconnect_readlist.py`. |
+| `_enable_fsconnect_readlist.py` | Writes the confined read/list `fsconnect:` profile into `config.yaml` (writes stay off). |
+| `cyclaw-keychain-set.sh` | Interactive Keychain store. Bare `-w` (secret never in argv); `-T /usr/bin/security`. Requires a TTY. |
+| `cyclaw-keychain-env.sh` | Fetch one Keychain item, export it, `exec` the wrapped command. Fail-closed if missing/empty. |
+| `generate_service_plist.py` | Supervised LaunchAgent for `gate.py` (`--service gate`). Highest-risk generator: refuses to write without `--confirm` **and** a non-empty `--reason`. `KeepAlive: {SuccessfulExit: false}` (crash-only restart, never after a clean stop), `ThrottleInterval` 30s default, optional `--api-key-service` chains the Keychain wrapper. Never loads the agent itself. |
+| `ollama-mlx.env` | KEY=value tunings sourced before `ollama serve` (context 32768, keep-alive 30m, one loaded model, one parallel slot, flash-attn + KV q8_0). No secrets. `setup-from-clone.sh` sources it when *it* launches Ollama; an already-running .app ignores it until quit. Flash-attention and KV-cache settings may be ignored by an MLX-native backend. |
+| `Modelfile.cg` | Optional one-time derived tag `qwen3.8:27b-mlx-cg` (`PARAMETER num_ctx 32768`). Not created by any script. The shipped default stays `qwen3.8:27b-mlx`. See `docs/! How-To-Guides/OLLAMA_SETUP.md`. |
+
+Run `.sh` entry points with bash (macOS 3.2 supported); shell integration
+supports bash/zsh. No Homebrew required; Python 3.12 and platform runtime
+dependencies are. Installers use the [hashed locks](../setup-guide.md).
+
+## One command (Apple Silicon)
+
+`setup-cyclaw.sh` is the single entry point for a fresh machine — clone,
+install, keys, index, start, browser, with the choices asked once up front:
+
+```bash
+bash macos/setup-cyclaw.sh          # inside a clone, or standalone (it offers to clone)
+```
+
+Prompts require a Terminal; use `--skip-prompts` with noninteractive stdin.
+Onboarding, launchers, and key setup share `utils/gateway_url.py` when deps
+are installed: wildcard binds map to loopback. Standalone key setup falls
+back to `http://127.0.0.1:<port>`.
+
+## One-shot after clone (Apple Silicon)
+
+`setup-cyclaw.sh` delegates installation, keys, Ollama, indexing, and startup
+to `setup-from-clone.sh`. Invoke it directly for scripted use:
+
+```bash
+git clone https://github.com/CGFixIT/CyClaw.git && cd CyClaw
+bash macos/setup-from-clone.sh
+```
+
+Secrets are never logged, written to `config.yaml`, or placed on a child
+argv; they persist in the Keychain via `setup-cyclaw-keys.sh`, ordinary
+settings in `~/.CyClaw/.env` (chmod 600). fsconnect writes and indexing stay
+off, and no LaunchAgent is generated or loaded (those need `--confirm --reason`).
+
+## Key bootstrap
+
+`setup-cyclaw-keys.sh` bootstraps keys on Darwin arm64 only; the pinned Torch
+has no Intel macOS wheel.
+
+`~/.CyClaw/.env` (mode 600) is the default home for ordinary settings:
+ports, paths, mode flags, model names, and feature toggles. New shells
+load that file through the `# >>> cyclaw keys >>>` block, which does not
+export secret-classified names. If `CYCLAW_HOME` was set when the keys
+script ran, the block follows that directory instead of `~/.CyClaw`.
+
+The shared `utils/secret-policy.tsv` maps exact secret names to Keychain
 services and classifies suffixes (`API_KEY`, `CREDENTIALS`, `PASSWORD`,
 `SECRET`, `TOKEN`, `PAT`, `DSN`, `DB_URL`, `KEY`). Launchers load mapped
 secrets into the process only. `--write-env-file` additionally persists
