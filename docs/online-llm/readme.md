@@ -1,26 +1,15 @@
 # Online LLM Fallbacks
 
-CyClaw is designed to answer from the local vault first. Grok and Claude are
-optional online fallbacks for the rare case where the vault does not have enough
-information and a human chooses to send the question outside the machine.
+CyClaw retrieves locally first. After a vault miss, a human can send the
+question to Grok or Claude.
 
 ## Provider gates
 
-CyClaw has two optional online choices after a vault miss:
-
-- **Send to Grok** uses the xAI Grok API.
-- **Send to Claude** uses the Anthropic Claude API.
-
-Both providers ship **enabled** in `config.yaml`, and `app.mode` ships
-`"hybrid"`. The triple gate is three
-conditions: `app.mode` is `hybrid`, that provider's `enabled` flag is true,
-and the request carries `user_confirmed_online: true`. A missing API key is
-a separate check — the client can be constructed and still report
-`is_available()` false, and the router then stays on the local answer. No
-online **fallback/generation** call happens without that confirmation. (The
-one other online-touching path is the opt-in `/health` provider probe,
-`api.health_probe_external_providers`, which ships `false` — see "Quick
-Local Check" below.)
+Both providers ship **enabled** with `app.mode: hybrid`. External generation
+requires all three gates: hybrid mode, provider enablement, and request
+`user_confirmed_online: true`. A missing key independently makes the client
+unavailable and keeps routing local. The separate `/health` provider probe
+ships off; see "Quick Local Check".
 
 ## API Keys
 
@@ -47,9 +36,7 @@ is unavailable.
 
 ## Config Settings
 
-Online fallback is controlled in `config.yaml`.
-
-The main switch is:
+In `config.yaml`:
 
 ```yaml
 app:
@@ -106,13 +93,8 @@ The attempt ledger is separate from provider-reported token usage in
 
 ## When to Use Online Fallback
 
-Use online fallback only when all of these are true:
-
-- The vault missed or gave a weak answer.
-- The question is safe to send outside the local machine.
-- The user understands that an external provider may receive the question.
-- A valid API key is configured for the selected provider.
-- The terminal asks for confirmation and the user chooses Grok or Claude.
+Confirm online fallback after a vault miss only when the question is safe to
+send, the user understands the disclosure, and the selected provider has a key.
 
 Prefer offline best effort when the question includes private client material,
 credentials, internal notes, sensitive business details, or anything that should

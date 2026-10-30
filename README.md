@@ -11,7 +11,7 @@
 — silent, with real local retrieval and inference using synthetic documents.
 
 CyClaw answers questions from **your documents on your hardware**. Its
-12-node LangGraph starts with retrieval, ends every path in the audit log,
+12-node LangGraph retrieves first and audits every path,
 and requires per-question consent for paid Grok or Claude fallback. The
 server binds to `127.0.0.1:8787`.
 
@@ -30,29 +30,20 @@ CyClaw serves one trusted operator, or a mutually trusted group with auth
 enabled; it provides neither tenant isolation nor a microVM
 ([threat model](docs/THREAT_MODEL.md)).
 
-Step-by-step installs and every REST call: [Full Setup Guide](setup-guide.md).
-Contributor rules for people and agents: [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md),
-and the tracked git-hook gate in [`docs/GITHOOKS.md`](docs/GITHOOKS.md).
-Run `bash scripts/ensure-githooks.sh` once per clone and confirm
-`git config --show-origin --get core.hooksPath` points to `.githooks`;
-an existing hook manager is preserved. The [hook file guide](.githooks/README.md)
-explains each file, its benefit, and the branch and commit-title conventions.
-Codex skill discovery, invocation policies and review workflows:
-[Codex guidance](.codex/README.md) (repository skills in `.agents/skills/`).
-For workflow purposes, triggers, blocking versus advisory checks, and publishing:
-[GitHub Actions guide](.github/workflows/README.md).
+Install and API recipes: [Setup Guide](setup-guide.md).
+Contributor contracts: [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md),
+[Codex guidance](.codex/README.md), [Actions guide](.github/workflows/README.md).
+Install the [Git hooks](docs/GITHOOKS.md) with `bash scripts/ensure-githooks.sh`;
+verify `git config --show-origin --get core.hooksPath` selects `.githooks`
+unless an existing hook manager was preserved. [Hook file guide](.githooks/README.md).
+[Residual security decisions](SECURITY.md#issue-1526-residual-decisions-2026-10-12)
+record accepted limits and research; native Windows verification remains disabled.
 
-Security review #1526's [residual decision register](SECURITY.md#issue-1526-residual-decisions-2026-10-12)
-separates implemented controls, accepted limits (native Windows verification
-stays disabled; supported confinement still permits host reads), and optional research.
-
-Confirmed cloud fallback sends the question to the selected provider. Retrieved
-context stays local unless `policy.fallback.send_local_context_to_grok` or
-`send_local_context_to_claude` is explicitly enabled; the soul is never added
-to a cloud prompt. These gates govern answer generation, not every network
-operation: model downloads and enabled sync/channels have separate connections.
-For no-egress operation, pre-cache models, disable those optional connections,
-and enforce the network boundary outside the application.
+Confirmed fallback sends questions externally. Context stays local unless
+`policy.fallback.send_local_context_to_grok` or `send_local_context_to_claude`
+is enabled; soul content is never added. Model downloads and optional
+sync/channels have separate connections. For no-egress use, pre-cache models,
+disable optional connections, and enforce an external network boundary.
 
 ## Quick Start
 
@@ -98,14 +89,12 @@ existing environment ends with the [NeMo verification](setup-guide.md#verify-the
 
 ## For newcomers
 
-**Python and install paths.** Use Python 3.12 (`>=3.12,<3.13`), not an
-unversioned `python3` that may resolve to 3.11; `.venv` needs no admin rights.
-Choose [native macOS](macos/README.md), [Windows](powershell/README.md), the
-Linux Quick Start, [Docker](docs/DOCKER.md) (`linux/amd64`, published on
-`127.0.0.1` only), or conda (`environment.yml`). The constrained editable
-install in the [setup guide](setup-guide.md) adds the `cyclaw-*` commands;
-`python -m …` always works. The hashed install locks and how they are
-regenerated, including targeted transitive upgrades, are described in [locks/README.md](locks/README.md).
+**Python and install paths.** Use Python 3.12 (`>=3.12,<3.13`):
+[macOS](macos/README.md), [Windows](powershell/README.md), Linux above,
+[Docker](docs/DOCKER.md) (`linux/amd64`, loopback), or conda (`environment.yml`).
+The [constrained editable install](setup-guide.md) adds `cyclaw-*` commands;
+source checkouts use `python gate.py` and `python -m retrieval.indexer`.
+[Lock maintenance](locks/README.md).
 
 **Secrets.** `gate.py` reads environment variables, never dotenv files
 (`Invoke-CyClaw.ps1` reads only non-secret settings from an owner-only
@@ -126,45 +115,36 @@ execution through `macos/cyclaw-keychain-env.sh` or
 closed when its item is missing. A missing provider key leaves that provider
 unavailable, not the server down ([provider keys](spend/README.md#api-keys)).
 
-**Offline and hybrid.** Shipped `app.mode: hybrid` permits a paid call only
-when the selected provider is enabled, available, and confirmed for that
-one request; confirmation is never persisted. Set `app.mode: offline` or
-decline to stay local. Model downloads are separate from that consent:
-`models.embeddings.offline_after_index: true` forces local files after
-indexing, and the ~91 MB reranker loads on the first query, so cache it first.
+**Offline and hybrid.** Shipped `app.mode: hybrid` needs an enabled,
+available, selected provider and per-request confirmation for paid fallback.
+Offline mode or declining stays local. Downloads have separate controls:
+`models.embeddings.offline_after_index: true` requires cached embeddings;
+pre-cache the ~91 MB reranker before its first query.
 
-**Ports.** Gateway `127.0.0.1:8787` (`api.port`, launcher override
-`CYCLAW_GATE_PORT`), Ollama `127.0.0.1:11434`. The old `:8790` coding console
-is now the separate [CG-agent-harness](https://github.com/cgfixit/CG-agent-harness).
+**Ports.** Gateway `127.0.0.1:8787` (`api.port`, launcher
+`CYCLAW_GATE_PORT`), Ollama `127.0.0.1:11434`. The retired `:8790` console
+became [CG-agent-harness](https://github.com/cgfixit/CG-agent-harness).
 
 **First-run checks and limits.**
 
-- Without an index, `/query` returns `503 INDEX_NOT_FOUND`. Run
-  `python -m retrieval.indexer`, or click **Build my library** in the console
-  (`POST /index/build`, loopback + same-origin + no forwarding headers, then
-  `GET /index/status`); once `CYCLAW_API_KEY` is set a locked build opens the
-  unlock dialog and retries after the unlock.
-- The console header shows the mode in plain words ("Cloud fallback · ask
-  first" or "Offline only") and **Library**/**Engine** health chips. `/health`
-  reporting `degraded` usually means Ollama is down; `TELEMETRY KILL` at
-  startup is expected.
-- `/health` does not probe cloud providers unless
-  `api.health_probe_external_providers` is enabled (ships false). Local model
-  readiness and provider key presence are separate from a successful answer.
-- The 60/min per-IP rate limit resets on restart unless
-  `api.rate_limit.persist_path` or a Postgres DSN is set. `/health` and
-  `/index/status` are public and not rate-limited. Request bodies above
-  `security.max_request_body_bytes` (1 MiB) get 413.
-- Browser CORS allows `http://127.0.0.1:8787` and `http://localhost:8787`;
-  `/query` always rejects cross-site requests.
-- Restart the gateway after editing sanitizer config (it is cached).
-  `CYCLAW_EMBED_CACHE_SIZE` (default 2048) is an env var, not a YAML key.
-- Local static checks: `python .claude/skills/invariant-guard/check_invariants.py`
-  and `python .claude/skills/doc-sync/doc_sync.py`. Exercise the affected behavior
-  for a change; hosted CI runs the broad suites ([test guide](tests/README.md)).
-- At `api.max_concurrent_queries` capacity (4 shipped), `/query` returns
-  `503 GRAPH_BUSY`; a request exceeding `api.graph_timeout_sec` (780 seconds)
-  returns `504 GRAPH_TIMEOUT`. These differ from a missing index or model.
+- `503 INDEX_NOT_FOUND`: run `python -m retrieval.indexer` or **Build my
+  library** (`POST /index/build`, `GET /index/status`). Build requires
+  loopback, same-origin, no forwarding headers; configured keys require unlock.
+- Console mode and Library/Engine chips expose readiness. `/health: degraded`
+  usually means Ollama is down; startup `TELEMETRY KILL` is expected.
+- External health probes ship off (`api.health_probe_external_providers`).
+  Key presence/model readiness does not establish successful generation.
+- Per-IP rate limit: 60/min, reset on restart unless `api.rate_limit.persist_path`
+  or Postgres persists it. `/health` and `/index/status` are public/unlimited.
+  Bodies above `security.max_request_body_bytes` (1 MiB) return 413.
+- CORS allows `http://127.0.0.1:8787` and `http://localhost:8787`;
+  `/query` rejects cross-site requests. Restart after sanitizer-config edits.
+  `CYCLAW_EMBED_CACHE_SIZE` (2048) is an environment variable.
+- Run `python .claude/skills/invariant-guard/check_invariants.py` and
+  `python .claude/skills/doc-sync/doc_sync.py`; exercise changed behavior.
+  [Hosted CI owns broad suites](tests/README.md).
+- At `api.max_concurrent_queries` (4), `/query` returns `503 GRAPH_BUSY`;
+  exceeding `api.graph_timeout_sec` (780 s) returns `504 GRAPH_TIMEOUT`.
 
 **Local records.** Paths are relative to the repository.
 
@@ -204,20 +184,16 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
    (without cosines, the fused score must clear the RRF-scale
    `retrieval.min_score`); the cross-encoder runs in shadow mode
    (`retrieval.min_rerank_score: null`). [Retrieval reference](retrieval/README.md).
-3. **Local generation.** Ollama runs `models.local_llm.model`, shipped as
-   `qwen3.8:27b-mlx`. Tunables live in `config.yaml`. Optionally, build a
-   local tag that stores `num_ctx` on the model itself
-   ([derived tag](docs/%21%20How-To-Guides/OLLAMA_SETUP.md#pin-the-context-window-with-a-derived-tag)).
-   `macos/Modelfile.cg` builds the author's `qwen3.8:27b-mlx-cg`, which is not a
-   published model. Use your own tag name, but keep a suffix so it never
-   overwrites the registry tag `qwen3.8:27b-mlx`. Set `num_ctx` and the
-   sampling parameters to fit your Ollama max context, unified memory, and model.
-   A local backend that needs a bearer token reads it from the env var named by
-   `models.local_llm.api_key_env` (default `CYCLAW_LOCAL_LLM_API_KEY`), and the
-   fallback backend from `models.local_llm.fallback.api_key_env` (default
-   `CYCLAW_LOCAL_LLM_FALLBACK_API_KEY`). Unset means no `Authorization` header.
-   Gateway startup refuses a nonempty inline `api_key` in either local model
-   block, even when the fallback is disabled, so keep keys out of the file.
+3. **Local generation.** Ollama uses `models.local_llm.model` (shipped
+   `qwen3.8:27b-mlx`). Tune context/sampling for your hardware in `config.yaml`.
+   An optional [derived tag](docs/%21%20How-To-Guides/OLLAMA_SETUP.md#pin-the-context-window-with-a-derived-tag)
+   stores `num_ctx`; `macos/Modelfile.cg` builds the unpublished
+   `qwen3.8:27b-mlx-cg`. Keep a suffix to avoid overwriting the registry tag.
+   Local bearer tokens come from `models.local_llm.api_key_env` or
+   `models.local_llm.fallback.api_key_env` (defaults `CYCLAW_LOCAL_LLM_API_KEY`
+   and `CYCLAW_LOCAL_LLM_FALLBACK_API_KEY`). Unset means no auth header.
+   Startup rejects inline `api_key` values, including in disabled fallback.
+
 4. **Governed soul.** `data/personality/soul.md` has SHA-256 drift detection
    and atomic writes; `POST /soul/apply` requires a human `reason` and an
    enforced injection scan. Restore audits an advisory scan of the vetted
@@ -234,15 +210,13 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
 7. **Audit convergence.** Every path converges at `audit_logger` before END;
    `cyclaw-metrics` reads the audit offline.
 
-[The six invariants](CLAUDE.md#3-the-six-invariants) pin these guarantees plus
-import isolation of the core modules; [`INVARIANTS.md`](INVARIANTS.md) states
-Rules 1–9 and the test behind each.
+[Six invariants](CLAUDE.md#3-the-six-invariants) include core import isolation;
+[`INVARIANTS.md`](INVARIANTS.md) maps Rules 1–9 to tests.
 
-**Storage and console.** `indexing.vector_backend` defaults to embedded
-`chroma` (optional `pgvector`); BM25 is JSON, never pickle.
-`static/terminal.html` provides queries, the first-run build panel, health
-chips, Soul, Sync, and Filesystem panels, plus Users and Audit when auth is
-on.
+**Storage/console.** Embedded `chroma` defaults, optional `pgvector`
+(`indexing.vector_backend`); BM25 uses JSON, never pickle. `static/terminal.html`
+provides queries, first-run build, health, Soul/Sync/Filesystem panels,
+and authenticated Users/Audit.
 
 ### Optional layers at a glance
 
@@ -346,11 +320,10 @@ or device token when `auth.enabled` is true. Operator credentials are:
 - **An admin login**, when `auth.enabled` is on (no key needed); `operator`
   and `audit` accounts do not get operator access.
 
-Cookie writes need CSRF tokens, cookies reject cross-site requests, console
-tokens bind the request origin, and TLS uses `__Host-` cookies. Cookies are not
-port-scoped, so give CyClaw its own hostname plus TLS when other services on
-the host are untrusted. Without `CYCLAW_API_KEY`, Bearer-key and console-cookie
-access fail closed; an enabled admin session still works.
+Cookie writes require CSRF; cross-site requests fail. Tokens bind origin;
+TLS uses `__Host-` cookies. Because cookies lack port isolation, use a dedicated
+TLS hostname alongside untrusted services. Without `CYCLAW_API_KEY`, key/cookie
+access fails closed; enabled admin sessions still work.
 
 `macos/invoke-cyclaw.sh` and `powershell\Invoke-CyClaw.ps1` generate a
 missing key into the OS keystore and open a single-use `#pair=...` unlock
@@ -438,43 +411,39 @@ no judge result is published yet.
 
 ## Current development
 
-Recent work: removal of the agentic coding loop, SQL connector, and the
-extras they orphaned (October 2026), hashed installs with a CI lock contract
-([`locks/README.md`](locks/README.md)), the tracked git-hook secrets gate
-([`docs/GITHOOKS.md`](docs/GITHOOKS.md)), auth roles that survive restarts,
-credential and request-body hardening, and console first-run fixes. The
+Current changes and dated decisions live in the
 [merged PRs](https://github.com/cgfixit/CyClaw/pulls?q=is%3Apr+is%3Amerged)
-and [`docs/changelog.txt`](docs/changelog.txt) are the record.
+and [`docs/changelog.txt`](docs/changelog.txt). Install and contributor
+contracts: [locks](locks/README.md), [Git hooks](docs/GITHOOKS.md).
 
 ---
 
 ## Optional layers
 
-**Dropbox sync.** Generated schedules retrieve the encrypted-config password from macOS Keychain or Windows Credential Manager at run time; [setup and limits](docs/SYNC_README.md#encrypted-rclone-configuration-in-scheduled-jobs). `rclone` pulls into `data/corpus/` outside the request
-path, bounded by `max_delete`, `max_transfer`, and a single-instance lock;
-exit code 10 signals a reindex. `python -m sync.cli setup`, then `test`,
-`sync --dry-run`, `sync`, `status`, `schedule`, or `unschedule`
-([guide](docs/%21%20How-To-Guides/Dropbox_Sync_Guide.md), [CLI](docs/SYNC_README.md)).
+**Dropbox sync.** Out-of-band `rclone` pulls into `data/corpus/`, bounded by
+deletion/transfer limits and a single-instance lock; exit 10 requests reindex.
+Run `python -m sync.cli setup`, `test`, `sync --dry-run`, then `sync`.
+Status/scheduling: [CLI guide](docs/SYNC_README.md),
+[walkthrough](docs/%21%20How-To-Guides/Dropbox_Sync_Guide.md).
+Generated schedules load encrypted-config passwords from OS keystores.
 
-**Native scheduling.** Generators write plist/task files and print load
-commands; token-bearing jobs use the keystore wrappers, and a supervised
-gateway (`macos/generate_service_plist.py`, `windows/generate_service_task.py`)
-requires `--confirm` and a non-empty `--reason`
-([macOS operations](macos/README.md), [launchd design](docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md)).
+**Native scheduling.** Plist/task generators print activation commands;
+token-bearing jobs use keystore wrappers. Supervised gateway generators
+(`macos/generate_service_plist.py`, `windows/generate_service_task.py`)
+require `--confirm` and a nonempty `--reason`.
+[Operations](macos/README.md), [design](docs/work/MACOS_LAUNCHD_INTEGRATION_PLAN.md).
 
-**Fine-tuning.** The QLoRA kit is excluded from runtime installs and audited
-separately; `finetune_qwen38.py` may download its base checkpoint, so seed
-caches before a no-egress run. GPU-free dry run:
+**Fine-tuning.** The [separate QLoRA toolkit](tools/lora_finetune/README.md)
+is excluded from runtime installs. Its CUDA training profile is currently
+blocked by dependency conflicts; CPU preparation/dry runs remain available:
 `python tools/lora_finetune/build_cyclaw_corpus.py`, then
-`python tools/lora_finetune/dryrun_finetune.py`
-([toolkit](tools/lora_finetune/README.md)).
+`python tools/lora_finetune/dryrun_finetune.py`. Training may download a
+checkpoint; pre-cache before no-egress use.
 
-**Connectors.** Both ship off, outside the request path: `fsconnect`
-(bounded reads; writes gated, refused on Windows) and `netconnect` (passive,
-explicit RFC1918/loopback CIDRs). Neither calls an LLM. The GitHub coding loop,
-skills registry, verification executor, and SQL connector that used to sit
-beside them were removed in October 2026
-([what went](docs/agentic/AGENTIC_README.md#8-removed-in-october-2026)).
+**Connectors.** Default-off, out-of-band `fsconnect` offers bounded reads
+and gated writes (refused on Windows); `netconnect` inventories explicit
+RFC1918/loopback CIDRs passively. Neither calls an LLM.
+[Removed October 2026 components](docs/agentic/AGENTIC_README.md#8-removed-in-october-2026).
 
 ```bash
 python -m agentic.fsconnect.cli status

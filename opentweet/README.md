@@ -1,12 +1,9 @@
 # `opentweet/` — out-of-band X posting channel
 
-Optional OpenTweet adapter, shipped `enabled: false`. Runs strictly as a
-separate process (`python -m opentweet.cli`). The six core modules never
-import it (invariant I6). Generation only
-ever happens through HTTP `POST /query` on loopback with
-`user_confirmed_online: false`. Default write is an OpenTweet **draft**;
-`scheduled_date` is opt-in via `opentweet.schedule_enabled`. Schedulers
-never send `publish_now`.
+Default-off OpenTweet adapter (`python -m opentweet.cli`), outside core
+imports (I6). Generation uses loopback `POST /query` with
+`user_confirmed_online: false`. Writes default to **drafts**; scheduling needs
+`opentweet.schedule_enabled`. Schedulers never send `publish_now`.
 
 Architecture and threat notes: [`docs/channels/OPENTWEET_DESIGN.md`](../docs/channels/OPENTWEET_DESIGN.md).
 
@@ -28,10 +25,9 @@ Architecture and threat notes: [`docs/channels/OPENTWEET_DESIGN.md`](../docs/cha
 - Logs/audit carry keyed `query_fingerprint(text)` + length + OpenTweet id — never the post body or Bearer token. `post --dry-run` still calls the local `/query` endpoint and validates the answer, but does not call OpenTweet to create a post.
 - Exit codes: `0` ok · `2` refused/HTTP · `3` env/config.
 
-When `auth.enabled` protects `/query`, supply a named CyClaw device token
-through the environment variable selected by `opentweet.query.api_key_env`.
-The ops `CYCLAW_API_KEY` does not satisfy `/query`'s session/device-token
-authentication. OpenTweet's own `api_key_env` is a separate credential.
+With auth enabled, `opentweet.query.api_key_env` must name a CyClaw device
+token; the ops `CYCLAW_API_KEY` cannot authorize `/query`. OpenTweet's
+`api_key_env` names a separate credential.
 
 ## Related
 

@@ -1,7 +1,7 @@
 # `powershell/` — Windows install, Credential Manager, and Task Scheduler glue
 
-Installer / launcher / scheduled-task **glue** targeting Windows 10/11 and
-Windows Server 2019/2022, with Windows PowerShell 5.1 or PowerShell 7+.
+Install/launch/scheduling glue for Windows 10/11, Server 2019/2022,
+and PowerShell 5.1/7+.
 Not request-path code: `gate.py`, `graph.py`, and `mcp_hybrid_server.py` never
 import anything here (I6). The macOS sibling is `macos/`.
 
@@ -30,28 +30,21 @@ Dropbox sync can be scheduled with `python -m sync.cli schedule`
 (live `schtasks /Create`, daily by default -- `sync.schedule_frequency` also
 accepts `weekly` / `monthly`; task name `CyClaw Dropbox Sync`).
 
-`Uninstall-CyClaw.ps1` best-effort deletes a **fixed** list of task names
-(`CyClaw Dropbox Sync`, `CyClaw fsconnect-trash`, `CyClaw telegram-poll`,
-`CyClaw telegram-health`, `CyClaw gate`, `CyClaw opentweet`, and the retired
-`CyClaw harness`) so a later generator cannot outlive uninstall; never a
-wildcard `/TN`, and a missing task is a no-op (query-then-delete, so Windows
-PowerShell 5.1 does not abort on `schtasks` stderr). Credential Manager items
-go only with `-RemoveCredentials` (the macOS twin is `--remove-keychain`),
-which prompts y/N unless `-Yes` is passed and leaves plaintext lines in place;
-the default uninstall never writes a credential. Generators inject tokens
-through `CyClaw-CredMan-Env.ps1`, so none appears in task XML.
+Uninstall deletes only known tasks: Dropbox Sync, fsconnect-trash,
+telegram-poll/health, gate, opentweet, and retired harness. Query-before-delete
+tolerates missing tasks on PowerShell 5.1; no wildcard names are used.
+Credentials require `-RemoveCredentials` and y/N confirmation (`-Yes` skips
+the prompt); plaintext copies remain. Default uninstall never writes a credential.
+Generated jobs load tokens through `CyClaw-CredMan-Env.ps1`,
+keeping them out of task XML.
 
 ## Secret classification
 
-`%USERPROFILE%\.CyClaw\.env` stays the default home for ordinary settings
-(ports, paths, mode flags, model names, feature toggles), and `cyclaw` loads
-those lines. `Test-CyclawSecretName` in `CyClaw-SecretStore.ps1` classifies a
-name as secret from `utils/secret-policy.tsv` (shared with the bash and Python
-loaders): an `exact` row mapped to its Credential Manager target
-(`CYCLAW_API_KEY`, `TELEGRAM_BOT_TOKEN`, `GROK_API_KEY`, `ANTHROPIC_API_KEY`,
-`GH_TOKEN`/`GITHUB_TOKEN`, the `CYCLAW_*_DB_URL` family,
-`RCLONE_CONFIG_PASS`, …) or a `suffix` row (`API_KEY`, `CREDENTIALS`,
-`PASSWORD`, `SECRET`, `TOKEN`, `PAT`, `DSN`, `DB_URL`, `KEY`).
+`%USERPROFILE%\.CyClaw\.env` holds ordinary settings.
+`Test-CyclawSecretName` uses the shared `utils/secret-policy.tsv`: exact
+names map to credential targets; suffixes classify additional secrets
+(`API_KEY`, `CREDENTIALS`, `PASSWORD`, `SECRET`, `TOKEN`, `PAT`, `DSN`,
+`DB_URL`, `KEY`).
 
 Store classified secrets in Credential Manager. `-WriteEnvFile` keeps existing
 plaintext lines; even then `Invoke-CyClaw.ps1` never exports those lines. Do

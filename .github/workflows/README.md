@@ -1,11 +1,9 @@
 # GitHub Actions workflow guide
 
-The tables describe the tracked workflow files. Open a file for its exact path
-filters, runner matrix, pins, and permissions. The `name:` inside the file is
-the label shown in Actions; job names become PR check contexts. A failing job
-turns its workflow red unless marked advisory. Whether that check prevents a
-merge is controlled separately by the [repository rulesets](https://github.com/cgfixit/CyClaw/settings/rules).
-Keep required job names stable when changing workflow labels or filenames.
+Open each workflow for path filters, matrix, pins, and permissions. `name:`
+is its Actions label; job names become PR check contexts. Non-advisory
+failures turn workflows red; [rulesets](https://github.com/cgfixit/CyClaw/settings/rules)
+separately govern merge blocking. Preserve required job names.
 
 ## CI and contracts
 
@@ -23,9 +21,8 @@ Keep required job names stable when changing workflow labels or filenames.
 
 ## Security scans
 
-Scan execution and findings are different signals. A successful SARIF upload
-means results reached the Security tab; it does not mean zero vulnerabilities.
-Accepted dependency risks belong in root [`SECURITY.md`](../../SECURITY.md).
+A successful SARIF upload establishes delivery, not zero vulnerabilities.
+Accepted dependency risks live in root [`SECURITY.md`](../../SECURITY.md).
 
 | File | What it checks | When it runs / findings policy |
 | --- | --- | --- |
@@ -47,9 +44,8 @@ Accepted dependency risks belong in root [`SECURITY.md`](../../SECURITY.md).
 | [codex-apply-fixes.yml](codex-apply-fixes.yml) | Produces a candidate patch on one runner, then validates and publishes it on a separate runner. | Owner-approved bot-comment fix on an owner-authored same-repository PR. Approval binds to the exact head SHA. Protected paths remain refused. |
 | [claude.yml](claude.yml) | Answers `@claude` PR comments; defaults to review/explanation. | Owner-only, open same-repository PR. Write mode requires `write access approved for this PR` as the comment's last line. |
 
-These workflows use provider secrets and can incur provider charges. Green
-advisory jobs or missing comments are not proof that an assistant completed a
-review; inspect the run and the commit it reviewed.
+Assistant workflows can incur provider charges. Inspect run and reviewed SHA;
+green advisory jobs or missing comments do not establish a completed review.
 
 ## Publishing and manual tools
 
@@ -61,15 +57,12 @@ review; inspect the run and the commit it reviewed.
 | [copilot-setup-steps.yml](copilot-setup-steps.yml) | Installs dependencies and tracked hooks for Copilot's coding environment. | Its own file changes, manual dispatch, and Copilot setup. The filename/job ID are integration conventions. |
 | [environment.yml](environment.yml) | Historical no-op workflow that explains the relocated Conda spec. | Manual-only placeholder; root [`environment.yml`](../../environment.yml) is the real spec. |
 
-Environment names alone do not require deployment approval. Reviewer and
-branch/tag restrictions live in [GitHub environment settings](https://github.com/cgfixit/CyClaw/settings/environments);
-verify those settings before treating either publisher as human-gated.
+Verify restrictions in [environment settings](https://github.com/cgfixit/CyClaw/settings/environments);
+environment names alone never require approval.
 
-`defender-for-devops.yml` retains its legacy filename because GitHub's current
-Bandit analysis key includes it. Renaming it would create a new scanning
-configuration and require checking the old configuration for stale results.
-The Conda workflow was renamed from `python-package-conda.yml` to `conda-ci.yml`;
-its job IDs, coverage gate, install surface, and permissions are unchanged.
+Renaming `defender-for-devops.yml` changes Bandit's scanning identity;
+check for stale results. Conda moved to `conda-ci.yml` without changing
+jobs, coverage, dependencies, or permissions.
 
 Filename-sensitive integrations: [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/adding-a-publisher/),
 [Copilot setup steps](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment),

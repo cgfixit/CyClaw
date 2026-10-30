@@ -1,10 +1,8 @@
 # `llm/` — model clients
 
-One module, `client.py`, holding the three HTTP clients the graph's answer
-nodes use. `graph.py`'s edges and `gate.py`'s construction gates decide which
-client gets called (invariants I2/I3). These clients implement the wire
-protocols, bounded retries, local-backend recovery, and persistent external
-attempt limits.
+`client.py` implements three HTTP clients, bounded retries, local recovery,
+and persistent external attempt limits. `graph.py` routing and `gate.py`
+construction gates select the client (I2/I3).
 
 ## Clients
 
@@ -14,14 +12,10 @@ attempt limits.
 | `GrokClient` | x.ai | OpenAI-compatible `/chat/completions`; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `GROK_API_KEY` cannot transit an operator proxy |
 | `ClaudeClient` | Anthropic | Messages API; ignores ambient `HTTP(S)_PROXY` (`trust_env=False`) so `ANTHROPIC_API_KEY` cannot transit an operator proxy |
 
-The two external clients are **constructed** only when `mode == "hybrid"` and
-the provider's `enabled` flag is true, and **called** only after per-request
-user confirmation — the triple gate (I3) lives in `gate.py` + `graph.py`, not
-here. Read that against the shipped config: `app.mode` is `"hybrid"` and both
-`models.grok.enabled` and `models.claude.enabled` are `true`, so on a fresh
-clone both clients are constructed at boot. Per-request
-`user_confirmed_online` cannot be pre-set by config; a missing key also leaves
-that client unavailable. Destination checks, the optional pre-action hook,
+I3 lives in `gate.py` and `graph.py`: external clients are constructed only
+in hybrid mode with the provider enabled, then called only after per-request
+confirmation. Mode and both providers ship enabled; missing keys leave clients
+unavailable. Config cannot pre-set `user_confirmed_online`. Destination checks, the optional pre-action hook,
 and external attempt budgets can still refuse a confirmed call. Reported
 usage lands in `logs/spend.jsonl` ([`spend/README.md`](../spend/README.md)).
 
@@ -39,13 +33,11 @@ HTTP retry policy below is separate. Rail scope and limits:
 ## Shared behavior
 
 - **Bounded retry** (`_post_with_retry`): transport errors, 5xx and 429 retry
-  with exponential backoff; other 4xx fail fast (retrying a 400/401 wastes
-  time and, for Grok, credits). Timeouts retry for `GrokClient`/`ClaudeClient`
-  only — `LocalLLMClient` passes `retry_on_timeout=False`, so a stalled Ollama
-  read fails fast rather than burning a second full `timeout_sec`.
-  Config-driven via each model's `retry` block; absent block = single attempt
-  (the shipped `config.yaml` sets `max_retries: 2` on all three models, i.e. up
-  to three attempts). A `Retry-After` header on a 429/5xx is honored in place
+  with exponential backoff; other 4xx fail fast. Only external clients retry
+  timeouts; `LocalLLMClient.retry_on_timeout=False` avoids another full
+  `timeout_sec` after a stalled read.
+  Each model's `retry` block controls retries: absent means one attempt;
+  shipped `max_retries: 2` permits three. A `Retry-After` header on a 429/5xx is honored in place
   of the exponential delay, clamped to `backoff_max_sec`. Every sleep is also
   checked against the per-request graph deadline (`api.graph_timeout_sec`,
   set via `set_graph_deadline`): when the remaining budget cannot cover the
@@ -68,8 +60,7 @@ HTTP retry policy below is separate. Rail scope and limits:
   before every Grok/Claude POST, retries included, using the shared
   `policy.external_call_limits` ledger. UTC daily/monthly ceilings persist
   across restarts; exhausted budgets or unavailable storage refuse the POST.
-  Failed attempts are not refunded, and these attempt counts are separate
-  from the provider-reported token usage in the spend log.
+  Failed attempts count; provider-reported token usage remains separate.
 - Timeouts and model names come from `config.yaml` (`models.local_llm.*`,
   `models.grok.*`, `models.claude.*`) — see `CLAUDE.md` §2 "Load-bearing
   numbers" for the ones that interact. Boot requires

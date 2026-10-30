@@ -1,20 +1,18 @@
 # `docs/` — documentation map
 
-Current guides, dated evidence and proposals are distinguished below.
-`config.yaml` owns every number; when docs and code disagree, code wins.
-This index exists so agents and humans can find the right document without
-grepping.
+Current guides, dated evidence, and proposals. Code outranks prose;
+`config.yaml` owns runtime tunables.
 
 ## Start here
 
 | Document | Owns |
 |---|---|
-| `THREAT_MODEL.md` | Security scope: trusted-operator (single by default, a small trusted set behind `auth.enabled`), loopback-bound, single-tenant — plus every amendment (executor and its 2026-10-18 removal, telegram, armed external providers). Read before any security-touching change. |
+| `THREAT_MODEL.md` | Trusted-operator, loopback, single-tenant scope and amendments. Read before security changes. |
 | `../setup-guide.md` | Canonical install/run guide (Windows · macOS · Linux). `! How-To-Guides/setup-guide.md` and `work/SETUP.md` are pointers only. |
 | `../CLAUDE.md` / `../AGENTS.md` | Operating contract for agents (invariants, traps, commands). |
 | `../INVARIANTS.md` (repo root) | Which guarantee is enforced by code vs. convention, and the test pinning each. |
 | `changelog.txt` | Change history over time. |
-| `GITHOOKS.md` | The agent-neutral `.githooks` security gate: install line for every agent, what blocks a commit or push, operator-only overrides, private identifier patterns, and how to reuse the template in another repo. |
+| `GITHOOKS.md` | Tracked hook setup, commit/push blocks, operator overrides, private patterns, and reuse. |
 
 ## Subsystem deep-dives
 
@@ -24,10 +22,10 @@ grepping.
 | `channels/TELEGRAM_DESIGN.md` | Telegram channel architecture, T1–T4 phase gates. |
 | `channels/OPENTWEET_DESIGN.md` | OpenTweet X channel: weekly OOB poster, draft-default, I6 isolation. |
 | `agentic/AGENTIC_README.md`, `agentic/FSCONNECT_WRITE_ENABLEMENT_PLAYBOOK.md`, `agentic/FSCONNECT_SECURITY_REVIEW_CHECKLIST.md` | Out-of-band connectors (fsconnect, netconnect): user guide, fsconnect write enablement and its security sign-off (binding). |
-| `AUTHENTICATION_DESIGN.md` | Per-user auth, all six stages landed: primitives, sessions + `/auth/*`, the credential on `/query` when `auth.enabled`, TLS (`cyclaw-gen-cert`), the re-keyed bind guard, and RBAC roles `admin`/`operator`/`audit`. |
+| `AUTHENTICATION_DESIGN.md` | Per-user sessions, `/auth/*`, `/query` credentials, TLS/bind guard, and admin/operator/audit RBAC. |
 | `memory/` | Optional memory subsystem plan and README. |
 | [`../spend/README.md`](../spend/README.md) | Online-LLM token ledger: what `logs/spend.jsonl` records, why dollars are derived at read time, and how `cyclaw-metrics` reports them. |
-| `EVALS.md` | Benchmarks and evals: the four planes (PR retrieval gate, operator dogfood, Anthropic judge, local judge + calibration), what has been measured with dates and commits, and what has not. Dated run records go to `audits/`. |
+| `EVALS.md` | Retrieval gate, dogfood, cloud/local judges, calibration, and measured limits. Run records: `audits/`. |
 | `DOCKER.md`, `SECCOMP_EBPF_HARDENING.md`, `POSTGRES_BACKEND.md` | Deployment: containers, hardening (see also `../deploy/README.md`), Postgres backends. |
 | `m5-48gb-coding-expectations.md` | Local-model doctrine for the shipped Ollama tag: context budget, timeouts, and the no-stall arithmetic. The only doc `doc-sync`'s D7 check cross-references against `config.yaml` + `macos/ollama-mlx.env`. |
 | `ARCHIVE_AND_ROADMAP.md` | Retirement decisions and exact historical versions; [remaining work](plans/remaining_work.md) separates active tracking from deferred proposals. |
@@ -52,7 +50,7 @@ grepping.
 | `analysis/`, `zIdeas/`, `zWork/`, `! How-To-Guides/` | Research, historical decisions and operator guides; check each document's status and source revision. |
 | [`screenshots/`](screenshots/README.md) | Preserved media with current references distinguished from retired-harness captures. |
 | [`console-ux.md`](console-ux.md) | Completed UX behavior and acceptance rationale, replacing the retired implementation plan. |
-| [`bakeoff/local-model-bakeoff-2026-10-10.md`](bakeoff/local-model-bakeoff-2026-10-10.md) | Latest of two ordered local-tag passes on 2026-10-10. The earlier pass is a comparison line. Picks no winner. Not a shipped-tag change. The measurement script is not stored in this repo. |
+| [`bakeoff/local-model-bakeoff-2026-10-10.md`](bakeoff/local-model-bakeoff-2026-10-10.md) | Two ordered local-tag passes; no winner or shipped-tag change. Measurement script is not retained. |
 
 Keep each `##` section understandable on its own. The indexer uses overlapping
 token windows, not Markdown heading boundaries, and only configured corpus

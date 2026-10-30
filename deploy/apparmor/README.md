@@ -1,8 +1,7 @@
 # CyClaw AppArmor profile
 
-**Status: opt-in single-container candidate; not enabled by default.** AppArmor
-is a Linux-host control. It is not available as a native macOS policy, and this
-profile has not been runtime-validated inside Docker Desktop's managed Linux VM.
+**Opt-in single-container candidate.** Linux-host control; unavailable
+natively on macOS and unvalidated in Docker Desktop's managed VM.
 
 The profile permits filesystem writes only under the same six paths
 already writable under the read-only Compose root filesystem (plus required
@@ -87,12 +86,9 @@ docker compose up
 
 ## Former `cyclaw-bwrap` profile (removed 2026-10-18)
 
-This directory used to ship a second, host-level profile, `cyclaw-bwrap`, that
-let `/usr/bin/bwrap` create user namespaces on stock Ubuntu 24.04 for the
-agentic verification sandbox. The sandbox, its executor and
-`scripts/verify_agentic_sandbox.py` were removed in October 2026
-(`docs/THREAT_MODEL.md`, nineteenth amendment), so the profile went with them.
-`cyclaw-gate` above is now the only AppArmor profile CyClaw ships.
+`cyclaw-bwrap` enabled Ubuntu 24.04 user namespaces
+for the agentic sandbox. It was removed with that executor in October 2026
+(`docs/THREAT_MODEL.md`, nineteenth amendment). Only `cyclaw-gate` remains.
 
 A host that loaded `cyclaw-bwrap` keeps it until it is removed by hand:
 

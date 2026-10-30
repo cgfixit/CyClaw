@@ -1,46 +1,32 @@
 # NeMo Guardrails current reference
 
-`guardrails.enabled: true` ships in `config.yaml`. The layer adds deterministic
-checks and NeMo `check()` around
-each existing model call. The graph remains the routing authority.
+Shipped `guardrails.enabled: true` adds deterministic checks and NeMo
+`check()` around existing model calls; the graph owns routing. Missing,
+failed, or unsupported verdicts trigger deterministic fallback and
+`guardrail_degraded`; fallback refusals also record `guardrail_blocked`.
+Explicit false or an absent block disables the layer.
 
-Missing, failed, or unsupported NeMo verdicts fall back to deterministic
-checks and record `guardrail_degraded`. A fallback refusal records both
-`guardrail_blocked` and `guardrail_degraded`. Explicit `false`, or an absent
-`guardrails` block, disables the request-path layer.
-
-The implementation is in `guardrails/broker.py`, `guardrails/integration.py`,
-`guardrails/rails.py`, `utils/guardrail_bridge.py`, and `graph.py`.
-[Issue #1486 Track B](https://github.com/cgfixit/CyClaw/issues/1486#issuecomment-5969523503)
-sets the rollout scope. The [verification record](../audits/2026-10-03-nemo-track-b.md)
-separates deterministic checks, real NeMo tests, local model trials, Computer
-Use, and hosted CI. Historical phase plans below use the older issue #1134
-phase numbering.
+Implementation: `guardrails/{broker,integration,rails}.py`,
+`utils/guardrail_bridge.py`, `graph.py`.
+[Track B scope](https://github.com/cgfixit/CyClaw/issues/1486#issuecomment-5969523503)
+and [verification evidence](../audits/2026-10-03-nemo-track-b.md) distinguish
+static, real-engine, model, UI, and hosted checks. Historical plans use #1134 numbering.
 
 ## Configuration and authority
 
-Deterministic routing, network, identity, schema, approval, and sandbox policy
-grant or deny access. Guardrails can deny a request or replace an answer.
-They cannot select an online route, expand a tool registry, or override a
-deterministic denial.
+Guardrails may deny requests or replace answers; they cannot grant routing,
+network, identity, tool, approval, or sandbox capabilities, nor override denials.
 
 The request path reaches this package only through `utils/guardrail_bridge.py`
 (I6: the core six never import `guardrails`). The graph remains 12 nodes, with
 no `safe_generate` call on its generation path.
 
-The bridge activates only for literal boolean `True`. Startup rejects
-non-booleans such as `"true"`, `"false"`, and `1` through
-`utils.config_validation.validate_guardrails_config`. Unknown names in
-`input_rails`, `output_rails`, or `topical_rails` fail when the layer loads.
-The loader's absent-key default remains disabled for compatibility.
-`test_shipped_config_yaml_guardrails_enabled_is_literal_true` pins the
-tracked configuration to enabled.
-
-The root configuration's rail lists select offline checks and the broker's
-deterministic fallback. The active live flows come from
-[`guardrails/config/config.yml`](../../guardrails/config/config.yml) and
-[`rails.co`](../../guardrails/config/rails.co). Changing the root lists alone
-does not change the live flow set.
+Only literal boolean `True` activates the bridge. Startup rejects other
+types; loading rejects unknown rail names. The shipped-config test pins
+enabled, while absent-key loading stays disabled for compatibility.
+Root rail lists select offline checks and deterministic fallback; live flows
+come from [`config.yml`](../../guardrails/config/config.yml) and
+[`rails.co`](../../guardrails/config/rails.co), independently of those lists.
 
 ## Request paths
 
@@ -69,15 +55,11 @@ billed an answer. All graph paths still converge on `audit_logger`.
 
 ## Other entry points
 
-`safe_generate` is the diagnostic path behind `python -m guardrails.cli check`:
-offline input checks plus, when the engine is available, a NeMo
-`generate_async` call that can invoke the model. It is not the gateway broker
-(`guardrails.broker.GuardrailBroker`, which never grants external access) and
-must not be wired into `/query`, where it would duplicate generation.
-MCP `tools/call` remains unwrapped (the agentic executor, which had its own
-sandbox and no NeMo call, was removed in October 2026). `python -m guardrails.call_inventory` fails
-closed on unregistered `ChatOpenAI`, `ChatXAI`, `ChatAnthropic`, or
-`generate_async` call sites.
+Diagnostic `python -m guardrails.cli check` uses `safe_generate`: offline
+checks plus possible NeMo `generate_async` model invocation. Never wire it
+into `/query`; the broker already wraps generation. MCP remains retrieval-only.
+`python -m guardrails.call_inventory` rejects unregistered `ChatOpenAI`,
+`ChatXAI`, `ChatAnthropic`, and `generate_async` sites.
 
 ## Rail coverage
 
@@ -181,13 +163,11 @@ recorded in audit. Engine construction also enforces these constraints:
   Three failed builds delay the next attempt for 60 seconds. Existing engines
   remain available. Telemetry suppression runs before NeMo imports.
 
-The Qwen asset registry in `guardrails/qwen_manifest.yaml` records tags and
-optional digests. Strict digest checking is off by default. CI does not
-download model weights. `python -m guardrails.cli model` compares the pin with
-the digest the local Ollama reports for the model (one loopback `GET
-/api/tags`). It is operator-run and read-only, so no request path depends on
-it. With no pin it prints the installed digest to pin; with `strict: true` a
-mismatch, a missing model or an unreachable Ollama exits `2`.
+`guardrails/qwen_manifest.yaml` records model tags and optional digests;
+strict checking defaults off. `python -m guardrails.cli model` compares the
+pin with loopback Ollama `/api/tags`, or prints an unpinned installed digest.
+Strict mismatch, missing model, or unreachable Ollama exits 2. This read-only
+operator command is outside requests; CI never downloads weights.
 
 ## Verification commands
 

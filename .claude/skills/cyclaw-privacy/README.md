@@ -1,10 +1,8 @@
 # cyclaw-privacy ("Legal")
 
-Advisory-only privacy & compliance reviewer persona: DPA reviews, data subject
-requests (DSR/DSAR), breach analysis, cross-border transfers (SCCs), regulatory
-monitoring, and the privacy impact of CyClaw changes. Never a substitute for
-licensed counsel. See `SKILL.md` for the full protocol; `verify.sh` and
-`bootstrap.sh` ship alongside it. This is not a troubleshooting skill.
+Advisory privacy/compliance review: DPAs, DSR/DSAR, breaches, SCCs, regulation,
+and CyClaw privacy impact. It does not replace licensed counsel or diagnose
+runtime faults. Protocol: `SKILL.md`; helpers: `verify.sh`, `bootstrap.sh`.
 
 Invoke `/cyclaw-privacy` explicitly in Claude Code; its manifest disables
 model invocation. For local configuration checks, run from the repository root:
@@ -21,7 +19,5 @@ the output before calling it a pass. A posture mismatch exits 2.
 `bootstrap.sh` additionally fetches `origin/main` and prints both base and
 checkout revisions; a failed fetch leaves a potentially stale local ref.
 
-Renamed from `cyclaw-advisor` 2026-09-11 (issue #1351) to resolve an
-in-repo name collision with the unrelated `.agents/skills/cyclaw-advisor`
-(architecture/PR advice, not privacy/DPA — see
-[the Codex inventory](../../../.codex/README.md)).
+Renamed 2026-09-11 (#1351), separating privacy review from the architecture
+`.agents/skills/cyclaw-advisor` ([Codex inventory](../../../.codex/README.md)).

@@ -6,7 +6,7 @@ Optional, **default-off** facts + episodes store with propose/apply governance a
 
 ## Defaults
 
-Every switch in `config.yaml` → `memory:` is **false**. With defaults, behavior is identical to pre-memory CyClaw.
+Every `config.yaml` → `memory:` switch ships **false**.
 
 `memory.facts.max_active` limits active facts, including reactivation of an
 inactive fact by an update or proposal application.
@@ -18,15 +18,12 @@ inactive fact by an update or proposal application.
 3. `facts.retrieval_enabled: true` + `retrieval_fusion.enabled: true` — FTS fact hits fuse into `hybrid_search` as `retrieval_mode="memory"`.
 4. `export_html.enabled: true` — `GET /query/export/html` (auth-gated).
 
-Step 3 comes after step 2 on purpose: facts are proposed, applied and verified
-**before** they are exposed to retrieval. `facts.retrieval_enabled` gates only
-that last exposure — it is deliberately not a master switch for facts, and
-turning it off does not stop persistence. **No switch gates fact persistence at
-all**: `memory.enabled` + `propose_apply.enabled` is the whole story, so a fact
-that has been applied stays stored and readable via `GET /memory/facts`
-regardless. (This is why the flag was renamed from `facts.enabled`, which read
-as a master switch that never existed. The old name still works and logs a
-one-time warning — see `memory/flags.py`.)
+Propose, apply, and verify facts before enabling retrieval.
+`facts.retrieval_enabled` controls retrieval exposure only; disabling it does
+not erase applied facts or prevent persistence and `GET /memory/facts` reads
+while the memory master is on. Proposals additionally require
+`propose_apply.enabled`. The legacy `facts.enabled` alias still works with a
+one-time warning (`memory/flags.py`).
 
 `episodes.store_raw_query` is a separate opt-in to store redacted query text.
 Answer summaries are stored whenever episodes are enabled, even when raw

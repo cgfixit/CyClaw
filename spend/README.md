@@ -1,35 +1,20 @@
 # Spend Tracking — Online LLM Token Ledger
 
-CyClaw answers from the local vault by default. When a human explicitly confirms
-an online send, the call reaches Grok (xAI) or Claude (Anthropic) and costs real
-money. `utils/spend.py` records what each of those calls consumed, so an
-operator can inspect usage and compare matching time windows with the vendor
-console. The built-in metrics report covers today and the last seven UTC
-calendar days; it does not expose a monthly report option.
+`utils/spend.py` records billed Grok/Claude usage after human-confirmed
+fallback. Compare matching windows with vendor statements: built-in metrics
+cover today and seven UTC days, not months.
 
-The ledger's core rule: **tokens are the ground truth; dollars are derived at
-read time.** The file on disk never stores a price. `metrics.py` applies a dated
-rate table when it prints, which means correcting a stale rate re-prices the
-entire history rather than leaving wrong numbers baked into old lines.
-
-Grok and Claude are not priced the same way. When xAI returns `cost_in_usd_ticks` on
-the usage object, that integer is stored and converted as
-`ticks / 10_000_000_000`. Anthropic does not return a dollar field; Claude rows
-are priced from billed `input_tokens` / `output_tokens` (and cache fields)
-times the `claude-sonnet-5` row in `_RATES`. Do not estimate Claude cost with
-OpenAI's `tiktoken` — Anthropic's billed `input_tokens` is the count to trust.
+**Tokens are ground truth; prices are derived on read**, allowing rate-card
+corrections to reprice history. xAI `cost_in_usd_ticks` converts by dividing
+by 10,000,000,000. Claude uses billed input/output/cache counts and the
+`claude-sonnet-5` `_RATES` entry; do not substitute tiktoken estimates.
 
 ## What the ledger is not
 
-Not the audit log: `logs/audit.jsonl` stays authoritative for what happened on
-a request; `logs/spend.jsonl` is a separate append-only file for what it cost,
-written outside `utils/logger.py`'s `audit_log` so history can be repriced
-without touching the audit trail. Not a policy point either: nothing on the
-`/query` path reads it; it is written after a billed call completes and
-consumed by the CLI's spend/sequence reports. `gate.py` does import
-`metrics.summarize_audit` for `/audit/summary`; that helper reads only the audit
-file. Sequence detection is imported lazily inside the CLI report path and
-does not participate in request authorization.
+The append-only spend stream is separate from authoritative `audit.jsonl`.
+It records completed billed calls and feeds CLI spend/sequence reports;
+request authorization never reads it. Gateway `metrics.summarize_audit`
+reads audit only. Sequence detection loads lazily in the CLI.
 
 ## What is recorded
 
@@ -113,20 +98,11 @@ request path, because a full disk must not turn a paid answer into a failed one.
 
 ## Who writes to the ledger
 
-One production call site writes the ledger:
-
-- **`llm/client.py`** — the triple-gated `/query` fallback, `source: "query"`.
-
-Until October 2026 the out-of-band cloud planner
-(`agentic/deepagent_github/chat_client.py`) also wrote rows with
-`source: "agentic"`. It was removed with the agentic coding loop; older rows
-still parse and are reported under that source.
-
-The opt-in evaluators (`tests/judge_eval.py`, `tests/judge_calibrate.py`) also
-use `llm/client.py` with `source: "eval"` and write to
-`logs/evals/spend.jsonl` instead; a local judge makes no billed call. One file
-with a `source` tag keeps a monthly total a single pass while
-`utils/sequence_detect.py` restricts itself to `source == "query"` rows.
+Production `llm/client.py` writes confirmed fallback as `source: "query"`.
+Historical `agentic` rows remain readable after the October 2026 planner
+removal. Opt-in judge/calibration calls use `source: "eval"` in the separate
+`logs/evals/spend.jsonl`; local judges incur no provider bill.
+`utils/sequence_detect.py` considers only `query` rows.
 
 A billed non-JSON response is still recorded, with `usage_missing: true`:
 quota was consumed either way, and a missing line would understate the bill.

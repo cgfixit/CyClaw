@@ -1,20 +1,16 @@
 # `tests/` — the CyClaw test suite
 
-Pytest suite for this directory (`test_*.py` files, auto-collected
-via `testpaths = ["tests"]` in `pyproject.toml`). Test trees outside `tests/` —
-notably `tools/lora_finetune/tests/`, whose CI is `.github/workflows/lora-finetune.yml` —
-are NOT collected by `pytest tests/`; see `CLAUDE.md` §8. Ordinary tests avoid
-live LLM/cloud calls, using shared mocks or scoped integration fixtures.
-Some exercise real loopback sockets, subprocesses, local databases, and native
-platform behavior; optional service tests skip when their prerequisites are absent.
-A fresh clone has **no** Python deps installed; install first (see `CLAUDE.md`
-§4 "Environment & install") before running anything here.
+`test_*.py` files, auto-collected through
+`testpaths = ["tests"]` in `pyproject.toml`.
+LoRA tests use `.github/workflows/lora-finetune.yml`.
+Ordinary tests avoid live LLM/cloud calls; some use real loopback sockets,
+subprocesses, databases, and native behavior. Optional services may skip.
+Install Python 3.12 and test dependencies first (`CLAUDE.md` §4).
 
 ## Running
 
-For routine changes, exercise the affected behavior and run relevant lint or
-static checks first. Hosted CI owns broad regression and coverage runs. Use one
-focused test file when it covers a concrete risk that direct execution cannot
+Exercise changed behavior and relevant static checks first. CI owns broad
+regression/coverage. Use one focused file for risks direct execution cannot
 verify (`CLAUDE.md` §5).
 
 ```bash
@@ -23,15 +19,12 @@ GROK_API_KEY=dummy python -m tests.ci_rag_smoke             # real-index RAG smo
 GROK_API_KEY=dummy python -m pytest tests/ -q --tb=short    # CI/owner full-suite run
 ```
 
-Routine tests need no real provider key (`GROK_API_KEY=dummy`). The RAG smoke
-rebuilds the configured corpus/index (the shipped corpus is `data/corpus`) and
-exercises real retrieval/routing without generation. Use a disposable checkout
-if an existing index must be preserved; seed the embedding and enabled reranker model caches
-first if it must run with `HF_HUB_OFFLINE=1`. Its `--with-docs` variant builds
-an isolated temporary index and reports scores without asserting the probe
-outcomes. Run pytest through a Python 3.12 venv
-(`requires-python >=3.12,<3.13`); a 3.11 host interpreter fails on 3.12-only
-stdlib calls (recipe in `CLAUDE.md` §4 "Environment & install").
+Use `GROK_API_KEY=dummy` and Python 3.12 (`>=3.12,<3.13`); Python 3.11
+lacks required stdlib APIs. RAG smoke rebuilds the configured corpus/index
+and checks real retrieval/routing without generation. Use a disposable
+checkout to preserve existing indexes; cache embeddings and enabled reranker
+before offline use. `--with-docs` builds a temporary index and reports
+scores without asserting probe outcomes.
 
 The optional groundedness evaluator is a separate live-spend command and is not
 part of required CI:
