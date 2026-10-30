@@ -221,6 +221,8 @@ if (-not $SkipPythonDeps) {
     if ($LASTEXITCODE -ne 0) { throw "torch install failed." }
     & $VenvPy -m pip install --require-hashes -r (Join-Path $Repo "locks/requirements-lock-windows.txt")
     if ($LASTEXITCODE -ne 0) { throw "requirements install failed." }
+    & $VenvPy -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "dependency consistency check failed." }
     Write-Step "dependencies installed"
 }
 

@@ -196,6 +196,7 @@ if [ "$SKIP_PYTHON_DEPS" -eq 0 ]; then
     "$VENV_PY" -m pip install --require-hashes --no-deps -r "$REPO_DIR/locks/requirements-torch-lock-linux.txt" --index-url https://download.pytorch.org/whl/cpu
     "$VENV_PY" -m pip install --require-hashes -r "$REPO_DIR/locks/requirements-lock-linux.txt"
   fi
+  "$VENV_PY" -m pip check
   step "dependencies installed"
 fi
 
