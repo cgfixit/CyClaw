@@ -1,13 +1,12 @@
 # `static/` — browser console
 
-Static HTML/JS served by `gate.py`. No build step, no framework, no external
-CDN — everything ships in this directory and uses the gateway's configured
-bind (loopback by default).
+HTML/JS served by `gate.py` on its configured bind (default loopback).
+No build step, framework, or external CDN.
 
 | File | Served by | What it is |
 |---|---|---|
-| `terminal.html` + `terminal.js` | `gate.py` at `GET /` (plus the `/static` mount), default `127.0.0.1:8787` | Operator console for `/query`, the first-run build panel (a slot above the log that persists until `index_ready`; a locked `POST /index/build` opens the unlock dialog and retries), the Library/Engine health chips, console-session credentials, and authenticated soul/ops endpoints. |
-| `auth_admin.js` | the `/static` mount; referenced by `terminal.html` | Users panel (`/auth/users` list/create/role-change/password-reset/delete; the `disabled` flag is displayed but the `/disable`/`/enable` routes are not wired to buttons) — one script, no inline script. |
+| `terminal.html` + `terminal.js` | `gate.py` at `GET /` (plus the `/static` mount), default `127.0.0.1:8787` | Queries, first-run build panel until `index_ready`, Library/Engine health chips, console credentials, and soul/ops tools. A locked build opens the unlock dialog and retries. |
+| `auth_admin.js` | the `/static` mount; referenced by `terminal.html` | Users list/create/role/password/delete. Displays `disabled` but has no enable/disable buttons. |
 
 `gate.py`'s CSP has no nonce source, so no page here may carry an inline
 `<script>` block: `tests/test_gate.py::test_no_static_page_relies_on_inline_script`
@@ -34,11 +33,8 @@ HTML export are documented in
 
 ## The console contract
 
-`tests/test_terminal_contract.py` extracts the routes from `terminal.html`
-and `terminal.js` and compares them against `gate.py`'s route table — any new
-POST endpoint called by those files must be added to that test's `_POST_PATHS`, and
-any route the console calls must really exist. Treat `terminal.html` as a
-tested artifact, not free-form UI.
+`tests/test_terminal_contract.py` compares console routes with the gateway.
+Add new console POST calls to its `_POST_PATHS`; every called route must exist.
 
 Security posture for anything added here: same-origin only, no third-party
 script/font/CDN references (the server is loopback-bound by default and offline-first

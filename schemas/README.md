@@ -1,18 +1,12 @@
 # `schemas/` — Pydantic API models
 
-One module, `api.py`: the request/response models for the FastAPI gateway.
-Five families live here: the core query surface (`/query`, sources, health,
-and soul evolution), the `/ops/*` subprocess-control models, the `/auth/*`
-session and RBAC models, the `/memory/*` propose/apply models, and the
-`/console/session` request/response models. Every model is declared with
-`extra='forbid', strict=True`. Unexpected fields and loose type coercion are
-rejected at the schema boundary (HTTP 422) before any retrieval or LLM work
-runs, which is a deliberate hardening choice against silent data injection in
-agentic flows, not a style preference.
+`api.py` defines gateway request/response models for query, sources, health,
+soul evolution, `/ops/*`, `/auth/*`, `/memory/*`, and `/console/session`.
+Every model uses `extra='forbid', strict=True`: unexpected fields and loose
+type coercion receive HTTP 422 before retrieval or generation.
 
-`QueryRequest` also carries a `max_length` cap as an independent DoS
-backstop, separate from the configurable injection-filter length cap in
-`utils/sanitizer.py` — the two limits are layered on purpose.
+`QueryRequest.max_length` adds a DoS backstop independent of the configurable
+injection-filter length cap in `utils/sanitizer.py`.
 
 ## Response and operator contracts
 

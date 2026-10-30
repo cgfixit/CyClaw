@@ -2,11 +2,9 @@
 
 **Status: Docker builtin enforced; custom Stage 3 profile not yet generated.**
 
-`docker-compose.yml` explicitly selects `seccomp:builtin`. That keeps Docker's
-engine-maintained builtin policy active even if the daemon-wide default was
-customized or set to unconfined. This explicit `builtin` selector requires
-Docker Engine 23.0 or newer. The three former repository profiles were removed
-because they were not produced from runtime traces:
+`docker-compose.yml` selects `seccomp:builtin` (Engine 23.0+), preserving
+Docker's policy even when the daemon default is customized/unconfined.
+Three untraced profiles were removed:
 
 - `gate-seccomp.json` allowed only 17 x86-64 syscalls and could not boot the app.
 - `sync-rclone.json` was wired to the gate but omitted `listen`, `accept*`,

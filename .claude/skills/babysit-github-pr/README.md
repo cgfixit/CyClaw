@@ -1,13 +1,10 @@
 # `/babysit-github-pr` — PR lifecycle guidance
 
-The explicitly invoked skill guides an agent through CI triage, review findings,
-base updates, and merge-readiness checks. Read [SKILL.md](SKILL.md) for the loop
-and repository authorization rules. CyClaw PRs remain draft for human review;
-invoking the skill does not authorize a merge or history rewrite.
-
-The shell helpers are **legacy scaffolding**, not a reliable unattended PR
-watcher. Their known limitations are listed below. Follow the skill procedure
-with working GitHub tools and inspect the exact head's checks and reviews.
+Explicit CI triage, review, base-update, and readiness workflow:
+[SKILL.md](SKILL.md). CyClaw PRs stay draft for humans; invocation does not
+authorize merges or history rewrites. Shell helpers are **legacy scaffolding**
+with the limits below; use working GitHub tools to inspect exact-head checks
+and reviews.
 
 ## Installation
 
@@ -26,10 +23,9 @@ repository's branch, PR, verification, and authorization rules.
 
 ## Helper prerequisites and limits
 
-The shell scripts require Bash, Git, an authenticated `gh` with access to the
-repository, `jq`, and Python. Use CyClaw's Python 3.12 environment here. Cloud
-sessions without these tools can follow the procedure through the runtime's
-GitHub tools; helper availability is not a reason to reset authentication.
+Helpers need Bash, Git, authenticated `gh`, `jq`, and Python 3.12. Without
+them, follow the procedure using runtime GitHub tools; do not reset auth
+merely because a helper is unavailable.
 
 The tracked implementation currently has these limits:
 
@@ -55,13 +51,12 @@ The tracked implementation currently has these limits:
   [the repository template](../../../.github/PULL_REQUEST_TEMPLATE.md) and
   validate the body with `scripts/check-pr-template.sh` from the repo root.
 
-These are source limitations, not a claim that a live GitHub watch was tested.
-Fix and exercise the helpers before relying on them for unattended operation.
+Exercise repaired helpers before trusting unattended operation; no live watch
+is established here.
 
 ## Helper configuration
 
-Environment variables configure the shell implementation; they are not shell
-prefixes for a Claude slash command. The current defaults are:
+Shell-helper environment defaults (not prefixes for slash commands):
 
 | Variable | Default | Implemented use |
 | --- | --- | --- |
@@ -75,11 +70,10 @@ prefixes for a Claude slash command. The current defaults are:
 | `ALLOW_FORCE_WITH_LEASE` | `false` | Operator-owned gate before rebase/push; agents must not set the override themselves. |
 | `TIMEOUT_MINUTES` | `45` | Timeout for each wait-for-checks call, not a whole-session deadline. |
 
-State is written to `.git/babysit-state.json`: the comment cursor, retry counts,
-iteration, and detected command strings. The loader restores the first three;
-commands are re-detected on each invocation. It assumes `.git` is a directory,
-so it does not support a linked worktree's `.git` file. This state is local and
-must not be committed. Reset it only when deliberately starting a fresh watch.
+Local `.git/babysit-state.json` stores cursor, retry counts, iteration, and
+commands. Only the first three reload; commands are re-detected. Linked
+worktrees are unsupported because `.git` is assumed to be a directory. Never
+commit state; reset only to start a fresh watch.
 
 ## Verification
 

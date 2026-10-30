@@ -1,41 +1,24 @@
 # CyClaw Agentic Package — User Guide (v0.2, experimental)
 
-**Status:** Experimental and default-off. The `agentic/` package now holds two
-out-of-band connectors, each with its own CLI: the scoped filesystem connector
-(`python -m agentic.fsconnect.cli`) and the passive LAN inventory connector
-(`python -m agentic.netconnect.cli`). The package-level CLI (`agentic/cli.py`)
-is gone: the GitHub layer, skills registry, coding loop, verification executor
-and SQL connector that used to live here were removed in October 2026 (§8).
+**Experimental, default-off:** scoped filesystem
+(`python -m agentic.fsconnect.cli`) and passive LAN inventory
+(`python -m agentic.netconnect.cli`). The package CLI, GitHub coding loop,
+registry, verification executor, and SQL connector were removed (§8).
 
-The six core modules (`gate.py`, `gate_ops.py`, `gate_auth.py`,
-`gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`) never import this
-package (invariant I6), so neither connector can affect retrieval, routing, or
-the MCP surface. Both ship **disabled**.
-
-> Security posture in one line: neither connector calls an LLM, both use
-> argv-list subprocesses or direct file I/O with no shell, every operation is
-> audited, and filesystem writes need their own config gates plus a human
-> `--reason` (and `--confirm` for destructive ops).
-
-Package map for code readers: [`agentic/README.md`](../../agentic/README.md).
+Core modules never import these connectors (I6). Neither calls an LLM;
+both use direct I/O or argv-list subprocesses, audit operations, and require
+write gates plus human `--reason` (`--confirm` for destructive operations).
+[Package map](../../agentic/README.md).
 
 ## 1. Prerequisites
 
-The connectors are part of the base install and need no extra Python
-dependency. The agentic connectors run as `python -m agentic.<connector>.cli`
-from the repository root, against the same `config.yaml` the gateway reads
-(`--config` overrides the path). Importing the `agentic` package applies the
-shared telemetry kill (`utils/telemetry_kill.py`) before any connector
-submodule loads, the same way `gate.py` does for the gateway.
+Base-installed connectors use repository `config.yaml` (`--config`
+overrides). Package import applies telemetry suppression before submodules.
 
-- **fsconnect** needs nothing beyond the Python standard library for reads and
-  writes. Its optional `index` step copies eligible files into the corpus and
-  then runs `python -m retrieval.indexer` as a subprocess; it never imports the
-  retrieval code.
-- **netconnect** reads the operating system's existing neighbor cache with a
-  fixed absolute command (`ip neigh show` on Linux, `arp` on macOS and
-  Windows); a missing command is an environment error (exit 3), never a
-  fallback to probing.
+- **fsconnect:** stdlib reads/writes; optional indexing stages eligible
+  files then invokes `python -m retrieval.indexer`, never imports retrieval.
+- **netconnect:** reads existing neighbor caches using fixed OS commands
+  (`ip neigh show` or `arp`). Missing commands exit 3; never probes instead.
 
 ## 2. Filesystem connector (`agentic.fsconnect`)
 
@@ -149,10 +132,9 @@ and counts, never the returned IP or MAC values. Inspect with
 - **"Filesystem connector disabled" / "Network connector disabled"** → set
   `enabled: true` in the matching `config.yaml` block; exit 0 is the intended
   no-op.
-- **fsconnect write returns a DRY-RUN plan** → `writes_enabled` is `false`, or
-  you are on Windows, where every write op is refused.
-- **fsconnect write refused (exit 4)** → add `--reason` (and `--confirm` for a
-  destructive op), or check `quota-status` and the write rate limit.
+- **fsconnect DRY-RUN**: on supported platforms, `writes_enabled` is false.
+- **fsconnect refusal (exit 4)**: Windows writes are always refused; elsewhere
+  check `--reason`, destructive `--confirm`, quotas, and write rate limits.
 - **netconnect config error at load** → an `allowed_cidrs` entry is not an IPv4
   RFC1918/loopback subnet, or the list is empty while `enabled: true`.
 

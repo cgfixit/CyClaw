@@ -1,15 +1,12 @@
 # `memory/` — optional facts + episodes store
 
-Default-off SQLite+FTS5 store for facts and query episodes, with propose/apply
-governance (non-empty human `reason` + injection scan on apply). Soul
-(`data/personality/soul.md`) stays identity; this package is not soul mutation.
+Default-off SQLite+FTS5 facts and query episodes on the RAG path.
+Propose/apply requires a non-empty human `reason` and apply-time injection
+scan. Identity remains in `data/personality/soul.md`; session notes belong in
+[`docs/memories/`](../docs/memories/).
 
-**Not** [`docs/memories/`](../docs/memories/) (sandbox session notes).
-This package is the optional facts/episodes store on the RAG path.
-
-Every `memory:` switch in `config.yaml` ships `false`. With defaults, `/query`
-behavior matches pre-memory CyClaw. Optional hooks catch memory failures so
-they do not fail `/query`; operator routes can still report store errors.
+Every `memory:` switch ships `false` in `config.yaml`. Hooks catch memory
+failures to preserve `/query`; operator routes can report store errors.
 
 ## Isolation
 

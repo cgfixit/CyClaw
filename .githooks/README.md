@@ -1,11 +1,8 @@
 # Git hooks (branch naming, title prefix, fresh main, security gate)
 
-Enforces **documented multi-vendor feature-branch prefixes** on commit and push,
-**PR-template commit title prefixes** on every commit subject, plus
-fresh-`origin/main` ancestry for feature-branch pushes.
-
-Canonical list: the `case` patterns in `pre-commit` (mirrored by `pre-push`), kept aligned with
-`CLAUDE.md` §10 "Branch namespaces", and `.github/PULL_REQUEST_TEMPLATE.md`):
+Enforces branch prefixes, commit-title prefixes, fresh-main ancestry, and
+security checks. Branch patterns live in `pre-commit`, mirrored by
+`pre-push`, `CLAUDE.md` §10, and `.github/PULL_REQUEST_TEMPLATE.md`:
 
 | Prefix | Driver |
 |--------|--------|
@@ -29,12 +26,11 @@ Also allowed: `main`, `master`, `develop`, `dependabot/*`, `renovate/*`, `releas
 | `security.conf` | CyClaw blocked paths, protected controls, fixture exceptions, staged Python Ruff check and pushed-tip invariant check. | Applies repository policy without mixing it into the reusable scanner. |
 | `README.md` | Hook entry-point guide, file inventory, title/branch conventions and installation. | Gives contributors one starting point; detailed security behavior lives in [`docs/GITHOOKS.md`](../docs/GITHOOKS.md). |
 
-The `commit-msg` hook's allowlist is a closed set — `invariant`, `governance`,
-`fsconnect`, `agentic`, `rag`, `harness`, `security`, `docs`, `infra`, `fix`,
-`feat`. It also lets through Dependabot/Renovate subjects beginning `chore(deps)`, `build(deps)`, or `ci(deps)` — the `(deps)` scope is required, so a bare `chore:` or `build:` subject is still rejected — and
-skips the check entirely for merge/revert/fixup commits (`Merge`, `Revert`,
-`fixup!`, `squash!`, `amend!`; legacy `Amend!` is also accepted). Anything else is rejected, so reach for the
-closest listed prefix rather than inventing one.
+`commit-msg` accepts only `invariant`, `governance`, `fsconnect`, `agentic`,
+`rag`, `harness`, `security`, `docs`, `infra`, `fix`, or `feat` prefixes.
+Exceptions: `chore(deps)`, `build(deps)`, `ci(deps)` (scope required), and
+Git-generated `Merge`, `Revert`, `fixup!`, `squash!`, `amend!`, or `Amend!`
+subjects. Other prefixes are rejected.
 
 ## Security gate (`_security.sh` + `security.conf`)
 
@@ -69,11 +65,10 @@ Hosted checks and branch rules remain separate controls.
 
 ## PR body template (not a git hook)
 
-Git cannot intercept PR bodies created via the GitHub UI, `gh pr create`, or
-the GitHub connector API, so that layer is a script plus CI: fill
-[`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md)
-fully, run `scripts/check-pr-template.sh path/to/body.md` before creating, and
-`.github/workflows/pr-template-check.yml` blocks on the same rules.
+PR bodies bypass Git hooks. Fill
+[the template](../.github/PULL_REQUEST_TEMPLATE.md) and run
+`scripts/check-pr-template.sh path/to/body.md`;
+`.github/workflows/pr-template-check.yml` enforces the same rules.
 
 ## Install (once per clone)
 
@@ -89,6 +84,5 @@ points. The pre-push gate never rebases or force-pushes for you:
 rebase, inspect conflicts, rerun the checks, and use force-with-lease only with
 explicit approval. It cannot infer multi-PR semantics either; map shared files
 and trial the merge order as `.codex/Codex_instructions.md` requires.
-Repository agents must fix hook findings rather than bypass hooks or grant
-themselves operator overrides. Pre-push still scans commits created without
-pre-commit; hosted checks are a separate backstop.
+Agents must fix findings, never bypass hooks or self-grant overrides.
+Pre-push also scans commits created without pre-commit.

@@ -1,8 +1,7 @@
 # `guardrails/` content-safety layer
 
-Defense-in-depth rails on top of LangGraph. The graph stays the **only**
-routing authority (topology = policy). This package adds input checks and
-output grounding; it does not decide vault-hit vs fallback.
+Input checks and output grounding supplement LangGraph, which alone decides
+vault-hit versus fallback routing.
 
 Ships enabled through `guardrails.enabled: true` in `config.yaml`. The NeMo
 engine is installed with the base dependencies. Explicit boolean `false`, or an absent block,
@@ -13,9 +12,8 @@ with a `ConfigError`, and an unknown rail name in `input_rails`,
 
 ## How the graph reaches this package (I6)
 
-The core six (`gate.py`, `gate_ops.py`, `gate_auth.py`, `gate_memory.py`, `graph.py`, `mcp_hybrid_server.py`) must not import `guardrails`
-(see `tests/test_guardrails_isolation.py`). The one seam is
-`utils/guardrail_bridge.py`:
+The core six cannot import `guardrails` (`tests/test_guardrails_isolation.py`).
+`utils/guardrail_bridge.py` supplies the seam:
 
 - `build_input_guard`, `build_output_guard`, and `build_generate_guard` return
   `None` before any package import when the layer is disabled.
@@ -93,17 +91,14 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 | Shared offline scanner helpers | Shipped |
 | Output grounding (`local_llm` only) | Shipped |
 | Soul-leak output rail | `detect_soul_leak` on all four answer routes through live NeMo or deterministic broker fallback. The graph output node remains local-only |
-| `check()` wrap around existing generate | Enabled by default. With NeMo installed, the broker checks input before generation and output afterward. Missing or failed verdicts use deterministic checks. Grounding uses the chunks seen by `local_llm` only. Explicitly disabled configurations stay pass-through |
-| ToolBroker name-gate | **Removed** (2026-10-10). It shipped as `utils/tool_broker.py` with a `guardrails/tool_broker.py` re-export, but lost its only caller when PR #1367 removed the harness console. A future tool caller should restore it from git history rather than keep an untested gate alive. |
+| `check()` wrap around existing generate | Enabled by default: input before generation, output afterward; deterministic fallback on failed/missing verdicts. Grounding is `local_llm` only. Disabled configurations pass through. |
+| ToolBroker name-gate | Removed 2026-10-10 after its only caller, the harness console, was removed. History retains the implementation. |
 | Generate-call inventory | **Shipped** — fail-closed AST (`python -m guardrails.call_inventory`). |
-| `check_jailbreak` input rail | **Not enforced as a rail of its own** — configured in `input_rails`; offline floor uses `check_injection` / `check_soul_mutation`. With NeMo installed, the Colang flow `check cyclaw jailbreak` runs the same injection-marker action as `check_injection`, and no LLM-backed rail (`self_check_input`) is active. So no layer has a jailbreak classifier: a persona prompt is caught only when it matches those markers (`you are now …`, `from now on you are …`), and one worded differently passes. |
+| `check_jailbreak` input rail | No distinct classifier: the live Colang flow repeats `check_injection` markers; offline checks use injection/soul-mutation detection. Reworded persona prompts may pass. No `self_check_input` model call is active. |
 | Topical rails (`stay_in_local_knowledge`, `no_unauthed_external_advice`) | **Not enforced offline** — configured but not referenced in `integration.py`. |
 
-Without `nemoguardrails` the enabled floor still enforces `check_injection`,
-`check_soul_mutation`, `check_grounding`, and `check_soul_leak` in their route
-scopes. The live `check_jailbreak` flow repeats injection detection, while
-topical rails have no active enforcement. A configured name alone is not
-evidence that a distinct classifier runs. Model-assisted `self_check_*`
-rails are declined (issue #1486 Track B) and inert; active `/query` flows add
-no model calls. Phase acceptance and remaining limits:
+The enabled deterministic floor retains injection, soul-mutation, grounding,
+and soul-leak checks in their route scopes. Model-assisted `self_check_*`
+rails remain declined and inert (issue #1486 Track B); `/query` adds no model
+calls. Acceptance and limits:
 [Track B record](../docs/audits/2026-10-03-nemo-track-b.md).

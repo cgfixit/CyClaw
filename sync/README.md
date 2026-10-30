@@ -1,16 +1,12 @@
 # `sync/` — out-of-band Dropbox corpus sync
 
-Optional rclone wrapper that keeps `data/corpus/` in step with a Dropbox
-folder. Ships disabled (`sync.enabled: false`) and one-way
-(`direction: pull` → `rclone copy`, never deletes);
-`direction: bisync` is opt-in and discouraged. Runs **strictly out-of-band** (`python -m sync.cli`);
-the six core modules never import it, and it never imports them (invariant
-I6). The core server reaches it only through the `/ops/sync` subprocess shim
-(`utils/ops_runner.py`).
+Optional Dropbox-to-`data/corpus/` rclone wrapper. Ships disabled
+(`sync.enabled: false`); default `direction: pull` uses non-deleting
+`rclone copy`. Bisync is opt-in and discouraged. Runs out-of-band via
+`python -m sync.cli`; I6 forbids core imports in either direction.
+`/ops/sync` uses the `utils/ops_runner.py` subprocess shim.
 
-The full design, setup walkthrough, and threat-model notes live in
-[`docs/SYNC_README.md`](../docs/SYNC_README.md) — that document is the
-authority; this file is the in-tree map.
+Design, setup, and threat model: [`docs/SYNC_README.md`](../docs/SYNC_README.md).
 
 ## Modules
 
@@ -21,7 +17,7 @@ authority; this file is the in-tree map.
 | `filters.py` | Generates the rclone filter file (what syncs, what never does). |
 | `runner.py` | Drives `rclone copy` (pull, default) or `rclone bisync` (opt-in) as an argv-list subprocess with timeouts. |
 | `scheduler.py` | Scheduled-job backends: cron (default), launchd (Darwin-only, opt-in via `sync.scheduler_backend`, writes a plist but never auto-loads it), Windows Task Scheduler. |
-| `scheduled.py` | What the generated cron line / plist / task actually runs (`python -m sync.scheduled`): reads only `RCLONE_CONFIG_PASS` from the OS keystore at execution time through `utils.child_environment`, then invokes the normal CLI, so no scheduler artifact ever carries the password. `--check-credentials` verifies config decryption without transferring data. |
+| `scheduled.py` | Scheduler entry (`python -m sync.scheduled`): loads only `RCLONE_CONFIG_PASS` through `utils.child_environment`, then invokes the CLI. Artifacts hold no password. `--check-credentials` tests decryption without transfers. |
 | `selftest.py` | Pre-flight checks behind `sync test`. |
 
 ## Exit codes (an API — keep them)
@@ -32,11 +28,8 @@ authority; this file is the in-tree map.
 (`python -m retrieval.indexer`, then restart the gateway). Exit 10 can also
 follow a partial failed sync; inspect the command output and audit log.
 
-The `10` contract holds for the shipped posture, where `sync.auto_reindex` is
-`false`. Turning that switch on makes `python -m sync.cli sync` run the indexer
-itself instead of handing the caller a `10` to act on — so a scheduler wired to
-treat `10` as "now reindex" has nothing to do, and a caller that treats any
-nonzero exit as failure needs to know `10` is no longer expected.
+Exit `10` applies with shipped `sync.auto_reindex: false`. Enabling it runs
+the indexer inside `sync.cli sync`; callers should no longer expect `10`.
 The indexer subprocess does not reload an already-running gateway; restart
 it to adopt that newly built index. A dry run never returns `10` or triggers
 automatic reindexing. The overall `sync_timeout_sec` bounds rclone attempts,
