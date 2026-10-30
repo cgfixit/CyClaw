@@ -47,8 +47,10 @@ def _run_gate(pr: dict) -> dict:
         "  process.stdout.write(JSON.stringify({out, fails}));\n"
         "});\n"
     )
+    # Same 120s budget as test_claude_workflow_security_contract.py: a stalled
+    # node spawn on the Windows runner, not the milliseconds of script work.
     result = subprocess.run(
-        [_NODE, "-e", harness], capture_output=True, text=True, timeout=30, check=True
+        [_NODE, "-e", harness], capture_output=True, text=True, timeout=120, check=True
     )
     return json.loads(result.stdout)
 

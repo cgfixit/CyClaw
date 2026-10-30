@@ -48,8 +48,11 @@ def _run_gate(pr: dict, body: str) -> dict:
         "  process.stdout.write(JSON.stringify({out, fails}));\n"
         "});\n"
     )
+    # 120s, not 30s: the script itself runs in milliseconds, so a timeout means
+    # the node process stalled at spawn. The Windows runner did that once on main
+    # (run 41065100100, 2026-10-30) while the same code passed on its PR branch.
     result = subprocess.run(
-        [_NODE, "-e", harness], capture_output=True, text=True, timeout=30, check=True
+        [_NODE, "-e", harness], capture_output=True, text=True, timeout=120, check=True
     )
     return json.loads(result.stdout)
 

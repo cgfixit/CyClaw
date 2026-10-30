@@ -47,7 +47,9 @@ def _run_gate(comment: dict, comments: list[dict], pr: dict = _PR) -> dict:
             "  .catch(error => {console.error(error.message); process.exitCode = 1;});",
         ]
     )
-    result = subprocess.run([_NODE, "-e", harness], capture_output=True, text=True, timeout=30, check=False)
+    # Same 120s budget as test_claude_workflow_security_contract.py: a stalled
+    # node spawn on the Windows runner, not the milliseconds of script work.
+    result = subprocess.run([_NODE, "-e", harness], capture_output=True, text=True, timeout=120, check=False)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

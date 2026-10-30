@@ -186,6 +186,15 @@ expire it.
 ### Tests and checks
 
 - **A green run can print no summary** (see Test above). Read the exit code.
+- **A lone `subprocess.TimeoutExpired` on the Windows leg is a runner stall
+  until proven otherwise.** On 2026-10-30, `ci.yml` run 41065100100 on main
+  (#1787, an installer/docs change) failed one test,
+  `test_read_mode_is_the_default[plain]`, because `node -e` for a
+  millisecond-long script did not return in 30s; coverage was 90.23% and the
+  same code had passed on its PR branch (run 40999080828). Read the log's
+  `FAILURES` block before blaming the merge, and compare against the PR-branch
+  run. The three node-spawning workflow-contract tests now allow 120s. Do not
+  "fix" it by skipping the test on Windows.
 - **Scope any local test run to the one file that covers the change** and
   let CI run the suite (CLAUDE.md §5). When the owner does ask for the whole
   suite, `-x` on the first pass finds the first failure without waiting
