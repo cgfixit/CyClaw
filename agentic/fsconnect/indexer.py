@@ -219,7 +219,12 @@ class FsIndexer:
         # error does not leave a stray temp file in the corpus staging dir.
         tmp = staging / f"{_CACHE_NAME}.{os.getpid()}.tmp"
         try:
-            tmp.write_text(json.dumps({"files": files}, indent=2, sort_keys=True), encoding="utf-8")
+            with tmp.open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"files": files}, indent=2, sort_keys=True))
+                # Flush to disk before the rename so a power loss cannot leave
+                # a zero-length cache in place of the previous good one.
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(tmp, staging / _CACHE_NAME)
         except OSError:
             tmp.unlink(missing_ok=True)
