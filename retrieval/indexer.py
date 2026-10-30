@@ -372,9 +372,21 @@ def build_index(config_path: str = "config.yaml") -> None:
     }
     if isinstance(generation, str):
         bm25_payload["vector_collection"] = generation
-    with open(bm25_tmp, "w", encoding="utf-8") as f:
-        json.dump(bm25_payload, f)
-    os.replace(bm25_tmp, bm25_target)
+    try:
+        with open(bm25_tmp, "w", encoding="utf-8") as f:
+            json.dump(bm25_payload, f)
+            # Push the bytes to disk before the rename (as utils/personality.py
+            # does for soul.md): without it a power loss can commit the rename
+            # first and leave a zero-length bm25.json, losing the
+            # vector_collection pointer that makes the new generation live.
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(bm25_tmp, bm25_target)
+    except BaseException:
+        # Fixed temp name: a disk-full error mid-write would otherwise leave
+        # a stray bm25.json.tmp beside the live index.
+        bm25_tmp.unlink(missing_ok=True)
+        raise
 
     logger.info("Done. Semantic backend: %s, BM25: %s", backend, bm25_path)
 

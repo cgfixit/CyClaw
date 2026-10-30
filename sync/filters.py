@@ -164,8 +164,19 @@ def write_filter_file(cfg: RcloneConfig) -> str:
     target = Path(cfg.filter_file or "")
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f"{target.name}.tmp")
-    tmp.write_text(generate_filters(cfg), encoding="utf-8")
-    os.replace(tmp, target)
+    content = generate_filters(cfg)
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write(content)
+            # Flush to disk before the rename: otherwise a power loss can commit
+            # the rename first and leave an empty filter file, which is the
+            # truncated-file failure this atomic write exists to prevent.
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return str(target.resolve())
 
 
