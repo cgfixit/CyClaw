@@ -87,6 +87,11 @@ useful for eyeballing a response shape, not a pass/fail test.
 
 ### Windows installer (optional)
 
+The native installers run `python -m pip check` after the hashed Torch/runtime
+install and stop before reporting success if the environment is inconsistent.
+`-SkipPythonDeps` / `--skip-python-deps` also skips this check. This verifies
+installed dependency metadata; run the NeMo verification below separately.
+
 `powershell/Install-CyClaw.ps1` is the Windows twin of
 [`macos/install-cyclaw.sh`](#option-a--the-installer-script-handles-the-torch-difference-for-you):
 home layout under `%USERPROFILE%\.CyClaw`, venv, and a `cyclaw` shim. It does
@@ -244,7 +249,7 @@ bash ./macos/install-cyclaw.sh
 ```
 
 It finds a Python 3.12.x — an existing `~/.CyClaw/venv` on any other version is refused, not replaced — creates `~/.CyClaw/venv`, installs the correct torch
-build, installs the rest from corrected manifests, writes a `cyclaw` shim, and
+build, installs the hashed runtime lock, checks dependency consistency, writes a `cyclaw` shim, and
 adds a PATH entry plus a `cyclaw()` function to your rc file (`~/.zshrc` on
 zsh; on macOS bash it preserves the first existing login file among
 `~/.bash_profile`, `~/.bash_login`, and `~/.profile`, creating

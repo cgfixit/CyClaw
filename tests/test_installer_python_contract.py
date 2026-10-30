@@ -96,6 +96,9 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "venv" ]; then
   exit 0
 fi
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip" ]; then
+  if [ "${3:-}" = "check" ]; then
+    exit "${FAKE_PIP_CHECK_STATUS:-0}"
+  fi
   exit 0
 fi
 exit 91
@@ -122,6 +125,7 @@ def _run_macos_installer(
     python: str,
     venv_python: str,
     skip_python_deps: bool = False,
+    pip_check_status: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     assert _BASH is not None
     home = tmp_path / "home"
@@ -136,6 +140,7 @@ def _run_macos_installer(
             "FAKE_PYTHON_VERSION": python,
             "FAKE_VENV_VERSION": venv_python,
             "FAKE_PYTHON_LOG": str(log),
+            "FAKE_PIP_CHECK_STATUS": str(pip_check_status),
             "SHELL": "/bin/bash",
         }
     )
@@ -247,6 +252,68 @@ def test_macos_skip_python_deps_does_not_reject_existing_venv(tmp_path: Path) ->
     assert completed.returncode == 0, completed.stderr
     assert stale_python.is_file()
     assert " -m pip" not in (tmp_path / "python.log").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(_BASH is None, reason="requires a working POSIX bash")
+@pytest.mark.parametrize("pip_check_status", [0, 1])
+def test_posix_installer_requires_consistent_dependencies(tmp_path: Path, pip_check_status: int) -> None:
+    completed = _run_macos_installer(
+        tmp_path,
+        python312="3.12",
+        python3="3.13",
+        python="3.13",
+        venv_python="3.12",
+        pip_check_status=pip_check_status,
+    )
+
+    log = (tmp_path / "python.log").read_text(encoding="utf-8")
+    assert " -m pip check" in log
+    assert log.index("requirements-lock-") < log.index(" -m pip check")
+    if pip_check_status:
+        assert completed.returncode != 0
+        assert "dependencies installed" not in completed.stdout
+        assert not (tmp_path / "home" / ".CyClaw" / "bin" / "cyclaw").exists()
+    else:
+        assert completed.returncode == 0, completed.stderr
+        assert "dependencies installed" in completed.stdout
+
+
+@pytest.mark.skipif(_POWERSHELL is None, reason="requires Windows PowerShell")
+@pytest.mark.parametrize("pip_check_status", [0, 1])
+def test_powershell_dependency_step_requires_consistency(tmp_path: Path, pip_check_status: int) -> None:
+    # Execute the installer's actual dependency step with a fake command. This
+    # exercises PowerShell's native exit-code handling without installing or
+    # touching credentials, profiles, or an operator's home directory.
+    text = _POWERSHELL_INSTALLER.read_text(encoding="utf-8")
+    start = text.index('    Write-Step "installing dependencies')
+    end = text.index('    Write-Step "dependencies installed"', start)
+    block = text[start:end + len('    Write-Step "dependencies installed"')]
+    probe = tmp_path / "dependency-step.ps1"
+    probe.write_text(
+        """$ErrorActionPreference = 'Stop'
+function Write-Step($message) { Write-Output $message }
+function Invoke-FakePython {
+    Write-Output ("CALL " + ($args -join ' '))
+    $global:LASTEXITCODE = 0
+    if ($args[2] -eq 'check') { $global:LASTEXITCODE = CHECK_STATUS }
+}
+$VenvPy = 'Invoke-FakePython'
+$Repo = (Get-Location).Path
+""".replace("CHECK_STATUS", str(pip_check_status)) + block,
+        encoding="utf-8",
+    )
+    completed = _run_installer(
+        [_POWERSHELL, "-NoProfile", "-NonInteractive", "-File", str(probe)], os.environ.copy(),
+    )
+    assert "CALL -m pip check" in completed.stdout
+    assert completed.stdout.index("requirements-lock-windows.txt") < completed.stdout.index("CALL -m pip check")
+    if pip_check_status:
+        assert completed.returncode != 0
+        assert "dependency consistency check failed" in completed.stderr
+        assert "dependencies installed" not in completed.stdout
+    else:
+        assert completed.returncode == 0, completed.stderr
+        assert "dependencies installed" in completed.stdout
 
 
 def _write_fake_windows_launchers(fake_bin: Path) -> None:
