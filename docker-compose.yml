@@ -145,7 +145,7 @@ services:
     # privileged container in the stack (privileged:true, host /proc, docker
     # socket, kernel debugfs) — a re-tagged/compromised image would otherwise
     # silently enter this profile. Re-pin the digest on any Falco version bump.
-    image: falcosecurity/falco:0.39.2@sha256:6aac44f74a105c2de47018c570da2128c84228c75dedddfcedf6a13adc0b5204
+    image: falcosecurity/falco:0.45.1@sha256:69e957f91b3a6beb5c82e2afae33ec3e4479dab2d4421475d288d0cd113cedf6
     container_name: cyclaw-falco
     profiles: ["monitoring"]
     privileged: true            # required for the kernel / eBPF driver
