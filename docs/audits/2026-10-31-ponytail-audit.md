@@ -66,6 +66,8 @@ places but not in the other five.
   than a cut. The `.agents` SKILL.md calls these "legacy helpers" and says not
   to chain them as one automatic gate, but a Codex agent that runs `smoke.sh`
   still reads a green section F for a red suite.
+  **Applied** on this audit's branch (the exit-code block ported, not shimmed);
+  re-probed: failing suite FAIL, passing suite PASS, no pytest SKIP.
 - `shrink:` `utils/launchd_plist.py:225-243` `bootout()` has no production
   caller; only `tests/test_utils_launchd_plist.py:138-157` calls it. The one
   real unload, `sync/scheduler.py:555-574` `LaunchdScheduler.remove`, carries
