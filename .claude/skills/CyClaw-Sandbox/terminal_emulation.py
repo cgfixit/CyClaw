@@ -60,7 +60,7 @@ def main() -> int:
         if not ok:
             failures += 1
 
-    def show_response(label: str, data: dict) -> None:
+    def show_response(data: dict) -> None:
         """Print the fields terminal.html reads, in terminal display order."""
         print(f"       answer       : {str(data.get('answer',''))[:120]}")
         print(f"       model        : {data.get('model_used')}")
@@ -105,7 +105,7 @@ def main() -> int:
         try:
             r = client.post("/query", json={"query": CORPUS_QUERY})
             d = r.json()
-            show_response("vault-hit", d)
+            show_response(d)
             check("/query vault-hit: needs_confirm=False",
                   d.get("needs_confirm") is False,
                   f"got needs_confirm={d.get('needs_confirm')}")
@@ -129,7 +129,7 @@ def main() -> int:
         try:
             r = client.post("/query", json={"query": OFFTOPIC_QUERY})
             d = r.json()
-            show_response("off-topic", d)
+            show_response(d)
             needs_confirm = d.get("needs_confirm")
             model_used = d.get("model_used")
             check("/query off-topic: confirm or local",
@@ -148,7 +148,7 @@ def main() -> int:
                 "user_confirmed_online": False
             })
             d = r.json()
-            show_response("declined-online", d)
+            show_response(d)
             check("/query declined-online: offline-best-effort or local",
                   d.get("model_used") in {"offline-best-effort", "local"},
                   f"model_used={d.get('model_used')}")

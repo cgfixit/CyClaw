@@ -301,21 +301,16 @@ def cmd_reveal(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def cmd_trash_empty_plist(args: argparse.Namespace) -> int:
-    """Generate (never load) the weekly trash-empty launchd plist.
+def _trash_schedule_preflight(args: argparse.Namespace) -> tuple[FsConnectConfig, str] | int:
+    """Shared checks for the two trash-empty schedule generators.
 
-    Darwin-only. Writes ~/Library/LaunchAgents/<label>.plist from real,
-    resolved paths -- no REPLACE_* placeholders -- but never calls
-    `launchctl load`/`bootstrap` itself; loading stays an explicit operator
-    step (see the printed bootstrap hint). The generated command still fails
-    closed at runtime if fsconnect.writes_enabled (or any other write-gate
-    setting) is not true when the job actually fires -- this generator does
-    not bypass or pre-satisfy that gate.
+    Returns ``(config, root)`` when the job may be generated, else the exit
+    code to return: ``EXIT_ENV`` when config fails to load, ``EXIT_OK`` (via
+    ``_disabled_noop``) when fsconnect is disabled, and ``EXIT_FAIL`` for a bad
+    weekday/hour/minute or no writable root. The platform check stays in each
+    caller and runs before this, so the wrong OS is refused before any config
+    is read.
     """
-    if platform.system() != "Darwin":
-        _err("trash-empty-plist is Darwin-only (writes a macOS launchd plist).")
-        return EXIT_ENV
-
     fc = _load(args)
     if fc is None:
         return EXIT_ENV
@@ -336,15 +331,12 @@ def cmd_trash_empty_plist(args: argparse.Namespace) -> int:
     if not root:
         _err("no writable root configured (set fsconnect.writable_roots, or pass --root)")
         return EXIT_FAIL
+    return fc, root
 
-    try:
-        python = launchd_plist.python_executable()
-    except RuntimeError as exc:
-        _err(str(exc))
-        return EXIT_ENV
 
-    repo_root = Path(__file__).resolve().parent.parent.parent
-    program_args = [
+def _trash_empty_argv(python: str, args: argparse.Namespace, root: str) -> list[str]:
+    """The scheduled ``trash-empty`` command; it still fails closed at run time."""
+    return [
         python,
         "-m",
         "agentic.fsconnect.cli",
@@ -357,6 +349,36 @@ def cmd_trash_empty_plist(args: argparse.Namespace) -> int:
         args.reason,
         "--confirm",
     ]
+
+
+def cmd_trash_empty_plist(args: argparse.Namespace) -> int:
+    """Generate (never load) the weekly trash-empty launchd plist.
+
+    Darwin-only. Writes ~/Library/LaunchAgents/<label>.plist from real,
+    resolved paths -- no REPLACE_* placeholders -- but never calls
+    `launchctl load`/`bootstrap` itself; loading stays an explicit operator
+    step (see the printed bootstrap hint). The generated command still fails
+    closed at runtime if fsconnect.writes_enabled (or any other write-gate
+    setting) is not true when the job actually fires -- this generator does
+    not bypass or pre-satisfy that gate.
+    """
+    if platform.system() != "Darwin":
+        _err("trash-empty-plist is Darwin-only (writes a macOS launchd plist).")
+        return EXIT_ENV
+
+    checked = _trash_schedule_preflight(args)
+    if isinstance(checked, int):
+        return checked
+    fc, root = checked
+
+    try:
+        python = launchd_plist.python_executable()
+    except RuntimeError as exc:
+        _err(str(exc))
+        return EXIT_ENV
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    program_args = _trash_empty_argv(python, args, root)
     path = launchd_plist.write_job(
         _TRASH_LAUNCHD_LABEL,
         program_args,
@@ -390,41 +412,13 @@ def cmd_trash_empty_task(args: argparse.Namespace) -> int:
         _err("trash-empty-task is Windows-only (writes a Task Scheduler XML).")
         return EXIT_ENV
 
-    fc = _load(args)
-    if fc is None:
-        return EXIT_ENV
-    if not getattr(fc, "enabled", False):
-        return _disabled_noop()
-
-    if not 0 <= args.weekday <= 7:
-        _err("--weekday must be 0-7 (0 or 7 = Sunday, 1 = Monday)")
-        return EXIT_FAIL
-    if not 0 <= args.hour <= 23:
-        _err("--hour must be 0-23")
-        return EXIT_FAIL
-    if not 0 <= args.minute <= 59:
-        _err("--minute must be 0-59")
-        return EXIT_FAIL
-
-    root = args.root or (fc.write_root_strs[0] if fc.write_root_strs else None)
-    if not root:
-        _err("no writable root configured (set fsconnect.writable_roots, or pass --root)")
-        return EXIT_FAIL
+    checked = _trash_schedule_preflight(args)
+    if isinstance(checked, int):
+        return checked
+    fc, root = checked
 
     repo_root = Path(__file__).resolve().parent.parent.parent
-    argv = [
-        win_schtasks.python_executable(),
-        "-m",
-        "agentic.fsconnect.cli",
-        "--config",
-        str(Path(args.config).resolve()),
-        "trash-empty",
-        "--root",
-        root,
-        "--reason",
-        args.reason,
-        "--confirm",
-    ]
+    argv = _trash_empty_argv(win_schtasks.python_executable(), args, root)
     path, _launcher = win_schtasks.write_generated_task(
         task_name=_TRASH_TASK_NAME,
         argv=argv,
