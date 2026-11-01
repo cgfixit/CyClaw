@@ -146,7 +146,7 @@ def _wait_json(url: str, timeout: int) -> bool:
     return False
 
 
-def _start_process(name: str, cmd: list[str], cwd: Path, env: dict[str, str], log_path: Path) -> subprocess.Popen[str]:
+def _start_process(cmd: list[str], cwd: Path, env: dict[str, str], log_path: Path) -> subprocess.Popen[str]:
     log = log_path.open("w", encoding="utf-8")
     try:
         return subprocess.Popen(  # noqa: S603 - list-form commands assembled by this smoke runner.
@@ -535,7 +535,6 @@ def main() -> int:
     try:
         if not _wait_json(f"{MOCK_URL}/v1/models", 2):
             mock = _start_process(
-                "mock ollama",
                 [sys.executable, str(skill_dir / "scripts" / "mock_ollama.py")],
                 repo,
                 env,
@@ -551,7 +550,6 @@ def main() -> int:
             results.append(Result("mock Ollama", "FAIL", "port 11434 did not become ready"))
 
         server = _start_process(
-            "uvicorn",
             [str(py), "-m", "uvicorn", "gate:app", "--host", "127.0.0.1", "--port", "8787", "--no-proxy-headers", "--log-level", "warning"],
             repo,
             env,

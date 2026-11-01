@@ -501,6 +501,20 @@ def poll_once(
     return next_offset, handled
 
 
+def _retry_delay(retry_after: object, floor: float) -> float:
+    """Sleep before the next poll: ``floor``, raised to a valid ``retry_after``.
+
+    ``retry_after`` is Telegram's 429 hint and is untrusted: only a
+    non-negative int or float counts (``bool`` is excluded explicitly, since
+    ``True`` is an ``int`` and would read as one second), and it is capped at
+    ``_POLL_RETRY_SLEEP_CAP_SEC`` so a hostile or buggy value cannot stall
+    the loop.
+    """
+    if isinstance(retry_after, (int, float)) and not isinstance(retry_after, bool) and retry_after >= 0:
+        return max(floor, min(float(retry_after), _POLL_RETRY_SLEEP_CAP_SEC))
+    return floor
+
+
 def poll_forever(
     cfg: TelegramConfig,
     *,
@@ -554,33 +568,13 @@ def poll_forever(
             if retryable:
                 delay = sleep_on_error_sec
                 for result in retryable:
-                    retry_after = result.get("retry_after")
-                    if (
-                        isinstance(retry_after, (int, float))
-                        and not isinstance(retry_after, bool)
-                        and retry_after >= 0
-                    ):
-                        delay = max(
-                            delay,
-                            min(float(retry_after), _POLL_RETRY_SLEEP_CAP_SEC),
-                        )
+                    delay = _retry_delay(result.get("retry_after"), delay)
                 time.sleep(delay)
             batches += 1
         except TelegramRuntimeError as exc:
             details = getattr(exc, "details", None) or {}
             if details.get("retryable") is False:
                 raise
-            delay = sleep_on_error_sec
-            retry_after = details.get("retry_after")
-            if (
-                isinstance(retry_after, (int, float))
-                and not isinstance(retry_after, bool)
-                and retry_after >= 0
-            ):
-                delay = max(
-                    delay,
-                    min(float(retry_after), _POLL_RETRY_SLEEP_CAP_SEC),
-                )
-            time.sleep(delay)
+            time.sleep(_retry_delay(details.get("retry_after"), sleep_on_error_sec))
             batches += 1
     return batches

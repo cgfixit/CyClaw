@@ -10,7 +10,15 @@ import yaml
 
 from telegram.config import load_telegram_config
 from telegram.ratelimit import SlidingWindowLimiter, get_limiter, reset_limiters_for_tests
-from telegram.runner import _extract_answer, handle_inbound_text, poll_forever, poll_once, send_notify
+from telegram.runner import (
+    _POLL_RETRY_SLEEP_CAP_SEC,
+    _extract_answer,
+    _retry_delay,
+    handle_inbound_text,
+    poll_forever,
+    poll_once,
+    send_notify,
+)
 from telegram.state import load_offset, save_offset
 from utils.errors import TelegramRefused, TelegramRuntimeError
 from utils.logger import query_fingerprint, reset_config_cache
@@ -908,3 +916,22 @@ def test_poll_forever_surfaces_terminal_get_updates_failure(tmp_path: Path) -> N
     ):
         with pytest.raises(TelegramRuntimeError):
             poll_forever(cfg, max_iterations=1)
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "floor", "expected"),
+    [
+        (None, 2.0, 2.0),  # no hint keeps the floor
+        (True, 2.0, 2.0),  # bool is an int subclass; must not read as 1s
+        (-5, 2.0, 2.0),  # negative hint is ignored
+        ("30", 2.0, 2.0),  # a string is not a hint
+        (1, 2.0, 2.0),  # a shorter hint never lowers the floor
+        (12, 2.0, 12.0),  # a longer hint raises it
+        (7.5, 2.0, 7.5),
+        (10_000, 2.0, _POLL_RETRY_SLEEP_CAP_SEC),  # capped
+        (float("inf"), 2.0, _POLL_RETRY_SLEEP_CAP_SEC),
+    ],
+)
+def test_retry_delay_honours_only_valid_capped_hints(retry_after, floor, expected) -> None:
+    assert _retry_delay(retry_after, floor) == expected
+

@@ -7,7 +7,7 @@ Tests all 3 console panels via their REST endpoints.
 
 Usage:
     CYCLAW_API_KEY=test-key python gate.py &
-    python scripts/test_terminal_consoles.py
+    python .agents/skills/cyclaw-sandbox/test_terminal_consoles.py
 
 Env:
     CYCLAW_URL=http://127.0.0.1:8787  -- gateway URL
