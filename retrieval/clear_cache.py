@@ -78,16 +78,18 @@ def read_cache_dir(config_path: str) -> str:
     try:
         with open(resolved_config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ConfigError(f"Could not read config '{config_path}': {exc}") from exc
     except yaml.YAMLError as exc:
         raise ConfigError(f"Invalid YAML in '{config_path}': {exc}") from exc
     try:
         cache_dir = cfg["models"]["embeddings"].get("cache_dir", "")
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, AttributeError) as exc:
         raise ConfigError(
             f"config '{config_path}' missing models.embeddings section"
         ) from exc
+    if cache_dir is not None and not isinstance(cache_dir, str):
+        raise ConfigError(f"config '{config_path}' models.embeddings.cache_dir must be a string or null")
     # resolve_cache_dir anchors a RELATIVE cache_dir against config_path's own
     # parent directory -- pass the already-repo-root-anchored path, not the
     # raw (possibly bare-relative, CWD-dependent) argument, or a relative

@@ -5,6 +5,7 @@ config/exit-code contract, and the edge cases (missing dir, unset cache_dir,
 non-directory target). No model load or filesystem outside ``tmp_path``.
 """
 
+import pytest
 import yaml
 
 from retrieval import clear_cache
@@ -55,6 +56,33 @@ def test_read_cache_dir_missing_file_raises(tmp_path):
 
     with pytest.raises(ConfigError):
         clear_cache.read_cache_dir(str(tmp_path / "nope.yaml"))
+
+
+@pytest.mark.parametrize("apply", [False, True])
+@pytest.mark.parametrize("raw", [
+    b"\xff",
+    b"models:\n  embeddings: null\n",
+    b"models:\n  embeddings: []\n",
+    b"models:\n  embeddings: 42\n",
+    b"models:\n  embeddings:\n    cache_dir: [cache]\n",
+    b"models:\n  embeddings:\n    cache_dir: 42\n",
+    b"models:\n  embeddings:\n    cache_dir: false\n",
+])
+def test_malformed_config_returns_exit_env_without_deleting(tmp_path, capsys, raw, apply):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_bytes(raw)
+    cache = _make_cache(tmp_path)
+    argv = ["--config", str(cfg)] + (["--apply"] if apply else [])
+
+    assert clear_cache.main(argv) == clear_cache.EXIT_ENV
+    assert "[ERR ]" in capsys.readouterr().err
+    assert (cache / "model.safetensors").read_bytes() == b"x" * 2048
+
+
+def test_null_cache_dir_is_still_unset(tmp_path):
+    cfg = _write_cfg(tmp_path, None)
+    assert clear_cache.read_cache_dir(cfg) == ""
+    assert clear_cache.main(["--config", cfg, "--apply"]) == clear_cache.EXIT_OK
 
 
 class TestResolveConfigPath:
