@@ -10,17 +10,11 @@ import os
 import plistlib
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from utils import launchd_plist
-
-
-def _completed(returncode: int = 0) -> MagicMock:
-    m = MagicMock()
-    m.returncode = returncode
-    return m
 
 
 def test_python_executable_prefers_sys_executable() -> None:
@@ -133,29 +127,6 @@ def test_bootstrap_hint_never_calls_subprocess(tmp_path: Path) -> None:
         hint = launchd_plist.bootstrap_hint(path)
     mock_run.assert_not_called()
     assert hint == f"launchctl bootstrap gui/{launchd_plist.current_uid()} {path}"
-
-
-def test_bootout_no_op_when_launchctl_missing(tmp_path: Path) -> None:
-    path = tmp_path / "com.example.job.plist"
-    with (
-        patch("utils.launchd_plist.shutil.which", return_value=None),
-        patch("utils.launchd_plist.subprocess.run") as mock_run,
-    ):
-        launchd_plist.bootout(path)
-    mock_run.assert_not_called()
-
-
-def test_bootout_calls_launchctl_bootout(tmp_path: Path) -> None:
-    path = tmp_path / "com.example.job.plist"
-    with (
-        patch("utils.launchd_plist.shutil.which", return_value="/bin/launchctl"),
-        patch("utils.launchd_plist.subprocess.run", return_value=_completed()) as mock_run,
-    ):
-        launchd_plist.bootout(path)
-    argv = mock_run.call_args.args[0]
-    assert argv[0] == "/bin/launchctl"
-    assert argv[1] == "bootout"
-    assert str(path) in argv
 
 
 def test_keychain_wrapper_path(tmp_path: Path) -> None:

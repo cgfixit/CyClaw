@@ -222,26 +222,6 @@ def launchctl_bin() -> str | None:
     return shutil.which("launchctl")
 
 
-def bootout(path: Path) -> None:
-    """Best-effort unload of the agent at *path*.
-
-    Tolerates "not loaded" (bootout on a plist that was written but never
-    bootstrapped is an expected no-op) and a missing ``launchctl`` binary --
-    callers should still delete the plist file themselves afterward
-    regardless of whether this actually unloaded anything.
-    """
-    launchctl = launchctl_bin()
-    if not launchctl:
-        return
-    subprocess.run(  # noqa: S603 -- argv list, launchctl resolved via shutil.which
-        [launchctl, "bootout", f"gui/{current_uid()}", str(path)],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-
-
 def keychain_wrapper_path(repo_root: str | Path) -> str:
     """Absolute path to ``cyclaw-keychain-env.sh`` within *repo_root*."""
     return str(Path(repo_root) / KEYCHAIN_WRAPPER_RELATIVE_PATH)
