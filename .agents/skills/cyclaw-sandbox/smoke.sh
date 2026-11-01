@@ -436,19 +436,37 @@ fi
 section "F — Full pytest suite"
 # ════════════════════════════════════════════════════════════════════════════
 
+# The VERDICT is pytest's exit code, never a parse of its output (ported from
+# the .claude copy, .claude/skills/CyClaw-Sandbox/smoke.sh section F).
+# pyproject.toml sets addopts = "-q --tb=short", so an extra -q here made
+# pytest run at -qq, where it prints no "N failed" count line; the old grep
+# then defaulted FAILED_C to 0 and reported PASS for a failing suite
+# (reproduced 2026-10-31, docs/audits/2026-10-31-ponytail-audit.md). The
+# counts below are best-effort commentary on a line that may be absent.
+# A missing pytest is a SKIP, never a pass. Counters are seeded first because
+# section G interpolates them under `set -u`.
+PASSED="n/a"; FAILED_C="n/a"; SKIPPED="n/a"
+if ! "$PYTHON" -c "import pytest" >/dev/null 2>&1; then
+  skip "Full pytest suite (pytest not installed for $PYTHON — skip)"
+else
 echo "[smoke] Running full test suite (postgres tests skip if no DSN)..."
+set +e
 PYTEST_OUT=$( GROK_API_KEY="$GROK_API_KEY" CYCLAW_API_KEY="$CYCLAW_API_KEY" \
-  "$PYTHON" -m pytest tests/ -q --tb=short --continue-on-collection-errors 2>&1 ) || true
+  "$PYTHON" -m pytest tests/ --tb=short --continue-on-collection-errors 2>&1 )
+PYTEST_RC=$?
+set -e
 
-PASSED=$(echo "$PYTEST_OUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" || echo "0")
-FAILED_C=$(echo "$PYTEST_OUT" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" || echo "0")
-SKIPPED=$(echo "$PYTEST_OUT" | grep -oE "[0-9]+ skipped" | grep -oE "[0-9]+" || echo "0")
+PASSED=$(echo "$PYTEST_OUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1 || true)
+FAILED_C=$(echo "$PYTEST_OUT" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" | head -1 || true)
+SKIPPED=$(echo "$PYTEST_OUT" | grep -oE "[0-9]+ skipped" | grep -oE "[0-9]+" | head -1 || true)
+COUNTS="passed=${PASSED:-?} failed=${FAILED_C:-?} skipped=${SKIPPED:-?}"
 echo "$PYTEST_OUT" | tail -5
 
-if [ "${FAILED_C:-0}" -eq 0 ]; then
-  pass "Full pytest suite (passed=$PASSED skipped=$SKIPPED)"
+if [ "$PYTEST_RC" -eq 0 ]; then
+  pass "Full pytest suite (exit 0; $COUNTS)"
 else
-  fail "Full pytest suite ($FAILED_C failed, $PASSED passed, $SKIPPED skipped)"
+  fail "Full pytest suite (pytest exit $PYTEST_RC; $COUNTS)"
+fi
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
