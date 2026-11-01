@@ -9,6 +9,12 @@ package — there is no `__init__.py`, which is why a bare repo-root
 The authoritative one-line-per-module map lives in `CLAUDE.md` §2 "Key
 modules"; this file groups them by concern.
 
+Generated launchd plists, Task Scheduler XML, and command/sync launchers use
+`atomic_write.py`: a unique same-directory temporary file is flushed and fsynced
+before replacement, with cleanup on failure. Generated files are owner-only
+(`0600`; executable POSIX sync launchers use `0700`). This does not fsync the
+parent directory or guarantee recovery from every power-loss scenario.
+
 ## Security / policy
 
 | Module | Role |

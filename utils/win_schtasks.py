@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from utils.atomic_write import write_atomic
 from utils.telemetry_kill import SCRUBBED_ENV_KEYS
 
 _CREDMAN_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
@@ -146,9 +147,7 @@ def write_cmd_launcher(
         lines.append(f'set "{name}={value.replace("%", "%%")}"')
     lines.append(" ".join(bat_quote(part) for part in argv))
     content = "\r\n".join(lines) + "\r\n"
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_bytes(content.encode("utf-8"))
-    os.replace(tmp, path)
+    write_atomic(path, content.encode("utf-8"), mode=0o600)
 
 
 def register_hint(task_name: str, path: Path) -> str:
@@ -266,10 +265,7 @@ def _envelope(task_name: str, triggers: str, settings: str, actions: str) -> str
 
 def write_task_xml(path: Path, document: str) -> None:
     """Atomically write UTF-16 LE (BOM) Task Scheduler XML to *path*."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_bytes(document.encode("utf-16"))
-    os.replace(tmp, path)
+    write_atomic(path, document.encode("utf-16"), mode=0o600)
 
 
 def weekly_calendar_trigger(weekday: int, hour: int, minute: int) -> str:

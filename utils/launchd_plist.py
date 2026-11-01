@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from utils import win_schtasks
+from utils.atomic_write import write_atomic
 from utils.telemetry_kill import scheduler_env_overlay
 
 # Repo-relative path to the Keychain env-injection wrapper -- see
@@ -166,11 +167,7 @@ def write_plist(document: dict, path: Path) -> None:
     never leaves a partial or corrupt plist on disk, and a re-run is a clean
     overwrite (idempotent).
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp_path, "wb") as f:
-        plistlib.dump(document, f, fmt=plistlib.FMT_XML)
-    os.replace(tmp_path, path)
+    write_atomic(path, plistlib.dumps(document, fmt=plistlib.FMT_XML), mode=0o600)
 
 
 def write_job(
