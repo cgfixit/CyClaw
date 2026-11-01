@@ -1,124 +1,150 @@
-# Why CyClaw temporarily accepts Pillow exposure
+# Pillow and NeMo: current status and the retired risk acceptance
 
-**Retired 2026-10-29.** `pillow==13.0.0` and `fastembed==0.9.1` replace this
-acceptance. FastEmbed 0.9.1 allows `pillow<14` on Python 3.12, and OSV marks
-PYSEC-2026-4327 and PYSEC-2026-4332 fixed in Pillow 13.0.0. The pip-audit
-ignore list is gone. The notes below are the 2026-10-23 record of why the
-12.3.0 pin was kept, not a current exception. [SECURITY.md](../../SECURITY.md)
-owns the register.
+**Updated 2026-11-01**, against main
+`2a8ad88bbf55c84d05df32edd0920f2c2600289e`. The operator's confirmed use remains
+**text/RAG with the shipped embedding and reranker models**.
+[SECURITY.md](../../SECURITY.md#accepted-dependency-risks) owns the live advisory
+register; this memo records the decision, evidence and operator next steps.
 
-Decision reviewed **2026-10-23**, against main
-`ae767ed9c6ecd64112993462370433c81e03707c`. The operator confirmed the intended
-use: **text/RAG with the shipped embedding and reranker models**.
+## Current decision: use the compatible update already on main
 
-For that use, keeping the compatible dependency set and a bounded Pillow risk
-acceptance is proportionate. Pillow remains affected; this is a deployment
-decision, not a patched dependency or a claim that every supported configuration
-is safe. [SECURITY.md](../../SECURITY.md#accepted-dependency-risks) owns the exact
-accepted advisories and review dates; this memo explains the reasoning.
+[PR #1784](https://github.com/cgfixit/CyClaw/pull/1784) merged on 2026-10-29 and
+replaced the Pillow 12.3.0 acceptance with **Pillow 13.0.0 and FastEmbed 0.9.1**.
+NeMo Guardrails remains **0.24.1**. These were the latest PyPI releases of all
+three packages when checked on 2026-11-01.
 
-## Why keep the dependency set
+[FastEmbed 0.9.1 metadata](https://pypi.org/pypi/fastembed/0.9.1/json) allows
+`pillow>=10.3.0,<14.0` on Python 3.12; 0.9.0 required Pillow below 13.
+[NeMo 0.24.1 metadata](https://pypi.org/pypi/nemoguardrails/0.24.1/json) accepts
+`fastembed>=0.2.2`, so no NeMo version change is needed to unlock Pillow 13.
+The compatible pins are in constraints, the three platform runtime locks and
+the Conda profile. The pip-audit Pillow ignore list is removed.
 
-At review time, Pillow was 12.3.0 and the latest FastEmbed release was 0.9.0.
-[FastEmbed's Python 3.12 metadata](https://pypi.org/pypi/fastembed/0.9.0/json)
-requires `pillow>=10.3.0,<13.0`. NeMo brings FastEmbed into the base runtime.
-The Pillow 13 attempts in [#1742](https://github.com/cgfixit/CyClaw/pull/1742)
-and [#1766](https://github.com/cgfixit/CyClaw/pull/1766) were closed without merge.
+The [Arrow disclosure advisory](https://github.com/python-pillow/Pillow/security/advisories/GHSA-654x-cwwv-5j9c)
+now lists Pillow 13.0.0 as patched. This supersedes the earlier advisory metadata,
+which included 13.0.0 as affected and listed no patched release. Fresh OSV
+version queries on 2026-11-01 returned no advisories for Pillow 13.0.0,
+FastEmbed 0.9.1 or NeMo 0.24.1. This is dated advisory evidence, not a guarantee
+against undisclosed vulnerabilities.
 
-Forcing Pillow 13 past that constraint would leave an unsupported installation.
-Removing NeMo to eliminate an unused Pillow surface would trade an existing
-protection for a dependency change without an established reachable operation.
-Neither is justified for the confirmed text/RAG setup. Prefer a supported
-compatible upgrade when available, then reassess each advisory separately.
+## How CyClaw uses these dependencies
 
-## What the current paths do
+Pillow is installed for the dependency graph; that does not enable an image
+processing feature. Guardrails remains enabled in
+[config.yaml](../../config.yaml). Its active NeMo flows use Python checks, add
+no LLM-based classifier calls, and retain the documented deterministic floor
+when live checks are unavailable.
 
-| Path | Behavior relevant to Pillow |
+| Path | Behavior relevant to Pillow, checked 2026-11-01 |
 | --- | --- |
 | [Query and batch embeddings](../../retrieval/embeddings.py) | Pass strings to the shipped `all-MiniLM-L6-v2` SentenceTransformer. |
 | [Reranker](../../retrieval/rerank.py) | Passes string pairs to `cross-encoder/ms-marco-MiniLM-L6-v2`, revision `233902d25c440f23af6f7d6e94d2946bac0bee0a`. |
-| [Corpus loader](../../retrieval/indexer.py) | Reads bounded regular files and decodes UTF-8; shipped extensions are `.md` and `.txt`. It has no PDF parser, OCR or image decoder. |
+| [Corpus loader](../../retrieval/indexer.py) | Reads bounded UTF-8 files; shipped extensions are `.md` and `.txt`. It has no PDF extraction, OCR or image decoder. |
 | [fsconnect indexing](../../agentic/fsconnect/indexer.py) | Stages bytes and scans text patterns. `.pdf`/`.docx` in its extension list does not implement document extraction. |
-| [Telegram media](../../telegram/media.py) | Ships disabled; when explicitly enabled, stages bounded attachment bytes through fsconnect without decoding or indexing them. |
+| [Telegram media](../../telegram/media.py) | Ships disabled; optional staging stores bounded attachment bytes through fsconnect without decoding or indexing them. |
 | [Sync](../../sync/cli.py) | Transfers corpus files and can invoke the existing indexer; it does not decode images. |
 | [LLM transport](../../llm/client.py) | Sends prompt strings. Selecting a vision-capable Ollama model alone does not add image inputs or local Pillow decoding to this adapter. |
-| [NeMo integration](../../guardrails/integration.py) | Uses text rails; its installed FastEmbed provider uses `TextEmbedding`, not `ImageEmbedding`. |
+| [NeMo integration](../../guardrails/integration.py) | The installed FastEmbed provider uses `TextEmbedding`, not `ImageEmbedding`. |
 | [LoRA kit](../../tools/lora_finetune/finetune_qwen38.py) | Renders local JSON examples into a text dataset. Arrow-backed text datasets are distinct from Pillow image-to-Arrow export. Training was inspected, not executed. |
 
-No first-party production Python caller of `PIL`, `TarIO`, `ImageFont`, or Pillow
-Arrow export was found. The inspected dependency environment had no `olefile`
-and no `PILLOW_ALIGNMENT` setting. These observations support the specific
-deployment; absence of a first-party import alone is not proof about dependency
-behavior.
+No first-party production Python caller of `PIL`, `TarIO`, `ImageFont` or
+Pillow Arrow export was found. Absence of a first-party import alone does not
+prove dependency behavior. Configurable alternate embedding processors can
+interpret URLs, paths or data URIs as images; model selection is trusted
+configuration, **not an enforced text-only boundary**.
 
-## Pillow exposure extends beyond image attachments
+## Verification on 2026-11-01
 
-The affected API families include image decoding/encoding, font operations,
-Pillow's archive reader, PDF append/save operations, and image-to-Arrow export:
+A fresh disposable macOS arm64 environment used Python 3.12.14, pip 26.2.2,
+the separate hashed Torch lock, then the full hashed macOS runtime lock.
+Installed versions included Pillow 13.0.0, FastEmbed 0.9.1, NeMo 0.24.1,
+SentenceTransformers 6.1.0, Transformers 5.20.2 and Torch 2.14.1.
 
-- [Font integer overflow](https://github.com/python-pillow/Pillow/security/advisories/GHSA-4rm8-3hmm-39fg)
-  requires Pillow font operations, not ordinary model tokenization.
-- [TarIO CPU loop](https://github.com/python-pillow/Pillow/security/advisories/GHSA-3j72-p6qg-6xp7)
-  requires Pillow's tar-member reader, not generic file sync or Python `tarfile`.
-- [Arrow disclosure](https://github.com/python-pillow/Pillow/security/advisories/GHSA-654x-cwwv-5j9c)
-  requires Pillow image export with `PILLOW_ALIGNMENT > 1`. At review time,
-  upstream included **13.0.0 as affected** and listed **no patched release**.
-- [FPX heap overflow](https://github.com/python-pillow/Pillow/security/advisories/GHSA-5x8w-8jj5-q52h)
-  requires image decoding with optional `olefile`. Recognition is content-based;
-  a filename extension allowlist is not an adequate decoding boundary.
+- Installation and `pip check` passed. Strict dependency, pin and environment
+  checks reported no failures/warnings; the generated lock contract passed.
+- The real production NeMo engine, exercised through
+  [`guardrails.verify_install`](../../guardrails/verify_install.py), allowed
+  benign input and grounded output, and blocked injection input and ungrounded
+  output. Socket/DNS operations were refused; no live provider was called.
+- Query embeddings returned four 384-dimensional vectors; batch embeddings
+  returned four vectors; the shipped reranker returned four scores. Inputs
+  were ordinary text, an image URL, a synthetic local image path and a data URI.
+  Refusing tripwires around `PIL.Image.open`,
+  `transformers.image_utils.load_image`, `socket.connect` and
+  `socket.getaddrinfo` recorded zero calls.
+- The embedding snapshot was `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`;
+  the reranker used the pinned revision above.
+- The corpus probe excluded PDF filenames by default. Explicitly allowing
+  `.pdf` read an ASCII placeholder as raw UTF-8 and rejected invalid UTF-8;
+  this was not real PDF extraction.
 
-Do not describe these as reachable only through image attachments, or assume
-Pillow 13 fixes every accepted advisory. [#1762](https://github.com/cgfixit/CyClaw/pull/1762)
-at `3cc6c8288ba918bd591e01843923472e3a0d17c5` improves the documented model
-boundary, but retains those overbroad summary statements. Its proposed Arrow/FPX
-exceptions are separate from main's original 35-ID list. This memo adds no
-exception and changes no scanner suppression.
+The initial uv runtime-lock install rejected the split lock's unpinned
+transitive Torch reference in hash mode. The documented pip install accepted
+the already installed hashed Torch. No hash or constraint was weakened.
 
-## When to reopen the decision
+This evidence is separate from hosted CI: #1784's final head
+`16166c2c1cc222afc721ede9cd091ebf099d8a15` had 69 successful checks,
+four skips and one neutral result. Reviewed main had 48 successes and two
+skips. Neither count turns skipped or neutral checks into passes.
 
-Review at the **next FastEmbed release or 2026-11-23, whichever comes first**.
-The deadline is manual; the pip-audit ignores do not automatically expire.
-Remove an exception only after checking that advisory's fixed versions or
-recording fresh evidence supporting its disposition.
+No full local suite, malicious payload, alternate model, live provider, UI
+flow, production service or native Linux/Windows artifact was exercised.
+Static inspection covered the other paths in the table. Compatibility evidence
+is bounded to these checks; it cannot guarantee every application path.
 
-Reassess sooner when adding image/PDF extraction, OCR, thumbnails, EXIF handling,
-font rendering, Pillow archive/PDF/Arrow operations, `olefile`, or a non-default
-Pillow alignment. A new corpus extension is a reason to inspect the path; it
-does not itself add a parser.
+## Operator next steps
 
-Changing the embedding/reranker model or processor also requires reassessment.
-The shared adapters pass strings to configurable models. An image-capable
-processor can interpret a URL, path or data URI as an image. Model selection is
-trusted configuration, **not an enforced text-only boundary**. Cached/offline
-model loading and telemetry suppression do not make a vulnerable decoder safe.
+1. Check the versions in the interpreter that actually runs CyClaw, rather than
+   assuming a Git update changed an existing environment:
 
-For the confirmed deployment, a dependency fork, new isolation service or model
-allowlist is not justified by the evidence found. A small regression probe of
-image-looking text through both embedding APIs and reranking would protect the
-actual assumption during future dependency/model changes; this memo does not
-add such a CI gate.
+   ```bash
+   /path/to/cyclaw-venv/bin/python -c 'from importlib.metadata import version; print({p: version(p) for p in ("Pillow", "fastembed", "nemoguardrails")})'
+   ```
 
-## Evidence and limits
+2. If it still has Pillow 12.3.0/FastEmbed 0.9.0, update through the documented
+   Python 3.12 [platform lock procedure](../../setup-guide.md), preserving
+   operator configuration, corpus and credentials. Verify in a replacement
+   environment before switching the service. Do not force one wheel past the
+   dependency constraints or use an unconstrained upgrade.
+3. Run `python -m pip check` and `python -m guardrails.verify_install`
+   with that environment, then exercise the affected app query path before
+   adopting it. If the current compatible trio is already installed and these
+   checks pass, no further Pillow/NeMo bump is indicated by this review.
 
-On 2026-10-23, the current retrieval source was exercised in an existing
-disposable PR dependency environment on macOS 27.0.1 arm64 / Python 3.12.14:
-Pillow 12.3.0, FastEmbed 0.9.0, SentenceTransformers 6.1.0, Transformers 5.20.2,
-Torch 2.14.1 and NeMo 0.24.1. This was neither a fresh installation nor the
-operator's running service. The dependency PR changes no exercised retrieval
-behavior; its only retrieval diff is a Torch-version docstring.
+The old acceptance's November 23 review deadline is **retired with the
+acceptance**, not a pending renewal. Continue normal advisory monitoring.
+Reassess on a newly affected version, rollback below the fixed version,
+a changed model/processor, or new image/PDF extraction, OCR, thumbnail, EXIF,
+font, Pillow archive/PDF/Arrow or alignment behavior. Cached/offline model
+loading and telemetry suppression do not make a vulnerable decoder safe.
 
-The embedding snapshot was `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`; the
-reranker used the pinned revision above. Ordinary text, an image URL, a synthetic
-local image path and a data URI produced four 384-dimensional query vectors,
-four batch vectors and four reranker scores. Refusing tripwires around
-`PIL.Image.open`, `transformers.image_utils.load_image`, `socket.connect` and
-`socket.getaddrinfo` recorded **zero calls** during those operations.
+The November 1 inspection did not locate a listener on port 8787 or identify
+the operator's active installation. Repository state and this disposable
+verification environment do not establish which versions are deployed.
 
-The corpus probe confirmed that defaults exclude PDF filenames. Explicitly
-allowing `.pdf` read an ASCII placeholder as raw UTF-8 and rejected invalid
-UTF-8; this did not test real PDF extraction. Static inspection covered the
-other paths in the table.
+## Historical decision: October 23–29
 
-No malicious payloads, alternate models, live providers, full suites, production
-service, or native Linux/Windows artifacts were exercised. This is bounded
-evidence for the confirmed text/RAG use, not exhaustive security clearance.
+At the October 23 review, main was
+`ae767ed9c6ecd64112993462370433c81e03707c`. The FastEmbed cap prevented a
+compatible Pillow 13 install. Retaining a bounded, exact-advisory acceptance
+for the confirmed text/RAG use was proportionate; forcing an unsupported
+installation or removing NeMo was not justified. The earlier probe exercised
+the same text models with Pillow 12.3.0/FastEmbed 0.9.0 and recorded no
+image-loader or socket/DNS calls. It was an existing disposable environment,
+not a fresh installation or proof of the deployed app.
+
+Pillow exposure was broader than image attachments: font operations,
+`PIL.TarIO`, PDF append/save and image-to-Arrow export required their own
+reachability assessment. Relevant upstream examples are the
+[font overflow](https://github.com/python-pillow/Pillow/security/advisories/GHSA-4rm8-3hmm-39fg),
+[TarIO CPU loop](https://github.com/python-pillow/Pillow/security/advisories/GHSA-3j72-p6qg-6xp7)
+and [FPX overflow](https://github.com/python-pillow/Pillow/security/advisories/GHSA-5x8w-8jj5-q52h).
+FPX recognition is content-based, so a filename suffix allowlist would not have
+been an adequate decoding boundary.
+
+[PR #1768](https://github.com/cgfixit/CyClaw/pull/1768) preserved that reasoning.
+The earlier Pillow-only attempts [#1742](https://github.com/cgfixit/CyClaw/pull/1742)
+and [#1766](https://github.com/cgfixit/CyClaw/pull/1766) closed without merge.
+FastEmbed 0.9.1 removed the compatibility block, and #1784 retired the acceptance.
+The old rationale and deadlines must not be used to justify a downgrade or
+new advisory ignore.
