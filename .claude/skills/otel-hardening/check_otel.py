@@ -1148,7 +1148,6 @@ FIXED_LAUNCHER_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
                                              "ollama list 2>/dev/null", "ollama --version")),
     # the model pull is registry egress, so it is its own category-3 component
     ("ollama-pull", "macos/setup-from-clone.sh", ('ollama pull "$OLLAMA_MODEL"',)),
-    ("launchctl", "utils/launchd_plist.py", ('shutil.which("launchctl")', '[launchctl, "bootout"')),
     ("launchctl", "sync/scheduler.py", ('[launchctl, "bootout"', '[launchctl, "print"')),
     ("launchctl", "macos/setup-cyclaw-keys.sh", ('launchctl bootout "gui/${uid}/${ROTATE_LABEL}"',
                                                  'launchctl bootout "gui/${uid}/${label}"')),
