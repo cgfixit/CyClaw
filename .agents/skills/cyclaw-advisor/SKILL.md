@@ -1,6 +1,6 @@
 ---
 name: cyclaw-advisor
-description: "Give read-only CyClaw architecture, operations or design advice from the inspected checkout and current configuration. Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
+description: "Give read-only CyClaw architecture, operations or design advice from the inspected checkout and current configuration (verified against origin/main HEAD f86ff3cbfb46aebc60b705e0ed5c593b55cf5d12 on 2026-11-01; high-signal: docs Pillow 13 / NeMo 0.24.1 / FastEmbed status memo #1802 retiring prior risk accept, security forwarding-header pin in gate.py/gate_auth.py #1798, Telegram retry clamp + fsconnect trash preflight #1799). Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
 ---
 
 
@@ -37,3 +37,15 @@ For PR advice inspect the actual diff, current head/base, relevant open overlaps
 and CI/skips. Separate implemented behavior, shipped defaults, operator opt-ins,
 static evidence, mocks and native/live evidence. Recommend a smallest next check
 when evidence is missing; do not implement or publish from an advice request.
+
+## Latest merges into origin/main
+
+- **f86ff3c** (2026-11-01, #1802): [docs] Refresh the Pillow and NeMo status memo. High-signal for dependency posture (Pillow 13.0.0, NeMo 0.24.1, FastEmbed 0.9.1); retires prior Pillow 12 risk acceptance. No topology, invariant, or harness change.
+- **2a8ad88** (2026-11-01, #1799): [fix] Fold the duplicated Telegram retry clamp and fsconnect trash preflight, and trim three skill-script nits. Affects telegram media/audit paths and fsconnect.
+- **982c70b** (2026-11-01, #1798): [security] Pin gate.py and gate_auth.py forwarding headers equal, and drop the test-only launchd bootout. Strengthens I6-adjacent auth boundary (forwarding headers).
+
+## Recent activity summary
+
+As of 2026-11-01 HEAD f86ff3c: graph remains 12 nodes with retrieve entry, audit_logger convergence, guardrail_input/output on paths; 6 core invariants + I6 import isolation unchanged (no new out-of-band packages). High-signal activity limited to dependency status docs (NeMo/Pillow), auth header pinning, and Telegram/fsconnect hygiene. No EXECUTION_ENABLED posture, candidate-diff, or agent_identity changes in this window. Re-inspect live source for any claim.
+
+Graph node count: 12. Core invariants: 6 + I6. Topology stable.
