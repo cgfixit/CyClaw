@@ -28,7 +28,8 @@ def test_compose_loads_default_rules_before_cyclaw_rules() -> None:
 
     assert compose["services"]["falco"]["command"] == [
         "/usr/bin/falco",
-        "--modern-bpf",
+        "-o",
+        "engine.kind=modern_ebpf",
         "-r",
         DEFAULT_RULES,
         "-r",

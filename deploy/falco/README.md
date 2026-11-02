@@ -135,8 +135,3 @@ destination exceptions are the narrowest safe tuning unit.
   "Validate before trust" steps on every bump. The pinned release has no
   gVisor engine (removed in Falco 0.44), so host eBPF cannot give complete
   in-sandbox syscall visibility.
-- **Known issue:** the compose `command:` still passes `--modern-bpf`, which
-  is not a Falco CLI option since 0.38 (deprecated in 0.37, absent from
-  `userspace/falco/app/options.cpp` at both 0.39.2 and 0.45.1). Falco's
-  default `engine.kind` is already `modern_ebpf`, so the flag is redundant
-  at best; validate the profile starts before relying on it.
