@@ -320,35 +320,53 @@ describing its own point in time and is retained as a historical record.
   calls any local process — or any page in the operator's browser, `GET` being
   CORS-simple — could trigger. Those probes are now opt-in via
   `api.health_probe_external_providers`, which ships `false`.
-- **A posture regression cannot fail a build, though a config *error* can turn
-  a leg red.** `invariant-guard` passes (46/46 on 2026-10-24) because I1–I6 and G1–G5 are
-  structural and none encodes a shipped-default posture — and invariant-guard
-  is the ONLY skill checker CI runs blocking (`ci.yml`'s dedicated step).
-  `config-guard` is **not** build-blocking, despite what this section used to
-  claim: `ci.yml`'s `discover-skills` job does find every
-  `.claude/skills/*/verify.sh` and run them as the `verify-skills` matrix, but
-  that whole matrix is `continue-on-error: true` — a C1–C8/C10/C11 failure
-  (or an otel-hardening oracle failure) marks the leg red without blocking
-  the merge; the authoritative gate is the `test` job's unit suite + RAG
-  smoke. Treat a red verify-skills leg as real work, not noise.
-  A **warning** does not even turn the leg red: `C9` (external/online
-  posture) and `C7` (RRF-scale `min_score`) exit 0. `C12` FAILs when
-  `macos/ollama-mlx.env` `OLLAMA_CONTEXT_LENGTH` is below the RAG floor, which
-  does turn the verify-skills leg red (still `continue-on-error: true`).
-  config-guard's `--strict` — which promotes warnings to failures — is
-  used only inside `verify.sh`'s own mutation self-test, never against the
-  shipped file. Wiring `--strict` against
-  the real config would fail immediately and for the wrong reason: the hybrid
-  posture is deliberate, so `C9` would have to be silenced to go green, which is
-  the same "resolve a fail-closed objection by removing the objection" pattern
-  this amendment warns about two bullets down. The honest statement is that the
-  posture warning is advisory by design.
+- **A posture regression fails a build only where a test pins it; config-guard
+  itself never blocks a merge.** `invariant-guard` passes (46/46 on 2026-10-24)
+  because I1–I6 and G1–G5 are structural and none encodes a shipped-default
+  posture. Three skill checkers run as blocking `ci.yml` jobs —
+  `invariant-guard`, `doc-sync` and `dotenv-guard` — and `config-guard` is not
+  one of them: `ci.yml`'s `discover-skills` job finds every
+  `.claude/skills/*/verify.sh` and runs them as the `verify-skills` matrix,
+  and that whole matrix is `continue-on-error: true`. A FAIL-severity
+  config-guard check (C0–C6; `C8` when `rrf_k` is not a positive integer;
+  `C12` when `macos/ollama-mlx.env` `OLLAMA_CONTEXT_LENGTH` is below the RAG
+  floor), or an otel-hardening oracle failure, marks the leg red without
+  blocking the merge; the authoritative gate is the `test` job's unit suite +
+  RAG smoke. Treat a red verify-skills leg as real work, not noise. A
+  **warning** (C7, C9–C11, C13, C2's sub-30 s margin, and a positive-integer
+  `rrf_k` other than 60 under `C8`) exits 0 and does not even turn the leg red.
+
+  The blocking backstop for the I3 posture is a test, not config-guard:
+  `tests/test_due_diligence_invariants.py::TestShippedCoreConfigContract`, run
+  by the blocking `test` job, pins `app.mode: hybrid`, both
+  `models.<provider>.enabled: true`, both
+  `policy.fallback.send_local_context_to_*: false` and
+  `api.health_probe_external_providers: false` in the shipped file. Nothing
+  blocking pins config-guard's other relations or the shipped `api.host`; for
+  the host, the boot-time `_require_loopback_bind` is the control (ninth
+  amendment, below). config-guard's `--strict`, which promotes warnings to
+  failures, now passes on the shipped file (0 failures, 0 warnings on
+  2026-11-02), because `C9` treats the documented hybrid posture as its
+  baseline and warns only on drift from it. It still runs only inside
+  `verify.sh`'s own mutation self-test, never against the shipped file in a
+  blocking job.
 
   *(Corrected 2026-08-07. This bullet previously said "no CI workflow runs it",
   which was wrong — the wiring is dynamic, so grepping the workflows for
   `config-guard` finds nothing and the literal search misleads. The conclusion
   it drew about posture regressions happened to be right for a different
   reason.)*
+
+  *(Corrected 2026-11-02. This bullet said invariant-guard was the only
+  blocking skill checker; counted C7/C8/C10/C11 among the failures that turn
+  the leg red (C7, C10 and C11 only warn and exit 0; C8 warns on a re-tuned
+  `rrf_k` and fails only on a non-integer one); was headed "A posture regression
+  cannot fail a build" (`TestShippedCoreConfigContract` pins the I3 keys in a
+  blocking job); and said wiring `--strict` against the shipped config would
+  fail unless `C9` were silenced (it passes; `C9` was rebaselined to the hybrid
+  posture). Re-verified against `check_config.py`, `check_config.py --strict`
+  and `ci.yml`'s job definitions. When each claim went stale is not
+  established here.)*
 
 ---
 
@@ -396,13 +414,19 @@ server to the network, and nothing at startup objected.
 
 **Why the other layers did not catch it.**
 `.claude/skills/config-guard/check_config.py`'s C4 does fail a non-loopback
-`api.host`, and it is build-blocking in CI — but CI only ever sees config that was
-committed and pushed. An operator editing their working copy and running
-`python gate.py` reached no check. `security.allowed_hosts` is not a backstop
+`api.host`, but only inside CI's `continue-on-error` `verify-skills` matrix, and
+CI only ever sees config that was committed and pushed. An operator editing their
+working copy and running `python gate.py` reached no check. `security.allowed_hosts` is not a backstop
 either: it ships as
 `['127.0.0.1', 'localhost', '<LAN_HOST_1>', '<LAN_HOST_2>']`, so
 `TrustedHostMiddleware` **admits** those LAN Hosts rather than rejecting them —
 verified by probing the middleware directly with the shipped list.
+
+*(Corrected 2026-11-02. This paragraph called C4 "build-blocking in CI". It is
+not: config-guard runs only in the `continue-on-error` `verify-skills` matrix
+(see the eighth amendment's corrected posture bullet), and no blocking test pins
+the shipped `api.host`. That strengthens this amendment's point that the
+boot-time bind guard, not CI, is the control.)*
 
 **Why it matters here specifically.** `/health`, `/`, `/static/*`, and `/auth/login` carry no authentication
 (`/auth/login` necessarily so -- a caller has no credential yet to present;
