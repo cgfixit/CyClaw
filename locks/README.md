@@ -76,7 +76,8 @@ on every platform; the hosted install matrix supplies that separate evidence.
 ## Dependabot
 
 `.github/dependabot.yml` lets Dependabot edit only the manifests (monthly for
-pip, with `locks/**` excluded) and never a hashed lock, because it cannot run
+pip, with `locks/**` excluded, and a 7-day release cooldown that security
+updates skip) and never a hashed lock, because it cannot run
 the refresh scripts. A Dependabot pip PR is therefore a shopping list, not a
 merge candidate: it stays red on the lock contract until the operator checks
 it out on the Mac, runs the owning refresh script, and pushes the regenerated

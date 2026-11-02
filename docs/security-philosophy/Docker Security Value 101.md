@@ -94,7 +94,7 @@ CyClaw overlay (`deploy/falco/falco_rules.yaml`) watches five things: unexpected
 
 Why it ships **disabled**: the sidecar is privileged with host `/proc`, tracing, and a Docker socket mount. `:ro` on the socket inode does **not** make the Docker API read-only. Giving an auto-responder that socket to “kill the bad container” is how you add a privileged DoS control plane. Leave it off unless you accept host-kernel access and will actually read the logs.
 
-Image pin in-repo is `falcosecurity/falco:0.39.2` digest-pinned. Falco 0.44 dropped the gVisor engine; host eBPF cannot see inside a gVisor sandbox completely. Relevant only if you ever put Stage 5 under the gate.
+Image pin in-repo is `falcosecurity/falco:0.45.1` digest-pinned. Falco 0.44 dropped the gVisor engine, so the pinned release has none; host eBPF cannot see inside a gVisor sandbox completely. Relevant only if you ever put Stage 5 under the gate.
 
 ### Firecracker and microVMs
 

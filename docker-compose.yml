@@ -126,9 +126,11 @@ services:
   # Rules + rationale: deploy/falco/README.md, deploy/falco/falco_rules.yaml.
   #
   # Operator notes (Linux host, when you enable modern eBPF Falco):
-  # - Image pin falcosecurity/falco:0.39.2; --modern-bpf uses the CO-RE eBPF
-  #   probe (kernel ≥ ~5.8). Detection only — seccomp remains the block path
-  #   (see docs/SECCOMP_EBPF_HARDENING.md after you collect traces).
+  # - Image pin falcosecurity/falco:0.45.1; the modern eBPF engine (Falco's
+  #   default engine.kind: modern_ebpf) uses the CO-RE probe (kernel ≥ ~5.8).
+  #   --modern-bpf below is not a Falco CLI flag since 0.38; see the Known
+  #   issue in deploy/falco/README.md. Detection only — seccomp remains the
+  #   block path (see docs/SECCOMP_EBPF_HARDENING.md after you collect traces).
   # - privileged:true is required for host kernel debugfs + eBPF load; keep
   #   the monitoring profile off unless you accept that trade.
   # - Any explicit -r makes Falco ignore falco.yaml's rules_files list. Load
@@ -138,10 +140,11 @@ services:
   #     docker compose --profile monitoring up -d && docker logs -f cyclaw-falco
   #   See deploy/falco/README.md "Validate before trust" checklist.
   falco:
-    # Pinned to the multi-arch manifest-list digest of the 0.39.2 tag (resolved
-    # 2026-08-12 via `docker manifest inspect falcosecurity/falco:0.39.2`); kept
-    # alongside the tag for human readability, matching Dockerfile's base-image
-    # pin and ci.yml's pgvector pin convention. This is the single most
+    # Pinned to the manifest-list digest of the 0.45.1 tag (Dependabot #1792
+    # updated tag and digest together; verify with `docker manifest inspect
+    # falcosecurity/falco:0.45.1`); kept alongside the tag for human
+    # readability, matching Dockerfile's base-image pin and ci.yml's pgvector
+    # pin convention. This is the single most
     # privileged container in the stack (privileged:true, host /proc, docker
     # socket, kernel debugfs) — a re-tagged/compromised image would otherwise
     # silently enter this profile. Re-pin the digest on any Falco version bump.

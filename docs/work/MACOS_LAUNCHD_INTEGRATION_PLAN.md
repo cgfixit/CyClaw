@@ -405,7 +405,9 @@ in the same Linux sandbox limitation this PR documents — real-macOS
    weekly `StartCalendarInterval` plist from real resolved paths (no
    `REPLACE_*` placeholders). Also introduces the shared
    `utils/launchd_plist.py` helper (write a plist atomically, boot it out)
-   that PRs #911 and #912 below both reuse.
+   that PRs #911 and #912 below both reuse. (Its `bootout()` half was later
+   removed as test-only in #1798; `sync/scheduler.py`'s `LaunchdScheduler`
+   runs `launchctl bootout` itself.)
 3. **A Keychain runtime wrapper** for `TELEGRAM_BOT_TOKEN` /
    `CYCLAW_API_KEY`, plus **`telegram-health` / `telegram-poll` on the same
    generated-plist mechanism** — shipped together in
