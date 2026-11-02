@@ -194,7 +194,14 @@ python3.12 -m venv /tmp/verify-deps-venv
 source /tmp/verify-deps-venv/bin/activate
 # 1. The documented install (CLAUDE.md §8), which is also the Dockerfile's
 #    path: the hashed torch lock first, then the runtime and test locks.
-pip install --dry-run --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
+#    The torch lock is a REAL install, not --dry-run: the runtime lock omits
+#    torch by design, so after a dry-run torch step the runtime lock's
+#    sentence-transformers asks for `torch>=2.2`, pip finds PyPI's (CUDA)
+#    torch, and --require-hashes refuses it ("must have their versions pinned
+#    with =="). That error is the recipe's, not the tree's (2026-11-02).
+#    `import torch` still fails after this step (--no-deps; its deps arrive
+#    with the runtime lock), so check it with `pip show torch`.
+pip install --require-hashes --no-deps -r locks/requirements-torch-lock-linux.txt --index-url https://download.pytorch.org/whl/cpu
 pip install --dry-run --require-hashes -r locks/requirements-lock-linux.txt
 pip install --dry-run --require-hashes -r locks/requirements-test-lock-linux.txt
 # 2. Editable install for console scripts — the --extra-index-url is required:
@@ -211,9 +218,11 @@ pip install --dry-run -r requirements.txt -r requirements-test.txt -c constraint
 #    behind, say) fails here and nowhere else:
 pip wheel --no-deps -w /tmp/verify-deps-wheel .
 deactivate && rm -rf /tmp/verify-deps-venv /tmp/verify-deps-wheel
-# 5. The compose half of the Docker surface renders (needs the docker CLI AND a
-#    running daemon — the CLI alone is not enough; report "not verified" rather
-#    than skipping silently when either is absent):
+# 5. The compose half of the Docker surface renders. Needs the docker CLI
+#    with the compose plugin, NOT a daemon: on 2026-11-02, with `docker info`
+#    failing (no daemon), compose v5.6.1 passed the shipped file (exit 0) and
+#    rejected a schema-broken copy (exit 1, "services.falco.imagez false
+#    schema"). Report "not verified" only when the CLI/plugin is absent:
 docker compose config --quiet
 ```
 
@@ -470,7 +479,9 @@ delegates Step 1 to it rather than duplicating it).
   did not say so, which reads the same as not having done it); a
   major bump needs the dependents' `requires_dist` read on PyPI first
   (`sentence-transformers==6.1.0` pins `huggingface-hub<2.0.0`, so a 2.x
-  "candidate" cannot resolve and is an exception); `check_lock_contract.py`
+  "candidate" cannot resolve standalone; 6.2.0 widened it to `<3.0.0`, so
+  re-read the dependents' metadata on every sweep rather than carrying a
+  blocker forward from the last report); `check_lock_contract.py`
   hashes `constraints.txt` and `pyproject.toml`'s `[project]` dependency
   tables (not the raw file) into **every** group's inputs, so a bump that
   touches either runs both refresh scripts, a change confined to one group's
