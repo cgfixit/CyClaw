@@ -126,11 +126,13 @@ services:
   # Rules + rationale: deploy/falco/README.md, deploy/falco/falco_rules.yaml.
   #
   # Operator notes (Linux host, when you enable modern eBPF Falco):
-  # - Image pin falcosecurity/falco:0.45.1; the modern eBPF engine (Falco's
-  #   default engine.kind: modern_ebpf) uses the CO-RE probe (kernel ≥ ~5.8).
-  #   --modern-bpf below is not a Falco CLI flag since 0.38; see the Known
-  #   issue in deploy/falco/README.md. Detection only — seccomp remains the
-  #   block path (see docs/SECCOMP_EBPF_HARDENING.md after you collect traces).
+  # - Image pin falcosecurity/falco:0.45.1; the modern eBPF engine uses the
+  #   CO-RE probe (kernel ≥ ~5.8). `-o engine.kind=modern_ebpf` below selects
+  #   it explicitly (same value as the image's falco.yaml default). Never put
+  #   back `--modern-bpf`: Falco removed that flag in 0.38 and 0.45.1 exits 1
+  #   with "Option 'modern-bpf' does not exist", so the sidecar never started.
+  #   Detection only — seccomp remains the block path (see
+  #   docs/SECCOMP_EBPF_HARDENING.md after you collect traces).
   # - privileged:true is required for host kernel debugfs + eBPF load; keep
   #   the monitoring profile off unless you accept that trade.
   # - Any explicit -r makes Falco ignore falco.yaml's rules_files list. Load
@@ -162,7 +164,8 @@ services:
     # Order is load-bearing: defaults (macros) then CyClaw custom rules.
     command:
       - /usr/bin/falco
-      - --modern-bpf
+      - -o
+      - engine.kind=modern_ebpf
       - -r
       - /etc/falco/falco_rules.yaml
       - -r
