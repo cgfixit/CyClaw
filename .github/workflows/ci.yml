@@ -534,7 +534,8 @@ jobs:
 
   test:
     name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    # Keep the required ubuntu-latest check name while qualifying 26.04 explicitly (#1777).
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-26.04' || matrix.os }}
     # Bound every run: the install step pulls torch + chromadb + sentence-transformers
     # and the RAG smoke spins up an embedded ChromaDB. A hung download or a wedged
     # service should fail fast, not idle until GitHub's 6-hour default and burn

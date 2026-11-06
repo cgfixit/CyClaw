@@ -40,7 +40,7 @@ jobs:
     # Check context name must not collide with required contexts
     # ubuntu-latest / windows-latest / macos-latest / invariant-guard / dotenv-guard.
     name: shellcheck (tracked shell scripts)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04  # Exercises the current apt/tool setup on the new image (#1777).
     timeout-minutes: 5
     permissions:
       contents: read
