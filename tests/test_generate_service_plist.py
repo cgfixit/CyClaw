@@ -243,12 +243,9 @@ def test_idempotent_overwrite(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("raw_port", ["9000", True, "abc", 90.5])
+@pytest.mark.parametrize("raw_port", ["9000", True, False, None, "abc", 90.5, 0, -1, 65536])
 def test_gate_plist_non_integer_api_port_exits_3(tmp_path: Path, capsys, raw_port) -> None:
-    # gate.py's _listen_port() ignores anything but an unquoted YAML int and
-    # binds 8787, so a quoted "9000" or a bool must not be baked into the
-    # health target as if the gate would honour it. Refuse with exit 3 and name
-    # the value, exactly like the Windows generator.
+    # Invalid config must fail before publishing any service artifact.
     config = tmp_path / "config.yaml"
     config.write_text(yaml.safe_dump({"api": {"port": raw_port}}), encoding="utf-8")
     home = tmp_path / "home"
