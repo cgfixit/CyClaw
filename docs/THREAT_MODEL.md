@@ -360,8 +360,8 @@ describing its own point in time and is retained as a historical record.
 
   *(Corrected 2026-11-02. This bullet said invariant-guard was the only
   blocking skill checker; counted C7/C8/C10/C11 among the failures that turn
-  the leg red (C7, C10 and C11 only warn and exit 0; C8 warns on a positive
-  integer `rrf_k` other than 60, accepts `60.0`, and fails on other values);
+  the leg red (C7, C10 and C11 only warn and exit 0; C8 accepts `60` and
+  `60.0`, warns on other positive integers, and fails on remaining values);
   was headed "A posture regression
   cannot fail a build" (`TestShippedCoreConfigContract` pins the I3 keys in a
   blocking job); and said wiring `--strict` against the shipped config would
