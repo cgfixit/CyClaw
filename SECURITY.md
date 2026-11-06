@@ -28,14 +28,16 @@ Debian image exceptions are encoded only in `.trivyignore.yaml` for Trivy.
 
 ### Debian 12 container libraries — issues #1629 / #1757, expires 2026-12-01
 
-- **Reviewed 2026-10-23:** the pinned `python:3.12-slim-bookworm` manifest
-  `sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3`
+- **Base rechecked 2026-11-06:** the pinned `python:3.12-slim-bookworm` manifest
+  `sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df`
   (linux/amd64) was re-fetched from Docker Hub and its manifest/layer SHA-256 digests
   verified without starting Docker. The linux/amd64 child manifest is
-  `sha256:9901e0a8d75037d8242ed43155cbcb2d1f61be1356383d8054afb59fd50e39c4`.
-  Its dpkg metadata and packaged `nis` extension confirm the versions and
-  dependency chains below. This is image metadata inspection, not a fresh
-  application-image build or Trivy scan (the 2026-10-13 scan used Trivy 0.72.0).
+  `sha256:0f086103b026048cc50cb5da25ec435c023c5241a83fc44daea593377abc61c4`.
+  Its dpkg metadata retains every accepted package/version below, while APT
+  moves to 2.6.2 and tzdata to 2026f-0+deb12u1. The native dependency-chain
+  assessment below remains dated 2026-10-23. This base metadata inspection
+  does not replace the application-image build/scan; see the
+  [November 6 security refresh](docs/audits/2026-11-06-dependency-security-refresh.md).
   These are temporary risk acceptances, not patched packages or proof that
   every possible use of these libraries is safe.
 

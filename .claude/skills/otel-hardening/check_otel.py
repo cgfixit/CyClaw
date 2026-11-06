@@ -872,7 +872,7 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "name": "core web/runtime libs", "category": 5, "controls": {},
         "url": "pyproject.toml",
         "versions": "fastapi/starlette/uvicorn/httpx/pydantic (+pydantic-core/pydantic-settings)/numpy/nltk/"
-                    "pyyaml/rank-bm25/pygments/websockets/tzdata/pillow==13.0.0 and the dev/test/build tools "
+                    "pyyaml/rank-bm25/pygments/websockets/tzdata/pillow==13.0.0/oauthlib==4.0.1 and the dev/test/build tools "
                     "(pytest*/ruff/mypy/bandit/pip/python/packaging==26.3/setuptools==84.1.0; hatchling==1.32.4 is the "
                     "[build-system] backend, swept from build-system.requires, never installed at "
                     "runtime). psycopg-binary and cel-python have their own rows above",
@@ -888,7 +888,9 @@ INVENTORY: tuple[dict[str, object], ...] = (
                     "left the manifests. packaging==26.3 added 2026-10-12: local requirement/version/marker "
                     "parsing for the wheel metadata checker; no network or analytics API is invoked. "
                     "pillow==13.0.0 added 2026-10-29: local image codec pulled by fastembed and "
-                    "sentence-transformers; no telemetry or update-check client of its own",
+                    "sentence-transformers; no telemetry or update-check client of its own. "
+                    "oauthlib==4.0.1 added 2026-11-06: installed source implements local OAuth signing/validation; "
+                    "no telemetry, analytics or network transport. requests-oauthlib owns HTTP delivery",
     },
 )
 
@@ -985,6 +987,7 @@ INVENTORY_ALIASES: dict[str, str] = {
     "aiohttp": "core web/runtime libs",  # transitive HTTP client (nemoguardrails, chromadb)
     "pillow": "core web/runtime libs",  # local image codec (fastembed, sentence-transformers); no telemetry
     "certifi": "core web/runtime libs",  # local CA bundle (httpx/requests), no telemetry
+    "oauthlib": "core web/runtime libs",  # local OAuth signing/validation (requests-oauthlib); no transport
     "pydantic": "core web/runtime libs", "numpy": "core web/runtime libs",
     "nltk": "core web/runtime libs", "pyyaml": "core web/runtime libs",
     "rank-bm25": "core web/runtime libs", "pygments": "core web/runtime libs",
