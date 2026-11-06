@@ -15,6 +15,8 @@ dependencies = [
     # exact pydantic-core (2.46.5), and constraints.txt locks that same version. The
     # dep-guard D1 lock-step check reads the pair from constraints.txt, not pyproject.
     "chromadb==1.5.9",  # CVE-2026-45829 (Critical pre-auth RCE; no upstream patch). Risk accepted ONLY for local/offline air-gapped use via PersistentClient (embedded mode, path from config.yaml). No HttpClient, no trust_remote_code. See SECURITY.md + pip-audit workflow.
+    # Already pulled by Chroma/kubernetes/requests-oauthlib; patch every install surface.
+    "oauthlib==4.0.1",
     "sentence-transformers==6.1.0",
     # Public release admits the platform build; CPU selection stays in the install recipe.
     "torch==2.14.1",
