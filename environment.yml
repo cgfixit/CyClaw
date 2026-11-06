@@ -87,6 +87,8 @@ dependencies:
       # GHSA-2g87-pp6c-29x5). Only pip packages (nemoguardrails) pull aiohttp
       # here, so the exact pin rides this sublist and dep-guard D9 checks it.
       - aiohttp==3.14.5
+      # Existing Chroma/kubernetes transitive; same patched pin as the pip profiles.
+      - oauthlib==4.0.1
       # sqlite-vec (#1255 Phase C spike, test-only): no conda-forge package
       # exists (checked 2026-09-21 -- zero matches on noarch/linux-64
       # repodata), so it can only ride the pip: sublist here, same as the

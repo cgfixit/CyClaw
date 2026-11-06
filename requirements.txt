@@ -24,6 +24,8 @@ uvicorn[standard]==0.54.0
 pydantic==2.13.5
 pyyaml==6.0.3
 httpx==0.28.1
+# Existing Chroma/kubernetes transitive: CVE-2026-49272 device-code grant fix.
+oauthlib==4.0.1
 websockets==15.0.1
 langgraph==1.2.15
 langchain-core==1.6.12

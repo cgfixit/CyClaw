@@ -278,6 +278,7 @@ def check_undeclared_imports() -> dict[str, list[str]]:
 # check_orphan_runtime_pins now reports a dead exemption so the map cannot rot
 # back into documentation nobody re-derived.
 _PINNED_NOT_IMPORTED = {
+    "oauthlib": "transitive of Chroma/kubernetes/requests-oauthlib; pin the CVE-2026-49272 fix across install profiles",
     "websockets": "transitive of uvicorn[standard] (requires websockets>=13.0); pinned so this surface fixes the version the extra would float",
     "langchain-core": "transitive of langgraph and nemoguardrails; pinned so graph.py's stack resolves a fixed version. Its one direct importer, agentic/deepagent_github, was removed in October 2026",
 }
