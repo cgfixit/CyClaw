@@ -98,8 +98,8 @@ docker exec cyclaw-falco falco --dry-run \
 docker logs -f cyclaw-falco
 ```
 
-Kernel need: ≥ ~5.8 for `--modern-bpf` (CO-RE). Image pin:
-`falcosecurity/falco:0.39.2`. See also
+Kernel need: ≥ ~5.8 for the modern eBPF (CO-RE) engine. Image pin:
+`falcosecurity/falco:0.45.1`. See also
 [`docs/SECCOMP_EBPF_HARDENING.md`](../../docs/SECCOMP_EBPF_HARDENING.md) for
 turning traces into a tighter *block* profile later — Falco here only logs.
 
@@ -129,7 +129,9 @@ destination exceptions are the narrowest safe tuning unit.
   API methods).
 - Alerts include command lines and paths without CyClaw redaction. Handle
   monitor logs separately from application audit.
-- `falcosecurity/falco:0.39.2` is digest-pinned in `docker-compose.yml`
-  (multi-arch manifest-list digest, resolved 2026-08-12) beside the tag.
-  Re-pin on any bump; Falco 0.44 removed the gVisor engine, so host eBPF
-  cannot give complete in-sandbox syscall visibility.
+- `falcosecurity/falco:0.45.1` is digest-pinned in `docker-compose.yml`
+  beside the tag; Dependabot's weekly `docker-compose` ecosystem proposes
+  bumps (tag and digest together, #1792 moved it from 0.39.2). Re-run the
+  "Validate before trust" steps on every bump. The pinned release has no
+  gVisor engine (removed in Falco 0.44), so host eBPF cannot give complete
+  in-sandbox syscall visibility.
