@@ -69,6 +69,9 @@ dependencies:
   - bandit=1.9.4
   - pytest-cov=7.1.0
   - pip:
+      # Pip transitives must not replace the conda-owned Pydantic pair.
+      # kubernetes 37.0.2 requires >=2.14.2; retain the existing 2.13.5 contract.
+      - pydantic==2.13.5
       # conda-forge Chroma pins an older FastAPI. Install this trio from PyPI
       # so normal CyClaw package metadata and pip check agree on all platforms.
       - chromadb==1.5.9
@@ -87,6 +90,8 @@ dependencies:
       # GHSA-2g87-pp6c-29x5). Only pip packages (nemoguardrails) pull aiohttp
       # here, so the exact pin rides this sublist and dep-guard D9 checks it.
       - aiohttp==3.14.5
+      # Existing Chroma/kubernetes transitive; same patched pin as the pip profiles.
+      - oauthlib==4.0.1
       # sqlite-vec (#1255 Phase C spike, test-only): no conda-forge package
       # exists (checked 2026-09-21 -- zero matches on noarch/linux-64
       # repodata), so it can only ride the pip: sublist here, same as the
