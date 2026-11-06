@@ -455,16 +455,16 @@ class TestLocalLLMClient:
             reset_graph_deadline(token)
             client.close()
 
-    def test_generate_graph_deadline_caps_httpx_timeout(self, tmp_path):
+    def test_generate_graph_deadline_caps_httpx_timeout(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("llm.client.time.monotonic", lambda: 100.0)
         client = LocalLLMClient(_write_config(tmp_path, local_llm_extra={"timeout_sec": 30}))
         fake = _FakePost(response=_ok_response("ok"))
         client._client.post = fake
-        token = set_graph_deadline(time.monotonic() + 2)
+        token = set_graph_deadline(102.0)
         try:
             assert client.generate("a prompt") == "ok"
             timeout = fake.calls[0][1]["timeout"]
-            assert timeout.read <= 2
-            assert timeout.read > 0
+            assert timeout.read == 2.0
         finally:
             reset_graph_deadline(token)
             client.close()
@@ -684,16 +684,16 @@ class TestGrokClient:
 
     def test_generate_graph_deadline_caps_httpx_timeout(self, tmp_path, monkeypatch):
         # Mirrors TestLocalLLMClient.test_generate_graph_deadline_caps_httpx_timeout.
+        monkeypatch.setattr("llm.client.time.monotonic", lambda: 100.0)
         monkeypatch.setenv("GROK_API_KEY", "xai-secret")
         client = GrokClient(_write_config(tmp_path))
         fake = _FakePost(response=_ok_response("ok"))
         client._client.post = fake
-        token = set_graph_deadline(time.monotonic() + 2)
+        token = set_graph_deadline(102.0)
         try:
             assert client.generate("a prompt") == "ok"
             timeout = fake.calls[0][1]["timeout"]
-            assert timeout.read <= 2
-            assert timeout.read > 0
+            assert timeout.read == 2.0
         finally:
             reset_graph_deadline(token)
             client.close()
@@ -844,16 +844,16 @@ class TestClaudeClient:
 
     def test_generate_graph_deadline_caps_httpx_timeout(self, tmp_path, monkeypatch):
         # Mirrors TestLocalLLMClient.test_generate_graph_deadline_caps_httpx_timeout.
+        monkeypatch.setattr("llm.client.time.monotonic", lambda: 100.0)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
         client = ClaudeClient(_write_config(tmp_path))
         fake = _FakePost(response=_claude_ok_response("ok"))
         client._client.post = fake
-        token = set_graph_deadline(time.monotonic() + 2)
+        token = set_graph_deadline(102.0)
         try:
             assert client.generate("a prompt") == "ok"
             timeout = fake.calls[0][1]["timeout"]
-            assert timeout.read <= 2
-            assert timeout.read > 0
+            assert timeout.read == 2.0
         finally:
             reset_graph_deadline(token)
             client.close()
