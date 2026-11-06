@@ -328,13 +328,14 @@ describing its own point in time and is retained as a historical record.
   one of them: `ci.yml`'s `discover-skills` job finds every
   `.claude/skills/*/verify.sh` and runs them as the `verify-skills` matrix,
   and that whole matrix is `continue-on-error: true`. A FAIL-severity
-  config-guard check (C0–C6; `C8` when `rrf_k` is not a positive integer;
+  config-guard check (C0–C6; `C8` when `rrf_k` neither equals 60 nor is a positive integer;
   `C12` when `macos/ollama-mlx.env` `OLLAMA_CONTEXT_LENGTH` is below the RAG
   floor), or an otel-hardening oracle failure, marks the leg red without
   blocking the merge; the authoritative gate is the `test` job's unit suite +
   RAG smoke. Treat a red verify-skills leg as real work, not noise. A
   **warning** (C7, C9–C11, C13, C2's sub-30 s margin, and a positive-integer
   `rrf_k` other than 60 under `C8`) exits 0 and does not even turn the leg red.
+  C8 checks equality with 60 before integer validation, so `60.0` also passes.
 
   The blocking backstop for the I3 posture is a test, not config-guard:
   `tests/test_due_diligence_invariants.py::TestShippedCoreConfigContract`, run
@@ -359,8 +360,9 @@ describing its own point in time and is retained as a historical record.
 
   *(Corrected 2026-11-02. This bullet said invariant-guard was the only
   blocking skill checker; counted C7/C8/C10/C11 among the failures that turn
-  the leg red (C7, C10 and C11 only warn and exit 0; C8 warns on a re-tuned
-  `rrf_k` and fails only on a non-integer one); was headed "A posture regression
+  the leg red (C7, C10 and C11 only warn and exit 0; C8 warns on a positive
+  integer `rrf_k` other than 60, accepts `60.0`, and fails on other values);
+  was headed "A posture regression
   cannot fail a build" (`TestShippedCoreConfigContract` pins the I3 keys in a
   blocking job); and said wiring `--strict` against the shipped config would
   fail unless `C9` were silenced (it passes; `C9` was rebaselined to the hybrid
