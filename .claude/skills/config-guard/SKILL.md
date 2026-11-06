@@ -52,7 +52,7 @@ It checks (severity in brackets):
 | C5 | FAIL | `personality.soul_max_chars` is positive and **<** `retrieval.max_context_tokens * _CHARS_PER_TOKEN` (3 — mirrors `graph.py CHARS_PER_TOKEN`, the worst-case chars/token floor used to derive the character budget) so the soul cannot crowd out retrieved context |
 | C6 | FAIL | `api.rate_limit.max_requests` / `window_seconds` are positive integers |
 | C7 | WARN | `retrieval.min_score` stays on the RRF scale (≤ 0.1) — **the acknowledged trap**. The hybrid ceiling is 2/60 ≈ 0.033 and the keyword-only degrade tops out at 1/60 ≈ 0.017, so anything above ~0.033 can never pass; a stricter vault-hit gate is `min_semantic_score` (cosine), never a bigger `min_score` |
-| C8 | WARN | `retrieval.rrf_k == 60` (the documented authoritative fusion constant) |
+| C8 | FAIL/WARN | `retrieval.rrf_k == 60` (the documented authoritative fusion constant) passes, including `60.0`; other positive integers WARN; all remaining values FAIL |
 | C9 | WARN | committed provider posture matches the documented default: `app.mode == hybrid`, `grok`/`claude` literal `true` (per-request confirmation remains a separate runtime gate) |
 | C10 | WARN | `policy.fallback.send_local_context_to_{grok,claude}` stays `false` (no off-box context leak by default) |
 | C11 | WARN | `guardrails.model`/`base_url` track the local LLM (config.yaml says keep in sync) |
