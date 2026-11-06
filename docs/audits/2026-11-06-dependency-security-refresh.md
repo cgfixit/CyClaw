@@ -24,6 +24,17 @@ Regenerate both lock families with their maintained arm64 macOS scripts.
 Only OAuthLib changes resolved version in the three runtime closures; the
 other generated changes are provenance/fingerprint records. The env-drift
 checker records this deliberate transitive pin without relaxing its orphan rule.
+The telemetry inventory classifies the installed OAuthLib source as local
+signing/validation with no transport or telemetry mechanism.
+
+The first exact-head Conda run exposed a second install-boundary drift:
+Conda installed Pydantic 2.13.5, then its unconstrained pip phase replaced it
+with 2.14.3. Current Kubernetes 37.0.2 metadata requires Pydantic >=2.14.2;
+the hashed runtime already retains Kubernetes 37.0.1. Repeat the existing
+Pydantic 2.13.5 pin in the Conda pip inputs so this resolver must preserve the
+intended pair and choose a compatible transitive, instead of breaking the
+editable package's exact requirement. This does not upgrade Pydantic or move
+Kubernetes in the hashed runtime.
 
 ## Official Python base
 

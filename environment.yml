@@ -69,6 +69,9 @@ dependencies:
   - bandit=1.9.4
   - pytest-cov=7.1.0
   - pip:
+      # Pip transitives must not replace the conda-owned Pydantic pair.
+      # kubernetes 37.0.2 requires >=2.14.2; retain the existing 2.13.5 contract.
+      - pydantic==2.13.5
       # conda-forge Chroma pins an older FastAPI. Install this trio from PyPI
       # so normal CyClaw package metadata and pip check agree on all platforms.
       - chromadb==1.5.9
