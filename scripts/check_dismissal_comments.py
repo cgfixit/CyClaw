@@ -10,8 +10,9 @@ red. Historical dismissals before the effective date are deliberately out of
 scope; nothing here edits, dismisses, or reopens an alert.
 
 Read-only by construction: the only HTTP verb is GET, and the token is sent
-only to the configured API origin (pagination links to any other origin are
-refused, so a crafted ``Link`` header cannot exfiltrate it).
+only to the configured API origin. Pagination links to any other origin and
+HTTP redirects are refused, so neither a crafted ``Link`` header nor a 30x can
+carry the token elsewhere. TLS verification is urllib's default.
 
 Exit codes are an API:
   0  no dismissal on/after the cutoff lacks a rationale
@@ -132,6 +133,17 @@ def _origin(url: str) -> tuple[str, str]:
     return parts.scheme, parts.netloc
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # urllib copies request headers, Authorization included, onto a redirect
+    # target on any host. The list endpoint never needs a redirect, so treat
+    # one as an error instead of carrying the token somewhere else.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        raise CheckError(f"refusing HTTP {code} redirect to {newurl}")
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _get_json(url: str, token: str) -> tuple[Any, str | None]:
     if _origin(url)[0] != "https":
         raise CheckError(f"refusing non-https URL: {url}")
@@ -146,7 +158,7 @@ def _get_json(url: str, token: str) -> tuple[Any, str | None]:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SEC) as response:  # noqa: S310 - https only
+        with _OPENER.open(request, timeout=_TIMEOUT_SEC) as response:
             body = response.read()
             link = response.headers.get("Link")
     except urllib.error.HTTPError as exc:
