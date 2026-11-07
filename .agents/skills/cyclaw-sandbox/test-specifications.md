@@ -48,7 +48,9 @@ external answers must not inherit soul or fabricate local sources.
 Report the three fidelity levels separately: in-process mocks (Tier 0), an
 owned socket mock with real HTTP clients (Tier 1), and actual local model
 inference (Tier 2). A `/v1/models` response alone proves neither ownership nor
-inference. `run_full_verification.py` uses Tier 0 regardless of listeners.
+inference. `run_full_verification.py` delegates to the maintained Claude runner, requires
+real LangGraph and uses Tier 0 regardless of listeners. It never installs
+dependencies or substitutes a fake graph. Missing dependencies fail visibly.
 Run `tests/test_llm_client_ollama.py` for the socket contract. A real-model run
 needs a separately recorded model ID, target process and successful response.
 

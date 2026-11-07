@@ -1826,11 +1826,10 @@ class TestProxyHeaderTrust:
         """
         from pathlib import Path
         root = Path(__file__).resolve().parent.parent
+        # Codex delegates execute these spawners; forwarding is covered separately.
         shell_spawns = (
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "verify.sh",
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "smoke.sh",
-            root / ".agents" / "skills" / "cyclaw-sandbox" / "verify.sh",
-            root / ".agents" / "skills" / "cyclaw-sandbox" / "smoke.sh",
         )
         for path in shell_spawns:
             spawn = [
@@ -1863,8 +1862,6 @@ class TestProxyHeaderTrust:
             root / ".claude" / "skills" / "speed-refactor" / "SKILL.md",
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "macos-smoke.sh",
             root / ".claude" / "skills" / "CyClaw-Sandbox" / "windows-smoke.ps1",
-            root / ".agents" / "skills" / "cyclaw-sandbox" / "macos-smoke.sh",
-            root / ".agents" / "skills" / "cyclaw-sandbox" / "windows-smoke.ps1",
             root / "docs" / "! How-To-Guides" / "OLLAMA_SETUP.md",
         )
         for path in recipe_docs:

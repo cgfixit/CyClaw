@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import sys
 from io import BytesIO
 from email.message import Message
 from pathlib import Path
@@ -81,3 +86,78 @@ def test_console_checks_header_values_case_insensitively(value, expected, monkey
     checks = {name: ok for name, ok, _ in tester.tests}
     assert checks["X-Content-Type-Options header"] is expected
     assert checks["X-Frame-Options header"] is True
+
+
+@pytest.mark.parametrize("name", [
+    "run_full_verification.py", "gate_runtime_check.py", "test_terminal_consoles.py",
+    "verify.sh", "smoke.sh", "macos-smoke.sh",
+])
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_delegate_preserves_arguments_environment_and_exit(tmp_path, name, exit_code):
+    if name.endswith(".sh") and sys.platform == "win32":
+        pytest.skip("POSIX shell helper")
+    root = tmp_path / "checkout with spaces"
+    delegate = root / ".agents/skills/cyclaw-sandbox" / name
+    target = root / ".claude/skills/CyClaw-Sandbox" / name
+    delegate.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / ".agents/skills/cyclaw-sandbox" / name, delegate)
+    probe = (
+        "import json,os,sys\n"
+        "print(json.dumps({'args':sys.argv[1:], 'cwd':os.getcwd(), "
+        "'marker':os.environ['TEST_MARKER'], 'report':os.environ.get('CYCLAW_REPORT_DIR')}))\n"
+        "sys.exit(int(os.environ['TEST_EXIT']))\n"
+    )
+    target.write_text(
+        probe if name.endswith(".py") else '"$TEST_PYTHON" - "$@" <<\'PY\'\n' + probe + "PY\n",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "TEST_PYTHON": sys.executable, "TEST_EXIT": str(exit_code),
+           "TEST_MARKER": "preserved", "CYCLAW_REPORT_DIR": str(tmp_path / "report with spaces")}
+    expected_report = env["CYCLAW_REPORT_DIR"]
+    if name == "smoke.sh" and exit_code:
+        env.pop("CYCLAW_REPORT_DIR")
+        env["TMPDIR"] = str(tmp_path)
+        expected_report = str(tmp_path / "cyclaw-sandbox-report")
+    command = [sys.executable if name.endswith(".py") else "/bin/bash", str(delegate), "--probe", "two words"]
+    result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10, check=False)
+    assert result.returncode == exit_code, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "args": ["--probe", "two words"], "marker": "preserved",
+        "report": expected_report,
+        "cwd": str(root if name.endswith(".sh") else tmp_path),
+    }
+
+
+@pytest.mark.parametrize("name", ["run_full_verification.py", "gate_runtime_check.py"])
+def test_real_python_delegate_fails_without_dependencies(tmp_path, name):
+    result = subprocess.run(
+        [sys.executable, "-S", str(ROOT / ".agents/skills/cyclaw-sandbox" / name)],
+        cwd=tmp_path, env={"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")},
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    assert result.returncode != 0
+    assert "ModuleNotFoundError" in result.stdout + result.stderr or "LangGraph is required" in result.stdout + result.stderr
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("shell", ["powershell", "pwsh"])
+@pytest.mark.parametrize("port, exit_code", [(None, 0), (9101, 7)])
+def test_powershell_delegate_preserves_port_and_exit(tmp_path, shell, port, exit_code):
+    executable = shutil.which(shell)
+    if executable is None:
+        pytest.skip(f"{shell} unavailable; covered on Windows CI")
+    root = tmp_path / "checkout with spaces"
+    delegate = root / ".agents/skills/cyclaw-sandbox/windows-smoke.ps1"
+    target = root / ".claude/skills/CyClaw-Sandbox/windows-smoke.ps1"
+    delegate.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / ".agents/skills/cyclaw-sandbox/windows-smoke.ps1", delegate)
+    target.write_text('param([int]$Port = 8787)\nWrite-Output $Port\nexit ' + str(exit_code), encoding="utf-8")
+    command = [executable, "-NoProfile", "-NonInteractive", "-File", str(delegate)]
+    if port is not None:
+        command += ["-Port", str(port)]
+    result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=20, check=False)
+    assert result.returncode == exit_code, result.stderr
+    assert result.stdout.strip() == str(port if port is not None else 8787)
