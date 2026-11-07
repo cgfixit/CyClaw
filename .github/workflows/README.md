@@ -34,6 +34,7 @@ Accepted dependency risks live in root [`SECURITY.md`](../../SECURITY.md).
 | [pip-audit.yml](pip-audit.yml) | Six OS/install-profile checks, then base/test and optional-extra CVE audits. | Dependency/config/workflow changes, daily, or manual. Install failures and unaccepted findings fail. |
 | [semgrep.yml](semgrep.yml) | Python/OWASP source-rule scans. | Main pushes, PRs to main, weekly, or manual. Findings go to code scanning. |
 | [trivy.yml](trivy.yml) | Filesystem dependencies and a built Docker image. | Main pushes, PRs to main, weekly, or manual. Findings go to code scanning; image builds are conditional on changed paths for PRs. |
+| [dismissal-comments.yml](dismissal-comments.yml) | New code-scanning dismissals that have no written rationale (root `SECURITY.md`, issue #1779). Read-only `security-events: read`. | Weekly or manual. It reports gaps but does not block dismissals. Gaps fail the run, and an API/auth error is reported separately. |
 
 ## Coding assistants
 
