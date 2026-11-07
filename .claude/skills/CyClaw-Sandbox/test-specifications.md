@@ -17,6 +17,15 @@ node, metrics, due-diligence invariants), and all terminal console endpoints.
 
 ## Query Prompts
 
+`run_full_verification.py` uses deterministic embedding, Chroma and local
+client doubles. It requires the real LangGraph package but invokes selected
+nodes directly; it does not prove the complete compiled graph or real model
+inference. Its audit-integrity phase writes and reads synthetic audit records.
+`CYCLAW_RESULTS_FILE` controls the query report; a checkout-relative copy is
+retained for owned-clone cleanup. Use a prepared disposable checkout with
+`CYCLAW_REPO` and `CYCLAW_SKIP_ENSURE=1`; install through the maintained locks,
+not through the runner. Missing dependencies fail visibly.
+
 ### Q1 -- Vault Hit (CyClaw Overview)
 - **Prompt**: `"what is CyClaw"`
 - **Expected**: high score, `local_llm`, `answer_model="local"`
@@ -34,8 +43,8 @@ node, metrics, due-diligence invariants), and all terminal console endpoints.
 - **Expected**: low score, `user_gate`, `needs_user_confirm=True`
 - **On deny**: `offline_best_effort_node`, `answer_model="offline-best-effort"`
 - **Corpus**: `general_knowledge.md` has NO relativity content (only speed of light)
-- **Purpose**: Forces best-effort path. Qwen answers from parametric knowledge
-  (Einstein, 1915) with no vault context. Tests the deny-path through all 3 gates.
+- **Purpose**: Forces the deny path using a deterministic local-client double.
+  Actual Qwen answer quality belongs to the separate real-inference lane.
 
 ### Q4 -- Grok API Connection-Only
 - **Prompt**: `"what are the latest features in xAI Grok 4"`
