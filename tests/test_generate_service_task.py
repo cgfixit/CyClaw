@@ -192,10 +192,9 @@ def test_scalar_api_section_falls_back_to_8787(tmp_path: Path, capsys) -> None:
     assert "service:        gate (port 8787)" in out
 
 
-@pytest.mark.parametrize("raw_port", ["9000", True, 90.5])
+@pytest.mark.parametrize("raw_port", ["9000", True, False, None, 90.5, 0, -1, 65536])
 def test_quoted_or_non_int_api_port_exits_3(tmp_path: Path, capsys, raw_port) -> None:
-    # A quoted "9000" used to be accepted here while gate.py's _listen_port()
-    # ignores it and binds 8787; the two readers now share one rule.
+    # Invalid config must fail before publishing any service artifact.
     home = tmp_path / "home"
     home.mkdir()
     cfg = tmp_path / "config.yaml"

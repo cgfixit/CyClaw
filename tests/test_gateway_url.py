@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from utils.gateway_url import gateway_url
+from utils.gateway_url import gateway_url, read_gate_port
 
 
 @pytest.mark.parametrize(
@@ -24,7 +24,8 @@ from utils.gateway_url import gateway_url
         ({"host": ""}, None, None, "http://127.0.0.1:8787"),
         ({"port": 8799}, "9000", "8999", "http://127.0.0.1:9000"),
         ({"port": 8799}, None, " ", "http://127.0.0.1:8799"),
-        ({"port": "8799", "tls": {"enabled": "true"}}, None, None, "http://127.0.0.1:8787"),
+        ({"port": 8799, "tls": {"enabled": "true"}}, None, None, "http://127.0.0.1:8799"),
+        ({"port": False}, None, "9000", "http://127.0.0.1:9000"),
         ({"host": "10.0.0.112", "tls": {"enabled": True}}, None, None, "https://10.0.0.112:8787"),
     ],
 )
@@ -35,7 +36,7 @@ def test_gateway_url(api, override, environment, expected, monkeypatch) -> None:
     assert gateway_url({"api": api}, override) == expected
 
 
-@pytest.mark.parametrize("port", ["not-a-port", "0", "65536", "-1"])
+@pytest.mark.parametrize("port", ["not-a-port", "0", "65536", "-1", "²", "９０００", pytest.param("9" * 5000, id="huge")])
 def test_gateway_url_rejects_invalid_port_override(port) -> None:
     with pytest.raises(ValueError):
         gateway_url({}, port)
@@ -52,3 +53,25 @@ def test_gateway_url_cli_works_outside_checkout(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "https://127.0.0.2:9000"
+
+
+@pytest.mark.parametrize("port", [True, False, "9000", None, 90.5, 0, -1, 65536])
+def test_url_and_service_reader_reject_bad_config(port, monkeypatch, tmp_path):
+    import yaml
+    monkeypatch.delenv("CYCLAW_GATE_PORT", raising=False)
+    config = {"api": {"port": port}}
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="api.port"):
+        gateway_url(config)
+    with pytest.raises(ValueError, match="api.port"):
+        read_gate_port(path)
+
+
+@pytest.mark.parametrize(("api", "expected"), [({}, 8787), ({"port": 1}, 1), ({"port": 65535}, 65535)])
+def test_service_reader_uses_config_not_generating_shell(api, expected, monkeypatch, tmp_path):
+    import yaml
+    monkeypatch.setenv("CYCLAW_GATE_PORT", "9000")
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({"api": api}), encoding="utf-8")
+    assert read_gate_port(path) == expected

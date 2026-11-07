@@ -1899,11 +1899,12 @@ class TestListenPort:
         monkeypatch.setenv("CYCLAW_GATE_PORT", "  ")
         assert gate._listen_port({"port": 8791}) == 8791
 
-    @pytest.mark.parametrize("raw", ["87go", "0", "65536", "-1", "true"])
-    def test_invalid_env_returns_none(self, monkeypatch, raw):
+    @pytest.mark.parametrize("raw", ["87go", "0", "65536", "-1", "true", "²", "９０００"])
+    def test_invalid_env_is_rejected(self, monkeypatch, raw):
         import gate
         monkeypatch.setenv("CYCLAW_GATE_PORT", raw)
-        assert gate._listen_port({"port": 8787}) is None
+        with pytest.raises(ValueError, match="CYCLAW_GATE_PORT"):
+            gate._listen_port({"port": 8787})
 
     def test_main_invalid_env_does_not_bind(self, monkeypatch):
         import gate
@@ -1914,10 +1915,31 @@ class TestListenPort:
                 gate.main()
         mock_serve.assert_not_called()
 
+    @pytest.mark.parametrize("raw", [True, False, "9000", None, 90.5, 0, -1, 65536])
+    def test_main_invalid_config_never_probes_or_binds(self, monkeypatch, capsys, raw):
+        import gate
+        monkeypatch.delenv("CYCLAW_GATE_PORT", raising=False)
+        monkeypatch.setattr(gate, "cfg", {"api": {"port": raw}})
+        with (
+            patch.object(gate, "_is_port_in_use") as probe,
+            patch.object(gate, "_serve") as serve,
+            patch.object(gate, "_hold_console"),
+        ):
+            gate.main()
+        probe.assert_not_called()
+        serve.assert_not_called()
+        assert "api.port must be an unquoted integer 1..65535" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("port", [1, 65535])
+    def test_config_boundaries(self, monkeypatch, port):
+        import gate
+        monkeypatch.delenv("CYCLAW_GATE_PORT", raising=False)
+        assert gate._listen_port({"port": port}) == port
+
     def test_main_env_port_reaches_serve(self, monkeypatch):
         import gate
         monkeypatch.setenv("CYCLAW_GATE_PORT", "8788")
-        monkeypatch.setattr(gate, "cfg", {"api": {"host": "127.0.0.1", "port": 8787}})
+        monkeypatch.setattr(gate, "cfg", {"api": {"host": "127.0.0.1", "port": False}})
         monkeypatch.setattr(gate, "_require_loopback_bind", lambda host: True)
         monkeypatch.setattr(gate, "_is_port_in_use", lambda host, port: False)
         with patch.object(gate, "_serve") as mock_serve:
