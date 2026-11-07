@@ -6,8 +6,8 @@ runtime repairs from the remaining verification-helper maintenance in
 
 ## Remaining implementation and order
 
-1. Behavior candidate [#1814](https://github.com/cgfixit/CyClaw/pull/1814),
-   `c2f0671a`, merges useful behavior into `.claude/skills/CyClaw-Sandbox/`: loopback-only
+1. Behavior candidate [#1814](https://github.com/cgfixit/CyClaw/pull/1814)
+   merges useful behavior into `.claude/skills/CyClaw-Sandbox/`: loopback-only
    console probes, exact security-header values, configurable smoke report
    location, mock local inference, audit-integrity checks and portable reports.
    Preserve the canonical route inventory, retired-route refusals, redaction,
@@ -65,6 +65,11 @@ checks cover refusal before transport, redirects, header values, report
 preservation and missing dependencies. Static checks cover Python/shell syntax,
 telemetry inventory and documentation consistency. Broad platform suites and
 PowerShell analysis belong to the exact candidate's GitHub Actions results.
+
+The complete in-process command passed 158 checks in a disposable checkout.
+Two fault injections verified the failure exit: prior audit history cannot
+satisfy the current run's RAG event count, and the Grok/Claude pause probes
+require the confirmation node's own response.
 
 The behavior candidate was exercised with Python 3.12.14: an owned loopback
 HTTP server accepted the synthetic-key request and its redirect was refused
