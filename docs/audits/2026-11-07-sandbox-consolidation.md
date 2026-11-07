@@ -7,7 +7,7 @@ runtime repairs from the remaining verification-helper maintenance in
 ## Remaining implementation and order
 
 1. Behavior candidate [#1814](https://github.com/cgfixit/CyClaw/pull/1814),
-   `fe75407b`, merges useful behavior into `.claude/skills/CyClaw-Sandbox/`: loopback-only
+   `c2f0671a`, merges useful behavior into `.claude/skills/CyClaw-Sandbox/`: loopback-only
    console probes, exact security-header values, configurable smoke report
    location, mock local inference, audit-integrity checks and portable reports.
    Preserve the canonical route inventory, retired-route refusals, redaction,
@@ -89,6 +89,11 @@ is available, including Windows CI. Canonical runner regressions passed 19
 cases after four duplicate tests were consolidated; the existing standalone
 verdict contract passed two cases. This is wrapper/helper evidence, not a
 full Sandbox or native Windows application qualification.
+
+Hosted CI also exposed a stale proxy-header test that still required the
+Codex delegates to contain uvicorn commands. The test now checks the canonical
+spawners and recipes; subprocess delegation coverage verifies that the Codex
+entrypoints reach those same scripts. The no-proxy-header assertions remain.
 
 The second draft is based on the first draft's branch. After #1814 merges,
 retarget the delegation PR to `main`, reconcile its base without discarding
