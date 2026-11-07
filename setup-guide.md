@@ -411,6 +411,12 @@ select the port (default 8787, overriding `api.port`). The Windows launcher
 honors `CYCLAW_GATE_PORT`, otherwise `api.port`. Both resolve the browser URL
 through `utils/gateway_url.py` using `api.host`, `api.tls.enabled`, and the
 effective port; wildcard binds become loopback browser destinations.
+A missing `api.port` defaults to 8787; a present value must be an unquoted
+integer from 1 through 65535. Booleans, strings, null and out-of-range values
+refuse startup. A nonblank `CYCLAW_GATE_PORT` overrides config and must be
+ASCII decimal digits in that range; blank uses config. Service generators
+validate the config port with the same rule and exit 3 before writing on
+invalid input. They do not copy the generating shell's port into the service.
 macOS key autofill still accepts only matching-port HTTP URLs at literal
 `127.0.0.1` or `[::1]`; paste the key manually for HTTPS or hostname URLs.
 

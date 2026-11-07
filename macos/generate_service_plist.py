@@ -23,9 +23,8 @@ Usage:
       --api-key-service com.cgfixit.cyclaw.api-key \\
       --reason "..." --confirm
 
-Standalone script (no CyClaw package import beyond the stdlib-only
-utils.launchd_plist helper) -- reads api.host/api.port directly from
-config.yaml via PyYAML so it never has any reason to import gate.py,
+Standalone script using stdlib/PyYAML utility helpers -- reads api.port
+from config.yaml without importing gate.py,
 graph.py, or mcp_hybrid_server.py (I6). Reachable only via this CLI; never
 wired into any HTTP route, and never imported by anything under gate.py's
 request path.
@@ -65,8 +64,6 @@ import sys
 import types
 from pathlib import Path
 
-import yaml
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     # Standalone script under macos/, not a package -- sys.path[0] is this
@@ -76,6 +73,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from utils import launchd_plist  # noqa: E402
 from utils.telemetry_kill import scheduler_env_overlay  # noqa: E402
+from utils.gateway_url import read_gate_port  # noqa: E402
 
 _LABELS = types.MappingProxyType({
     "gate": "com.cgfixit.cyclaw.gate",
@@ -122,36 +120,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _read_gate_port(config_path: Path) -> int:
-    """Return the port gate.py will bind for ``config_path``, or exit 3.
-
-    Mirrors gate.py's own rule (``_listen_port``): a missing ``api`` or
-    ``api.port`` means 8787, and only an unquoted YAML integer counts. gate.py
-    silently falls back to 8787 for anything else (a quoted ``"9000"``, a bool,
-    a float), so baking that value into the service health target would point
-    the supervisor at a port the gate never listens on. Refusing here, with the
-    offending value named, is the only way the operator finds out.
-    """
-    try:
-        with open(config_path, encoding="utf-8") as config_file:
-            doc = yaml.safe_load(config_file) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        print(f"error: could not read {config_path}: {exc}", file=sys.stderr)
-        sys.exit(3)
-    api_cfg = doc.get("api") if isinstance(doc, dict) else None
-    if not isinstance(api_cfg, dict) or "port" not in api_cfg:
-        return 8787
-    raw = api_cfg["port"]
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        print(
-            f"error: api.port must be an unquoted integer (gate.py would ignore {raw!r} "
-            "and bind 8787)",
-            file=sys.stderr,
-        )
-        sys.exit(3)
-    return raw
-
-
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -180,7 +148,11 @@ def main(argv: list[str] | None = None) -> int:
     # second layer, not the first). Non-secret fixed literals only.
     env: dict[str, str] = dict(scheduler_env_overlay())
 
-    port = _read_gate_port(Path(args.config).resolve())
+    try:
+        port = read_gate_port(Path(args.config).resolve())
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
     try:
         python = launchd_plist.python_executable()
     except RuntimeError as exc:

@@ -122,7 +122,7 @@ Offline mode or declining stays local. Downloads have separate controls:
 pre-cache the ~91 MB reranker before its first query.
 
 **Ports.** Gateway `127.0.0.1:8787` (`api.port`, launcher
-`CYCLAW_GATE_PORT`), Ollama `127.0.0.1:11434`. The retired `:8790` console
+`CYCLAW_GATE_PORT`; unquoted integer 1..65535, invalid values refuse startup), Ollama `127.0.0.1:11434`. The retired `:8790` console
 became [CG-agent-harness](https://github.com/cgfixit/CG-agent-harness).
 
 **First-run checks and limits.**
