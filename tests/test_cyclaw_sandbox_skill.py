@@ -21,7 +21,6 @@ SCRIPTS = ROOT / ".agents" / "skills" / "cyclaw-sandbox-test" / "scripts"
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell sandbox helpers")
 @pytest.mark.parametrize("script", [
     ".claude/skills/CyClaw-Sandbox/verify.sh",
-    ".agents/skills/cyclaw-sandbox/verify.sh",
 ])
 @pytest.mark.parametrize("system, platform, index", [
     ("Darwin", "macos", "https://pypi.org/simple"),

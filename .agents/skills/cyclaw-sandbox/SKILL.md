@@ -31,7 +31,7 @@ starting paid/cloud or host-mutating checks.
 
 | Lane | Evidence and limits |
 | --- | --- |
-| Tier 0 | `run_full_verification.py` stubs heavy dependencies and walks selected nodes. Its results are in-process synthetic evidence, never real inference or a complete compiled-graph proof. |
+| Tier 0 | `run_full_verification.py` stubs heavy dependencies and walks selected nodes. It requires real LangGraph and includes synthetic audit/Numbat integrity checks; its results remain Tier 0, never real inference or a complete compiled-graph proof. |
 | Tier 1 | An owned socket mock plus real client/gateway/indexer proves exercised HTTP behavior. A model-list response does not prove process ownership, consent or destination allowlists. |
 | Tier 2 | Explicitly requested real local inference with cached models and measured outputs. Separate from mocked correctness. |
 | UI | `browser_render_check.py` captures views and submits a query. Independently assert completed answers, errors, controls, asset requests and mobile overflow; inspect screenshots. |
@@ -51,13 +51,20 @@ lane. For an isolated running gateway, helpers include `gate_runtime_check.py`,
 `terminal_emulation.py` and `browser_render_check.py`; inspect their arguments,
 credentials and side effects before execution. Missing dependencies are skips,
 even when a legacy helper returns zero. Direct uvicorn skips `gate.main()`.
-The terminal probe and `mock_ollama.py` delegate to the maintained Claude
-implementations; update those implementations rather than restoring copies.
+The seven verification entry points, terminal probe and `mock_ollama.py`
+delegate to `.claude/skills/CyClaw-Sandbox/`; edit the maintained implementation.
+Shell delegates resolve this checkout from their own paths and run at its root.
+The smoke report still defaults to `${TMPDIR}/cyclaw-sandbox-report`; override
+it with `CYCLAW_REPORT_DIR`. The runner accepts `CYCLAW_RESULTS_FILE` (use an
+absolute path to keep it outside the disposable checkout), never installs
+packages and no longer supplies a fake graph when LangGraph is missing.
+The provider-protocol mock under `cyclaw-sandbox-test/scripts` stays separate
+because its caller requires Anthropic/model-list responses absent here.
 
 ## Legacy helper limits
 
 Do not run all bundled scripts as one automatic gate. `verify.sh` provisions
-a Linux venv (can delete `VENV_DIR`), downloads NLTK data, rewrites fixture soul
+a platform-specific venv (can delete `VENV_DIR`), rewrites fixture soul
 and runs a full suite; `smoke.sh` also writes fixtures and runs broad tests.
 They are explicit historical lifecycle helpers, not read-only or routine checks.
 Use current install/Actions commands instead for ordinary verification.
