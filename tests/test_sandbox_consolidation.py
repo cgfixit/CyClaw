@@ -26,9 +26,9 @@ def load_helper(name):
 
 
 @pytest.mark.parametrize("url", [
-    "https://example.com", "file:///etc/hosts", "http://example.com",
-    "http://127.0.0.1@external.invalid", "http://user@localhost",
-    "http://localhost/path", "http://localhost?query", "http://localhost#fragment",
+    "https://example.com", "file:///etc/hosts", "http://example.com",  # DevSkim: ignore DS137138,DS162092 - synthetic refused URL; no real network transport
+    "http://127.0.0.1@external.invalid", "http://user@localhost",  # DevSkim: ignore DS137138,DS162092 - synthetic refused URL; no real network transport
+    "http://localhost/path", "http://localhost?query", "http://localhost#fragment",  # DevSkim: ignore DS137138,DS162092 - synthetic refused URL; no real network transport
 ])
 def test_console_refuses_non_loopback_origins_before_transport(url, monkeypatch):
     module = load_helper("test_terminal_consoles.py")
@@ -42,14 +42,14 @@ def test_console_refuses_non_loopback_origins_before_transport(url, monkeypatch)
 
 def test_console_refuses_redirect_with_bearer_key():
     module = load_helper("test_terminal_consoles.py")
-    request = Request("http://127.0.0.1/soul", headers={"Authorization": "Bearer synthetic"})
+    request = Request("http://127.0.0.1/soul", headers={"Authorization": "Bearer synthetic"})  # DevSkim: ignore DS137138,DS162092 - synthetic refused URL; no real network transport
     calls = []
 
     class Redirect(HTTPHandler):
         def http_open(self, req):
             calls.append(req.full_url)
             headers = Message()
-            headers["Location"] = "http://external.invalid"
+            headers["Location"] = "http://external.invalid"  # DevSkim: ignore DS137138,DS162092 - synthetic refused URL; no real network transport
             response = addinfourl(BytesIO(), headers, req.full_url, 302)
             response.msg = "redirect"
             return response
