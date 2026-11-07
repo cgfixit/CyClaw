@@ -1,0 +1,6 @@
+# actionlint 1.7.12 is the latest upstream release but predates this hosted label.
+# This is actionlint's additional-label setting; jobs still use GitHub-hosted runners.
+# Remove the entry when the pinned actionlint release recognizes ubuntu-26.04.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

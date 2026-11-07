@@ -56,7 +56,8 @@ env:
 jobs:
   verify-install:
     name: verify-install (${{ matrix.os }}, ${{ matrix.profile }})
-    runs-on: ${{ matrix.os }}
+    # Match the explicit 26.04 runtime qualification without renaming existing checks (#1777).
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-26.04' || matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
