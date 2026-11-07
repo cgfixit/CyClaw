@@ -574,6 +574,7 @@ Docs each section above links are not repeated here.
 | [`locks/README.md`](locks/README.md) | The hashed lock families, who regenerates them, and the contract check |
 | [`INVARIANTS.md`](INVARIANTS.md) | Rules 1–9, code vs convention, and the test that pins each |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) / [`docs/GITHOOKS.md`](docs/GITHOOKS.md) | Request-path map, agent rules, and the commit/push security gate |
+| [`docs/audits/2026-11-07-sandbox-consolidation.md`](docs/audits/2026-11-07-sandbox-consolidation.md) | Sandbox helper consolidation and #1797 closure criteria |
 | [`.codex/README.md`](.codex/README.md) | Codex skill inventory, explicit-only tools, verification and trusted PR prompts |
 | [`SECURITY.md`](SECURITY.md) / [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Egress, accepted CVEs, disclosure; scope, bind exceptions, amendments |
 | [`docs/AUTHENTICATION_DESIGN.md`](docs/AUTHENTICATION_DESIGN.md) / [`docs/DOCKER.md`](docs/DOCKER.md) | Per-user auth; GHCR image and compose hardening |

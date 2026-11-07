@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-CyClaw Full Verification Script -- Comprehensive smoke test harness.
+CyClaw in-process verification -- one lane of the sandbox workflow.
 
 Runs against the project's installed dependencies while replacing ChromaDB and
-the embedding model with deterministic in-memory doubles.
-Executes 5 queries covering: vault hit x2, offline best-effort (Qwen),
-Grok API connection-only, Claude API connection-only.
+the embedding model and all LLM clients with deterministic in-memory doubles.
+Executes 5 queries covering: vault hit x2, mocked offline best-effort,
+and Grok/Claude confirmation pauses. The triple-gate phase uses real LangGraph.
 
-Runs 9 phases (Phase 1 Config & Security Invariants ... Phase 9 Terminal HTML
+Runs 10 phases (Phase 1 Config & Security Invariants ... Phase 10 Terminal HTML
 Contract); each phase prints its own PASS/FAIL tally and
 the final report is never hand-counted here -- see verification_report.json.
 
@@ -16,13 +16,14 @@ Verifies:
   2. Telemetry kill canonical maps (utils.telemetry_kill, not a gate.py grep)
   3. Mock corpus + BM25/Chroma index build (retrieval.stemmer.tokenize_and_stem)
   4. LangGraph pipeline (5 queries through real node functions)
-  5. Triple-gate online API fallback (Grok + Claude) with mocked HTTP
-  6. API key redaction parity (Anthropic keys redacted same as Grok)
-  7. Metrics escalation + due-diligence invariants (unwired
+  5. Triple-gate online API fallback (Grok + Claude) with in-process clients
+  6. Audit log, metrics and Numbat projection integrity
+  7. API key redaction parity (Anthropic keys redacted same as Grok)
+  8. Metrics escalation + due-diligence invariants (unwired
      require_user_confirm, module isolation, RAG-first entry point)
-  8. Terminal REST endpoint registration (gate.py + gate_ops.py +
+  9. Terminal REST endpoint registration (gate.py + gate_ops.py +
      gate_auth.py + gate_memory.py; ops-runner delegation; security headers)
-  9. Terminal console contract (terminal.html + terminal.js combined source --
+  10. Terminal console contract (terminal.html + terminal.js combined source --
      panels, provider buttons, all 4 slash commands, REST endpoint calls)
 
 Usage:
@@ -41,6 +42,11 @@ Env:
                                     clones into a unique temp directory and
                                     deletes that directory when the run ends;
                                     reports are copied to the invoking cwd.
+    CYCLAW_SKIP_ENSURE=1         -- require a prepared checkout; never clone.
+    CYCLAW_RESULTS_FILE=/path    -- use a custom query-report path.
+
+Install dependencies using the platform locks before running. This script never
+installs packages, probes a host Ollama daemon, or proves real model inference.
 """
 from __future__ import annotations
 
@@ -55,6 +61,7 @@ import tempfile
 import time
 import traceback
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -65,14 +72,11 @@ REPO_URL = "https://github.com/CGFixIT/CyClaw.git"
 BRANCH = "main"
 CYCLAW_DIR: Path | None = None
 _OWNED_TEMP_ROOT: Path | None = None
-RESULTS_FILE = Path("query_results.json")
+RESULTS_FILE = Path(os.environ.get("CYCLAW_RESULTS_FILE", "query_results.json"))
 _REPORT_NAMES = ("verification_report.json", "query_results.json")
 
-# Which of the 3-tier Ollama realism ladder this run actually exercised (see
-# SKILL.md's "Operator map" realism tiers). Set once in main()
-# by _probe_ollama_tier() before any phase that talks to the local-LLM base_url
-# runs, then stamped into both report files this script writes.
-OLLAMA_TIER: int | None = None
+# Both query phases use MockLocalLLMClient, independent of any host listener.
+OLLAMA_TIER = 0
 
 # ANSI colors
 R = "\033[91m"; G = "\033[92m"; Y = "\033[93m"; B = "\033[94m"; C = "\033[96m"; N = "\033[0m"
@@ -263,6 +267,18 @@ class MockClaudeClient(MockGrokClient):
         return self.response
 
 
+class MockLocalLLMClient:
+    """In-process local client for routing and prompt checks, never inference."""
+
+    def __init__(self, response: str = "mock local answer") -> None:
+        self.response = response
+        self.calls: list[dict[str, object]] = []
+
+    def generate(self, prompt: str, *, spend_context: dict[str, object] | None = None) -> str:
+        self.calls.append({"prompt": prompt, "spend_context": spend_context})
+        return self.response
+
+
 # ---------------------------------------------------------------------------
 # Test Helpers
 # ---------------------------------------------------------------------------
@@ -291,6 +307,8 @@ def _resolve_cyclaw_dir() -> Path:
         return CYCLAW_DIR
     if CYCLAW_DIR is not None:
         return CYCLAW_DIR
+    if os.environ.get("CYCLAW_SKIP_ENSURE"):
+        raise RuntimeError("CYCLAW_SKIP_ENSURE requires CYCLAW_REPO or a pre-assigned CYCLAW_DIR")
     _OWNED_TEMP_ROOT = Path(tempfile.mkdtemp(prefix="cyclaw-sandbox-"))
     CYCLAW_DIR = _OWNED_TEMP_ROOT / "CyClaw"
     return CYCLAW_DIR
@@ -313,7 +331,7 @@ def _persist_reports(start_cwd: Path) -> None:
 
 
 def _cleanup_owned_clone(start_cwd: Path) -> None:
-    global _OWNED_TEMP_ROOT
+    global CYCLAW_DIR, _OWNED_TEMP_ROOT
     try:
         os.chdir(start_cwd)
     except OSError:
@@ -322,6 +340,7 @@ def _cleanup_owned_clone(start_cwd: Path) -> None:
         return
     shutil.rmtree(_OWNED_TEMP_ROOT, ignore_errors=True)
     _OWNED_TEMP_ROOT = None
+    CYCLAW_DIR = None
 
 
 def _ensure_repo():
@@ -333,6 +352,12 @@ def _ensure_repo():
     # of state they didn't ask for. Unset CYCLAW_REPO (the default) still gets
     # a new temporary clone on every run, then that clone is deleted.
     dest = _resolve_cyclaw_dir()
+    if os.environ.get("CYCLAW_SKIP_ENSURE"):
+        if not (dest / ".git").exists():
+            raise RuntimeError(f"CYCLAW_SKIP_ENSURE requires an existing git checkout: {dest}")
+        log(f"Using caller-supplied checkout without checkout/pull: {dest}")
+        os.chdir(dest)
+        return
     if os.environ.get("CYCLAW_REPO"):
         log(f"CYCLAW_REPO set -- using {dest} as-is (no checkout/pull)", Y)
         log(
@@ -355,20 +380,6 @@ def _ensure_repo():
             capture_output=True,
         )
     os.chdir(dest)
-
-
-def _probe_ollama_tier() -> int:
-    """Return 0=no server, 1=bundled mock, or 2=real Ollama daemon."""
-    import urllib.error
-    import urllib.request
-
-    try:
-        # DevSkim: ignore DS162092,DS137138 - loopback-only probe, offline-only
-        with urllib.request.urlopen("http://127.0.0.1:11434/api/version", timeout=1.5) as response:
-            version = json.load(response).get("version", "")
-        return 1 if version == "0.0.0-mock" else 2
-    except (urllib.error.URLError, OSError, ValueError):
-        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +440,12 @@ def phase_telemetry_kill() -> PhaseResult:
     # is a lie the moment a name is added/renamed there and gate.py itself
     # only ever imports apply_telemetry_kill(). One gate.py grep is kept
     # below for the G1 wiring anchor, which IS load-bearing text.
-    from utils.telemetry_kill import SCRUBBED_ENV_KEYS, TELEMETRY_KILL, UPDATE_CHECK_OPT_OUT
+    from utils.telemetry_kill import SCRUBBED_ENV_KEYS, TELEMETRY_KILL, UPDATE_CHECK_OPT_OUT, apply_telemetry_kill
+
+    applied = apply_telemetry_kill()
+    for var, expected in TELEMETRY_KILL.items():
+        found = applied.get(var) == expected and os.environ.get(var) == expected
+        phase.checks.append(Check(f"telemetry_kill_value_{var}", found))
 
     kill_vars = [
         "LANGCHAIN_TRACING_V2",
@@ -633,14 +649,13 @@ def phase_execute_queries() -> PhaseResult:
         user_gate_node, offline_best_effort_node, audit_logger_node,
     )
     from retrieval.hybrid_search import HybridRetriever
-    from llm.client import LocalLLMClient
 
     retriever = HybridRetriever()
 
     import yaml
     with open("config.yaml") as f:
         cfg = yaml.safe_load(f)
-    llm = LocalLLMClient(cfg=cfg)
+    llm = MockLocalLLMClient()
 
     queries = [
         ("what is CyClaw", "local", "Vault hit - CyClaw overview"),
@@ -648,7 +663,7 @@ def phase_execute_queries() -> PhaseResult:
         (
             "who wrote the theory of general relativity and when",
             "offline-best-effort",
-            "Offline best-effort (Qwen) - no vault match",
+            "Offline best-effort (mock) - no vault match",
         ),
         ("what are the latest features in xAI Grok 4", "grok", "Grok API connection-only"),
         ("explain quantum computing decoherence", "claude", "Claude API connection-only"),
@@ -656,6 +671,7 @@ def phase_execute_queries() -> PhaseResult:
 
     all_results = []
     for query_text, expected_model, description in queries:
+        calls_before = len(llm.calls)
         log(f"\n  {C}--- {description} ---{N}")
         log(f"  Query: \"{query_text}\"")
         state = {"query": query_text}
@@ -700,17 +716,24 @@ def phase_execute_queries() -> PhaseResult:
         state.update(n4)
 
         # Evaluate
-        passed = True
-        if query_text == "what is CyClaw":
-            passed = not needs_confirm and state.get("answer_model") == "local" and hit_count > 0
-        elif query_text == "explain CyClaw security":
-            passed = not needs_confirm and state.get("answer_model") == "local" and hit_count > 0
-        elif query_text == "who wrote the theory of general relativity and when":
-            passed = needs_confirm and state.get("answer_model") == "offline-best-effort"
-        elif query_text == "what are the latest features in xAI Grok 4":
-            passed = needs_confirm and state.get("needs_user_confirm") is True
-        elif query_text == "explain quantum computing decoherence":
-            passed = needs_confirm and state.get("needs_user_confirm") is True
+        generated = (
+            not state.get("error")
+            and state.get("answer") == llm.response
+            and len(llm.calls) == calls_before + 1
+        )
+        if expected_model == "local":
+            passed = generated and not needs_confirm and state.get("answer_model") == "local" and hit_count > 0
+        elif expected_model == "offline-best-effort":
+            passed = generated and needs_confirm and state.get("answer_model") == "offline-best-effort"
+        else:
+            passed = (
+                needs_confirm
+                and n3.get("needs_user_confirm") is True
+                and not state.get("answer")
+                and not state.get("answer_model")
+                and not state.get("error")
+                and len(llm.calls) == calls_before
+            )
 
         status = f"{G}PASS{N}" if passed else f"{R}FAIL{N}"
         log(f"    [{status}] model={state.get('answer_model', '--')}, score={top_score:.4f}")
@@ -727,9 +750,15 @@ def phase_execute_queries() -> PhaseResult:
             "passed": passed,
         })
 
-    with open(RESULTS_FILE, "w") as f:
-        json.dump({"query_results": all_results, "ollama_tier": OLLAMA_TIER}, f, indent=2)
+    RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"query_results": all_results, "ollama_tier": OLLAMA_TIER}
+    with open(RESULTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
     log(f"\n  Results saved to {RESULTS_FILE}")
+    report_copy = Path("query_results.json")
+    if RESULTS_FILE.resolve() != report_copy.resolve():
+        with open(report_copy, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
 
     return phase
 
@@ -751,10 +780,9 @@ def phase_triple_gate() -> PhaseResult:
 
     from graph import build_graph, user_gate_router
     from retrieval.hybrid_search import HybridRetriever
-    from llm.client import LocalLLMClient
 
     retriever = HybridRetriever()
-    llm = LocalLLMClient(cfg=cfg)
+    llm = MockLocalLLMClient()
 
     log("\n  --- _external_fallback_node structure ---")
     import inspect
@@ -904,10 +932,84 @@ def phase_triple_gate() -> PhaseResult:
 
 
 # ---------------------------------------------------------------------------
-# Phase 6: API Key Redaction & Secret Sanitization
+# Phase 6: Audit Log, Metrics, and Numbat Integrity
+# ---------------------------------------------------------------------------
+def phase_audit_integrity(started_at: str) -> PhaseResult:
+    banner("Phase 6: Audit Log, Metrics & Numbat Integrity")
+    phase = PhaseResult("Audit Integrity")
+
+    import yaml
+
+    from metrics import compute_metrics, summarize_audit
+    from utils.logger import audit_log
+    from utils.numbat_emitter import flush_numbat_writes
+
+    with open("config.yaml", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    probe_event = f"sandbox_audit_probe_{time.time_ns()}"
+    audit_log({
+        "event": probe_event,
+        "query": "sandbox-audit-query",
+        "detail": "Bearer sandbox-secret-token",
+    }, cfg=cfg)
+
+    audit_file = Path(cfg["logging"]["audit_file"])
+    lines = audit_file.read_text(encoding="utf-8").splitlines() if audit_file.exists() else []
+    records = [json.loads(line) for line in lines if line.strip()]
+    valid_objects = [record for record in records if isinstance(record, dict)]
+    probes = [record for record in valid_objects if record.get("event") == probe_event]
+    has_query_hash = len(probes) == 1 and isinstance(probes[0].get("query_hash"), str) and len(probes[0]["query_hash"]) == 64
+    no_raw_query = all("query" not in record and "sandbox-audit-query" not in json.dumps(record)
+                       for record in valid_objects)
+    no_fake_secret = all("sandbox-secret-token" not in json.dumps(record) for record in valid_objects)
+    phase.checks.append(Check("audit_probe_written", len(probes) == 1))
+    phase.checks.append(Check("audit_records_are_json_objects", bool(records) and len(valid_objects) == len(records)))
+    phase.checks.append(Check("audit_queries_hashed", has_query_hash))
+    phase.checks.append(Check("audit_no_raw_queries", no_raw_query))
+    phase.checks.append(Check("audit_secret_redaction", no_fake_secret))
+
+    summary = summarize_audit(str(audit_file))
+    integrity = summary.get("audit_integrity") or {}
+    clean_integrity = all(integrity.get(key, 0) == 0 for key in (
+        "malformed_lines", "events_with_raw_query", "rag_events_missing_query_hash",
+    ))
+    phase.checks.append(Check("metrics_audit_integrity_clean", clean_integrity, str(integrity)))
+    # Audit timestamps are UTC ISO 8601. Old runs cannot satisfy this count.
+    current = (
+        record for record in valid_objects
+        if isinstance(record.get("timestamp"), str) and record["timestamp"] >= started_at
+    )
+    rag_count = compute_metrics(current)["rag_query_count"]
+    phase.checks.append(Check("metrics_saw_rag_events", rag_count >= 5, f"{rag_count} from this run"))
+
+    numbat_cfg = cfg.get("numbat") or {}
+    if numbat_cfg.get("enabled") is True:
+        phase.checks.append(Check("numbat_projection_flushed", flush_numbat_writes()))
+        numbat_file = Path(numbat_cfg.get("output_path", "logs/numbat-events.ndjsonl"))
+        numbat_lines = numbat_file.read_text(encoding="utf-8").splitlines() if numbat_file.exists() else []
+        numbat_records = [json.loads(line) for line in numbat_lines if line.strip()]
+        numbat_ok = bool(numbat_records) and all(isinstance(record, dict) for record in numbat_records)
+        probe_projected = any(isinstance(record, dict) and probe_event in record.get("tags", [])
+                              for record in numbat_records)
+        numbat_private = all(
+            "sandbox-audit-query" not in json.dumps(record)
+            and "sandbox-secret-token" not in json.dumps(record)
+            for record in numbat_records
+        )
+        phase.checks.append(Check("numbat_projection_written", numbat_ok and probe_projected))
+        phase.checks.append(Check("numbat_projection_sanitized", numbat_private))
+    else:
+        phase.checks.append(Check("numbat_disabled_by_config", True))
+
+    return phase
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: API Key Redaction & Secret Sanitization
 # ---------------------------------------------------------------------------
 def phase_key_redaction() -> PhaseResult:
-    banner("Phase 6: API Key Redaction (Grok + Claude Parity)")
+    banner("Phase 7: API Key Redaction (Grok + Claude Parity)")
     phase = PhaseResult("Key Redaction")
 
     # Redaction lives in utils/logger.py (redact_sensitive: every os.environ
@@ -954,10 +1056,10 @@ def phase_key_redaction() -> PhaseResult:
 
 
 # ---------------------------------------------------------------------------
-# Phase 7: Metrics & Due-Diligence Invariants
+# Phase 8: Metrics & Due-Diligence Invariants
 # ---------------------------------------------------------------------------
 def phase_metrics_and_invariants() -> PhaseResult:
-    banner("Phase 7: Metrics Escalation & Due-Diligence Invariants")
+    banner("Phase 8: Metrics Escalation & Due-Diligence Invariants")
     phase = PhaseResult("Metrics & Invariants")
 
     # 7a: Metrics recognize both providers
@@ -1026,10 +1128,10 @@ def phase_metrics_and_invariants() -> PhaseResult:
 
 
 # ---------------------------------------------------------------------------
-# Phase 8: Terminal Console REST API Tests
+# Phase 9: Terminal Console REST API Tests
 # ---------------------------------------------------------------------------
 def phase_terminal_consoles() -> PhaseResult:
-    banner("Phase 8: Terminal Console REST API Verification")
+    banner("Phase 9: Terminal Console REST API Verification")
     phase = PhaseResult("Terminal Consoles")
 
     # gate.py registers its own core routes directly, but /ops/* live in
@@ -1114,10 +1216,10 @@ def phase_terminal_consoles() -> PhaseResult:
 
 
 # ---------------------------------------------------------------------------
-# Phase 9: Terminal HTML Console Contract
+# Phase 10: Terminal HTML Console Contract
 # ---------------------------------------------------------------------------
 def phase_terminal_html() -> PhaseResult:
-    banner("Phase 9: Terminal HTML Console Contract")
+    banner("Phase 10: Terminal HTML Console Contract")
     phase = PhaseResult("Terminal HTML Contract")
 
     # terminal.html's own console logic (the CSP forces script-src 'self')
@@ -1203,7 +1305,7 @@ def phase_terminal_html() -> PhaseResult:
 # ---------------------------------------------------------------------------
 def main():
     print(f"\n{B}{'='*60}")
-    print("  CyClaw Swarm Verification (Full)")
+    print("  CyClaw Swarm Verification (In-process)")
     print(f"  Target: {REPO_URL} @ {BRANCH}")
     print("  5 Queries: 2 vault hit, 1 offline best-effort, 1 Grok API, 1 Claude API")
     print(f"{'='*60}{N}\n")
@@ -1228,10 +1330,12 @@ def _run_verification() -> int:
     sys.path.insert(0, os.getcwd())
     log("Running with project dependencies and deterministic storage/model doubles", Y)
 
-    global OLLAMA_TIER
-    OLLAMA_TIER = _probe_ollama_tier()
-    tier_desc = {0: "no HTTP local-LLM backend", 1: "bundled mock_ollama.py", 2: "real Ollama daemon"}[OLLAMA_TIER]
-    log(f"Ollama realism: Tier {OLLAMA_TIER} ({tier_desc})", C)
+    log("Ollama realism: Tier 0 (in-process MockLocalLLMClient; no inference)", C)
+
+    started_at = datetime.now(UTC).isoformat()
+
+    def check_audit_integrity() -> PhaseResult:
+        return phase_audit_integrity(started_at)
 
     results: list[PhaseResult] = []
     phases = [
@@ -1240,6 +1344,7 @@ def _run_verification() -> int:
         phase_build_corpus,
         phase_execute_queries,
         phase_triple_gate,
+        check_audit_integrity,
         phase_key_redaction,
         phase_metrics_and_invariants,
         phase_terminal_consoles,
@@ -1286,7 +1391,7 @@ def _run_verification() -> int:
     query_descs = [
         ("Q1", "Vault hit (CyClaw overview)"),
         ("Q2", "Vault hit (Security doc)"),
-        ("Q3", "Offline best-effort / Qwen (Einstein/relativity)"),
+        ("Q3", "Offline best-effort mock (Einstein/relativity)"),
         ("Q4", "Grok API connection-only"),
         ("Q5", "Claude API connection-only"),
     ]
@@ -1306,7 +1411,8 @@ def _run_verification() -> int:
 
     print(f"\n{'='*60}")
     print("CyClaw Swarm Verification Complete.")
-    print(f"Full functionality status: {'PASS' if total_passed == total_checks else 'PARTIAL'}.")
+    all_passed = bool(results) and all(p.passed for p in results)
+    print(f"In-process checks: {'PASS' if all_passed else 'FAIL'}.")
     print(f"Total: {total_passed}/{total_checks} checks passed")
     print("")
     print(f"RAG pipeline (5 queries): {'PASS' if _phase('5 Queries').passed else 'FAIL'}")
@@ -1314,13 +1420,13 @@ def _run_verification() -> int:
     print(f"Triple-Gate Online API (Claude): {'PASS' if claude_checks and all(c.passed for c in claude_checks) else 'FAIL'}")
     print(f"Triple-Gate shared/cross-provider: {'PASS' if shared_checks and all(c.passed for c in shared_checks) else 'FAIL'}")
     print(f"API Key Redaction (both providers): {'PASS' if _phase('Key Redaction').passed else 'FAIL'}")
+    print(f"Audit Integrity: {'PASS' if _phase('Audit Integrity').passed else 'FAIL'}")
     print(f"Due-Diligence Invariants: {'PASS' if _phase('Metrics & Invariants').passed else 'FAIL'}")
     print(f"REST API surface: {'PASS' if _phase('Terminal Consoles').passed else 'FAIL'}")
     print(f"Terminal HTML contract: {'PASS' if _phase('Terminal HTML Contract').passed else 'FAIL'}")
     config_phase = _phase("Config Invariants")
     print(f"Security Invariants: {config_phase.passed_count}/{len(config_phase.checks)} passed")
-    tier_note = {0: "no HTTP backend", 1: "bundled mock", 2: "real daemon"}[OLLAMA_TIER]
-    print(f"Ollama realism tier: {OLLAMA_TIER} ({tier_note})")
+    print(f"Ollama realism tier: {OLLAMA_TIER} (in-process mock)")
     print(f"{'='*60}")
 
     report = {
@@ -1344,7 +1450,7 @@ def _run_verification() -> int:
     print("\nFull report saved to verification_report.json")
     _persist_reports(start_cwd)
 
-    return 0 if total_passed == total_checks else 1
+    return 0 if all_passed else 1
 
 
 if __name__ == "__main__":

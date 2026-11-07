@@ -11,7 +11,7 @@
 # Run from the repo root: bash .claude/skills/CyClaw-Sandbox/smoke.sh
 # Requires: deps installed, retrieval index built.
 # Env: GROK_API_KEY (default "dummy"), PYTHON (default "python3.12"), PORT (default 8787),
-#      SMOKE_SKIP_PYTEST=1 to skip section F locally (CI leaves it unset)
+#      CYCLAW_REPORT_DIR (default .claude), SMOKE_SKIP_PYTEST=1 to skip section F locally (CI leaves it unset)
 set -euo pipefail
 
 GROK_API_KEY="${GROK_API_KEY:-dummy}"
@@ -20,7 +20,7 @@ PYTHON="${PYTHON:-python3.12}"
 PORT="${PORT:-8787}"
 BASE="http://127.0.0.1:$PORT"  # DevSkim: ignore DS162092
 LOG="/tmp/cyclaw-server.log"
-REPORT_DIR=".claude"
+REPORT_DIR="${CYCLAW_REPORT_DIR:-.claude}"
 REPORT="$REPORT_DIR/sandbox-test.txt"
 SOUL_BACKUP=""
 AUTH_HEADER_FILE=$(mktemp)

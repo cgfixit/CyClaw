@@ -49,7 +49,7 @@ L is the local default. Always use the CyClaw **3.12** venv's interpreter
 | Ladder | Command | Where it belongs | Proves | Does **not** prove |
 |---|---|---|---|---|
 | **L. Local audit** (default) | `<venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py` | **Local** | Stages 0–4 below in about a minute (measured, cloud sandbox, warm venv): checkers + ruff, run-the-code, swarm, live route contract, rate limit | pytest, coverage, browser JS, opt-in subsystems |
-| **B. In-process swarm** | `run_full_verification.py` | Local (Ladder L stage 3 runs it) | 9 phases through the real LangGraph runtime with deterministic Chroma/embedding doubles; prints its own totals | Live HTTP, real Chroma persistence |
+| **B. In-process swarm** | `run_full_verification.py` | Local (Ladder L stage 3 runs it) | 10 phases with the real LangGraph import contract and deterministic Chroma/embedding/local-client doubles; prints its own totals | Compiled-graph coverage, live HTTP, real inference or Chroma persistence |
 | **D. Quick Mode** (`/run`) | `SMOKE_SKIP_PYTEST=1 PYTHON=<venv>/bin/python bash .claude/skills/CyClaw-Sandbox/smoke.sh` | Local, in place | Sections A, B, D, E against a gate it starts on :8787 in **your** tree (soul.md backed up and restored); fsconnect/NeMo probes Ladder L lacks | The route-contract sweep, the swarm |
 | **C. CI lifecycle** | `verify.sh` | **GitHub Actions** (`verify-skills`, conda lane) | Clean venv + full pytest + RAG smoke + live gate | Run locally only to reproduce a red job |
 | **E. Live API bomb** | `macos-smoke.sh` / `windows-smoke.ps1` | **GitHub Actions** (macOS/Windows live-smoke steps) | Matching live-HTTP checks against an already-running gate | Run by hand only to reproduce; `macos-smoke.sh` is also a quick by-hand pass on a Mac |
@@ -132,7 +132,7 @@ can't judge, e.g. a new key's default.
 | 0 preflight | 3.12 interpreter, checkout sha/branch, ahead/behind `origin/main`, uncommitted edits noted (they are audited too) |
 | 1 static | `invariant-guard`, `dotenv-guard`, `doc-sync`, `config-guard`, `dep-guard`, `verify-deps/check_env_drift.py --strict`, `otel-hardening --strict`; `ruff check --select F,B,S .` (lint.yml's blocking gate) and the advisory `E,F,I,B,C4,UP,S --ignore E501` pass. Ruff missing is SKIP |
 | 2 run the code | `gate_runtime_check.py`; each subsystem's operator pre-flight (`python -m {sync,agentic.fsconnect,agentic.netconnect,guardrails,telegram,opentweet}.cli test` and `python -m memory.selftest`), no network and no mocks; every CLI's `--help`; the shipped-off `status` reports; `clear_cache` dry-run; `telemetry_kill --export shell`. A selftest whose only failure is a missing external binary (rclone) is SKIP |
-| 3 swarm | `run_full_verification.py` in a scratch copy (127/127 checks at last run, 2026-10-18, derive); reports the Ollama realism tier |
+| 3 swarm | `run_full_verification.py` in a scratch copy; reports its own totals and Tier 0 (in-process mocks), regardless of listeners |
 | 4 live gate | `uvicorn gate:app` from a scratch copy on :8791 (next free port if busy) with a random `CYCLAW_API_KEY`: the route-contract probes in the table above, `test_terminal_consoles.py`, and `terminal_emulation.py` when an index exists. That launch raises only the scratch copy's rate limit so the probes don't trip it; a second launch on the **shipped** limit then proves the 429 |
 
 Output: per-check lines, then `report.md` plus every log in
@@ -150,7 +150,7 @@ cache `.emb_cache/` comes along, so nothing re-downloads. Your `soul.md`,
 On a machine with Ollama and the configured model (`models.local_llm.model`,
 derive) pulled: `python3 scripts/measure_local_llm_throughput.py` (exit 0
 measured, 2 unreachable), then run Ladder L **without** `--mock-ollama`; the
-swarm detects the daemon on :11434 and reports Tier 2. Ask a corpus question
+live gateway lane can use the daemon. The in-process runner stays Tier 0. Ask a corpus question
 in the browser console at `http://127.0.0.1:8787/` and confirm a grounded
 answer. A Tier 0/1 run is never evidence of Tier 2 quality.
 
@@ -247,7 +247,7 @@ them knowing a workflow and its pinning tests read them.
 
 - **`local_audit.py`** -- Ladder L (stdlib only; run with the venv
   interpreter). Never runs pytest; never writes the checkout.
-- **`run_full_verification.py`** -- the swarm (Ladder B, 9 phases).
+- **`run_full_verification.py`** -- the in-process runner (Ladder B, 10 phases).
   `CYCLAW_REPO=/path` uses that tree **as-is and writes into it** (mock corpus,
   BM25 index, two JSON reports); unset, it clones `origin/main` from GitHub
   into a temp dir, so it tests main, not your edits. Ladder L points it at a
@@ -344,8 +344,8 @@ The invariants this skill verifies. Row numbers are historical labels
   tree; point it at a copy.
 - **Quick Mode writes in place.** It backs up and restores `soul.md`, but its
   gate appends to your `logs/` and builds `index/` if missing.
-- **Three realism tiers.** Tier 0 = no HTTP backend, Tier 1 = `mock_ollama.py`,
-  Tier 2 = a real daemon. `status: degraded` in `/health` is normal at Tier 0.
+- **Three realism tiers.** Tier 0 = in-process doubles, Tier 1 = an owned `mock_ollama.py` socket,
+  Tier 2 = exercised real model inference. A listener alone proves no tier. `status: degraded` in `/health` is normal at Tier 0.
 - **`sync.cli test` writes rclone's filter file** under `XDG_CONFIG_HOME`
   (default `~/.config/rclone/`). Ladder L points that at its scratch dir; run
   by hand, it writes your real one (the same file a real sync writes).
