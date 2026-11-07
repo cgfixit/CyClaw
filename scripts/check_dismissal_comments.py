@@ -17,7 +17,7 @@ carry the token elsewhere. TLS verification is urllib's default.
 Exit codes are an API:
   0  no dismissal on/after the cutoff lacks a rationale
   1  at least one such dismissal was found (listed in the report)
-  2  usage, auth, network, or API-shape error; no conclusion was reached
+  2  usage, auth, network, API-shape, or any unexpected error; no conclusion
 
 Usage:
   GITHUB_TOKEN=... python3 -I scripts/check_dismissal_comments.py --repo owner/name
@@ -110,12 +110,15 @@ def find_gaps(alerts: Iterable[dict[str, Any]], cutoff: datetime) -> tuple[list[
         in_scope += 1
         if has_rationale(alert.get("dismissed_comment")):
             continue
+        number = alert.get("number")
+        if not isinstance(number, int) or isinstance(number, bool):
+            raise CheckError(f"alert has no integer number: {number!r}")
         rule = alert.get("rule") or {}
         tool = alert.get("tool") or {}
         by = alert.get("dismissed_by") or {}
         gaps.append(
             Gap(
-                number=int(alert.get("number", 0)),
+                number=number,
                 dismissed_at=str(alert.get("dismissed_at")),
                 dismissed_reason=str(alert.get("dismissed_reason") or "(none)"),
                 dismissed_by=str(by.get("login") or "(unknown)") if isinstance(by, dict) else "(unknown)",
@@ -190,9 +193,11 @@ def fetch_dismissed_alerts(api: str, repo: str, token: str, cutoff: datetime) ->
     )
     url: str | None = f"{api.rstrip('/')}/repos/{repo}/code-scanning/alerts?{query}"
     allowed_origin = _origin(api)
-    for _ in range(_MAX_PAGES):
-        if url is None:
-            return
+    pages = 0
+    while url is not None:
+        if pages == _MAX_PAGES:
+            raise CheckError(f"stopped after {_MAX_PAGES} pages without reaching the cutoff")
+        pages += 1
         if _origin(url) != allowed_origin:
             raise CheckError(f"refusing pagination link to another origin: {url}")
         page, url = _get_json(url, token)
@@ -204,7 +209,6 @@ def fetch_dismissed_alerts(api: str, repo: str, token: str, cutoff: datetime) ->
         stamps = [parse_timestamp(alert.get("updated_at")) for alert in page if isinstance(alert, dict)]
         if stamps and min(stamps) < cutoff:
             return
-    raise CheckError(f"stopped after {_MAX_PAGES} pages without reaching the cutoff")
 
 
 def load_fixture(path: Path) -> list[dict[str, Any]]:
@@ -267,23 +271,32 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    repo = args.repo or "(fixture)"
     try:
-        cutoff = parse_cutoff(args.since)
-        if args.fixture is not None:
-            alerts: Iterable[dict[str, Any]] = load_fixture(args.fixture)
-        else:
-            if not _REPO_RE.fullmatch(args.repo):
-                raise CheckError("--repo must be owner/name (or set GITHUB_REPOSITORY)")
-            token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
-            if not token:
-                raise CheckError("GITHUB_TOKEN (or GH_TOKEN) is not set")
-            api = os.environ.get("GITHUB_API_URL", _DEFAULT_API)
-            alerts = fetch_dismissed_alerts(api, args.repo, token, cutoff)
-        gaps, in_scope = find_gaps(alerts, cutoff)
+        return _run(args)
     except CheckError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
+    except Exception as exc:  # noqa: BLE001 - see below
+        # An uncaught exception would exit 1, which reads as "gaps found".
+        # Anything unexpected is "no conclusion", never a finding.
+        print(f"error: unexpected {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+
+def _run(args: argparse.Namespace) -> int:
+    repo = args.repo or "(fixture)"
+    cutoff = parse_cutoff(args.since)
+    if args.fixture is not None:
+        alerts: Iterable[dict[str, Any]] = load_fixture(args.fixture)
+    else:
+        if not _REPO_RE.fullmatch(args.repo):
+            raise CheckError("--repo must be owner/name (or set GITHUB_REPOSITORY)")
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+        if not token:
+            raise CheckError("GITHUB_TOKEN (or GH_TOKEN) is not set")
+        api = os.environ.get("GITHUB_API_URL", _DEFAULT_API)
+        alerts = fetch_dismissed_alerts(api, args.repo, token, cutoff)
+    gaps, in_scope = find_gaps(alerts, cutoff)
 
     report = render_markdown(gaps, in_scope, cutoff, repo)
     sys.stdout.write(report)
