@@ -135,3 +135,38 @@ def test_missing_token_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert cdc.main(["--repo", "o/r"]) == cdc.EXIT_ERROR
+
+
+def test_pagination_cap_allows_exactly_max_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cdc, "_MAX_PAGES", 3)
+
+    def pages(limit: int) -> Any:
+        count = [0]
+
+        def fake_get(url: str, token: str) -> tuple[Any, str | None]:
+            count[0] += 1
+            alert = _alert(count[0], "2026-11-09T00:00:00Z", "ok")
+            return [alert], (f"{_API}/next" if count[0] < limit else None)
+
+        return fake_get
+
+    monkeypatch.setattr(cdc, "_get_json", pages(3))
+    assert len(list(cdc.fetch_dismissed_alerts(_API, "o/r", "t", CUTOFF))) == 3
+    monkeypatch.setattr(cdc, "_get_json", pages(4))
+    with pytest.raises(cdc.CheckError, match="stopped after 3 pages"):
+        list(cdc.fetch_dismissed_alerts(_API, "o/r", "t", CUTOFF))
+
+
+def test_unexpected_failures_never_read_as_gaps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An uncaught exception exits 1, the "gaps found" code; both cases must be 2.
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    bad_number = tmp_path / "bad-number.json"
+    alert = _alert(1, "2026-11-08T00:00:00Z", None)
+    alert["number"] = None
+    bad_number.write_text(json.dumps([alert]), encoding="utf-8")
+    assert cdc.main(["--fixture", str(bad_number)]) == cdc.EXIT_ERROR
+
+    clean = tmp_path / "clean.json"
+    clean.write_text(json.dumps([_alert(2, "2026-11-08T00:00:00Z", "ok")]), encoding="utf-8")
+    unwritable = tmp_path / "missing-dir" / "summary.md"
+    assert cdc.main(["--fixture", str(clean), "--summary-out", str(unwritable)]) == cdc.EXIT_ERROR
