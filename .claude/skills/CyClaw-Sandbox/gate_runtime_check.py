@@ -11,14 +11,15 @@ Run from the repo root with deps installed:
 
 import os
 import sys
+from pathlib import Path
 
 # Offline-friendly defaults so importing gate.py never blocks on missing env.
 os.environ.setdefault("GROK_API_KEY", "dummy")
 
 # When this script is launched by path, sys.path[0] is the skill directory, not
 # the repo root — so repo-root modules (gate, retrieval, ...) won't import.
-# Put the current working directory (expected: repo root) first.
-sys.path.insert(0, os.getcwd())
+# Anchor imports to this checkout, including when a delegate runs from another cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 
 def main() -> int:

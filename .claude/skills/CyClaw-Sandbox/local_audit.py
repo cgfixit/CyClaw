@@ -219,7 +219,7 @@ def swarm(out: Path, scratch: Path) -> None:
         detail = (f"{data.get('total_passed')}/{data.get('total_checks')} checks, "
                   f"Ollama tier {data.get('ollama_tier')}")
         shutil.copy2(report, out / "verification_report.json")
-    record("swarm", "9 phases through the real LangGraph runtime", rc == 0, detail)
+    record("swarm", "10 in-process phases (Tier 0; real LangGraph required)", rc == 0, detail)
 
 
 # ── stage 4: live gate ───────────────────────────────────────────────────────

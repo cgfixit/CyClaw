@@ -19,13 +19,34 @@ import json
 import os
 import sys
 import time
-from urllib.request import Request, urlopen
+from email.message import Message
 from urllib.error import HTTPError
+from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 R = "\033[91m"; G = "\033[92m"; Y = "\033[93m"; B = "\033[94m"; N = "\033[0m"
 
 API_KEY = os.environ.get("CYCLAW_API_KEY", "")
 BASE_URL = os.environ.get("CYCLAW_URL", "http://127.0.0.1:8787")
+
+
+def _local_url(path: str) -> str:
+    """Refuse destinations outside the disposable local gateway."""
+    parsed = urlparse(BASE_URL)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError(f"CYCLAW_URL must be an http loopback URL, got {BASE_URL!r}")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+        raise ValueError("CYCLAW_URL must contain only a loopback origin")
+    return f"{BASE_URL.rstrip('/')}{path}"
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req: Request, fp: object, code: int, msg: str, headers: Message, newurl: str) -> None:
+        """Keep authenticated probes on their validated loopback origin."""
+        return None
+
+
+_OPEN = build_opener(ProxyHandler({}), _NoRedirect()).open
 
 
 class ConsoleTest:
@@ -36,15 +57,15 @@ class ConsoleTest:
 
     def _request(self, method: str, path: str, body: dict | None = None,
                  with_auth: bool = True, timeout: int = 15) -> tuple[int, dict]:
-        url = f"{BASE_URL}{path}"
+        url = _local_url(path)
         data = json.dumps(body).encode() if body else None
-        req = Request(url, data=data, method=method)
+        req = Request(url, data=data, method=method)  # noqa: S310
         req.add_header("Content-Type", "application/json")
         if with_auth and API_KEY:
             req.add_header("Authorization", f"Bearer {API_KEY}")
 
         try:
-            with urlopen(req, timeout=timeout) as resp:
+            with _OPEN(req, timeout=timeout) as resp:  # noqa: S310
                 return resp.status, json.loads(resp.read().decode())
         except HTTPError as e:
             body_text = e.read().decode() if e.fp else "{}"
@@ -92,16 +113,19 @@ class ConsoleTest:
         self._check("/health has graph_timeout_sec", "graph_timeout_sec" in data)
         self._check("/health has index_ready", "index_ready" in data)
 
-        # Security headers. urllib's header dict keys come back lowercased
-        # (http.client.HTTPResponse.msg), so the headers are always present on
-        # the wire (verified: gate.py sets them on every response) but a
-        # mixed-case membership check against this dict silently always fails.
-        req = Request(f"{BASE_URL}/health", method="GET")
+        # Security headers
+        req = Request(_local_url("/health"), method="GET")  # noqa: S310
         try:
-            with urlopen(req, timeout=5) as resp:
-                headers = {k.lower(): v for k, v in dict(resp.headers).items()}
-                self._check("X-Content-Type-Options header", "x-content-type-options" in headers)
-                self._check("X-Frame-Options header", "x-frame-options" in headers)
+            with _OPEN(req, timeout=5) as resp:  # noqa: S310
+                # HTTPMessage preserves case-insensitive field lookup.
+                self._check(
+                    "X-Content-Type-Options header",
+                    resp.headers.get("X-Content-Type-Options") == "nosniff",
+                )
+                self._check(
+                    "X-Frame-Options header",
+                    resp.headers.get("X-Frame-Options") == "DENY",
+                )
         except Exception:
             self._check("Security headers", False, "Could not fetch headers")
 
@@ -114,10 +138,10 @@ class ConsoleTest:
             self._check(f"{path} returns 401 without key", status == 401, f"got {status}")
 
         # Bad key test
-        req = Request(f"{BASE_URL}/soul", method="GET")
+        req = Request(_local_url("/soul"), method="GET")  # noqa: S310
         req.add_header("Authorization", "Bearer wrong-key")
         try:
-            with urlopen(req, timeout=5) as resp:
+            with _OPEN(req, timeout=5) as resp:  # noqa: S310
                 self._check("/soul returns 401 with bad key", False, "got 200")
         except HTTPError as e:
             self._check("/soul returns 401 with bad key", e.code == 401)
