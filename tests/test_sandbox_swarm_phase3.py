@@ -252,7 +252,7 @@ def test_query_verdicts_and_custom_report_need_no_local_listener(
     retrieval = types.ModuleType("retrieval")
     retrieval.embeddings = embeddings
     hybrid = types.ModuleType("retrieval.hybrid_search")
-    hybrid.HybridRetriever = lambda: object()
+    hybrid.HybridRetriever = object
     for name, stub in {
         "graph": graph, "retrieval": retrieval, "retrieval.embeddings": embeddings,
         "retrieval.hybrid_search": hybrid, "chromadb": types.ModuleType("chromadb"),
