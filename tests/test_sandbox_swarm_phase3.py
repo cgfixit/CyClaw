@@ -19,12 +19,11 @@ import pytest
 import yaml
 
 _REPO = Path(__file__).resolve().parents[1]
-_CLAUDE = _REPO / ".claude" / "skills" / "CyClaw-Sandbox" / "run_full_verification.py"
-_CODEX = _REPO / ".agents" / "skills" / "cyclaw-sandbox" / "run_full_verification.py"
+_VERIFIER = _REPO / ".claude" / "skills" / "CyClaw-Sandbox" / "run_full_verification.py"
 
 
-def _load_claude_verifier():
-    spec = importlib.util.spec_from_file_location("cyclaw_sandbox_verifier_test", _CLAUDE)
+def _load_verifier():
+    spec = importlib.util.spec_from_file_location("cyclaw_sandbox_verifier_test", _VERIFIER)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -32,16 +31,7 @@ def _load_claude_verifier():
     return module
 
 
-def _load_codex_verifier():
-    spec = importlib.util.spec_from_file_location("cyclaw_codex_sandbox_verifier_test", _CODEX)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _stub_codex_phases_except_queries(module, monkeypatch, query_fn) -> None:
+def _stub_phases_except_queries(module, monkeypatch, query_fn) -> None:
     monkeypatch.setattr(module, "phase_execute_queries", query_fn)
     for name, phase_name in (
         ("phase_config_invariants", "Config Invariants"),
@@ -67,20 +57,14 @@ def _phase3(text: str) -> str:
     return text[start:end]
 
 
-def test_claude_swarm_builds_chunks_before_stemmer_import() -> None:
-    phase = _phase3(_CLAUDE.read_text(encoding="utf-8"))
+def test_swarm_builds_chunks_before_stemmer_import() -> None:
+    phase = _phase3(_VERIFIER.read_text(encoding="utf-8"))
     assert phase.index('chunks.append({"text": text') < phase.index("from retrieval.stemmer import tokenize_and_stem")
     assert 'raise ValueError("no chunks to index")' in phase
 
 
-def test_codex_swarm_builds_chunks_before_stemmer_import() -> None:
-    phase = _phase3(_CODEX.read_text(encoding="utf-8"))
-    assert phase.index('chunks.append({"text": text') < phase.index("from retrieval.stemmer import tokenize_and_stem")
-    assert 'raise ValueError("no chunks to index")' in phase
-
-
-def test_claude_swarm_writes_report_when_query_phase_raises(tmp_path, monkeypatch) -> None:
-    module = _load_claude_verifier()
+def test_swarm_writes_report_when_query_phase_raises(tmp_path, monkeypatch) -> None:
+    module = _load_verifier()
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(module, "_install_stubs", lambda: None)
@@ -89,23 +73,7 @@ def test_claude_swarm_writes_report_when_query_phase_raises(tmp_path, monkeypatc
     def query_failure():
         raise RuntimeError("query phase failed")
 
-    monkeypatch.setattr(module, "phase_execute_queries", query_failure)
-    for name, phase_name in (
-        ("phase_config_invariants", "Config Invariants"),
-        ("phase_telemetry_kill", "Telemetry Kill"),
-        ("phase_build_corpus", "Corpus & Index"),
-        ("phase_triple_gate", "Triple-Gate Online API"),
-        ("phase_audit_integrity", "Audit Integrity"),
-        ("phase_key_redaction", "Key Redaction"),
-        ("phase_metrics_and_invariants", "Metrics & Invariants"),
-        ("phase_terminal_consoles", "Terminal Consoles"),
-        ("phase_terminal_html", "Terminal HTML Contract"),
-    ):
-        monkeypatch.setattr(
-            module,
-            name,
-            lambda phase_name=phase_name: module.PhaseResult(phase_name, [module.Check("ok", True)]),
-        )
+    _stub_phases_except_queries(module, monkeypatch, query_failure)
 
     assert module.main() == 1
     report = json.loads((tmp_path / "verification_report.json").read_text(encoding="utf-8"))
@@ -116,83 +84,8 @@ def test_claude_swarm_writes_report_when_query_phase_raises(tmp_path, monkeypatc
     )
 
 
-def test_claude_swarm_default_clone_uses_fixed_destination(tmp_path, monkeypatch) -> None:
-    module = _load_claude_verifier()
-    clone = tmp_path / "CyClaw"
-    calls = []
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CYCLAW_REPO", raising=False)
-    monkeypatch.setattr(module, "CYCLAW_DIR", clone)
-    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/git")
-    monkeypatch.setattr(module.subprocess, "run", lambda argv, **kwargs: calls.append((argv, kwargs)))
-
-    module._ensure_repo()
-
-    assert calls == [
-        (
-            ["/usr/bin/git", "clone", "--depth", "1", "--branch", "main", module.REPO_URL, "."],
-            {"cwd": clone, "check": True, "capture_output": True},
-        )
-    ]
-
-
-def test_claude_swarm_import_does_not_create_temp_clone(monkeypatch) -> None:
-    import tempfile
-
-    monkeypatch.delenv("CYCLAW_REPO", raising=False)
-    before = set(Path(tempfile.gettempdir()).glob("cyclaw-sandbox-*"))
-    module = _load_claude_verifier()
-    after = set(Path(tempfile.gettempdir()).glob("cyclaw-sandbox-*"))
-    assert after == before
-    assert module.CYCLAW_DIR is None
-    assert module._OWNED_TEMP_ROOT is None
-
-
-def test_claude_swarm_removes_owned_temp_clone(tmp_path, monkeypatch) -> None:
-    module = _load_claude_verifier()
-    owned = tmp_path / "owned"
-    clone = owned / "CyClaw"
-    clone.mkdir(parents=True)
-    (clone / "query_results.json").write_text("{}", encoding="utf-8")
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CYCLAW_REPO", raising=False)
-    monkeypatch.setattr(module, "CYCLAW_DIR", clone)
-    monkeypatch.setattr(module, "_OWNED_TEMP_ROOT", owned)
-    monkeypatch.setattr(module, "_install_stubs", lambda: None)
-    monkeypatch.setattr(module, "_ensure_repo", lambda: None)
-
-    def query_failure():
-        raise RuntimeError("query phase failed")
-
-    monkeypatch.setattr(module, "phase_execute_queries", query_failure)
-    for name, phase_name in (
-        ("phase_config_invariants", "Config Invariants"),
-        ("phase_telemetry_kill", "Telemetry Kill"),
-        ("phase_build_corpus", "Corpus & Index"),
-        ("phase_triple_gate", "Triple-Gate Online API"),
-        ("phase_audit_integrity", "Audit Integrity"),
-        ("phase_key_redaction", "Key Redaction"),
-        ("phase_metrics_and_invariants", "Metrics & Invariants"),
-        ("phase_terminal_consoles", "Terminal Consoles"),
-        ("phase_terminal_html", "Terminal HTML Contract"),
-    ):
-        monkeypatch.setattr(
-            module,
-            name,
-            lambda phase_name=phase_name: module.PhaseResult(phase_name, [module.Check("ok", True)]),
-        )
-
-    assert module.main() == 1
-    assert not owned.exists()
-    report = json.loads((tmp_path / "verification_report.json").read_text(encoding="utf-8"))
-    assert report["total_checks"] >= 1
-    assert (tmp_path / "query_results.json").is_file()
-
-
-def test_codex_swarm_default_clone_uses_assigned_destination(tmp_path, monkeypatch) -> None:
-    module = _load_codex_verifier()
+def test_swarm_default_clone_uses_assigned_destination(tmp_path, monkeypatch) -> None:
+    module = _load_verifier()
     clone = tmp_path / "CyClaw"
     calls = []
 
@@ -213,21 +106,21 @@ def test_codex_swarm_default_clone_uses_assigned_destination(tmp_path, monkeypat
     ]
 
 
-def test_codex_swarm_import_does_not_create_temp_clone(monkeypatch) -> None:
+def test_swarm_import_does_not_create_temp_clone(monkeypatch) -> None:
     import tempfile
 
     monkeypatch.delenv("CYCLAW_REPO", raising=False)
     monkeypatch.delenv("CYCLAW_SKIP_ENSURE", raising=False)
     before = set(Path(tempfile.gettempdir()).glob("cyclaw-sandbox-*"))
-    module = _load_codex_verifier()
+    module = _load_verifier()
     after = set(Path(tempfile.gettempdir()).glob("cyclaw-sandbox-*"))
     assert after == before
     assert module.CYCLAW_DIR is None
     assert module._OWNED_TEMP_ROOT is None
 
 
-def test_codex_swarm_removes_owned_temp_clone(tmp_path, monkeypatch) -> None:
-    module = _load_codex_verifier()
+def test_swarm_removes_owned_temp_clone(tmp_path, monkeypatch) -> None:
+    module = _load_verifier()
     owned = tmp_path / "owned"
     clone = owned / "CyClaw"
     clone.mkdir(parents=True)
@@ -240,12 +133,11 @@ def test_codex_swarm_removes_owned_temp_clone(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(module, "_OWNED_TEMP_ROOT", owned)
     monkeypatch.setattr(module, "_install_stubs", lambda: None)
     monkeypatch.setattr(module, "_ensure_repo", lambda: None)
-    monkeypatch.setattr(module, "_install_deps", lambda: False)
 
     def query_failure():
         raise RuntimeError("query phase failed")
 
-    _stub_codex_phases_except_queries(module, monkeypatch, query_failure)
+    _stub_phases_except_queries(module, monkeypatch, query_failure)
 
     assert module.main() == 1
     assert not owned.exists()
@@ -269,8 +161,8 @@ def test_codex_swarm_removes_owned_temp_clone(tmp_path, monkeypatch) -> None:
             module.CYCLAW_DIR = None
 
 
-def test_codex_swarm_does_not_persist_stale_shared_results_file(tmp_path, monkeypatch) -> None:
-    module = _load_codex_verifier()
+def test_swarm_does_not_persist_stale_shared_results_file(tmp_path, monkeypatch) -> None:
+    module = _load_verifier()
     owned = tmp_path / "owned"
     clone = owned / "CyClaw"
     clone.mkdir(parents=True)
@@ -289,12 +181,11 @@ def test_codex_swarm_does_not_persist_stale_shared_results_file(tmp_path, monkey
     monkeypatch.setattr(module, "RESULTS_FILE", stale)
     monkeypatch.setattr(module, "_install_stubs", lambda: None)
     monkeypatch.setattr(module, "_ensure_repo", lambda: None)
-    monkeypatch.setattr(module, "_install_deps", lambda: False)
 
     def query_failure():
         raise RuntimeError("query phase failed")
 
-    _stub_codex_phases_except_queries(module, monkeypatch, query_failure)
+    _stub_phases_except_queries(module, monkeypatch, query_failure)
 
     assert module.main() == 1
     assert not owned.exists()
@@ -304,12 +195,12 @@ def test_codex_swarm_does_not_persist_stale_shared_results_file(tmp_path, monkey
 
 
 @pytest.mark.parametrize("failure", [None, "dropped_audit", "failed_flush", "non_object"])
-def test_claude_audit_phase_requires_current_sanitized_probe(
+def test_audit_phase_requires_current_sanitized_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None,
 ) -> None:
     from utils import logger, numbat_emitter
 
-    module = _load_claude_verifier()
+    module = _load_verifier()
     monkeypatch.chdir(tmp_path)
     cfg = yaml.safe_load((_REPO / "config.yaml").read_text(encoding="utf-8"))
     audit = tmp_path / "audit.jsonl"
@@ -334,10 +225,10 @@ def test_claude_audit_phase_requires_current_sanitized_probe(
 
 
 @pytest.mark.parametrize("failure", [None, "error", "no_call", "wrong_answer", "extra_call"])
-def test_claude_query_verdicts_and_custom_report_need_no_local_listener(
+def test_query_verdicts_and_custom_report_need_no_local_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None,
 ) -> None:
-    module = _load_claude_verifier()
+    module = _load_verifier()
 
     def answer(state: dict[str, str], llm: Any, model: str) -> dict[str, str]:
         text = llm.response if failure == "no_call" else llm.generate(state["query"])
@@ -384,10 +275,10 @@ def test_claude_query_verdicts_and_custom_report_need_no_local_listener(
         assert [check.passed for check in result.checks] == [True, True, False, False, False]
 
 
-def test_claude_telemetry_phase_detects_unapplied_values(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telemetry_phase_detects_unapplied_values(monkeypatch: pytest.MonkeyPatch) -> None:
     from utils import telemetry_kill
 
-    module = _load_claude_verifier()
+    module = _load_verifier()
     monkeypatch.chdir(_REPO)
     monkeypatch.setattr(telemetry_kill, "apply_telemetry_kill", lambda: {})
 
@@ -397,8 +288,8 @@ def test_claude_telemetry_phase_detects_unapplied_values(monkeypatch: pytest.Mon
     assert any(check.name.startswith("telemetry_kill_value_") and not check.passed for check in result.checks)
 
 
-def test_claude_skip_ensure_requires_prepared_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    module = _load_claude_verifier()
+def test_skip_ensure_requires_prepared_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_verifier()
     monkeypatch.setenv("CYCLAW_SKIP_ENSURE", "1")
     monkeypatch.delenv("CYCLAW_REPO", raising=False)
     with pytest.raises(RuntimeError, match="requires CYCLAW_REPO"):
@@ -414,10 +305,10 @@ def test_claude_skip_ensure_requires_prepared_checkout(tmp_path: Path, monkeypat
     assert module.CYCLAW_DIR == tmp_path
 
 
-def test_claude_missing_graph_dependency_refuses_synthetic_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_graph_dependency_refuses_synthetic_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
     import builtins
 
-    module = _load_claude_verifier()
+    module = _load_verifier()
     real_import = builtins.__import__
 
     def without_langgraph(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -430,12 +321,12 @@ def test_claude_missing_graph_dependency_refuses_synthetic_replacement(monkeypat
         module._install_stubs()
 
 
-def test_claude_empty_phase_cannot_report_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    module = _load_claude_verifier()
+def test_empty_phase_cannot_report_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_verifier()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(module, "_install_stubs", lambda: None)
     monkeypatch.setattr(module, "_ensure_repo", lambda: None)
-    _stub_codex_phases_except_queries(module, monkeypatch, lambda: module.PhaseResult("5 Queries"))
+    _stub_phases_except_queries(module, monkeypatch, lambda: module.PhaseResult("5 Queries"))
 
     assert module.main() == 1
     report = json.loads((tmp_path / "verification_report.json").read_text(encoding="utf-8"))

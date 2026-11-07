@@ -14,8 +14,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
-    "sandbox_verifier", Path(__file__).with_name("run_full_verification.py")
+    "sandbox_verifier", Path(__file__).resolve().parents[3] / ".claude/skills/CyClaw-Sandbox/run_full_verification.py"
 )
+if spec is None or spec.loader is None:
+    raise RuntimeError("maintained sandbox verifier is unavailable")
 verifier = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = verifier
 spec.loader.exec_module(verifier)
@@ -28,7 +30,9 @@ class VerificationContract(unittest.TestCase):
         graph = types.ModuleType("graph")
         graph.retrieve_node = lambda state, *_: {"retrieved_docs": ["fixture"]}
         graph.audit_logger_node = lambda *_: {}
-        graph.local_llm_node = lambda *_: {"answer_model": "local"}
+        graph.local_llm_node = lambda state, llm, *_: {
+            "answer_model": "local", "answer": llm.generate(state["query"]),
+        }
         graph.user_gate_node = lambda *_: {"needs_user_confirm": True}
         retrieval = types.ModuleType("retrieval")
         retrieval.embeddings = types.ModuleType("retrieval.embeddings")
@@ -38,6 +42,7 @@ class VerificationContract(unittest.TestCase):
             "graph": graph, "retrieval": retrieval,
             "retrieval.embeddings": retrieval.embeddings,
             "retrieval.hybrid_search": hybrid,
+            "chromadb": types.ModuleType("chromadb"),
             "yaml": types.SimpleNamespace(safe_load=lambda _: {}),
         }
         cases = (
@@ -54,29 +59,37 @@ class VerificationContract(unittest.TestCase):
                             "needs_user_confirm": not force_local and state["query"] not in
                             {"what is CyClaw", "explain CyClaw security"}
                         }
-                        graph.offline_best_effort_node = lambda *_, offline_model=offline_model: {"answer_model": offline_model}
+                        graph.offline_best_effort_node = lambda state, llm, *_, offline_model=offline_model: {
+                            "answer_model": offline_model, "answer": llm.generate(state["query"]),
+                        }
                         with contextlib.redirect_stdout(io.StringIO()):
                             result = verifier.phase_execute_queries()
                         self.assertEqual([check.passed for check in result.checks], expected)
 
     def test_report_survives_phase_failure_and_labels_its_own_results(self):
         phases = (
-            "phase_config_invariants", "phase_telemetry_kill", "phase_build_corpus",
-            "phase_execute_queries", "phase_triple_gate", "phase_audit_integrity",
-            "phase_key_redaction", "phase_metrics_and_invariants",
-            "phase_terminal_consoles", "phase_terminal_html",
+            ("phase_config_invariants", "Config Invariants"),
+            ("phase_telemetry_kill", "Telemetry Kill"),
+            ("phase_build_corpus", "Corpus & Index"),
+            ("phase_execute_queries", "5 Queries"),
+            ("phase_triple_gate", "Triple-Gate Online API"),
+            ("phase_audit_integrity", "Audit Integrity"),
+            ("phase_key_redaction", "Key Redaction"),
+            ("phase_metrics_and_invariants", "Metrics & Invariants"),
+            ("phase_terminal_consoles", "Terminal Consoles"),
+            ("phase_terminal_html", "Terminal HTML Contract"),
         )
         for broken_query_phase in (False, True):
             with self.subTest(broken_query_phase=broken_query_phase), contextlib.ExitStack() as stack:
                 tmp = stack.enter_context(tempfile.TemporaryDirectory())
                 stack.enter_context(contextlib.chdir(tmp))
-                for setup in ("_install_stubs", "_ensure_repo", "_install_deps"):
+                for setup in ("_install_stubs", "_ensure_repo"):
                     stack.enter_context(patch.object(verifier, setup, return_value=False))
-                for phase_name in phases:
-                    def fake_phase(name=phase_name, broken_query_phase=broken_query_phase):
+                for phase_name, label in phases:
+                    def fake_phase(name=phase_name, label=label, broken_query_phase=broken_query_phase):
                         if name == "phase_execute_queries" and broken_query_phase:
                             raise RuntimeError("synthetic query phase failure")
-                        return verifier.PhaseResult(name, [verifier.Check(
+                        return verifier.PhaseResult(label, [verifier.Check(
                             f"check-{n}", name != "phase_key_redaction"
                         ) for n in range(5)])
                     fake_phase.__name__ = phase_name
@@ -88,8 +101,8 @@ class VerificationContract(unittest.TestCase):
                 self.assertEqual(verifier.main(), 1)
                 report = json.loads(Path("verification_report.json").read_text(encoding="utf-8"))
                 self.assertEqual(report["ollama_tier"], 0)
-                self.assertIn("\nphase_key_redaction: FAIL\n", output.getvalue())
-                self.assertIn("\nphase_audit_integrity: PASS\n", output.getvalue())
+                self.assertIn("\nAPI Key Redaction (both providers): FAIL\n", output.getvalue())
+                self.assertIn("\nAudit Integrity: PASS\n", output.getvalue())
                 if broken_query_phase:
                     self.assertFalse(report["phases"][3]["passed"])
                     self.assertIn("synthetic query phase failure", report["phases"][3]["checks"][0]["detail"])
