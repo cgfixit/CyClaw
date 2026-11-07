@@ -1,0 +1,74 @@
+# ==============================================================================
+# CyClaw — Code-scanning dismissal rationale check (issue #1779)
+#
+# Root SECURITY.md ("Code-scanning dismissals") requires every alert dismissed
+# on or after the policy's effective date to carry a one-sentence comment
+# saying what was checked. GitHub's dismissal comment is optional, so this is a
+# REPORTING check, not a hard gate: it lists in-scope dismissals with a null,
+# empty, or whitespace-only comment in the job summary and a JSON artifact, and
+# fails the run so the owner is notified. It never dismisses, reopens, or edits
+# an alert, and historical dismissals before the effective date are ignored.
+#
+# Exit codes of scripts/check_dismissal_comments.py: 0 no gaps, 1 gaps found,
+# 2 API/auth error (no conclusion). The step summary says which one happened.
+# ==============================================================================
+
+name: Code-scanning dismissal comments
+
+on:
+  # Weekly — Wednesdays 14:41 UTC, staggered away from the other scanners.
+  # NOTE: scheduled triggers only fire from the repository's default branch.
+  schedule:
+    - cron: '41 14 * * 3'
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Cutoff date (YYYY-MM-DD); empty = policy effective date'
+        required: false
+        default: ''
+
+# Deny-all by default; the job grants only what it needs.
+permissions: {}
+
+concurrency:
+  group: dismissal-comments-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: dismissal-comments (report)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # checkout of the trusted default-branch script
+      security-events: read # list code-scanning alerts; read only
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Report dismissals without a rationale
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --json-out dismissal-comments.json)
+          if [ -n "${SINCE:-}" ]; then
+            args+=(--since "$SINCE")
+          fi
+          python -I scripts/check_dismissal_comments.py "${args[@]}"
+
+      - name: Upload report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dismissal-comments
+          path: dismissal-comments.json
+          if-no-files-found: ignore
+          retention-days: 30

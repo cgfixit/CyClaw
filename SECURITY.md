@@ -124,6 +124,14 @@ These are deliberate GitHub Actions exceptions — documented so a dismissed cod
 - **Last reviewed:** 2026-10-23 against `codex-apply-fixes.yml` on main `ae767ed9`: owner/SHA gating, isolated candidate execution and the data-only publish step remain in place. Alert state is not used as evidence of safety.
 - **Review date:** next change to `codex-apply-fixes.yml` gate/candidate/publish jobs, or 2026-12-01, whichever comes first.
 
+## Code-scanning dismissals
+
+Effective 2026-11-07 (issue #1779), every code-scanning alert dismissed in this repository needs a dismissal reason **and** a one-sentence comment. The comment says what was checked, the scope or revision it was checked at, and any expiry or reopen trigger. Example: `False positive: graph.py@abc1234 passes a constant, not user input; reopen if the call site takes request data.` When an existing assessment covers the same finding and path, link it instead: a section of this file, `.github/SECURITY.md`, or an issue such as #1748.
+
+- **Scope:** new dismissals only. Dismissals made before 2026-11-07 stay as they are. The 2026-11-05 count was 1,403 dismissed alerts, 1,269 of them without a comment. Re-review an old alert only for its own reasons, never just to add a comment.
+- **Agents:** an agent that dismisses an alert writes the comment itself. An empty comment counts as a policy violation, not as a missing detail.
+- **Enforcement is reporting, not a hard gate.** GitHub accepts a dismissal with no comment, and no repository setting here makes one required. [`dismissal-comments.yml`](.github/workflows/dismissal-comments.yml) runs [`scripts/check_dismissal_comments.py`](scripts/check_dismissal_comments.py) weekly or on demand. It uses a read-only `security-events: read` token. It lists every dismissal since the effective date whose comment is null, empty or whitespace-only, and it fails the run when it finds one. Exit `2` means an API or auth error, which is not the same as "no gaps". The job never dismisses, reopens or edits an alert.
+- **What a missing comment means:** an auditability gap. It is not evidence that the dismissal was wrong. Whether a dismissal was correct still depends on the finding, the reachable path and the compensating controls.
 
 ## Verification
 
