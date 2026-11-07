@@ -12,6 +12,7 @@ import json
 import shutil
 import sys
 import types
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +58,7 @@ def _stub_codex_phases_except_queries(module, monkeypatch, query_fn) -> None:
         monkeypatch.setattr(
             module,
             name,
-            lambda phase_name=phase_name: module.PhaseResult(phase_name, [module.Check("ok", True)]),
+            lambda *_args, phase_name=phase_name: module.PhaseResult(phase_name, [module.Check("ok", True)]),
         )
 
 
@@ -303,7 +304,7 @@ def test_codex_swarm_does_not_persist_stale_shared_results_file(tmp_path, monkey
     assert not (start_cwd / "query_results.json").exists()
 
 
-@pytest.mark.parametrize("failure", [None, "dropped_audit", "failed_flush", "non_object"])
+@pytest.mark.parametrize("failure", [None, "dropped_audit", "failed_flush", "non_object", "stale_rag"])
 def test_claude_audit_phase_requires_current_sanitized_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None,
 ) -> None:
@@ -316,8 +317,11 @@ def test_claude_audit_phase_requires_current_sanitized_probe(
     cfg["logging"]["audit_file"] = str(audit)
     cfg["numbat"]["output_path"] = str(tmp_path / "numbat.ndjson")
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    started_at = datetime.now(UTC).isoformat()
     for index in range(5):
         logger.audit_log({"event": "rag_query", "query": f"synthetic-{index}"}, cfg=cfg)
+    if failure == "stale_rag":
+        started_at = datetime.now(UTC).isoformat()
     if failure == "dropped_audit":
         monkeypatch.setattr(logger, "audit_log", lambda *_args, **_kwargs: None)
     elif failure == "failed_flush":
@@ -326,9 +330,11 @@ def test_claude_audit_phase_requires_current_sanitized_probe(
         with audit.open("a", encoding="utf-8") as stream:
             stream.write("[]\n")
 
-    result = module.phase_audit_integrity()
+    result = module.phase_audit_integrity(started_at)
 
     assert result.passed is (failure is None), [(check.name, check.passed) for check in result.checks]
+    if failure == "stale_rag":
+        assert [check.name for check in result.checks if not check.passed] == ["metrics_saw_rag_events"]
     assert "sandbox-audit-query" not in audit.read_text(encoding="utf-8")
     assert "sandbox-secret-token" not in audit.read_text(encoding="utf-8")
 
@@ -379,6 +385,10 @@ def test_claude_query_verdicts_and_custom_report_need_no_local_listener(
     assert json.loads(report.read_text(encoding="utf-8"))["ollama_tier"] == 0
 
     if failure is None:
+        graph.user_gate_node = lambda *_args: {}
+        result = module.phase_execute_queries()
+        assert [check.passed for check in result.checks] == [True, True, True, False, False]
+
         graph.route_by_score_node = lambda *_args: {"needs_user_confirm": False}
         result = module.phase_execute_queries()
         assert [check.passed for check in result.checks] == [True, True, False, False, False]

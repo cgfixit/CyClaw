@@ -61,6 +61,7 @@ import tempfile
 import time
 import traceback
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -725,7 +726,14 @@ def phase_execute_queries() -> PhaseResult:
         elif expected_model == "offline-best-effort":
             passed = generated and needs_confirm and state.get("answer_model") == "offline-best-effort"
         else:
-            passed = needs_confirm and state.get("needs_user_confirm") is True
+            passed = (
+                needs_confirm
+                and n3.get("needs_user_confirm") is True
+                and not state.get("answer")
+                and not state.get("answer_model")
+                and not state.get("error")
+                and len(llm.calls) == calls_before
+            )
 
         status = f"{G}PASS{N}" if passed else f"{R}FAIL{N}"
         log(f"    [{status}] model={state.get('answer_model', '--')}, score={top_score:.4f}")
@@ -926,13 +934,13 @@ def phase_triple_gate() -> PhaseResult:
 # ---------------------------------------------------------------------------
 # Phase 6: Audit Log, Metrics, and Numbat Integrity
 # ---------------------------------------------------------------------------
-def phase_audit_integrity() -> PhaseResult:
+def phase_audit_integrity(started_at: str) -> PhaseResult:
     banner("Phase 6: Audit Log, Metrics & Numbat Integrity")
     phase = PhaseResult("Audit Integrity")
 
     import yaml
 
-    from metrics import summarize_audit
+    from metrics import compute_metrics, summarize_audit
     from utils.logger import audit_log
     from utils.numbat_emitter import flush_numbat_writes
 
@@ -967,7 +975,13 @@ def phase_audit_integrity() -> PhaseResult:
         "malformed_lines", "events_with_raw_query", "rag_events_missing_query_hash",
     ))
     phase.checks.append(Check("metrics_audit_integrity_clean", clean_integrity, str(integrity)))
-    phase.checks.append(Check("metrics_saw_rag_events", summary.get("rag_query_count", 0) >= 5))
+    # Audit timestamps are UTC ISO 8601. Old runs cannot satisfy this count.
+    current = (
+        record for record in valid_objects
+        if isinstance(record.get("timestamp"), str) and record["timestamp"] >= started_at
+    )
+    rag_count = compute_metrics(current)["rag_query_count"]
+    phase.checks.append(Check("metrics_saw_rag_events", rag_count >= 5, f"{rag_count} from this run"))
 
     numbat_cfg = cfg.get("numbat") or {}
     if numbat_cfg.get("enabled") is True:
@@ -1318,6 +1332,11 @@ def _run_verification() -> int:
 
     log("Ollama realism: Tier 0 (in-process MockLocalLLMClient; no inference)", C)
 
+    started_at = datetime.now(UTC).isoformat()
+
+    def check_audit_integrity() -> PhaseResult:
+        return phase_audit_integrity(started_at)
+
     results: list[PhaseResult] = []
     phases = [
         phase_config_invariants,
@@ -1325,7 +1344,7 @@ def _run_verification() -> int:
         phase_build_corpus,
         phase_execute_queries,
         phase_triple_gate,
-        phase_audit_integrity,
+        check_audit_integrity,
         phase_key_redaction,
         phase_metrics_and_invariants,
         phase_terminal_consoles,
