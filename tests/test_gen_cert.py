@@ -20,9 +20,7 @@ def test_san_includes_hostname_and_loopback():
 
 def test_san_appends_extra_entries():
     san = gen_cert.subject_alt_names("cyclaw-box", extra=["IP:10.0.0.5", "DNS:box.local"])
-    assert san.endswith("IP:10.0.0.5,DNS:box.local") or (
-        "IP:10.0.0.5" in san and "DNS:box.local" in san
-    )
+    assert san.endswith("IP:10.0.0.5,DNS:box.local")
 
 
 def test_missing_openssl_is_env_error(monkeypatch):

@@ -72,8 +72,8 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from utils import launchd_plist  # noqa: E402
-from utils.telemetry_kill import scheduler_env_overlay  # noqa: E402
 from utils.gateway_url import read_gate_port  # noqa: E402
+from utils.telemetry_kill import scheduler_env_overlay  # noqa: E402
 
 _LABELS = types.MappingProxyType({
     "gate": "com.cgfixit.cyclaw.gate",

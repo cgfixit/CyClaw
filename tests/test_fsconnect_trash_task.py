@@ -61,7 +61,8 @@ def test_generates_xml_without_registering(tmp_path: Path, capsys) -> None:
     xml_path = home / ".CyClaw" / "tasks" / "CyClaw-fsconnect-trash.xml"
     assert xml_path.exists()
     text = xml_path.read_bytes().decode("utf-16")
-    assert "trash-empty" in text or (home / ".CyClaw" / "tasks" / "CyClaw-fsconnect-trash.cmd").exists()
+    # The task XML never names the action itself: it runs the generated .cmd.
+    assert "CyClaw-fsconnect-trash.cmd" in text
     cmd = (home / ".CyClaw" / "tasks" / "CyClaw-fsconnect-trash.cmd").read_text(encoding="utf-8")
     assert "trash-empty" in cmd
     assert "--confirm" in cmd
