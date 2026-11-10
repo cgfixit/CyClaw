@@ -17,7 +17,13 @@ import pytest
 from rank_bm25 import BM25Okapi
 
 from retrieval.stemmer import tokenize_and_stem
-from retrieval.hybrid_search import HybridRetriever, SearchResult, _mps_risk_present
+from retrieval.hybrid_search import (
+    _BM25_SCORE_CACHE_BUDGET_BYTES,
+    HybridRetriever,
+    SearchResult,
+    _bm25_score_cache_entries,
+    _mps_risk_present,
+)
 from retrieval.vector_store import parse_stem_tags
 from utils.errors import EmbeddingServiceError, IndexNotFoundError
 
@@ -778,6 +784,53 @@ class TestBM25ScoreCache:
         second = r.hybrid_search("retrieval augmented generation")
         assert [h.rrf_score for h in first] == [h.rrf_score for h in second]
         assert [h.score for h in first] == [h.score for h in second]
+
+
+class TestBM25ScoreCacheSizing:
+    """The BM25 score cache holds one float64 per corpus chunk per entry, so its
+    entry count has to shrink as the corpus grows or its memory grows without
+    bound (256 entries over a 50,000-chunk corpus measured 102 MB).
+    """
+
+    @pytest.mark.parametrize(
+        ("corpus_size", "expected"),
+        [(1, 256), (647, 256), (16_384, 256), (16_385, 255), (200_000, 20), (10_000_000, 1)],
+    )
+    def test_entry_count_tracks_corpus_size(self, corpus_size, expected):
+        assert _bm25_score_cache_entries(corpus_size) == expected
+
+    @pytest.mark.parametrize("corpus_size", [1, 500, 16_384, 16_385, 50_000, 1_000_000, 4_194_304])
+    def test_cached_arrays_stay_inside_the_byte_budget(self, corpus_size):
+        entries = _bm25_score_cache_entries(corpus_size)
+        assert entries * corpus_size * 8 <= _BM25_SCORE_CACHE_BUDGET_BYTES
+
+    def test_constructor_bounds_the_cache_by_corpus_size(self, test_config, tmp_path, monkeypatch):
+        from pathlib import Path
+        from retrieval.indexer import build_index
+
+        cfg, config_path = test_config
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        texts = ["alpha retrieval", "beta storage", "gamma testing"]
+        for i, text in enumerate(texts):
+            (corpus / f"doc{i}.md").write_text(text, encoding="utf-8")
+        cfg["corpus"]["path"] = str(corpus)
+        Path(config_path).write_text(json.dumps(cfg), encoding="utf-8")
+        with (
+            patch("retrieval.indexer.get_embeddings_batch", return_value=[[0.1]] * len(texts)),
+            patch("retrieval.indexer.get_vector_writer"),
+        ):
+            build_index(config_path)
+        # A budget worth exactly two score arrays for this three-chunk corpus.
+        monkeypatch.setattr("retrieval.hybrid_search._BM25_SCORE_CACHE_BUDGET_BYTES", 2 * len(texts) * 8)
+        reader = SimpleNamespace(query=lambda emb, k: [], close=lambda: None)
+        with patch("retrieval.hybrid_search.get_vector_reader", return_value=reader):
+            retriever = HybridRetriever(config_path)
+        for query in ("alpha", "beta", "gamma"):
+            retriever.keyword_search(query)
+        # Three distinct queries, but only two arrays' worth of budget.
+        assert retriever._bm25_scores.cache_info().currsize == 2
+        retriever.close()
 
 
 @pytest.mark.parametrize("include_keyword_docs", [False, True])

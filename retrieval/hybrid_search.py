@@ -48,6 +48,30 @@ def _mps_risk_present() -> bool:
         return False
 
 
+# Sizing for the per-instance BM25 score cache built in HybridRetriever.__init__.
+# Each cached entry is the full float64 array BM25Okapi.get_scores() returns --
+# one float per corpus chunk -- so a fixed entry count makes the cache's memory
+# grow linearly with the corpus: measured at 256 entries, a 50,000-chunk corpus
+# held 102 MB of score arrays in the long-lived gate.py / MCP process. The byte
+# budget is what 256 entries cost at 16,384 chunks, so any corpus up to that
+# size (the shipped one is a few hundred chunks) keeps all 256 entries exactly
+# as before, and a larger corpus gets proportionally fewer.
+_BM25_SCORE_CACHE_MAX_ENTRIES = 256
+_BM25_SCORE_CACHE_BUDGET_BYTES = 32 * 1024 * 1024
+_BM25_SCORE_BYTES = 8
+
+
+def _bm25_score_cache_entries(corpus_size: int) -> int:
+    """How many BM25 score arrays to cache for a corpus of ``corpus_size`` chunks.
+
+    Never below 1: the most valuable hit is the same query retrieved twice in a
+    row (a /query that pauses at user_gate and is re-sent with a confirmation),
+    and one entry is enough to serve it however large the corpus is.
+    """
+    per_entry = max(1, corpus_size) * _BM25_SCORE_BYTES
+    return max(1, min(_BM25_SCORE_CACHE_MAX_ENTRIES, _BM25_SCORE_CACHE_BUDGET_BYTES // per_entry))
+
+
 def _best_finite(scores: Iterable[float]) -> float:
     """The largest finite raw score of one retrieval leg, or 0.0 if it has none."""
     return max((s for s in scores if math.isfinite(s)), default=0.0)
@@ -139,7 +163,13 @@ class HybridRetriever:
         # place (hit.score / hit.rrf_score in _normalize_single_path and
         # hybrid_search) and returning shared instances across calls would
         # leak one query's fusion state into the next identical query.
-        self._bm25_scores = lru_cache(maxsize=256)(self.bm25.get_scores) if self.bm25 is not None else None
+        # The entry count is sized from the corpus (_bm25_score_cache_entries)
+        # so the arrays this cache pins stay inside a fixed byte budget.
+        self._bm25_scores = (
+            lru_cache(maxsize=_bm25_score_cache_entries(len(chunks)))(self.bm25.get_scores)
+            if self.bm25 is not None
+            else None
+        )
 
     def _check_embedding_fingerprint(self) -> None:
         """Guard against serving a semantic index built on a different
