@@ -179,6 +179,44 @@ def test_windows_interface_ip_is_scope_filtered(tmp_path, capsys, monkeypatch):
     assert "192.168.1.1" not in audit_text
 
 
+def test_neighbor_under_two_redacted_interfaces_is_reported_once(tmp_path, capsys, monkeypatch):
+    # A dual-homed Windows host lists one neighbor under each "Interface:" block.
+    # Both interface addresses are out of scope here, so both rows redact to the
+    # same thing and must collapse into one.
+    path = _cfg(tmp_path, {
+        "enabled": True,
+        "allowed_cidrs": ["192.168.1.1/32"],
+    })
+    import agentic.netconnect.client as client
+
+    argv = [r"C:\\Windows\\System32\\arp.exe", "-a"]
+    monkeypatch.setattr(client.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(client, "_neighbor_command", lambda _system: argv)
+
+    def fake_run(actual, **kwargs):
+        return subprocess.CompletedProcess(
+            actual,
+            0,
+            stdout=(
+                "Interface: 192.168.1.50 --- 0x6\n"
+                "  192.168.1.1 aa-bb-cc-dd-ee-ff dynamic\n"
+                "\n"
+                "Interface: 192.168.1.51 --- 0x9\n"
+                "  192.168.1.1 aa-bb-cc-dd-ee-ff dynamic\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(client.subprocess, "run", fake_run)
+    assert cli.main(["--config", path, "arp"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["observed_count"] == 2
+    assert payload["in_scope_count"] == 1
+    assert payload["neighbors"] == [
+        {"ip": "192.168.1.1", "mac": "aa:bb:cc:dd:ee:ff", "interface": "", "state": "dynamic"}
+    ]
+
+
 @pytest.mark.usefixtures("isolated_logging")
 def test_main_wires_logging_before_dispatch(tmp_path):
     """main() must call setup_logging before dispatch, not leave it uncalled.

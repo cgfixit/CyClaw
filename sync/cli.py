@@ -217,7 +217,14 @@ def _run_auto_reindex(cfg: Any) -> int:
             text=True,
         )
     except subprocess.TimeoutExpired as exc:
-        tail = (exc.stderr or "")[-500:] if exc.stderr else ""
+        # On POSIX a timeout hands back the captured stderr as raw bytes even
+        # under text=True: the decode happens on communicate()'s normal return,
+        # which a timeout never reaches. Formatting those bytes printed a
+        # b'...' repr with escaped newlines instead of the child's own lines.
+        stderr = exc.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", "replace")
+        tail = (stderr or "")[-500:]
         _err(f"Indexer timed out after {timeout_sec}s; the index may be stale. {tail}")
         return EXIT_FAIL
     except OSError as exc:
