@@ -319,6 +319,50 @@ class TestPersistence:
         assert rl2.allow("9.9.9.9") is True
         assert rl2.allow("9.9.9.9") is False  # max_requests=2 enforced on the fresh window
 
+    @pytest.mark.parametrize(
+        "blob",
+        ["null", "5", '"text"', '["x"]', "[true]", "[Infinity]", "[1e999]", "[" + "9" * 400 + "]"],
+    )
+    def test_wrongly_shaped_persisted_window_recovers(self, tmp_path, caplog, blob):
+        """Valid JSON that is not a list of finite numbers is corrupt too.
+
+        The sweep walks every stored window for every caller, so before this
+        check one such row made allow() raise for requests from ANY address,
+        and an Infinity timestamp never left the window."""
+        import logging
+        import sqlite3
+
+        db = tmp_path / "rl.db"
+        now = 1000.0
+        rl = RateLimiter(max_requests=2, window_seconds=60, clock=lambda: now, db_path=str(db))
+        assert rl.allow("9.9.9.9") is True
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute("UPDATE rate_hits SET timestamps = ?, last_sweep = 0 WHERE ip = ?", (blob, "9.9.9.9"))
+            conn.commit()
+
+        with caplog.at_level(logging.WARNING, logger="utils.ratelimit"):
+            rl2 = RateLimiter(max_requests=2, window_seconds=60, clock=lambda: now, db_path=str(db))
+
+        assert any("corrupt" in r.message.lower() and "9.9.9.9" in r.getMessage() for r in caplog.records)
+        # An unrelated address is served, and the damaged one starts a fresh window.
+        assert rl2.allow("1.1.1.1") is True
+        assert [rl2.allow("9.9.9.9") for _ in range(3)] == [True, True, False]
+
+    def test_non_numeric_last_sweep_does_not_stop_the_limiter_starting(self, tmp_path):
+        import sqlite3
+
+        db = tmp_path / "rl.db"
+        now = 1000.0
+        rl = RateLimiter(max_requests=2, window_seconds=60, clock=lambda: now, db_path=str(db))
+        assert rl.allow("9.9.9.9") is True
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute("UPDATE rate_hits SET last_sweep = ? WHERE ip = ?", ("abc", "9.9.9.9"))
+            conn.commit()
+
+        rl2 = RateLimiter(max_requests=2, window_seconds=60, clock=lambda: now, db_path=str(db))
+        # The window itself was valid, so the earlier hit still counts.
+        assert [rl2.allow("9.9.9.9") for _ in range(2)] == [True, False]
+
 
     def test_sweep_evicts_persisted_rows_not_just_memory(self, tmp_path):
         """Swept IPs are deleted from the backend, so the table stays bounded.

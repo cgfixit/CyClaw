@@ -35,6 +35,7 @@ not for high-throughput multi-instance scale-out. See tests/test_ratelimit_postg
 
 import json
 import logging
+import math
 import sqlite3
 import threading
 import time
@@ -48,6 +49,16 @@ logger = logging.getLogger(__name__)
 
 def _is_pg_dsn(value: str | None) -> bool:
     return bool(value) and (value.startswith("postgresql") or value.startswith("postgres"))
+
+
+def _is_timestamp(value: object) -> bool:
+    """True for a finite real number, the only thing a stored window may hold."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int too large to compare as a float
+        return False
 
 
 class RateLimiter:
@@ -303,8 +314,16 @@ class RateLimiter:
             ).fetchall()
         for ip, ts_json, last_sweep in rows:
             try:
-                self._hits[ip] = json.loads(ts_json)
+                hits = json.loads(ts_json)
             except (json.JSONDecodeError, TypeError, ValueError):
+                hits = None
+            # A blob can also decode cleanly and still not be a window: null,
+            # a bare number, a list holding a string or Infinity. _sweep and
+            # allow() iterate and subtract every stored value for EVERY
+            # caller, so one such row raised TypeError on each request from
+            # any IP, and an Infinity never expired. Only a list of finite
+            # numbers -- the one shape _persist writes -- is kept.
+            if not (isinstance(hits, list) and all(_is_timestamp(t) for t in hits)):
                 # Corrupt/garbled persisted window (e.g. truncated write from a
                 # prior crash). Dropping it silently erased an IP's live rate
                 # limit on every restart with no trace; log it so the state
@@ -313,8 +332,12 @@ class RateLimiter:
                 logger.warning(
                     "Rate-limit state for IP %s is corrupt; resetting its window to empty", ip
                 )
-                self._hits[ip] = []
-            self._last_sweep = max(self._last_sweep, last_sweep or 0.0)
+                hits = []
+            self._hits[ip] = hits
+            # Same row, same trust: a non-numeric last_sweep made max() raise
+            # here, which is the constructor, so the limiter never came up.
+            if _is_timestamp(last_sweep):
+                self._last_sweep = max(self._last_sweep, last_sweep)
 
     def _persist(self, client_ip: str, now: float) -> None:
         """Persist a single IP's window to the configured backend.
