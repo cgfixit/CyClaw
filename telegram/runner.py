@@ -477,6 +477,13 @@ def poll_once(
             if details.get("fatal") is True:
                 # API key/endpoint failures affect the whole bridge, not one
                 # message. Stop without acknowledging the current update.
+                # The updates before it in this batch were fully handled,
+                # though, and raising would discard next_offset with them:
+                # hand that progress to poll_forever so the restart that
+                # follows does not replay them (a second reply, a second
+                # paid /query, a re-armed /online grant).
+                if next_offset != offset:
+                    exc.details["acked_offset"] = next_offset
                 raise
             # Unknown legacy errors remain retryable; clients explicitly mark
             # permanent 4xx responses false.
@@ -515,6 +522,34 @@ def _retry_delay(retry_after: object, floor: float) -> float:
     return floor
 
 
+def _persist_offset(
+    cfg: TelegramConfig,
+    new_offset: int,
+    offset_path: Path | None,
+    retry_sleep_sec: float,
+) -> None:
+    """Save the getUpdates offset, retrying until the write is durable."""
+    while True:
+        try:
+            save_offset(new_offset, offset_path)
+            return
+        except OSError:
+            # Do not poll again until the already-processed batch is
+            # durable. Exiting here would let launchd KeepAlive replay
+            # the same update and repeat its outbound side effects.
+            audit_log(
+                {
+                    "event": "telegram_offset_persist_failed",
+                    "channel": "telegram",
+                    "gate": "offset_persistence",
+                    "offset": new_offset,
+                    "retryable": True,
+                },
+                config_path=cfg._config_path,
+            )
+            time.sleep(retry_sleep_sec)
+
+
 def poll_forever(
     cfg: TelegramConfig,
     *,
@@ -526,7 +561,8 @@ def poll_forever(
 
     Loads/saves getUpdates offset from ``offset_path`` (default
     ``data/telegram/offset.json``). Only persists when the offset advances
-    (respects no-ack-on-TelegramRuntimeError from poll_once).
+    (respects no-ack-on-TelegramRuntimeError from poll_once). A fatal error
+    in the middle of a batch still persists the updates handled before it.
 
     ``max_iterations`` is for tests; production leaves it None.
     """
@@ -544,25 +580,7 @@ def poll_forever(
         try:
             new_offset, handled = poll_once(cfg, offset=offset)
             if new_offset is not None and new_offset != offset:
-                while True:
-                    try:
-                        save_offset(new_offset, offset_path)
-                        break
-                    except OSError:
-                        # Do not poll again until the already-processed batch is
-                        # durable. Exiting here would let launchd KeepAlive replay
-                        # the same update and repeat its outbound side effects.
-                        audit_log(
-                            {
-                                "event": "telegram_offset_persist_failed",
-                                "channel": "telegram",
-                                "gate": "offset_persistence",
-                                "offset": new_offset,
-                                "retryable": True,
-                            },
-                            config_path=cfg._config_path,
-                        )
-                        time.sleep(sleep_on_error_sec)
+                _persist_offset(cfg, new_offset, offset_path, sleep_on_error_sec)
                 offset = new_offset
             retryable = [result for result in handled if result.get("retryable") is True]
             if retryable:
@@ -573,6 +591,14 @@ def poll_forever(
             batches += 1
         except TelegramRuntimeError as exc:
             details = getattr(exc, "details", None) or {}
+            # A fatal error raised from the middle of a batch carries the
+            # offset of the updates handled before it (see poll_once). Make
+            # that durable before leaving or retrying, for the same reason
+            # the normal path above does.
+            acked = details.get("acked_offset")
+            if isinstance(acked, int) and not isinstance(acked, bool) and acked != offset:
+                _persist_offset(cfg, acked, offset_path, sleep_on_error_sec)
+                offset = acked
             if details.get("retryable") is False:
                 raise
             time.sleep(_retry_delay(details.get("retry_after"), sleep_on_error_sec))
