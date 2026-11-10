@@ -20,7 +20,7 @@ Architecture and threat notes: [`docs/channels/OPENTWEET_DESIGN.md`](../docs/cha
 ## Consent boundaries
 
 - Topic comes from `--topic`, `--topic-file`, or `opentweet.topic_file`.
-- Fail-closed on query errors, empty retrieval, `needs_confirm`, online `model_used`, empty or rail-prefixed answers, oversize answers, and missing credentials. The size limits are `opentweet.max_post_chars` and `opentweet.max_topic_chars` in `config.yaml`.
+- Fail-closed on query errors, empty retrieval, `needs_confirm`, any `model_used` other than `local` (an online model, or an offline best-effort answer to a vault miss), empty or rail-prefixed answers, oversize answers, and missing credentials. The size limits are `opentweet.max_post_chars` and `opentweet.max_topic_chars` in `config.yaml`.
 - Automatic scheduling requires the injection filter and screens both topic and answer. Answers containing URL/domain/email shapes, mentions, or hashtags are refused because this path cannot establish their provenance. Draft creation remains the review path.
 - Logs/audit carry keyed `query_fingerprint(text)` + length + OpenTweet id — never the post body or Bearer token. `post --dry-run` still calls the local `/query` endpoint and validates the answer, but does not call OpenTweet to create a post.
 - Exit codes: `0` ok · `2` refused/HTTP · `3` env/config.
