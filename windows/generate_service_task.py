@@ -38,8 +38,8 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from utils import win_schtasks  # noqa: E402
-from utils.telemetry_kill import scheduler_env_overlay  # noqa: E402
 from utils.gateway_url import read_gate_port  # noqa: E402
+from utils.telemetry_kill import scheduler_env_overlay  # noqa: E402
 
 _TASK_NAMES = types.MappingProxyType({
     "gate": "CyClaw gate",

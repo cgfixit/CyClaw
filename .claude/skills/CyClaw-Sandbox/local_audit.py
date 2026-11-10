@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import http.client
 import json
 import os
 import re
@@ -226,6 +227,7 @@ def swarm(out: Path, scratch: Path) -> None:
 class Gate:
     def __init__(self, cwd: Path, port: int, key: str, log: Path) -> None:
         self.base = f"http://127.0.0.1:{port}"  # DevSkim: ignore DS162092,DS137138 - loopback by design
+        self.port = port
         self.key = key
         log_fh = log.open("w", encoding="utf-8")
         # Same flags as gate._serve and the Dockerfile: never trust proxy headers.
@@ -261,6 +263,26 @@ class Gate:
             return exc.code, _json(exc.read()), {k.lower(): v for k, v in exc.headers.items()}
         except (OSError, TimeoutError):
             return 0, {}, {}
+
+    def oversize_status(self, path: str, raw: bytes, timeout: float = 30) -> int:
+        """POST ``raw`` on a keep-alive connection and return the status (0 on a socket error).
+
+        ``req`` goes through urllib, which always sends ``Connection: close``. The gate
+        refuses an oversize body from its declared Content-Length, before reading it, and
+        uvicorn closes a ``Connection: close`` socket the moment that 413 is written --
+        while urllib is still sending the body. The send then fails and the 413 is never
+        read: measured against a healthy gate, 2 of 10 two-megabyte bodies and every
+        eight-megabyte one came back as a reset. On a keep-alive connection uvicorn reads
+        and discards the rest of the body instead, so the refusal always arrives.
+        """
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
+        try:
+            conn.request("POST", path, body=raw, headers={"Content-Type": "application/json"})
+            return conn.getresponse().status
+        except (OSError, http.client.HTTPException):
+            return 0
+        finally:
+            conn.close()
 
     def stop(self) -> None:
         self.proc.terminate()
@@ -338,7 +360,7 @@ def contract_probes(g: Gate) -> bool:
     record(stage, "cross-site POST /query -> 403 CROSS_SITE_BLOCKED (auth off)",
            status == 403 and _code(body) == "CROSS_SITE_BLOCKED", f"got {status} {_code(body)}")
     record(stage, "cross-site GET /console/session -> 403", g.req("GET", "/console/session", headers=cross)[0] == 403)
-    status, body, _ = g.req("POST", "/query", raw=b'{"query":"' + b"a" * 1_100_000 + b'"}')
+    status = g.oversize_status("/query", b'{"query":"' + b"a" * 1_100_000 + b'"}')
     record(stage, "body over security.max_request_body_bytes -> 413", status == 413, f"got {status}")
     # Both refusals are checked BEFORE a build starts, so neither probe builds anything.
     status, body, _ = g.req("POST", "/index/build")
