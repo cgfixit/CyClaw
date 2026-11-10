@@ -330,7 +330,6 @@ class TestPersistence:
         check one such row made allow() raise for requests from ANY address,
         and an Infinity timestamp never left the window."""
         import logging
-        import sqlite3
 
         db = tmp_path / "rl.db"
         now = 1000.0
@@ -349,8 +348,6 @@ class TestPersistence:
         assert [rl2.allow("9.9.9.9") for _ in range(3)] == [True, True, False]
 
     def test_non_numeric_last_sweep_does_not_stop_the_limiter_starting(self, tmp_path):
-        import sqlite3
-
         db = tmp_path / "rl.db"
         now = 1000.0
         rl = RateLimiter(max_requests=2, window_seconds=60, clock=lambda: now, db_path=str(db))
