@@ -54,8 +54,8 @@ def _mps_risk_present() -> bool:
 # grow linearly with the corpus: measured at 256 entries, a 50,000-chunk corpus
 # held 102 MB of score arrays in the long-lived gate.py / MCP process. The byte
 # budget is what 256 entries cost at 16,384 chunks, so any corpus up to that
-# size (the shipped one is a few hundred chunks) keeps all 256 entries exactly
-# as before, and a larger corpus gets proportionally fewer.
+# size (the shipped corpus is far below it) keeps all 256 entries exactly as
+# before, and a larger corpus gets proportionally fewer.
 _BM25_SCORE_CACHE_MAX_ENTRIES = 256
 _BM25_SCORE_CACHE_BUDGET_BYTES = 32 * 1024 * 1024
 _BM25_SCORE_BYTES = 8
