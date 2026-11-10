@@ -655,6 +655,58 @@ def test_poll_once_surfaces_bridge_fatal_http_failure_without_ack(
             poll_once(cfg, offset=None)
 
 
+def _two_updates_second_fatal() -> tuple[list[dict], list[object]]:
+    """One batch: update 10 is handled, update 11 hits a fatal bridge error."""
+    updates = [
+        {"update_id": 10, "message": {"chat": {"id": 42}, "text": "first"}},
+        {"update_id": 11, "message": {"chat": {"id": 42}, "text": "second"}},
+    ]
+    fatal = TelegramRuntimeError(
+        "CyClaw /query returned HTTP 401",
+        details={"status": 401, "retryable": False, "fatal": True},
+    )
+    return updates, [{"answer": "ok"}, fatal]
+
+
+def test_poll_once_fatal_mid_batch_reports_the_updates_handled_before_it(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    updates, outcomes = _two_updates_second_fatal()
+    with (
+        patch("telegram.client.get_updates", return_value=updates),
+        patch("telegram.runner.handle_inbound_text", side_effect=outcomes),
+    ):
+        with pytest.raises(TelegramRuntimeError) as exc:
+            poll_once(cfg, offset=None)
+    # Update 10 was fully handled; update 11 is the one left unacknowledged.
+    assert exc.value.details["acked_offset"] == 11
+
+
+def test_poll_once_fatal_on_first_update_reports_no_progress(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    updates, outcomes = _two_updates_second_fatal()
+    with (
+        patch("telegram.client.get_updates", return_value=updates),
+        patch("telegram.runner.handle_inbound_text", side_effect=outcomes[1:]),
+    ):
+        with pytest.raises(TelegramRuntimeError) as exc:
+            poll_once(cfg, offset=7)
+    assert "acked_offset" not in exc.value.details
+
+
+def test_poll_forever_persists_handled_updates_before_a_fatal_exit(tmp_path: Path) -> None:
+    """Otherwise the launchd restart replays update 10 and repeats its side effects."""
+    cfg = _cfg(tmp_path)
+    offset_path = tmp_path / "offset.json"
+    updates, outcomes = _two_updates_second_fatal()
+    with (
+        patch("telegram.client.get_updates", return_value=updates),
+        patch("telegram.runner.handle_inbound_text", side_effect=outcomes),
+    ):
+        with pytest.raises(TelegramRuntimeError):
+            poll_forever(cfg, max_iterations=1, offset_path=offset_path)
+    assert load_offset(offset_path) == 11
+
+
 def test_poll_once_does_not_advance_offset_on_rate_limit_refusal(tmp_path: Path) -> None:
     """A spent inbound budget is temporary, so Telegram must redeliver the update."""
     cfg = _cfg(tmp_path)
