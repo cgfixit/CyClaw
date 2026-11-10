@@ -293,7 +293,7 @@ as T1.
 | Answer field normalization | `telegram/runner.py::_extract_answer` | **Shipped.** Prefers `QueryResponse.answer` / `model_used`; unit test with full response-shaped fixture. |
 | Streaming / typing indicator | `telegram/client.py` | **Deferred (optional).** `sendChatAction` typing while `/query` runs. Do not change graph timeouts. |
 | Concurrent updates | `telegram/runner.py` | **Shipped sequential.** One in-flight `/query` per poll batch; parallelism out of scope until a worker queue exists **outside** gate. |
-| Offset persistence | `telegram/state.py`, `telegram/runner.py` | **Shipped, fail-closed.** Atomic `data/telegram/offset.json`; `poll_forever` loads/saves and respects no-ack-on-`TelegramRuntimeError`. A save failure is audited and retried in-process while polling stays paused, so launchd cannot repeatedly replay an already-answered update. A process crash during that retry can still resume from the old durable offset under Telegram's at-least-once delivery model. |
+| Offset persistence | `telegram/state.py`, `telegram/runner.py` | **Shipped, fail-closed.** Atomic `data/telegram/offset.json`; `poll_forever` loads/saves and respects no-ack-on-`TelegramRuntimeError`. A save failure is audited and retried in-process while polling stays paused, so launchd cannot repeatedly replay an already-answered update. A fatal bridge error (`details.fatal`) raised partway through a batch still persists the offset of the updates handled before it (`acked_offset`), so the restart retries only the update that failed. A process crash during that retry can still resume from the old durable offset under Telegram's at-least-once delivery model. |
 | Command namespace | `telegram/runner.py` | **Shipped.** `/help`, `/status` (loopback `/health` only), `/id`, and T3 `/online`; `/save` only explains the T4 confirmation form when sent without an attachment. |
 | Injection double-check | optional | `/query` already runs the sanitizer. Do not reimplement. |
 | launchd generator | `python -m telegram.cli poll-plist` | **Shipped.** Generates the KeepAlive + ThrottleInterval plist from real resolved paths, token injected via the Keychain wrapper (optionally chains a second wrapper layer for `CYCLAW_API_KEY` via `--api-key-service`). The static `macos/LaunchAgents/com.cgfixit.cyclaw.telegram-poll.plist` template remains as a hand-editable reference/fallback. |
@@ -530,6 +530,7 @@ Wire each job’s `on_failure_notify: true` to `python -m telegram.cli send` onc
 | 2026-08-05 | PRs #799–#801 made T3 private-chat-only, converged terminal T4 refusal audits, and recorded rollout-partial stage truth/operator decisions. |
 | 2026-08-07 | Fresh-main parity review: corrected current hybrid posture and T2 config example; added T3 fail-closed deletion blocker, T2 single-poller/replay limits, and T4 POSIX/opaque-staging constraints. |
 | 2026-08-09 | Closed the T2 offset-save and T3 session-delete blockers with fail-closed retry handling, a typed T3 error, audit events, and restart/retry regressions. Live Bot API validation remains pending. |
+| 2026-11-10 | `poll_once` now reports, and `poll_forever` persists, the offset of updates handled before a fatal mid-batch error; previously that progress was dropped and the updates replayed after the restart. |
 
 ---
 
