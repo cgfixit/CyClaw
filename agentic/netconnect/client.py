@@ -249,13 +249,19 @@ class NetClient:
             )
 
         observed = parse_neighbor_cache(result.stdout, system_name)
-        in_scope = []
+        # parse_neighbor_cache de-duplicates on the raw interface, but redacting
+        # an out-of-scope interface address below can make two of its rows
+        # identical: Windows lists one neighbor under every "Interface:" block
+        # that reaches it. Key on what is actually returned so a neighbor is
+        # reported, counted and charged against max_neighbors once.
+        scoped: dict[tuple[str, str, str | None], dict] = {}
         for item in observed:
             if not self.scope.contains(item["ip"]):
                 continue
             filtered = dict(item)
             filtered["interface"] = _scope_interface(item["interface"], self.scope)
-            in_scope.append(filtered)
+            scoped.setdefault((filtered["ip"], filtered["interface"], filtered["mac"]), filtered)
+        in_scope = list(scoped.values())
         in_scope.sort(
             key=lambda item: (
                 int(ip_address(item["ip"])),

@@ -310,6 +310,25 @@ def test_auto_reindex_timeout_includes_child_stderr(capsys):
     assert "timeout stderr line" in err
 
 
+def test_auto_reindex_timeout_prints_posix_bytes_stderr_as_text(capsys):
+    # On POSIX, subprocess.run(text=True) still attaches the captured stderr to
+    # TimeoutExpired as bytes. The str fixture above passes either way, because
+    # a bytes repr contains the same words; this pins the readable form.
+    cfg = _cfg()
+    cfg.auto_reindex = True
+    exc = subprocess.TimeoutExpired(
+        cmd="indexer", timeout=cfg.sync_timeout_sec, stderr=b"first line\nsecond line\n"
+    )
+    with patch("sync.cli.load_sync_config", return_value=cfg), \
+         patch("sync.cli.run_sync", return_value=_result(corpus_changed=True)), \
+         patch("sync.cli.reindex_exit_code_for", return_value=EXIT_REINDEX), \
+         patch("sync.cli.subprocess.run", side_effect=exc):
+        assert main(["sync"]) == EXIT_FAIL
+    err = capsys.readouterr().err
+    assert "first line\nsecond line" in err
+    assert "b'" not in err
+
+
 def test_auto_reindex_zero_timeout_means_unbounded():
     # sync.sync_timeout_sec == 0 is the documented "disable the timeout" value
     # (sync/config.py); it must become None, not a zero-second deadline.
