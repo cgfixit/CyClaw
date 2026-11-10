@@ -24,6 +24,14 @@ Topic:
 """
 
 _ONLINE_MODELS = frozenset({"grok", "claude"})
+# The one model_used that means "the local model answered from a vault hit"
+# (graph.py's local_llm node). Every other value /query can report is not a
+# grounded answer: an offline best-effort reply to a vault miss, a guardrail
+# block, a denied or unavailable external call, an empty or unknown label.
+# The other gates cannot tell these apart -- this client always declines the
+# online path, so needs_confirm is never set for it, and hit_count counts the
+# chunks retrieved even when none cleared the vault-hit threshold.
+_GROUNDED_MODEL = "local"
 
 
 def next_schedule_datetime(
@@ -104,6 +112,11 @@ def _validate_answer(cfg: OpenTweetConfig, data: dict[str, Any]) -> str:
         raise OpenTweetRefused(
             "online model answered; refusing to post",
             details={"gate": "online_model"},
+        )
+    if model_used != _GROUNDED_MODEL:
+        raise OpenTweetRefused(
+            "answer did not come from a vault hit; refusing to post",
+            details={"gate": "ungrounded_model"},
         )
     answer = data.get("answer")
     if not isinstance(answer, str):

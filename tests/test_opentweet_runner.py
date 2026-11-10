@@ -108,6 +108,22 @@ def test_online_model_refuses(tmp_path: Path) -> None:
     assert exc.value.details["gate"] == "online_model"
 
 
+@pytest.mark.parametrize(
+    "model_used",
+    ["offline-best-effort", "guardrail-blocked", "hook-denied", "external-unavailable", "unknown", "", None],
+)
+def test_answer_not_from_a_vault_hit_refuses(tmp_path: Path, model_used: object) -> None:
+    """Only ``local`` is a grounded answer. A vault miss answered from general
+    knowledge still reports hit_count > 0 and needs_confirm False, so the
+    model label is the only thing that separates it from a real hit.
+    """
+    cfg = load_opentweet_config(_cfg(tmp_path))
+    with patch("opentweet.client.post_query", return_value=_answer(model_used=model_used)):
+        with pytest.raises(OpenTweetRefused) as exc:
+            post_once(cfg, dry_run=True)
+    assert exc.value.details["gate"] == "ungrounded_model"
+
+
 def test_oversize_refuses_no_truncate(tmp_path: Path) -> None:
     cfg = load_opentweet_config(_cfg(tmp_path))
     with patch("opentweet.client.post_query", return_value=_answer(answer="x" * 281)):

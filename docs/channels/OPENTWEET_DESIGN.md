@@ -61,7 +61,8 @@ until enabled. `post` refuses (exit 3) while disabled.
 ## Fail-closed (no OpenTweet write)
 
 Disabled channel; missing/empty/oversized topic; missing `OPENTWEET_API_KEY`;
-`/query` error, `hit_count==0`, `needs_confirm`, online `model_used`; empty
+`/query` error, `hit_count==0`, `needs_confirm`, any `model_used` other than
+`local` (online, or an offline best-effort answer to a vault miss); empty
 or `[`-prefixed or >280-char answer; unauthenticated `/me`; scheduling
 without subscription/`can_post`; past `scheduled_date`; `--dry-run`.
 
