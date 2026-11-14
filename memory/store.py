@@ -113,11 +113,14 @@ def connect(cfg: Mapping[str, Any]) -> sqlite3.Connection:
 # COMMIT executescript issues -- on each one is wasted work. The stamp lives in
 # the DB file itself, so a deleted/recreated DB (version 0) gets its schema
 # again with no process-wide cache to go stale. Bump it when the DDL changes.
-_SCHEMA_VERSION = 1
+# 2: tags_json is written with ensure_ascii=False; the v1 -> v2 step
+# re-encodes rows written with \uXXXX escapes so their tags become searchable.
+_SCHEMA_VERSION = 2
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    if conn.execute("PRAGMA user_version").fetchone()[0] == _SCHEMA_VERSION:
+    prior_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if prior_version == _SCHEMA_VERSION:
         return
     conn.executescript(
         """
@@ -198,9 +201,39 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_proposals_status ON memory_proposals(status);
         """
     )
+    if prior_version < 2:
+        _reencode_escaped_tags(conn)
     # PRAGMA takes no bound parameters; _SCHEMA_VERSION is a module int constant.
     conn.execute(f"PRAGMA user_version = {int(_SCHEMA_VERSION)}")
     conn.commit()
+
+
+def _dump_tags(tags: list[str]) -> str:
+    # ensure_ascii=False on purpose: the facts_fts triggers index tags_json
+    # with only [ ] " stripped, so the default \uXXXX escaping indexed "cafe"
+    # with an accent as the tokens "caf" + "u00e9" and a tag search for it
+    # could never match. Non-ASCII tags are valid input (policy.check_tags).
+    return json.dumps(tags, ensure_ascii=False)
+
+
+def _reencode_escaped_tags(conn: sqlite3.Connection) -> None:
+    """Rewrite v1 rows whose tags_json carries \\uXXXX escapes (schema v1 -> v2).
+
+    The UPDATE fires ``facts_au``, which re-indexes the row's FTS tags (active
+    rows only), so no separate FTS rebuild is needed. Corrupt JSON is left for
+    ``_parse_json_column`` to degrade on read, as before.
+    """
+    rows = conn.execute("SELECT id, tags_json FROM facts WHERE instr(tags_json, '\\u') > 0").fetchall()
+    for fact_id, raw in rows:
+        try:
+            tags = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(tags, list):
+            continue
+        fixed = _dump_tags(tags)
+        if fixed != raw:
+            conn.execute("UPDATE facts SET tags_json = ? WHERE id = ?", (fixed, fact_id))
 
 
 def _parse_json_column(raw: object, *, empty: str, expect: type) -> Any:
@@ -337,7 +370,7 @@ def _insert_fact_conn(
         (
             content,
             (category or "general")[:64],
-            json.dumps(cleaned_tags),
+            _dump_tags(cleaned_tags),
             conf,
             source or "human",
             now,
@@ -391,7 +424,7 @@ def _update_fact_conn(
         (
             new_content,
             new_cat,
-            json.dumps(new_tags),
+            _dump_tags(new_tags),
             new_conf,
             now,
             reason or existing.applied_reason,
