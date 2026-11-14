@@ -373,7 +373,7 @@ def test_darwin_dataless_purge_unlinks_without_opening_to_hash(monkeypatch, tmp_
     share = tmp_path / "share"
     share.mkdir()
     (share / "placeholder.md").write_text("cloud bytes", encoding="utf-8")
-    (share / "resident.md").write_text("local bytes", encoding="utf-8")
+    (share / "resident.md").write_text("resident file content", encoding="utf-8")
     with ScopedRoots([str(share)], create=False) as roots:
         original_open = os.open
         opened_leaf: list[str] = []
