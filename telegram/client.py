@@ -177,6 +177,8 @@ def chunk_text(text: str, max_chars: int) -> list[str]:
     """Split text into pieces that fit Telegram/config max length.
 
     Prefer paragraph (\\n\\n) then line (\\n) boundaries; hard-split only as last resort.
+    The pieces join back to ``text`` exactly, except that a whitespace-only piece
+    is dropped: Bot API ``sendMessage`` rejects empty text with a permanent 400.
     """
     body = text or ""
     if not body.strip():
@@ -204,7 +206,10 @@ def chunk_text(text: str, max_chars: int) -> list[str]:
             split_at = max_chars
         chunks.append(piece)
         remaining = remaining[split_at:]
-    return chunks
+    # A split that lands just before a trailing separator ("A" * (max - 1) +
+    # "\n\n") leaves a piece of only newlines. Sending it is a non-retryable
+    # 400, which poll_once acks as a poison update after the real text went out.
+    return [chunk for chunk in chunks if chunk.strip()]
 
 
 def _transport_error_message(label: str, exc: BaseException) -> str:
@@ -417,17 +422,27 @@ def send_message(
     retry_slots = granted - len(pieces)
 
     last: dict[str, Any] = {}
+    delivered = 0
     try:
         for piece in pieces:
-            last, attempts = _send_one(
-                cfg,
-                chat_id=chat_id,
-                body=piece,
-                tok=tok,
-                disable_notification=disable_notification,
-                reservation=reservation,
-                max_retries=_TELEGRAM_429_MAX_RETRIES if retry_slots > 0 else 0,
-            )
+            try:
+                last, attempts = _send_one(
+                    cfg,
+                    chat_id=chat_id,
+                    body=piece,
+                    tok=tok,
+                    disable_notification=disable_notification,
+                    reservation=reservation,
+                    max_retries=_TELEGRAM_429_MAX_RETRIES if retry_slots > 0 else 0,
+                )
+            except TelegramRuntimeError as exc:
+                # Tell the caller a prefix already reached the chat: replaying
+                # the whole update would resend it (poll_once reads this).
+                if delivered:
+                    exc.details["delivered_chunks"] = delivered
+                    exc.details["total_chunks"] = len(pieces)
+                raise
+            delivered += 1
             retry_slots -= attempts - 1
         return last
     finally:

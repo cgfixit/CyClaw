@@ -102,6 +102,15 @@ def test_zero_hits_refuses(tmp_path: Path) -> None:
     assert exc.value.details["gate"] == "hit_count"
 
 
+def test_boolean_hit_count_refuses(tmp_path: Path) -> None:
+    """True is an int subclass; it must not count as one retrieval hit."""
+    cfg = load_opentweet_config(_cfg(tmp_path))
+    with patch("opentweet.client.post_query", return_value=_answer(hit_count=True)):
+        with pytest.raises(OpenTweetRefused) as exc:
+            post_once(cfg, dry_run=True)
+    assert exc.value.details["gate"] == "hit_count"
+
+
 def test_online_model_refuses(tmp_path: Path) -> None:
     cfg = load_opentweet_config(_cfg(tmp_path))
     with patch("opentweet.client.post_query", return_value=_answer(model_used="grok")):
