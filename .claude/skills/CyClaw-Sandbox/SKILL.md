@@ -26,7 +26,7 @@ live `gate.py`, booted from the real `config.yaml`, answers every route in
 CLAUDE.md §2 with the status that table promises (401/403/404/413/422/429/503
 included). It does **not** mean the pytest suites or the 80% coverage gate
 pass (Actions runs those on the PR), that a 27B-class model answered well,
-that browser JS ran, or that the auth-enabled, memory-enabled or fsconnect
+that browser JS ran (unless you add `--browser`), or that the auth-enabled, memory-enabled or fsconnect
 write paths work: those are the opt-in steps below, SKIP until you do them.
 
 **Verification order** is CLAUDE.md §5's, applied to a whole checkout: run the
@@ -37,8 +37,9 @@ run `pytest tests/` or a `--cov` run as a routine local step.
 Numbers marked `(derive)` come from the running code or tree at verification
 time; never copy them from here. **Code, `config.yaml` and the tests on disk
 always win over this document.** Surfaces below were reconciled against main
-@ `29f639a` (2026-10-13) by running every command in this file; a
-disagreement on a fresh checkout is this document's next drift-fix.
+@ `8153e67` (2026-11-14) by running Ladder L with every lane on (`--mock-ollama`,
+a built index, `--browser-python`: 71 PASS, 0 FAIL, 1 SKIP for rclone) and Quick
+Mode; a disagreement on a fresh checkout is this document's next drift-fix.
 
 ## Operator map -- which ladder proves what
 
@@ -48,7 +49,7 @@ L is the local default. Always use the CyClaw **3.12** venv's interpreter
 
 | Ladder | Command | Where it belongs | Proves | Does **not** prove |
 |---|---|---|---|---|
-| **L. Local audit** (default) | `<venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py` | **Local** | Stages 0–4 below in about a minute (measured, cloud sandbox, warm venv): checkers + ruff, run-the-code, swarm, live route contract, rate limit | pytest, coverage, browser JS, opt-in subsystems |
+| **L. Local audit** (default) | `<venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py` | **Local** | Stages 0–4 below (timing in step 3): checkers + ruff + the Codex delegate contract, run-the-code, swarm, live route contract, rate limit; with `--browser`, the console rendered in Chromium | pytest, coverage, opt-in subsystems; browser JS unless `--browser` ran and PASSed |
 | **B. In-process swarm** | `run_full_verification.py` | Local (Ladder L stage 3 runs it) | 10 phases with the real LangGraph import contract and deterministic Chroma/embedding/local-client doubles; prints its own totals | Compiled-graph coverage, live HTTP, real inference or Chroma persistence |
 | **D. Quick Mode** (`/run`) | `SMOKE_SKIP_PYTEST=1 PYTHON=<venv>/bin/python bash .claude/skills/CyClaw-Sandbox/smoke.sh` | Local, in place | Sections A, B, D, E against a gate it starts on :8787 in **your** tree (soul.md backed up and restored); fsconnect/NeMo probes Ladder L lacks | The route-contract sweep, the swarm |
 | **C. CI lifecycle** | `verify.sh` | **GitHub Actions** (`verify-skills`, conda lane) | Clean venv + full pytest + RAG smoke + live gate | Run locally only to reproduce a red job |
@@ -116,7 +117,7 @@ can't judge, e.g. a new key's default.
   `HF_HUB_DISABLE_XET=1` before anything that downloads a model (Gotchas).
 - `GROK_API_KEY=dummy` is enough everywhere; Ladder L sets it for its children.
 - Build the real index once if you want the query-path probes:
-  `<venv>/bin/python -m retrieval.indexer` (264 chunks at last run, derive;
+  `<venv>/bin/python -m retrieval.indexer` (259 chunks at last run, derive;
   `index/` is gitignored). Ladder L copies it into its scratch gate.
 
 ### 3. Ladder L -- the one command
@@ -124,21 +125,42 @@ can't judge, e.g. a new key's default.
 ```bash
 <venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py              # all stages
 <venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py --mock-ollama # Tier 1 local LLM
-<venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py --skip-swarm --skip-live  # ~25 s static + run-code
+<venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py --skip-swarm --skip-live  # static + run-code only
 ```
+
+Measured 2026-11-14 (cloud sandbox, warm venv and model cache, index built):
+all lanes plus `--browser-python` in 36 s; the first run, which loaded the
+reranker cold, took 95 s. Derive your own; these are not budgets.
 
 | Stage | What runs |
 |---|---|
 | 0 preflight | 3.12 interpreter, checkout sha/branch, ahead/behind `origin/main`, uncommitted edits noted (they are audited too) |
-| 1 static | `invariant-guard`, `dotenv-guard`, `doc-sync`, `config-guard`, `dep-guard`, `verify-deps/check_env_drift.py --strict`, `otel-hardening --strict`; `ruff check --select F,B,S .` (lint.yml's blocking gate) and the advisory `E,F,I,B,C4,UP,S --ignore E501` pass. Ruff missing is SKIP |
+| 1 static | `invariant-guard`, `dotenv-guard`, `doc-sync`, `config-guard`, `dep-guard`, `verify-deps/check_env_drift.py --strict`, `otel-hardening --strict`; `ruff check --select F,B,S .` (lint.yml's blocking gate) and the advisory `E,F,I,B,C4,UP,S --ignore E501` pass. Ruff missing is SKIP. Then the Codex port's stdlib `test_verification_contract.py`, which loads this directory's `run_full_verification.py` and pins its ten phase names, labels and verdict rules: rename a phase here and it FAILs |
 | 2 run the code | `gate_runtime_check.py`; each subsystem's operator pre-flight (`python -m {sync,agentic.fsconnect,agentic.netconnect,guardrails,telegram,opentweet}.cli test` and `python -m memory.selftest`), no network and no mocks; every CLI's `--help`; the shipped-off `status` reports; `clear_cache` dry-run; `telemetry_kill --export shell`. A selftest whose only failure is a missing external binary (rclone) is SKIP |
 | 3 swarm | `run_full_verification.py` in a scratch copy; reports its own totals and Tier 0 (in-process mocks), regardless of listeners |
-| 4 live gate | `uvicorn gate:app` from a scratch copy on :8791 (next free port if busy) with a random `CYCLAW_API_KEY`: the route-contract probes in the table above, `test_terminal_consoles.py`, and `terminal_emulation.py` when an index exists. That launch raises only the scratch copy's rate limit so the probes don't trip it; a second launch on the **shipped** limit then proves the 429 |
+| 4 live gate | `uvicorn gate:app` from a scratch copy on :8791 (next free port if busy) with a random `CYCLAW_API_KEY`: the route-contract probes in the table above, `test_terminal_consoles.py`, and `terminal_emulation.py` when an index exists; with `--browser`, `browser_render_check.py` renders `/` at desktop and phone width, submits one query (skipped without an index) and FAILs on any page error, console error or failed request. That launch raises only the scratch copy's rate limit so the probes don't trip it; a second launch on the **shipped** limit then proves the 429 |
 
 Output: per-check lines, then `report.md` plus every log in
-`$TMPDIR/cyclaw-local-audit-<stamp>/` (`--out DIR` to choose). Exit 0 = no
-FAIL, 1 = a FAIL, 3 = wrong interpreter or not a checkout. `--keep` keeps the
-scratch copies for inspection.
+`$TMPDIR/cyclaw-local-audit-<stamp>/` (`--out DIR` to choose; the browser
+lane's screenshots land in its `browser/`). Exit 0 = no FAIL, 1 = a FAIL, 3 =
+wrong interpreter or not a checkout. `--keep` keeps the scratch copies for
+inspection.
+
+**Browser lane.** Playwright is not in the CyClaw locks, so `--browser` alone
+uses the venv interpreter and SKIPs when it can't import `playwright`. The
+renderer imports nothing from CyClaw, so point `--browser-python` at any
+interpreter that has it (this implies `--browser`). In the Claude Code cloud
+sandbox, Chromium is pre-installed for Playwright 1.63.0; a scratch venv
+outside the repo is enough:
+
+```bash
+python3 -m venv "$TMPDIR/pwvenv" && "$TMPDIR/pwvenv/bin/pip" install -q playwright==1.63.0
+PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers <venv>/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py \
+  --mock-ollama --browser-python "$TMPDIR/pwvenv/bin/python"
+```
+
+On your own machine, `pip install playwright && playwright install chromium`
+in any venv. Never add Playwright to the CyClaw locks for this.
 
 The scratch copies take your working tree as-is (uncommitted edits
 included) minus `index/`, `logs/`, caches and venvs; the repo-local model
@@ -237,7 +259,7 @@ API, B fsconnect, D NeMo soft-import, E Postgres (SKIP without
 `CYCLAW_DB_URL`), F full pytest (SKIP when `SMOKE_SKIP_PYTEST` is set; CI leaves
 it unset), G report. C (sqlconnect) was retired on 2026-10-18; the other
 letters stay put because this file, `/run` and dated audits cite them.
-Measured: 10 passed, 4 skipped, 33 s. A green Quick Mode is not evidence
+Measured 2026-11-14: 10 passed, 4 skipped, 23 s. A green Quick Mode is not evidence
 Ladder L would pass, nor the reverse.
 
 ## Bundled resources
@@ -247,7 +269,8 @@ them knowing a workflow and its pinning tests read them.
 
 - **`local_audit.py`** -- Ladder L (stdlib only; run with the venv
   interpreter). Never runs pytest; never writes the checkout.
-- **`run_full_verification.py`** -- the in-process runner (Ladder B, 10 phases).
+- **`run_full_verification.py`** -- the in-process runner (Ladder B, 10 phases;
+  the Codex contract test pins their names, so rename one only with that file).
   `CYCLAW_REPO=/path` uses that tree **as-is and writes into it** (mock corpus,
   BM25 index, two JSON reports); unset, it clones `origin/main` from GitHub
   into a temp dir, so it tests main, not your edits. Ladder L points it at a
@@ -270,7 +293,15 @@ them knowing a workflow and its pinning tests read them.
   triple-gate, redaction, due-diligence classes, console endpoints). Read it
   when a swarm phase fails.
 
-The Codex port lives at `.agents/skills/cyclaw-sandbox/`; this copy is canonical.
+**The Codex port is delegates, not a fork** (#1815). `.agents/skills/cyclaw-sandbox/`
+holds 6–11 line wrappers that exec the scripts above (the seven entry points,
+`terminal_emulation.py` and `mock_ollama.py`), so a change here changes the Codex
+lane the same day. Two files there are Codex-local and maintained there:
+`test_verification_contract.py` (stdlib unittest that imports this directory's
+`run_full_verification.py`; Ladder L stage 1 runs it) and `browser_render_check.py`
+(Ladder L's `--browser` lane). The Codex delegate for `smoke.sh` defaults
+`CYCLAW_REPORT_DIR` to `$TMPDIR/cyclaw-sandbox-report`; run directly, `smoke.sh`
+writes `.claude/sandbox-test.txt`.
 
 ## Known residuals
 
@@ -346,6 +377,13 @@ The invariants this skill verifies. Row numbers are historical labels
   gate appends to your `logs/` and builds `index/` if missing.
 - **Three realism tiers.** Tier 0 = in-process doubles, Tier 1 = an owned `mock_ollama.py` socket,
   Tier 2 = exercised real model inference. A listener alone proves no tier. `status: degraded` in `/health` is normal at Tier 0.
+- **The browser lane never waits for `networkidle`.** The console polls
+  `/health` every 15 s and leaves the body of its `/auth/whoami` probe unread,
+  which Chromium counts as in flight, so idle never arrives (measured: a
+  30 s `goto` timeout on a healthy gate). That probe's 503 is the documented
+  auth-off answer and is the one console error the renderer allows; any other
+  console error, page error or failed request FAILs. A query counts only once
+  an answer, confirmation or error entry renders (an error entry FAILs).
 - **`sync.cli test` writes rclone's filter file** under `XDG_CONFIG_HOME`
   (default `~/.config/rclone/`). Ladder L points that at its scratch dir; run
   by hand, it writes your real one (the same file a real sync writes).

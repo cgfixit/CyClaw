@@ -34,7 +34,7 @@ starting paid/cloud or host-mutating checks.
 | Tier 0 | `run_full_verification.py` stubs heavy dependencies and walks selected nodes. It requires real LangGraph and includes synthetic audit/Numbat integrity checks; its results remain Tier 0, never real inference or a complete compiled-graph proof. |
 | Tier 1 | An owned socket mock plus real client/gateway/indexer proves exercised HTTP behavior. A model-list response does not prove process ownership, consent or destination allowlists. |
 | Tier 2 | Explicitly requested real local inference with cached models and measured outputs. Separate from mocked correctness. |
-| UI | `browser_render_check.py` captures views and submits a query. Independently assert completed answers, errors, controls, asset requests and mobile overflow; inspect screenshots. |
+| UI | `browser_render_check.py` captures desktop and mobile views and submits a query, waiting for an answer, confirmation or error entry (an error entry FAILs); only the auth-off `/auth/*` 503 is an allowed console error. Ladder L runs it with `--browser`. Still assert controls, asset requests and mobile overflow yourself; inspect screenshots. |
 | Native/CI | Matching OS installer, keystore, scheduler and confinement evidence; read current-head jobs/skips. Windows executor refusal is separate from supported Windows gateway behavior. |
 
 For a prepared disposable candidate, Tier 0 can run from its root:
