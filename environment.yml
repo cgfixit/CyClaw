@@ -27,16 +27,16 @@ dependencies:
   - pyyaml=6.0.3
   - httpx=0.28.1
   - langchain-core=1.6.12
-  # Keep generated OTLP protos compatible with the native protobuf runtime.
-  - opentelemetry-exporter-otlp-proto-grpc>=1.42
-  # Security floors that constraints.txt pins exactly (PYSEC-2026-4320,
-  # CVE-2026-114603). Both are conda-owned on this lane (httpx pulls certifi;
-  # the exporter's opentelemetry-sdk pins its opentelemetry-api exactly), so a
-  # pip: override would fight the conda solve. Floors, not exact pins: the
-  # conda-forge build set was not checkable from the editing sandbox, and the
-  # conda CI lane is what proves the solve.
+  # Security floor that constraints.txt pins exactly (PYSEC-2026-4320,
+  # CVE-2026-114603). certifi is conda-owned on this lane (httpx pulls it),
+  # so a pip: override would fight the conda solve. A floor, not an exact
+  # pin: the conda-forge build set was not checkable from the editing
+  # sandbox, and the conda CI lane is what proves the solve.
+  # OpenTelemetry is not conda-owned. conda-forge's exporter 1.45.1 requires
+  # opentelemetry-sdk 1.45.1.*, which requires api 1.45.1, and that channel
+  # has no exporter 1.45.2 (noarch repodata, 2026-11-14). The pins live in
+  # the pip: list below so they match constraints.txt / the hashed locks.
   - certifi>=2026.10.19
-  - opentelemetry-api>=1.45.1
   - sentence-transformers=6.1.0
   # sentence-transformers depends on pillow with no cap. 13.0.0 is the
   # PYSEC-2026-4327 / PYSEC-2026-4332 fix; match constraints.txt.
@@ -72,6 +72,14 @@ dependencies:
       # Pip transitives must not replace the conda-owned Pydantic pair.
       # kubernetes 37.0.2 requires >=2.14.2; retain the existing 2.13.5 contract.
       - pydantic==2.13.5
+      # CVE-2026-126360 fix. Same versions as the hashed runtime locks:
+      # api 1.45.2, sdk 1.45.2, semantic conventions 0.66b2, exporter 1.45.1
+      # (PyPI exporter 1.45.1 accepts sdk~=1.45.1). Not conda packages: a
+      # conda exporter at >=1.42 cannot solve next to api 1.45.2.
+      - opentelemetry-api==1.45.2
+      - opentelemetry-sdk==1.45.2
+      - opentelemetry-semantic-conventions==0.66b2
+      - opentelemetry-exporter-otlp-proto-grpc==1.45.1
       # conda-forge Chroma pins an older FastAPI. Install this trio from PyPI
       # so normal CyClaw package metadata and pip check agree on all platforms.
       - chromadb==1.5.9

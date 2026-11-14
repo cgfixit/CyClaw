@@ -353,7 +353,8 @@ INVENTORY: tuple[dict[str, object], ...] = (
         "controls": {"OTEL_SDK_DISABLED": "true", "OTEL_TRACES_EXPORTER": "none",
                      "OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none"},
         "url": "https://opentelemetry.io/docs/languages/sdk-configuration/general/",
-        "versions": "transitive (chromadb); environment.yml floors opentelemetry-exporter-otlp-proto-grpc>=1.42",
+        "versions": "transitive (chromadb); environment.yml pip: pins api==1.45.2, "
+                    "sdk==1.45.2, semantic-conventions==0.66b2, exporter-otlp-proto-grpc==1.45.1",
         "enforcement": "env before import; OTEL_CONFIG_FILE / OTEL_EXPERIMENTAL_CONFIG_FILE are REMOVED "
                        "outright because declarative configuration outranks these values",
         "scope": "any OTel-instrumented dependency", "reviewed": "2026-08-27",
@@ -907,6 +908,8 @@ INVENTORY_ALIASES: dict[str, str] = {
     "onnxruntime": "onnxruntime",
     "opentelemetry-exporter-otlp-proto-grpc": "opentelemetry sdk",
     "opentelemetry-api": "opentelemetry sdk",
+    "opentelemetry-sdk": "opentelemetry sdk",
+    "opentelemetry-semantic-conventions": "opentelemetry sdk",
     "pgvector": "postgres drivers (pgvector/psycopg)",
     "psycopg": "postgres drivers (pgvector/psycopg)",
     "psycopg-binary": "postgres drivers (pgvector/psycopg)",
