@@ -85,6 +85,16 @@ Confirm: `curl http://127.0.0.1:8787/health`, then open
 ([macOS (Apple Silicon)](setup-guide.md#macos-apple-silicon)); updating an
 existing environment ends with the [NeMo verification](setup-guide.md#verify-the-installed-nemo-runtime).
 
+**Audit the whole checkout** in one command, without touching your working
+tree (it runs the checkers, ruff, every CLI and subsystem selftest, the
+in-process graph swarm, and a scratch `gate.py` probed against the route
+contract):
+`.venv/bin/python .claude/skills/CyClaw-Sandbox/local_audit.py --mock-ollama`.
+Add `--browser` (needs Playwright) to render the console in Chromium too.
+pytest and the coverage gate stay with GitHub Actions; the ladder, opt-in
+steps and what a green run does not prove are in the
+[CyClaw-Sandbox skill](.claude/skills/CyClaw-Sandbox/SKILL.md).
+
 ---
 
 ## For newcomers

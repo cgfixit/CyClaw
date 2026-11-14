@@ -15,6 +15,7 @@ soul.md, logs/ and index/ stay untouched. Run it with the CyClaw 3.12 venv:
     ... --skip-swarm --skip-live      # checkers + ruff + run-the-code only
     ... --mock-ollama                 # Tier 1: start mock_ollama.py on :11434
     ... --keep                        # keep the scratch copies for inspection
+    ... --browser [--browser-python P] # render the console in Chromium (Playwright)
 
 Exit: 0 no FAIL, 1 at least one FAIL, 3 wrong interpreter or not a checkout.
 """
@@ -43,6 +44,11 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parent
 REPO = SKILL_DIR.parents[2]
 PY = sys.executable
+# The Codex port (#1815) is a set of thin delegates to this directory, plus two
+# Codex-local files: a stdlib contract test that loads run_full_verification.py
+# directly, and the Playwright console renderer. Editing a script here changes
+# the Codex lane too, so stage 1 runs that contract test.
+CODEX_DIR = REPO / ".agents" / "skills" / "cyclaw-sandbox"
 # Runtime state and caches stay out of the scratch copies; index/ is copied
 # into the live-gate copy separately (only when it exists) so /query can hit.
 _COPY_IGNORE = shutil.ignore_patterns(
@@ -174,6 +180,15 @@ def static_checks(out: Path) -> None:
     rc, tail = run([*ruff_cmd, "check", "--select", "E,F,I,B,C4,UP,S", "--ignore", "E501", "."],
                    log=out / "ruff-advisory.log")
     record("static", "ruff E,F,I,B,C4,UP,S (advisory)", rc == 0, tail)
+
+
+def codex_contract(out: Path) -> None:
+    contract = CODEX_DIR / "test_verification_contract.py"
+    if not contract.is_file():
+        record("static", "Codex delegate contract", None, f"{contract.relative_to(REPO)} not present")
+        return
+    rc, tail = run([PY, str(contract)], env=child_env(), timeout=120, log=out / "codex-contract.log")
+    record("static", "Codex delegate contract (run_full_verification phases + verdicts)", rc == 0, tail)
 
 
 # ── stage 2: run the code (no server) ────────────────────────────────────────
@@ -396,7 +411,23 @@ def rate_limit_probe(g: Gate) -> None:
     record("live", "/health and /index/status stay open after the limit trips", exempt == [200, 200], f"{exempt}")
 
 
-def live_gate(out: Path, scratch: Path, port: int) -> None:
+def browser_render(out: Path, gate: Gate, browser_py: str, index_ready: bool) -> None:
+    # Playwright is not in the CyClaw locks, so the renderer may run under a
+    # different interpreter; it imports nothing from CyClaw. Its exit 2 means
+    # "playwright not importable", which is an absent optional tool, not a FAIL.
+    script = CODEX_DIR / "browser_render_check.py"
+    if not script.is_file():
+        record("live", "browser console render", None, f"{script.relative_to(REPO)} not present")
+        return
+    cmd = [browser_py, str(script), "--gateway", gate.base + "/", "--out", str(out / "browser")]
+    if not index_ready:
+        cmd.append("--no-exercise")  # without an index the query would only show a 503
+    rc, tail = run(cmd, env=child_env(), timeout=300, log=out / "browser-render.log")
+    label = "browser console render, desktop + mobile" + ("" if index_ready else " (no query: no index)")
+    record("live", label, None if rc == 2 else rc == 0, tail)
+
+
+def live_gate(out: Path, scratch: Path, port: int, browser_py: str | None = None) -> None:
     print("\n== 4. live gate.py (scratch copy, real config.yaml)")
     copy = scratch_copy(scratch / "gate", with_index=True)
     key = secrets.token_urlsafe(24)
@@ -423,6 +454,8 @@ def live_gate(out: Path, scratch: Path, port: int) -> None:
                 record("live", "terminal_emulation.py (the console's fetch lifecycle)", rc == 0, tail)
             else:
                 record("live", "terminal_emulation.py", None, "needs a built index")
+            if browser_py is not None:
+                browser_render(out, gate, browser_py, index_ready)
     finally:
         gate.stop()
     (copy / "config.yaml").write_text(shipped, encoding="utf-8")
@@ -482,6 +515,10 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8791, help="live gate port (default 8791, next free if busy)")
     parser.add_argument("--out", type=Path, default=None, help="report/log directory")
     parser.add_argument("--keep", action="store_true", help="keep the scratch copies")
+    parser.add_argument("--browser", action="store_true",
+                        help="render the console in headless Chromium via browser_render_check.py")
+    parser.add_argument("--browser-python", default=None,
+                        help="interpreter with playwright installed (default: this one); implies --browser")
     args = parser.parse_args()
 
     if not preflight():
@@ -497,12 +534,14 @@ def main() -> int:
     try:
         if not args.skip_static:
             static_checks(out)
+            codex_contract(out)
         if not args.skip_code:
             run_the_code(out, scratch)
         if not args.skip_swarm:
             swarm(out, scratch)
         if not args.skip_live:
-            live_gate(out, scratch, free_port(args.port))
+            browser_py = args.browser_python or (PY if args.browser else None)
+            live_gate(out, scratch, free_port(args.port), browser_py)
     finally:
         if mock is not None:
             mock.terminate()
