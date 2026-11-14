@@ -453,9 +453,7 @@ def create_proposal(
             )
             conn.commit()
             pid = int(cur.lastrowid)
-            row = conn.execute(
-                "SELECT * FROM memory_proposals WHERE id = ?", (pid,)
-            ).fetchone()
+            row = _proposal_row(conn, pid)
             if row is None:
                 raise RuntimeError("proposal row missing after write")
             return _row_to_proposal(row)
@@ -466,12 +464,18 @@ def create_proposal(
             conn.close()
 
 
+def _proposal_row(conn: sqlite3.Connection, proposal_id: int) -> sqlite3.Row | None:
+    """Fetch one proposal row on the caller's connection (and its open transaction)."""
+    row: sqlite3.Row | None = conn.execute(
+        "SELECT * FROM memory_proposals WHERE id = ?", (int(proposal_id),)
+    ).fetchone()
+    return row
+
+
 def get_proposal(cfg: Mapping[str, Any], proposal_id: int) -> MemoryProposal | None:
     conn = connect(cfg)
     try:
-        row = conn.execute(
-            "SELECT * FROM memory_proposals WHERE id = ?", (int(proposal_id),)
-        ).fetchone()
+        row = _proposal_row(conn, proposal_id)
         return _row_to_proposal(row) if row else None
     finally:
         conn.close()
@@ -515,10 +519,7 @@ def apply_proposal(cfg: Mapping[str, Any], proposal_id: int, reason: str) -> dic
         try:
             # Exclusive txn: blocks concurrent writers on this DB file too.
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                "SELECT * FROM memory_proposals WHERE id = ?",
-                (int(proposal_id),),
-            ).fetchone()
+            row = _proposal_row(conn, proposal_id)
             if row is None:
                 raise ValueError(f"proposal {proposal_id} not found")
             if row["status"] != "pending":
@@ -618,22 +619,16 @@ def reject_proposal(cfg: Mapping[str, Any], proposal_id: int, reason: str) -> Me
                 """,
                 ("rejected", now, reason_s, int(proposal_id)),
             )
+            # One read serves both outcomes: the row is absent only when the UPDATE
+            # matched nothing, since a hit is visible inside this same BEGIN IMMEDIATE
+            # transaction (2026-11-10 ponytail audit, Tier 2).
+            row = _proposal_row(conn, proposal_id)
+            if row is None:
+                raise ValueError(f"proposal {proposal_id} not found")
             if cur.rowcount != 1:
-                row = conn.execute(
-                    "SELECT * FROM memory_proposals WHERE id = ?",
-                    (int(proposal_id),),
-                ).fetchone()
-                if row is None:
-                    raise ValueError(f"proposal {proposal_id} not found")
                 raise ValueError(
                     f"proposal {proposal_id} is not pending (status={row['status']})"
                 )
-            row = conn.execute(
-                "SELECT * FROM memory_proposals WHERE id = ?",
-                (int(proposal_id),),
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"proposal {proposal_id} not found")
             conn.commit()
             return _row_to_proposal(row)
         except Exception:
