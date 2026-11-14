@@ -1,7 +1,7 @@
 {
   "version": 1,
   "inputs": {
-    "constraints.txt": "sha256:31f1560bc29809d369b51d511fe45ea22261243a4509f22b92bf3a7e44a59644",
+    "constraints.txt": "sha256:8dd62996160e11d84d793ef4b28fca82aceb30219537fc98da90167156c82d18",
     "pyproject.toml": "sha256:368cebb052f811b00c4fb9fce103a621979df4d178c987600e4f9ef6e6cf63d1",
     "requirements-torch.txt": "sha256:87a2b9620b83d20099c7226b30cb286fa4ce8574f9f2515c72716248bf4903a0",
     "requirements.txt": "sha256:5f0282977f7e23579c1fcdc4c4f55065b2e852bceaaed5910802aa2fac588e5e",
@@ -9,9 +9,9 @@
     "scripts/refresh-runtime-lock.sh": "sha256:d13427d2ca065ca12f24457b1f9aa6c369e298f165904185e7a81260d82182db"
   },
   "outputs": {
-    "requirements-lock-linux.txt": "sha256:234d4af115bba9199f03e90020d715f516542fe9b2386d51d2408108fa7a9aef",
-    "requirements-lock-macos.txt": "sha256:234d4af115bba9199f03e90020d715f516542fe9b2386d51d2408108fa7a9aef",
-    "requirements-lock-windows.txt": "sha256:a80a7a9398a7390690ed1e9231ab4af67408371ae2078f07d8e9584457c0699f",
+    "requirements-lock-linux.txt": "sha256:7ce90f99c8f6aedd43772b4f2193933903b3a23f7c82fd256d6a7129cf0e0219",
+    "requirements-lock-macos.txt": "sha256:7ce90f99c8f6aedd43772b4f2193933903b3a23f7c82fd256d6a7129cf0e0219",
+    "requirements-lock-windows.txt": "sha256:ef3cb3617e299fe4a5a6116d46c77748dc202365f3f2ac2eb68b1c3b5738c307",
     "requirements-torch-lock-linux.txt": "sha256:334327ada38d02602f0d8b82007c1500d6311874bd6e7dd58f9cf047216111bd",
     "requirements-torch-lock-macos.txt": "sha256:36b27e981af4219a31f2f81a0de0508808d995dd1071f827fc3714354aff46df",
     "requirements-torch-lock-windows.txt": "sha256:334327ada38d02602f0d8b82007c1500d6311874bd6e7dd58f9cf047216111bd"
