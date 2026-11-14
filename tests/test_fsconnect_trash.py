@@ -146,6 +146,22 @@ def test_list_entries_treats_posix_enoent_and_win_not_found_as_absent(caplog):
     assert not caplog.records
 
 
+def test_list_entries_warns_on_unparseable_sidecar_and_keeps_good_ones(caplog):
+    """Broken sidecar JSON must be observable, not silently dropped."""
+    good = trash.make_entry("a.txt", NOW, reason="r", sha256=None, size=1, kind="file", retention_days=7)
+    sidecars = {
+        f"{good.name}{trash.META_SUFFIX}": good.meta_bytes(),
+        f"broken{trash.META_SUFFIX}": b'{"original_path": "b.t',
+    }
+    roots = MagicMock()
+    roots.list_dir.return_value = [{"name": n} for n in sidecars]
+    roots.read_bytes.side_effect = lambda path, **_kw: sidecars[path.rsplit("/", 1)[-1]]
+    with caplog.at_level(logging.WARNING, logger="agentic.fsconnect.trash"):
+        entries = trash.list_entries(roots, None)
+    assert [e.name for e in entries] == [good.name]
+    assert "unparseable trash sidecar 'broken.meta.json'" in caplog.text
+
+
 def test_list_entries_warns_on_non_absent_and_survives_none_details(caplog):
     roots = MagicMock()
     roots.list_dir.side_effect = FsPathError("denied", details={"winerror": 5})

@@ -208,8 +208,19 @@ def list_entries(roots: ScopedRoots, root: str | None) -> list[TrashEntry]:
             logger.warning("Skipping unreadable trash sidecar %r in root %r", name, root)
             continue
         entry = _parse_meta(name, data)
-        if entry is not None:
-            out.append(entry)
+        if entry is None:
+            # A readable sidecar with broken JSON or missing fields used to be
+            # dropped with no trace, unlike the unreadable case above: the blob
+            # then never shows in trash-list and trash-empty (even --all) never
+            # purges it. Purging it blind is not safe -- its deleted_at is
+            # unknown -- so surface it for the operator instead.
+            logger.warning(
+                "Skipping unparseable trash sidecar %r in root %r; its blob is not listed or purged",
+                name,
+                root,
+            )
+            continue
+        out.append(entry)
     out.sort(key=lambda e: e.name)
     return out
 
