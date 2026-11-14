@@ -15,7 +15,7 @@ that document is the authority; this file is the in-tree map.
 | `cli.py` | `status` / `test` / `send` (T1) / `poll` (T2); `poll-plist` / `health-plist` (Darwin), `poll-task` / `health-task` (Windows). Generators never register/load jobs; keystore wrappers keep tokens out of artifacts. |
 | `config.py` | Loads the `telegram:` block; `bot_token_env` names the env var holding the token — the token itself never appears in config. |
 | `client.py` | Bot API HTTP client (outbound `sendMessage`, long-poll `getUpdates`); ignores ambient `HTTP(S)_PROXY`. |
-| `runner.py` | `send_notify` (T1) and `poll_forever` (T2) orchestration, allowlist enforcement. |
+| `runner.py` | `send_notify` (T1) and `poll_forever` (T2) orchestration, allowlist enforcement. A fatal bridge error partway through a batch still persists the offset of the updates already handled (`acked_offset`, #1821), so a restart retries only the failed update. |
 | `ratelimit.py` | Channel-side op budget, separate from the gate's per-IP limiter. |
 | `media.py` | T4 media staging (default off); writes only through the existing `agentic/fsconnect` write path. |
 | `state.py` | Long-poll offset persistence and per-chat T3 hybrid-confirm session state (default off). Never stores bot tokens or message text. |

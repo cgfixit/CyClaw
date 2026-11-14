@@ -66,7 +66,10 @@ duplicate checklists were removed; task routines and one handoff checklist remai
 
 `cyclaw-sandbox-test` remains explicit-only until its legacy install, ports,
 readiness, inherited environment, and caller tests are replaced. The larger
-sandbox's lifecycle scripts are also explicit legacy tools. Reports live in
+`cyclaw-sandbox` skill's scripts (`smoke.sh`, `macos-smoke.sh`,
+`run_full_verification.py`, `gate_runtime_check.py`, …) are short delegates to
+the maintained `.claude/skills/CyClaw-Sandbox/` implementations (#1815); only
+`browser_render_check.py` and `test_verification_contract.py` are Codex-local. Reports live in
 `docs/audits/`; socket-mock/terminal probes forward to maintained Claude
 scripts, while driver-specific verification remains local.
 
