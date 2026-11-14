@@ -48,6 +48,20 @@ class QuotaLedger:
         return json.dumps(asdict(self), indent=2, sort_keys=True).encode("utf-8")
 
 
+def _count(value: object) -> int:
+    """Return ``value`` if it is a real non-negative int; raise ``ValueError`` otherwise.
+
+    The ledger sits inside the writable root, so its fields are untrusted. ``int()``
+    alone accepted negatives, ``true`` and ``"5"``, and a negative ``used_bytes``
+    lets every write pass the quota check (writer.py adds deltas to it) until the
+    ledger goes stale. Rejecting it makes ``load`` return ``None``, which forces
+    the existing recompute path instead.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"invalid quota ledger count: {value!r}")
+    return value
+
+
 def load(roots: ScopedRoots, root: str | None) -> QuotaLedger | None:
     """Read ``.cyclaw-quota.json`` for ``root``. Returns ``None`` if missing/corrupt."""
     try:
@@ -57,10 +71,10 @@ def load(roots: ScopedRoots, root: str | None) -> QuotaLedger | None:
     try:
         raw = json.loads(data.decode("utf-8"))
         return QuotaLedger(
-            used_bytes=int(raw["used_bytes"]),
-            file_count=int(raw["file_count"]),
+            used_bytes=_count(raw["used_bytes"]),
+            file_count=_count(raw["file_count"]),
             computed_at=str(raw.get("computed_at", "")),
-            generation=int(raw.get("generation", 0)),
+            generation=_count(raw.get("generation", 0)),
         )
     except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError):
         return None
