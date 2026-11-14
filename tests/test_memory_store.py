@@ -417,3 +417,34 @@ def test_schema_ddl_runs_once_per_db_file_and_again_for_a_recreated_one(
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'facts'").fetchone() is not None
     finally:
         conn.close()
+
+
+def test_non_ascii_tags_are_searchable(mem_cfg):
+    """Tags are stored unescaped so the FTS tags column indexes the real word."""
+    fact = insert_fact(mem_cfg, "pastry notes", tags=["café", "日本"])
+    assert [r[0] for r in search_facts_fts(mem_cfg, "café")] == [fact.id]
+    assert [r[0] for r in search_facts_fts(mem_cfg, "日本")] == [fact.id]
+    updated = update_fact(mem_cfg, fact.id, tags=["naïve"])
+    assert [r[0] for r in search_facts_fts(mem_cfg, "naïve")] == [updated.id]
+    assert search_facts_fts(mem_cfg, "café") == []
+
+
+def test_schema_v1_escaped_tags_are_reencoded_on_open(mem_cfg):
+    """A v1 DB written with \\uXXXX-escaped tags is fixed and re-indexed in place."""
+    fact = insert_fact(mem_cfg, "pastry notes", tags=["plain"])
+    conn = connect(mem_cfg)
+    try:
+        # Recreate what v1 wrote: json.dumps' default ASCII escaping, user_version 1.
+        conn.execute("UPDATE facts SET tags_json = ? WHERE id = ?", ('["caf\\u00e9", "plain"]', fact.id))
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+    finally:
+        conn.close()
+    assert [r[0] for r in search_facts_fts(mem_cfg, "café")] == [fact.id]
+    conn = connect(mem_cfg)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == _SCHEMA_VERSION
+        assert conn.execute("SELECT tags_json FROM facts WHERE id = ?", (fact.id,)).fetchone()[0] == '["café", "plain"]'
+    finally:
+        conn.close()
+    assert get_fact(mem_cfg, fact.id).tags == ["café", "plain"]
