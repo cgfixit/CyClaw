@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -245,6 +247,36 @@ def test_next_schedule_handles_dst_gap_from_prior_day() -> None:
     assert when.date() == datetime(2026, 3, 8).date()
     assert when.minute == 30
     assert when.utcoffset() == timedelta(hours=-4)
+
+
+@pytest.fixture
+def _new_york_localtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Switch the process's local zone (what ``astimezone()`` reads) to New York."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is POSIX-only")
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        yield
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+@pytest.mark.usefixtures("_new_york_localtime")
+def test_next_schedule_local_time_crosses_fall_back() -> None:
+    """The local-time path must keep the wall slot across a DST change.
+
+    A naive ``now`` takes the same branch as production's ``now=None``. Before
+    the fix the target inherited Saturday's fixed EDT offset, so the Tuesday
+    09:00 slot after the November fall-back landed at 08:00 EST.
+    """
+    now = datetime(2026, 10, 31, 12, 0)  # Saturday, EDT; clocks fall back Sunday
+    when = next_schedule_datetime(2, "09:00", now=now)  # Tuesday
+    assert when.date() == datetime(2026, 11, 3).date()
+    assert (when.hour, when.minute) == (9, 0)
+    assert when.utcoffset() == timedelta(hours=-5)
+    assert when.astimezone(UTC) == datetime(2026, 11, 3, 14, 0, tzinfo=UTC)
 
 
 def test_schedule_with_naive_now_normalizes(tmp_path: Path) -> None:
