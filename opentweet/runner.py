@@ -41,22 +41,32 @@ def next_schedule_datetime(
 ) -> datetime:
     """Next local occurrence of ``weekday`` + ``HH:MM`` strictly in the future."""
     hour, minute = parse_schedule_slot(slot)
-    current = now or datetime.now().astimezone()
-    if current.tzinfo is None:
-        current = current.astimezone()
+    # No ``now`` (production) or a naive one means "this machine's local time".
+    # ``datetime.now().astimezone()`` carries only today's fixed UTC offset, not
+    # the zone's rules, so placing a slot days ahead with that offset fired an
+    # hour off whenever a DST change fell in between (a Tuesday 09:00 slot
+    # picked on the Saturday before the November fall-back landed at 08:00
+    # EST). Those callers get the target wall time placed with the platform's
+    # localtime rules for the target date instead -- still no tz database.
+    use_local_rules = now is None or now.tzinfo is None
+    current = now if now is not None and now.tzinfo is not None else (now or datetime.now()).astimezone()
     python_weekday = 6 if weekday in (0, 7) else weekday - 1
-    target = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
     days_ahead = (python_weekday - current.weekday()) % 7
-    target = target + timedelta(days=days_ahead)
+    wall = current.replace(tzinfo=None, hour=hour, minute=minute, second=0, microsecond=0)
+    wall += timedelta(days=days_ahead)
+
+    def place(local_wall: datetime) -> datetime:
+        if use_local_rules:
+            return local_wall.astimezone()
+        # Normalize the *final* local instant through UTC so a wall-clock slot
+        # that falls in a DST gap or is ambiguous snaps to a real instant
+        # (Codex P2 on #1092: normalize after adding days_ahead, not before).
+        aware = local_wall.replace(tzinfo=current.tzinfo)
+        return aware.astimezone(UTC).astimezone(current.tzinfo)
+
+    target = place(wall)
     if target <= current:
-        target += timedelta(days=7)
-    # Normalize the *final* local instant through UTC so a wall-clock slot that
-    # falls in a DST gap or is ambiguous snaps to a real instant. Doing this
-    # before adding days_ahead leaves a target reached from an earlier day
-    # unnormalized (Codex P2 on #1092).
-    target = target.astimezone(UTC).astimezone(current.tzinfo)
-    if target <= current:
-        target = (target + timedelta(days=7)).astimezone(UTC).astimezone(current.tzinfo)
+        target = place(wall + timedelta(days=7))
     return target
 
 
