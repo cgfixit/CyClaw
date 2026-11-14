@@ -140,16 +140,26 @@ _LOG_MODIFIED_RE = re.compile(
 _LOG_DELETED_RE = re.compile(r"\bINFO\s*:\s*(.+):\s*Deleted\s*$", re.IGNORECASE)
 _LOG_ERROR_RE = re.compile(r"\bERROR\b\s*:\s*(.+)", re.IGNORECASE)
 
-# rclone check summary + mismatch patterns. check outputs to stderr (or stdout
-# depending on version/flags); we capture both and scan for these anchors.
-#   2026/01/01 00:00:00 INFO  : Found 2 missing on Local
-#   2026/01/01 00:00:00 INFO  : Found 1 missing on Remote
-#   2026/01/01 00:00:00 INFO  : 3 differences found
-#   2026/01/01 00:00:00 NOTICE: file.md: sizes differ
-_CHECK_MISSING_LOCAL_RE = re.compile(r"Found (\d+) missing on Local", re.IGNORECASE)
-_CHECK_MISSING_REMOTE_RE = re.compile(r"Found (\d+) missing on Remote", re.IGNORECASE)
+# rclone check summary + mismatch patterns, taken from rclone's own
+# fs/operations/check.go (reportResults + the per-file ErrorfCtx calls). check
+# logs to stderr; we capture both streams and scan for these anchors:
+#   2026/01/01 00:00:00 ERROR : file.md: sizes differ
+#   2026/01/01 00:00:00 ERROR : new.md: file not in Local file system at /corpus
+#   2026/01/01 00:00:00 NOTICE: Local file system at /corpus: 1 files missing
+#   2026/01/01 00:00:00 NOTICE: dropbox_cyclaw:CyClaw/corpus: 2 files missing
+#   2026/01/01 00:00:00 NOTICE: Local file system at /corpus: 3 differences found
+#   2026/01/01 00:00:00 NOTICE: Local file system at /corpus: 12 matching files
+# The "files missing" summary names the Fs it counts for. build_check_argv puts
+# the local path second (rclone's Fdst), and rclone's local backend names itself
+# "Local file system at <path>", so that prefix marks missing_local. Before this
+# parser matched the real format it looked for "Found N missing on Local", which
+# rclone never prints, so both counters always read 0.
+_LOCAL_FS_PREFIX = "Local file system at "
+_CHECK_MISSING_RE = re.compile(r"\b(?:NOTICE|INFO)\s*:\s*(.+?):\s*(\d+) files missing\s*$", re.IGNORECASE)
 _CHECK_DIFFS_RE = re.compile(r"(\d+) differences?\s+found", re.IGNORECASE)
-_CHECK_MISMATCH_RE = re.compile(r"(?:NOTICE|ERROR)\s*:\s*([^\n]+?):\s*(.+)", re.IGNORECASE)
+# Per-file problems are logged at ERROR; NOTICE lines are summaries ("N matching
+# files", "N hashes could not be checked") and must not count as errors.
+_CHECK_MISMATCH_RE = re.compile(r"\bERROR\s*:\s*([^\n]+?):\s*(.+)", re.IGNORECASE)
 
 # rclone's own scratch / state artifacts that may appear in a log line but are
 # NOT corpus content. They should never trip the "corpus changed -> reindex"
@@ -459,13 +469,12 @@ def run_post_sync_check(
     errors: list[str] = []
 
     for line in combined.splitlines():
-        m = _CHECK_MISSING_LOCAL_RE.search(line)
+        m = _CHECK_MISSING_RE.search(line)
         if m:
-            missing_local = int(m.group(1))
-            continue
-        m = _CHECK_MISSING_REMOTE_RE.search(line)
-        if m:
-            missing_remote = int(m.group(1))
+            if m.group(1).strip().startswith(_LOCAL_FS_PREFIX):
+                missing_local = int(m.group(2))
+            else:
+                missing_remote = int(m.group(2))
             continue
         m = _CHECK_DIFFS_RE.search(line)
         if m:

@@ -965,9 +965,8 @@ def test_build_check_argv_omits_checksum_when_off(tmp_path):
 def test_run_post_sync_check_ok_when_zero_differences(tmp_path):
     cfg = _make_cfg(tmp_path)
     ok_output = (
-        "2026/06/20 00:00:00 INFO  : 0 differences found\n"
-        "2026/06/20 00:00:00 INFO  : Found 0 missing on Local\n"
-        "2026/06/20 00:00:00 INFO  : Found 0 missing on Remote\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at /corpus: 0 differences found\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at /corpus: 12 matching files\n"
     )
     with patch("sync.runner.subprocess.run",
                return_value=MagicMock(returncode=0, stdout="", stderr=ok_output)), \
@@ -983,21 +982,40 @@ def test_run_post_sync_check_ok_when_zero_differences(tmp_path):
 def test_run_post_sync_check_not_ok_when_differences_found(tmp_path):
     cfg = _make_cfg(tmp_path)
     diff_output = (
-        "2026/06/20 00:00:00 NOTICE: notes.md: sizes differ\n"
-        "2026/06/20 00:00:00 INFO  : Found 1 missing on Local\n"
-        "2026/06/20 00:00:00 INFO  : Found 0 missing on Remote\n"
-        "2026/06/20 00:00:00 INFO  : 1 differences found\n"
+        "2026/06/20 00:00:00 ERROR : notes.md: sizes differ\n"
+        "2026/06/20 00:00:00 ERROR : new.md: file not in Local file system at /corpus\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at /corpus: 1 files missing\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at /corpus: 2 differences found\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at /corpus: 5 matching files\n"
     )
     with patch("sync.runner.subprocess.run",
                return_value=MagicMock(returncode=1, stdout="", stderr=diff_output)), \
          _patch_audit():
         cr = run_post_sync_check(cfg, rclone_bin=FAKE_RCLONE)
     assert cr.ok is False
-    assert cr.differences == 1
+    assert cr.differences == 2
     assert cr.missing_local == 1
     assert cr.missing_remote == 0
-    assert len(cr.errors) == 1
+    # Per-file ERROR lines only; the NOTICE summaries are not errors.
+    assert len(cr.errors) == 2
     assert "notes.md" in cr.errors[0]
+    assert "new.md" in cr.errors[1]
+
+
+def test_run_post_sync_check_counts_missing_per_side(tmp_path):
+    """rclone names the Fs on each "files missing" summary (fs/operations/check.go)."""
+    cfg = _make_cfg(tmp_path)
+    output = (
+        "2026/06/20 00:00:00 NOTICE: Local file system at //?/C:/corpus: 3 files missing\n"
+        "2026/06/20 00:00:00 NOTICE: dropbox_cyclaw:CyClaw/corpus: 2 files missing\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at //?/C:/corpus: 5 differences found\n"
+    )
+    with patch("sync.runner.subprocess.run",
+               return_value=MagicMock(returncode=1, stdout="", stderr=output)), \
+         _patch_audit():
+        cr = run_post_sync_check(cfg, rclone_bin=FAKE_RCLONE)
+    assert (cr.missing_local, cr.missing_remote, cr.differences) == (3, 2, 5)
+    assert cr.errors == []
 
 
 def test_run_post_sync_check_timeout_soft_fails(tmp_path):
@@ -1072,9 +1090,8 @@ def test_run_sync_calls_check_on_success_when_configured(tmp_path):
     log_path = cfg.log_path
 
     check_output = (
-        "2026/06/20 00:00:00 INFO  : 0 differences found\n"
-        "2026/06/20 00:00:00 INFO  : Found 0 missing on Local\n"
-        "2026/06/20 00:00:00 INFO  : Found 0 missing on Remote\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at /corpus: 0 differences found\n"
+        "2026/06/20 00:00:00 NOTICE: Local file system at /corpus: 12 matching files\n"
     )
 
     def dispatch(argv, **kwargs):
