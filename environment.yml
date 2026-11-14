@@ -30,13 +30,14 @@ dependencies:
   # Keep generated OTLP protos compatible with the native protobuf runtime.
   - opentelemetry-exporter-otlp-proto-grpc>=1.42
   # Security floors that constraints.txt pins exactly (PYSEC-2026-4320,
-  # CVE-2026-114603). Both are conda-owned on this lane (httpx pulls certifi;
-  # the exporter's opentelemetry-sdk pins its opentelemetry-api exactly), so a
-  # pip: override would fight the conda solve. Floors, not exact pins: the
-  # conda-forge build set was not checkable from the editing sandbox, and the
-  # conda CI lane is what proves the solve.
+  # CVE-2026-114603, CVE-2026-126360). Both packages are conda-owned on this
+  # lane (httpx pulls certifi; the exporter's opentelemetry-sdk pins its
+  # opentelemetry-api exactly), so a pip: override would fight the conda
+  # solve. Floors, not exact pins: the conda-forge build set was not
+  # checkable from the editing sandbox, and the conda CI lane is what proves
+  # the solve.
   - certifi>=2026.10.19
-  - opentelemetry-api>=1.45.1
+  - opentelemetry-api>=1.45.2
   - sentence-transformers=6.1.0
   # sentence-transformers depends on pillow with no cap. 13.0.0 is the
   # PYSEC-2026-4327 / PYSEC-2026-4332 fix; match constraints.txt.

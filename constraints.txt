@@ -42,7 +42,8 @@ pyyaml==6.0.3
 httpx==0.28.1
 # Patched transitives for PYSEC-2026-4320 and CVE-2026-114603.
 certifi==2026.10.19
-opentelemetry-api==1.45.1
+# CVE-2026-126360 (GHSA-mf5v-w3w3-f6cg): traceparent parsing ReDoS, fixed in 1.45.2.
+opentelemetry-api==1.45.2
 # Security floor for a transitive (nemoguardrails directly and via aiohttp-retry;
 # chromadb via kubernetes). 3.14.3 carries CVE-2026-111063, CVE-2026-111064 and
 # GHSA-2g87-pp6c-29x5, fixed in 3.14.4 (pip-audit, 2026-10-19). CyClaw imports

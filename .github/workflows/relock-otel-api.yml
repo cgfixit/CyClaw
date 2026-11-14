@@ -1,0 +1,59 @@
+# Temporary arm64 macOS lock refresh for the opentelemetry-api 1.45.2 bump.
+# scripts/refresh-*-lock.sh refuse every host except Darwin arm64, and
+# workflow_dispatch cannot start a workflow that is not on the default branch.
+# This file is deleted once the regenerated locks are committed.
+
+name: Relock OpenTelemetry API
+
+on:
+  push:
+    branches:
+      - grok/otel-api-1.45.2
+    paths:
+      - .github/workflows/relock-otel-api.yml
+      - constraints.txt
+
+permissions:
+  contents: read
+
+jobs:
+  relock:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the uv release that last regenerated these locks
+        run: python -m pip install --disable-pip-version-check "uv==0.12.23"
+
+      - name: Refresh runtime and CI locks
+        run: |
+          set -euo pipefail
+          echo "host=$(uname -s) arch=$(uname -m)"
+          python -c 'import sys; print(sys.version)'
+          uv --version
+          export PYTHON_BIN="$(python -c 'import sys; print(sys.executable)')"
+          export UV_BIN="$(python -c 'import shutil; print(shutil.which("uv"))')"
+          bash scripts/refresh-runtime-lock.sh \
+            --upgrade-package opentelemetry-api \
+            --upgrade-package opentelemetry-sdk \
+            --upgrade-package opentelemetry-semantic-conventions
+          bash scripts/refresh-ci-locks.sh \
+            --upgrade-package opentelemetry-api \
+            --upgrade-package opentelemetry-sdk \
+            --upgrade-package opentelemetry-semantic-conventions
+          echo "---- opentelemetry pins ----"
+          grep -n -E '^opentelemetry' locks/requirements-lock-linux.txt locks/requirements-lock-macos.txt locks/requirements-lock-windows.txt
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: refreshed-locks
+          path: locks/
+          if-no-files-found: error
+          retention-days: 5
