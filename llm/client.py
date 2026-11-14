@@ -302,9 +302,16 @@ def _read_retry(model_cfg: dict) -> tuple[int, float, float]:
     ``ValueError`` on the first retry attempt.
     """
     retry_cfg = model_cfg.get("retry") or {}
-    max_retries = max(0, int(retry_cfg.get("max_retries", 0)))
-    backoff_base = max(0.0, float(retry_cfg.get("backoff_base_sec", 1.0)))
-    backoff_max = max(0.0, float(retry_cfg.get("backoff_max_sec", _DEFAULT_BACKOFF_MAX_SEC)))
+
+    def _setting(key: str, default: float) -> float:
+        # A YAML key left blank (``max_retries:``) loads as None; treat it as
+        # unset instead of raising TypeError from int(None) on every call.
+        value = retry_cfg.get(key)
+        return default if value is None else value
+
+    max_retries = max(0, int(_setting("max_retries", 0)))
+    backoff_base = max(0.0, float(_setting("backoff_base_sec", 1.0)))
+    backoff_max = max(0.0, float(_setting("backoff_max_sec", _DEFAULT_BACKOFF_MAX_SEC)))
     return max_retries, backoff_base, backoff_max
 
 

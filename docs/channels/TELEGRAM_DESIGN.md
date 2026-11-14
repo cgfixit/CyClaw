@@ -239,7 +239,7 @@ token.
 |---|---|---|
 | Persistent rate limiter | `telegram/ratelimit.py` | **Deferred (YAGNI).** Process-local sliding window is enough for a single poller. Upgrade to dedicated sqlite under `data/` only if multi-process pollers are needed. Keys: `tg:outbound`, `tg:inbound:{chat_id}`. |
 | Launchd generator | `python -m telegram.cli health-plist` | **Shipped.** Generates the same curl-`/health`-then-notify-on-fail plist from real resolved paths (no placeholders), token injected via the Keychain wrapper. Never calls `launchctl load` itself. The static `macos/LaunchAgents/com.cgfixit.cyclaw.telegram-health.plist` template remains as a hand-editable reference/fallback. |
-| Message chunking | `telegram/client.py` | **Shipped.** `chunk_text` splits on paragraph/line before hard cut; `send_message` sends sequential chunks. |
+| Message chunking | `telegram/client.py` | **Shipped.** `chunk_text` splits on paragraph/line before hard cut and drops whitespace-only pieces; `send_message` sends sequential chunks and reports `delivered_chunks` when a later chunk fails. |
 | `send` dry-run | `telegram/cli.py` | **Shipped in T0** (`--dry-run` validates allowlist + prints preview, no HTTP). |
 
 **Tests**
@@ -352,7 +352,9 @@ leaves the Telegram update unacknowledged so deletion can be retried.
 
 **Delivery/replay semantics:** Telegram long-polling is at-least-once. A
 retryable `/query` or reply failure leaves an update eligible for redelivery,
-and a host restart after an offset-save failure replays from the last durable
+unless the reply failed after some of its chunks were already delivered: that
+update is acknowledged (`details.delivered_chunks`), because a replay would
+re-run the query and resend the delivered prefix. A host restart after an offset-save failure replays from the last durable
 offset. T2 may therefore repeat a query. A successfully deleted T3 claim stays
 consumed and a replay cannot repeat the online escalation.
 
@@ -531,6 +533,7 @@ Wire each job’s `on_failure_notify: true` to `python -m telegram.cli send` onc
 | 2026-08-07 | Fresh-main parity review: corrected current hybrid posture and T2 config example; added T3 fail-closed deletion blocker, T2 single-poller/replay limits, and T4 POSIX/opaque-staging constraints. |
 | 2026-08-09 | Closed the T2 offset-save and T3 session-delete blockers with fail-closed retry handling, a typed T3 error, audit events, and restart/retry regressions. Live Bot API validation remains pending. |
 | 2026-11-10 | `poll_once` now reports, and `poll_forever` persists, the offset of updates handled before a fatal mid-batch error; previously that progress was dropped and the updates replayed after the restart. |
+| 2026-11-14 | A reply that fails after some chunks were delivered acknowledges its update instead of replaying `/query` and resending them; `chunk_text` no longer emits a whitespace-only final chunk (a permanent Bot API 400); a boolean `update_id` no longer moves the offset. |
 
 ---
 

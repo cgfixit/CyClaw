@@ -152,10 +152,14 @@ def test_apply_staged_paths_stay_within_staging(env):
     """
     cfg, fs_cfg, cp, _idx, tmp = env
     staging = (tmp / "staging").resolve()
-    FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging), reindex=False)
-    for path in staging.rglob("*"):
-        if path.is_file():
-            assert staging in path.resolve().parents
+    res = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging), reindex=False)
+    staged = [path for path in staging.rglob("*") if path.is_file()]
+    # Without these two asserts an apply() that staged nothing (or staged
+    # somewhere else) left the loop below empty, and the test passed vacuously.
+    assert res["staged"] == 2
+    assert {"a.md", "docs/b.txt"} <= {path.relative_to(staging).as_posix() for path in staged}
+    for path in staged:
+        assert staging in path.resolve().parents
 
 
 def test_scan_isolates_unreadable_file(env, monkeypatch):

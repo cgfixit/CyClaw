@@ -25,6 +25,7 @@ from llm.client import (
     GrokClient,
     LocalLLMClient,
     _client_timeout,
+    _read_retry,
     is_loopback_url,
     reset_graph_deadline,
     reset_local_backend_cache,
@@ -1999,3 +2000,10 @@ def test_is_loopback_url_classifies_the_host(url: str, expected: bool) -> None:
     ``0.0.0.0`` is not loopback: it is every interface.
     """
     assert is_loopback_url(url) is expected
+
+
+def test_read_retry_treats_blank_yaml_keys_as_unset() -> None:
+    """``max_retries:`` with no value loads as None; it must not raise TypeError."""
+    blank = {"retry": {"max_retries": None, "backoff_base_sec": None, "backoff_max_sec": None}}
+    assert _read_retry(blank) == _read_retry({})
+    assert _read_retry({"retry": {"max_retries": 2, "backoff_base_sec": None}})[:2] == (2, 1.0)
