@@ -225,3 +225,30 @@ def test_future_dated_ledger_is_stale():
     assert quota.is_stale(ledger(now + timedelta(days=3)), now, 24)
     assert not quota.is_stale(ledger(now - timedelta(hours=1)), now, 24)
     assert quota.is_stale(ledger(now - timedelta(hours=24)), now, 24)
+
+
+@pytest.mark.parametrize(
+    "forged",
+    [
+        {"used_bytes": -10_000_000, "file_count": 0},
+        {"used_bytes": 0, "file_count": -1000},
+        {"used_bytes": True, "file_count": 0},
+        {"used_bytes": "0", "file_count": 0},
+        {"used_bytes": 0.5, "file_count": 0},
+    ],
+)
+def test_forged_ledger_counts_force_recompute(tmp_path, forged):
+    # The ledger lives inside the writable root. A fresh one with a negative or
+    # non-int count used to load as-is, so used_bytes + delta stayed under the
+    # cap and the over-quota write below went through.
+    wz = tmp_path / "wz"
+    cfg, fs_cfg, cp = _make(tmp_path, [{"path": str(wz), "quota_bytes": 100}])
+    with FsWriter(cfg, fs_cfg, config_path=cp) as w:
+        w.fs_write("a.txt", b"X" * 60, reason="under cap")
+        doc = {**forged, "computed_at": quota.iso(w._now_dt()), "generation": 1}
+        (wz / quota.QUOTA_FILE).write_text(json.dumps(doc), encoding="utf-8")
+        assert quota.load(w._roots, str(wz)) is None
+        with pytest.raises(FsWriteRefused) as ei:
+            w.fs_write("b.txt", b"Y" * 60, reason="would breach")
+    assert ei.value.details["failed_gate"] == "quota"
+    assert not (wz / "b.txt").exists()
