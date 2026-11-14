@@ -368,6 +368,31 @@ def test_darwin_dataless_read_refused_before_file_open(monkeypatch, tmp_path):
         assert opened_leaf == []
 
 
+def test_darwin_dataless_purge_unlinks_without_opening_to_hash(monkeypatch, tmp_path):
+    """A hard purge must not download an evicted file just to hash it."""
+    share = tmp_path / "share"
+    share.mkdir()
+    (share / "placeholder.md").write_text("cloud bytes", encoding="utf-8")
+    (share / "resident.md").write_text("local bytes", encoding="utf-8")
+    with ScopedRoots([str(share)], create=False) as roots:
+        original_open = os.open
+        opened_leaf: list[str] = []
+
+        def track_open(path, *args, **kwargs):
+            if path == "placeholder.md":
+                opened_leaf.append(path)
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(pathsafe, "_is_macos_dataless", lambda st: st.st_size == len("cloud bytes"))
+        monkeypatch.setattr(os, "open", track_open)
+        result = roots.unlink("placeholder.md", sha_max_bytes=1024)
+        assert result["sha256"] is None
+        assert opened_leaf == []
+        assert not (share / "placeholder.md").exists()
+        # A resident file is still hashed on purge.
+        assert roots.unlink("resident.md", sha_max_bytes=1024)["sha256"] is not None
+
+
 def test_root_replaced_by_symlink_uses_held_fd(tmp_path):
     realroot = tmp_path / "realroot"
     realroot.mkdir()

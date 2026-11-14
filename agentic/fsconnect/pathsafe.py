@@ -1295,10 +1295,13 @@ class ScopedRoots:
     ) -> str | None:
         """Stream a regular file's content sha256 through the held descent fd.
 
-        Returns ``None`` for non-regular files or when ``size`` exceeds
-        ``sha_max_bytes`` (so a purge of a huge file never buffers it whole).
+        Returns ``None`` for non-regular files, when ``size`` exceeds
+        ``sha_max_bytes`` (so a purge of a huge file never buffers it whole),
+        or for an iCloud-evicted (dataless) placeholder: reading one makes
+        macOS download it, and a delete must not pull a file down from the
+        cloud just to hash it -- the same rule the read path enforces.
         """
-        if not statmod.S_ISREG(st.st_mode):
+        if not statmod.S_ISREG(st.st_mode) or _is_macos_dataless(st):
             return None
         if sha_max_bytes is not None and size > sha_max_bytes:
             return None
@@ -1309,7 +1312,11 @@ class ScopedRoots:
         h = hashlib.sha256()
         with os.fdopen(fd, "rb", closefd=True) as f:
             opened = os.fstat(f.fileno())
-            if not statmod.S_ISREG(opened.st_mode) or (sha_max_bytes is not None and opened.st_size > sha_max_bytes):
+            if (
+                not statmod.S_ISREG(opened.st_mode)
+                or _is_macos_dataless(opened)
+                or (sha_max_bytes is not None and opened.st_size > sha_max_bytes)
+            ):
                 return None
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
