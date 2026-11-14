@@ -129,6 +129,66 @@ def test_cron_install_appends_exactly_one_tagged_line() -> None:
     assert "-m sync.cli sync" not in tagged[0]
 
 
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "no crontab for chris\n",  # cronie / Debian vixie cron
+        "crontab: no crontab for chris\n",  # macOS
+        "crontab: can't open 'chris': No such file or directory\n",  # BusyBox
+    ],
+)
+def test_cron_install_treats_no_crontab_rc1_as_empty(stderr: str) -> None:
+    cfg = _make_cfg()
+    written: dict[str, str] = {}
+
+    def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
+        if argv[1] == "-l":
+            assert kwargs["env"]["LC_ALL"] == "C"
+            return _completed(returncode=1, stderr=stderr)
+        written["content"] = kwargs["input"]
+        return _completed()
+
+    with (
+        patch("sync.scheduler.shutil.which", return_value="/usr/bin/crontab"),
+        patch("sync.scheduler.subprocess.run", side_effect=fake_run),
+        patch("sync.scheduler.platform.system", return_value="Linux"),
+    ):
+        CronScheduler(cfg).install()
+
+    lines = [ln for ln in written["content"].splitlines() if ln]
+    assert len(lines) == 1
+    assert lines[0].endswith(f"# {TASK_TAG}")
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "You (chris) are not allowed to use this program (crontab)\n",
+        "crontab: tmp/tmp.123: Operation not permitted\n",
+        "",
+    ],
+)
+def test_cron_install_refuses_other_rc1_failures_without_writing(stderr: str) -> None:
+    # rc=1 is every crontab failure, not only "none installed"; reading these
+    # as empty used to overwrite the user's whole crontab with our one line.
+    cfg = _make_cfg()
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(argv)
+        return _completed(returncode=1, stderr=stderr)
+
+    with (
+        patch("sync.scheduler.shutil.which", return_value="/usr/bin/crontab"),
+        patch("sync.scheduler.subprocess.run", side_effect=fake_run),
+        patch("sync.scheduler.platform.system", return_value="Linux"),
+        pytest.raises(SchedulerError, match=r"crontab -l failed \(rc=1\)"),
+    ):
+        CronScheduler(cfg).install()
+
+    assert calls == [["/usr/bin/crontab", "-l"]]  # never reached `crontab -`
+
+
 def test_cron_install_replaces_prior_tagged_line() -> None:
     cfg = _make_cfg()
     # Two existing tagged lines plus an unrelated one.

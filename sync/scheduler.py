@@ -283,6 +283,17 @@ def _windows_cadence_drift_note(cfg: RcloneConfig, raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# What `crontab -l` prints (rc=1, C locale) when the user simply has no
+# crontab: cronie, Debian/vixie cron and macOS say "no crontab for <user>";
+# BusyBox says "can't open '<user>': No such file or directory".
+_NO_CRONTAB_MARKERS = ("no crontab for", "no such file or directory")
+
+
+def _is_no_crontab_message(stderr: str | None) -> bool:
+    text = (stderr or "").lower()
+    return any(marker in text for marker in _NO_CRONTAB_MARKERS)
+
+
 class CronScheduler:
     """Manage a single CyClaw cron entry via ``crontab -l`` / ``crontab -``."""
 
@@ -305,7 +316,9 @@ class CronScheduler:
         try:
             result = subprocess.run(  # noqa: S603  # argv list, crontab resolved via shutil.which
                 [crontab, "-l"],
-                env=child_environment("filesystem"),
+                # C locale keeps the "no crontab" message untranslated for the
+                # rc=1 check below.
+                env={**child_environment("filesystem"), "LC_ALL": "C"},
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -322,7 +335,14 @@ class CronScheduler:
             # mapping and exits 1, colliding with EXIT_SAFETY (max-delete fuse).
             raise SchedulerError(f"crontab -l timed out: {exc}") from exc
         # `crontab -l` returns 1 when the user has no crontab -- not an error.
-        if result.returncode not in (0, 1):
+        # But 1 is also every *other* crontab failure (a cron.allow/deny
+        # refusal, an unreadable spool file, a macOS privacy denial), and
+        # install()/remove() write what this returns back as the whole table:
+        # reading those as "empty" replaced the user's entire crontab with the
+        # CyClaw line alone. Only the "nothing installed" message counts as empty.
+        if result.returncode == 1 and _is_no_crontab_message(result.stderr):
+            return ""
+        if result.returncode != 0:
             raise SchedulerError(
                 f"crontab -l failed (rc={result.returncode}): {result.stderr.strip()}",
                 details={"stderr": result.stderr[:500]},
