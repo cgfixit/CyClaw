@@ -277,7 +277,7 @@ def handle_inbound_text(
     answer = _extract_answer(result)
     try:
         outbound = tg_client.send_message(cfg, chat_id=chat_id, text=answer)
-    except TelegramRuntimeError:
+    except TelegramRuntimeError as exc:
         # The T3 confirm token was already claimed (and deleted) above, and if
         # online_provider is set post_query() already billed Grok/Claude for
         # this answer. A failed send here loses that paid answer silently: the
@@ -296,6 +296,7 @@ def handle_inbound_text(
                     "update_id": update_id,
                     "provider": online_provider,
                     "query_hash": query_fingerprint(text, config_path=cfg._config_path),
+                    "delivered_chunks": exc.details.get("delivered_chunks", 0),
                 },
                 config_path=cfg._config_path,
             )
@@ -425,7 +426,8 @@ def poll_once(
         parsed_media = _media_from_update(upd) if parsed_text is None else None
         if parsed_text is None and parsed_media is None:
             # Non-text updates (edits, stickers, …): ack so the stream advances.
-            if isinstance(uid, int):
+            # bool is an int subclass: update_id true would rewind the offset to 2.
+            if isinstance(uid, int) and not isinstance(uid, bool):
                 next_offset = uid + 1
             continue
         try:
@@ -436,7 +438,7 @@ def poll_once(
                         cfg,
                         chat_id=chat_id,
                         text=text,
-                        update_id=uid if isinstance(uid, int) else None,
+                        update_id=uid if isinstance(uid, int) and not isinstance(uid, bool) else None,
                         chat_type=chat_type,
                     )
                 )
@@ -486,8 +488,11 @@ def poll_once(
                     exc.details["acked_offset"] = next_offset
                 raise
             # Unknown legacy errors remain retryable; clients explicitly mark
-            # permanent 4xx responses false.
-            retryable = details.get("retryable") is not False
+            # permanent 4xx responses false. A send that failed after some
+            # chunks were delivered is not retryable either: redelivery would
+            # re-run /query (another local LLM pass, and an offline answer once
+            # the /online grant is spent) and resend the delivered chunks.
+            retryable = details.get("retryable") is not False and not details.get("delivered_chunks")
             error = {
                 "error": getattr(exc, "message", str(exc)),
                 "code": getattr(exc, "code", "TELEGRAM_ERROR"),
@@ -503,7 +508,7 @@ def poll_once(
                 break
             # A permanent 4xx is a poison update. Acknowledge it below so one
             # rejected message cannot wedge every later update indefinitely.
-        if isinstance(uid, int):
+        if isinstance(uid, int) and not isinstance(uid, bool):
             next_offset = uid + 1
     return next_offset, handled
 

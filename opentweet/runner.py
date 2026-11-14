@@ -112,7 +112,8 @@ def _validate_answer(cfg: OpenTweetConfig, data: dict[str, Any]) -> str:
             details={"gate": "needs_confirm"},
         )
     hit_count = data.get("hit_count")
-    if not isinstance(hit_count, int) or hit_count <= 0:
+    # bool is an int subclass: {"hit_count": true} must not read as one hit.
+    if isinstance(hit_count, bool) or not isinstance(hit_count, int) or hit_count <= 0:
         raise OpenTweetRefused(
             "retrieval returned no hits",
             details={"gate": "hit_count"},
