@@ -85,6 +85,52 @@ def test_chunk_text_preserves_answer_text_across_message_boundaries() -> None:
     assert "".join(parts) == text
 
 
+def test_chunk_text_never_emits_a_whitespace_only_piece() -> None:
+    """A split just before a trailing separator must not leave a "\\n\\n" message.
+
+    Bot API sendMessage rejects empty text with a permanent 400, which poll_once
+    acks as a poison update after the real answer already went out.
+    """
+    parts = chunk_text("A" * 99 + "\n\n", max_chars=100)
+    assert parts == ["A" * 99]
+    parts = chunk_text("para\n\n" + " " * 60 + "\n\nend", max_chars=30)
+    assert parts
+    assert all(part.strip() for part in parts)
+
+
+def test_send_message_reports_delivered_prefix_when_a_later_chunk_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """poll_once needs to know chunks already reached the chat before a failure."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok-abc")
+    cfg = _cfg(tmp_path, max_message_chars=30)
+    failure = TelegramRuntimeError("transport error", details={"method": "sendMessage", "retryable": True})
+    sends = [({"ok": True}, 1), ({"ok": True}, 1), failure]
+    with (
+        patch("telegram.client._send_one", side_effect=sends) as send_one,
+        pytest.raises(TelegramRuntimeError) as exc,
+    ):
+        send_message(cfg, chat_id=42, text="\n\n".join(["x" * 25] * 3))
+    assert send_one.call_count == 3
+    assert exc.value.details["delivered_chunks"] == 2
+    assert exc.value.details["total_chunks"] == 3
+
+
+def test_send_message_first_chunk_failure_reports_no_delivery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing was delivered, so the update stays safe to redeliver."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok-abc")
+    cfg = _cfg(tmp_path, max_message_chars=30)
+    failure = TelegramRuntimeError("transport error", details={"method": "sendMessage", "retryable": True})
+    with (
+        patch("telegram.client._send_one", side_effect=failure),
+        pytest.raises(TelegramRuntimeError) as exc,
+    ):
+        send_message(cfg, chat_id=42, text="\n\n".join(["x" * 25] * 3))
+    assert "delivered_chunks" not in exc.value.details
+
+
 def test_send_message_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok-abc")
     cfg = _cfg(tmp_path)

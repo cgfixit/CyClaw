@@ -523,6 +523,37 @@ def test_poll_once_mixed_batch_redelivers_remainder_on_runtime_failure(tmp_path:
     assert handled[0]["error"]
 
 
+def test_poll_once_acks_update_after_a_partial_delivery(tmp_path: Path) -> None:
+    """A transient send failure after some chunks went out must not replay the update.
+
+    Redelivery would re-run /query and resend the chunks the chat already has
+    (and, once the /online grant is spent, swap a paid answer for an offline one).
+    """
+    cfg = _cfg(tmp_path)
+    updates = [{"update_id": 10, "message": {"chat": {"id": 42}, "text": "hello"}}]
+    failure = TelegramRuntimeError(
+        "send failed",
+        details={"method": "sendMessage", "retryable": True, "delivered_chunks": 2, "total_chunks": 3},
+    )
+    with (
+        patch("telegram.client.get_updates", return_value=updates),
+        patch("telegram.runner.handle_inbound_text", side_effect=failure),
+    ):
+        next_offset, handled = poll_once(cfg, offset=None)
+    assert next_offset == 11
+    assert handled[0]["retryable"] is False
+
+
+def test_poll_once_ignores_a_boolean_update_id(tmp_path: Path) -> None:
+    """update_id true is an int subclass; acking it would rewind the offset to 2."""
+    cfg = _cfg(tmp_path)
+    updates = [{"update_id": True, "edited_message": {"chat": {"id": 42}, "text": "x"}}]
+    with patch("telegram.client.get_updates", return_value=updates):
+        next_offset, handled = poll_once(cfg, offset=100)
+    assert next_offset == 100
+    assert handled == []
+
+
 def test_poll_once_advances_offset_on_terminal_refusal(tmp_path: Path) -> None:
     """Allowlist/mode refusals are terminal — ack so the stream does not stall."""
     cfg = _cfg(tmp_path)
