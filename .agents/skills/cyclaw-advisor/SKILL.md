@@ -1,6 +1,6 @@
 ---
 name: cyclaw-advisor
-description: "Give read-only CyClaw architecture, operations or design advice from the inspected checkout and current configuration (verified against origin/main HEAD 0f9c83dc84a054b5ec066ea451fdde1be1a51a65 on 2026-11-14; high-signal: otel-api 1.45.2 CVE pin #1834, fsconnect quota corrupt non-int/neg #1832, rate-limit wrongly-shaped row as corrupt #1823, OpenTweet vault-hit only #1822, atomic_write for telegram/rclone writers #1830, ponytail audit #1827). Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
+description: "Give read-only CyClaw architecture, operations or design advice from the inspected checkout and current configuration (verified against origin/main HEAD a5eac36cc0f624f3023a14e2a697fd9f2640f7bb on 2026-11-14; high-signal: harness sandbox reconcile + browser lane #1839, Telegram partial-delivery replay stop #1840, fsconnect iCloud placeholder hash skip on purge #1836, quota corrupt non-int/neg #1832, otel-api 1.45.2 CVE pin #1834, atomic_write for telegram/rclone #1830, OpenTweet vault-hit only #1822, rate-limit shape-corrupt #1823). Use for routing, retrieval, auth, model or platform questions; fixes require an implementation request."
 ---
 
 
@@ -40,6 +40,9 @@ when evidence is missing; do not implement or publish from an advice request.
 
 ## Latest merges into origin/main
 
+- **a5eac36** (2026-11-14, #1839): [harness] Reconcile the CyClaw-Sandbox skill with main and add a browser lane to the local audit. Improves real-repo harness coverage (browser path). No topology/invariant change.
+- **ecf81f4** (2026-11-14, #1840): [fix] Stop Telegram replaying a partly delivered reply, and close four small validation gaps. Strengthens telegram delivery/audit paths.
+- **8153e67** (2026-11-14, #1836): [fsconnect] Skip hashing iCloud placeholders on purge and warn on unparseable trash sidecars. Prevents unwanted materialization of dataless files; tightens trash handling. OOB writer hygiene.
 - **0f9c83d** (2026-11-14, #1834): [security] Bump opentelemetry-api to 1.45.2 for CVE-2026-126360. Constraints/locks/env.yml pin raised; conda pip list adjusted. Telemetry dependency posture. No topology/invariant change.
 - **318a3a5** (2026-11-14, #1832): [security] Treat fsconnect quota ledger with negative or non-int counts as corrupt. load() rejects, forces recompute. Tightens OOB writer path against crafted ledger. No I6 import change.
 - **b840d9e** (2026-11-10, #1823): [fix] Treat wrongly-shaped persisted rate-limit row as corrupt instead of crashing. _load_from_db validates list-of-finite-numbers; else reset window. Request-path robustness. No invariant impact.
@@ -49,6 +52,6 @@ when evidence is missing; do not implement or publish from an advice request.
 
 ## Recent activity summary
 
-As of 2026-11-14 HEAD 0f9c83dc: graph remains 12 nodes (retrieve entry, audit_logger convergence via guardrail_output, pre-action hooks); 6 core invariants + I6 import isolation unchanged (no new OOB packages). High-signal activity: dependency pin for otel CVE, fsconnect quota robustness against corrupt ledger, rate-limit persistence shape validation to prevent crash, OpenTweet vault-hit enforcement, atomic writes for telegram/rclone, and ponytail audit docs. No EXECUTION_ENABLED, candidate-diff, or agent_identity topology changes. Re-inspect live source for any claim.
+As of 2026-11-14 HEAD a5eac36: graph remains 12 nodes (retrieve entry, audit_logger convergence via guardrail_output, pre-action hooks); 6 core invariants + I6 import isolation unchanged (no new OOB packages). High-signal activity: harness sandbox browser lane addition, Telegram partial-delivery replay prevention + validation, fsconnect iCloud placeholder / quota corrupt handling, otel CVE dependency pin, atomic writes for telegram/rclone, OpenTweet vault-hit enforcement, rate-limit persistence shape validation. No EXECUTION_ENABLED, candidate-diff, or agent_identity topology changes. Re-inspect live source for any claim.
 
 Graph node count: 12. Core invariants: 6 + I6. Topology stable.
