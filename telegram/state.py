@@ -11,12 +11,12 @@ import json
 import math
 import os
 import re
-import tempfile
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from pathlib import Path
 
+from utils.atomic_write import write_atomic
 from utils.errors import TelegramRuntimeError
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -90,26 +90,10 @@ def _session_lock(path: Path) -> Iterator[None]:
 
 
 def _save_json(payload: dict[str, object], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=path.parent,
-        text=True,
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fd = -1
-            fh.write(json.dumps(payload, separators=(",", ":")) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, path)
-    finally:
-        if fd >= 0:
-            os.close(fd)
-        with suppress(OSError):
-            tmp_path.unlink(missing_ok=True)
+    # 0o600 is what the previous hand-rolled mkstemp writer produced; write_atomic
+    # now owns the same mkstemp/fsync/replace/unlink sequence (#1803).
+    data = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+    write_atomic(path, data, mode=0o600)
 
 
 def _load_hybrid_session(path: Path) -> tuple[int, str] | None:

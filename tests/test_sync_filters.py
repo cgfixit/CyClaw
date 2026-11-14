@@ -164,7 +164,7 @@ def test_write_filter_file_is_atomic_no_tmp_left(tmp_path: Path) -> None:
     cfg = _load(tmp_path, filter_file=str(target))
     write_filter_file(cfg)
     # The temp file used for the atomic replace must not linger.
-    assert not (target.parent / f"{target.name}.tmp").exists()
+    assert not list(target.parent.glob("*.tmp"))
     assert SOUL_RULE in target.read_text(encoding="utf-8")
 
 

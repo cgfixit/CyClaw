@@ -27,10 +27,10 @@ rclone filter syntax (https://rclone.org/filtering/):
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from sync.config import RcloneConfig
+from utils.atomic_write import write_atomic
 
 # The single soul-layer rule -- unconditional; the deprecated include_soul
 # config key no longer drops it. (It is also unreachable in practice: the rule
@@ -162,21 +162,9 @@ def write_filter_file(cfg: RcloneConfig) -> str:
     rclone only ever sees the complete previous file or the complete new one.
     """
     target = Path(cfg.filter_file or "")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f"{target.name}.tmp")
-    content = generate_filters(cfg)
-    try:
-        with tmp.open("w", encoding="utf-8") as handle:
-            handle.write(content)
-            # Flush to disk before the rename: otherwise a power loss can commit
-            # the rename first and leave an empty filter file, which is the
-            # truncated-file failure this atomic write exists to prevent.
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, target)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    # 0o644 keeps the mode the old open()-based writer got from a typical umask;
+    # rclone runs as the same user, so it only needs to read the file.
+    write_atomic(target, generate_filters(cfg).encode("utf-8"), mode=0o644)
     return str(target.resolve())
 
 
