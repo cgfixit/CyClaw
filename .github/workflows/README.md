@@ -9,7 +9,7 @@ separately govern merge blocking. Preserve required job names.
 
 | File | What it checks | When it runs |
 | --- | --- | --- |
-| [ci.yml](ci.yml) | Main Python 3.12 test/coverage matrix: two Ubuntu runners, Windows, Apple Silicon macOS. Also checks workflow security, invariants, dotenv, docs/locks, wheels, Docker, retrieval, mock-model HTTP, and Postgres. Skill smoke matrix is advisory. | Main pushes and PRs; dependency review is PR-only. |
+| [ci.yml](ci.yml) | Main Python 3.12 test/coverage matrix: Ubuntu 26.04 (the `ubuntu-latest` leg is pinned to `ubuntu-26.04`, #1811), Ubuntu 22.04, Windows, Apple Silicon macOS. Also checks workflow security, invariants, dotenv, docs/locks, wheels, Docker, retrieval, mock-model HTTP, and Postgres. Skill smoke matrix is advisory. | Main pushes and PRs; dependency review is PR-only. |
 | [conda-ci.yml](conda-ci.yml) | Distinct Conda install surface from root [`environment.yml`](../../environment.yml), dependency consistency, pytest coverage. Final sandbox smoke is advisory. | Main pushes and PRs. |
 | [lint.yml](lint.yml) | Ruff F/B/S blocks; broader Ruff and changed-file flake8/WPS report advisory findings. | Main/vendor branch pushes and PRs to `main` or `cc`. |
 | [script-lint.yml](script-lint.yml) | ShellCheck for every tracked `*.sh` and the `.githooks` bash hooks; Windows PowerShell PSScriptAnalyzer for `powershell/*.ps1`. Findings fail the jobs. | Main/vendor branch pushes and PRs to `main` or `cc`. |

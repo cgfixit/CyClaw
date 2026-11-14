@@ -505,7 +505,9 @@ offers outbound `notify` or long-poll `chat` (no public webhooks), requires
 non-empty `allowed_chat_ids`, and can confirm one paid call only through the
 exact `/online on <grok|claude>` command with `allow_hybrid_confirm` on
 (default off); the triple gate still applies. OpenTweet forces
-`user_confirmed_online: false` and writes drafts; `scheduled_date` needs
+`user_confirmed_online: false`, writes drafts, and refuses any answer whose
+`model_used` is not `local` (an online model or an offline best-effort reply
+to a vault miss, #1822); `scheduled_date` needs
 `opentweet.schedule_enabled`, and schedulers never send `publish_now`. Check
 either with `python -m telegram.cli status` / `python -m opentweet.cli status`.
 Telegram [design](docs/channels/TELEGRAM_DESIGN.md) and

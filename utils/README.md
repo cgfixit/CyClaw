@@ -55,7 +55,7 @@ recovery from every power-loss scenario.
 
 | Module | Role |
 |---|---|
-| `ratelimit.py` | Per-IP rate limiting; in-memory / SQLite / Postgres backends. |
+| `ratelimit.py` | Per-IP rate limiting; in-memory / SQLite / Postgres backends. A persisted row that is not a list of finite timestamps (or a non-numeric `last_sweep`) is treated as corrupt and reset, instead of raising on every request (#1823). |
 | `bounded_executor.py` | Runs blocking work with a deadline that still holds after the caller gives up: the worker is bounded until it finishes, so a timed-out call cannot leave an unbounded thread behind. |
 | `health.py` | `check_all()` behind `/health` probes the gateway's loaded config, including the resolved local backend and model pin. Its short-lived status cache is keyed by that config. Restart after config edits. `degraded` without the local model is normal; external-provider probes require `api.health_probe_external_providers: true` (ships false). |
 | `config_validation.py` | Boot-time config validation; fails fast on a broken `config.yaml`. |
