@@ -8,6 +8,9 @@ No build step, framework, or external CDN.
 | `terminal.html` + `terminal.js` | `gate.py` at `GET /` (plus the `/static` mount), default `127.0.0.1:8787` | Queries, first-run build panel until `index_ready`, Library/Engine health chips, console credentials, and soul/ops tools. A locked build opens the unlock dialog and retries. |
 | `auth_admin.js` | the `/static` mount; referenced by `terminal.html` | Users list/create/role/password/delete. Displays `disabled` but has no enable/disable buttons. |
 
+If you click **Build my library** while a build is running, the console shows
+the existing build's progress and result.
+
 `gate.py`'s CSP has no nonce source, so no page here may carry an inline
 `<script>` block: `tests/test_gate.py::test_no_static_page_relies_on_inline_script`
 walks every `*.html` under this directory and fails on one.
