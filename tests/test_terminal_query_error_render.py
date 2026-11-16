@@ -339,7 +339,7 @@ def _run_console(tmp_path: Path, status: int, body: dict[str, object]) -> dict:
     proc = subprocess.run(
         [_NODE, str(harness), str(cfg_path)],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         timeout=60,
         check=False,
     )
