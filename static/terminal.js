@@ -803,7 +803,9 @@ async function startIndexBuild() {
     }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(extractErrorMessage(err, `build failed (${resp.status})`));
+      if (resp.status !== 409 || extractErrorCode(err) !== 'INDEX_BUILD_IN_PROGRESS') {
+        throw new Error(extractErrorMessage(err, `build failed (${resp.status})`));
+      }
     }
     pollIndexStatus();
   } catch (e) {
