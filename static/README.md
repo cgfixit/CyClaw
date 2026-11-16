@@ -25,7 +25,10 @@ carry the CSRF token for the credential being used. The `/query` flow uses
 session authentication when enabled, independently of the ops console key.
 
 After a vault miss, provider buttons come from the response's
-`available_providers`; confirmation applies to one query. Answers display
+`available_providers`; confirmation applies to one query. Keyboard focus stays
+on **Stay Offline** when the prompt appears; Tab and Shift+Tab cycle through
+the available choices. Completed answers and errors return focus to the query
+input. Answers display
 their route and `llm_model` tag, and generation failures use the response's
 `error` field. The browser reads query/sync deadlines from `/health` so its
 fetch timeout does not hide the server's own timeout response.

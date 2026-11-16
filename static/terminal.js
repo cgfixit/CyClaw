@@ -1246,6 +1246,7 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
   // fires ~670s later against the global activeQueryController, which by
   // then is null (TypeError) or a NEWER query's controller (aborts it).
   let timeoutId;
+  let awaitingConfirmation = false;
   try {
     const body = { query };
     if (confirmedOnline !== null) {
@@ -1288,6 +1289,7 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
         Array.isArray(data.available_providers) ? data.available_providers : []
       );
       pendingConfirmById.set(entryId, query);
+      awaitingConfirmation = true;
       return;
     }
 
@@ -1357,7 +1359,7 @@ async function submitQuery(confirmedOnline = null, onlineProvider = null, confir
     window.clearTimeout(timeoutId);
     activeQueryController = null;
     sendBtn.disabled = false;
-    input.focus();
+    if (!awaitingConfirmation) input.focus();
   }
 }
 

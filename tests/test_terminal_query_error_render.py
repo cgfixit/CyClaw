@@ -215,7 +215,7 @@ class FakeElement {
   querySelectorAll() { return []; }
   closest() { return null; }
   contains(o) { return o === this; }
-  focus() {}
+  focus() { document.activeElement = this; }
   blur() {}
   click() {}
   select() {}
@@ -317,7 +317,8 @@ const driver = `
   })()
 `;
 vm.runInContext(driver, sandbox).then((entries) => {
-  process.stdout.write(JSON.stringify({ entries, fetchCalls }));
+  process.stdout.write(JSON.stringify({ entries, fetchCalls,
+    focusId: document.activeElement.id, focusText: document.activeElement.textContent }));
 }).catch((err) => {
   process.stderr.write(String(err && err.stack || err));
   process.exit(3);
@@ -325,8 +326,8 @@ vm.runInContext(driver, sandbox).then((entries) => {
 """
 
 
-def _render_in_console(tmp_path: Path, status: int, body: dict[str, object]) -> list[dict[str, str]]:
-    """Run terminal.js submitQuery() against a stubbed /query; return #results entries."""
+def _run_console(tmp_path: Path, status: int, body: dict[str, object]) -> dict:
+    """Run terminal.js submitQuery() against a stubbed /query; return rendered state."""
     assert _NODE is not None
     harness = tmp_path / "terminal_harness.js"
     harness.write_text(_HARNESS_JS, encoding="utf-8")
@@ -338,15 +339,32 @@ def _render_in_console(tmp_path: Path, status: int, body: dict[str, object]) -> 
     proc = subprocess.run(
         [_NODE, str(harness), str(cfg_path)],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         timeout=60,
         check=False,
     )
     assert proc.returncode == 0, f"node harness failed ({proc.returncode}):\n{proc.stderr}"
     out = json.loads(proc.stdout)
     assert any(c["url"].endswith("/query") and c["method"] == "POST" for c in out["fetchCalls"]), out["fetchCalls"]
-    entries: list[dict[str, str]] = out["entries"]
-    return entries
+    return out
+
+
+def _render_in_console(tmp_path: Path, status: int, body: dict[str, object]) -> list[dict[str, str]]:
+    """Return result entries after a query completes."""
+    return _run_console(tmp_path, status, body)["entries"]
+
+
+@pytest.mark.skipif(_NODE is None, reason="node is not on PATH")
+@pytest.mark.parametrize("providers", [[], ["grok"], ["grok", "claude"]])
+def test_confirmation_keeps_focus_on_offline_choice(tmp_path: Path, providers: list[str]) -> None:
+    result = _run_console(tmp_path, 200, {"needs_confirm": True, "available_providers": providers})
+    assert result["focusText"] == ("No — Stay Offline" if providers else "Stay Offline")
+
+
+@pytest.mark.skipif(_NODE is None, reason="node is not on PATH")
+@pytest.mark.parametrize("status,body", [(200, {"answer": "A local answer"}), (503, {"error": "Unavailable"})])
+def test_completed_query_returns_focus_to_input(tmp_path: Path, status: int, body: dict[str, object]) -> None:
+    assert _run_console(tmp_path, status, body)["focusId"] == "queryInput"
 
 
 def _entries_of_type(entries: list[dict[str, str]], entry_type: str) -> list[dict[str, str]]:

@@ -19,6 +19,8 @@ for the maintained surface inventory.
 - Default answer metadata names the answer route/model. Raw metadata remains
   available in advanced mode; blocked/error paths do not claim a model answered.
 - Error copy retains the underlying code beside the plain-language explanation.
+- Confirmation keeps keyboard focus on the offline choice after the request
+  finishes; see [keyboard behavior](../static/README.md#operator-behavior).
 
 The Agentic and SQL console buttons/routes were removed on 2026-10-18.
 Descriptions of seven operator surfaces in the old plan are historical.
