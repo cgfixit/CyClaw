@@ -587,10 +587,11 @@ python3 .claude/skills/injection-redteam/redteam.py
 ```
 
 CI targets Python 3.12 on four `test` legs (ubuntu-latest, ubuntu-22.04,
-windows, macos), all release gates. In `ci.yml`
+windows, macos), all release gates. The `ubuntu-latest` check name runs on an
+`ubuntu-26.04` runner (#1811). In `ci.yml`
 only `verify-skills` carries `continue-on-error`. Coverage sources live in
 `pyproject.toml`'s `[tool.coverage.run]`. `tests/conftest.py` mocks all external deps; `tests/` holds about
-190 auto-collected `test_*.py` files.
+200 auto-collected `test_*.py` files.
 
 ---
 
