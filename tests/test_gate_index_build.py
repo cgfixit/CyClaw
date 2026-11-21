@@ -581,8 +581,13 @@ class TestIndexProgressHandler:
     def test_a_malformed_record_does_not_break_the_build(self):
         """Progress is best-effort: the handler runs inside the indexer's own
         logging call, so raising here would abort a working build."""
+        gate._index_build.update({"chunks_done": 7, "chunks_total": 9})
         handler = gate._IndexProgressHandler()
-        handler.emit(logging.LogRecord(
-            "retrieval.indexer", logging.INFO, __file__, 1,
-            "Indexed %d/%d chunks", ("not-a-number",), None,
-        ))  # must not raise
+        # The second and third shapes parse a first value and then fail on the
+        # second: neither field may move, or the console shows a wrong percentage.
+        for args in (("not-a-number",), (3,), (3, "not-a-number")):
+            handler.emit(logging.LogRecord(
+                "retrieval.indexer", logging.INFO, __file__, 1,
+                "Indexed %d/%d chunks", args, None,
+            ))  # must not raise
+            assert (gate._index_build["chunks_done"], gate._index_build["chunks_total"]) == (7, 9)

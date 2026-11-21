@@ -43,6 +43,29 @@ def test_windows_arp_parser():
     }
 
 
+@pytest.mark.parametrize("header", [
+    "Schnittstelle: 192.168.1.50 --- 0x6",
+    "Interface : 192.168.1.50 --- 0x6",
+    "Interfaz: 192.168.1.50 --- 0x6",
+    "\ufffd\ufffd\ufffd: 192.168.1.50 --- 0x6",
+])
+def test_windows_arp_parser_reads_a_localized_interface_header(header):
+    """arp.exe translates the header word, and a non-UTF-8 code page decodes to
+    replacement characters; the adapter address must be read either way."""
+    text = f"""{header}
+  Internetadresse       Physische Adresse     Typ
+  192.168.1.1           aa-bb-cc-dd-ee-ff     dynamisch
+
+Schnittstelle: 10.0.0.5 --- 0x9
+  10.0.0.1              11-22-33-44-55-66     dynamisch
+"""
+    records = parse_neighbor_cache(text, "Windows")
+    assert [(r["ip"], r["interface"]) for r in records] == [
+        ("192.168.1.1", "192.168.1.50"),
+        ("10.0.0.1", "10.0.0.5"),
+    ]
+
+
 def test_linux_neighbor_parser_handles_missing_mac():
     text = """192.168.1.1 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
 192.168.1.99 dev eth0 FAILED
