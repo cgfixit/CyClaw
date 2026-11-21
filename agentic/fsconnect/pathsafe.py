@@ -361,6 +361,11 @@ def _win_filetime_to_unix_seconds(value: int) -> int:  # pragma: no cover - Wind
     return max(0, (value - _WIN_EPOCH_OFFSET_100NS) // 10_000_000)
 
 
+def _win_filetime_to_unix_ns(value: int) -> int:  # pragma: no cover - Windows only
+    # FILETIME counts 100 ns ticks; same value os.stat reports as st_mtime_ns.
+    return max(0, (value - _WIN_EPOCH_OFFSET_100NS) * 100)
+
+
 def _win_directory_entry(name: str, info: _WinFileFullDirectoryInfo) -> dict[str, object]:
     attrs = int(info.file_attributes)
     if attrs & _FILE_ATTRIBUTE_REPARSE_POINT:
@@ -378,6 +383,7 @@ def _win_directory_entry(name: str, info: _WinFileFullDirectoryInfo) -> dict[str
         "size": int(info.end_of_file),
         "mode": statmod.filemode(mode),
         "mtime": _win_filetime_to_unix_seconds(int(info.last_write_time)),
+        "mtime_ns": _win_filetime_to_unix_ns(int(info.last_write_time)),
     }
 
 
@@ -1066,6 +1072,9 @@ class ScopedRoots:
             "size": int(st.st_size),
             "mode": statmod.filemode(st.st_mode),
             "mtime": int(st.st_mtime),
+            # Full-resolution modtime for change detection (the fsconnect
+            # indexer's skip-cache); "mtime" stays whole seconds for display.
+            "mtime_ns": int(st.st_mtime_ns),
         }
 
     def write_bytes(

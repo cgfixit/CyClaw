@@ -274,6 +274,44 @@ def test_incremental_restages_changed_file(env):
     assert (staging / "a.md").read_text(encoding="utf-8") == "# changed title now"
 
 
+def test_incremental_restages_same_size_edit_within_the_same_second(env):
+    """Whole-second mtime plus size cannot see a same-length rewrite made in the
+    second the file was last indexed; the nanosecond stamp must."""
+    _c, _f, _cp, idx, tmp = env
+    cfg, fs_cfg, cp = _incremental_env(idx, tmp)
+    staging = tmp / "staging_ns"
+    base_ns = 1_700_000_000 * 10**9
+    os.utime(idx / "a.md", ns=(base_ns, base_ns))
+    FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+
+    (idx / "a.md").write_text("# tilte", encoding="utf-8")  # same 7 bytes as "# title"
+    os.utime(idx / "a.md", ns=(base_ns + 5_000_000, base_ns + 5_000_000))  # +5 ms, same second
+
+    second = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert second["staged"] == 1 and second["unchanged"] == 1
+    assert (staging / "a.md").read_text(encoding="utf-8") == "# tilte"
+
+
+def test_incremental_cache_without_mtime_ns_misses_once_then_hits(env):
+    """A skip-cache written before mtime_ns existed must force one fresh read,
+    not be trusted on seconds alone, and must be upgraded by that run."""
+    _c, _f, _cp, idx, tmp = env
+    cfg, fs_cfg, cp = _incremental_env(idx, tmp)
+    staging = tmp / "staging_old_cache"
+    FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+
+    cache_file = staging / ".fsindex_cache.json"
+    doc = json.loads(cache_file.read_text(encoding="utf-8"))
+    for row in doc["files"].values():
+        row.pop("mtime_ns")
+    cache_file.write_text(json.dumps(doc), encoding="utf-8")
+
+    second = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert second["staged"] == 2 and second["unchanged"] == 0
+    third = FsIndexer(cfg, fs_cfg, config_path=cp).apply(staging_dir=str(staging))
+    assert third["staged"] == 0 and third["unchanged"] == 2
+
+
 def test_incremental_restages_when_staged_copy_missing(env):
     _c, _f, _cp, idx, tmp = env
     cfg, fs_cfg, cp = _incremental_env(idx, tmp)
