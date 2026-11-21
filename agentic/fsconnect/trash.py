@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 
 TRASH_DIR = ".cyclaw-trash"
 META_SUFFIX = ".meta.json"
+# A filename is capped at 255 bytes (APFS, ext4) or 255 UTF-16 units (NTFS).
+# The flattened path shares that with the stamp and suffix (36 bytes), the
+# sidecar's META_SUFFIX (10) and the atomic-write temp wrapper pathsafe adds
+# around the sidecar (about 30), so the path part gets 160 and leaves slack.
+_MAX_SLUG_BYTES = 160
+_SLUG_CUT_MARK = "~"
 _MAX_META_BYTES = 64 * 1024  # a sidecar is tiny; cap the read defensively
 # pathsafe._win_error reports these as details["winerror"], never "errno".
 # 2 = ERROR_FILE_NOT_FOUND, 3 = ERROR_PATH_NOT_FOUND (fresh-install absence).
@@ -67,17 +73,29 @@ def iso(now: datetime) -> str:
     return now.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _cap_slug(slug: str) -> str:
+    """Shorten *slug* to ``_MAX_SLUG_BYTES``, keeping its tail (the leaf name)."""
+    raw = slug.encode("utf-8")
+    if len(raw) <= _MAX_SLUG_BYTES:
+        return slug
+    # errors="ignore" drops a multi-byte character the cut landed inside.
+    tail = raw[-(_MAX_SLUG_BYTES - len(_SLUG_CUT_MARK)):].decode("utf-8", errors="ignore")
+    return f"{_SLUG_CUT_MARK}{tail}"
+
+
 def entry_name(original: str, now: datetime) -> str:
     """Collision-proof, time-sortable trash entry name.
 
     ``<UTCstamp>__<orig path, '/'->'__'>__<8-hex of sha256(orig_path + stamp)><8-hex random>``.
+    The path part is cut to ``_MAX_SLUG_BYTES`` (tail kept) so a deep tree still
+    yields a name the filesystem accepts; the sidecar's ``original_path`` stays whole.
     The digest binds the name to the exact original path + stamp; the random suffix
     disambiguates two deletes of the same path in the same second (the digest alone
     cannot -- both its inputs are identical in that case).
     """
     stamp = _stamp(now)
     comps = split_components(original)
-    slug = "__".join(comps) if comps else "root"
+    slug = _cap_slug("__".join(comps) if comps else "root")
     digest = hashlib.sha256(f"{original}{stamp}".encode()).hexdigest()[:8]
     return f"{stamp}__{slug}__{digest}{secrets.token_hex(4)}"
 
