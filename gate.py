@@ -890,9 +890,13 @@ class _IndexProgressHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             if record.msg == "Indexed %d/%d chunks" and record.args:
+                # Parse both before storing either: a record with a usable
+                # first value and a missing or bad second one must not leave
+                # a new numerator over the old denominator.
+                done, total = int(record.args[0]), int(record.args[1])
                 with _INDEX_BUILD_LOCK:
-                    _index_build["chunks_done"] = int(record.args[0])
-                    _index_build["chunks_total"] = int(record.args[1])
+                    _index_build["chunks_done"] = done
+                    _index_build["chunks_total"] = total
         except Exception:  # noqa: BLE001, S110  # nosec B110 -- progress is best-effort only
             pass
 
