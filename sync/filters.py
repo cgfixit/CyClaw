@@ -162,9 +162,10 @@ def write_filter_file(cfg: RcloneConfig) -> str:
     rclone only ever sees the complete previous file or the complete new one.
     """
     target = Path(cfg.filter_file or "")
-    # 0o644 keeps the mode the old open()-based writer got from a typical umask;
-    # rclone runs as the same user, so it only needs to read the file.
-    write_atomic(target, generate_filters(cfg).encode("utf-8"), mode=0o644)
+    # 0o600: the rules list which local paths are synced and which are kept out
+    # (soul, secrets, index). _run_sync_locked writes this file and then spawns
+    # rclone from the same process, so the owner is the only reader it needs.
+    write_atomic(target, generate_filters(cfg).encode("utf-8"), mode=0o600)
     return str(target.resolve())
 
 
