@@ -29,6 +29,18 @@ def test_entry_name_is_sortable_and_hashed():
     assert len(name.rsplit("__", 1)[-1]) == 16
 
 
+def test_entry_name_fits_one_filename_for_a_deep_path():
+    """The flattened path is one filename: uncapped, a deep tree overflowed the
+    255-byte limit and the trash move failed with ENAMETOOLONG."""
+    deep = "/".join(["a" * 120, "b" * 120, "\u00e9" * 100 + "leaf.txt"])
+    name = trash.entry_name(deep, NOW)
+    # Room for the sidecar suffix plus pathsafe's atomic-write temp wrapper.
+    assert len((name + trash.META_SUFFIX).encode("utf-8")) <= 255 - 40
+    assert name.startswith("20260709T145501Z__~")
+    assert name.rsplit("__", 1)[0].endswith("leaf.txt")
+    assert len(name.rsplit("__", 1)[-1]) == 16
+
+
 def test_entry_name_disambiguates_same_second():
     a = trash.entry_name("a.txt", NOW)
     b = trash.entry_name("b.txt", NOW)
