@@ -20,7 +20,10 @@ from utils.errors import (
 from utils.logger import audit_log, hash_query
 
 _MAC_RE = re.compile(r"^[0-9a-fA-F]{2}(?:[:-][0-9a-fA-F]{2}){5}$")
-_WINDOWS_INTERFACE_RE = re.compile(r"^\s*Interface:\s+(\d+(?:\.\d+){3})\b", re.IGNORECASE)
+# Windows localizes the header word ("Interface:", German "Schnittstelle:",
+# French "Interface :"), so match what every locale keeps: the adapter address
+# followed by "--- 0x<ifindex>". Entry rows never carry that marker.
+_WINDOWS_INTERFACE_RE = re.compile(r"^\s*\S.*?\s(\d+(?:\.\d+){3})\s+---\s+0x[0-9a-fA-F]+")
 _WINDOWS_ENTRY_RE = re.compile(
     r"^\s*(\d+(?:\.\d+){3})\s+([0-9a-fA-F:-]{17}|[0-9a-fA-F]{12})\s+(\S+)"
 )
