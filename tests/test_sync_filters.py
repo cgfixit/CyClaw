@@ -7,6 +7,8 @@ utils.logger config cache between tests.
 from __future__ import annotations
 
 import fnmatch
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -175,6 +177,19 @@ def test_write_filter_file_returns_abs_path(tmp_path: Path) -> None:
     assert written == str(target.resolve())
     assert Path(written).is_file()
     assert SOUL_RULE in Path(written).read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_write_filter_file_is_owner_only(tmp_path: Path) -> None:
+    target = tmp_path / "state" / "cyclaw_filters.txt"
+    target.parent.mkdir(parents=True)
+    # A filter file left world-readable by an older writer must not keep that mode.
+    target.write_text("stale\n", encoding="utf-8")
+    target.chmod(0o644)
+    cfg = _load(tmp_path, filter_file=str(target))
+    write_filter_file(cfg)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert SOUL_RULE in target.read_text(encoding="utf-8")
 
 
 def test_filter_summary_shape(tmp_path: Path) -> None:
