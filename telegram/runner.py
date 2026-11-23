@@ -422,12 +422,19 @@ def poll_once(
         if not isinstance(upd, dict):
             continue
         uid = upd.get("update_id")
+        # One validity rule for every branch below. Bot API update ids are
+        # non-negative ints, and bool is excluded because it is an int subclass
+        # (update_id true would rewind the offset to 2). An id that fails is
+        # treated as absent: never acked, never passed on. Acking a negative
+        # id would hand save_offset a negative offset, which it refuses with
+        # ValueError, crashing poll_forever into a redelivery loop (#1853).
+        if isinstance(uid, bool) or not isinstance(uid, int) or uid < 0:
+            uid = None
         parsed_text = _message_from_update(upd)
         parsed_media = _media_from_update(upd) if parsed_text is None else None
         if parsed_text is None and parsed_media is None:
             # Non-text updates (edits, stickers, …): ack so the stream advances.
-            # bool is an int subclass: update_id true would rewind the offset to 2.
-            if isinstance(uid, int) and not isinstance(uid, bool):
+            if uid is not None:
                 next_offset = uid + 1
             continue
         try:
@@ -438,13 +445,13 @@ def poll_once(
                         cfg,
                         chat_id=chat_id,
                         text=text,
-                        update_id=uid if isinstance(uid, int) and not isinstance(uid, bool) else None,
+                        update_id=uid,
                         chat_type=chat_type,
                     )
                 )
             else:
                 chat_id, chat_type, attachment, caption = parsed_media
-                if isinstance(uid, bool) or not isinstance(uid, int):
+                if uid is None:
                     raise TelegramRefused("Telegram update id is invalid", details={"gate": "update_id"})
                 handled.append(
                     handle_inbound_media(
@@ -508,7 +515,7 @@ def poll_once(
                 break
             # A permanent 4xx is a poison update. Acknowledge it below so one
             # rejected message cannot wedge every later update indefinitely.
-        if isinstance(uid, int) and not isinstance(uid, bool):
+        if uid is not None:
             next_offset = uid + 1
     return next_offset, handled
 
