@@ -110,16 +110,18 @@ RUN groupadd --gid 1000 cyclaw && \
     chown cyclaw:cyclaw /app/.emb_cache /app/data /app/index /app/logs
 USER cyclaw
 
-# Offline-first + security env. CYCLAW_OFFLINE is a human-readable posture
-# marker (no code reads it). The canonical telemetry-kill and update-check
+# Interpreter env. (A CYCLAW_OFFLINE=1 marker once sat here; no code read it,
+# so it implied an offline posture the image does not enforce -- config.yaml
+# ships app.mode hybrid. Offline is app.mode plus the per-request
+# user_confirmed_online gate. Removed in #1853; check_otel T10 refuses it.)
+# The canonical telemetry-kill and update-check
 # values below are REAL delivery: Docker sets them before the interpreter
 # starts, so bare `uvicorn gate:app` (the CMD), the HEALTHCHECK's python -c
 # child, and any `docker exec` all begin inside the canonical environment --
 # earlier than any Python-level apply could run. They must stay in exact
 # agreement with utils/telemetry_kill.py (TELEMETRY_KILL /
 # UPDATE_CHECK_OPT_OUT); the otel-hardening checker pins both files.
-ENV CYCLAW_OFFLINE=1 \
-    PYTHONUNBUFFERED=1 \
+ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 # Canonical telemetry kill (unsolicited vendor telemetry/analytics).

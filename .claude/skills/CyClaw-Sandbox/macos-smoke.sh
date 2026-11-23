@@ -67,16 +67,6 @@ jget() {
     2>/dev/null || echo ""
 }
 
-auth_get() {
-  if [ -n "$CSRF" ]; then
-    http GET "$1" \
-      --header "@$AUTH_HEADER_FILE" \
-      -H "X-CyClaw-CSRF: ${CSRF}"
-  else
-    http GET "$1" --header "@$AUTH_HEADER_FILE"
-  fi
-}
-
 auth_post() {
   # auth_post URL json-body
   local url="$1" body="$2"

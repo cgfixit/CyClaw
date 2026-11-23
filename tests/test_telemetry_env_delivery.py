@@ -149,9 +149,15 @@ def _dockerfile_env_pairs() -> dict[str, str]:
     return pairs
 
 
+# Env names no code reads, removed because they implied a control the image
+# lacks (#1135, #1853). check_otel.py T10 refuses the same set.
+_RETIRED_MARKERS = ("CYCLAW_TELEMETRY_KILL", "CYCLAW_OFFLINE")
+
+
 def test_dockerfile_delivers_canonical_env():
     pairs = _dockerfile_env_pairs()
-    assert "CYCLAW_TELEMETRY_KILL" not in pairs, "decorative marker must stay removed"
+    for marker in _RETIRED_MARKERS:
+        assert marker not in pairs, f"decorative marker {marker} must stay removed"
     wrong = {k: pairs.get(k) for k, v in _CANONICAL.items() if pairs.get(k) != v}
     assert not wrong, f"Dockerfile ENV disagrees with the canonical maps: {wrong}"
 
@@ -164,7 +170,8 @@ def test_compose_delivers_canonical_env():
         if stripped.startswith("- ") and "=" in stripped:
             name, _, value = stripped[2:].partition("=")
             pairs[name.strip()] = value
-    assert "CYCLAW_TELEMETRY_KILL" not in pairs, "decorative marker must stay removed"
+    for marker in _RETIRED_MARKERS:
+        assert marker not in pairs, f"decorative marker {marker} must stay removed"
     wrong = {k: pairs.get(k) for k, v in _CANONICAL.items() if pairs.get(k) != v}
     assert not wrong, f"compose environment disagrees with the canonical maps: {wrong}"
 
