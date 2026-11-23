@@ -115,7 +115,12 @@ class _FakeDataset:
         return len(self.rows)
 
 
-def _install_fakes():
+def _build_fake_modules():
+    """Build the fake unsloth/trl/datasets modules without installing them.
+
+    tests/test_finetune_integration.py installs the same modules through
+    monkeypatch, so the fakes live in one place and cannot drift apart (#1853).
+    """
     fake_unsloth = types.ModuleType("unsloth")
     fake_unsloth.FastModel = _FakeFastModel
     fake_unsloth.__version__ = "0.1.800"
@@ -133,6 +138,11 @@ def _install_fakes():
             _rows[:] = [json.loads(line) for line in f]
         return _FakeDataset(list(_rows))
     fake_datasets.load_dataset = _load_dataset
+    return fake_unsloth, fake_trl, fake_datasets, _rows
+
+
+def _install_fakes():
+    fake_unsloth, fake_trl, fake_datasets, _rows = _build_fake_modules()
     sys.modules["unsloth"] = fake_unsloth
     sys.modules["trl"] = fake_trl
     sys.modules["datasets"] = fake_datasets
