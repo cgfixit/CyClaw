@@ -151,14 +151,16 @@ class FsIndexer:
                                      "skipped": "read_error", "error": type(exc).__name__})
                     continue
                 digest = hashlib.sha256(data).hexdigest()  # hash of file CONTENT, not metadata
-                row = {
+                # Both list_dir producers (pathsafe._stat_to_dict and
+                # _win_directory_entry) always set mtime_ns, so it is read
+                # unconditionally: a producer that dropped it fails loudly here
+                # instead of quietly falling back to whole-second matching
+                # (#1852, #1853).
+                manifest.append({
                     "path": child, "size": entry["size"], "mtime": entry["mtime"],
-                    "sha256": digest,
+                    "mtime_ns": entry["mtime_ns"], "sha256": digest,
                     "injection_flag_count": self._scan(data),
-                }
-                if "mtime_ns" in entry:
-                    row["mtime_ns"] = entry["mtime_ns"]
-                manifest.append(row)
+                })
                 # When apply() drives the walk it passes a staging callback so the
                 # bytes we just read are written out in the SAME pass. Previously
                 # apply() walked to build the manifest (reading every eligible file)
@@ -216,9 +218,8 @@ class FsIndexer:
                 "mtime": m["mtime"],
                 "sha256": m["sha256"],
                 "injection_flag_count": m.get("injection_flag_count", 0),
+                "mtime_ns": m["mtime_ns"],
             }
-            if "mtime_ns" in m:
-                files[m["path"]]["mtime_ns"] = m["mtime_ns"]
         # Per-PID temp name so two concurrent applies never interleave writes into
         # one temp file, and unlink it on failure so a disk-full or permission
         # error does not leave a stray temp file in the corpus staging dir.
@@ -243,21 +244,19 @@ class FsIndexer:
                 return None
             # Whole-second mtime cannot tell a same-size rewrite made within the
             # same second from no change, so the full-resolution stamp must match
-            # too. A cache written before this field existed has none and misses
-            # once, which re-reads the file and records it.
-            if "mtime_ns" in entry and prior.get("mtime_ns") != entry["mtime_ns"]:
+            # too. A cache row written before this field existed has none, so
+            # .get() returns None and it misses once, which re-reads the file
+            # and records it.
+            if prior.get("mtime_ns") != entry["mtime_ns"]:
                 return None
             # Size+mtime match, but only skip if the staged copy is actually present
             # -- otherwise a cleared/partial staging dir would silently lose the file.
             if not staging.joinpath(*split_components(rel)).exists():
                 return None
-            hit = {"path": rel, "size": entry["size"], "mtime": entry["mtime"],
-                   "sha256": prior.get("sha256", ""),
-                   "injection_flag_count": prior.get("injection_flag_count", 0),
-                   "unchanged": True}
-            if "mtime_ns" in entry:
-                hit["mtime_ns"] = entry["mtime_ns"]
-            return hit
+            return {"path": rel, "size": entry["size"], "mtime": entry["mtime"],
+                    "mtime_ns": entry["mtime_ns"], "sha256": prior.get("sha256", ""),
+                    "injection_flag_count": prior.get("injection_flag_count", 0),
+                    "unchanged": True}
         return probe
 
     def apply(self, *, staging_dir: str | None = None, reindex: bool = False) -> dict:
