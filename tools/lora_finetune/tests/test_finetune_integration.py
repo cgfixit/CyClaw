@@ -2,9 +2,7 @@
 # Run:  cd cyclaw-finetune && python3 -m pytest tests/ -q
 from __future__ import annotations
 
-import json
 import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -14,83 +12,15 @@ sys.path.insert(0, str(HERE))
 
 
 # ── Fakes ──────────────────────────────────────────────────────────────────
-class _FakeTokenizer:
-    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
-        assert tokenize is False
-        parts = []
-        for m in messages:
-            parts.append(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>")
-        return "\n".join(parts)
-    def save_pretrained(self, path):
-        Path(path).mkdir(parents=True, exist_ok=True)
-        (Path(path) / "tokenizer.json").write_text("{}", encoding="utf-8")
-
-
-class _FakeModel:
-    def __init__(self):
-        self.peft_kwargs = None
-        self.gguf_kwargs = None
-        self.lora_path = None
-        self.gguf_dir = None
-    def save_pretrained(self, path):
-        self.lora_path = path
-        Path(path).mkdir(parents=True, exist_ok=True)
-    def save_pretrained_gguf(self, gguf_dir, tokenizer, quantization_method):
-        self.gguf_kwargs = dict(path=gguf_dir, quant=quantization_method)
-        self.gguf_dir = Path(gguf_dir)
-        Path(gguf_dir).mkdir(parents=True, exist_ok=True)
-        (Path(gguf_dir) / "model.q4_k_m.gguf").write_bytes(b"FAKE_GGUF_BYTES")
-
-
-class _FakeFastModel:
-    last_from_pretrained = None
-    last_get_peft_model = None
-    @classmethod
-    def from_pretrained(cls, model_name, max_seq_length, load_in_4bit,
-                        full_finetuning, offload_embedding):
-        cls.last_from_pretrained = dict(
-            model_name=model_name, max_seq_length=max_seq_length,
-            load_in_4bit=load_in_4bit, full_finetuning=full_finetuning,
-            offload_embedding=offload_embedding)
-        return _FakeModel(), _FakeTokenizer()
-    @classmethod
-    def get_peft_model(cls, model, finetune_vision_layers, finetune_language_layers,
-                      finetune_attention_modules, finetune_mlp_modules,
-                      r, lora_alpha, lora_dropout, bias,
-                      use_gradient_checkpointing, random_state,
-                      use_rslora, loftq_config):
-        cls.last_get_peft_model = dict(
-            vision=finetune_vision_layers, language=finetune_language_layers,
-            attention=finetune_attention_modules, mlp=finetune_mlp_modules,
-            r=r, alpha=lora_alpha, dropout=lora_dropout, bias=bias,
-            grad_ckpt=use_gradient_checkpointing, rslora=use_rslora)
-        model.peft_kwargs = cls.last_get_peft_model
-        return model
-
-
-class _FakeSFTConfig:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-
-
-class _FakeSFTTrainer:
-    instances: list[_FakeSFTTrainer] = []
-    def __init__(self, model=None, tokenizer=None, train_dataset=None, args=None):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.train_dataset = train_dataset
-        self.args = args
-        self.trained = False
-        _FakeSFTTrainer.instances.append(self)
-    def train(self):
-        self.trained = True
-
-
-class _FakeDataset:
-    def __init__(self, rows):
-        self.rows = rows
-    def __len__(self):
-        return len(self.rows)
+# One copy, shared with dryrun_finetune.py: two copies of the Unsloth/TRL fakes
+# could drift, and a fake that misses a new keyword gives a wrong verdict
+# (#1853). Importing it is side-effect free: dryrun_finetune installs its
+# fakes into sys.modules only inside _install_fakes(), never at import.
+from dryrun_finetune import (  # noqa: E402
+    _build_fake_modules,
+    _FakeFastModel,
+    _FakeSFTTrainer,
+)
 
 
 @pytest.fixture
@@ -100,27 +30,10 @@ def fakes_installed(tmp_path, monkeypatch):
     _FakeFastModel.last_from_pretrained = None
     _FakeFastModel.last_get_peft_model = None
 
-    fake_unsloth = types.ModuleType("unsloth")
-    fake_unsloth.FastModel = _FakeFastModel
-    fake_unsloth.__version__ = "0.1.800"
-    fake_trl = types.ModuleType("trl")
-    fake_trl.SFTTrainer = _FakeSFTTrainer
-    fake_trl.SFTConfig = _FakeSFTConfig
-    fake_datasets = types.ModuleType("datasets")
-
-    rows: list = []
-    def _load_dataset(name, data_files, split):
-        assert name == "json" and split == "train"
-        with open(data_files, encoding="utf-8") as f:
-            rows[:] = [json.loads(line) for line in f]
-        return _FakeDataset(list(rows))
-    fake_datasets.load_dataset = _load_dataset
-
-    for mod in ("unsloth", "trl", "datasets"):
+    fake_unsloth, fake_trl, fake_datasets, rows = _build_fake_modules()
+    for mod, fake in (("unsloth", fake_unsloth), ("trl", fake_trl), ("datasets", fake_datasets)):
         monkeypatch.delitem(sys.modules, mod, raising=False)
-        monkeypatch.setitem(sys.modules, mod, {
-            "unsloth": fake_unsloth, "trl": fake_trl, "datasets": fake_datasets
-        }[mod])
+        monkeypatch.setitem(sys.modules, mod, fake)
     return rows
 
 
