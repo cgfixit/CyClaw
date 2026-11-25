@@ -92,6 +92,23 @@ def _disabled_notice() -> int:
     return EXIT_OK
 
 
+def _load_enabled_cfg(args: argparse.Namespace) -> TelegramConfig | int:
+    """Load the channel config, or return the exit code the command stops with.
+
+    Shared by the six commands that act on the channel (send, poll and the four
+    job generators): a config error prints the typed error and exits EXIT_ENV,
+    and a disabled channel prints the disabled notice and exits EXIT_OK.
+    """
+    try:
+        cfg = load_telegram_config(args.config)
+    except TelegramConfigError as exc:
+        _print_typed_error(exc)
+        return EXIT_ENV
+    if not cfg.enabled:
+        return _disabled_notice()
+    return cfg
+
+
 def _prompt_bot_token(cfg: TelegramConfig) -> None:
     if not sys.stdin.isatty():
         raise TelegramConfigError(
@@ -163,13 +180,9 @@ def cmd_test(args: argparse.Namespace) -> int:
 
 def cmd_send(args: argparse.Namespace) -> int:
     _heading("CyClaw Telegram Channel -- Send (T1)")
-    try:
-        cfg = load_telegram_config(args.config)
-    except TelegramConfigError as exc:
-        _print_typed_error(exc)
-        return EXIT_ENV
-    if not cfg.enabled:
-        return _disabled_notice()
+    cfg = _load_enabled_cfg(args)
+    if isinstance(cfg, int):
+        return cfg
 
     text = args.text
     if args.body_file:
@@ -222,13 +235,9 @@ def cmd_send(args: argparse.Namespace) -> int:
 
 def cmd_poll(args: argparse.Namespace) -> int:
     _heading("CyClaw Telegram Channel -- Poll (T2)")
-    try:
-        cfg = load_telegram_config(args.config)
-    except TelegramConfigError as exc:
-        _print_typed_error(exc)
-        return EXIT_ENV
-    if not cfg.enabled:
-        return _disabled_notice()
+    cfg = _load_enabled_cfg(args)
+    if isinstance(cfg, int):
+        return cfg
     if cfg.mode != "chat":
         _err("poll requires telegram.mode: chat (current mode refuses inbound).")
         return EXIT_ENV
@@ -275,13 +284,9 @@ def cmd_poll_plist(args: argparse.Namespace) -> int:
     if platform.system() != "Darwin":
         _err("poll-plist is Darwin-only (writes a macOS launchd plist).")
         return EXIT_ENV
-    try:
-        cfg = load_telegram_config(args.config)
-    except TelegramConfigError as exc:
-        _print_typed_error(exc)
-        return EXIT_ENV
-    if not cfg.enabled:
-        return _disabled_notice()
+    cfg = _load_enabled_cfg(args)
+    if isinstance(cfg, int):
+        return cfg
     if cfg.mode != "chat":
         _err("poll-plist requires telegram.mode: chat (current mode refuses inbound).")
         return EXIT_ENV
@@ -344,13 +349,9 @@ def cmd_health_plist(args: argparse.Namespace) -> int:
     if platform.system() != "Darwin":
         _err("health-plist is Darwin-only (writes a macOS launchd plist).")
         return EXIT_ENV
-    try:
-        cfg = load_telegram_config(args.config)
-    except TelegramConfigError as exc:
-        _print_typed_error(exc)
-        return EXIT_ENV
-    if not cfg.enabled:
-        return _disabled_notice()
+    cfg = _load_enabled_cfg(args)
+    if isinstance(cfg, int):
+        return cfg
 
     chat_id = args.chat_id or cfg.allowed_chat_ids[0]
     if not cfg.is_chat_allowed(chat_id):
@@ -411,13 +412,9 @@ def cmd_poll_task(args: argparse.Namespace) -> int:
     if platform.system() != "Windows":
         _err("poll-task is Windows-only (writes a Task Scheduler XML).")
         return EXIT_ENV
-    try:
-        cfg = load_telegram_config(args.config)
-    except TelegramConfigError as exc:
-        _print_typed_error(exc)
-        return EXIT_ENV
-    if not cfg.enabled:
-        return _disabled_notice()
+    cfg = _load_enabled_cfg(args)
+    if isinstance(cfg, int):
+        return cfg
     if cfg.mode != "chat":
         _err("poll-task requires telegram.mode: chat (current mode refuses inbound).")
         return EXIT_ENV
@@ -475,13 +472,9 @@ def cmd_health_task(args: argparse.Namespace) -> int:
     if platform.system() != "Windows":
         _err("health-task is Windows-only (writes a Task Scheduler XML).")
         return EXIT_ENV
-    try:
-        cfg = load_telegram_config(args.config)
-    except TelegramConfigError as exc:
-        _print_typed_error(exc)
-        return EXIT_ENV
-    if not cfg.enabled:
-        return _disabled_notice()
+    cfg = _load_enabled_cfg(args)
+    if isinstance(cfg, int):
+        return cfg
 
     if not args.chat_id and not cfg.allowed_chat_ids:
         _err("telegram.allowed_chat_ids is empty; pass --chat-id")
