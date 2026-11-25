@@ -1597,6 +1597,14 @@ def _parse_compose_environment(text: str) -> dict[str, str]:
     return pairs
 
 
+# Env markers that no code reads. Each was removed because it implied a control
+# the process does not have; setting one again would bring back that false signal.
+_RETIRED_DOCKER_MARKERS = {
+    "CYCLAW_TELEMETRY_KILL": "removed by issue #1135; the real canonical values replace it",
+    "CYCLAW_OFFLINE": "removed by issue #1853; offline posture is app.mode plus user_confirmed_online",
+}
+
+
 def check_docker_delivery(root: Path) -> None:
     for label, path, parser in (("Dockerfile", root / "Dockerfile", _parse_dockerfile_env),
                                 ("docker-compose.yml", root / "docker-compose.yml", _parse_compose_environment)):
@@ -1604,9 +1612,10 @@ def check_docker_delivery(root: Path) -> None:
             warn("T10", f"{label} not found -- skipped")
             continue
         pairs = parser(path.read_text(encoding="utf-8"))
-        if "CYCLAW_TELEMETRY_KILL" in pairs:
-            fail("T10", f"{label} still sets CYCLAW_TELEMETRY_KILL -- read by no code, "
-                        "removed by issue #1135; the real canonical values replace it")
+        retired = [name for name in _RETIRED_DOCKER_MARKERS if name in pairs]
+        if retired:
+            for name in retired:
+                fail("T10", f"{label} still sets {name} -- read by no code, {_RETIRED_DOCKER_MARKERS[name]}")
             continue
         wrong = [f"{k}: {label} has {pairs.get(k)!r}, oracle says {v!r}"
                  for k, v in {**EXPECTED_TELEMETRY_KILL, **EXPECTED_UPDATE_CHECK}.items()

@@ -51,11 +51,6 @@ cyclaw_is_secret_name() {
     END{exit !found}' "$_CYCLAW_SECRET_POLICY"
 }
 
-# Same predicate under the name cyclaw-keychain-load.sh calls.
-_is_cyclaw_secret_name() {
-  cyclaw_is_secret_name "$1"
-}
-
 cyclaw_public_env_header() {
   cat <<'EOF'
 # CyClaw non-secret settings (mode 600).
@@ -189,16 +184,6 @@ cyclaw_dotenv_assignment_name() {
   while IFS=$'\x1f' read -r name op val; do
     [ -n "$name" ] || continue
     printf '%s\n' "$name"
-    return 0
-  done < <(cyclaw_dotenv_line_assignments "$1")
-  return 1
-}
-
-cyclaw_dotenv_assignment_value() {
-  local name op val
-  while IFS=$'\x1f' read -r name op val; do
-    [ -n "$name" ] || continue
-    printf '%s' "$val"
     return 0
   done < <(cyclaw_dotenv_line_assignments "$1")
   return 1
