@@ -25,22 +25,14 @@ from enum import StrEnum
 from typing import Any
 
 from guardrails.errors import GuardrailsConfigError
+from guardrails.metrics import FORBIDDEN_METRIC_KEYS
 
 # Keys that must never land on a GuardrailDecision (raw content / secrets).
-# Hash-named fields (*_hash, query_hash) are allowed by design.
-_FORBIDDEN_DECISION_KEYS: frozenset[str] = frozenset(
-    {
-        "prompt",
-        "response",
-        "query",
-        "tool_arguments",
-        "tool_result",
-        "api_key",
-        "authorization",
-        "password",
-        "token",
-    }
-)
+# Hash-named fields (*_hash, query_hash) are allowed by design. This is the
+# same set the persisted metrics refuse, so it is imported from the production
+# owner rather than kept as a second copy that could drift (#1853, C1). The
+# import costs nothing extra: guardrails/__init__.py already loads metrics.
+_FORBIDDEN_DECISION_KEYS: frozenset[str] = FORBIDDEN_METRIC_KEYS
 
 
 class TrustLevel(StrEnum):
