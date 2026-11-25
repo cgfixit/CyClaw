@@ -45,8 +45,10 @@ Accepted dependency risks live in root [`SECURITY.md`](../../SECURITY.md).
 | [codex-apply-fixes.yml](codex-apply-fixes.yml) | Produces a candidate patch on one runner, then validates and publishes it on a separate runner. | Owner-approved bot-comment fix on an owner-authored same-repository PR. Approval binds to the exact head SHA. Protected paths remain refused. |
 | [claude.yml](claude.yml) | Answers `@claude` PR comments; defaults to review/explanation. | Owner-only, open same-repository PR. Write mode requires `write access approved for this PR` as the comment's last line. |
 
-Assistant workflows can incur provider charges. Inspect run and reviewed SHA;
-green advisory jobs or missing comments do not establish a completed review.
+Assistant workflows can incur provider charges. All three Codex workflows use
+the SHA-pinned Codex Action v1.14 with `drop-sudo` on hosted Ubuntu. If the
+advisory action fails or returns no result, the Review PR job adds a warning
+and a run summary. Check the run and reviewed SHA before relying on a review.
 
 ## Publishing and manual tools
 
