@@ -1,41 +1,10 @@
 # Codex guidance for CyClaw
 
-Start with root [AGENTS.md](../AGENTS.md). Use the
-[workflow overlay](Codex_instructions.md) for Git/PRs and relevant
-[CLAUDE.md](../CLAUDE.md) sections for operating/verification contracts.
-This folder holds explicitly referenced operating material, not another runtime
-policy engine. Instructions and skills cannot enforce CyClaw's security topology.
+Start with [AGENTS.md](../AGENTS.md) and use the [workflow overlay](Codex_instructions.md) for Git and PRs. Skills live in [`.agents/skills/`](../.agents/skills/). Invoke with `$name`. Codex can also select implicit skills when relevant. Explicit skills have `allow_implicit_invocation: false` in `agents/openai.yaml`. Invocation leaves task authority with the user and repository policy.
 
-## Discovery and folder roles
-
-Repository skills live in [`.agents/skills/`](../.agents/skills/), one manifest
-each. Restart if updates are missing. Personal/global skills are not installed
-here; discovery varies by hosted surface.
-
-| Material | How it is used |
-| --- | --- |
-| Root `AGENTS.md` | Automatically discovered repository instructions in Codex's documented instruction chain |
-| `.agents/skills/` | Discoverable skill metadata; invoke `$name` explicitly or allow relevance-based selection |
-| `Codex_instructions.md` | Reference linked by root guidance; its arbitrary filename is not automatically loaded |
-| `routines/` | Optional Markdown playbooks, read when relevant; not automatically run |
-| `checklists/pre-pr.md` | Optional handoff reminder |
-| `prompts/` | The three trusted prompt files consumed by GitHub Actions; preserve their security/output contracts |
-
-Keep Markdown workflows in `routines/`. Codex `.rules` files are a separate
-Starlark command-approval format under an active trusted config layer's `rules/`
-directory. No such command rules ship here; renaming a Markdown playbook to a
-rule does not enforce it. Do not add permissive command rules for convenience.
-
-Official references: [skills](https://learn.chatgpt.com/docs/build-skills),
-[AGENTS discovery](https://developers.openai.com/codex/guides/agents-md),
-[command rules](https://developers.openai.com/codex/rules).
+[Codex instruction discovery](https://developers.openai.com/codex/guides/agents-md) and [skills](https://learn.chatgpt.com/docs/build-skills) explain the runtime mechanisms. The overlay, routines and checklist are references reached by links. Command approvals use separate [Codex rules](https://developers.openai.com/codex/rules).
 
 ## Skill inventory
-
-Implicit means Codex may select the skill when relevant. Explicit means
-`agents/openai.yaml` sets `allow_implicit_invocation: false`; `$name` still works.
-Neither setting grants permission to install, mutate operator state, publish,
-merge or spend tokens. Root instructions may explicitly direct a skill read.
 
 | Skill | Purpose | Selection |
 | --- | --- | --- |
@@ -60,33 +29,21 @@ merge or spend tokens. Root instructions may explicitly direct a skill read.
 | `fable-protocol` | Optional consequential-decision evidence pass | Explicit |
 | `chris-codex` | Public-safe continuity; no personal-copy synchronization | Explicit |
 
-`refactor` absorbs `architecture-refactor`; `AGENTS.md` and the advisor's
-source map absorb `cyclaw-project-guidance`. Generic prompt copies and
-duplicate checklists were removed; task routines and one handoff checklist remain.
+The legacy `cyclaw-sandbox-test` uses fixed ports. Shared `cyclaw-sandbox` helpers delegate to `.claude/skills/CyClaw-Sandbox/`. The browser helper and verification contract live with the Codex skill.
 
-`cyclaw-sandbox-test` remains explicit-only until its legacy install, ports,
-readiness, inherited environment, and caller tests are replaced. The larger
-`cyclaw-sandbox` skill's scripts (`smoke.sh`, `macos-smoke.sh`,
-`run_full_verification.py`, `gate_runtime_check.py`, …) are short delegates to
-the maintained `.claude/skills/CyClaw-Sandbox/` implementations (#1815); only
-`browser_render_check.py` and `test_verification_contract.py` are Codex-local. Reports live in
-`docs/audits/`; socket-mock/terminal probes forward to maintained Claude
-scripts, while driver-specific verification remains local.
+## Task references
 
-## Routines, prompts and validation
+Use the routines for [orientation](routines/first-pass-repo-review.md), [bug fixes](routines/bugfix.md), [features](routines/feature.md), [refactoring](routines/refactor.md), [verification](routines/test-and-verify.md), [PR review](routines/pr-review.md) and [security review](routines/security-review.md). Use the [handoff checklist](checklists/pre-pr.md) before a draft.
 
-Use routines for [orientation](routines/first-pass-repo-review.md),
-[bugfixes](routines/bugfix.md), [features](routines/feature.md),
-[refactoring](routines/refactor.md), [verification](routines/test-and-verify.md),
-[PR review](routines/pr-review.md) and [security](routines/security-review.md).
+## Hosted PR prompts
 
-The active [advisory PR agent](prompts/pr-agent.md),
-[structured reviewer](prompts/pr-review.md) and
-[owner-approved apply-fixes agent](prompts/pr-apply-fixes.md) differ in candidate
-access, privilege and output. They are necessary workflow inputs; do not merge
-them into a generic prompt or allow a privileged reviewer to execute candidates.
+| Workflow | Trusted input and result |
+| --- | --- |
+| [PR comment](../.github/workflows/codex.yml) | [Prompt](prompts/pr-agent.md) reads prepared diff data in the base checkout and returns Markdown. |
+| [Structured PR review](../.github/workflows/pr-review.yml) | [Prompt](prompts/pr-review.md) inspects a sibling candidate read-only and returns schema-checked JSON. |
+| [Apply approved fixes](../.github/workflows/codex-apply-fixes.yml) | [Default-branch prompt](prompts/pr-apply-fixes.md) scopes candidate edits to the owner/SHA-approved bot comment. A separate runner validates and publishes the patch. |
 
-After guidance/resource changes run:
+## Validation
 
 ```text
 python scripts/check_codex_skills.py
@@ -94,9 +51,4 @@ python .claude/skills/doc-sync/doc_sync.py
 git diff --check
 ```
 
-Inspect references/callers and execute changed helper contracts; validate shell
-syntax and Python syntax. Use realistic positive, adjacent negative and explicit
-invocation scenarios for complex skills. Metadata validation cannot prove an
-LLM will choose or follow a workflow. The Codex Skills workflow validates metadata
-and helper syntax without repeating the product's full suite/bootstrap; existing
-product/checker workflows retain their acceptance gates.
+The [Codex Skills workflow](../.github/workflows/codex-skills.yml) checks metadata, references and helper syntax. Review triggers with matching and adjacent tasks. Execute changed helper contracts separately where applicable.

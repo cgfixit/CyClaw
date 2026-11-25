@@ -1,25 +1,12 @@
 ---
 name: otel-hardening
-description: "Verify CyClaw telemetry suppression, SDK import order and child environments. Use for telemetry, heavy-import, dependency or egress-policy changes; suppression is not a firewall."
+description: "Verify CyClaw telemetry suppression, SDK import order and child environments after telemetry, heavy-import, dependency or egress changes."
 ---
-
 
 # Verify Telemetry Suppression
 
-Read `utils/telemetry_kill.py`, `utils/onnx_telemetry.py`, affected startup/import
-paths and the maintained checker. Run:
+Inspect `utils/telemetry_kill.py`, `utils/onnx_telemetry.py` and startup paths. Run `python .claude/skills/otel-hardening/check_otel.py`.
 
-```text
-python .claude/skills/otel-hardening/check_otel.py
-```
+Trace SDK reads and child environments. Preserve suppression before initializing imports and the ONNX post-import API. Assess model downloads and vendor telemetry independently. Environment flags alone cannot establish network confinement.
 
-Trace new SDK/environment reads and child environments; suppression must precede
-initializing imports, with ONNX post-import API seams preserved. First-run model
-downloads and vendor telemetry have separate policies. An environment-variable
-inventory does not prove complete egress blocking.
-
-Exercise the changed path with synthetic data, no credentials and controlled
-egress when available. Do not enable telemetry to test its suppression. For
-checker changes run `bash .claude/skills/otel-hardening/verify.sh`; for core
-import changes run the invariant guard. Report vendor/native/runtime limits and
-follow `CLAUDE.md` section 5 rather than a blanket local full-suite gate.
+Exercise the changed path with synthetic inputs, no credentials and controlled egress where available. Keep suppression enabled. Run the maintained `verify.sh` for checker edits and the invariant guard for core imports. Report vendor and runtime gaps.

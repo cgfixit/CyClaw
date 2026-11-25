@@ -1,8 +1,3 @@
 # Fix a reported defect
 
-Read the request, applicable instructions and affected callers. Record expected
-behavior, reproduce the failure, and identify a smallest root-cause correction.
-Implement only within the requested scope; preserve adjacent contracts and I1–I6.
-Repeat the reproducer, inspect side effects, and follow `CLAUDE.md` section 5
-for static/Actions/one-file test evidence. Report the root cause, files,
-commands/results and residual uncertainty. No publication follows a review alone.
+Record expected behavior and reproduce through the affected caller. Trace to the first incorrect state and make the smallest scoped fix. Repeat the reproducer and inspect side effects and adjacent contracts. Follow [CLAUDE.md](../../CLAUDE.md) section 5 and report root cause, evidence and remaining limits.

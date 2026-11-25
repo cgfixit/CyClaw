@@ -1,92 +1,43 @@
 ---
 name: verification-specialist
-description: "Independently challenge a supplied CyClaw change with executed checks and adversarial probes. Use for acceptance verification or regression validation; do not fix the implementation or publish."
+description: "Independently verify a CyClaw change using direct checks and adversarial probes. Read-only for the candidate and publication state."
 ---
-
 
 # Verify a CyClaw Change
 
-Try to falsify the acceptance claim. A green suite, polished UI, source reading,
-or implementer summary is only one piece of evidence. Verify independently.
+## Pin the candidate
 
-## Establish the candidate and boundaries
+Read the request, exact base/head diff, `AGENTS.md`, relevant `CLAUDE.md` sections and active workflow. Record SHA, dirty state, OS, interpreter, profile and scope. Check available tools before declaring a lane unavailable.
 
-Read the original request/specification, exact base/head diff, applicable
-`AGENTS.md`, relevant `CLAUDE.md` sections, and current workflow commands.
-Record SHA, dirty state, OS, interpreter, selected configuration and scope.
-Inspect available tools before deciding that a browser or checker is unavailable.
+Use temporary storage outside the candidate. For mutating probes use an owned disposable copy, redirect every storage path and remove real credentials. Preserve operator data, soul and services. Stop only owned processes. Leave the candidate, dependencies and Git history untouched.
 
-Do not edit the candidate, install dependencies, write Git history, or publish.
-Keep probe scripts, caches and reports in an owned temporary directory outside
-the project. Run mutating imports, servers or fixtures only against an isolated
-disposable copy, with every storage path redirected and real credentials removed.
-Never launch a manager that creates/restores soul or use the operator's live
-data to test mutations. Stop only processes this verification owns.
-
-For privileged PR review, obey the workflow's trusted-base/no-candidate-execution
-boundary. Do not run candidate code because this skill asks for execution;
-return static findings and state that runtime acceptance was not verified.
+In privileged PR review, honor the trusted-base boundary. Inspect candidate data read-only and report runtime acceptance as unverified.
 
 ## Exercise the changed property
 
-Use CyClaw's local verification order from `CLAUDE.md` section 5: direct
-execution, relevant lint/static checks, hosted CI, then one focused test file
-when the preceding evidence cannot exercise a concrete risk. Do not reproduce
-the full local suite, coverage run or LoRA suite routinely. Read current-head
-Actions results and skips for the broad/platform gates. No application build
-step exists; use a build only for a changed artifact that actually has one.
+Follow `CLAUDE.md` section 5 for direct execution, static checks, exact-head CI and focused tests. Run at least one relevant adversarial probe before a scoped PASS.
 
-| Change | Direct check and relevant negative case |
+| Change | Direct evidence |
 | --- | --- |
-| Gateway/auth | Start an isolated owned gateway; request each changed endpoint and inspect status, headers, body and side effects. Probe malformed/oversized input, missing/wrong credentials, cross-site and proxy headers, CSRF/RBAC and disabled features as applicable. |
-| CLI/helper | Execute representative arguments; inspect stdout, stderr and exit status. Probe unknown options, empty/malformed input, missing resources, refusal and cleanup after failure. |
-| Retrieval/graph | Use synthetic data. Inspect scores, provenance, answer model, consent and audit. Exercise empty/stale index, keyword-only degradation, denied/unavailable providers and both local-node destination checks where relevant. |
-| UI | Interact in a browser and request referenced JS/CSS. Check completed answers, error/confirmation controls, refresh/persistence, desktop/mobile overflow, uncaught errors and network destinations. HTML 200 or a visible result container alone is insufficient. |
-| Config/install/workflow | Parse syntax and run maintained guards; dry-run the actual changed profile where supported. Native OS, keystore and confinement claims require matching native evidence. |
-| Docs/skills | Parse frontmatter/UI metadata, follow links, run referenced checker/wrapper help, compare claims with source. Try a realistic task plus an adjacent task that should not trigger the skill. No unrelated server is needed. |
-| Bugfix/refactor | Reproduce the original failure against the base when feasible, repeat against the candidate, and exercise adjacent callers. Preserve tests and public contracts; measure only claimed performance. |
+| Gateway/auth | Inspect response and side effects. Choose relevant malformed/oversized, missing credentials, cross-site, forwarded-header, CSRF/RBAC or disabled-feature cases. |
+| CLI/helper | Check stdout, stderr, exit and cleanup for success, invalid input, missing resources or failure. |
+| Retrieval/graph | Use synthetic data. Check scores, provenance, model, consent and audit. Exercise relevant index degradation, provider refusal and both destination checks. |
+| UI | Interact in a browser. Check assets, completed answers, errors, confirmation, persistence, responsive layout, console and destinations as applicable. Inspect backend side effects. |
+| Config/install/workflow | Use maintained guards and the actual profile. Establish native OS and keystore behavior on the matching platform. |
+| Docs/skills | Parse metadata, follow links, inspect helper contracts and source. Try a relevant task and an adjacent non-trigger. A broken-reference fixture can exercise the validator. |
+| Bugfix/refactor | When feasible reproduce at base, repeat at the candidate and probe adjacent callers. Measure claimed performance under comparable conditions. |
 
-Run at least one relevant adversarial probe before a scope-level PASS. Select
-from boundary values, harmless near-misses, repeated/idempotent requests,
-nonexistent IDs, timeout/partial failure, restart/recovery, or bounded concurrent
-access. A docs-only negative control can be a broken-reference/metadata fixture
-outside the checkout. Do not run every category without a changed risk.
+Choose adversarial cases that fit the risk, such as boundary values, false positives, retry/idempotence, missing IDs, timeout/partial failure, restart or bounded concurrency. Inspect mock substitutions, skips and assertions. A mocked connection provides no evidence of real inference or native confinement.
 
-Inspect what mocks replace and what assertions omit. A connection mock cannot
-prove provider destination policy, real inference or native sandboxing. Verify
-backend state after an apparent UI/API success. Trace retries, alternate routes
-and cleanup if they affect the claim. Reject circular tests and hidden skips.
+## Calibrate the result
 
-## Calibrate failures and limits
+Establish expected behavior, reachable trigger, impact and whether the issue predates the change. Check caller handling and deliberate refusals. Attribute missing tooling, stopped services and unavailable platforms to the evidence gap. Use FAIL for demonstrated acceptance failures and PARTIAL for missing required evidence. Limit PASS to tested scope.
 
-Before a finding, establish expected behavior, reachable trigger, actual impact,
-and whether it predates the change. Check for handling in callers and intentional
-refusal. Missing tooling, stopped Ollama, an unavailable native OS or a deliberately
-disabled feature is a limit, not a product defect. Explain baseline failures.
+## Report
 
-Do not rationalize omitted checks as PASS. Use PARTIAL when required evidence
-could not be obtained or remains inconclusive; use FAIL for a demonstrated
-acceptance failure. PASS covers only the explicitly tested scope.
+Record each executed check with the expected result, exact redacted command, relevant verbatim output, exit status and PASS/FAIL. For FAIL include expected versus actual. Mark unexecuted requirements NOT RUN or SKIP with reasons. Include the adversarial probe, SHA/profile, relevant source anchors, mock/native limits and verified CI. Clean up owned temporary state.
 
-## Evidence report
-
-For every executed check use:
-
-```text
-Check: <claim and expected result>
-Command run: <exact command, with secret values redacted>
-Output observed: <actual relevant stdout/stderr, verbatim; cite omitted log file>
-Exit status: <actual code>
-Result: PASS | FAIL
-Expected vs actual: <required for FAIL>
-```
-
-Record unexecuted required checks as `NOT RUN` or `SKIP`, with the reason and
-missing evidence. Never invent output or label source inspection a runtime pass.
-Include file/symbol anchors for actionable findings, the adversarial probe,
-SHA/environment, fixture/mock limits and current-head CI evidence when available.
-Keep reports privacy-safe and remove owned temporary state when finished.
-End with exactly one literal line:
+End with exactly one of these lines:
 
 ```text
 VERDICT: PASS

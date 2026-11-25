@@ -54,14 +54,15 @@ Use four-space indentation, typed Python, snake_case, the existing 120-column st
 
 ## Skills and routines map
 
-The single Codex inventory and invocation policy live in `.codex/README.md`.
-Repository skills use `.agents/skills/<name>/SKILL.md` with `agents/openai.yaml`.
-Other drivers use `.claude/skills/` where available. Read task-relevant guidance;
-skill invocation is not authorization and metadata cannot enforce per-model routing.
-Use `.codex/routines/` for optional task playbooks, `.codex/checklists/pre-pr.md`
-for a handoff reminder, and `.codex/prompts/` for trusted GitHub workflow inputs.
-Markdown routines are not executable command rules. Live memory belongs only in
-`docs/memories/`. Check current source before declaring a skill or feature absent.
+Use the [Codex inventory](.codex/README.md) to select a skill from
+`.agents/skills/`. Each `SKILL.md` owns its trigger and workflow. Its
+`agents/openai.yaml` owns invocation policy. Other drivers use `.claude/skills/`
+where available. Skill selection leaves authorization with the user.
+
+Use the inventory's task references and validation commands when editing Codex
+guidance. The [Codex workflow overlay](.codex/Codex_instructions.md) covers
+publication and links the hosted prompt contracts. Keep live memory in
+`docs/memories/`.
 
 ## Git, reviews, and completion
 
@@ -71,4 +72,4 @@ Map overlapping files before multiple PRs. Consolidate related edits or stack re
 
 Validate review findings against the actual head and code path. A bot claim of a commit or PR is not remote evidence: check SHA, diff, reviews, mergeability, and CI separately. Use `.github/PULL_REQUEST_TEMPLATE.md` for authorized draft publication, stating invariant impact, directly run checks, CI-only checks, limits, risks, base, and merge order. Monitor the exact pushed head; report pending, skipped, disabled, and failed checks distinctly. Do not send comments or review requests without authorization.
 
-Sensitive paths (workflows, Dockerfile, locks, `.githooks/`, `guardrails/`, `INVARIANTS.md`, `AGENTS.md`, `SECURITY.md`) need an explicit human review note in the PR.
+Flag workflows, Dockerfile, locks, hooks, guardrails, `INVARIANTS.md`, `SECURITY.md`, agent instructions and trusted hosted prompts for explicit human review in the PR.

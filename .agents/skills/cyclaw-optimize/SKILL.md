@@ -1,29 +1,14 @@
 ---
 name: cyclaw-optimize
-description: "Audit or implement explicitly requested CyClaw improvements from current evidence and open-PR overlap. Use for a bounded optimization pass; no autonomous feature expansion, dependency bump or publication."
+description: "Audit or implement a requested, bounded CyClaw improvement. Validate the problem and check open-PR overlap before changing code."
 ---
-
 
 # Improve CyClaw
 
-1. Establish audit versus implementation scope. Inspect the checkout, record
-   base/head and fetch current main; follow `.codex/Codex_instructions.md`.
-2. Read actual code/callers and measure the stated problem. File size, a newer
-   dependency, old accepted-risk notes or a feature name is not a finding.
-3. Inspect open PRs touching the same files before duplicating work. Validate
-   each finding's trigger, impact, smallest fix and falsifying check.
-4. Select only improvements that serve the requested outcome. Preserve the
-   maintenance posture and I1–I6; do not resurrect removed console/broker code.
-5. Implement within authorization. Consolidate related shared-file changes or
-   stack real dependencies; trial-merge related candidates where needed.
-6. Execute the changed behavior and relevant guards/lint. Follow `CLAUDE.md`
-   section 5: broad suites/coverage/platform gates belong to Actions; use one
-   focused local test file for a concrete uncovered risk.
-7. Return validated findings for an audit. For authorized publication, use the
-   full PR template and report the actual remote head and CI state.
+Establish audit or implementation scope and refresh main. Use `.codex/Codex_instructions.md` for overlap and publication. Trace actual callers and measure the problem before claiming an improvement. Old audits, file length and newer versions are leads.
 
-Use `$refactor` for behavior-preserving structure, `$dep-guard` for static
-dependency contracts and `$verify-dep` for selected install-profile acceptance.
-Never impersonate the former `CyClaw Agent` identity of CyClaw's removed agentic
-loop; commit as your own runtime identity. Do not merge or rewrite history
-without the applicable authorization.
+For each candidate, identify the trigger, impact, smallest fix and a check that could disprove the claim. Select changes that serve the request and preserve I1–I6 and the current maintenance scope. Consolidate overlapping changes or stack real dependencies.
+
+Run the affected behavior and relevant checks under `CLAUDE.md` section 5. Report validated findings for an audit. Publish only when authorized, using the repository template and exact-head evidence.
+
+Use `$refactor` for structural cleanup, `$dep-guard` for pin contracts and `$verify-dep` for install acceptance.

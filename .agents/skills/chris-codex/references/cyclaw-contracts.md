@@ -1,10 +1,5 @@
 # CyClaw contract references
 
-Use `AGENTS.md`, `INVARIANTS.md` and the affected code/config as current truth.
-Use `$cyclaw-advisor` for the source map; avoid another version/default snapshot.
+Use `AGENTS.md`, `INVARIANTS.md` and affected code/config. Use `$cyclaw-advisor` for navigation and `docs/THREAT_MODEL.md` for deployment limits.
 
-Preserve I1–I6, both local destination checks, per-request cloud consent,
-retrieval-only MCP and governed soul apply. Read-only checks must not trigger
-soul self-initialization, restore or baseline adoption. I6 forbids direct
-core/out-of-band imports; it is not an OS sandbox or a ban on maintained bridges.
-Use `docs/THREAT_MODEL.md` for deployment scope and platform limitations.
+Preserve both local destination checks, per-request cloud consent and retrieval-only MCP. Read-only soul checks must avoid initialization, restore and baseline adoption. Check I6 import isolation and maintained bridges separately.

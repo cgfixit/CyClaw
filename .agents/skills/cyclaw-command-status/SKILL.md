@@ -1,28 +1,18 @@
 ---
 name: cyclaw-command-status
-description: "Inspect CyClaw environment, configured assets and readiness without setup or state changes. Use for status questions; do not start services, import initializing gateway code, install or rebuild."
+description: "Inspect CyClaw configuration, assets and readiness read-only. Use for status requests on a checkout or already-running gateway."
 ---
-
 
 # Inspect Status
 
-Read current config and resolve its effective paths from the selected checkout
-and environment. Check Python 3.12, selected install profile/lock and package
-metadata without importing initializing modules. Inspect missing soul/index
-files as readiness evidence; do not instantiate self-healing managers.
+Read effective config and storage paths. Check Python, the selected lock profile, package metadata, soul and index without importing initializing modules or constructing soul managers.
 
-Report safe flags such as mode, bind/port, auth/memory/agentic/guardrail state,
-trusted local destinations and API-key optional bypass. Report only whether
-credential variables are set, never their values. Shipped hybrid/providers
-enabled is intentional; per-request consent remains separate.
+Report mode, bind/port, auth, memory, connectors, guardrails, trusted local destinations and optional key bypass. Report only credential presence. Distinguish shipped switches from per-request consent.
 
-Probe an already-running owned/identified local gateway only when in scope:
+For an in-scope, identified running gateway, consult `api.health_probe_external_providers` before a bounded probe at its configured port:
 
 ```text
 curl --connect-timeout 2 --max-time 5 -sS http://127.0.0.1:8787/health
 ```
 
-Use its configured port and inspect whether external health probes were enabled
-before making a request. A degraded or stopped optional service is not a core
-defect by itself. Use the static telemetry checker for suppression claims.
-Return checks, observed state and limits; change no data, baselines or services.
+Identify readiness gaps and optional-service degradation. Use the OTel checker for suppression claims. Leave packages, data, baselines and services untouched.
