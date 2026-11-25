@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.fake_security import install_fake_security
+
 if os.name != "nt":
     # pty (and the tty/termios modules it imports) is POSIX-only. This whole
     # module is skipif(os.name == "nt")'d below, but that's a runtime skip --
@@ -34,95 +36,14 @@ _ENV_SCRIPT = _REPO_ROOT / "macos" / "cyclaw-keychain-env.sh"
 _SET_SCRIPT = _REPO_ROOT / "macos" / "cyclaw-keychain-set.sh"
 _BASH = shutil.which("bash") or "bash"
 
-_FAKE_SECURITY = """#!/usr/bin/env bash
-# Stand-in for macOS's `security` CLI, controlled by env vars:
-#   FAKE_SECURITY_ITEMS:     "service=secret|service2=secret2" (present items)
-#   FAKE_SECURITY_LOG:       if set, add-generic-password invocations (argv
-#                            only, with -w's value never appended -- see
-#                            below) are appended here
-#   FAKE_SECURITY_STDIN_LOG: if set, whatever add-generic-password reads from
-#                            its own stdin after a bare `-w` token is written
-#                            here -- simulating the real `security` CLI's
-#                            interactive TTY prompt (readpassphrase(3)) for a
-#                            `-w` with no attached value, which is exactly how
-#                            cyclaw-keychain-set.sh invokes it.
-set -euo pipefail
-cmd="$1"; shift
-case "$cmd" in
-  find-generic-password)
-    service=""
-    read_value=0
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -s) service="$2"; shift 2 ;;
-        -w) read_value=1; shift 1 ;;
-        *) shift 1 ;;
-      esac
-    done
-    if [ "$read_value" -eq 0 ] && [ -n "${FAKE_SECURITY_PROBE_RC:-}" ]; then
-      exit "${FAKE_SECURITY_PROBE_RC}"
-    fi
-    items_raw="${FAKE_SECURITY_ITEMS:-}"
-    [ -n "$items_raw" ] || exit 44
-    IFS='|' read -ra items <<< "$items_raw"
-    for item in "${items[@]}"; do
-      key="${item%%=*}"
-      val="${item#*=}"
-      if [ "$key" = "$service" ]; then
-        if [ "$read_value" -eq 1 ] && [ -n "${FAKE_SECURITY_READ_RC:-}" ]; then
-          exit "${FAKE_SECURITY_READ_RC}"
-        fi
-        if [ "$read_value" -eq 1 ]; then
-          printf '%s' "$val"
-        fi
-        exit 0
-      fi
-    done
-    exit 44
-    ;;
-  add-generic-password)
-    args_log=""
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -w)
-          # Bare -w, no attached value: read the "password" the same way the
-          # real security CLI's interactive prompt would, from this process's
-          # own stdin -- never from argv.
-          if [ -n "${FAKE_SECURITY_STDIN_LOG:-}" ]; then
-            IFS= read -r secret_from_stdin
-            printf '%s' "$secret_from_stdin" > "${FAKE_SECURITY_STDIN_LOG}"
-          fi
-          shift 1
-          ;;
-        *)
-          args_log="$args_log $1"
-          shift 1
-          ;;
-      esac
-    done
-    if [ -n "${FAKE_SECURITY_LOG:-}" ]; then
-      echo "add-generic-password$args_log" >> "$FAKE_SECURITY_LOG"
-    fi
-    exit 0
-    ;;
-  *)
-    echo "fake security: unsupported command $cmd" >&2
-    exit 1
-    ;;
-esac
-"""
-
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="requires a POSIX shell (bash) and chmod semantics")
 
 
 @pytest.fixture
 def fake_security(tmp_path: Path) -> Path:
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "security"
-    stub.write_text(_FAKE_SECURITY, encoding="utf-8")
-    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return bin_dir
+    # The one shared stub (tests/fake_security.py), limited to the subcommands
+    # these scripts may call; any other subcommand still exits 1.
+    return install_fake_security(tmp_path, ("find-generic-password", "add-generic-password"))
 
 
 def _run(
@@ -393,4 +314,5 @@ def test_set_script_stores_via_fake_security_and_never_echoes_secret_to_argv(
     # The fake stub *did* receive the real secret -- just via the TTY read
     # path (its own stdin), proving the mechanism actually delivers the
     # value end-to-end rather than silently losing it.
-    assert stdin_log_path.read_text(encoding="utf-8") == "hunter2"
+    # One "service<TAB>secret" line per write (tests/fake_security.py format).
+    assert stdin_log_path.read_text(encoding="utf-8") == "svc\thunter2\n"

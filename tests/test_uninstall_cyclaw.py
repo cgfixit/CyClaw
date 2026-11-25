@@ -17,83 +17,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.fake_security import install_fake_security
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPT = _REPO_ROOT / "macos" / "uninstall-cyclaw.sh"
 _BASH = shutil.which("bash") or "bash"
-
-_FAKE_SECURITY = """#!/usr/bin/env bash
-set -euo pipefail
-cmd="$1"; shift
-case "$cmd" in
-  delete-generic-password)
-    account=""
-    service=""
-    args_log=""
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -a)
-          account="$2"
-          args_log="$args_log $1 $2"
-          shift 2
-          ;;
-        -s)
-          service="$2"
-          args_log="$args_log $1 $2"
-          shift 2
-          ;;
-        -w)
-          echo "fake security: refuse -w on delete (secret must not be argv)" >&2
-          exit 2
-          ;;
-        *)
-          args_log="$args_log $1"
-          shift 1
-          ;;
-      esac
-    done
-    if [ -n "${FAKE_SECURITY_LOG:-}" ]; then
-      echo "delete-generic-password$args_log" >> "$FAKE_SECURITY_LOG"
-    fi
-    missing="${FAKE_SECURITY_MISSING:-}"
-    case "|$missing|" in
-      *"|$service|"*) exit 44 ;;
-    esac
-    if [ -n "${FAKE_SECURITY_DELETE_RC:-}" ]; then
-      exit "${FAKE_SECURITY_DELETE_RC}"
-    fi
-    exit 0
-    ;;
-  find-generic-password)
-    service=""
-    read_value=0
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -s) service="$2"; shift 2 ;;
-        -w) read_value=1; shift ;;
-        *) shift ;;
-      esac
-    done
-    items_raw="${FAKE_SECURITY_ITEMS:-}"
-    [ -n "$items_raw" ] || exit 44
-    IFS='|' read -ra items <<< "$items_raw"
-    for item in "${items[@]}"; do
-      key="${item%%=*}"
-      val="${item#*=}"
-      if [ "$key" = "$service" ]; then
-        if [ "$read_value" -eq 1 ]; then
-          printf '%s' "$val"
-        fi
-        exit 0
-      fi
-    done
-    exit 44
-    ;;
-  *)
-    echo "fake security: unsupported command $cmd" >&2
-    exit 1
-    ;;
-esac
-"""
 
 _SERVICES = (
     "com.cgfixit.cyclaw.api-key",
@@ -174,12 +102,9 @@ def _path_without_lsof(extra_bin: Path | None, scratch: Path) -> str:
 
 @pytest.fixture
 def fake_security(tmp_path: Path) -> Path:
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "security"
-    stub.write_text(_FAKE_SECURITY, encoding="utf-8")
-    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return bin_dir
+    # The one shared stub (tests/fake_security.py), limited to the subcommands
+    # these scripts may call; any other subcommand still exits 1.
+    return install_fake_security(tmp_path, ("delete-generic-password", "find-generic-password"))
 
 
 def _run(
