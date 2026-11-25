@@ -1013,8 +1013,11 @@ recovery path, not the normal first-run state.
 }
 ```
 
-The MCP server exposes retrieval-only (`hybrid_search` tool). It has no LLM
-sampling capability by design.
+The MCP server exposes the retrieval-only `hybrid_search` tool. It has no LLM
+sampling capability. Successful calls return `chunks` and `metadata` in
+`result.structuredContent`, with the same JSON in a text block in
+`result.content` for clients that read text. Existing JSON-RPC clients can
+still read `result.chunks` and `result.metadata` directly.
 
 ---
 

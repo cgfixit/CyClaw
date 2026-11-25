@@ -311,7 +311,8 @@ flowchart TD
 ```
 
 The MCP server calls the retriever directly after sanitization and never
-enters this gateway or graph. The diagram omits the per-answer NeMo `check()`
+enters this gateway or graph. See the [MCP setup and result format](setup-guide.md#mcp-server-optional--claude-desktop--copilot-studio).
+The diagram omits the per-answer NeMo `check()`
 and the post-graph CEL monitor ([Optional layers](#optional-layers)).
 
 ---
