@@ -554,6 +554,26 @@ def test_poll_once_ignores_a_boolean_update_id(tmp_path: Path) -> None:
     assert handled == []
 
 
+def test_poll_once_does_not_ack_a_negative_update_id(tmp_path: Path) -> None:
+    """A negative id is invalid: acking it would set the offset to -4."""
+    cfg = _cfg(tmp_path)
+    updates = [{"update_id": -5, "edited_message": {"chat": {"id": 42}, "text": "x"}}]
+    with patch("telegram.client.get_updates", return_value=updates):
+        next_offset, handled = poll_once(cfg, offset=100)
+    assert next_offset == 100
+    assert handled == []
+
+
+def test_poll_forever_survives_a_negative_update_id(tmp_path: Path) -> None:
+    """save_offset refuses negatives with ValueError; poll_once must never hand it one (#1853)."""
+    cfg = _cfg(tmp_path)
+    offset_path = tmp_path / "offset.json"
+    save_offset(100, offset_path)
+    with patch("telegram.client.get_updates", return_value=[{"update_id": -5}]):
+        assert poll_forever(cfg, max_iterations=1, offset_path=offset_path) == 1
+    assert load_offset(offset_path) == 100
+
+
 def test_poll_once_advances_offset_on_terminal_refusal(tmp_path: Path) -> None:
     """Allowlist/mode refusals are terminal — ack so the stream does not stall."""
     cfg = _cfg(tmp_path)
