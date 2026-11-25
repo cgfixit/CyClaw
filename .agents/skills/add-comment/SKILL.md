@@ -1,17 +1,10 @@
 ---
 name: add-comment
-description: "Add bounded WHY comments to requested CyClaw code without changing executable behavior. Use for non-obvious ordering, thresholds, workarounds or security gates; exclude repo-wide commentary and refactoring."
+description: "Add WHY comments to requested CyClaw code. Use for verified non-obvious ordering, thresholds, workarounds or security gates. Preserve executable behavior."
 ---
-
 
 # Add WHY Comments
 
-Read the requested module, callers and existing comments. Explain a verified
-reason in one or two sentences; do not narrate the next line or add TODOs.
-Keep protected soul, generated data and executable lines untouched.
+Read callers and existing comments. Explain the reason in one or two sentences. Leave executable lines, generated data and the protected soul untouched.
 
-Inspect the diff and compare before/after Python ASTs when proving a Python
-change is comment-only. Run touched Ruff F/B/S and `git diff --check`; use the
-invariant checker when a comment makes a security claim. A comment-only change
-needs no unrelated runtime suite. Report unavailable checks and use the normal
-publication boundary from `.codex/Codex_instructions.md`.
+Compare before/after Python ASTs where applicable. Run touched Ruff F/B/S and `git diff --check`. Check any security claim against the relevant invariant.

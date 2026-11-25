@@ -1,33 +1,12 @@
 # CyClaw sandbox acceptance map
 
-Use with [SKILL.md](SKILL.md). Resolve evidence against the exact selected candidate.
-Derive exact values and tests from the selected candidate; this map contains
-acceptance criteria, not previous PASS results. Follow `CLAUDE.md` section 5:
-direct probes and static checks locally; suites/coverage/native lanes in Actions.
-Use one focused test file for a concrete remaining gap. Test-file lists below
-are evidence navigation, not commands to run every local suite.
+Use with [SKILL.md](SKILL.md) at the selected SHA. Use `CLAUDE.md` section 5 for local and hosted evidence. Listed tests identify owning coverage.
 
-## Removed and retained surfaces
+## Surface inventory
 
-`eb5a855f` removed `harness/`, `static/harness.html`, the `cyclaw-harness`
-entry point, harness launch/service targets, its `/api/*` endpoints and
-`tests/test_harness*`. The old extractor HTML/JS was removed in `c9b6b866`.
-Check the source inventory and packaging manifest instead of trying to boot
-these features. On the isolated gateway, confirm the removed HTML path returns
-404.
+Inspect the route table and packaging manifest. The coding console, extractor, agentic coding loop and SQL connector were retired. On an isolated gateway, confirm the old harness HTML, `/ops/agentic` and `/ops/sqlconnect` return 404. The remaining connectors are `agentic/fsconnect/` and `agentic/netconnect/`.
 
-On 2026-10-18 the agentic GitHub layer (`agentic/cli.py`, the skills
-registry, `real_repo_loop.py`, `harness_optimizer/`, `deepagent_github/`,
-the `executor/` verification sandbox, the Unslop bridge and `vendor/`) and
-`agentic/sqlconnect/` were removed together with `/ops/agentic`,
-`/ops/sqlconnect` and their `config.yaml` blocks. Confirm both routes return
-404 on the isolated gateway. Only `agentic/fsconnect/` and
-`agentic/netconnect/` remain under `agentic/`.
-
-The only shipped HTML console is `static/terminal.html`. It loads
-`static/terminal.js` and `static/auth_admin.js`; inspect all three for browser
-contracts. The UI's Users panel is not a second server. Memory's HTML export
-is a conditional gateway route, not a resurrected coding console.
+The terminal uses `static/terminal.html`, `static/terminal.js` and `static/auth_admin.js`. Check Users as a terminal panel and memory HTML export as a conditional route.
 
 ## Routing, retrieval and model fidelity
 
@@ -40,19 +19,7 @@ is a conditional gateway route, not a resurrected coding console.
 | RRF parity | Same corpus, chunking, fingerprint and config on each OS. RRF contributions use `1 / (rrf_k + rank)` with rank starting at 0; use its configured score threshold and the separate cosine floor. Explain differences rather than normalizing them away. | `retrieval/hybrid_search.py`, `config.yaml`; hybrid/retrieval tests |
 | MCP | Stdio retrieval-only; sanitize inputs; no LLM imports/generation. Capability metadata alone is not enforcement. | `mcp_hybrid_server.py`; `tests/test_mcp_server.py`, `tests/test_mcp_manifest.py` |
 
-The bundled driver's five queries are two vault hits, one denied-online miss,
-and two provider-confirmation misses. Evaluate the expected outcome, not the
-literal prompt string. Its separate provider phase uses mocked clients/HTTP;
-external answers must not inherit soul or fabricate local sources.
-
-Report the three fidelity levels separately: in-process mocks (Tier 0), an
-owned socket mock with real HTTP clients (Tier 1), and actual local model
-inference (Tier 2). A `/v1/models` response alone proves neither ownership nor
-inference. `run_full_verification.py` delegates to the maintained Claude runner, requires
-real LangGraph and uses Tier 0 regardless of listeners. It never installs
-dependencies or substitutes a fake graph. Missing dependencies fail visibly.
-Run `tests/test_llm_client_ollama.py` for the socket contract. A real-model run
-needs a separately recorded model ID, target process and successful response.
+In the bundled query fixtures verify two vault hits, one denied-online miss and two confirmation misses. The provider phase is mocked. External answers must omit soul and fabricated local sources. Use `tests/test_llm_client_ollama.py` for the socket contract. Record real inference separately with model ID, owned process and successful response.
 
 ## Gateway, terminal and auth
 
@@ -72,14 +39,7 @@ disabled subprocess result.
 | `/auth/*` | Off returns 503; bootstrap loopback/no-proxy rules; login/session+CSRF, logout/whoami, user/password/role/disable/enable/delete policies, last-admin protection, audit role and token revocation. CLI device-token lifecycle is distinct. | `tests/test_gate_auth.py`, `tests/test_gate_auth_admin.py`, `tests/test_authn_rbac.py`, `tests/test_authn_manager.py`, `tests/test_authn_cli.py` |
 | `/memory/*`, `/query/export/html` | Key-gated status; default-off subfeature gating; isolated facts/episodes/proposals, reason+scan on apply and safe HTML export. No shared operator DB. | `tests/test_memory_routes.py`, `tests/test_memory_store.py`, `tests/test_memory_policy.py`, `tests/test_memory_fusion.py`, `tests/test_memory_metadata_prompt_isolation.py` |
 
-Browser acceptance needs desktop and mobile screenshots, completed query/error
-rendering, confirmation focus handling, health/index progress, and the current
-soul/ops/Users panels. Assert safe DOM rendering, same-origin requests, masked
-credentials, no uncaught errors, no unexpected network destinations and no
-horizontal overflow. Use `tests/test_auth_admin_contract.py` and
-`tests/test_terminal_confirm_focus_trap.py` alongside browser interaction.
-`browser_render_check.py` supplies screenshots and a single terminal query;
-its visible container check does not cover the full matrix above.
+Browser acceptance includes desktop/mobile screenshots, completed queries and errors, the offline choice's initial focus and focus trap, and health/index progress. Check that a reload or second tab follows a running build through `/index/status`. Check soul/ops/Users panels, safe DOM, credential masking, same-origin requests, console errors, unexpected destinations and horizontal overflow. See `tests/test_auth_admin_contract.py`, `tests/test_terminal_confirm_focus_trap.py` and `tests/test_gate_index_build.py`. The browser helper exercises a single query at each viewport. Inspect other interactions separately.
 
 ## Audit and optional subsystems
 
@@ -94,11 +54,7 @@ its visible container check does not cover the full matrix above.
 
 ## Installation and platform evidence
 
-Read `setup-guide.md`, `locks/README.md` and live manifests; do not copy pins from a past report.
-Manual/core, native installer and one-shot clone are distinct workflows. Conda
-(`environment.yml`) and Docker are additional supported surfaces when claiming
-installation parity. Compare Python, platform hashed lock profiles, console scripts,
-config/layout, synthetic index creation and the same gateway checks.
+Use `setup-guide.md`, `locks/README.md` and the actual installer. Record interpreter, platform hash locks, entry points, layout, synthetic index and gateway results per claimed profile.
 
 | Startup or OS lane | What must be established |
 |---|---|
@@ -107,21 +63,11 @@ config/layout, synthetic index creation and the same gateway checks.
 | `powershell/Invoke-CyClaw.ps1` | Runs `gate.py`; validate launcher env/home and resulting main/TLS behavior on native Windows. Installer PowerShell 5.1 syntax and the bundled smoke helper's PowerShell 7 requirement are separate. |
 | Docker/Compose | Docker listens on `0.0.0.0` inside the container; Compose publishes loopback. Inspect mounts, non-root, readonly rootfs, resource limits, capabilities/seccomp and direct-uvicorn TLS behavior. No general egress firewall is implied. |
 | Storage | Resolve each consumer, not just `CYCLAW_HOME`: default corpus/index/soul/auth/log paths anchor to the repo. Memory's DB path expands `~` and anchors relative paths to the repo (`memory/store.py`); use explicit absolute temporary paths in fixtures. Docker mounts determine host locations. |
-| Native macOS | Plain Torch via constrained temporary manifests; installer layout, launchd/Keychain wrappers, dotenv modes, BSD stat under shadowed PATH, allexport and failed-source behavior; APFS and `/Volumes` tests on Darwin. Simulation is not native acceptance. |
-| Native Windows | Constrained CPU Torch, installer/shims, Task Scheduler/CredMan, ACL/path checks. A Linux or macOS pass cannot establish these. |
+| Native macOS | Plain Torch via platform hash locks; installer layout, launchd/Keychain wrappers, dotenv modes, BSD stat under shadowed PATH, allexport and failed-source behavior; APFS and `/Volumes` tests on Darwin. Simulation is not native acceptance. |
+| Native Windows | CPU Torch via platform hash locks, installer/shims, Task Scheduler/CredMan, ACL/path checks. A Linux or macOS pass cannot establish these. |
 
-Use the relevant installer/launcher tests under `tests/`, including
-`tests/test_setup_from_clone.py`, `tests/test_setup_cyclaw_keys.py`,
-`tests/test_generate_service_plist.py`, `tests/test_generate_service_task.py`,
-`tests/test_fsconnect_macos_real.py`, and
-`tests/test_fsconnect_pathsafe_windows.py`. Native credential creation,
-service registration and physical model inference are separate user-authorized
-lanes, not side effects of a mock audit.
+Use focused installer, launcher and filesystem tests for unresolved claims. Use matching native hosts for OS behavior. Authorize credential creation, service registration and real inference separately from mocked audits.
 
 ## Completion record
 
-Record each lane's SHA, command, interpreter/dependency profile, host, fidelity,
-status, sanitized evidence path and concrete gap. Include current-head hosted
-CI URLs/states only when verified. Missing native hardware/service is `SKIP`;
-an assertion failure is `FAIL`. Do not total unlike lanes into a blanket
-"full functionality" verdict or reuse historical pass counts.
+Record lane, SHA, command, interpreter/profile, host, fidelity, result, sanitized evidence and gaps. Link verified exact-head CI. Use SKIP for unavailable required services or platforms and FAIL for observed assertion failures. Historical counts belong to their original revision.

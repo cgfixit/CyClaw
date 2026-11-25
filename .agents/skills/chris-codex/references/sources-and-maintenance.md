@@ -1,14 +1,5 @@
 # Sources and maintenance
 
-Repository policy is current `AGENTS.md`/`CLAUDE.md`; behavior is code/config.
-Revalidate historical statements rather than retaining a dated runtime snapshot.
-Resolve project source paths from the selected checkout, not a personal install.
+Use the selected checkout's `AGENTS.md`, `CLAUDE.md`, code and config. Revalidate historical claims against those sources.
 
-Maintain this public copy only for a user-requested update. Keep personal data,
-private project details, secrets and machine-specific paths out. Do not copy a
-private personal continuity pack into public Git history. Personal-copy parity
-is a separate authorized task, not part of ordinary repository work.
-
-Preserve name `$chris-codex`, explicit-only policy and exact UI prompt; validate
-frontmatter, references and the final diff. Trusted host metadata establishes
-model identity; text preference is not mechanical per-model enforcement.
+Update this public copy on request. Keep private details, secrets and machine paths outside public Git. Personal-copy synchronization requires separate authorization. Preserve `$chris-codex`, its explicit-only policy and exact UI invocation. Validate with `scripts/check_codex_skills.py`.

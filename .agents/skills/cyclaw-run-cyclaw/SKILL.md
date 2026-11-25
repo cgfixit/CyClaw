@@ -1,36 +1,21 @@
 ---
 name: cyclaw-run-cyclaw
-description: "Set up, index or start CyClaw when explicitly requested. Use current platform hashed install instructions and an owned loopback lifecycle; focused existing-runtime probes belong to cyclaw-command-run."
+description: "Set up, index or start CyClaw on explicit request. Use the supported platform profile and manage only the requested instance."
 ---
-
 
 # Set Up or Start CyClaw
 
-Read `setup-guide.md`, `locks/README.md`, current config and the active platform
-installer. Inspect an existing environment before installing. Use Python 3.12
-and the selected platform Torch/runtime/test locks with `--require-hashes`;
-plain macOS Torch and Linux/Windows CPU wheels differ. Do not substitute stale
-legacy manifest commands for the documented install or overwrite a venv.
+Read `setup-guide.md`, `locks/README.md`, current config and the platform installer. Inspect the existing environment first. Use Python 3.12 and the documented platform Torch and runtime hash locks. Preserve operator environments and credentials.
 
-Resolve every corpus, soul, index, log and DB path. Preserve operator soul and
-credential stores. For verification use a disposable copy, synthetic data and
-sanitized child environment; `CYCLAW_HOME` alone does not relocate all paths.
-For an authorized real run preserve the operator's configured credentials.
+Resolve every corpus, soul, index, log and database path. For verification use synthetic data and a sanitized environment in a disposable checkout. `CYCLAW_HOME` alone leaves some paths unchanged.
 
-Build only the requested/configured index when needed:
+Build the requested index and launch via the canonical entry points:
 
 ```text
 python -m retrieval.indexer
 python gate.py
 ```
 
-Indexing may need first-run model downloads; inspect cached embedder/reranker
-availability before claiming offline readiness. `cyclaw-index` and
-`cyclaw-server` are installed entry points. Direct `uvicorn gate:app` skips
-`gate.main()` startup/bind checks and is not equivalent to the canonical launcher.
-Never loosen destination trust or expose a listener to make setup pass.
+Installed equivalents are `cyclaw-index` and `cyclaw-server`. Direct Uvicorn bypasses `gate.main()` startup and bind checks. Verify cached embedder/reranker availability before claiming offline readiness. Preserve destination trust and loopback policy.
 
-Check relevant health/query/UI behavior via `$cyclaw-command-run`, then follow
-`CLAUDE.md` section 5 for verification. Do not require optional/cloud services
-or a full local suite for an ordinary start. Record owned PID/port/readiness;
-stop owned verification servers when done unless asked to leave them running.
+Check readiness and relevant query/UI behavior with `$cyclaw-command-run`. Record PID and port. Stop only owned verification services unless asked to leave them running.

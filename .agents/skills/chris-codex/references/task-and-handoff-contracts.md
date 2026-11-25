@@ -1,26 +1,9 @@
 # Task and handoff contracts
 
-A useful engineering handoff includes:
+Record the authorized outcome and exclusions, checkout and branch/PR, base/head and edits to preserve. Include expected behavior, source evidence, unresolved questions, the smallest proposed fix and a check that could disprove it.
 
-- Authorized outcome and task mode, with explicit exclusions where they matter.
-- Actual repository/worktree, branch/PR, inspected base/head, and existing edits
-  the recipient must preserve. Keep machine-specific paths in private task
-  messages, never reusable public skill content.
-- Observed failure/desired behavior, evidence, known contracts, and open questions.
-- Smallest proposed change and acceptance checks, including failure-path evidence
-  needed to falsify the hypothesis.
-- Completion state: edited, tested, committed, pushed, merged, or deployed;
-  include commands, results, required skips, and remaining decisions.
+Distinguish edited, tested, committed, pushed, merged and deployed. Include commands, observed results, required skips and decisions still needed. Keep private paths, credentials, prompts, corpus and audit records out of public handoffs.
 
-Do not paste private prompts, corpus data, raw audit records, credentials, or
-personal details into public PRs/reports. Use synthetic fixtures and summaries.
+For agent handoffs, state authority and acceptance criteria. Delegate only within scope and assign distinct write ownership.
 
-When writing an agent prompt, define authority and acceptance criteria explicitly.
-Do not imply the recipient may publish, contact others, spend money, or bypass
-an approval because the prompt contains a plan. Delegate only when authorized;
-separate write ownership when multiple workers are already in scope.
-
-For multi-PR work, map shared files, consolidate related overlap, or stack actual
-dependencies with the correct PR base. Trial-merge and inspect all intended
-changes survive. Parent-before-child is required; numeric PR order alone is not.
-Existing authorization persists, but new actions outside it still need approval.
+For multiple PRs, map overlap, consolidate related work or stack real dependencies. Trial-merge in dependency order and inspect that every intended change survives.

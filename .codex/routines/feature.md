@@ -1,8 +1,3 @@
 # Implement requested behavior
 
-Confirm the user requested new behavior; preserve the current maintenance posture
-for all other work. Read the affected interface/config and existing patterns.
-Define allowed/refused behavior, defaults, trust boundaries and rollout first.
-Make a bounded implementation; optional features must preserve I6 and operator
-control. Execute success and failure paths, update affected docs/install contracts
-and follow `CLAUDE.md` section 5. Report delivered behavior and unverified lanes.
+Define allowed and refused behavior, trust boundaries, defaults and rollout. Use the existing interface and preserve I1–I6 and operator controls. Exercise success, refusal and adjacent callers. Update affected docs or install guidance and follow [CLAUDE.md](../../CLAUDE.md) section 5.

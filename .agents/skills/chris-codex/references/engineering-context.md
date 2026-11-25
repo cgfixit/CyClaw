@@ -1,19 +1,7 @@
 # Portable engineering context
 
-For another repository, discover its own operating contract, install profile,
-release process, safety boundaries, and tests. Do not transfer CyClaw's model
-names, ports, directory layout, invariant checker, or auth policy to it.
+For another repository, discover its operating contract, install profile, release process and verification gates. CyClaw's ports, models and security contracts are project-specific.
 
-Frame tradeoffs in terms of the requested outcome: reliability, latency, cost,
-maintainability, security, operability, and user value. Prefer the smallest
-change with a demonstrated benefit. A newer dependency or larger abstraction
-is not automatically an improvement.
+Evaluate the requested outcome against measured reliability, latency, cost, maintainability, security and operability. Prefer the smallest change with a demonstrated benefit. Explain implementation details that affect the tradeoff and state how much evidence supports it.
 
-Use measured constraints and current user-provided priorities. Do not infer a
-person's employment, career objectives, finances, private project history, or
-commercial plans from this skill. Substantive strategy/advice can use
-chris-chatgpt when available; it is optional and not an engineering prerequisite.
-
-Explain complex changes in plain language, keeping implementation detail only
-where it helps assess behavior, evidence, or a tradeoff. Be specific about
-uncertainty and disagree when the evidence warrants it.
+Use current user-provided priorities. Keep employment, finances, private project history and commercial plans out of engineering assumptions.
