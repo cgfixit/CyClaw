@@ -148,7 +148,13 @@ def test_tools_call_hybrid_search(retriever):
     result = handle_message(msg, retriever)
 
     assert result is not None
-    chunks = result["result"]["chunks"]
+    tool_result = result["result"]
+    chunks = tool_result["chunks"]
+    payload = {"chunks": chunks, "metadata": tool_result["metadata"]}
+    assert tool_result["structuredContent"] == payload
+    block, = tool_result["content"]
+    assert block["type"] == "text"
+    assert json.loads(block["text"]) == payload
     assert len(chunks) == 2
     expected_keys = {"text", "score", "source", "chunk_id", "source_sha256", "stem_tags", "mode"}
     for chunk in chunks:

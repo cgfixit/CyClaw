@@ -173,7 +173,11 @@ def _handle_search(msg_id, args: dict, retriever: HybridRetriever) -> dict:
                          "total_results": len(results),
                          "score_scale": _score_scale(mode, results)}
         }
-        return {"jsonrpc": "2.0", "id": msg_id, "result": payload}
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {
+            "content": [{"type": "text", "text": json.dumps(payload, separators=(",", ":"))}],
+            "structuredContent": payload,
+            **payload,  # Preserve the top-level fields for existing JSON-RPC callers.
+        }}
     except RAGError as e:
         # Audit parity with the HTTP path (gate.py graph_error). The error body
         # is already sanitised before it leaves the process; the audit field
