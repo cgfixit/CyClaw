@@ -53,7 +53,7 @@ jobs:
       contents: read
 
     outputs:
-      review_json: ${{ steps.run_codex.outputs.final-message }}
+      review_json: ${{ steps.run_codex.outcome == 'success' && steps.run_codex.outputs.final-message || '' }}
 
     steps:
       - name: Checkout trusted base
@@ -104,12 +104,7 @@ jobs:
 
       - name: Run Codex review
         id: run_codex
-        # Advisory review, not a merge gate: a Codex outage (billing "Quota
-        # exceeded", auth, or transient API errors) must not red-X the PR. Same
-        # non-blocking posture as the "Check CyClaw invariants" step above. On
-        # failure final-message is empty, so post_review's `review_json != ''`
-        # guard skips cleanly (no comment is posted); normal reviews resume
-        # automatically once Codex is reachable again.
+        # Keep provider and runner failures advisory. Only publish output from a successful step.
         continue-on-error: true
         uses: openai/codex-action@306c6a196a99dcc6582530c396a19d2672d5e9ec  # v1.14
         with:
@@ -121,6 +116,13 @@ jobs:
             {"type":"object","properties":{"has_findings":{"type":"boolean"},"comment":{"type":"string"}},"required":["has_findings","comment"],"additionalProperties":false}
           sandbox: read-only
           safety-strategy: drop-sudo
+
+      - name: Report unavailable review
+        if: ${{ !cancelled() && (steps.run_codex.outcome != 'success' || steps.run_codex.outputs.final-message == '') }}
+        run: |
+          message='Codex advisory review unavailable. Check the Run Codex review step.'
+          printf '::warning::%s\n' "$message"
+          printf '%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
 
   post_review:
     name: Post PR review
