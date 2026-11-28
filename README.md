@@ -39,9 +39,9 @@ unless an existing hook manager was preserved. [Hook file guide](.githooks/READM
 [Residual security decisions](SECURITY.md#issue-1526-residual-decisions-2026-10-12)
 record accepted limits and research; native Windows verification remains disabled.
 
-Confirmed fallback sends questions externally. Context stays local unless
+Confirmed Grok and Claude fallback sends the question. These providers receive retrieved chunks only when
 `policy.fallback.send_local_context_to_grok` or `send_local_context_to_claude`
-is enabled; soul content is never added. Model downloads and optional
+is enabled. The gateway omits the soul from these provider prompts. A separate MCP client receives matched document text over stdio and controls its subsequent use and retention. Model downloads and optional
 sync/channels have separate connections. For no-egress use, pre-cache models,
 disable optional connections, and enforce an external network boundary.
 
@@ -175,11 +175,13 @@ Day-two:
 ```bash
 python -m metrics                           # spend, audit aggregates, sequences
 python -m retrieval.clear_cache             # dry-run; --apply deletes .emb_cache
-python -m retrieval.indexer                 # rebuild after editing data/corpus/
+python -m retrieval.indexer                 # rebuild a nonempty corpus, then restart standalone readers
 curl -s http://127.0.0.1:8787/index/status   # build progress
 ```
 
 ---
+
+Removing the last document and rebuilding preserves the previous searchable index. To retire a library, follow [Clear a library](retrieval/README.md#clear-a-library).
 
 ## What It Does
 
@@ -216,7 +218,7 @@ does not verify individual claims, which the [evals](docs/EVALS.md) measure.
    key. Calls share the remaining `api.graph_timeout_sec` budget, and
    `utils/endpoint_trust.py` rejects rewritten provider URLs.
 6. **HTTP and MCP.** FastAPI serves the browser at `/`; the separate MCP
-   server exposes sanitized retrieval only (`sampling: None`, no generation).
+   server returns document text after configured prompt-pattern filtering. Connect clients authorized to read the library.
 7. **Audit convergence.** Every path converges at `audit_logger` before END;
    `cyclaw-metrics` reads the audit offline.
 
@@ -311,7 +313,7 @@ flowchart TD
 ```
 
 The MCP server calls the retriever directly after sanitization and never
-enters this gateway or graph. See the [MCP setup and result format](setup-guide.md#mcp-server-optional--claude-desktop--copilot-studio).
+enters this gateway or graph. See the [MCP setup and result format](setup-guide.md#mcp-server-optional--local-stdio-clients).
 The diagram omits the per-answer NeMo `check()`
 and the post-graph CEL monitor ([Optional layers](#optional-layers)).
 

@@ -333,6 +333,26 @@ class TestBuildIndexBm25Atomicity:
         ):
             build_index(config_path)
 
+    def test_second_builder_is_refused_before_vector_cleanup(self, tmp_path):
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        (corpus / "a.md").write_text("synthetic library", encoding="utf-8")
+        config_path = self._write_config(tmp_path, corpus)
+
+        def open_writer(_cfg):
+            with pytest.raises(RuntimeError, match="Another index build"):
+                build_index(config_path)
+            return MagicMock()
+
+        with (
+            patch("retrieval.indexer.get_vector_writer", side_effect=open_writer) as writer,
+            patch("retrieval.indexer.get_embeddings_batch", return_value=[[0.1]]),
+        ):
+            build_index(config_path)
+            writer.assert_called_once()
+        self._build(config_path)
+        assert json.loads((tmp_path / "bm25.json").read_text())["chunks"] == ["synthetic library"]
+
     def test_successful_build_leaves_no_tmp_sibling(self, tmp_path):
         corpus = tmp_path / "corpus"
         corpus.mkdir()
@@ -343,7 +363,7 @@ class TestBuildIndexBm25Atomicity:
 
         bm25_path = tmp_path / "bm25.json"
         assert bm25_path.exists()
-        assert not bm25_path.with_suffix(".json.tmp").exists()
+        assert not list(tmp_path.glob("*.tmp"))
 
     @pytest.mark.parametrize("empty_content", ["", " \n\t "])
     def test_zero_chunks_preserves_previous_index(self, tmp_path, empty_content):
@@ -363,7 +383,7 @@ class TestBuildIndexBm25Atomicity:
 
         get_writer.assert_not_called()
         assert bm25_path.read_bytes() == previous_content
-        assert not bm25_path.with_suffix(".json.tmp").exists()
+        assert not list(tmp_path.glob("*.tmp"))
 
     def test_failure_mid_write_leaves_previous_bm25_json_intact(self, tmp_path):
         corpus = tmp_path / "corpus"
