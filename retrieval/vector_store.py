@@ -346,8 +346,8 @@ class _PgVectorWriter(_PgVectorBase):
     def reset(self, fingerprint: dict[str, str] | None = None) -> None:
         # pgvector has no analogous per-collection metadata slot to stamp a
         # fingerprint into, so it is accepted (matching _ChromaWriter's signature)
-        # and deliberately ignored -- fingerprint mismatch detection is scoped to
-        # the ChromaDB backend only. HybridRetriever only calls .fingerprint() when
+        # and deliberately ignored -- the indexer stamps the pgvector generation’s
+        # paired BM25 manifest instead. HybridRetriever only calls .fingerprint() when
         # the reader exposes it (getattr), and _PgVectorReader deliberately does not.
         conn = self._connection()
         self._discard_stale(conn, _live_names(self._cfg, _PG_TABLE))
