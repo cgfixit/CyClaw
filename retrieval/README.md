@@ -61,6 +61,8 @@ keyword signal.
   (default `2048` in `embeddings.py`), so it is overridable only via the
   `CYCLAW_EMBED_CACHE_SIZE` env var, not `config.yaml`.
 
+For pgvector, the BM25 manifest records the embedding model, dimension and device alongside the generation name. Rebuild after changing any of them. Older pgvector indexes require one rebuild to record their fingerprint.
+
 ## Answer grounding
 
 After retrieval and generation, the default-enabled guardrails compare a

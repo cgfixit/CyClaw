@@ -444,7 +444,7 @@ class TestConfigPathAnchoring:
 class TestEmbeddingFingerprintCheck:
     """HybridRetriever.__init__'s embedding-fingerprint guard.
 
-    Stays silent when the reader has no .fingerprint() at all -- e.g. pgvector,
+    The Chroma check stays silent when the reader has no .fingerprint() method,
     or any of the SimpleNamespace mocks the rest of this file and
     TestConfigPathAnchoring above already rely on. A MISMATCHED fingerprint is
     always fatal (raises IndexNotFoundError), on any platform -- it is proof
@@ -481,6 +481,23 @@ class TestEmbeddingFingerprintCheck:
             cfg["models"] = models_cfg
         (repo / "config.yaml").write_text(json.dumps(cfg), encoding="utf-8")
         return repo / "config.yaml"
+
+    @pytest.mark.parametrize("stamp", [None, {"model": "old-model", "dim": "8", "device": "cpu"}])
+    def test_pgvector_manifest_requires_matching_stamp_before_open(self, tmp_path, stamp):
+        config_path = self._build_repo(tmp_path, {"embeddings": {"model": "new-model", "dim": 8}})
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        cfg["indexing"]["vector_backend"] = "pgvector"
+        config_path.write_text(json.dumps(cfg), encoding="utf-8")
+        manifest_path = config_path.parent / "index/bm25.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if stamp is not None:
+            manifest["embedding_fingerprint"] = stamp
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with patch("retrieval.hybrid_search.get_vector_reader") as reader:
+            with pytest.raises(IndexNotFoundError, match="Rebuild"):
+                HybridRetriever(str(config_path))
+            reader.assert_not_called()
 
     def test_no_fingerprint_method_is_a_silent_noop(self, tmp_path):
         # No `models:` section either -- the pre-existing config fixtures in

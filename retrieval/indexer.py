@@ -387,6 +387,8 @@ def _build_locked(cfg: dict, config_path_str: str) -> None:
         "chunks": all_chunks,
         "metadata": all_metadata,
     }
+    if backend == "pgvector":
+        bm25_payload["embedding_fingerprint"] = fingerprint
     if isinstance(generation, str):
         bm25_payload["vector_collection"] = generation
     bm25_tmp = None
