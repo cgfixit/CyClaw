@@ -370,6 +370,8 @@ def build_index(config_path: str = "config.yaml") -> None:
         "chunks": all_chunks,
         "metadata": all_metadata,
     }
+    if backend == "pgvector":
+        bm25_payload["embedding_fingerprint"] = fingerprint
     if isinstance(generation, str):
         bm25_payload["vector_collection"] = generation
     try:

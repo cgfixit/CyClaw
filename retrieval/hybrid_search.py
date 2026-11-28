@@ -25,7 +25,7 @@ from .indexer import _anchor_index_paths, _resolve_config_path
 from .rerank import rerank_scores
 from .results import SearchResult
 from .stemmer import tokenize_and_stem
-from .vector_store import get_vector_reader, parse_stem_tags
+from .vector_store import get_vector_reader, parse_stem_tags, vector_backend
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,13 @@ class HybridRetriever:
         # Open the vector generation this bm25.json was built with (see
         # retrieval/vector_store.py), so both legs come from one build even
         # while a later build is writing, or has written, another generation.
+        if vector_backend(self.cfg) == "pgvector":
+            expected = embedding_fingerprint(self.cfg.get("models", {}).get("embeddings", {}))
+            if bm25_data.get("embedding_fingerprint") != expected:
+                raise IndexNotFoundError(
+                    "pgvector index has a missing or mismatched embedding fingerprint. "
+                    "Rebuild with python -m retrieval.indexer."
+                )
         vector_name = bm25_data.get("vector_collection")
         self._vector_reader = get_vector_reader(
             self.cfg, vector_name if isinstance(vector_name, str) else None
