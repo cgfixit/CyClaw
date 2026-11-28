@@ -205,6 +205,8 @@ def handle_message(msg: dict, retriever: HybridRetriever) -> dict | None:
             "capabilities": CAPABILITIES,
             "serverInfo": {"name": "cyclaw-hybrid-rag", "version": "1.0.0"}
         }}
+    elif method == "ping":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
     elif method == "tools/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": TOOLS}}
     elif method == "tools/call":

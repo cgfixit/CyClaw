@@ -1021,6 +1021,12 @@ sampling capability. Successful calls return `chunks` and `metadata` in
 `result.content` for clients that read text. Existing JSON-RPC clients can
 still read `result.chunks` and `result.metadata` directly.
 
+The stdio server answers `ping` with an empty result and the request ID.
+For `hybrid_search`, clients should send an integer `top_k` from 1 to 50,
+with a default of 5. The server also converts integer strings and truncates
+fractional numbers. It caps converted values above 50 and uses 5 when
+conversion fails or produces a value below 1.
+
 ---
 
 ## Beyond the core RAG gateway
