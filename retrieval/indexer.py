@@ -9,8 +9,11 @@ import hashlib
 import json
 import logging
 import os
+import sqlite3
 import stat
+import tempfile
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 from utils.telemetry_kill import apply_telemetry_kill
@@ -248,6 +251,22 @@ def build_index(config_path: str = "config.yaml") -> None:
     resolved_config_path = _resolve_config_path(config_path)
     config_path_str = str(resolved_config_path)
     cfg = _anchor_index_paths(load_config(config_path_str), resolved_config_path)
+    target = Path(cfg["indexing"]["bm25_path"])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # SQLite owns the OS lock, including crash recovery, on both POSIX and Windows.
+    # Keep the lock database in place so every process locks the same file.
+    with closing(sqlite3.connect(str(target) + ".lock", timeout=0)) as lock:
+        try:
+            lock.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_BUSY:
+                raise RuntimeError("Another index build is in progress") from exc
+            raise
+        _build_locked(cfg, config_path_str)
+
+
+def _build_locked(cfg: dict, config_path_str: str) -> None:
+    """Build and publish one generation while holding the index lock."""
     corpus_path = cfg["corpus"]["path"]
     extensions = cfg["corpus"]["extensions"]
     bm25_path = cfg["indexing"]["bm25_path"]
@@ -356,7 +375,6 @@ def build_index(config_path: str = "config.yaml") -> None:
     logger.info("Building BM25 (keyword) index...")
     # tokenized_corpus was built alongside all_chunks above (single tokenization pass).
     bm25_target = Path(bm25_path)
-    bm25_target.parent.mkdir(parents=True, exist_ok=True)
     # Write to a sibling temp file and rename over the target rather than
     # truncating it in place: build_index runs on a background thread inside
     # the live server (POST /index/build), so any failure mid-write (disk
@@ -364,16 +382,20 @@ def build_index(config_path: str = "config.yaml") -> None:
     # bm25.json intact rather than a half-written file that fails to parse
     # on the next boot. os.replace is atomic on POSIX and on Windows for a
     # same-directory rename, mirroring utils/personality.py's soul write.
-    bm25_tmp = bm25_target.with_suffix(bm25_target.suffix + ".tmp")
     bm25_payload: dict[str, object] = {
         "tokenized_corpus": tokenized_corpus,
         "chunks": all_chunks,
         "metadata": all_metadata,
     }
+    if backend == "pgvector":
+        bm25_payload["embedding_fingerprint"] = fingerprint
     if isinstance(generation, str):
         bm25_payload["vector_collection"] = generation
+    bm25_tmp = None
     try:
-        with open(bm25_tmp, "w", encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=bm25_target.parent,
+                                         prefix=f".{bm25_target.name}.", suffix=".tmp", delete=False) as f:
+            bm25_tmp = Path(f.name)
             json.dump(bm25_payload, f)
             # Push the bytes to disk before the rename (as utils/personality.py
             # does for soul.md): without it a power loss can commit the rename
@@ -382,11 +404,9 @@ def build_index(config_path: str = "config.yaml") -> None:
             f.flush()
             os.fsync(f.fileno())
         os.replace(bm25_tmp, bm25_target)
-    except BaseException:
-        # Fixed temp name: a disk-full error mid-write would otherwise leave
-        # a stray bm25.json.tmp beside the live index.
-        bm25_tmp.unlink(missing_ok=True)
-        raise
+    finally:
+        if bm25_tmp is not None:
+            bm25_tmp.unlink(missing_ok=True)
 
     logger.info("Done. Semantic backend: %s, BM25: %s", backend, bm25_path)
 

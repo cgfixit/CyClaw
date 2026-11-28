@@ -381,8 +381,8 @@ python gate.py
 The retrieval-only MCP server (`python mcp_hybrid_server.py`) is the one other
 process you can start, and it is **not** a second web app: it speaks MCP over
 stdio, binds no port, and exposes search with no model path at all. Run it only
-if you are wiring Claude Desktop or Copilot Studio — see
-[MCP Server](#mcp-server-optional--claude-desktop--copilot-studio).
+if you are wiring a local stdio client such as Claude Desktop — see
+[MCP Server](#mcp-server-optional--local-stdio-clients).
 
 **The `cyclaw-*` short names need a self-install.** `cyclaw-server`,
 `cyclaw-index`, `cyclaw-mcp`, `cyclaw-metrics`, `cyclaw-clear-cache`,
@@ -1000,18 +1000,20 @@ recovery path, not the normal first-run state.
 
 ---
 
-## MCP Server (Optional — Claude Desktop / Copilot Studio)
+## MCP Server (Optional — local stdio clients)
 
 ```json
 {
   "mcpServers": {
     "cyclaw": {
-      "command": "python",
+      "command": "/full/path/to/CyClaw/.venv/bin/python",
       "args": ["/full/path/to/CyClaw/mcp_hybrid_server.py"]
     }
   }
 }
 ```
+
+Use the absolute interpreter path from your CyClaw installation (on Windows, the virtual environment’s `Scripts/python.exe`). The client receives matched text, source labels and the query. Its own model and retention settings govern subsequent use.
 
 The MCP server exposes the retrieval-only `hybrid_search` tool. It has no LLM
 sampling capability. Successful calls return `chunks` and `metadata` in
