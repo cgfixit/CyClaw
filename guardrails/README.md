@@ -7,8 +7,8 @@ Ships enabled through `guardrails.enabled: true` in `config.yaml`. The NeMo
 engine is installed with the base dependencies. Explicit boolean `false`, or an absent block,
 leaves both graph nodes as pass-through and prevents the bridge from importing
 this package. Any non-boolean value (`"true"`, `"false"`, `1`) stops boot
-with a `ConfigError`, and an unknown rail name in `input_rails`,
-`output_rails` or `topical_rails` is refused when the layer loads.
+with a `ConfigError`, and an unknown rail name in `input_rails` or
+`output_rails` is refused when the layer loads.
 
 ## How the graph reaches this package (I6)
 
@@ -95,7 +95,6 @@ Canonical table: [`docs/NeMo/README.md`](../docs/NeMo/README.md).
 | ToolBroker name-gate | Removed 2026-10-10 after its only caller, the harness console, was removed. History retains the implementation. |
 | Generate-call inventory | **Shipped** — fail-closed AST (`python -m guardrails.call_inventory`). |
 | `check_jailbreak` input rail | No distinct classifier: the live Colang flow repeats `check_injection` markers; offline checks use injection/soul-mutation detection. Reworded persona prompts may pass. No `self_check_input` model call is active. |
-| Topical rails (`stay_in_local_knowledge`, `no_unauthed_external_advice`) | **Not enforced offline** — configured but not referenced in `integration.py`. |
 
 The enabled deterministic floor retains injection, soul-mutation, grounding,
 and soul-leak checks in their route scopes. Model-assisted `self_check_*`

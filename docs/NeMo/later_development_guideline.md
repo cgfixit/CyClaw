@@ -233,8 +233,8 @@ constraint, and add `guardrails` to the coverage `source` list.
 - Add a new rail by: (1) writing the check + test in `guardrails/rails.py`,
   (2) registering it in `register_actions()`, (3) adding the flow to `rails.co`,
   (4) listing it under the matching `rails.*.flows` in `config.yml`, and
-  (5) mirroring it in the `guardrails.input_rails` / `output_rails` / `topical_rails`
-  config lists.
+  (5) mirroring it in the corresponding `guardrails.input_rails` or `guardrails.output_rails`
+  config list.
 - **Latency:** every model-assisted rail is an extra LLM round-trip. Prefer the
   offline heuristic where it suffices; reserve `self_check_*` for paraphrase-robust
   cases.

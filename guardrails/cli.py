@@ -80,7 +80,6 @@ def cmd_status(args: argparse.Namespace) -> int:
     _kv("hallucination_threshold", cfg.hallucination_threshold)
     _kv("input_rails", ", ".join(cfg.input_rails))
     _kv("output_rails", ", ".join(cfg.output_rails))
-    _kv("topical_rails", ", ".join(cfg.topical_rails))
     if NEMO_AVAILABLE:
         _ok("nemoguardrails installed (live rails available)")
     else:

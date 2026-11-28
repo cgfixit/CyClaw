@@ -749,9 +749,6 @@ guardrails:
     - check_soul_leak           # detect_soul_leak covers every answer route, through live
                                 # NeMo or the broker's deterministic fallback. The graph's
                                 # guardrail_output node remains local_llm-only.
-  topical_rails:                 # display-only (CLI status); nothing enforces them
-    - stay_in_local_knowledge
-    - no_unauthed_external_advice
   soul_topics:                   # substring keywords counted as soul-topic turns in metrics; never block
     - soul
     - personality

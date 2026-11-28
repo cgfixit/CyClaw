@@ -10,10 +10,7 @@
 # config.yaml also supplies hallucination_threshold, captured per engine at
 # action registration. Its input_rails / output_rails lists select the offline
 # graph rails and broker fallback checks (and what CLI status shows).
-# Its topical_rails list is display-only: no offline rail implements it, and rails.co's two topical
-# flows are not in the active set below. The live Colang flows below are the
-# engine's active set, whatever those lists say. Every
-# active flow executes a Python action from guardrails/rails.py; none of them
+# Every active flow executes a Python action from guardrails/rails.py; none of them
 # calls an LLM.
 # guardrails.hallucination_threshold IS applied to live rails via the
 # is_ungrounded action (register_actions at engine build) — same floor as
@@ -89,7 +86,6 @@ rails:
     streaming:
       enabled: False
       stream_first: False
-  # Dialog/topical flows that keep answers inside the local-knowledge boundary.
   dialog:
     single_call:
       enabled: False              # explicit multi-step rails -> visible, auditable

@@ -25,8 +25,7 @@ logger = logging.getLogger("cyclaw.guardrails.broker")
 _KNOWN_FLOWS = frozenset({
     "check soul mutation", "check injection", "check cyclaw jailbreak",
     "handle identity question", "block prompt extraction", "check grounding",
-    "check soul leak", "check cyclaw facts", "stay in local knowledge",
-    "no unauthed external advice",
+    "check soul leak", "check cyclaw facts",
 })
 
 
