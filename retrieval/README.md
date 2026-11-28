@@ -54,7 +54,8 @@ keyword signal.
   `vector_collection` in the atomically replaced BM25 file. Each retriever
   therefore pairs keyword data with its own vector generation. A gateway
   rebuild keeps the old retriever serving until the new one is ready;
-  standalone indexing requires a server restart to load the new index.
+  the gateway, CLI and sync indexer share one build lock beside the BM25 file.
+  An overlapping writer receives a busy error. Standalone indexing requires a server restart to load the new index.
 - All values live in `config.yaml`, with one deliberate exception: the
   query-embedding LRU cache size is fixed at import time by `functools.lru_cache`
   (default `2048` in `embeddings.py`), so it is overridable only via the
