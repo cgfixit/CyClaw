@@ -770,6 +770,7 @@ def test_main_stdio_loop_contract(monkeypatch, capsys, retriever):
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
         json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
         "{not json",  # must answer -32700, then keep the loop alive
+        json.dumps({"jsonrpc": "2.0", "id": "liveness", "method": "ping"}),
         json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
     ]
     monkeypatch.setattr(mcp_hybrid_server, "HybridRetriever", MagicMock(return_value=retriever))
@@ -778,10 +779,11 @@ def test_main_stdio_loop_contract(monkeypatch, capsys, retriever):
     mcp_hybrid_server.main()
 
     out_lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
-    assert len(out_lines) == 3, f"expected 3 reply lines, got: {out_lines}"
+    assert len(out_lines) == 4, f"expected 4 reply lines, got: {out_lines}"
     assert out_lines[0]["id"] == 1 and "result" in out_lines[0]
     assert out_lines[1]["error"]["code"] == -32700
-    assert out_lines[2]["id"] == 2 and "result" in out_lines[2]
+    assert out_lines[2] == {"jsonrpc": "2.0", "id": "liveness", "result": {}}
+    assert out_lines[3]["id"] == 2 and "result" in out_lines[3]
     retriever.close.assert_called_once()
 
 
