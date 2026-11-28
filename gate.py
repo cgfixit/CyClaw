@@ -1363,9 +1363,12 @@ def _ops_sync_timeout_sec() -> int:
 @app.get("/health", response_model=HealthResponse)
 async def health():
     statuses = await asyncio.to_thread(check_all, cfg=cfg)
+    services = {s.name: {"healthy": s.healthy, "latency_ms": s.latency_ms, "error": s.error} for s in statuses}
+    if "embeddings_local" in services:
+        services["embeddings_local"]["probe"] = "not_run"
     return HealthResponse(
         status="ok" if all(s.healthy for s in statuses) else "degraded",
-        services={s.name: {"healthy": s.healthy, "latency_ms": s.latency_ms, "error": s.error} for s in statuses},
+        services=services,
         index_ready=retriever is not None,
         graph_ready=compiled_graph is not None,
         mode=cfg["app"]["mode"],

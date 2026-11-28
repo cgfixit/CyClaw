@@ -37,7 +37,7 @@ Install the [Git hooks](docs/GITHOOKS.md) with `bash scripts/ensure-githooks.sh`
 verify `git config --show-origin --get core.hooksPath` selects `.githooks`
 unless an existing hook manager was preserved. [Hook file guide](.githooks/README.md).
 [Residual security decisions](SECURITY.md#issue-1526-residual-decisions-2026-10-12)
-record accepted limits and research; native Windows verification remains disabled.
+record accepted limits and research; the manual native E2E workflow covers hosted Windows Server. Windows 10 installer and gateway acceptance is tracked in [#1746](https://github.com/cgfixit/CyClaw/issues/1746).
 
 Confirmed fallback sends questions externally. Context stays local unless
 `policy.fallback.send_local_context_to_grok` or `send_local_context_to_claude`
@@ -140,6 +140,7 @@ became [CG-agent-harness](https://github.com/cgfixit/CG-agent-harness).
 - `503 INDEX_NOT_FOUND`: run `python -m retrieval.indexer` or **Build my
   library** (`POST /index/build`, `GET /index/status`). Build requires
   loopback, same-origin, no forwarding headers; configured keys require unlock.
+- The legacy `embeddings_local` health row is static (`probe: "not_run"`). `index_ready` and `graph_ready` report initialization. A successful retrieval exercises embedding inference.
 - Console mode and Library/Engine chips expose readiness. `/health: degraded`
   usually means Ollama is down; startup `TELEMETRY KILL` is expected.
 - External health probes ship off (`api.health_probe_external_providers`).
