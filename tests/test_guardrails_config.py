@@ -173,7 +173,7 @@ def test_shipped_config_yaml_guardrails_enabled_is_literal_true():
     assert type(enabled) is bool
 
 
-@pytest.mark.parametrize("field_name", ["input_rails", "output_rails", "topical_rails", "soul_topics"])
+@pytest.mark.parametrize("field_name", ["input_rails", "output_rails", "soul_topics"])
 def test_bare_string_rail_list_raises(tmp_path, field_name):
     # A bare string instead of a one-item list (e.g. `input_rails: check_injection`)
     # must fail fast at config load, not silently iterate as individual characters.
@@ -205,7 +205,6 @@ def test_non_bool_enabled_raises(tmp_path, bad):
         ("input_rails", "check_injecton"),  # a typo
         ("input_rails", "check_grounding"),  # an output rail in the input list
         ("output_rails", "check_soul_leek"),
-        ("topical_rails", "stay_local"),
     ],
 )
 def test_unknown_rail_name_raises(tmp_path, field_name, name):
@@ -222,7 +221,6 @@ def test_shipped_rail_lists_are_all_known():
     GuardrailsConfig(
         input_rails=shipped["input_rails"],
         output_rails=shipped["output_rails"],
-        topical_rails=shipped["topical_rails"],
     )
 
 

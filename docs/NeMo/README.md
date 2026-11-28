@@ -73,9 +73,7 @@ The deterministic floor implements `check_injection`, `check_soul_mutation`,
 
 The configured `check_jailbreak` name is not a separate offline classifier.
 The live Colang `check cyclaw jailbreak` flow repeats CyClaw's injection
-marker action. A differently worded persona prompt can pass. The topical
-rails `stay_in_local_knowledge` and `no_unauthed_external_advice` are not
-enforced offline and are absent from the active NeMo flow list.
+marker action. A differently worded persona prompt can pass. Older configurations may contain a display-only topical_rails list. CyClaw ignores this retired key.
 
 ### Model-assisted rails declined
 

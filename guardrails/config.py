@@ -59,12 +59,9 @@ def _anchor_to_repo_root(raw: str) -> str:
 
 # input_rails/output_rails gate guardrails/integration.py's offline floor (see
 # _offline_checks/check_output below): a rail name absent from the configured
-# list is skipped. topical_rails has no offline implementation -- it is
-# reserved for a future live-NeMo topical-rail flow and is not consulted by
-# the offline floor; it is currently display-only (guardrails/cli.py status).
+# list is skipped.
 DEFAULT_INPUT_RAILS = ("check_injection", "check_jailbreak", "check_soul_mutation")
 DEFAULT_OUTPUT_RAILS = ("check_grounding", "check_soul_leak")
-DEFAULT_TOPICAL_RAILS = ("stay_in_local_knowledge", "no_unauthed_external_advice")
 # Every rail name each list may hold. A name outside its list's set (a typo, or
 # an output rail listed under input_rails) matched nothing, so that rail was
 # silently off. guardrails/profiles.py keeps the same input/output names;
@@ -72,7 +69,6 @@ DEFAULT_TOPICAL_RAILS = ("stay_in_local_knowledge", "no_unauthed_external_advice
 _KNOWN_RAIL_NAMES: dict[str, frozenset[str]] = {
     "input_rails": frozenset(DEFAULT_INPUT_RAILS),
     "output_rails": frozenset(DEFAULT_OUTPUT_RAILS),
-    "topical_rails": frozenset(DEFAULT_TOPICAL_RAILS),
 }
 # Keywords that flag a query (or answer) as touching the soul / personality /
 # identity layer -- the topic class these advanced rails are tailored to.
@@ -120,7 +116,6 @@ class GuardrailsConfig:
     reasoning_effort: str | None = None
     input_rails: list[str] = field(default_factory=lambda: list(DEFAULT_INPUT_RAILS))
     output_rails: list[str] = field(default_factory=lambda: list(DEFAULT_OUTPUT_RAILS))
-    topical_rails: list[str] = field(default_factory=lambda: list(DEFAULT_TOPICAL_RAILS))
     soul_topics: list[str] = field(default_factory=lambda: list(DEFAULT_SOUL_TOPICS))
 
     # --- Validation -------------------------------------------------------
@@ -150,7 +145,7 @@ class GuardrailsConfig:
         # have callers that iterate the field (cli.py's status display,
         # _offline_checks/check_output below) treat it as a sequence of
         # individual characters instead of failing fast at config load.
-        for field_name in ("input_rails", "output_rails", "topical_rails", "soul_topics"):
+        for field_name in ("input_rails", "output_rails", "soul_topics"):
             value = getattr(self, field_name)
             if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
                 raise GuardrailsConfigError(
@@ -298,7 +293,7 @@ def load_guardrails_config(config_path: str = "config.yaml") -> GuardrailsConfig
         )
 
     known_fields = set(GuardrailsConfig.__dataclass_fields__)
-    unknown = set(block.keys()) - known_fields
+    unknown = set(block) - known_fields - {"topical_rails"}  # Ignore the retired display-only list.
     kwargs = {k: v for k, v in block.items() if k in known_fields}
     # Single source of truth: models.local_llm owns this value, so a stray
     # guardrails.reasoning_effort is overwritten rather than allowed to diverge.

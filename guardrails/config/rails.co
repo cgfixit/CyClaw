@@ -57,11 +57,6 @@ define bot refuse out of knowledge
   "I can only answer from the local knowledge base, and it doesn't contain enough
    to answer that reliably. Want to refine the query?"
 
-define bot refuse unauthed external advice
-  "That's medical/legal/financial/safety-critical territory. I can only relay what
-   the local corpus explicitly contains, with the limitation that it isn't
-   professional advice."
-
 # -----------------------------------------------------------------------------
 # INPUT RAILS
 # -----------------------------------------------------------------------------
@@ -132,23 +127,3 @@ define flow check cyclaw facts
   if $ungrounded
     bot refuse out of knowledge
     stop
-
-# -----------------------------------------------------------------------------
-# TOPICAL RAILS
-# -----------------------------------------------------------------------------
-
-# Keep answers inside the local-knowledge boundary.
-define flow stay in local knowledge
-  user ask about identity
-  bot describe identity safely
-
-# No unauthorized external advice unless the corpus explicitly supports it.
-define flow no unauthed external advice
-  user ask for professional advice
-  bot refuse unauthed external advice
-
-define user ask for professional advice
-  "is this safe to take"
-  "what should I do legally"
-  "how should I invest"
-  "diagnose my symptoms"
