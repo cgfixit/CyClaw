@@ -175,11 +175,13 @@ Day-two:
 ```bash
 python -m metrics                           # spend, audit aggregates, sequences
 python -m retrieval.clear_cache             # dry-run; --apply deletes .emb_cache
-python -m retrieval.indexer                 # rebuild after editing data/corpus/
+python -m retrieval.indexer                 # rebuild a nonempty corpus, then restart standalone readers
 curl -s http://127.0.0.1:8787/index/status   # build progress
 ```
 
 ---
+
+Removing the last document and rebuilding preserves the previous searchable index. To retire a library, follow [Clear a library](retrieval/README.md#clear-a-library).
 
 ## What It Does
 
