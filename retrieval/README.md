@@ -78,3 +78,14 @@ remains retrieval-only. See the [NeMo reference](../docs/NeMo/README.md).
   `sampling: None`). Live search stays on `POST /query` or a Claude Desktop
   MCP client.
 - Index health tooling: `.claude/skills/index-doctor/`
+
+## Clear a library
+
+An empty corpus or a corpus that yields no chunks stops a rebuild before publication. The last usable index still contains the previous documents. To intentionally remove a library from search:
+
+1. Stop the gateway and all MCP processes serving this library. Stop scheduled sync, index builds and other writers for this library.
+2. Resolve the configured `indexing.bm25_path` and vector storage paths relative to the configuration file. Confirm ownership before deleting any data. Delete this library’s BM25 file.
+3. For Chroma, remove the configured `indexing.chroma_path` directory only when the entire directory belongs to this library. For a shared store, use Chroma’s collection administration to delete only this library’s verified collections, including retired generations. For pgvector, inspect the configured database and schema and remove only tables verified to belong to this library, including retired generations. A shared name prefix alone does not establish ownership.
+4. Remove any unwanted source documents before re-enabling writers. Restart the gateway. With no BM25 file, the gateway reports `index_ready: false` and queries return `503 INDEX_NOT_FOUND`; the MCP process requires a built index to start. After a replacement library is indexed, start fresh readers and check that a distinctive phrase from the old library yields no old source.
+
+This procedure clears search data. Embedding caches, backups and exported copies have separate lifecycles.
